@@ -1945,6 +1945,8 @@
       "subTitleOptional": "optional",
       "subTitlePlaceholder": "e.g. Bank",
       "subTitleHelp": "Shown before the sub-tag in the chat, as in Bank: ADCB.",
+      "aiHintLabel": "AI hint",
+      "aiHintHelp": "Helps Jev decide when this tag applies — e.g. 'The customer wants to apply or asks what documents to send.'",
       "subDesc": "Under “{parent}”.",
       "moveEarlier": "Move earlier",
       "moveLater": "Move later",

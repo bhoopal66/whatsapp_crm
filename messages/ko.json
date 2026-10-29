@@ -1945,6 +1945,8 @@
       "subTitleOptional": "선택 사항",
       "subTitlePlaceholder": "예: 은행",
       "subTitleHelp": "채팅에서 하위 태그 앞에 표시됩니다. 예: 은행: ADCB.",
+      "aiHintLabel": "AI 힌트",
+      "aiHintHelp": "Jev가 이 태그를 언제 적용할지 판단하도록 돕습니다. 예: '고객이 신청하려 하거나 어떤 서류를 보내야 하는지 묻는 경우.'",
       "subDesc": "“{parent}”의 하위 태그입니다.",
       "moveEarlier": "앞으로 이동",
       "moveLater": "뒤로 이동",

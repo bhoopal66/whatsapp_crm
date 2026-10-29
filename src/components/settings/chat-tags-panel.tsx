@@ -161,7 +161,9 @@ export function ChatTagsPanel() {
 
   async function update(
     id: string,
-    patch: Partial<Pick<ChatTag, 'name' | 'color' | 'sub_tag_title'>>
+    patch: Partial<
+      Pick<ChatTag, 'name' | 'color' | 'sub_tag_title' | 'ai_hint'>
+    >
   ) {
     const outcome = await write(
       'save',
@@ -177,7 +179,7 @@ export function ChatTagsPanel() {
 
   async function addSub(
     parent: ChatTagNode,
-    values: { name: string; color: string }
+    values: { name: string; color: string; ai_hint: string | null }
   ) {
     if (!accountId) return null;
     const outcome = await write(
@@ -190,6 +192,7 @@ export function ChatTagsPanel() {
               parent_id: parent.id,
               name: values.name,
               color: values.color,
+              ai_hint: values.ai_hint,
               position: nextChatTagPosition(parent.subs),
             })
             .select('id')
@@ -279,9 +282,11 @@ export function ChatTagsPanel() {
                             <div className="text-foreground truncate text-sm font-medium">
                               {main.name}
                             </div>
-                            {summary.length > 0 ? (
+                            {summary.length > 0 || main.ai_hint ? (
                               <div className="text-muted-foreground truncate text-xs">
-                                {summary.join(' · ')}
+                                {[...summary, main.ai_hint]
+                                  .filter(Boolean)
+                                  .join(' · ')}
                               </div>
                             ) : null}
                           </div>
@@ -337,7 +342,11 @@ export function ChatTagsPanel() {
                             <button
                               key={sub.id}
                               type="button"
-                              title={t('edit', { name: sub.name })}
+                              title={
+                                sub.ai_hint
+                                  ? `${t('edit', { name: sub.name })} — ${sub.ai_hint}`
+                                  : t('edit', { name: sub.name })
+                              }
                               disabled={busy}
                               onClick={() =>
                                 setDialog({

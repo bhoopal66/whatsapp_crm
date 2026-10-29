@@ -115,6 +115,15 @@ describe('ChatTagsPanel', () => {
   });
 });
 
+describe('ChatTagsPanel AI hint', () => {
+  it('shows a set hint, muted, in the main tag row', () => {
+    const html = render([
+      tag('int', 'Interested', 0, { ai_hint: 'Wants to apply' }),
+    ]);
+    expect(html).toContain('Wants to apply');
+  });
+});
+
 describe('chatTagWriteOutcome', () => {
   it('maps the duplicate-name violation', () => {
     expect(chatTagWriteOutcome({ error: { code: '23505' }, data: null })).toBe(

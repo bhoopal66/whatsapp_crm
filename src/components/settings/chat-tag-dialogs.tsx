@@ -7,9 +7,11 @@ import { ArrowLeft, ArrowRight, Loader2, Trash2 } from 'lucide-react';
 import type { ChatTag } from '@/types';
 import type { ChatTagNode } from '@/lib/chat-tags/tree';
 import {
+  CHAT_TAG_AI_HINT_MAX,
   CHAT_TAG_COLORS,
   CHAT_TAG_NAME_MAX,
   CHAT_TAG_SUB_TITLE_MAX,
+  normalizeChatTagHint,
   normalizeChatTagName,
   normalizeSubTagTitle,
   validateChatTagName,
@@ -17,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -151,6 +154,7 @@ export function MainTagDialog({
     name: string;
     color: string;
     sub_tag_title: string | null;
+    ai_hint: string | null;
   }) => Promise<ChatTagWriteOutcome | null>;
   onDelete: () => void;
   onClose: () => void;
@@ -161,6 +165,7 @@ export function MainTagDialog({
   const [name, setName] = useState(tag.name);
   const [color, setColor] = useState(tag.color);
   const [title, setTitle] = useState(tag.sub_tag_title ?? '');
+  const [hint, setHint] = useState(tag.ai_hint ?? '');
   const [problem, setProblem] = useState<ChatTagNameProblem>(null);
 
   async function submit(e: FormEvent) {
@@ -173,6 +178,7 @@ export function MainTagDialog({
       name: normalizeChatTagName(name),
       color,
       sub_tag_title: normalizeSubTagTitle(title),
+      ai_hint: normalizeChatTagHint(hint),
     });
     if (outcome === 'duplicate') setProblem('duplicate');
   }
@@ -238,6 +244,33 @@ export function MainTagDialog({
             </p>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor={`${ids}-hint`}>
+              {t('aiHintLabel')}
+              <span className="text-muted-foreground font-normal">
+                ({t('subTitleOptional')})
+              </span>
+            </Label>
+            <Textarea
+              id={`${ids}-hint`}
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              maxLength={CHAT_TAG_AI_HINT_MAX}
+              rows={3}
+              disabled={busy}
+              aria-describedby={`${ids}-hint-help`}
+            />
+            <p
+              id={`${ids}-hint-help`}
+              className="text-muted-foreground flex justify-between gap-2 text-xs"
+            >
+              <span>{t('aiHintHelp')}</span>
+              <span className="shrink-0 tabular-nums">
+                {hint.length}/{CHAT_TAG_AI_HINT_MAX}
+              </span>
+            </p>
+          </div>
+
           <DialogFooter className="sm:justify-between">
             <Button
               type="button"
@@ -292,6 +325,7 @@ export function SubTagDialog({
   onSave: (values: {
     name: string;
     color: string;
+    ai_hint: string | null;
   }) => Promise<ChatTagWriteOutcome | null>;
   onMove: (dir: 'up' | 'down') => void;
   onDelete: () => void;
@@ -302,6 +336,7 @@ export function SubTagDialog({
   const ids = useId();
   const [name, setName] = useState(tag?.name ?? '');
   const [color, setColor] = useState(tag?.color ?? parent.color);
+  const [hint, setHint] = useState(tag?.ai_hint ?? '');
   const [problem, setProblem] = useState<ChatTagNameProblem>(null);
 
   const heading = parent.sub_tag_title ?? t('subTagFallback');
@@ -313,7 +348,11 @@ export function SubTagDialog({
     const found = validateChatTagName(name, parent.subs, tag?.id);
     setProblem(found);
     if (found) return;
-    const outcome = await onSave({ name: normalizeChatTagName(name), color });
+    const outcome = await onSave({
+      name: normalizeChatTagName(name),
+      color,
+      ai_hint: normalizeChatTagHint(hint),
+    });
     if (outcome === 'duplicate') setProblem('duplicate');
   }
 
@@ -359,6 +398,33 @@ export function SubTagDialog({
               onChange={setColor}
               disabled={busy}
             />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor={`${ids}-hint`}>
+              {t('aiHintLabel')}
+              <span className="text-muted-foreground font-normal">
+                ({t('subTitleOptional')})
+              </span>
+            </Label>
+            <Textarea
+              id={`${ids}-hint`}
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              maxLength={CHAT_TAG_AI_HINT_MAX}
+              rows={3}
+              disabled={busy}
+              aria-describedby={`${ids}-hint-help`}
+            />
+            <p
+              id={`${ids}-hint-help`}
+              className="text-muted-foreground flex justify-between gap-2 text-xs"
+            >
+              <span>{t('aiHintHelp')}</span>
+              <span className="shrink-0 tabular-nums">
+                {hint.length}/{CHAT_TAG_AI_HINT_MAX}
+              </span>
+            </p>
           </div>
 
           {tag ? (
