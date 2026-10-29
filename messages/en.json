@@ -8503,7 +8503,10 @@
     "dismissed": "You dismissed that tag for this chat",
     "unavailable": "Tag suggestions aren't available right now",
     "rateLimited": "Too many requests. Try again in a minute",
-    "failed": "Couldn't get a tag suggestion"
+    "failed": "Couldn't get a tag suggestion",
+    "autoNote": "Tagged automatically: {tags}",
+    "autoNoteWithPercent": "Tagged automatically: {tags} · {percent}%",
+    "autoNoteUnnamed": "Tagged automatically"
   },
   "ReplyClasses": {
     "_": ""

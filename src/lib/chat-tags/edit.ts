@@ -65,6 +65,23 @@ export function normalizeSubTagTitle(raw: string): string | null {
   return title.length === 0 ? null : title;
 }
 
+/** chat_tags.ai_hint's CHECK (migration 147): at most 300 characters. */
+export const CHAT_TAG_AI_HINT_MAX = 300;
+
+/**
+ * The "when does this tag apply" hint for Jev as it is saved: trimmed,
+ * blank = null (no hint). Inner line breaks are kept; the field's
+ * maxLength (UTF-16 units, never fewer than SQL's characters) keeps it
+ * under the CHECK, and this cuts a pasted overflow as a last resort.
+ */
+export function normalizeChatTagHint(raw: string): string | null {
+  const hint = raw.trim();
+  if (hint.length === 0) return null;
+  return hint.length > CHAT_TAG_AI_HINT_MAX
+    ? hint.slice(0, CHAT_TAG_AI_HINT_MAX).trimEnd()
+    : hint;
+}
+
 /** Position for a new tag at the end of its siblings. */
 export function nextChatTagPosition(
   siblings: readonly Pick<ChatTag, 'position'>[]

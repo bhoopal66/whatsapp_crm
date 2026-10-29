@@ -8503,7 +8503,10 @@
     "dismissed": "이 채팅에서 닫은 태그입니다",
     "unavailable": "지금은 태그 추천을 사용할 수 없습니다",
     "rateLimited": "요청이 너무 많습니다. 잠시 후 다시 시도하세요",
-    "failed": "태그 추천을 받지 못했습니다"
+    "failed": "태그 추천을 받지 못했습니다",
+    "autoNote": "자동으로 태그됨: {tags}",
+    "autoNoteWithPercent": "자동으로 태그됨: {tags} · {percent}%",
+    "autoNoteUnnamed": "자동으로 태그됨"
   },
   "ReplyClasses": {
     "_": ""

@@ -70,6 +70,7 @@ import {
   ThreadChannelNote,
   useConversationEvents,
 } from './thread-channel-switcher';
+import { ThreadAutoTagNote } from './thread-auto-tag-note';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
@@ -1723,6 +1724,15 @@ export function MessageThread({
                   </div>
                   {group.items.map((item, index) => {
                     if (item.kind === 'event') {
+                      if (item.event.kind === 'chat_tag_auto')
+                        return (
+                          <ThreadAutoTagNote
+                            key={`event-${item.event.id}`}
+                            event={item.event}
+                          />
+                        );
+                      // A kind this timeline does not know is never drawn.
+                      if (item.event.kind !== 'channel_switched') return null;
                       return (
                         <ThreadChannelNote
                           key={`event-${item.event.id}`}

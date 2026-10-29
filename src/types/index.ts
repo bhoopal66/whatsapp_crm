@@ -147,6 +147,8 @@ export interface ChatTag {
   /** `#rrggbb` — render through `chatTagColor`, which falls back. */
   color: string;
   sub_tag_title: string | null;
+  /** "When does this tag apply", sent to Jev with the name (147). */
+  ai_hint?: string | null;
   position: number;
   created_at: string;
   updated_at: string;
@@ -206,13 +208,14 @@ export type ConversationStatus = 'open' | 'pending' | 'closed';
 
 /**
  * A note in a thread's timeline that is not a message (migration 061):
- * never sent to the customer, never counted as a message. Today only
- * "the sending number was switched".
+ * never sent to the customer, never counted as a message: "the sending
+ * number was switched" (061) and "tagged automatically" (147).
  */
 export interface ConversationEvent {
   id: string;
   conversation_id: string;
-  kind: 'channel_switched';
+  /** A row of any other kind is never rendered. */
+  kind: 'channel_switched' | 'chat_tag_auto';
   actor_user_id: string | null;
   from_channel_id: string | null;
   /** null = switched back to automatic. */
@@ -220,6 +223,8 @@ export interface ConversationEvent {
   /** Number names as they were at the time of the switch. */
   from_label: string | null;
   to_label: string | null;
+  /** chat_tag_auto: `{ chat_tag_id, chat_sub_tag_id, p }` (147). */
+  details?: Record<string, unknown> | null;
   created_at: string;
 }
 

@@ -308,6 +308,22 @@ BEGIN
     failed := array_append(failed, ('conversation_events refused chat_tag_auto / channel_switched: ' || r)::text);
   END IF;
 
+  -- The automatic tagging note as auto-tag.ts writes it: the name in
+  -- to_label, ids and probability in details.
+  r := pg_temp.si_do(format(
+         'INSERT INTO conversation_events (account_id, conversation_id, kind, to_label, details) VALUES (%L, %L, %L, %L, %L::jsonb)',
+         a_acct, cv_a, 'chat_tag_auto', 'Interested · ADCB',
+         jsonb_build_object('chat_tag_id', m_new, 'chat_sub_tag_id', NULL, 'p', 0.92)));
+  n := n + 1;
+  IF r <> 'ok' OR NOT EXISTS (
+       SELECT 1 FROM conversation_events
+        WHERE conversation_id = cv_a AND kind = 'chat_tag_auto'
+          AND to_label = 'Interested · ADCB'
+          AND (details->>'p')::numeric = 0.92
+          AND details->>'chat_tag_id' = m_new::text) THEN
+    failed := array_append(failed, ('a chat_tag_auto note with details was not stored: ' || r)::text);
+  END IF;
+
   n := n + 1;
   IF has_function_privilege('anon', 'public.dismiss_tag_suggestion(uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.conversations_insight_guard()', 'EXECUTE')

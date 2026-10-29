@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  CHAT_TAG_AI_HINT_MAX,
   CHAT_TAG_COLORS,
   CHAT_TAG_NAME_MAX,
   CHAT_TAG_SUB_TITLE_MAX,
   moveChatTag,
   nextChatTagPosition,
+  normalizeChatTagHint,
   normalizeChatTagName,
   normalizeSubTagTitle,
   validateChatTagName,
@@ -164,5 +166,24 @@ describe('moveChatTag', () => {
       { id: 'a', position: 1 },
       { id: 'c', position: 2 },
     ]);
+  });
+});
+
+describe('normalizeChatTagHint', () => {
+  it('trims, and a blank hint is no hint', () => {
+    expect(normalizeChatTagHint('  wants to apply \n')).toBe('wants to apply');
+    expect(normalizeChatTagHint(' \t\n ')).toBeNull();
+    expect(normalizeChatTagHint('')).toBeNull();
+  });
+
+  it('keeps inner line breaks', () => {
+    expect(normalizeChatTagHint('a\nb')).toBe('a\nb');
+  });
+
+  it('never exceeds the 147 CHECK', () => {
+    expect(CHAT_TAG_AI_HINT_MAX).toBe(300);
+    const exact = 'x'.repeat(300);
+    expect(normalizeChatTagHint(exact)).toBe(exact);
+    expect(normalizeChatTagHint('y'.repeat(301))).toHaveLength(300);
   });
 });

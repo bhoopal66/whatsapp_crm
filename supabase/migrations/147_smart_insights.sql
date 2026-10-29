@@ -44,7 +44,8 @@
 --
 --  * conversation_events.kind also allows 'chat_tag_auto', the note an
 --    automatic tagging leaves in the thread (service role only; the
---    table still has no client write policy).
+--    table still has no client write policy), and a details jsonb
+--    column for that note's ids and probability.
 --
 -- Re-runnable: CREATE … IF NOT EXISTS, ADD COLUMN IF NOT EXISTS,
 -- constraints added inside DO blocks, CREATE OR REPLACE, DROP … IF
@@ -395,3 +396,13 @@ BEGIN
   END IF;
 END
 $$;
+
+-- 061 gave the table no column for a note's own data. A chat_tag_auto
+-- note keeps the tag's display name as it was in to_label (so it still
+-- reads after a rename or delete) and its ids and Jev's probability
+-- here: { chat_tag_id, chat_sub_tag_id, p }. NULL for channel_switched.
+ALTER TABLE public.conversation_events
+  ADD COLUMN IF NOT EXISTS details jsonb NULL;
+
+COMMENT ON COLUMN public.conversation_events.details IS
+  'Kind-specific data (migration 147): chat_tag_auto = {chat_tag_id, chat_sub_tag_id, p}; NULL for channel_switched.';

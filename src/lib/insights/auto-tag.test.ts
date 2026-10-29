@@ -20,12 +20,43 @@ const h = vi.hoisted(() => ({
   write: vi.fn(),
   dispatch: vi.fn(),
   insertError: null as { message: string } | null,
+  reads: [] as { table: string; cols: string; filters: unknown[][] }[],
+  tags: [] as { id: string; name: string }[],
+  namesError: null as { message: string } | null,
 }));
+
+const TAGS = [
+  { id: 'tag-a', name: 'Interested' },
+  { id: 'sub-a1', name: 'ADCB' },
+  { id: 'tag-b', name: 'Not interested' },
+];
 
 vi.mock('@/lib/ai/admin-client', () => ({
   supabaseAdmin: () => ({
     from(table: string) {
       return {
+        select(cols: string) {
+          const filters: unknown[][] = [];
+          h.reads.push({ table, cols, filters });
+          const b = {
+            eq(...a: unknown[]) {
+              filters.push(['eq', ...a]);
+              return b;
+            },
+            in(col: string, ids: string[]) {
+              filters.push(['in', col, ids]);
+              return Promise.resolve(
+                h.namesError
+                  ? { data: null, error: h.namesError }
+                  : {
+                      data: h.tags.filter((t) => ids.includes(t.id)),
+                      error: null,
+                    }
+              );
+            },
+          };
+          return b;
+        },
         insert(payload: unknown) {
           h.calls.push({ table, op: 'insert', payload, filters: [] });
           return Promise.resolve({ data: null, error: h.insertError });
@@ -101,6 +132,9 @@ const written = (
 beforeEach(() => {
   h.calls = [];
   h.insertError = null;
+  h.reads = [];
+  h.tags = TAGS;
+  h.namesError = null;
   h.write
     .mockReset()
     .mockImplementation(
@@ -128,12 +162,20 @@ describe('autoTagFromInsights — when it applies', () => {
       conversation_id: 'conv-1',
       kind: 'chat_tag_auto',
       actor_user_id: null,
-      to_label: JSON.stringify({
-        chat_tag_id: 'tag-a',
-        chat_sub_tag_id: 'sub-a1',
-        p: 0.9,
-      }),
+      to_label: 'Interested · ADCB',
+      details: { chat_tag_id: 'tag-a', chat_sub_tag_id: 'sub-a1', p: 0.9 },
     });
+    // The names come from this account's chat_tags.
+    expect(h.reads).toEqual([
+      {
+        table: 'chat_tags',
+        cols: 'id, name',
+        filters: [
+          ['eq', 'account_id', 'acct-1'],
+          ['in', 'id', ['tag-a', 'sub-a1']],
+        ],
+      },
+    ]);
     const clear = h.calls.find((c) => c.table === 'conversations')!;
     expect(clear.payload).toEqual({
       suggested_chat_tag_id: null,
@@ -190,6 +232,30 @@ describe('autoTagFromInsights — when it applies', () => {
       chat_tag_id: 'tag-b',
       chat_sub_tag_id: null,
     });
+    const note = h.calls.find((c) => c.table === 'conversation_events')!;
+    expect(note.payload).toMatchObject({
+      to_label: 'Not interested',
+      details: { chat_tag_id: 'tag-b', chat_sub_tag_id: null, p: 0.9 },
+    });
+    expect(h.reads[0].filters[1]).toEqual(['in', 'id', ['tag-b']]);
+  });
+
+  it('names unreadable: the note still goes in, without a label', async () => {
+    h.namesError = { message: 'down' };
+    expect(await autoTagFromInsights(ARGS, outcome())).toBe('applied');
+    const note = h.calls.find((c) => c.table === 'conversation_events')!;
+    expect(note.payload).toMatchObject({
+      to_label: null,
+      details: { chat_tag_id: 'tag-a', chat_sub_tag_id: 'sub-a1', p: 0.9 },
+    });
+    expect(h.dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a tag deleted meanwhile labels by what is left', async () => {
+    h.tags = [{ id: 'tag-a', name: 'Interested' }];
+    await autoTagFromInsights(ARGS, outcome());
+    const note = h.calls.find((c) => c.table === 'conversation_events')!;
+    expect(note.payload).toMatchObject({ to_label: 'Interested' });
   });
 });
 

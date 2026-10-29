@@ -13,7 +13,9 @@
 // does what a manual tag does — the `chat_tag_set` automations run
 // (depth 0, as a person's pick) and the database's deal trigger fires
 // on the UPDATE itself — and leaves a `chat_tag_auto` note in the
-// thread (ids and probability only, never customer text). The
+// thread: the tag's name as it reads now in `to_label` (so the note
+// survives a rename or delete) and ids + probability in `details`,
+// never customer text. The
 // suggestion columns are cleared: the chat now carries the tag.
 //
 // Never throws; a failure is logged with `[insights]`.
@@ -23,6 +25,7 @@ import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { InboundInsightsOutcome } from './inbound';
+import { autoTagLabel, type AutoTagNote } from './tag-note';
 
 export type AutoTagResult =
   /** Not Auto mode, or the insights run stopped early / failed. */
@@ -38,18 +41,52 @@ export type AutoTagResult =
   | 'unchanged'
   | 'error';
 
-/** The note's payload, stored in `conversation_events.to_label`. */
-export interface AutoTagNote {
-  chat_tag_id: string;
-  chat_sub_tag_id: string | null;
-  p: number;
-}
+export type { AutoTagNote };
 
 const logError = (what: string, err: unknown) =>
   console.error(
     `[insights] ${what}:`,
     err instanceof Error ? err.message : String(err)
   );
+
+/**
+ * "Interested · ADCB" from chat_tags as it reads now, in this account.
+ * Null when the names cannot be read: the note still goes in, and the
+ * timeline then shows it without a name.
+ */
+async function noteLabel(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  note: AutoTagNote
+): Promise<string | null> {
+  try {
+    const ids = note.chat_sub_tag_id
+      ? [note.chat_tag_id, note.chat_sub_tag_id]
+      : [note.chat_tag_id];
+    const { data, error } = await db
+      .from('chat_tags')
+      .select('id, name')
+      .eq('account_id', accountId)
+      .in('id', ids);
+    if (error) {
+      logError('automatic tag note names failed', error.message);
+      return null;
+    }
+    const names = new Map(
+      ((data ?? []) as { id: string; name: string }[]).map((r) => [
+        r.id,
+        r.name,
+      ])
+    );
+    return autoTagLabel(
+      names.get(note.chat_tag_id),
+      note.chat_sub_tag_id ? names.get(note.chat_sub_tag_id) : null
+    );
+  } catch (err) {
+    logError('automatic tag note names failed', err);
+    return null;
+  }
+}
 
 /** Apply the judged tag to an untagged chat in Auto mode. Never throws. */
 export async function autoTagFromInsights(
@@ -100,13 +137,16 @@ export async function autoTagFromInsights(
       p: tag.mainP,
     };
     const [noteRes, clearRes] = await Promise.all([
-      db.from('conversation_events').insert({
-        account_id: args.accountId,
-        conversation_id: result.conversationId,
-        kind: 'chat_tag_auto',
-        actor_user_id: null,
-        to_label: JSON.stringify(note),
-      }),
+      noteLabel(db, args.accountId, note).then((label) =>
+        db.from('conversation_events').insert({
+          account_id: args.accountId,
+          conversation_id: result.conversationId,
+          kind: 'chat_tag_auto',
+          actor_user_id: null,
+          to_label: label,
+          details: note,
+        })
+      ),
       db
         .from('conversations')
         .update({
