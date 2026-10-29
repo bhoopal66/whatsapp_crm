@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Sidebar: Inbox shows how many chats are unread
+
+No migration.
+- The Inbox item in the sidebar showed a pulsing dot when anything was
+  unread. It now shows the number of unread chats (99+ above 99), like
+  Team chat and Calls already did, and keeps showing it while you are
+  in the Inbox.
+
 ### Dashboard: a home screen for today's work
 
 No migration.

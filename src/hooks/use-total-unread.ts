@@ -21,13 +21,13 @@ export const UNREAD_ROW_COLUMNS =
 
 /**
  * Count of conversations with at least one unread inbound message for
- * the current user. Used by the sidebar to surface a green dot on the
- * Inbox nav entry when the user is elsewhere in the app.
+ * the current user. Used by the sidebar to show that count on the Inbox
+ * nav entry.
  *
  * Only chats the Inbox lists count: a campaign chat the bot is
  * answering is in the Campaign inbox instead (migration 067,
  * `inCampaignInbox`), and nobody opens it there to clear its unread
- * count, so counting it would keep the dot lit for a chat the Inbox
+ * count, so counting it would keep the count up for a chat the Inbox
  * does not show.
  *
  * Lives on its own realtime channel (distinct from the inbox page's
@@ -63,7 +63,7 @@ export function useTotalUnread(): number {
     // Only the unread rows: they are all the count is made of, and on a
     // busy account "every conversation" is thousands of rows (and past
     // PostgREST's max-rows, silently truncated) fetched on every page of
-    // the app just to light one dot. Rows missing from the mirror are
+    // the app just to show one count. Rows missing from the mirror are
     // read as 0, and the realtime handler below adds any row it sees.
     (async () => {
       const { data, error } = await supabase

@@ -156,8 +156,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   function renderNavItem(item: NavItem) {
     const isActive = isNavItemActive(item.href, pathname);
 
-    const showUnreadDot =
-      item.href === '/inbox' && totalUnread > 0 && !isActive;
+    // A count, like the other badges: a dot said only "something", not
+    // how much is waiting.
+    const showUnreadBadge = item.href === '/inbox' && totalUnread > 0;
 
     const showChatBadge = item.href === '/chat' && chatUnread > 0;
     // Open missed-call tasks assigned to them, as the chat sidebar shows.
@@ -187,13 +188,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               {t('beta')}
             </span>
           )}
-          {showUnreadDot && (
+          {showUnreadBadge && (
             <span
               aria-label={t('unreadConversations', { count: totalUnread })}
-              className="relative flex h-2 w-2"
+              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
             >
-              <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
-              <span className="bg-primary relative inline-flex h-2 w-2 rounded-full" />
+              {totalUnread > 99 ? '99+' : totalUnread}
             </span>
           )}
           {showChatBadge && (
