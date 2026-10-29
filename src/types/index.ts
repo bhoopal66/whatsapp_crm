@@ -300,6 +300,18 @@ export interface Conversation {
   insight_wants_human?: number | null;
   insight_priority?: number;
   insight_at?: string | null;
+  /**
+   * Jev's chat tag suggestion (migration 147), service role only: a
+   * main tag of this workspace, optionally one of its sub-tags, the
+   * probability and when it was made. All NULL when there is none.
+   * `tag_suggestion_dismissed_id` is the main tag someone dismissed
+   * (`dismiss_tag_suggestion`), never suggested again for this chat.
+   */
+  suggested_chat_tag_id?: string | null;
+  suggested_chat_sub_tag_id?: string | null;
+  suggested_tag_p?: number | null;
+  suggested_tag_at?: string | null;
+  tag_suggestion_dismissed_id?: string | null;
 }
 
 // ============================================================

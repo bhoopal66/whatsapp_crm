@@ -200,6 +200,10 @@ export const RATE_LIMITS = {
    *  per user: one check per send attempt, so 30/min is well above a
    *  person typing and still caps the Jev spend of a stuck client. */
   composeCheckUser: { limit: 30, windowMs: 60_000 },
+  /** "Suggest a tag" in the chat header (POST /api/insights/tag-suggest),
+   *  per user: one Jev request per click. 20/min is far above a person
+   *  working chats and bounds a held-down button or a script. */
+  tagSuggestUser: { limit: 20, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

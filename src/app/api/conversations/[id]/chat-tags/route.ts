@@ -15,10 +15,19 @@
 // A change fires the account's `chat_tag_set` automations after the
 // response, inside `after()` and awaited there: a floating promise is
 // killed with the request (issue #301).
+//
+// A change also clears Jev's tag suggestion (migration 147): a person
+// just decided, so a suggestion made before that is stale, and an
+// applied suggestion must not linger as a chip. The columns are service
+// role only (the 147 guard), hence `supabaseAdmin()`, scoped to the
+// account the write was authorised in. `tag_suggestion_dismissed_id`
+// stays: a dismissal still means "not this tag" for the chat.
+// Best-effort: the tags are saved either way.
 // ============================================================
 
 import { NextResponse, after } from 'next/server';
 
+import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
@@ -100,6 +109,7 @@ export async function PUT(
       previous.chat_tag_id !== saved.chat_tag_id ||
       previous.chat_sub_tag_id !== saved.chat_sub_tag_id
     ) {
+      await clearTagSuggestion(accountId, result.conversationId);
       after(async () => {
         await dispatchChatTagSet({
           accountId,
@@ -117,5 +127,33 @@ export async function PUT(
     });
   } catch (err) {
     return toErrorResponse(err);
+  }
+}
+
+/** Clears a stored tag suggestion; logs and carries on on failure. */
+async function clearTagSuggestion(
+  accountId: string,
+  conversationId: string
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin()
+      .from('conversations')
+      .update({
+        suggested_chat_tag_id: null,
+        suggested_chat_sub_tag_id: null,
+        suggested_tag_p: null,
+        suggested_tag_at: null,
+      })
+      .eq('id', conversationId)
+      .eq('account_id', accountId)
+      // Most chats carry none: skip the no-op write (and its realtime
+      // event).
+      .not('suggested_tag_at', 'is', null);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    console.error(
+      '[conversations/chat-tags] clearing the tag suggestion failed:',
+      err instanceof Error ? err.message : String(err)
+    );
   }
 }

@@ -5,6 +5,26 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(),
   dispatch: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
+  adminCalls: [] as [string, ...unknown[]][],
+  adminError: null as { message: string } | null,
+}));
+
+vi.mock('@/lib/ai/admin-client', () => ({
+  supabaseAdmin: () => {
+    const chain = {
+      from: (t: string) => (mocks.adminCalls.push(['from', t]), chain),
+      update: (v: unknown) => (mocks.adminCalls.push(['update', v]), chain),
+      eq: (c: string, v: unknown) => (
+        mocks.adminCalls.push(['eq', c, v]),
+        chain
+      ),
+      not: (c: string, op: string, v: unknown) => {
+        mocks.adminCalls.push(['not', c, op, v]);
+        return Promise.resolve({ error: mocks.adminError });
+      },
+    };
+    return chain;
+  },
 }));
 
 vi.mock('next/server', async (importOriginal) => {
@@ -65,6 +85,8 @@ beforeEach(() => {
   mocks.write.mockReset();
   mocks.dispatch.mockReset().mockResolvedValue(undefined);
   mocks.afterCallbacks.length = 0;
+  mocks.adminCalls.length = 0;
+  mocks.adminError = null;
 });
 
 describe('PUT /api/conversations/[id]/chat-tags', () => {
@@ -200,5 +222,64 @@ describe('PUT /api/conversations/[id]/chat-tags', () => {
     expect(mocks.afterCallbacks).toHaveLength(0);
     await runAfter();
     expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  describe('clearing a stale tag suggestion', () => {
+    const changed = {
+      ok: true,
+      conversationId: CONV,
+      contactId: 'contact-1',
+      previous: { chat_tag_id: null, chat_sub_tag_id: null },
+      saved: { chat_tag_id: MAIN, chat_sub_tag_id: SUB },
+    };
+
+    it('clears the four suggestion columns on the service role, in the account, keeping the dismissal', async () => {
+      mocks.write.mockResolvedValue(changed);
+      const res = await put({ chat_tag_id: MAIN, chat_sub_tag_id: SUB });
+      expect(res.status).toBe(200);
+      expect(mocks.adminCalls).toEqual([
+        ['from', 'conversations'],
+        [
+          'update',
+          {
+            suggested_chat_tag_id: null,
+            suggested_chat_sub_tag_id: null,
+            suggested_tag_p: null,
+            suggested_tag_at: null,
+          },
+        ],
+        ['eq', 'id', CONV],
+        ['eq', 'account_id', 'account-1'],
+        ['not', 'suggested_tag_at', 'is', null],
+      ]);
+    });
+
+    it('clears nothing when the tags did not change', async () => {
+      const same = { chat_tag_id: MAIN, chat_sub_tag_id: null };
+      mocks.write.mockResolvedValue({
+        ...changed,
+        previous: same,
+        saved: same,
+      });
+      await put({ chat_tag_id: MAIN, chat_sub_tag_id: null });
+      expect(mocks.adminCalls).toEqual([]);
+    });
+
+    it('clears nothing when the write was refused', async () => {
+      mocks.write.mockResolvedValue({ ok: false, reason: 'not_found' });
+      await put({ chat_tag_id: MAIN, chat_sub_tag_id: null });
+      expect(mocks.adminCalls).toEqual([]);
+    });
+
+    it('still answers the saved tags when the clear fails', async () => {
+      mocks.write.mockResolvedValue(changed);
+      mocks.adminError = { message: 'boom' };
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await put({ chat_tag_id: MAIN, chat_sub_tag_id: SUB });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(changed.saved);
+      expect(mocks.afterCallbacks).toHaveLength(1);
+      spy.mockRestore();
+    });
   });
 });
