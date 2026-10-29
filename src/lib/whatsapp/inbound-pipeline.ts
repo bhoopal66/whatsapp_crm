@@ -52,6 +52,7 @@ import {
   tagInterestedReply,
 } from '@/lib/broadcasts/reply-class';
 import { runInboundInsights } from '@/lib/insights/inbound';
+import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
 
@@ -426,6 +427,14 @@ async function handOffUndeliveredBotReply(
  * Runs on a best-effort basis — failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
+/** Meaning triggers are on for this workspace (Jev available and the
+ *  Smart insights switch set). Never throws: the settings read falls
+ *  back to off. */
+async function meaningTriggersOn(accountId: string): Promise<boolean> {
+  if (!insightsAvailable(accountId)) return false;
+  return (await getInsightSettings(accountId)).meaningTriggersEnabled;
+}
+
 /** Campaign reply sorting's budget on the inbound path, its reads
  *  included (it runs ahead of a follow-up flow). */
 const CAMPAIGN_REPLY_CLASS_DEADLINE_MS = 1500;
@@ -1011,7 +1020,10 @@ export async function processMessage(
   // tap already says what it means, by id.
   if (!botConsumed) {
     automationTriggers.push('new_message_received', 'keyword_match');
-    if (!interactiveReplyId) automationTriggers.push('intent_match');
+    // Only while the workspace has meaning triggers on: with them off the
+    // automation engine is asked exactly what it was asked before.
+    if (!interactiveReplyId && (await meaningTriggersOn(accountId)))
+      automationTriggers.push('intent_match');
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
     // automation-only chained menus; when a Flow owns the menu it will

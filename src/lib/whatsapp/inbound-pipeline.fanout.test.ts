@@ -18,6 +18,8 @@ interface Call {
 type Result = { data: unknown; error: unknown };
 
 const h = vi.hoisted(() => ({
+  // The workspace's "understand meaning" switch (Smart insights).
+  meaningOn: true,
   calls: [] as Call[],
   rpcs: [] as string[],
   rpcArgs: [] as unknown[],
@@ -131,6 +133,10 @@ vi.mock('@/lib/insights/inbound', () => ({
 vi.mock('@/lib/insights/auto-tag', () => ({
   autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
 }));
+vi.mock('@/lib/insights/settings', () => ({
+  insightsAvailable: () => h.meaningOn,
+  getInsightSettings: async () => ({ meaningTriggersEnabled: h.meaningOn }),
+}));
 vi.mock('@/lib/broadcasts/reply-class', () => ({
   classifyCampaignReply: (...args: unknown[]) => h.classify(...args),
   tagInterestedReply: (...args: unknown[]) => h.tagInterested(...args),
@@ -181,6 +187,7 @@ const message: NormalizedInboundMessage = {
 };
 
 beforeEach(() => {
+  h.meaningOn = true;
   h.calls = [];
   h.rpcs = [];
   h.rpcArgs = [];
@@ -304,6 +311,12 @@ describe('processMessage — journey bot', () => {
     expect(call?.[0]).toMatchObject({
       context: { message_id: 'wamid.over-limit', conversation_id: 'conv-1' },
     });
+  });
+
+  it('never dispatches intent_match while meaning triggers are off', async () => {
+    h.meaningOn = false;
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
   });
 
   it('skips intent_match when a keyword_match automation acted', async () => {
