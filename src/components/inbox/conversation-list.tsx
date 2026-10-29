@@ -39,21 +39,28 @@ import {
   ATTENTION_LIMIT,
   countNeedingAttention,
   needsAttention,
+  sortForInbox,
 } from '@/lib/inbox/attention';
 import {
   INSIGHT_FILTERS,
-  URGENT_PIN_LIMIT,
+  PIN_LIMIT,
+  applyHandled,
+  hasAttentionPin,
   insightFilterBounds,
   insightListQuery,
-  isUrgentPin,
+  isPinned,
   matchesInsightFilters,
-  sortForInboxWithInsights,
+  pinnedSummary,
+  rowSignals,
+  sortWithPins,
   type InsightFilter,
 } from '@/lib/inbox/insights';
-import { PRIORITY_URGENT } from '@/lib/insights/bands';
+import { paletteFor, swatchOf, type Swatch } from '@/lib/insights/palette';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
+import { InsightLegend } from '@/components/insights/insight-legend';
+import { toast } from 'sonner';
 import { ImportantBadge } from './important-badge';
-import { InsightBadge } from './insight-badge';
+import { InsightChips } from './insight-badge';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
 import {
   chatTagFilterOrGroup,
@@ -238,10 +245,11 @@ interface ListQueryParams {
   /** Smart insights filters; always empty while signals are off. */
   insightFilters: readonly InsightFilter[];
   /**
-   * Read the Urgent pins beside the first page. False while signals
-   * are off, so such a workspace fetches exactly as before.
+   * Read the attention pins (migration 153) beside the first page.
+   * False while signals are off, so such a workspace fetches exactly as
+   * before.
    */
-  urgentPins: boolean;
+  attentionPins: boolean;
 }
 
 /**
@@ -273,10 +281,11 @@ function conversationsQuery(
      */
     attention?: boolean;
     /**
-     * The Urgent pins (Smart insights): urgent and unread, under the
-     * same filters, read beside the first page like `attention`.
+     * The attention pins (Smart insights, migration 153): chats a signal
+     * pinned until handled, under the same filters, read beside the
+     * first page like `attention`, longest waiting first.
      */
-    urgent?: boolean;
+    pinned?: boolean;
   }
 ) {
   const supabase = createClient();
@@ -344,13 +353,12 @@ function conversationsQuery(
       .order('id', { ascending: false })
       .limit(ATTENTION_LIMIT);
   }
-  if (opts.urgent) {
+  if (opts.pinned) {
     return query
-      .eq('insight_priority', PRIORITY_URGENT)
-      .gt('unread_count', 0)
-      .order('last_message_at', { ascending: false, nullsFirst: true })
+      .not('insight_attention_at', 'is', null)
+      .order('insight_attention_at', { ascending: true })
       .order('id', { ascending: false })
-      .limit(URGENT_PIN_LIMIT);
+      .limit(PIN_LIMIT);
   }
   return query
     .order('last_message_at', { ascending: false, nullsFirst: true })
@@ -479,6 +487,13 @@ export function ConversationList({
         : NO_INSIGHT_FILTERS,
     [insightFilterKey]
   );
+  // The Pinned chip's filter: only pinned chats (client-side, like
+  // Important; the pins are always loaded beside the first page).
+  const [pinnedOnly, setPinnedOnly] = useState(false);
+  // Handled clicks still waiting for realtime: id -> the stamp handled.
+  const [handled, setHandled] = useState<ReadonlyMap<string, string>>(
+    () => new Map()
+  );
   const toggleInsightFilter = useCallback((f: InsightFilter) => {
     setSelectedInsightFilters((prev) =>
       prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
@@ -565,7 +580,7 @@ export function ConversationList({
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
       insightFilters,
-      urgentPins: insightQuery.urgentPins,
+      attentionPins: insightQuery.attentionPins,
     }),
     [
       restrictToUserId,
@@ -578,7 +593,7 @@ export function ConversationList({
       assigneeFilter,
       selectedCampaignId,
       insightFilters,
-      insightQuery.urgentPins,
+      insightQuery.attentionPins,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -610,13 +625,13 @@ export function ConversationList({
     const generation = ++generationRef.current;
 
     (async () => {
-      const [{ data, error }, attention, urgent] = await Promise.all([
+      const [{ data, error }, attention, pinned] = await Promise.all([
         conversationsQuery(listParams, {}),
         conversationsQuery(listParams, { attention: true }),
         // Only with signals on: off, the first page is the two reads
         // it always was.
-        listParams.urgentPins
-          ? conversationsQuery(listParams, { urgent: true })
+        listParams.attentionPins
+          ? conversationsQuery(listParams, { pinned: true })
           : null,
       ]);
 
@@ -637,17 +652,17 @@ export function ConversationList({
           attention.error
         );
       }
-      if (urgent?.error) {
-        logFetchError('Failed to fetch urgent chats:', urgent.error);
+      if (pinned?.error) {
+        logFetchError('Failed to fetch pinned chats:', pinned.error);
       }
       let rows = appendConversationPage(
         page,
         normalizeConversations(attention.data ?? [])
       );
-      if (urgent) {
+      if (pinned) {
         rows = appendConversationPage(
           rows,
-          normalizeConversations(urgent.data ?? [])
+          normalizeConversations(pinned.data ?? [])
         );
       }
       cursorRef.current = cursor;
@@ -814,7 +829,7 @@ export function ConversationList({
   }, [conversations]);
 
   const filtered = useMemo(() => {
-    let result = conversations.filter(hasMessages);
+    let result = applyHandled(conversations, handled).filter(hasMessages);
 
     if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
@@ -861,10 +876,13 @@ export function ConversationList({
       result = result.filter((c) => matchesInsightFilters(c, insightFilters));
     }
 
-    // Off, this is exactly sortForInbox's order.
-    return sortForInboxWithInsights(result, signalsOn);
+    // Signals on: pinned until handled first (urgent › Important ›
+    // wants a person › upset › call back, longest waiting first). Off,
+    // exactly sortForInbox's order.
+    return signalsOn ? sortWithPins(result) : sortForInbox(result);
   }, [
     conversations,
+    handled,
     filter,
     chatTagFilterIds,
     search,
@@ -885,10 +903,48 @@ export function ConversationList({
   // Off by itself once the last one is dealt with, so the list never
   // sits empty behind a chip that is no longer there.
   const showImportantOnly = importantOnly && importantCount > 0;
-  const shown = useMemo(
-    () => (showImportantOnly ? filtered.filter(needsAttention) : filtered),
-    [filtered, showImportantOnly]
+  // The "N pinned" chip (signals on only); off by itself once the last
+  // pin is handled, like Important.
+  const pinned = useMemo(
+    () => (signalsOn ? pinnedSummary(filtered) : { count: 0, urgent: false }),
+    [filtered, signalsOn]
   );
+  const showPinnedOnly = pinnedOnly && pinned.count > 0;
+  const shown = useMemo(() => {
+    let rows = filtered;
+    if (showImportantOnly) rows = rows.filter(needsAttention);
+    if (showPinnedOnly) rows = rows.filter(isPinned);
+    return rows;
+  }, [filtered, showImportantOnly, showPinnedOnly]);
+
+  // Handled: clear the attention pin (acknowledge_insight_attention,
+  // migration 153) at once and keep the row, unpinned; realtime then
+  // brings the cleared row. A failure puts the pin back.
+  const tInsightsRef = useRef(tInsights);
+  useEffect(() => {
+    tInsightsRef.current = tInsights;
+  });
+  const handleHandled = useCallback(async (conv: ConversationListItem) => {
+    const at = conv.insight_attention_at;
+    if (!at) return;
+    setHandled((prev) => new Map(prev).set(conv.id, at));
+    const { error } = await createClient().rpc(
+      'acknowledge_insight_attention',
+      { p_conversation_id: conv.id }
+    );
+    const t = tInsightsRef.current;
+    if (error) {
+      console.error('Failed to mark chat handled:', error.message);
+      setHandled((prev) => {
+        const next = new Map(prev);
+        next.delete(conv.id);
+        return next;
+      });
+      toast.error(t('handledFailed'));
+      return;
+    }
+    toast.success(t('handledToast'));
+  }, []);
 
   const toggleChatTag = useCallback((id: string) => {
     setSelectedChatTagIds((prev) =>
@@ -1027,33 +1083,37 @@ export function ConversationList({
               {t('importantCount', { count: importantCount })}
             </button>
           )}
-          {/* Smart insights filters: they narrow together, like the
-              facets below. Only while the workspace has signals on. */}
+          {/* Smart insights: the "N pinned" chip (only pinned chats),
+              then the filters, which narrow together like the facets
+              below, each in its palette colour, and the legend. Only
+              while the workspace has signals on. */}
+          {signalsOn && pinned.count > 0 && (
+            <InsightChip
+              active={showPinnedOnly}
+              onClick={() => setPinnedOnly((v) => !v)}
+              swatch={paletteFor(
+                'attention',
+                pinned.urgent ? 'urgent' : 'wants_person'
+              )}
+              label={tInsights('pinnedCount', { count: pinned.count })}
+            />
+          )}
           {signalsOn && (
             <div
               role="group"
               aria-label={tInsights('filtersLabel')}
-              className="flex gap-1"
+              className="flex items-center gap-1"
             >
-              {INSIGHT_FILTERS.map((f) => {
-                const active = insightFilters.includes(f);
-                return (
-                  <button
-                    key={f}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleInsightFilter(f)}
-                    className={cn(
-                      'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
-                      active
-                        ? 'bg-wa-chip-active text-wa-teal font-medium'
-                        : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
-                    )}
-                  >
-                    {tInsights(INSIGHT_FILTER_LABEL[f])}
-                  </button>
-                );
-              })}
+              {INSIGHT_FILTERS.map((f) => (
+                <InsightChip
+                  key={f}
+                  active={insightFilters.includes(f)}
+                  onClick={() => toggleInsightFilter(f)}
+                  swatch={INSIGHT_FILTER_SWATCH[f]}
+                  label={tInsights(INSIGHT_FILTER_LABEL[f])}
+                />
+              ))}
+              <InsightLegend className="shrink-0 whitespace-nowrap" />
             </div>
           )}
         </div>
@@ -1361,7 +1421,7 @@ export function ConversationList({
                 memberName={memberName}
                 chatTagTree={chatTagTree}
                 insights={signalsOn}
-                urgentLabel={tInsights('urgentPin')}
+                onHandled={handleHandled}
                 sharedBank={sharedBanks?.get(conv.id) ?? null}
                 numberName={
                   // The number the chat sends from: a person's pin
@@ -1404,8 +1464,62 @@ const INSIGHT_FILTER_LABEL: Record<
 > = {
   hot: 'filterHot',
   upset: 'filterUpset',
+  // "High priority": priority high or urgent (the key stays for links).
   attention: 'filterAttention',
 };
+
+/** Each filter's palette colour (lib/insights/palette.ts). */
+const INSIGHT_FILTER_SWATCH: Record<InsightFilter, Swatch> = {
+  hot: paletteFor('lead', 'hot'),
+  upset: paletteFor('attention', 'upset'),
+  attention: paletteFor('urgency', 'soon'),
+};
+
+/**
+ * A Smart insights header chip: idle it is the list's grey chip with a
+ * dot in its colour, active it wears the colour's soft pill.
+ */
+function InsightChip({
+  active,
+  onClick,
+  swatch,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  swatch: Swatch;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+        active
+          ? cn(swatch.chip, 'font-medium')
+          : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
+      )}
+    >
+      {!active && (
+        <span
+          aria-hidden
+          className={cn('h-2 w-2 shrink-0 rounded-full', swatch.dot)}
+        />
+      )}
+      {label}
+    </button>
+  );
+}
+
+/** Pin reasons with a label of their own (Important has ImportantBadge). */
+const PIN_LABEL = {
+  urgent: 'pin.urgent',
+  wants_person: 'pin.wants_person',
+  upset: 'pin.upset',
+  callback: 'pin.callback',
+} as const;
 
 /** A chat tag in the filter menu: its colour dot and its name. */
 function ChatTagOption({ color, name }: { color: string; name: string }) {
@@ -1452,10 +1566,10 @@ interface ConversationItemProps {
   numberName?: string | null;
   /** The bank this chat was shared with the viewer under (migration 133). */
   sharedBank?: string | null;
-  /** Smart insights on: show the badge and the Urgent pin label. */
+  /** Smart insights on: colours, chips, pin labels and Handled. */
   insights?: boolean;
-  /** The Urgent pin's label (stable: a translation). */
-  urgentLabel?: string;
+  /** Handled on an attention pin (stable: a useCallback). */
+  onHandled?: (conversation: ConversationListItem) => void;
 }
 
 // Memoised: a realtime patch to one conversation re-renders that row,
@@ -1476,7 +1590,7 @@ const ConversationItem = memo(function ConversationItem({
   numberName = null,
   sharedBank = null,
   insights = false,
-  urgentLabel = '',
+  onHandled,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -1494,9 +1608,19 @@ const ConversationItem = memo(function ConversationItem({
   // The AI handed this chat to a person (migration 078): pinned on top
   // with a red label and a red edge until someone acts.
   const important = needsAttention(conversation);
-  // Smart insights: urgent and unread, pinned under the Important chats
-  // with a label of the same kind (which then stands for the badge).
-  const urgentPin = insights && !important && isUrgentPin(conversation);
+  // Smart insights (signals on only): the stripe, chips and pin reason.
+  const signals = insights ? rowSignals(conversation, { important }) : null;
+  const pinReason = signals?.attention?.reason ?? null;
+  const pinLabelKey =
+    pinReason && pinReason !== 'ai_handoff' ? PIN_LABEL[pinReason] : null;
+  // The pin's reason is labelled on the top line, so its chip would
+  // only repeat it.
+  const chips =
+    signals?.chips.filter(
+      (c) => !(c.family === 'attention' && c.key === pinReason)
+    ) ?? [];
+  const canHandle = insights && !!onHandled && hasAttentionPin(conversation);
+  const tInsights = useTranslations('InsightsUi.list');
   const chatTag = resolveConversationChatTags(conversation, chatTagTree);
   const chatTagText = chatTagLabel(chatTag.main, chatTag.sub);
 
@@ -1577,9 +1701,13 @@ const ConversationItem = memo(function ConversationItem({
   // Everything beyond name and preview shares one quiet line, so a row
   // is never more than three lines tall.
   const hasMeta =
-    !!numberName || !!campaignName || !!sharedBank || showAssignee;
+    !!numberName ||
+    !!campaignName ||
+    !!sharedBank ||
+    showAssignee ||
+    chips.length > 0;
 
-  return (
+  const row = (
     <button
       ref={rowRef}
       onClick={handleClick}
@@ -1587,7 +1715,16 @@ const ConversationItem = memo(function ConversationItem({
       className={cn(
         'flex w-full items-center gap-3 pl-3 text-left transition-colors',
         isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover',
-        important && 'shadow-[inset_3px_0_0_var(--destructive)]'
+        // Signals on: the left stripe in the row's colour, transparent
+        // when it has none so rows never shift. Off: today's red edge.
+        signals
+          ? cn(
+              'border-l-4',
+              signals.stripe
+                ? swatchOf(signals.stripe).stripe
+                : 'border-l-transparent'
+            )
+          : important && 'shadow-[inset_3px_0_0_var(--destructive)]'
       )}
     >
       <ContactAvatar contact={contact} name={displayName} size={48} />
@@ -1606,9 +1743,15 @@ const ConversationItem = memo(function ConversationItem({
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
             {important && <ImportantBadge label={t('important')} />}
-            {urgentPin && <ImportantBadge label={urgentLabel} />}
-            {insights && !urgentPin && (
-              <InsightBadge conversation={conversation} important={important} />
+            {!important && pinReason && pinLabelKey && (
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
+                  paletteFor('attention', pinReason).chip
+                )}
+              >
+                {tInsights(pinLabelKey)}
+              </span>
             )}
             <span
               className={cn(
@@ -1657,6 +1800,10 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+            {chips.length > 0 && (
+              <InsightChips conversation={conversation} chips={chips} />
+            )}
+
             {sharedBank && (
               <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
                 <Share2 className="h-3 w-3 shrink-0" />
@@ -1720,5 +1867,23 @@ const ConversationItem = memo(function ConversationItem({
         )}
       </div>
     </button>
+  );
+
+  if (!canHandle) return row;
+  // Handled sits beside the row, not inside it: the row is a <button>,
+  // and a button inside a button is invalid and would select the chat.
+  // Shown on hover or focus, and always where there is no hover (touch).
+  return (
+    <div className="group relative">
+      {row}
+      <button
+        type="button"
+        onClick={() => onHandled?.(conversation)}
+        aria-label={tInsights('handledAria', { name: displayName })}
+        className="bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute right-3 bottom-1.5 rounded-full border px-2 text-[11px] leading-5 font-medium opacity-0 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none [@media(hover:none)]:opacity-100"
+      >
+        {tInsights('handled')}
+      </button>
+    </div>
   );
 });

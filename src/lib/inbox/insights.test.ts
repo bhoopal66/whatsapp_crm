@@ -14,8 +14,13 @@ import {
   sortForInboxWithInsights,
 } from './insights';
 import {
+  PIN_LIMIT,
   ROW_CHIP_LIMIT,
+  applyHandled,
   comparePinned,
+  hasAttentionPin,
+  pinnedSummary,
+  shouldFetchUnloadedPin,
   isPinned,
   rowSignals,
   sortWithPins,
@@ -211,7 +216,7 @@ describe('insightListQuery', () => {
         settingsLoading: true,
         insightFilters: ['hot'],
       })
-    ).toEqual({ ready: false, urgentPins: false, bounds: [] });
+    ).toEqual({ ready: false, attentionPins: false, bounds: [] });
   });
   it('signals off: ready at once, no pins, no bounds', () => {
     expect(
@@ -220,7 +225,7 @@ describe('insightListQuery', () => {
         settingsLoading: false,
         insightFilters: ['hot', 'upset'],
       })
-    ).toEqual({ ready: true, urgentPins: false, bounds: [] });
+    ).toEqual({ ready: true, attentionPins: false, bounds: [] });
   });
   it('signals on: pins and the filters bounds', () => {
     const q = insightListQuery({
@@ -229,7 +234,7 @@ describe('insightListQuery', () => {
       insightFilters: ['upset'],
     });
     expect(q.ready).toBe(true);
-    expect(q.urgentPins).toBe(true);
+    expect(q.attentionPins).toBe(true);
     expect(q.bounds).toEqual([INSIGHT_FILTER_BOUNDS.upset]);
   });
 });
@@ -509,5 +514,76 @@ describe('comparePinned / sortWithPins', () => {
     expect(comparePinned(rows[0], rows[1])).toBe(0);
     expect(comparePinned(rows[2], rows[0])).toBeLessThan(0);
     expect(comparePinned(rows[0], rows[2])).toBeGreaterThan(0);
+  });
+});
+
+describe('Handled and the Pinned chip', () => {
+  const pin = (
+    id: string,
+    at: string | null,
+    reason: string | null = 'upset',
+    ai: string | null = null
+  ) => ({
+    id,
+    insight_attention_at: at,
+    insight_attention_reason: reason,
+    ai_attention_at: ai,
+  });
+
+  it('bounds the pin read at 50', () => {
+    expect(PIN_LIMIT).toBe(50);
+  });
+
+  it('only a signal stamp is Handled-able', () => {
+    expect(hasAttentionPin(pin('a', '2026-10-29T08:00:00Z'))).toBe(true);
+    expect(hasAttentionPin(pin('a', null))).toBe(false);
+    expect(hasAttentionPin(pin('a', 'not a date'))).toBe(false);
+  });
+
+  it('applyHandled clears only the handled stamp, keeping the row', () => {
+    const rows = [
+      pin('a', '2026-10-29T08:00:00Z'),
+      pin('b', '2026-10-29T09:00:00Z', 'urgent'),
+    ];
+    const out = applyHandled(rows, new Map([['a', '2026-10-29T08:00:00Z']]));
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({
+      id: 'a',
+      insight_attention_at: null,
+      insight_attention_reason: null,
+    });
+    expect(isPinned(out[0])).toBe(false);
+    expect(out[1]).toBe(rows[1]);
+  });
+
+  it('a newer signal since Handled pins again; no entry restores it', () => {
+    const rows = [pin('a', '2026-10-29T10:00:00Z')];
+    expect(applyHandled(rows, new Map([['a', '2026-10-29T08:00:00Z']]))).toBe(
+      rows
+    );
+    expect(applyHandled(rows, new Map())).toBe(rows);
+  });
+
+  it('pinnedSummary counts every pin and flags urgent', () => {
+    expect(
+      pinnedSummary([
+        pin('a', '2026-10-29T08:00:00Z'),
+        pin('b', null, null, '2026-10-29T08:00:00Z'),
+        pin('c', null),
+      ])
+    ).toEqual({ count: 2, urgent: false });
+    expect(pinnedSummary([pin('a', '2026-10-29T08:00:00Z', 'urgent')])).toEqual(
+      { count: 1, urgent: true }
+    );
+    expect(pinnedSummary([])).toEqual({ count: 0, urgent: false });
+  });
+
+  it('fetches an unloaded chat only when a signal pinned it, signals on', () => {
+    const pinned = { insight_attention_at: '2026-10-29T08:00:00Z' };
+    expect(shouldFetchUnloadedPin(pinned, true)).toBe(true);
+    expect(shouldFetchUnloadedPin(pinned, false)).toBe(false);
+    expect(shouldFetchUnloadedPin({ insight_attention_at: null }, true)).toBe(
+      false
+    );
   });
 });

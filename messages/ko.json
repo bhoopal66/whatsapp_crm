@@ -8489,8 +8489,18 @@
       "filtersLabel": "스마트 인사이트 필터",
       "filterHot": "유망 리드",
       "filterUpset": "불만",
-      "filterAttention": "확인 필요",
-      "urgentPin": "긴급",
+      "filterAttention": "높은 우선순위",
+      "pinnedCount": "고정됨 {count}",
+      "pin": {
+        "urgent": "긴급",
+        "wants_person": "상담원 요청",
+        "upset": "불만",
+        "callback": "회신 전화"
+      },
+      "handled": "처리 완료",
+      "handledAria": "{name}님과의 대화를 처리 완료로 표시",
+      "handledToast": "처리 완료로 표시했습니다",
+      "handledFailed": "처리 완료로 표시하지 못했습니다. 다시 시도하세요.",
       "tooltip": {
         "lead": "리드: {value}",
         "intent": "문의: {value}",

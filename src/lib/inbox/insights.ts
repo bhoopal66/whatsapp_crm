@@ -163,8 +163,8 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
 // The Urgent pin
 //
 // DEPRECATED: replaced by "pinned until handled" (isPinned / comparePinned
-// / sortWithPins below, migration 153). The Inbox list still calls these
-// until the wiring job switches it over; remove them then.
+// / sortWithPins below, migration 153). The Inbox list no longer calls
+// these; nothing but their tests does. Remove them in a cleanup.
 // ---------------------------------------------------------------------------
 
 /**
@@ -175,11 +175,20 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
 export const URGENT_PIN_LIMIT = 50;
 
 /**
+ * The most attention pins (migration 153) the first page asks for
+ * beside the normal page, as `ATTENTION_LIMIT` (attention.ts) does for
+ * Important. Past this they arrive with their page.
+ */
+export const PIN_LIMIT = 50;
+
+/**
  * What the first-page query needs from Smart insights. Until the
  * settings have loaded the list must wait (they report "off" meanwhile,
  * so it would load once without pins and filters and again with them);
- * with signals off it never asks for urgent pins or filter bounds, so
- * the list loads once, exactly as before.
+ * with signals off it never asks for attention pins or filter bounds,
+ * so the list loads once, exactly as before. `attentionPins` is the
+ * bounded extra read of chats with `insight_attention_at` set
+ * ({@link PIN_LIMIT}).
  */
 export function insightListQuery(input: {
   signalsEnabled: boolean;
@@ -187,16 +196,16 @@ export function insightListQuery(input: {
   insightFilters: readonly InsightFilter[];
 }): {
   ready: boolean;
-  urgentPins: boolean;
+  attentionPins: boolean;
   bounds: { column: InsightFilterColumn; min: number }[];
 } {
   if (input.settingsLoading)
-    return { ready: false, urgentPins: false, bounds: [] };
+    return { ready: false, attentionPins: false, bounds: [] };
   if (!input.signalsEnabled)
-    return { ready: true, urgentPins: false, bounds: [] };
+    return { ready: true, attentionPins: false, bounds: [] };
   return {
     ready: true,
-    urgentPins: true,
+    attentionPins: true,
     bounds: insightFilterBounds(input.insightFilters),
   };
 }
@@ -449,4 +458,74 @@ export function sortWithPins<T extends PinRow>(rows: readonly T[]): T[] {
   const rest: T[] = [];
   for (const r of rows) (isPinned(r) ? pinned : rest).push(r);
   return [...pinned.sort(comparePinned), ...rest.sort(compareForInbox)];
+}
+
+// ---------------------------------------------------------------------------
+// Handled, the Pinned chip and live pin changes (the Inbox list)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the chat carries a signal's attention stamp, which Handled
+ * (`acknowledge_insight_attention`) clears. Important alone does not:
+ * Take over / Resume / a reply clear that one.
+ */
+export function hasAttentionPin(
+  row: Pick<Conversation, 'insight_attention_at'>
+): boolean {
+  return stamp(row.insight_attention_at) !== null;
+}
+
+/**
+ * Chats marked Handled whose RPC has not come back through realtime yet:
+ * conversation id → the attention stamp that was handled. A row still
+ * holding that exact stamp is shown cleared (in the list, unpinned); a
+ * newer stamp (a fresh signal since) shows again, and deleting the entry
+ * (the RPC failed) restores the pin. Rows not named are returned as-is,
+ * and so is the array when nothing changed.
+ */
+export function applyHandled<
+  T extends Pick<
+    Conversation,
+    'id' | 'insight_attention_at' | 'insight_attention_reason'
+  >,
+>(rows: T[], handled: ReadonlyMap<string, string>): T[] {
+  if (handled.size === 0) return rows;
+  let changed = false;
+  const out = rows.map((r) => {
+    const at = handled.get(r.id);
+    if (at === undefined || r.insight_attention_at !== at) return r;
+    changed = true;
+    return { ...r, insight_attention_at: null, insight_attention_reason: null };
+  });
+  return changed ? out : rows;
+}
+
+/** The header's "N pinned" chip: how many, and whether any is urgent. */
+export function pinnedSummary(
+  rows: readonly Pick<
+    Conversation,
+    'ai_attention_at' | 'insight_attention_at' | 'insight_attention_reason'
+  >[]
+): { count: number; urgent: boolean } {
+  let count = 0;
+  let urgent = false;
+  for (const r of rows) {
+    if (!isPinned(r)) continue;
+    count++;
+    if (storedAttention(r)?.reason === 'urgent') urgent = true;
+  }
+  return { count, urgent };
+}
+
+/**
+ * Whether a realtime conversation update for a chat the list has not
+ * loaded should fetch it: it was just pinned by a signal, so it belongs
+ * at the top whatever its last message's age. Only with signals on;
+ * off, the list behaves exactly as before.
+ */
+export function shouldFetchUnloadedPin(
+  row: Pick<Conversation, 'insight_attention_at'>,
+  signalsEnabled: boolean
+): boolean {
+  return signalsEnabled && hasAttentionPin(row);
 }

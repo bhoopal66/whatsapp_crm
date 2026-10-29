@@ -44,6 +44,8 @@ import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
+import { shouldFetchUnloadedPin } from '@/lib/inbox/insights';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { FullRowRetry } from '@/components/inbox/full-row-retry';
 import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
@@ -492,6 +494,15 @@ export function InboxPageInner({
     [activeConversation, hydrateConversation]
   );
 
+  // Smart insights on (docs/jev-insights.md): a chat a signal just
+  // pinned is fetched below even when it is an older thread. Read
+  // through a ref so the realtime handler keeps its identity.
+  const { settings: insightSettings } = useInsightSettings();
+  const signalsOnRef = useRef(false);
+  useEffect(() => {
+    signalsOnRef.current = !!insightSettings?.signalsEnabled;
+  });
+
   // Handle realtime conversation events
   const handleConversationEvent = useCallback(
     (event: {
@@ -539,6 +550,9 @@ export function InboxPageInner({
           // A chat needing attention is pinned at the top, wherever its
           // last message falls (lib/inbox/attention.ts).
           needsAttention(conv) ||
+          // So is a chat a signal pinned until handled (migration 153),
+          // only with signals on.
+          shouldFetchUnloadedPin(conv, signalsOnRef.current) ||
           isWithinLoadedWindow(conv.last_message_at, listCursorRef.current)
         ) {
           // UPDATE arrived before the INSERT (or after a missed INSERT)

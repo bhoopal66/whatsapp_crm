@@ -15,6 +15,7 @@ import {
   type InsightBadgeKind,
 } from '@/lib/inbox/insights';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
+import { swatchOf, type PaletteRef } from '@/lib/insights/palette';
 import { cn } from '@/lib/utils';
 
 /**
@@ -64,15 +65,11 @@ export function InsightBadge({
   );
 }
 
-function InsightBadgeInner({
-  kind,
-  conversation,
-  className,
-}: {
-  kind: InsightBadgeKind;
-  conversation: InsightRow;
-  className?: string;
-}) {
+/**
+ * The tooltip's lines: what Jev last judged, with "Updated …" counted
+ * from when the tooltip opened.
+ */
+function useInsightLines(conversation: InsightRow) {
   const t = useTranslations('InsightsUi');
   const format = useFormatter();
   // "Updated 5 minutes ago" counts from when the tooltip opened, not
@@ -109,13 +106,26 @@ function InsightBadgeInner({
         t('list.tooltip.updated', { when: format.relativeTime(at, now) })
       );
   }
+  const onOpenChange = (open: boolean) => {
+    if (open) setNow(Date.now());
+  };
+  return { lines, onOpenChange };
+}
+
+function InsightBadgeInner({
+  kind,
+  conversation,
+  className,
+}: {
+  kind: InsightBadgeKind;
+  conversation: InsightRow;
+  className?: string;
+}) {
+  const t = useTranslations('InsightsUi');
+  const { lines, onOpenChange } = useInsightLines(conversation);
 
   return (
-    <Tooltip
-      onOpenChange={(open) => {
-        if (open) setNow(Date.now());
-      }}
-    >
+    <Tooltip onOpenChange={onOpenChange}>
       {/* A span, not a button: the row itself is a <button>. */}
       <TooltipTrigger
         render={
@@ -138,15 +148,83 @@ function InsightBadgeInner({
           <span className="sr-only">{`: ${lines.join('. ')}`}</span>
         )}
       </TooltipTrigger>
-      {lines.length > 0 && (
-        <TooltipContent>
-          <span className="flex flex-col gap-0.5">
-            {lines.map((line) => (
-              <span key={line}>{line}</span>
-            ))}
-          </span>
-        </TooltipContent>
-      )}
+      <LinesContent lines={lines} />
+    </Tooltip>
+  );
+}
+
+function LinesContent({ lines }: { lines: string[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <TooltipContent>
+      <span className="flex flex-col gap-0.5">
+        {lines.map((line) => (
+          <span key={line}>{line}</span>
+        ))}
+      </span>
+    </TooltipContent>
+  );
+}
+
+/**
+ * An Inbox row's coloured chips (`rowSignals(...).chips`, at most three),
+ * each in its palette swatch and named as the legend names it. The group
+ * carries the badge's tooltip and its screen-reader summary. On a narrow
+ * row (a container query on the row's text column) each chip collapses
+ * to its coloured dot, so the row never grows.
+ */
+export function InsightChips({
+  conversation,
+  chips,
+  className,
+}: {
+  conversation: InsightRow;
+  chips: readonly PaletteRef[];
+  className?: string;
+}) {
+  const t = useTranslations('InsightsUi.legend.families');
+  const { lines, onOpenChange } = useInsightLines(conversation);
+  if (chips.length === 0) return null;
+  const labels = chips.map((c) => t(`${c.family}.items.${c.key}.label`));
+  return (
+    <Tooltip onOpenChange={onOpenChange}>
+      {/* A span, not a button: the row itself is a <button>. */}
+      <TooltipTrigger
+        render={
+          <span
+            className={cn('inline-flex shrink-0 items-center gap-1', className)}
+          />
+        }
+      >
+        {chips.map((c, i) => {
+          const swatch = swatchOf(c);
+          return (
+            <span key={`${c.family}:${c.key}`} className="contents">
+              <span
+                aria-hidden
+                className={cn(
+                  'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold @max-[14rem]:hidden',
+                  swatch.chip
+                )}
+              >
+                {labels[i]}
+              </span>
+              <span
+                aria-hidden
+                className={cn(
+                  'hidden h-2 w-2 shrink-0 rounded-full @max-[14rem]:inline-block',
+                  swatch.dot
+                )}
+              />
+            </span>
+          );
+        })}
+        <span className="sr-only">
+          {labels.join(', ')}
+          {lines.length > 0 ? `: ${lines.join('. ')}` : ''}
+        </span>
+      </TooltipTrigger>
+      <LinesContent lines={lines} />
     </Tooltip>
   );
 }

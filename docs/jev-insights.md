@@ -88,19 +88,29 @@ actions: nothing here sends, tags, assigns or opts anyone out.
 Only while Smart insights signals are on for the workspace; with them
 off the Inbox and Team inbox fetch and look exactly as before.
 
-- **One badge per chat**, in the row's top line, by precedence:
-  **Urgent** › **Upset** › **Wants a person** › **Ready to apply** ›
-  **Hot lead** (the loudest wins; a chat with none of these shows
-  nothing). Hovering it lists what Jev last judged: lead band, what the
-  customer wants, urgency, mood, and when it was updated.
-- **Three filter chips** beside All / Unread: **Hot leads** (lead
-  temperature at least hot), **Upset**, and **Needs attention**
-  (priority 1 or 2). They narrow together and also work as a deep link,
+- **Colour-coded rows.** Each row carries a left stripe in its signal's
+  colour (the attention reason, else an urgent priority, else a hot or
+  ready lead; none otherwise) and up to three small chips in its bottom
+  line: the mood (wants a person, upset, very negative), the lead band
+  (warm, hot, ready) and what the customer wants. On a narrow list the
+  chips shrink to coloured dots. Hovering them lists what Jev last
+  judged: lead band, what the customer wants, urgency, mood, and when it
+  was updated. The colours are the same on every screen; the **What do
+  the colours mean?** button beside the filter chips explains each one.
+- **Pinned until handled.** A chat Jev flags for a person (urgent, wants
+  a person, upset, or asked for a call back) is pinned at the top with a
+  coloured label until a person replies, clicks **Handled**, or closes
+  it, together with the chats the AI handed over (**Important**). Order:
+  urgent › Important › wants a person › upset › call back, the longest
+  waiting first. An older thread pinned while the Inbox is open moves to
+  the top live. **Handled** appears on the row on hover or keyboard
+  focus (always on touch screens); it unpins the chat at once and leaves
+  it in the list.
+- **Filter chips** beside All / Unread: **N pinned** (red when any is
+  urgent) shows only the pinned chats; **Hot leads** (lead temperature
+  at least hot), **Upset** and **High priority** (priority 1 or 2)
+  narrow together and also work as a deep link,
   `?insight=hot,upset,attention`.
-- **The Urgent pin.** An urgent chat (priority 2) that is still unread
-  is pinned under the Important chats with a red **Urgent** label, newest
-  first, until someone reads it. An Important chat stays with the
-  Important ones.
 
 **The Customer insights card** sits in the Inbox's contact panel (kept
 live as new judgments arrive) and on the customer page (read when the

@@ -8489,8 +8489,18 @@
       "filtersLabel": "Smart insights filters",
       "filterHot": "Hot leads",
       "filterUpset": "Upset",
-      "filterAttention": "Needs attention",
-      "urgentPin": "Urgent",
+      "filterAttention": "High priority",
+      "pinnedCount": "{count} pinned",
+      "pin": {
+        "urgent": "Urgent",
+        "wants_person": "Wants a person",
+        "upset": "Upset",
+        "callback": "Call back"
+      },
+      "handled": "Handled",
+      "handledAria": "Mark the chat with {name} as handled",
+      "handledToast": "Marked as handled",
+      "handledFailed": "Couldn't mark it as handled. Try again.",
       "tooltip": {
         "lead": "Lead: {value}",
         "intent": "Wants: {value}",

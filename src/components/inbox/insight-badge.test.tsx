@@ -5,7 +5,8 @@ import { NextIntlClientProvider, type AbstractIntlMessages } from 'next-intl';
 
 import en from '../../../messages/en.json';
 import ko from '../../../messages/ko.json';
-import { InsightBadge } from './insight-badge';
+import { swatchOf } from '@/lib/insights/palette';
+import { InsightBadge, InsightChips } from './insight-badge';
 
 // The words and tone the row badge renders. Which badge a row gets is
 // lib/inbox/insights.test.ts.
@@ -59,5 +60,47 @@ describe('InsightBadge', () => {
       'ko'
     );
     expect(html).toContain('긴급');
+  });
+});
+
+describe('InsightChips', () => {
+  const chips = [
+    { family: 'lead', key: 'hot' },
+    { family: 'intent', key: 'business_loan' },
+  ] as const;
+
+  function renderChips(
+    list: React.ComponentProps<typeof InsightChips>['chips']
+  ): string {
+    return renderToStaticMarkup(
+      <NextIntlClientProvider locale="en" messages={en as AbstractIntlMessages}>
+        <InsightChips
+          conversation={{ insight_lead_temp: 2, insight_upset: 0.1 }}
+          chips={list}
+        />
+      </NextIntlClientProvider>
+    );
+  }
+
+  it('renders nothing without chips', () => {
+    expect(renderChips([])).toBe('');
+  });
+
+  it('names each chip as the legend does, in its palette colour', () => {
+    const html = renderChips(chips);
+    const legend = en.InsightsUi.legend.families;
+    expect(html).toContain(legend.lead.items.hot.label);
+    expect(html).toContain(legend.intent.items.business_loan.label);
+    for (const c of chips) {
+      expect(html).toContain(swatchOf(c).chip);
+      expect(html).toContain(swatchOf(c).dot);
+    }
+    expect(html).not.toContain('<button');
+  });
+
+  it('keeps the screen-reader summary on the group', () => {
+    const html = renderChips(chips);
+    expect(html).toMatch(/class="sr-only">[^<]*Lead: /);
+    expect(html).toContain('Mood: Calm');
   });
 });
