@@ -8499,7 +8499,7 @@
   },
   "StatusMap": {
     "title": "Compass status mapping",
-    "explainer": "Compass reports each application's status. When a status name matches no stage, say here which stage it means, and cases with that status move there.",
+    "explainer": "Compass reports each application's status. Say here which stage a status means (for example a Compass name that matches no stage), and cases with that status move there. A mapping also overrides a stage with the same name.",
     "finalNote": "Final statuses (Approved, Declined, Withdrawn, Closed) always close the case and cannot be mapped. Pre-submission and final stages are not offered as targets.",
     "needsJev": "Suggestions need Jev (Settings → Smart insights).",
     "unmappedHeading": "Unmapped statuses",
