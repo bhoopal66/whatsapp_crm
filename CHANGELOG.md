@@ -14,7 +14,11 @@ and polish.
 
 ### Sidebar: counts instead of a dot
 
-No migration.
+**Migration required: 146_whatsapp_group_reads.sql** (apply as a
+superuser or BYPASSRLS role, like 114). It adds per-person read markers
+for WhatsApp groups (`whatsapp_group_reads`), the
+`whatsapp_group_mark_read(uuid)` and `whatsapp_group_unread_count()`
+functions, and a partial index on inbound group messages.
 - The Inbox item in the sidebar showed a pulsing dot when anything was
   unread. It now shows the number of unread chats (99+ above 99), like
   Team chat and Calls already did, and keeps showing it while you are
@@ -25,6 +29,10 @@ No migration.
   dot also lit for teammates' chats.
 - **Cases** shows how many of your open cases are past their SLA (the
   home screen's "Overdue cases"), refreshed every 2 minutes.
+- **Groups** shows how many WhatsApp groups have messages you have not
+  read. Opening a group marks it read for you (only you). A group you
+  have never opened counts only if it got a message in the last 7 days,
+  so old groups don't all light up the day this ships.
 
 ### Dashboard: a home screen for today's work
 

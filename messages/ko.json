@@ -67,6 +67,7 @@
     "calls": "통화",
     "missedCalls": "열린 부재중 전화 할 일 {count}건",
     "overdueCases": "SLA가 지난 케이스 {count}건",
+    "unreadGroups": "읽지 않은 메시지가 있는 그룹 {count}개",
     "meetings": "회의",
     "calendar": "캘린더",
     "whatsappGroups": "WhatsApp 그룹",

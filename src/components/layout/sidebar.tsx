@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useUnreadChats } from '@/hooks/use-total-unread';
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
+import { useGroupsUnread } from '@/hooks/use-groups-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import {
@@ -106,6 +107,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   } = useAuth();
   const unreadChats = useUnreadChats();
   const casesOverdue = useCasesOverdue();
+  const groupsUnread = useGroupsUnread();
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
@@ -187,6 +189,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           count: callsNav.missed,
           label: t('missedCalls', { count: callsNav.missed }),
           className: DUE_BADGE,
+        };
+      case '/groups':
+        return {
+          count: groupsUnread,
+          label: t('unreadGroups', { count: groupsUnread }),
+          className: PRIMARY_BADGE,
         };
       case '/cases':
         return {
