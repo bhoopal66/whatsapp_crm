@@ -70,11 +70,15 @@ describe('coverageBadge', () => {
     expect(
       coverageBadge(topic({ coverage: 'partial', covered_by_title: 'Fees?' }))
     ).toEqual({ kind: 'partial', tone: 'info', entry: 'Fees?' });
-    expect(coverageBadge(topic({ coverage: 'full' }))).toEqual({
-      kind: 'full',
-      tone: 'success',
-      entry: null,
-    });
+    expect(
+      coverageBadge(topic({ coverage: 'full', covered_by_title: 'Fees?' }))
+    ).toEqual({ kind: 'full', tone: 'success', entry: 'Fees?' });
+  });
+
+  it('claims no coverage once the covering answer is gone', () => {
+    // A deleted answer nulls the link before the next recompute catches up.
+    expect(coverageBadge(topic({ coverage: 'full' }))).toBeNull();
+    expect(coverageBadge(topic({ coverage: 'partial' }))).toBeNull();
   });
 
   it('shows nothing while coverage is unknown', () => {

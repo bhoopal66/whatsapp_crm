@@ -101,10 +101,18 @@ export function coverageBadge(
   switch (topic.coverage) {
     case 'none':
       return { kind: 'none', tone: 'warning' };
+    // Coverage names the answer that covers the topic. With no answer
+    // left (it was deleted after the last recompute, which nulls the
+    // link), "answered" would hide a real gap until the next run, so
+    // say nothing rather than claim coverage.
     case 'partial':
-      return { kind: 'partial', tone: 'info', entry: topic.covered_by_title };
+      return topic.covered_by_title
+        ? { kind: 'partial', tone: 'info', entry: topic.covered_by_title }
+        : null;
     case 'full':
-      return { kind: 'full', tone: 'success', entry: topic.covered_by_title };
+      return topic.covered_by_title
+        ? { kind: 'full', tone: 'success', entry: topic.covered_by_title }
+        : null;
     case 'unknown':
       return null;
     default: {
