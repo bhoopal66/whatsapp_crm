@@ -104,14 +104,23 @@ describe('CustomerInsightsCard', () => {
       expect(html).toContain(step);
     // Exactly one current step, and it is Hot lead.
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
-    expect(html).toMatch(/aria-current="step"[^>]*>Hot lead</);
+    // Each step shows its short word on one line; the full band name is
+    // its title and its screen-reader text.
+    expect(html).toMatch(
+      /<li[^>]*aria-current="step"[^>]*title="Hot lead"[^>]*><span aria-hidden="true">Hot<\/span><span class="sr-only">Hot lead<\/span>/
+    );
+    expect(html).toMatch(
+      /<li[^>]*title="Comparing options"[^>]*><span aria-hidden="true">Comparing<\/span>/
+    );
     // Palette colours: urgency red, upset fuchsia, wants a person violet,
     // the intent its own hue, the current lead step its band's.
     expect(html).toMatch(/text-red-700[^>]*>Urgent</);
     expect(html).toMatch(/text-fuchsia-700[^>]*>Upset</);
     expect(html).toMatch(/text-violet-700[^>]*>Wants a person</);
     expect(html).toMatch(/text-emerald-700[^>]*>Business loan</);
-    expect(html).toMatch(/text-orange-700[^"]*font-semibold[^>]*>Hot lead</);
+    expect(html).toMatch(
+      /text-orange-700[^"]*font-semibold[^>]*><span aria-hidden="true">Hot</
+    );
     expect(html).not.toContain('>Calm<');
     expect(html).toContain('Based on their last message · 5 minutes ago');
     expect(html).toContain('bg-card-2');

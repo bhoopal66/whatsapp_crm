@@ -8530,20 +8530,26 @@
       "objections": "망설이는 이유",
       "notEnoughHistory": "아직 기록이 충분하지 않습니다",
       "sparkMood": "최근 메시지 {count}개의 기분: {trend}",
-      "sparkLead": "최근 메시지 {count}개의 리드: {trend}"
+      "sparkLead": "최근 메시지 {count}개의 리드: {trend}",
+      "meterShort": {
+        "cold": "문의",
+        "warm": "비교",
+        "hot": "유망",
+        "ready": "준비"
+      }
     },
     "home": {
       "hot": {
         "label": "대기 중인 핫 리드",
-        "hint": "읽지 않은 메시지가 있는 핫 리드"
+        "hint": "답장 대기 중"
       },
       "upset": {
         "label": "답변 대기 중인 불만 고객",
-        "hint": "읽지 않은 메시지가 있는 불만 고객"
+        "hint": "불만, 대기 중"
       },
       "pinned": {
         "label": "고정된 채팅",
-        "hint": "처리될 때까지 상단에 고정된 채팅"
+        "hint": "처리 전까지"
       }
     },
     "legend": {

@@ -107,6 +107,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useOverflowEnd } from '@/hooks/use-overflow-end';
 import { ContactAvatar } from './contact-avatar';
 
 /**
@@ -523,6 +524,9 @@ export function ConversationList({
     return [...ids].sort().join(',');
   }, [conversations, chatTagRows, chatTagTree]);
   const chatTagsReloadedFor = useRef(new Set<string>());
+  // The filter chip row scrolls sideways; its right edge fades only
+  // while chips are hidden past it.
+  const [filterChipsRef, filterChipsOverflow] = useOverflowEnd();
   useEffect(() => {
     if (!unknownChatTagIds) return;
     const fresh = unknownChatTagIds
@@ -1049,7 +1053,14 @@ export function ConversationList({
         {/* All / Unread as WhatsApp's filter chips — one tap, and "Unread"
             is always in sight rather than behind a dropdown. Scrolls
             sideways when a locale's labels outgrow the column. */}
-        <div className="-mx-3 flex [scrollbar-width:none] gap-1 overflow-x-auto px-3 [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={filterChipsRef}
+          className={cn(
+            '-mx-3 flex [scrollbar-width:none] gap-1 overflow-x-auto px-3 whitespace-nowrap [&::-webkit-scrollbar]:hidden',
+            filterChipsOverflow &&
+              '[mask-image:linear-gradient(to_right,black_calc(100%_-_2.5rem),transparent)]'
+          )}
+        >
           <div
             role="radiogroup"
             aria-label={t('filterAll')}
@@ -1717,8 +1728,9 @@ const ConversationItem = memo(function ConversationItem({
 
   // Everything beyond name and preview shares one quiet line, so a row
   // is never more than three lines tall.
-  // Chips never earn this line (rowHasMetaLine): they ride on the
-  // preview line, so a row is no taller with signals than without.
+  // Chips never earn this line (rowHasMetaLine): they ride on it when
+  // it is there and on the top line when it is not, so a row is no
+  // taller with signals than without, and the preview line is today's.
   const hasMeta = rowHasMetaLine({
     numberName,
     campaignName,
@@ -1732,7 +1744,8 @@ const ConversationItem = memo(function ConversationItem({
       onClick={handleClick}
       aria-current={isActive ? 'true' : undefined}
       className={cn(
-        'flex w-full items-center gap-3 pl-3 text-left transition-colors',
+        // @container: the insight chips size themselves to the row.
+        '@container flex w-full items-center gap-3 pl-3 text-left transition-colors',
         isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover',
         // Signals on: the left stripe in the row's colour, transparent
         // when it has none so rows never shift. Off: today's red edge.
@@ -1750,7 +1763,7 @@ const ConversationItem = memo(function ConversationItem({
 
       {/* The divider runs under the text only, starting past the
           avatar, the way WhatsApp draws it. */}
-      <div className="border-wa-divider @container min-w-0 flex-1 self-stretch border-b py-3 pr-3">
+      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
         <div className="flex items-baseline justify-between gap-2">
           <span
             className={cn(
@@ -1761,6 +1774,16 @@ const ConversationItem = memo(function ConversationItem({
             {displayName}
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
+            {/* No meta line to carry them: the chips ride here, always
+                as dots, so the name truncates by a few pixels at most. */}
+            {!hasMeta && chips.length > 0 && (
+              <InsightChips
+                conversation={conversation}
+                chips={chips}
+                dotsOnly
+                className="self-center"
+              />
+            )}
             {important && (
               <ImportantBadge
                 label={
@@ -1805,18 +1828,12 @@ const ConversationItem = memo(function ConversationItem({
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p
             className={cn(
-              'min-w-0 flex-1 truncate text-[13.5px] leading-5',
+              'truncate text-[13.5px] leading-5',
               unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
             )}
           >
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
-          {/* Signal chips share the preview line (the preview truncates
-              first; narrow rows collapse them to dots), so they never
-              add a line of their own. */}
-          {chips.length > 0 && (
-            <InsightChips conversation={conversation} chips={chips} />
-          )}
           {/* The chat tag sits on the right, beside the unread count:
               one pill, the main tag tinted in its colour and its
               sub-tag joined on fainter. It may take most of the line;
@@ -1901,6 +1918,18 @@ const ConversationItem = memo(function ConversationItem({
                   {handlerName ?? t('unassigned')}
                 </span>
               </span>
+            )}
+
+            {/* Insight chips close the meta line, right-aligned: named
+                chips on a wide row, coloured dots on a narrow one (a
+                container query on the row). They never shrink; the
+                number and the name truncate instead. */}
+            {chips.length > 0 && (
+              <InsightChips
+                conversation={conversation}
+                chips={chips}
+                className="ml-auto"
+              />
             )}
           </div>
         )}

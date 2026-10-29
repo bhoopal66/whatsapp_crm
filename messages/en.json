@@ -8530,20 +8530,26 @@
       "objections": "What holds them back",
       "notEnoughHistory": "Not enough history yet",
       "sparkMood": "Mood over the last {count} messages: {trend}",
-      "sparkLead": "Lead over the last {count} messages: {trend}"
+      "sparkLead": "Lead over the last {count} messages: {trend}",
+      "meterShort": {
+        "cold": "Curious",
+        "warm": "Comparing",
+        "hot": "Hot",
+        "ready": "Ready"
+      }
     },
     "home": {
       "hot": {
         "label": "Hot leads waiting",
-        "hint": "Hot leads with unread messages"
+        "hint": "Waiting for a reply"
       },
       "upset": {
         "label": "Upset customers waiting",
-        "hint": "Upset customers with unread messages"
+        "hint": "Upset and waiting"
       },
       "pinned": {
         "label": "Pinned chats",
-        "hint": "Chats held at the top until handled"
+        "hint": "Until someone acts"
       }
     },
     "legend": {

@@ -169,17 +169,21 @@ function LinesContent({ lines }: { lines: string[] }) {
 /**
  * An Inbox row's coloured chips (`rowSignals(...).chips`, at most three),
  * each in its palette swatch and named as the legend names it. The group
- * carries the badge's tooltip and its screen-reader summary. On a narrow
- * row (a container query on the row's text column) each chip collapses
- * to its coloured dot, so the row never grows.
+ * carries the badge's tooltip and its screen-reader summary. Each chip is
+ * its coloured dot unless the row (the nearest `@container`, the row
+ * button) is at least 30rem wide, so the chips never crowd out the row's
+ * own items; `dotsOnly` keeps the dots at any width.
  */
 export function InsightChips({
   conversation,
   chips,
+  dotsOnly = false,
   className,
 }: {
   conversation: InsightRow;
   chips: readonly PaletteRef[];
+  /** Dots at every width (the top line, which has no room for words). */
+  dotsOnly?: boolean;
   className?: string;
 }) {
   const t = useTranslations('InsightsUi.legend.families');
@@ -203,7 +207,8 @@ export function InsightChips({
               <span
                 aria-hidden
                 className={cn(
-                  'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold @max-[14rem]:hidden',
+                  'hidden shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold whitespace-nowrap',
+                  !dotsOnly && '@min-[30rem]:inline-flex',
                   swatch.chip
                 )}
               >
@@ -212,7 +217,8 @@ export function InsightChips({
               <span
                 aria-hidden
                 className={cn(
-                  'hidden h-2 w-2 shrink-0 rounded-full @max-[14rem]:inline-block',
+                  'inline-block h-2 w-2 shrink-0 rounded-full',
+                  !dotsOnly && '@min-[30rem]:hidden',
                   swatch.dot
                 )}
               />

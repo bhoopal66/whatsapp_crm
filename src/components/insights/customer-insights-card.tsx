@@ -247,16 +247,18 @@ function CardBody({
           row(
             t('card.lead'),
             <div className="space-y-1">
-              <ol
-                className="grid grid-cols-4 gap-1"
-                aria-label={t('card.lead')}
-              >
+              <ol className="flex gap-1" aria-label={t('card.lead')}>
                 {view.meter.map((s) => (
+                  // A short word on one line, each step as wide as its
+                  // word needs (equal quarters cut "Comparing"); the full
+                  // band name is the title and what a screen reader
+                  // hears ("Just curious" wrapped to two lines).
                   <li
                     key={s.band}
                     aria-current={s.current ? 'step' : undefined}
+                    title={t(`bands.lead.${s.band}`)}
                     className={cn(
-                      'rounded px-1 py-1 text-center text-[10px] leading-tight',
+                      'min-w-0 flex-auto truncate rounded px-1 py-1 text-center text-[10px] leading-tight whitespace-nowrap',
                       s.current
                         ? cn(paletteFor('lead', s.band).chip, 'font-semibold')
                         : s.reached
@@ -264,7 +266,8 @@ function CardBody({
                           : c.step
                     )}
                   >
-                    {t(`bands.lead.${s.band}`)}
+                    <span aria-hidden>{t(`card.meterShort.${s.band}`)}</span>
+                    <span className="sr-only">{t(`bands.lead.${s.band}`)}</span>
                   </li>
                 ))}
               </ol>
