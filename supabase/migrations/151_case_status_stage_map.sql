@@ -350,8 +350,11 @@ COMMENT ON FUNCTION public.case_status_map_overview(uuid) IS
 -- move, so a case already at or past that stage, a case whose list
 -- resolves the status to nothing, and a case whose current stage is not
 -- in its list (no position to compare) are counted as unchanged. The
--- cases are locked first, so the comparison sees the stage the move
--- replaces. A Compass PATCH stays authoritative and is not forward-only.
+-- cases are locked first and each is re-read under its lock, so the
+-- comparison sees the stage the move replaces and the case's current
+-- status (one Compass changed meanwhile is skipped); the mapping row is
+-- held FOR SHARE for the duration. A Compass PATCH stays authoritative
+-- and is not forward-only.
 CREATE OR REPLACE FUNCTION public.case_status_map_apply(p_actor uuid, p_status text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -362,9 +365,13 @@ AS $$
 DECLARE
   v_acct  uuid := public.case_status_map_account(p_actor);
   v_key   text := public.case_status_key(p_status);
-  r       record;
-  v_moved integer := 0;
-  v_same  integer := 0;
+  r        record;
+  v_status text;
+  v_stage  text;
+  v_stages text[];
+  v_target text;
+  v_moved  integer := 0;
+  v_same   integer := 0;
 BEGIN
   IF v_key IS NULL OR v_key = '' THEN
     RAISE EXCEPTION 'STATUS_INVALID: a status is required'
@@ -374,10 +381,14 @@ BEGIN
     RAISE EXCEPTION 'STATUS_FINAL: % closes the case and is not re-applied here', p_status
       USING ERRCODE = 'check_violation', HINT = 'STATUS_FINAL';
   END IF;
+  -- Hold the mapping still while it is applied: a re-map committed in
+  -- the middle of the loop would otherwise make case_apply_submission_status
+  -- resolve a different stage than the one the forward check compared.
+  PERFORM 1 FROM public.case_status_stage_map m
+   WHERE m.account_id = v_acct AND m.status_key = v_key
+     FOR SHARE;
   FOR r IN
-    SELECT g.id, g.submission_status, c.stage,
-           public.case_stages_for_bank(c.account_id, c.bank_code) AS stages,
-           public.case_status_target_stage(c.account_id, c.bank_code, g.submission_status) AS target
+    SELECT c.id AS case_id, g.id
       FROM public.cases c
       JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
      WHERE c.account_id = v_acct AND c.closed_at IS NULL
@@ -385,9 +396,28 @@ BEGIN
      ORDER BY c.id
        FOR UPDATE OF c
   LOOP
+    -- Re-read under the case lock, in a new statement: the loop's rows
+    -- come from its opening snapshot, and Compass may have reported a
+    -- newer status for this case since (sg_note_submission_status writes
+    -- the group, then case_apply_submission_status moves the case). A
+    -- case whose status no longer has this key is left alone, so a fresh
+    -- Compass status is never overridden by a stale one. The group is
+    -- read, not locked: the PATCH writes the group before the case, so
+    -- locking it after the case could deadlock.
+    SELECT g.submission_status, c.stage,
+           public.case_stages_for_bank(c.account_id, c.bank_code),
+           public.case_status_target_stage(c.account_id, c.bank_code, g.submission_status)
+      INTO v_status, v_stage, v_stages, v_target
+      FROM public.cases c
+      JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
+     WHERE c.id = r.case_id AND c.closed_at IS NULL;
+    IF NOT FOUND OR public.case_status_key(v_status) IS DISTINCT FROM v_key THEN
+      v_same := v_same + 1;
+      CONTINUE;
+    END IF;
     -- Forward only; a NULL position never compares true.
-    IF array_position(r.stages, r.target) > array_position(r.stages, r.stage)
-       AND public.case_apply_submission_status(r.id, r.submission_status) THEN
+    IF array_position(v_stages, v_target) > array_position(v_stages, v_stage)
+       AND public.case_apply_submission_status(r.id, v_status) THEN
       v_moved := v_moved + 1;
     ELSE
       v_same := v_same + 1;
