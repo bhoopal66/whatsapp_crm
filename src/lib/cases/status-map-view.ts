@@ -16,7 +16,12 @@ export interface MappedRow {
   source: MapSource;
   suggested_p: number | null;
   open_cases: number;
-  stage_known: boolean;
+  /**
+   * Open cases holding the status that it moves nowhere (their bank list
+   * has neither the mapped stage nor one of that name). null: not known
+   * yet (just saved, until the next read).
+   */
+  unresolved_open_cases: number | null;
 }
 
 export interface UnmappedRow {
@@ -38,7 +43,10 @@ export interface StatusMapView {
   available: boolean;
 }
 
-export type SavedMapping = Omit<MappedRow, 'open_cases' | 'stage_known'>;
+export type SavedMapping = Omit<
+  MappedRow,
+  'open_cases' | 'unresolved_open_cases'
+>;
 
 const obj = (v: unknown): Record<string, unknown> | null =>
   v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -90,7 +98,10 @@ export function parseStatusMap(body: unknown): StatusMapView | null {
       source: source(r.source),
       suggested_p: prob(r.suggested_p),
       open_cases: count(r.open_cases),
-      stage_known: r.stage_known !== false,
+      unresolved_open_cases:
+        typeof r.unresolved_open_cases === 'number'
+          ? count(r.unresolved_open_cases)
+          : null,
     });
   }
   const unmapped: UnmappedRow[] = [];
@@ -162,7 +173,8 @@ export function chipFor(s: StageSuggestion): Chip {
 /**
  * The view after a save: the status leaves Unmapped and joins Mapped
  * (replacing an older mapping of the same key) with its open-case count.
- * `stage_known` is assumed until the next read says otherwise.
+ * Its unresolved count is unknown (null) until the next read: only the
+ * server knows which banks lack the stage.
  */
 export function withSaved(
   view: StatusMapView,
@@ -173,7 +185,7 @@ export function withSaved(
   const row: MappedRow = {
     ...saved,
     open_cases: from?.open_cases ?? old?.open_cases ?? 0,
-    stage_known: true,
+    unresolved_open_cases: null,
   };
   return {
     ...view,

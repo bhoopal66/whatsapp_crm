@@ -7,9 +7,12 @@
 -- unknown status is a no-op). A final status cannot be mapped
 -- (STATUS_FINAL) and a pre-submission or final stage cannot be a target
 -- (STAGE_NOT_ALLOWED, plus the table's CHECKs). case_status_map_apply
--- moves only the account's open cases holding the status, as the API.
--- case_status_map_overview lists statuses nothing resolves, counted per
--- open case. Only a live owner/admin of their active account reaches
+-- moves only the account's open cases holding the status, as the API, and
+-- only forward in the case's bank list. case_status_map_overview lists
+-- unmapped statuses nothing resolves, counted per open case, never a
+-- mapped one; a mapped one carries unresolved_open_cases instead. Only a
+-- live owner/admin of their active account (not a deactivated one, not
+-- one whose active workspace is another) reaches
 -- the RPCs, and only that account's map; RLS shows the map to that
 -- account's owner/admin alone.
 --
@@ -26,6 +29,8 @@ DECLARE
   u_admin  UUID := '00000000-0000-4000-8000-000000151002';
   u_agent  UUID := '00000000-0000-4000-8000-000000151003';
   u_other  UUID := '00000000-0000-4000-8000-000000151004';  -- owner of another account
+  u_gone   UUID := '00000000-0000-4000-8000-000000151005';  -- deactivated admin
+  u_away   UUID := '00000000-0000-4000-8000-000000151006';  -- admin here, active elsewhere
   a_acct   UUID;
   o_acct   UUID;
   w1       UUID;
@@ -264,11 +269,22 @@ BEGIN
   e := pg_temp.ov_entry(j, 'mapped', 'AWAITING CUSTOMER RESPONSE');
   n := n + 1; failed := failed || pg_temp.cs_ok(e IS NOT NULL AND (e ->> 'open_cases')::int = 2
       AND e ->> 'stage' = 'Documents requested' AND e ->> 'source' = 'suggestion'
-      AND (e ->> 'suggested_p')::real = 0.82::real AND (e ->> 'stage_known')::boolean
+      AND (e ->> 'suggested_p')::real = 0.82::real AND (e ->> 'unresolved_open_cases')::int = 0
       AND e ->> 'status_label' = 'Awaiting Customer Response'
       AND jsonb_array_length(j -> 'mapped') = 4
       AND pg_temp.ov_entry(j, 'unmapped', 'AWAITING CUSTOMER RESPONSE') IS NULL,
     format('overview after mapping is wrong (%s)', j));
+  -- k3 (ADCB, no 'Bank acknowledged', no 'Pending bank' stage) now holds
+  -- the mapped PENDING BANK: listed once, under mapped, as unresolved.
+  b1 := sg_note_submission_status(g[3], 'Pending Bank');
+  j := case_status_map_overview(u_admin);
+  e := pg_temp.ov_entry(j, 'mapped', 'PENDING BANK');
+  n := n + 1; failed := failed || pg_temp.cs_ok(pg_temp.ov_entry(j, 'unmapped', 'PENDING BANK') IS NULL,
+    format('overview listed a mapped status as unmapped too (%s)', j -> 'unmapped'));
+  n := n + 1; failed := failed || pg_temp.cs_ok(e IS NOT NULL AND (e ->> 'open_cases')::int = 1
+      AND (e ->> 'unresolved_open_cases')::int = 1
+      AND (pg_temp.ov_entry(j, 'mapped', 'BANK REVIEW') ->> 'unresolved_open_cases')::int = 0,
+    format('overview did not report the mapped status''s open case at a bank without the stage (%s)', e));
 
   -- ---------- 8. apply ----------
   j := case_status_map_apply(u_admin, 'awaiting_customer_response');
@@ -286,6 +302,45 @@ BEGIN
   j := case_status_map_apply(u_admin, 'Awaiting Customer Response');
   n := n + 1; failed := failed || pg_temp.cs_ok(j = '{"moved": 0, "unchanged": 2}'::jsonb,
     format('a second case_status_map_apply moved cases again (%s)', j));
+  -- Forward only: a person moves k4 on to Query raised; the status is then
+  -- re-mapped to Under review, which is after k2's stage and before k4's.
+  failed := failed || pg_temp.cs_check('the owner could not move k4 to Query raised', NULL, NULL,
+    format('SELECT moved::text FROM case_set_stage(%L, %L, ''Query raised'') x', k[4], u_owner), 'true');
+  n := n + 1;
+  j := case_status_map_set(u_admin, 'Awaiting Customer Response', 'Under review', 'admin', NULL);
+  j := case_status_map_apply(u_admin, 'Awaiting Customer Response');
+  n := n + 1; failed := failed || pg_temp.cs_ok(j = '{"moved": 1, "unchanged": 1}'::jsonb
+      AND (SELECT stage FROM cases WHERE id = k[2]) = 'Under review'
+      AND (SELECT stage FROM cases WHERE id = k[4]) = 'Query raised',
+    format('apply did not move only the case before the mapped stage, or moved one back (%s, k2 %s, k4 %s)', j,
+      (SELECT stage FROM cases WHERE id = k[2]), (SELECT stage FROM cases WHERE id = k[4])));
+
+  -- ---------- 8b. a deactivated admin, and an admin active elsewhere ----------
+  INSERT INTO auth.users (id, email) VALUES
+    (u_gone, 'csm-gone@example.invalid'), (u_away, 'csm-away@example.invalid')
+  ON CONFLICT DO NOTHING;
+  UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_gone;
+  UPDATE profiles SET deactivated_at = now() WHERE user_id = u_gone;
+  -- u_away: an agent in their ACTIVE workspace (o_acct), admin of a_acct.
+  UPDATE profiles SET account_id = o_acct, account_role = 'agent' WHERE user_id = u_away;
+  INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+  VALUES (u_away, '', 'csm-away@example.invalid', a_acct, 'admin', false);
+  failed := failed || pg_temp.cs_check('a deactivated admin mapped a status', NULL, NULL,
+    format('SELECT case_status_map_set(%L, ''Gone Status'', ''Submitted'', ''admin'', NULL)::text', u_gone),
+    'ERROR % NOT_ALLOWED:%');
+  failed := failed || pg_temp.cs_check('a deactivated admin applied a status', NULL, NULL,
+    format('SELECT case_status_map_apply(%L, ''Awaiting Customer Response'')::text', u_gone),
+    'ERROR % NOT_ALLOWED:%');
+  failed := failed || pg_temp.cs_check('an admin active in another workspace mapped a status', NULL, NULL,
+    format('SELECT case_status_map_set(%L, ''Away Status'', ''Submitted'', ''admin'', NULL)::text', u_away),
+    'ERROR % NOT_ALLOWED:%');
+  failed := failed || pg_temp.cs_check('an admin active in another workspace applied a status', NULL, NULL,
+    format('SELECT case_status_map_apply(%L, ''Awaiting Customer Response'')::text', u_away),
+    'ERROR % NOT_ALLOWED:%');
+  n := n + 4;
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    NOT EXISTS (SELECT 1 FROM case_status_stage_map WHERE status_key IN ('GONE STATUS', 'AWAY STATUS')),
+    'a refused actor wrote a mapping');
 
   -- ---------- 9. another account ----------
   j := case_status_map_overview(u_other);

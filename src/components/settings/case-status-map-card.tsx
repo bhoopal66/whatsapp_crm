@@ -90,7 +90,15 @@ export function CaseStatusMapCard() {
   // offering "Move N open cases now".
   const [left, setLeft] = useState<Set<string>>(() => new Set());
   const [justSaved, setJustSaved] = useState<Set<string>>(() => new Set());
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Set<string>>(() => new Set());
+  // Per row: one row finishing must not re-enable another mid-request.
+  const setRowBusy = (key: string, on: boolean) =>
+    setBusy((s) => {
+      const next = new Set(s);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
   const [removing, setRemoving] = useState<MappedRow | null>(null);
   const alive = useRef(true);
 
@@ -151,7 +159,7 @@ export function CaseStatusMapCard() {
     source: MapSource,
     suggestedP?: number
   ) {
-    setBusy(row.status_key);
+    setRowBusy(row.status_key, true);
     const answer = await call(URL_BASE, {
       method: 'PUT',
       body: JSON.stringify({
@@ -162,7 +170,7 @@ export function CaseStatusMapCard() {
       }),
     });
     if (!alive.current) return;
-    setBusy(null);
+    setRowBusy(row.status_key, false);
     const mapping = answer.ok ? parseMapping(answer.body) : null;
     if (!mapping) {
       errorToast(answer);
@@ -173,18 +181,18 @@ export function CaseStatusMapCard() {
     toast.success(
       t('saved', { status: unmappedLabel(row), stage: mapping.stage })
     );
-    // Re-read quietly for the server's stage_known.
+    // Re-read quietly for the server's unresolved count.
     void readTable(true);
   }
 
   async function apply(row: MappedRow) {
-    setBusy(row.status_key);
+    setRowBusy(row.status_key, true);
     const answer = await call(`${URL_BASE}/apply`, {
       method: 'POST',
       body: JSON.stringify({ status: mappedLabel(row) }),
     });
     if (!alive.current) return;
-    setBusy(null);
+    setRowBusy(row.status_key, false);
     const counts = answer.ok ? parseApplied(answer.body) : null;
     if (!counts) {
       errorToast(answer);
@@ -199,13 +207,13 @@ export function CaseStatusMapCard() {
   }
 
   async function remove(row: MappedRow) {
-    setBusy(row.status_key);
+    setRowBusy(row.status_key, true);
     const answer = await call(
       `${URL_BASE}?status=${encodeURIComponent(mappedLabel(row))}`,
       { method: 'DELETE' }
     );
     if (!alive.current) return;
-    setBusy(null);
+    setRowBusy(row.status_key, false);
     if (!answer.ok) {
       errorToast(answer);
       return;
@@ -277,7 +285,7 @@ export function CaseStatusMapCard() {
                             : undefined
                         }
                         suggesting={view.available && suggesting}
-                        busy={busy === row.status_key}
+                        busy={busy.has(row.status_key)}
                         onSave={(stage, source, p) =>
                           void save(row, stage, source, p)
                         }
@@ -304,7 +312,7 @@ export function CaseStatusMapCard() {
                       offerMove={
                         justSaved.has(row.status_key) && row.open_cases > 0
                       }
-                      busy={busy === row.status_key}
+                      busy={busy.has(row.status_key)}
                       onMove={() => void apply(row)}
                       onRemove={() => setRemoving(row)}
                     />
@@ -493,12 +501,12 @@ function MappedItem({
           </Button>
         </div>
       </div>
-      {!row.stage_known ? (
+      {(row.unresolved_open_cases ?? 0) > 0 ? (
         <p
           className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-xs ${WARN}`}
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-          {t('stageUnknown')}
+          {t('unresolved', { count: row.unresolved_open_cases ?? 0 })}
         </p>
       ) : null}
     </li>

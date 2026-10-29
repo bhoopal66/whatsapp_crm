@@ -120,14 +120,20 @@ status that names no stage changes nothing. A `stage` sent in the same
 `PATCH` wins over a non-final status.
 
 **Status mapping (migration 151).** Before the name rule, the account's
-status map is consulted: owners and admins map a Compass status name that
-matches no stage to a stage in Settings → Cases → Compass status mapping,
-optionally from a Jev suggestion. A mapped stage is used when it is in the
-case's bank list (the same rules as above: never a pre-submission or final
-stage, never out of a final one); otherwise the name rule applies. Final
-statuses cannot be mapped. A new mapping acts on the next update; **Move N
-open cases now** re-applies it to open cases already holding the status
-through the same path. See `docs/jev-insights.md`.
+status map is consulted: owners and admins map a Compass status name to a
+stage in Settings → Cases → Compass status mapping, optionally from a Jev
+suggestion. A mapping also overrides an exact-name match: a mapped status
+goes to its mapped stage even where a stage of the same name exists. A
+mapped stage is used when it is in the case's bank list (the same rules as
+above: never a pre-submission or final stage, never out of a final one);
+otherwise the name rule applies. Final statuses cannot be mapped. A new
+mapping acts on the next update; **Move N open cases now** re-applies it to
+open cases already holding the status through the same path, **forward
+only**: a case moves only when the resolved stage comes later in its bank
+list than its current stage, because the stored status may be older than a
+person's later move. A case already at or past that stage is left alone. A
+Compass update itself is not forward-only: a fresh status is authoritative.
+See `docs/jev-insights.md`.
 
 ## Leads
 

@@ -23,7 +23,7 @@ const body = {
       source: 'admin',
       suggested_p: null,
       open_cases: 1,
-      stage_known: true,
+      unresolved_open_cases: 0,
     },
     {
       status_key: 'BANK REVIEW',
@@ -32,7 +32,7 @@ const body = {
       source: 'suggestion',
       suggested_p: 0.87,
       open_cases: 4,
-      stage_known: false,
+      unresolved_open_cases: 3,
     },
   ],
   unmapped: [
@@ -53,7 +53,7 @@ describe('parseStatusMap', () => {
     expect(v.mapped[0]).toMatchObject({
       source: 'suggestion',
       suggested_p: 0.87,
-      stage_known: false,
+      unresolved_open_cases: 3,
     });
     expect(v.available).toBe(true);
   });
@@ -155,7 +155,7 @@ describe('withSaved', () => {
       source: 'suggestion',
       suggested_p: 0.7,
       open_cases: 9,
-      stage_known: true,
+      unresolved_open_cases: null,
     });
   });
 
@@ -170,7 +170,11 @@ describe('withSaved', () => {
     });
     const zed = next.mapped.filter((m) => m.status_key === 'ZED');
     expect(zed).toHaveLength(1);
-    expect(zed[0]).toMatchObject({ stage: 'Query raised', open_cases: 1 });
+    expect(zed[0]).toMatchObject({
+      stage: 'Query raised',
+      open_cases: 1,
+      unresolved_open_cases: null,
+    });
   });
 });
 

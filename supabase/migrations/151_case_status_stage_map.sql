@@ -30,7 +30,14 @@
 --  * case_status_map_apply moves the account's open cases already
 --    holding a status through case_apply_submission_status — the path a
 --    Compass PATCH takes — so stage rules, history, SLA triggers and the
---    webhook outbox all hold.
+--    webhook outbox all hold. It only moves a case FORWARD: the resolved
+--    stage must come later in that case's bank list than its current
+--    stage, because a stored status may be older than a person's move.
+--    A Compass PATCH is not forward-only: a fresh status is authoritative.
+--  * case_status_target_stage(account, bank, status): the stage a
+--    non-final status resolves to for one bank list (map, then 137's name
+--    rule), the one rule case_apply_submission_status, the overview and
+--    apply share.
 --
 -- SECURITY DEFINER over RLS-forced tables, so, as 122-137, this must be
 -- applied by a superuser or BYPASSRLS role.
@@ -155,6 +162,38 @@ $$;
 COMMENT ON FUNCTION public.case_status_map_targets(uuid) IS
   'The stages a status may be mapped to: default list order first, then other per-bank stages; never pre-submission or final. Migration 151.';
 
+-- The stage a non-final status resolves to in (account, bank)'s list:
+-- the account's mapped stage when that list has it, else 137's name rule
+-- (the list's stage of the same name, `_` read as a space,
+-- case-insensitive); never pre-submission or final; NULL when neither.
+CREATE OR REPLACE FUNCTION public.case_status_target_stage(p_account uuid, p_bank text, p_status text)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  WITH l AS (SELECT public.case_stages_for_bank(p_account, p_bank) AS stages)
+  SELECT coalesce(
+    (SELECT m.stage
+       FROM public.case_status_stage_map m, l
+      WHERE m.account_id = p_account
+        AND m.status_key = public.case_status_key(p_status)
+        AND m.stage = ANY (l.stages)
+        AND NOT public.case_stage_is_presub(m.stage)
+        AND m.stage NOT IN ('Approved', 'Declined', 'Withdrawn', 'Closed')),
+    (SELECT s.stage
+       FROM l, unnest(l.stages) AS s(stage)
+      WHERE upper(s.stage) = regexp_replace(replace(upper(btrim(coalesce(p_status, ''))), '_', ' '),
+                                            '[[:space:]]+', ' ', 'g')
+        AND NOT public.case_stage_is_presub(s.stage)
+        AND s.stage NOT IN ('Approved', 'Declined', 'Withdrawn', 'Closed')
+      LIMIT 1))
+$$;
+
+COMMENT ON FUNCTION public.case_status_target_stage(uuid, text, text) IS
+  'The stage a non-final status resolves to in an (account, bank) list: the mapped stage when the list has it, else the same-named stage (137); never pre-submission or final; NULL when neither. Migration 151.';
+
 -- ---------- 4. RPCs ----------
 
 -- Maps p_status to p_stage in the actor's active account (upsert on the
@@ -232,10 +271,15 @@ COMMENT ON FUNCTION public.case_status_map_delete(uuid, text) IS
 -- The settings card's data:
 --   stages:   allowed targets (case_status_map_targets)
 --   mapped:   [{status_key, status_label, stage, source, suggested_p,
---               open_cases, stage_known}]
---   unmapped: [{status_key, sample_label, open_cases}] — statuses held by
---             open cases that neither the map nor 137's name rule
---             resolves for that case's own bank list (counted per case).
+--               open_cases, unresolved_open_cases}] — unresolved_open_cases
+--             counts the open cases holding the status that it moves
+--             nowhere: their bank list has neither the mapped stage nor
+--             a stage of the same name.
+--   unmapped: [{status_key, sample_label, open_cases}] — statuses with no
+--             map row, held by open cases whose bank list has no stage of
+--             that name (counted per case). A mapped status is never
+--             listed here: there is one mapping per status account-wide,
+--             so offering it again would silently re-target it.
 CREATE OR REPLACE FUNCTION public.case_status_map_overview(p_actor uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -252,14 +296,19 @@ BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object(
            'status_key', m.status_key, 'status_label', m.status_label, 'stage', m.stage,
            'source', m.source, 'suggested_p', m.suggested_p,
-           'open_cases', (SELECT count(*) FROM public.cases c
-                            JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
-                           WHERE c.account_id = v_acct AND c.closed_at IS NULL
-                             AND public.case_status_key(g.submission_status) = m.status_key),
-           'stage_known', m.stage = ANY (v_targets))
+           'open_cases', o.open_cases, 'unresolved_open_cases', o.unresolved)
          ORDER BY m.status_key), '[]'::jsonb)
     INTO v_mapped
     FROM public.case_status_stage_map m
+    CROSS JOIN LATERAL (
+      SELECT count(*) AS open_cases,
+             count(*) FILTER (WHERE public.case_status_target_stage(c.account_id, c.bank_code,
+                                                                     g.submission_status) IS NULL) AS unresolved
+        FROM public.cases c
+        JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
+       WHERE c.account_id = v_acct AND c.closed_at IS NULL
+         AND public.case_status_key(g.submission_status) = m.status_key
+    ) o
    WHERE m.account_id = v_acct;
 
   SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -270,7 +319,7 @@ BEGIN
       SELECT h.status_key, min(h.submission_status) AS sample_label, count(*) AS open_cases
         FROM (
           SELECT public.case_status_key(g.submission_status) AS status_key, g.submission_status,
-                 public.case_stages_for_bank(c.account_id, c.bank_code) AS stages
+                 c.account_id, c.bank_code
             FROM public.cases c
             JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
            WHERE c.account_id = v_acct AND c.closed_at IS NULL
@@ -278,16 +327,11 @@ BEGIN
         ) h
        WHERE h.status_key <> ''
          AND h.status_key NOT IN ('APPROVED', 'DECLINED', 'WITHDRAWN', 'CLOSED')
-         -- the map resolves it for this case's list
+         -- a mapped status is listed under mapped, never here
          AND NOT EXISTS (SELECT 1 FROM public.case_status_stage_map m
-                          WHERE m.account_id = v_acct AND m.status_key = h.status_key
-                            AND m.stage = ANY (h.stages))
-         -- 137's name rule resolves it for this case's list
-         AND NOT EXISTS (SELECT 1 FROM unnest(h.stages) AS s(stage)
-                          WHERE upper(s.stage) = regexp_replace(replace(upper(btrim(h.submission_status)), '_', ' '),
-                                                                '[[:space:]]+', ' ', 'g')
-                            AND NOT public.case_stage_is_presub(s.stage)
-                            AND s.stage NOT IN ('Approved', 'Declined', 'Withdrawn', 'Closed'))
+                          WHERE m.account_id = v_acct AND m.status_key = h.status_key)
+         -- 137's name rule leaves it unresolved for this case's list
+         AND public.case_status_target_stage(h.account_id, h.bank_code, h.submission_status) IS NULL
        GROUP BY h.status_key
     ) u;
 
@@ -298,8 +342,16 @@ $$;
 COMMENT ON FUNCTION public.case_status_map_overview(uuid) IS
   'Owner/admin of the actor''s active account: {stages, mapped, unmapped} for the status map settings card. Migration 151.';
 
--- Re-applies p_status to every open case of the account whose group
--- currently holds it, through case_apply_submission_status.
+-- Re-applies p_status to the open cases of the account whose group
+-- currently holds it, through case_apply_submission_status, FORWARD ONLY:
+-- a case moves only when the stage the status resolves to for its bank
+-- list (case_status_target_stage) comes later in that list than the
+-- case's current stage. The stored status may predate a person's later
+-- move, so a case already at or past that stage, a case whose list
+-- resolves the status to nothing, and a case whose current stage is not
+-- in its list (no position to compare) are counted as unchanged. The
+-- cases are locked first, so the comparison sees the stage the move
+-- replaces. A Compass PATCH stays authoritative and is not forward-only.
 CREATE OR REPLACE FUNCTION public.case_status_map_apply(p_actor uuid, p_status text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -323,14 +375,19 @@ BEGIN
       USING ERRCODE = 'check_violation', HINT = 'STATUS_FINAL';
   END IF;
   FOR r IN
-    SELECT g.id, g.submission_status
+    SELECT g.id, g.submission_status, c.stage,
+           public.case_stages_for_bank(c.account_id, c.bank_code) AS stages,
+           public.case_status_target_stage(c.account_id, c.bank_code, g.submission_status) AS target
       FROM public.cases c
       JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
      WHERE c.account_id = v_acct AND c.closed_at IS NULL
        AND public.case_status_key(g.submission_status) = v_key
      ORDER BY c.id
+       FOR UPDATE OF c
   LOOP
-    IF public.case_apply_submission_status(r.id, r.submission_status) THEN
+    -- Forward only; a NULL position never compares true.
+    IF array_position(r.stages, r.target) > array_position(r.stages, r.stage)
+       AND public.case_apply_submission_status(r.id, r.submission_status) THEN
       v_moved := v_moved + 1;
     ELSE
       v_same := v_same + 1;
@@ -341,7 +398,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.case_status_map_apply(uuid, text) IS
-  'Owner/admin of the actor''s active account: re-applies a status to every open case holding it, through case_apply_submission_status; {moved, unchanged}. Migration 151.';
+  'Owner/admin of the actor''s active account: re-applies a status to the open cases holding it, through case_apply_submission_status, moving a case only forward in its bank list (a case at or past the resolved stage is unchanged); {moved, unchanged}. Migration 151.';
 
 -- ---------- 5. case_apply_submission_status ----------
 
@@ -392,22 +449,9 @@ BEGIN
      OR c.stage IN ('Approved', 'Declined', 'Withdrawn', 'Closed') THEN
     RETURN false;
   END IF;
-  -- 151: the account's map first, when its stage is in this case's list.
-  SELECT m.stage INTO v_stage
-    FROM public.case_status_stage_map m
-   WHERE m.account_id = c.account_id
-     AND m.status_key = public.case_status_key(p_status)
-     AND m.stage = ANY (public.case_stages_for_bank(c.account_id, c.bank_code))
-     AND NOT public.case_stage_is_presub(m.stage)
-     AND m.stage NOT IN ('Approved', 'Declined', 'Withdrawn', 'Closed');
-  IF v_stage IS NULL THEN
-    SELECT s.stage INTO v_stage
-      FROM unnest(public.case_stages_for_bank(c.account_id, c.bank_code)) AS s(stage)
-     WHERE upper(s.stage) = regexp_replace(replace(v_norm, '_', ' '), '[[:space:]]+', ' ', 'g')
-       AND NOT public.case_stage_is_presub(s.stage)
-       AND s.stage NOT IN ('Approved', 'Declined', 'Withdrawn', 'Closed')
-     LIMIT 1;
-  END IF;
+  -- 151: the account's map first, when its stage is in this case's list,
+  -- else 137's name rule.
+  v_stage := public.case_status_target_stage(c.account_id, c.bank_code, p_status);
   IF v_stage IS NULL OR v_stage = c.stage THEN
     RETURN false;
   END IF;
@@ -427,6 +471,7 @@ REVOKE ALL ON FUNCTION
   public.case_status_key(text),
   public.case_status_map_account(uuid),
   public.case_status_map_targets(uuid),
+  public.case_status_target_stage(uuid, text, text),
   public.case_status_map_set(uuid, text, text, text, real),
   public.case_status_map_delete(uuid, text),
   public.case_status_map_overview(uuid),

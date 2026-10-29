@@ -123,10 +123,13 @@ off the Inbox and Team inbox fetch and look exactly as before.
 stage of the case's bank list moves the case there (migration 137), but
 Compass now sends its own names ("Bank Review", "Returned to RO"), which
 match no stage, so those cases stopped moving. The card lets an admin say
-"this status means that stage".
+"this status means that stage"; a mapping also overrides a stage of the
+same name.
 
-- **Unmapped statuses** are the statuses held by open cases that no mapping
-  or stage name covers, most open cases first. Each row shows how many open
+- **Unmapped statuses** are the statuses with no mapping held by open cases
+  whose bank list has no stage of that name, most open cases first. A
+  mapped status is never listed here (there is one mapping per status for
+  the whole workspace, so offering it again would silently re-target it). Each row shows how many open
   cases hold it, Jev's suggestion ("Under review · 87%", or "No stage change"
   when Jev thinks the status names no stage), **Accept** (saves Jev's stage,
   recorded as *Suggested by Jev* with its probability), a stage picker with
@@ -137,7 +140,9 @@ match no stage, so those cases stopped moving. The card lets an admin say
   background for the 30 unmapped statuses with the most open cases, shown
   the account's allowed stages and its existing mappings as examples, and
   answers a stage (or none) with a probability. Answers are cached for an
-  hour per status and stage list, so only a cold load waits on Jev (5–15 s).
+  hour per status, stage list and set of mappings (saving a mapping gives
+  Jev a new example, so it is asked again), so only a cold load waits on
+  Jev (5–15 s).
   A suggestion is advice: nothing is mapped until someone accepts or saves.
   Without Jev (Settings → Smart insights) the card says so and works by
   hand.
@@ -145,15 +150,20 @@ match no stage, so those cases stopped moving. The card lets an admin say
   close the case and cannot be mapped. Pre-submission and final stages are
   never offered as targets, and the server refuses them (`STATUS_FINAL`,
   `STAGE_NOT_ALLOWED`, `STAGE_NOT_CONFIGURED`).
-- **Mapped statuses** list status → stage with who set it. A warning shows
-  when the stage is missing from some banks' stage lists: those banks'
-  cases will not move by that mapping. Remove (with a confirm) deletes the
+- **Mapped statuses** list status → stage with who set it. A mapping also
+  overrides a stage of the same name. A warning ("N open cases are at banks
+  without this stage; they won't move") counts the open cases holding the
+  status whose bank list has neither the mapped stage nor a stage of that
+  name. Remove (with a confirm) deletes the
   mapping; cases already moved stay where they are.
 - **Move N open cases now.** A mapping applies to the next status update
   Compass sends. Right after a save the row offers to move the open cases
   already holding that status; it re-applies the mapping through the same
-  path a Compass update takes (same stage rules, actor the API), and
-  reports how many moved and how many were already there.
+  path a Compass update takes (same stage rules, actor the API), **forward
+  only**: a case moves only when the mapped stage comes later in its bank
+  list than its current stage, since the stored status may be older than a
+  person's later move. It reports how many moved and how many did not
+  (already there or further along, or their bank has no such stage).
 
 ## Lead score
 

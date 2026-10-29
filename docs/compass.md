@@ -543,13 +543,18 @@ gives `applied: false, reason: "no_case"`.
 A 422 never partly applies: fix the data and resend. A retry of a
 timed-out call is safe because the same values change nothing.
 
-**Status names that match no stage (migration 151).** The CRM keeps a
-per-workspace status map that its admins edit: a status Compass sends
-(for example `Bank Review`) can be mapped to a stage of the bank list. On
-a `PATCH`, the map is consulted before the name rule; a mapped stage that
-is in the case's bank list moves the case there under the same rules. The
-four final statuses cannot be mapped. Nothing changes for Compass: keep
-sending `status` as today.
+**Status mapping (migration 151).** The CRM keeps a per-workspace status
+map that its admins edit: a status Compass sends (for example `Bank
+Review`) can be mapped to a stage of the bank list. On a `PATCH`, the map
+is consulted before the name rule, so a mapping also overrides an
+exact-name match; a mapped stage that is in the case's bank list moves the
+case there under the same rules. The four final statuses cannot be mapped.
+A `PATCH` stays authoritative: its status moves the case whichever way it
+points. Only the admin's **Move N open cases now**, which re-applies a
+stored status to the cases already holding it, is forward-only (a case
+moves only when the resolved stage comes later in its bank list than its
+current stage). Nothing changes for Compass: keep sending `status` as
+today.
 
 ## 8. Stage and document lists
 

@@ -24,7 +24,7 @@ const overview = (n: number): StatusMapOverview => ({
       source: 'admin',
       suggested_p: null,
       open_cases: 2,
-      stage_known: true,
+      unresolved_open_cases: 0,
     },
   ],
   unmapped: Array.from({ length: n }, (_, i) => ({
@@ -85,6 +85,32 @@ describe('suggestStages', () => {
     t += 60 * 60_000;
     await suggestStages(TEST_ACCOUNT, overview(2), { layer, now });
     expect(sim.calls).toHaveLength(6);
+  });
+
+  it('asks again once a new mapping is saved (a new example for Jev)', async () => {
+    const sim = makeSim(() => ({ answers: { stage: 'o1' } }));
+    const { layer } = makeLayer({ sim });
+    const now = () => 1_000_000;
+    await suggestStages(TEST_ACCOUNT, overview(2), { layer, now });
+    expect(sim.calls).toHaveLength(2);
+    const base = overview(2);
+    const saved: StatusMapOverview = {
+      ...base,
+      mapped: [
+        ...base.mapped,
+        {
+          status_key: 'IN REVIEW',
+          status_label: 'In Review',
+          stage: 'Under review',
+          source: 'admin',
+          suggested_p: null,
+          open_cases: 1,
+          unresolved_open_cases: 0,
+        },
+      ],
+    };
+    await suggestStages(TEST_ACCOUNT, saved, { layer, now });
+    expect(sim.calls).toHaveLength(4);
   });
 
   it('leaves out a status Jev could not judge, and does not cache it', async () => {

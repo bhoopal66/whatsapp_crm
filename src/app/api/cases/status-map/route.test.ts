@@ -47,7 +47,7 @@ const overviewRow = {
       source: 'admin',
       suggested_p: null,
       open_cases: 3,
-      stage_known: true,
+      unresolved_open_cases: 0,
     },
   ],
   unmapped: [

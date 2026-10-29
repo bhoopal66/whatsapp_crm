@@ -44,7 +44,8 @@ export interface MappedStatus {
   source: StatusMapSource;
   suggested_p: number | null;
   open_cases: number;
-  stage_known: boolean;
+  /** Open cases holding the status that it moves nowhere (their bank list has neither the mapped stage nor one of that name). */
+  unresolved_open_cases: number;
 }
 
 export interface UnmappedStatus {
@@ -133,7 +134,7 @@ export async function loadStatusMapOverview(
       return {
         ...mapping(m),
         open_cases: num(m.open_cases),
-        stage_known: m.stage_known === true,
+        unresolved_open_cases: num(m.unresolved_open_cases),
       };
     }),
     unmapped: arr(r.unmapped).map((v) => {
@@ -256,8 +257,8 @@ export function clearSuggestionCache(): void {
   cache.clear();
 }
 
-const stagesHash = (stages: string[]) =>
-  createHash('sha256').update(JSON.stringify(stages)).digest('hex');
+const jsonHash = (v: unknown) =>
+  createHash('sha256').update(JSON.stringify(v)).digest('hex');
 
 /** Whether Jev can suggest for this account (an allowed account, a key). */
 export function suggestionsAvailable(
@@ -274,7 +275,8 @@ export function suggestionsAvailable(
 /**
  * A suggestion per unmapped status (the 30 with the most open cases),
  * keyed by status_key. A status Jev could not judge is left out. Cached
- * per (account, status, question set, stage list) for an hour; failures
+ * per (account, status, question set, stage list, known mappings) for an
+ * hour, so saving a mapping (a new example for Jev) asks again; failures
  * are not cached, so the next load asks again. Never throws.
  */
 export async function suggestStages(
@@ -287,8 +289,8 @@ export async function suggestStages(
     if (!suggestionsAvailable(accountId, layer) || !layer) return {};
     if (overview.stages.length === 0) return {};
     const now = deps.now ?? Date.now;
-    const hash = stagesHash(overview.stages);
     const knownMappings = knownMappingsFor(overview);
+    const hash = jsonHash([overview.stages, knownMappings]);
     const todo = overview.unmapped
       .filter((u) => u.status_key)
       .sort((a, b) => b.open_cases - a.open_cases)
