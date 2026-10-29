@@ -28,6 +28,7 @@ import {
   PhoneOutgoing,
   Share2,
   ShieldAlert,
+  Siren,
   UserPlus,
   Video,
   Wifi,
@@ -49,6 +50,7 @@ import { useNotifications } from './notifications-provider';
 const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   conversation_assigned: UserPlus,
   conversation_shared: Share2,
+  insight_attention: Siren,
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
   team_activity_alert: ShieldAlert,
@@ -74,6 +76,12 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   calendar_response: CalendarCheck,
   event_reminder: BellRing,
   meeting_reminder: AlarmClock,
+};
+
+// A type whose icon keeps its own colour, read or not: a pinned chat
+// is the attention red (the inbox's Important pin), not the accent.
+const TYPE_ICON_CLASS: Partial<Record<Notification['type'], string>> = {
+  insight_attention: 'text-red-600 dark:text-red-400',
 };
 
 // A channel alert's body is the fix (who re-pairs which phone, where),
@@ -187,7 +195,8 @@ export function NotificationItem({
           <Icon
             className={cn(
               compact ? 'h-4 w-4' : 'h-5 w-5',
-              isUnread ? 'text-primary' : 'text-muted-foreground'
+              TYPE_ICON_CLASS[n.type] ??
+                (isUnread ? 'text-primary' : 'text-muted-foreground')
             )}
           />
         </div>

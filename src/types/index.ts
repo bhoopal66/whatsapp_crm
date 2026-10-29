@@ -421,7 +421,13 @@ export type NotificationType =
   // coordinator of one of its banks (share_conversation_with_coordinator).
   // The row carries conversation_id and contact_id; meta = {share_id,
   // bank_code}.
-  | 'conversation_shared';
+  | 'conversation_shared'
+  // Customer insights 2.0 (153): Jev pinned a chat for a person's
+  // attention (urgent, upset, wants a person, asked for a call back).
+  // Sent once per pin to the chat's assigned agent, else its owner
+  // (notifyInsightAttention). The row carries conversation_id; meta =
+  // {reason}.
+  | 'insight_attention';
 
 export interface Notification {
   id: string;

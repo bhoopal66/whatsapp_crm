@@ -457,3 +457,87 @@ COMMENT ON COLUMN public.ai_insight_settings.attention_pin_callback IS
   'Pin a chat for attention when the customer asks to be called back (migration 153).';
 COMMENT ON COLUMN public.ai_insight_settings.attention_notify IS
   'Ring the bell when a chat is pinned (migration 153).';
+
+-- ---------- 9. The attention bell ----------
+-- A pin rings once, for the chat's assigned agent (else its owner):
+-- type insight_attention, written by the service role
+-- (notifyInsightAttention in src/lib/notifications/insight-attention.ts)
+-- with conversation_id set, so it opens the chat. 133's list plus
+-- insight_attention; a later type edits the list from here. The bell
+-- trigger (109) pushes it like any non-chat_* type, under the push kind
+-- insight_attention (src/lib/push/kinds.ts); quiet hours hold it like a
+-- WhatsApp message, since only the calendar's reminders are exempt.
+ALTER TABLE public.notifications
+  DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE public.notifications
+  ADD CONSTRAINT notifications_type_check
+  CHECK (type IN (
+    'conversation_assigned',
+    'channel_disconnected',
+    'channel_reconnected',
+    'team_activity_alert',
+    'ai_handoff',
+    'task_assigned',
+    'task_due',
+    'chat_mention',
+    'chat_dm',
+    'chat_thread_reply',
+    'chat_broadcast',
+    'call_missed',
+    'callback_requested',
+    'deal_room_join_request',
+    'deal_room_update',
+    'call_outcome_due',
+    'pbx_connection_silent',
+    'pbx_connection_restored',
+    'meeting_invite',
+    'calendar_invite',
+    'calendar_update',
+    'calendar_cancelled',
+    'calendar_response',
+    'event_reminder',
+    'meeting_reminder',
+    'group_join_request',
+    'conversation_shared',
+    'insight_attention'
+  ));
+
+-- An insight_attention push opens the chat, like conversation_shared.
+-- Restates 133's push_bell_url with that one type added; change it
+-- together with hrefFor in src/lib/notifications/target.ts.
+CREATE OR REPLACE FUNCTION public.push_bell_url(n public.notifications)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_role    text;
+  v_chat    text := CASE WHEN n.conversation_id IS NOT NULL THEN '/inbox?c=' || n.conversation_id END;
+  v_contact text;
+BEGIN
+  SELECT p.account_role::text INTO v_role FROM public.profiles p
+   WHERE p.user_id = n.user_id AND p.account_id = n.account_id AND p.deactivated_at IS NULL;
+  CASE
+    WHEN n.type IN ('conversation_assigned', 'ai_handoff', 'conversation_shared',
+                    'insight_attention') THEN
+      RETURN coalesce(v_chat, '/notifications');
+    WHEN n.type IN ('task_assigned', 'task_due') THEN
+      RETURN coalesce('/contacts/' || n.contact_id, v_chat, '/calls');
+    WHEN n.type IN ('call_missed', 'callback_requested', 'call_outcome_due') THEN
+      v_contact := coalesce(n.contact_id::text, n.meta ->> 'contact_id');
+      RETURN CASE WHEN public.push_is_uuid(v_contact) THEN '/contacts/' || v_contact ELSE '/calls' END;
+    WHEN n.type IN ('deal_room_join_request', 'deal_room_update') THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'room_id')
+                  THEN '/chat/rooms/' || (n.meta ->> 'room_id') ELSE '/notifications' END;
+    WHEN n.type IN ('channel_disconnected', 'channel_reconnected') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=whatsapp' ELSE '/notifications' END;
+    WHEN n.type IN ('pbx_connection_silent', 'pbx_connection_restored') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=phone-system' ELSE '/notifications' END;
+    WHEN n.type = 'team_activity_alert' THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin', 'team_leader') THEN '/team-activity' ELSE '/notifications' END;
+    WHEN n.type = 'meeting_invite' THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'meeting_id')
+                  THEN '/meetings/' || (n.meta ->> 'meeting_id') ELSE '/notifications' END;
+    ELSE
+      RETURN '/notifications';
+  END CASE;
+END $$;
+
+REVOKE ALL ON FUNCTION public.push_bell_url(public.notifications) FROM PUBLIC, anon, authenticated;

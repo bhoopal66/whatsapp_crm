@@ -1,11 +1,12 @@
 /**
- * Which screen a bell row opens. One case per type in 133's
+ * Which screen a bell row opens. One case per type in 153's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
  * - `conversation_assigned` (027 trigger), `ai_handoff`
  *   (`lib/ai/auto-reply.ts`) and `conversation_shared` (133's
- *   `share_conversation_with_coordinator`): `conversation_id` → the chat.
+ *   `share_conversation_with_coordinator`) and `insight_attention`
+ *   (153, `notifyInsightAttention`): `conversation_id` → the chat.
  * - `task_assigned` (085 trigger): the task's `contact_id` /
  *   `conversation_id` columns, no meta. The customer page lists a
  *   contact's tasks; tasks have no screen of their own, so one without
@@ -82,6 +83,7 @@ function hrefFor(
     case 'conversation_assigned':
     case 'ai_handoff':
     case 'conversation_shared':
+    case 'insight_attention':
       return chat(n.conversation_id);
     case 'task_assigned':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';

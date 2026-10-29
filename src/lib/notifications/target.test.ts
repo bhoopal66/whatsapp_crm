@@ -13,20 +13,22 @@ const CH = '44444444-4444-4444-8444-444444444444';
 const ROW = '55555555-5555-4555-8555-555555555555';
 
 describe('notificationTarget', () => {
-  it.each(['conversation_assigned', 'ai_handoff', 'conversation_shared'])(
-    '%s opens the chat',
-    (type) => {
-      expect(
-        notificationTarget(
-          { type, conversation_id: CONV, contact_id: CONTACT, meta: {} },
-          'agent'
-        )
-      ).toBe(`/inbox?c=${CONV}`);
-      expect(
-        notificationTarget({ type, conversation_id: 'nope' }, 'agent')
-      ).toBeNull();
-    }
-  );
+  it.each([
+    'conversation_assigned',
+    'ai_handoff',
+    'conversation_shared',
+    'insight_attention',
+  ])('%s opens the chat', (type) => {
+    expect(
+      notificationTarget(
+        { type, conversation_id: CONV, contact_id: CONTACT, meta: {} },
+        'agent'
+      )
+    ).toBe(`/inbox?c=${CONV}`);
+    expect(
+      notificationTarget({ type, conversation_id: 'nope' }, 'agent')
+    ).toBeNull();
+  });
 
   it('task_assigned opens the customer page, else the chat, else /calls', () => {
     const type = 'task_assigned';

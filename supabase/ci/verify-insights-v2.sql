@@ -3,7 +3,8 @@
 -- pin and its three ways of clearing (closing the chat, a person's
 -- reply, acknowledge_insight_attention) with their
 -- insight_attention_cleared notes, who reads the per-message history,
--- the new CHECKs and the attention switches' defaults.
+-- the new CHECKs, the attention switches' defaults and the
+-- insight_attention bell (its CHECK entry and push_bell_url).
 --
 -- ONE statement on purpose (the pinned CLI rejects several). Failing
 -- assertions are named in the final exception; fixtures are undone by
@@ -415,6 +416,35 @@ BEGIN
           AND attention_pin_wants_person AND attention_pin_callback
           AND attention_notify) THEN
     failed := array_append(failed, ('the attention switches do not default to on: ' || r)::text);
+  END IF;
+
+  -- The attention bell: the service role writes an insight_attention
+  -- row; the CHECK still refuses a type nobody listed; and the push
+  -- opens the chat, as conversation_shared's does.
+  n := n + 1;
+  r := pg_temp.iv_try('service_role', NULL, format(
+    $q$INSERT INTO public.notifications (account_id, user_id, type, conversation_id, title, body, meta)
+       VALUES (%L, %L, 'insight_attention', %L, 'Needs attention: Ivy', 'Urgent', '{"reason":"urgent"}')$q$,
+    a_acct, u_agent, cv_c));
+  IF r IS DISTINCT FROM '1' THEN
+    failed := array_append(failed, ('the service role cannot write an insight_attention bell: ' || r)::text);
+  END IF;
+
+  n := n + 1;
+  r := pg_temp.iv_try('service_role', NULL, format(
+    $q$INSERT INTO public.notifications (account_id, user_id, type, conversation_id, title)
+       VALUES (%L, %L, 'insight_attention_typo', %L, 'x')$q$,
+    a_acct, u_agent, cv_c));
+  IF r NOT LIKE 'ERROR 23514:%' THEN
+    failed := array_append(failed, ('an unknown notification type was not refused: ' || r)::text);
+  END IF;
+
+  n := n + 1;
+  SELECT public.push_bell_url(nt) INTO r FROM public.notifications nt
+   WHERE nt.account_id = a_acct AND nt.user_id = u_agent AND nt.type = 'insight_attention'
+   LIMIT 1;
+  IF r IS DISTINCT FROM '/inbox?c=' || cv_c THEN
+    failed := array_append(failed, ('push_bell_url does not open the chat for insight_attention: ' || coalesce(r, 'null'))::text);
   END IF;
 
   n := n + 1;

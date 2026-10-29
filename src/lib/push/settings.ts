@@ -31,7 +31,13 @@ export const PUSH_KIND_GROUPS: readonly PushKindGroup[] = [
 ];
 
 export function kindGroup(kind: string): PushKindGroup {
-  if (kind === 'whatsapp_message' || kind === 'chat_message') return 'messages';
+  if (
+    kind === 'whatsapp_message' ||
+    kind === 'chat_message' ||
+    kind === 'insight_attention'
+  ) {
+    return 'messages';
+  }
   if (
     kind.startsWith('meeting_') ||
     kind.startsWith('calendar_') ||
