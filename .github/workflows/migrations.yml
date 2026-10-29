@@ -532,3 +532,14 @@ jobs:
       # chat_dm_peers lists exactly whom the caller may DM.
       - name: Verify chat DM rules
         run: supabase db query --local --file supabase/ci/verify-chat-dm-rules.sql
+
+      # Migration 147's Smart insights foundation: members read the
+      # per-account settings and admins write them (bank guests and other
+      # workspaces see nothing); the interested-reply tag is a main tag
+      # of the same account; conversations_insight_guard keeps the
+      # insight and tag-suggestion columns service-role-only while an
+      # agent's ordinary updates still work; dismiss_tag_suggestion
+      # clears a suggestion for whoever can see the chat; the suggestion
+      # FKs are same-account; conversation_events accepts chat_tag_auto.
+      - name: Verify Smart insights
+        run: supabase db query --local --file supabase/ci/verify-smart-insights.sql
