@@ -460,8 +460,8 @@ describe('Handled and the Pinned chip', () => {
     ai_attention_at: ai,
   });
 
-  it('bounds the pin read at 50', () => {
-    expect(PIN_LIMIT).toBe(50);
+  it('bounds the pin read at 100', () => {
+    expect(PIN_LIMIT).toBe(100);
   });
 
   it('only a signal stamp is Handled-able', () => {
@@ -515,5 +515,154 @@ describe('Handled and the Pinned chip', () => {
     expect(shouldFetchUnloadedPin({ insight_attention_at: null }, true)).toBe(
       false
     );
+  });
+});
+
+import {
+  countPinnedTile,
+  inPersonalInbox,
+  rowHasMetaLine,
+  rowPinLabel,
+} from './insights';
+
+describe('rowHasMetaLine', () => {
+  it('never adds a line for chips alone', () => {
+    expect(rowHasMetaLine({ chips: [1, 2, 3] })).toBe(false);
+  });
+  it('adds one for the number, campaign, share or assignee', () => {
+    expect(rowHasMetaLine({ numberName: 'Sales' })).toBe(true);
+    expect(rowHasMetaLine({ campaignName: 'Oct' })).toBe(true);
+    expect(rowHasMetaLine({ sharedBank: 'ADCB' })).toBe(true);
+    expect(rowHasMetaLine({ showAssignee: true })).toBe(true);
+  });
+});
+
+describe('rowPinLabel', () => {
+  const at = '2026-10-29T08:00:00Z';
+  it('names both urgent and Important', () => {
+    expect(
+      rowPinLabel({
+        insight_attention_at: at,
+        insight_attention_reason: 'urgent',
+        ai_attention_at: at,
+      })
+    ).toEqual({ reason: 'urgent', important: true });
+  });
+  it('names the reason alone, or Important alone', () => {
+    expect(
+      rowPinLabel({
+        insight_attention_at: at,
+        insight_attention_reason: 'callback',
+        ai_attention_at: null,
+      })
+    ).toEqual({ reason: 'callback', important: false });
+    expect(
+      rowPinLabel({
+        insight_attention_at: null,
+        insight_attention_reason: null,
+        ai_attention_at: at,
+      })
+    ).toEqual({ reason: null, important: true });
+  });
+  it('never names ai_handoff or an unknown reason as the stored reason', () => {
+    expect(
+      rowPinLabel({
+        insight_attention_at: at,
+        insight_attention_reason: 'ai_handoff',
+        ai_attention_at: null,
+      }).reason
+    ).toBeNull();
+    expect(
+      rowPinLabel({
+        insight_attention_at: at,
+        insight_attention_reason: 'mystery',
+        ai_attention_at: null,
+      }).reason
+    ).toBeNull();
+  });
+});
+
+describe('inPersonalInbox', () => {
+  const narrowing = {
+    userId: 'me',
+    channelIds: ['ch-mine'],
+    sharedConversationIds: ['shared-1'],
+  };
+  it('admits everything without a narrowing', () => {
+    expect(inPersonalInbox({ id: 'c', user_id: 'mate' }, null)).toBe(true);
+  });
+  it("keeps a teammate's chat out of a leader's personal inbox", () => {
+    expect(
+      inPersonalInbox(
+        { id: 'c', user_id: 'mate', assigned_agent_id: 'mate' },
+        narrowing
+      )
+    ).toBe(false);
+  });
+  it('admits own, assigned, my-number and shared chats', () => {
+    expect(inPersonalInbox({ id: 'c', user_id: 'me' }, narrowing)).toBe(true);
+    expect(
+      inPersonalInbox({ id: 'c', assigned_agent_id: 'me' }, narrowing)
+    ).toBe(true);
+    expect(
+      inPersonalInbox({ id: 'c', send_channel_id: 'ch-mine' }, narrowing)
+    ).toBe(true);
+    expect(inPersonalInbox({ id: 'shared-1' }, narrowing)).toBe(true);
+  });
+});
+
+describe('countPinnedTile', () => {
+  const at = '2026-10-29T08:00:00Z';
+  const base = {
+    last_message_at: at,
+    ai_attention_at: null,
+    insight_attention_at: null,
+    insight_attention_reason: null,
+    campaign_broadcast_id: null,
+    human_engaged_at: null,
+    assigned_agent_id: undefined,
+    ai_autoreply_disabled: false,
+    ai_reply_count: 0,
+    chat_tag_id: null,
+  };
+  it('counts signal pins and Important alike, urgent separately', () => {
+    expect(
+      countPinnedTile(
+        [
+          {
+            ...base,
+            insight_attention_at: at,
+            insight_attention_reason: 'urgent',
+          },
+          { ...base, ai_attention_at: at },
+          {
+            ...base,
+            insight_attention_at: at,
+            insight_attention_reason: 'upset',
+          },
+          base,
+        ],
+        true
+      )
+    ).toEqual({ pinned: 3, urgent: 1 });
+  });
+  it('leaves out Campaign inbox chats and chats with no message, as the list does', () => {
+    const campaign = {
+      ...base,
+      ai_attention_at: at,
+      campaign_broadcast_id: 'b1',
+      ai_reply_count: 2,
+    };
+    expect(
+      countPinnedTile(
+        [
+          campaign,
+          { ...base, ai_attention_at: at, last_message_at: undefined },
+        ],
+        true
+      )
+    ).toEqual({ pinned: 0, urgent: 0 });
+    // With the AI off nothing is the bot's, so the campaign chat counts.
+    expect(countPinnedTile([campaign], false).pinned).toBe(1);
   });
 });

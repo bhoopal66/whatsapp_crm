@@ -30,6 +30,11 @@ import type { OpenCases } from '@/lib/dashboard/home/sources';
 import { taskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
 import {
+  PIN_TILE_COLUMNS,
+  PIN_TILE_OR,
+  countPinnedTile,
+} from '@/lib/inbox/insights';
+import {
   INSIGHT_TILE_COLUMNS,
   INSIGHT_TILE_OR,
   countInsightTiles,
@@ -109,28 +114,22 @@ async function loadInsightRows(): Promise<InsightRow[]> {
   return (data ?? []) as unknown as InsightRow[];
 }
 
-interface PinCounts {
-  pinned: number;
-  urgent: number;
-}
+type PinRow = Parameters<typeof countPinnedTile>[0][number];
 
-/** Chats pinned until handled (RLS-scoped head counts); urgent ones colour the tile. */
-async function loadPinCounts(): Promise<PinCounts> {
+/**
+ * Chats pinned until handled (RLS-scoped): a signal's pin OR Important,
+ * the list's own predicate. Counted at render by `countPinnedTile`, with
+ * the list's Campaign inbox rule, so the tile matches the "N pinned"
+ * chip of the list it opens.
+ */
+async function loadPinRows(): Promise<PinRow[]> {
   const supabase = createClient();
-  const [pinned, urgent] = await Promise.all([
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .not('insight_attention_at', 'is', null),
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .not('insight_attention_at', 'is', null)
-      .eq('insight_attention_reason', 'urgent'),
-  ]);
-  if (pinned.error) throw pinned.error;
-  if (urgent.error) throw urgent.error;
-  return { pinned: pinned.count ?? 0, urgent: urgent.count ?? 0 };
+  const { data, error } = await supabase
+    .from('conversations')
+    .select(PIN_TILE_COLUMNS)
+    .or(PIN_TILE_OR);
+  if (error) throw error;
+  return (data ?? []) as unknown as PinRow[];
 }
 
 type Tone = 'destructive' | 'warning' | 'info' | 'success';
@@ -204,8 +203,9 @@ export function AttentionStrip({
   );
   const pins = useWidgetData(
     signalsOn && accountId ? `attention-pins:${accountId}:${refreshKey}` : null,
-    loadPinCounts
+    loadPinRows
   );
+  const pinCounts = pins.data ? countPinnedTile(pins.data, aiLive) : null;
   const insightCounts = insights.data
     ? countInsightTiles(insights.data, aiLive)
     : null;
@@ -275,8 +275,8 @@ export function AttentionStrip({
         href: pinnedTileHref(inboxHref),
         icon: Pin,
         label: ti('pinned.label'),
-        tone: pins.data && pins.data.urgent > 0 ? 'destructive' : 'warning',
-        count: pins.data?.pinned ?? null,
+        tone: pinCounts && pinCounts.urgent > 0 ? 'destructive' : 'warning',
+        count: pinCounts?.pinned ?? null,
         error: pins.error && !pins.data,
         hint: ti('pinned.hint'),
       }

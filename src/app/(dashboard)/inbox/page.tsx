@@ -44,7 +44,8 @@ import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
-import { shouldFetchUnloadedPin } from '@/lib/inbox/insights';
+import { inPersonalInbox, shouldFetchUnloadedPin } from '@/lib/inbox/insights';
+import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { FullRowRetry } from '@/components/inbox/full-row-retry';
@@ -215,6 +216,24 @@ export function InboxPageInner({
     [sharedKey]
   );
 
+  // The personal narrowing the list's query applies (null: none), for
+  // rows hydrated outside a page fetch.
+  const narrowing = useMemo<InboxNarrowing | null>(
+    () =>
+      personalOnlyUserId
+        ? {
+            userId: personalOnlyUserId,
+            channelIds: myNumberIds ?? [],
+            sharedConversationIds,
+          }
+        : null,
+    [personalOnlyUserId, myNumberIds, sharedConversationIds]
+  );
+  const narrowingRef = useRef(narrowing);
+  useEffect(() => {
+    narrowingRef.current = narrowing;
+  });
+
   /**
    * Keyset cursor of the list's last loaded page (`null` once every
    * page is in). Realtime and delta merges read it to decide whether a
@@ -338,6 +357,12 @@ export function InboxPageInner({
   // conversations stuck on "No messages yet" until the user reloaded.
   // Also self-heals if a realtime event was missed: callers can invoke
   // this whenever they reference a conversation id they don't recognise.
+  //
+  // A row not yet in the list passes the personal narrowing first
+  // (`inPersonalInbox`): the list's query narrows a team leader's Inbox
+  // to their own threads, and a hydrated pin or Important chat would
+  // otherwise slip a teammate's chat in beside them. Read through a ref
+  // so this callback keeps its identity.
   const hydrateConversation = useCallback(async (convId: string) => {
     if (hydratingConvIdsRef.current.has(convId)) return;
     hydratingConvIdsRef.current.add(convId);
@@ -361,6 +386,7 @@ export function InboxPageInner({
       }
       if (!data) return;
       const fetched = normalizeConversation(data);
+      const admits = inPersonalInbox(fetched, narrowingRef.current);
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === fetched.id);
         if (existing) {
@@ -375,7 +401,7 @@ export function InboxPageInner({
               : c
           );
         }
-        return [fetched, ...prev];
+        return admits ? [fetched, ...prev] : prev;
       });
     } finally {
       hydratingConvIdsRef.current.delete(convId);

@@ -22,6 +22,13 @@ import {
 import type { Conversation } from '@/types';
 
 import { compareForInbox, needsAttention } from './attention';
+import { inCampaignInbox, type CampaignInboxFields } from './campaign-inbox';
+import {
+  hasMessages,
+  inRestrictedInbox,
+  type RestrictableRow,
+} from './pagination';
+import type { InboxNarrowing } from './unread-counts';
 
 /**
  * Smart insights in the Inbox list (docs/jev-insights.md): the one badge
@@ -166,9 +173,12 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
 /**
  * The most attention pins (migration 153) the first page asks for
  * beside the normal page, as `ATTENTION_LIMIT` (attention.ts) does for
- * Important. Past this they arrive with their page.
+ * Important. The read is ordered by `insight_attention_at` ascending, so
+ * when more than this many are pinned the ones waiting longest are the
+ * ones loaded; the rest arrive with their page. 100 rather than 50 so a
+ * busy morning's pins are all on screen at once.
  */
-export const PIN_LIMIT = 50;
+export const PIN_LIMIT = 100;
 
 /**
  * What the first-page query needs from Smart insights. Until the
@@ -468,4 +478,110 @@ export function shouldFetchUnloadedPin(
   signalsEnabled: boolean
 ): boolean {
   return signalsEnabled && hasAttentionPin(row);
+}
+
+// ---------------------------------------------------------------------------
+// Row layout, labels, narrowing and the home tile (review round 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a row gets its third, quiet line. Chips never earn it: they
+ * ride on the preview line (the preview truncates to make room), so a
+ * row is the same height with or without signals. `chips` is accepted
+ * only so a caller cannot mistake it for a reason.
+ */
+export function rowHasMetaLine(input: {
+  numberName?: string | null;
+  campaignName?: string | null;
+  sharedBank?: string | null;
+  showAssignee?: boolean;
+  chips?: readonly unknown[];
+}): boolean {
+  return (
+    !!input.numberName ||
+    !!input.campaignName ||
+    !!input.sharedBank ||
+    !!input.showAssignee
+  );
+}
+
+/** A stored attention reason the row can name (never `ai_handoff`). */
+export type StoredAttentionKey = Exclude<AttentionKey, 'ai_handoff'>;
+
+/**
+ * What a pinned row's label names: the signal's stored reason (if any)
+ * and whether it is also Important (the AI hand-off). A chat that is
+ * both names both ("Urgent · Important"), whichever is more severe;
+ * before, Important hid the other reason.
+ */
+export function rowPinLabel(
+  row: Pick<
+    Conversation,
+    'insight_attention_at' | 'insight_attention_reason' | 'ai_attention_at'
+  >
+): { reason: StoredAttentionKey | null; important: boolean } {
+  const stored = storedAttention(row);
+  return {
+    reason: stored ? (stored.reason as StoredAttentionKey) : null,
+    important: needsAttention(row),
+  };
+}
+
+/**
+ * Whether a row belongs in this list's personal narrowing: always with
+ * none (an admin's Inbox, every Team inbox), else by
+ * `inRestrictedInbox` — the same rule the list's query applies. Rows the
+ * page hydrates outside a page fetch (a pin, Important, a missed
+ * INSERT) pass this before they enter the list, or a team leader's
+ * personal Inbox shows teammates' pinned chats.
+ */
+export function inPersonalInbox(
+  row: RestrictableRow,
+  narrowing: InboxNarrowing | null
+): boolean {
+  if (!narrowing) return true;
+  return inRestrictedInbox(
+    row,
+    narrowing.userId,
+    narrowing.channelIds,
+    narrowing.sharedConversationIds
+  );
+}
+
+/** The columns the Pinned chats tile reads. */
+export const PIN_TILE_COLUMNS =
+  'id, last_message_at, ai_attention_at, insight_attention_at, insight_attention_reason, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id';
+
+/** The tile's read as an `or` group: anything {@link isPinned} could pin. */
+export const PIN_TILE_OR =
+  'insight_attention_at.not.is.null,ai_attention_at.not.is.null';
+
+type PinTileRow = CampaignInboxFields &
+  Pick<
+    Conversation,
+    | 'last_message_at'
+    | 'ai_attention_at'
+    | 'insight_attention_at'
+    | 'insight_attention_reason'
+  >;
+
+/**
+ * The home "Pinned chats" tile, counted as the list it opens counts its
+ * "N pinned" chip ({@link pinnedSummary}): pinned by a signal OR
+ * Important, among chats the Inbox lists (holding a message, not in the
+ * Campaign inbox). No personal narrowing: the tile links each role to an
+ * un-narrowed list (`inboxHrefFor` — a team leader to the Team inbox).
+ */
+export function countPinnedTile(
+  rows: readonly PinTileRow[],
+  aiLive: boolean
+): { pinned: number; urgent: number } {
+  let pinned = 0;
+  let urgent = 0;
+  for (const r of rows) {
+    if (!hasMessages(r) || inCampaignInbox(r, aiLive) || !isPinned(r)) continue;
+    pinned++;
+    if (storedAttention(r)?.reason === 'urgent') urgent++;
+  }
+  return { pinned, urgent };
 }

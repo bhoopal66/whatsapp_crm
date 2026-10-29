@@ -8,6 +8,7 @@ import {
   membersCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { isBankGuest } from '@/lib/auth/roles';
 import {
   CONVERSATION_LIST_SELECT,
@@ -51,6 +52,8 @@ import {
   isPinned,
   matchesInsightFilters,
   pinnedSummary,
+  rowHasMetaLine,
+  rowPinLabel,
   rowSignals,
   sortWithPins,
   type InsightFilter,
@@ -473,6 +476,9 @@ export function ConversationList({
   const { settings: insightSettings, loading: insightLoading } =
     useInsightSettings();
   const signalsOn = !!insightSettings?.signalsEnabled;
+  // Handled is the customer card's capability (agents and up): the RPC
+  // refuses a viewer, so a viewer is never offered the button.
+  const canSendMessages = useCan('send-messages');
   const [selectedInsightFilters, setSelectedInsightFilters] = useState<
     InsightFilter[]
   >(() => [...(initialInsightFilters ?? [])]);
@@ -929,7 +935,7 @@ export function ConversationList({
   });
   const handleHandled = useCallback(async (conv: ConversationListItem) => {
     const at = conv.insight_attention_at;
-    if (!at) return;
+    if (!at) return false;
     setHandled((prev) => new Map(prev).set(conv.id, at));
     const { error } = await createClient().rpc(
       'acknowledge_insight_attention',
@@ -944,9 +950,10 @@ export function ConversationList({
         return next;
       });
       toast.error(t('handledFailed'));
-      return;
+      return false;
     }
     toast.success(t('handledToast'));
+    return true;
   }, []);
 
   const toggleChatTag = useCallback((id: string) => {
@@ -1424,7 +1431,7 @@ export function ConversationList({
                 memberName={memberName}
                 chatTagTree={chatTagTree}
                 insights={signalsOn}
-                onHandled={handleHandled}
+                onHandled={canSendMessages ? handleHandled : undefined}
                 sharedBank={sharedBanks?.get(conv.id) ?? null}
                 numberName={
                   // The number the chat sends from: a person's pin
@@ -1517,6 +1524,10 @@ function InsightChip({
 }
 
 /** Pin reasons with a label of their own (Important has ImportantBadge). */
+/** Handled's box: shared by the button and the copy that holds its place. */
+const HANDLED_CLASS =
+  'shrink-0 rounded-full border px-2 text-[11px] leading-5 font-medium';
+
 const PIN_LABEL = {
   urgent: 'pin.urgent',
   wants_person: 'pin.wants_person',
@@ -1572,7 +1583,8 @@ interface ConversationItemProps {
   /** Smart insights on: colours, chips, pin labels and Handled. */
   insights?: boolean;
   /** Handled on an attention pin (stable: a useCallback). */
-  onHandled?: (conversation: ConversationListItem) => void;
+  /** Resolves true once the pin is cleared (the row then takes focus). */
+  onHandled?: (conversation: ConversationListItem) => Promise<boolean>;
 }
 
 // Memoised: a realtime patch to one conversation re-renders that row,
@@ -1614,8 +1626,10 @@ const ConversationItem = memo(function ConversationItem({
   // Smart insights (signals on only): the stripe, chips and pin reason.
   const signals = insights ? rowSignals(conversation, { important }) : null;
   const pinReason = signals?.attention?.reason ?? null;
-  const pinLabelKey =
-    pinReason && pinReason !== 'ai_handoff' ? PIN_LABEL[pinReason] : null;
+  // What the top line names: the signal's reason and Important, both
+  // when a chat is both ("Urgent · Important").
+  const pinLabel = signals ? rowPinLabel(conversation) : null;
+  const pinLabelKey = pinLabel?.reason ? PIN_LABEL[pinLabel.reason] : null;
   // The pin's reason is labelled on the top line, so its chip would
   // only repeat it.
   const chips =
@@ -1703,12 +1717,14 @@ const ConversationItem = memo(function ConversationItem({
 
   // Everything beyond name and preview shares one quiet line, so a row
   // is never more than three lines tall.
-  const hasMeta =
-    !!numberName ||
-    !!campaignName ||
-    !!sharedBank ||
-    showAssignee ||
-    chips.length > 0;
+  // Chips never earn this line (rowHasMetaLine): they ride on the
+  // preview line, so a row is no taller with signals than without.
+  const hasMeta = rowHasMetaLine({
+    numberName,
+    campaignName,
+    sharedBank,
+    showAssignee,
+  });
 
   const row = (
     <button
@@ -1745,38 +1761,62 @@ const ConversationItem = memo(function ConversationItem({
             {displayName}
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
-            {important && <ImportantBadge label={t('important')} />}
-            {!important && pinReason && pinLabelKey && (
+            {important && (
+              <ImportantBadge
+                label={
+                  pinLabelKey
+                    ? `${tInsights(pinLabelKey)} · ${t('important')}`
+                    : t('important')
+                }
+              />
+            )}
+            {!important && pinLabelKey && pinLabel?.reason && (
               <span
                 className={cn(
                   'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
-                  paletteFor('attention', pinReason).chip
+                  paletteFor('attention', pinLabel.reason).chip
                 )}
               >
                 {tInsights(pinLabelKey)}
               </span>
             )}
-            <span
-              className={cn(
-                'text-xs',
-                unread
-                  ? 'text-wa-green font-semibold'
-                  : 'text-wa-text-secondary'
-              )}
-            >
-              {time}
-            </span>
+            {canHandle ? (
+              // Handled takes the time's place while the chat is pinned.
+              // The button itself sits outside the row button (below);
+              // this invisible copy holds its width so the name
+              // truncates instead of running under it.
+              <span aria-hidden className={cn(HANDLED_CLASS, 'invisible')}>
+                {tInsights('handled')}
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  'text-xs',
+                  unread
+                    ? 'text-wa-green font-semibold'
+                    : 'text-wa-text-secondary'
+                )}
+              >
+                {time}
+              </span>
+            )}
           </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p
             className={cn(
-              'truncate text-[13.5px] leading-5',
+              'min-w-0 flex-1 truncate text-[13.5px] leading-5',
               unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
             )}
           >
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
+          {/* Signal chips share the preview line (the preview truncates
+              first; narrow rows collapse them to dots), so they never
+              add a line of their own. */}
+          {chips.length > 0 && (
+            <InsightChips conversation={conversation} chips={chips} />
+          )}
           {/* The chat tag sits on the right, beside the unread count:
               one pill, the main tag tinted in its colour and its
               sub-tag joined on fainter. It may take most of the line;
@@ -1803,10 +1843,6 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
-            {chips.length > 0 && (
-              <InsightChips conversation={conversation} chips={chips} />
-            )}
-
             {sharedBank && (
               <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
                 <Share2 className="h-3 w-3 shrink-0" />
@@ -1872,21 +1908,33 @@ const ConversationItem = memo(function ConversationItem({
     </button>
   );
 
-  if (!canHandle) return row;
-  // Handled sits beside the row, not inside it: the row is a <button>,
-  // and a button inside a button is invalid and would select the chat.
-  // Shown on hover or focus, and always where there is no hover (touch).
+  // One wrapper whether or not Handled shows, so the row keeps its DOM
+  // node (and its focus) when the pin clears. Handled sits beside the
+  // row, not inside it: the row is a <button>, and a button inside a
+  // button is invalid and would select the chat. It takes the time's
+  // place on the top line (the row holds its width), clear of the
+  // unread count and the tag pill, visible on touch and in the tab
+  // order. Once the pin is cleared it goes, so focus moves to the row.
   return (
-    <div className="group relative">
+    <div className="relative">
       {row}
-      <button
-        type="button"
-        onClick={() => onHandled?.(conversation)}
-        aria-label={tInsights('handledAria', { name: displayName })}
-        className="bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute right-3 bottom-1.5 rounded-full border px-2 text-[11px] leading-5 font-medium opacity-0 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:outline-none [@media(hover:none)]:opacity-100"
-      >
-        {tInsights('handled')}
-      </button>
+      {canHandle && (
+        <button
+          type="button"
+          onClick={() => {
+            void onHandled?.(conversation).then((ok) => {
+              if (ok) rowRef.current?.focus();
+            });
+          }}
+          aria-label={tInsights('handledAria', { name: displayName })}
+          className={cn(
+            HANDLED_CLASS,
+            'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute top-2.5 right-3 shadow-sm focus-visible:ring-2 focus-visible:outline-none'
+          )}
+        >
+          {tInsights('handled')}
+        </button>
+      )}
     </div>
   );
 });
