@@ -374,8 +374,11 @@ function useMessageTranslation(message: Message) {
 }
 
 /** The control's quiet meta style; the buttons add hover and focus. */
+// pb-2.5: the next inbound message's hover toolbar sits 12px above its row
+// (`-top-3` in message-actions.tsx), invisible but still clickable; without
+// the room it covers this line and swallows the click.
 const TRANSLATE_LINE =
-  'text-wa-meta flex items-center gap-1 px-1 pt-0.5 text-[11.5px] leading-4';
+  'text-wa-meta flex items-center gap-1 px-1 pt-0.5 pb-2.5 text-[11.5px] leading-4';
 const TRANSLATE_BUTTON =
   'hover:text-wa-teal focus-visible:text-wa-teal focus-visible:ring-wa-teal/40 inline-flex items-center gap-1 rounded-sm outline-none focus-visible:underline focus-visible:ring-2';
 

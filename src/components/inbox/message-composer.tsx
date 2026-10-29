@@ -319,6 +319,7 @@ export function MessageComposer({
   // `textRef` lets the answer see the box as it is now, not as it was.
   const [translatingFor, setTranslatingFor] = useState<string | null>(null);
   const translating = translatingFor === conversationId;
+  const showTranslate = translating || canTranslateDraft(text);
   const [translation, setTranslation] = useState<DraftTranslation | null>(
     null
   );
@@ -1233,28 +1234,34 @@ export function MessageComposer({
             <LayoutTemplate className="h-5 w-5" />
           </GatedButton>
 
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={drafting}
-            title={readOnly ? undefined : t('draftWithAI')}
-            className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
-            onClick={handleDraft}
-          >
-            {drafting ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Sparkles className="h-5 w-5" />
-            )}
-          </GatedButton>
+          {/* On a phone the draft button makes way for Translate while
+              there is text: with both, the box shrinks to about 95px, and
+              a draft would replace the typed text anyway. `contents`
+              leaves the wider layouts untouched. */}
+          <span className={cn('contents', showTranslate && 'max-sm:hidden')}>
+            <GatedButton
+              variant="ghost"
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              disabled={drafting}
+              title={readOnly ? undefined : t('draftWithAI')}
+              className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
+              onClick={handleDraft}
+            >
+              {drafting ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Sparkles className="h-5 w-5" />
+              )}
+            </GatedButton>
+          </span>
 
           {/* Translate to Arabic: shown once there is something to
               translate, and kept while a request is in flight so it
               doesn't vanish under the agent's cursor. Never shown on an
               empty box, so it costs the phone layout no width then. */}
-          {(translating || canTranslateDraft(text)) && (
+          {showTranslate && (
             <GatedButton
               variant="ghost"
               size="sm"
