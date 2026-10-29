@@ -139,11 +139,23 @@ off the Inbox and Team inbox fetch and look exactly as before.
 
 **The Customer insights card** sits in the Inbox's contact panel (kept
 live as new judgments arrive) and on the customer page (read when the
-page opens). It shows what the customer wants and how sure Jev is, a
-four-step lead meter (Just curious, Comparing options, Hot lead, Ready
-to apply), urgency, mood (Upset and/or Wants a person; Calm only once
-the upset figure has been judged) and when the judged message arrived.
-A chat never judged says so instead. **Two home tiles** join "Needs
+page opens). Every value wears its colour from the legend. A pinned
+chat shows a banner at the top ("Pinned — Wants a person · 10 minutes
+ago") with **Mark handled** for agents and up (viewers see the banner
+only); it clears the pin at once and puts it back if the save fails.
+Below it: what the customer wants and how sure Jev is, plus "Waiting for
+a reply" and "Asked for a call" when Jev reads those; a four-step lead
+meter (Just curious, Comparing options, Hot lead, Ready to apply) with
+the lead trend (Warming up / Steady / Cooling off); urgency; mood (the
+sentiment band, Upset and/or Wants a person, and the mood trend; Calm
+only once the upset figure has been judged and no sentiment is known);
+what holds them back (one chip per objection, hidden when none); up to
+two next best actions with a one-line hint; and tiny trend lines for
+mood and lead over the chat's judged messages, read from the history
+endpoint when the card opens and after each new judgment ("Not enough
+history yet" below four messages; a failed read shows nothing). The
+footer says when the judged message arrived and opens the colour
+legend. A chat never judged says so instead. **Two home tiles** join "Needs
 your attention": **Hot leads waiting** (lead temperature at least hot
 and still unread, since conversations do not record who wrote last)
 and **Upset customers waiting** (judged upset and still unread). Both

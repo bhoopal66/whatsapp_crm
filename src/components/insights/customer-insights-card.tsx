@@ -1,23 +1,40 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
+import { InsightLegend } from '@/components/insights/insight-legend';
+import { useCan } from '@/hooks/use-can';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import {
   customerInsightView,
   type CustomerInsightFigures,
+  type CustomerInsightView,
   type MoodTag,
 } from '@/lib/insights/customer-view';
-import type { UrgencyBand } from '@/lib/insights/bands';
+import { nextBestActions } from '@/lib/insights/next-action';
+import { paletteFor, swatchOf, type Swatch } from '@/lib/insights/palette';
+import {
+  SPARKLINE_MAX,
+  SPARKLINE_MIN_POINTS,
+  sparklinePath,
+  sparklineValues,
+  type SparklineScale,
+} from '@/lib/insights/sparkline';
+import { insightTrends, type InsightEvent } from '@/lib/insights/trends';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 /**
  * What Jev last judged about a customer (docs/jev-insights.md, "Customer
- * insights"): what they want, the lead meter, urgency and mood. Renders
- * nothing unless the workspace has signals on. Every rule is
- * `customerInsightView`'s; this only lays it out. `frame` wraps the block
- * in the host screen's own section (the DealRoomLinks pattern).
+ * insights"): the pin, what they want, the lead meter and its trend,
+ * mood, objections, next best actions and trend lines. Renders nothing
+ * unless the workspace has signals on. Every rule lives in lib/insights
+ * (`customerInsightView`, `nextBestActions`, `insightTrends`,
+ * `sparklinePath`); this only lays it out and colours it from
+ * palette.ts. `frame` wraps the block in the host screen's own section
+ * (the DealRoomLinks pattern).
  */
 
 /** `default` on the customer page, `wa` in the inbox's WhatsApp panel. */
@@ -41,17 +58,19 @@ const TONES: Record<
   },
 };
 
-const URGENCY_TONE: Record<UrgencyBand, string | null> = {
-  none: null,
-  soon: 'bg-warning-soft text-warning',
-  urgent: 'bg-destructive-soft text-destructive',
+const MOOD_SWATCH: Record<MoodTag, Swatch> = {
+  upset: paletteFor('attention', 'upset'),
+  wantsPerson: paletteFor('attention', 'wants_person'),
+  calm: paletteFor('sentiment', 'neutral'),
 };
 
-const MOOD_TONE: Record<MoodTag, string> = {
-  upset: 'bg-warning-soft text-warning',
-  wantsPerson: 'bg-info-soft text-info',
-  calm: 'bg-success-soft text-success',
-};
+const TREND_ARROW = {
+  improving: '↑',
+  warming: '↑',
+  steady: '→',
+  worsening: '↓',
+  cooling: '↓',
+} as const;
 
 function Chip({
   className,
@@ -87,6 +106,38 @@ export function CustomerInsightsCard({
   return <CardBody conversation={conversation} tone={tone} frame={frame} />;
 }
 
+/**
+ * The chat's judged-message history, fetched once per conversation and
+ * again when `insight_at` moves. A failure shows nothing (no toast): the
+ * trend lines are a nicety. Held with its key so another chat's history
+ * is never shown while the next one loads.
+ */
+function useInsightHistory(
+  id: string | undefined,
+  at: string | null | undefined
+): InsightEvent[] | null {
+  const key = id && at ? `${id}|${at}` : null;
+  const [state, setState] = useState<{
+    key: string;
+    events: InsightEvent[];
+  } | null>(null);
+  useEffect(() => {
+    if (!key || !id) return;
+    let live = true;
+    fetch(`/api/insights/conversations/${encodeURIComponent(id)}/history`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { events?: InsightEvent[] } | null) => {
+        if (live && Array.isArray(body?.events))
+          setState({ key, events: body.events });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [key, id]);
+  return state && state.key === key ? state.events : null;
+}
+
 function CardBody({
   conversation,
   tone,
@@ -98,18 +149,56 @@ function CardBody({
 }) {
   const t = useTranslations('InsightsUi');
   const format = useFormatter();
+  const canHandle = useCan('send-messages');
   const view = customerInsightView(conversation);
   const c = TONES[tone];
+  const events = useInsightHistory(conversation?.id, conversation?.insight_at);
+  // The pin stamp marked handled here; a newer pin shows again.
+  const [handledAt, setHandledAt] = useState<string | null>(null);
+
+  const pinStamp = conversation?.insight_attention_at ?? null;
+  const pinned = view.attention && pinStamp !== handledAt;
+
+  async function markHandled() {
+    const id = conversation?.id;
+    if (!id || !pinStamp) return;
+    setHandledAt(pinStamp);
+    const { error } = await createClient().rpc(
+      'acknowledge_insight_attention',
+      { p_conversation_id: id }
+    );
+    if (error) {
+      console.error('Failed to mark chat handled:', error.message);
+      setHandledAt(null);
+      toast.error(t('card.handledFailed'));
+      return;
+    }
+    toast.success(t('card.handledToast'));
+  }
+
+  const banner = pinned && view.attention && (
+    <PinnedBanner
+      attention={view.attention}
+      canHandle={canHandle && !!conversation?.id}
+      onHandled={() => void markHandled()}
+    />
+  );
 
   if (!view.judged)
     return (
       <>
         {frame(
           t('card.title'),
-          <p className={cn('text-xs', c.sub)}>{t('card.empty')}</p>
+          <div className="space-y-2">
+            {banner}
+            <p className={cn('text-xs', c.sub)}>{t('card.empty')}</p>
+          </div>
         )}
       </>
     );
+
+  const trends = insightTrends(events);
+  const actions = nextBestActions(conversation);
 
   const row = (label: string, value: ReactNode) => (
     <div className="space-y-1">
@@ -117,73 +206,277 @@ function CardBody({
       {value}
     </div>
   );
+  const trendWord = (word: string, arrow: string) => (
+    <span className={cn('text-[11px]', c.sub)}>
+      <span aria-hidden>{arrow} </span>
+      {word}
+    </span>
+  );
 
   const body = (
-    <div className={cn('space-y-3 rounded-lg px-3 py-2.5', c.inner)}>
-      {view.intent &&
-        row(
-          t('card.wants'),
-          <p className={cn('text-sm font-medium', c.text)}>
-            {t(`intents.${view.intent}`)}
-            {view.intentPercent !== null && (
-              <span className={cn('ml-1.5 text-xs font-normal', c.sub)}>
-                {t('card.sure', { percent: view.intentPercent })}
-              </span>
-            )}
-          </p>
-        )}
-      {view.meter.length > 0 &&
-        row(
-          t('card.lead'),
-          <ol className="grid grid-cols-4 gap-1" aria-label={t('card.lead')}>
-            {view.meter.map((s) => (
-              <li
-                key={s.band}
-                aria-current={s.current ? 'step' : undefined}
-                className={cn(
-                  'rounded px-1 py-1 text-center text-[10px] leading-tight',
-                  s.current
-                    ? 'bg-success-soft text-success ring-success/60 font-semibold ring-1 ring-inset'
-                    : s.reached
-                      ? 'bg-success-soft/60 text-success'
-                      : c.step
-                )}
+    <div className="space-y-2">
+      {banner}
+      <div className={cn('space-y-3 rounded-lg px-3 py-2.5', c.inner)}>
+        {(view.intent || view.needsReply || view.callback) &&
+          row(
+            t('card.wants'),
+            <div className="flex flex-wrap items-center gap-1.5">
+              {view.intent && (
+                <Chip className={paletteFor('intent', view.intent).chip}>
+                  {t(`intents.${view.intent}`)}
+                </Chip>
+              )}
+              {view.intentPercent !== null && (
+                <span className={cn('text-xs', c.sub)}>
+                  {t('card.sure', { percent: view.intentPercent })}
+                </span>
+              )}
+              {view.needsReply && (
+                <Chip className={paletteFor('urgency', 'soon').chip}>
+                  {t('card.needsReply')}
+                </Chip>
+              )}
+              {view.callback && (
+                <Chip className={paletteFor('attention', 'callback').chip}>
+                  {t('card.callback')}
+                </Chip>
+              )}
+            </div>
+          )}
+        {view.meter.length > 0 &&
+          row(
+            t('card.lead'),
+            <div className="space-y-1">
+              <ol
+                className="grid grid-cols-4 gap-1"
+                aria-label={t('card.lead')}
               >
-                {t(`bands.lead.${s.band}`)}
-              </li>
-            ))}
-          </ol>
-        )}
-      {view.urgency &&
-        row(
-          t('card.urgency'),
-          URGENCY_TONE[view.urgency] ? (
-            <Chip className={URGENCY_TONE[view.urgency]!}>
+                {view.meter.map((s) => (
+                  <li
+                    key={s.band}
+                    aria-current={s.current ? 'step' : undefined}
+                    className={cn(
+                      'rounded px-1 py-1 text-center text-[10px] leading-tight',
+                      s.current
+                        ? cn(paletteFor('lead', s.band).chip, 'font-semibold')
+                        : s.reached
+                          ? cn(paletteFor('lead', s.band).chip, 'opacity-60')
+                          : c.step
+                    )}
+                  >
+                    {t(`bands.lead.${s.band}`)}
+                  </li>
+                ))}
+              </ol>
+              {trends.lead &&
+                trendWord(
+                  t(`trends.lead.${trends.lead}`),
+                  TREND_ARROW[trends.lead]
+                )}
+            </div>
+          )}
+        {view.urgency &&
+          row(
+            t('card.urgency'),
+            <Chip className={paletteFor('urgency', view.urgency).chip}>
               {t(`bands.urgency.${view.urgency}`)}
             </Chip>
-          ) : (
-            <p className={cn('text-sm', c.text)}>
-              {t(`bands.urgency.${view.urgency}`)}
+          )}
+        {(view.sentiment || view.mood) &&
+          row(
+            t('card.mood'),
+            <div className="flex flex-wrap items-center gap-1.5">
+              {view.sentiment && (
+                <Chip className={paletteFor('sentiment', view.sentiment).chip}>
+                  {t(`legend.families.sentiment.items.${view.sentiment}.label`)}
+                </Chip>
+              )}
+              {(view.mood ?? [])
+                // A known sentiment already says how calm they are.
+                .filter((m) => !(m === 'calm' && view.sentiment))
+                .map((m) => (
+                  <Chip key={m} className={MOOD_SWATCH[m].chip}>
+                    {m === 'calm' ? t('card.calm') : t(`bands.mood.${m}`)}
+                  </Chip>
+                ))}
+              {trends.mood &&
+                trendWord(
+                  t(`trends.mood.${trends.mood}`),
+                  TREND_ARROW[trends.mood]
+                )}
+            </div>
+          )}
+        {view.objections.length > 0 &&
+          row(
+            t('card.objections'),
+            <div className="flex flex-wrap gap-1.5">
+              {view.objections.map((o) => (
+                <Chip key={o} className={paletteFor('objection', o).chip}>
+                  {t(`legend.families.objection.items.${o}.label`)}
+                </Chip>
+              ))}
+            </div>
+          )}
+        {actions.length > 0 &&
+          row(
+            t('actions.title'),
+            <ul className="space-y-1.5">
+              {actions.map((a) => {
+                const sw = swatchOf(a.tone);
+                return (
+                  <li key={a.code} className={cn('border-l-2 pl-2', sw.stripe)}>
+                    <p className={cn('text-sm font-medium', sw.text)}>
+                      {t(`actions.codes.${a.code}`)}
+                    </p>
+                    <p className={cn('text-[11px] leading-snug', c.sub)}>
+                      {t(`actions.hints.${a.code}`)}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        {events &&
+          row(
+            t('trends.title'),
+            <TrendLines view={view} trends={trends} sub={c.sub} />
+          )}
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          {view.basedOnAt && (
+            <p className={cn('text-[11px]', c.sub)}>
+              {t('card.basedOn', {
+                when: format.relativeTime(view.basedOnAt),
+              })}
             </p>
-          )
-        )}
-      {view.mood &&
-        row(
-          t('card.mood'),
-          <div className="flex flex-wrap gap-1.5">
-            {view.mood.map((m) => (
-              <Chip key={m} className={MOOD_TONE[m]}>
-                {m === 'calm' ? t('card.calm') : t(`bands.mood.${m}`)}
-              </Chip>
-            ))}
-          </div>
-        )}
-      {view.basedOnAt && (
-        <p className={cn('text-[11px]', c.sub)}>
-          {t('card.basedOn', { when: format.relativeTime(view.basedOnAt) })}
-        </p>
-      )}
+          )}
+          <InsightLegend className="-mr-1.5" />
+        </div>
+      </div>
     </div>
   );
   return <>{frame(t('card.title'), body)}</>;
+}
+
+function PinnedBanner({
+  attention,
+  canHandle,
+  onHandled,
+}: {
+  attention: NonNullable<CustomerInsightView['attention']>;
+  canHandle: boolean;
+  onHandled: () => void;
+}) {
+  const t = useTranslations('InsightsUi');
+  const format = useFormatter();
+  const sw = paletteFor('attention', attention.reason ?? 'urgent');
+  const when = format.relativeTime(attention.since);
+  return (
+    <div
+      role="status"
+      className={cn(
+        'flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs',
+        sw.chip
+      )}
+    >
+      <p className="min-w-0 font-medium">
+        {attention.reason
+          ? t('card.pinned', {
+              reason: t(
+                `legend.families.attention.items.${attention.reason}.label`
+              ),
+              when,
+            })
+          : t('card.pinnedNoReason', { when })}
+      </p>
+      {canHandle && (
+        <button
+          type="button"
+          onClick={onHandled}
+          className="bg-card/70 hover:bg-card focus-visible:ring-ring shrink-0 rounded-md px-2 py-1 font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
+        >
+          {t('card.markHandled')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const SPARK_W = 96;
+const SPARK_H = 20;
+
+export function TrendLines({
+  view,
+  trends,
+  sub,
+}: {
+  view: CustomerInsightView;
+  trends: ReturnType<typeof insightTrends>;
+  sub: string;
+}) {
+  const t = useTranslations('InsightsUi');
+  const lines: {
+    scale: SparklineScale;
+    label: string;
+    trend: string | null;
+    colour: string;
+  }[] = [
+    {
+      scale: 'sentiment',
+      label: 'sparkMood',
+      trend: trends.mood && t(`trends.mood.${trends.mood}`),
+      colour: paletteFor('sentiment', view.sentiment ?? 'neutral').text,
+    },
+    {
+      scale: 'leadTemp',
+      label: 'sparkLead',
+      trend: trends.lead && t(`trends.lead.${trends.lead}`),
+      colour: paletteFor('lead', view.lead ?? 'cold').text,
+    },
+  ];
+  const drawn = lines.flatMap((l) => {
+    const values = sparklineValues(trends.series, l.scale);
+    if (values.length < SPARKLINE_MIN_POINTS || !l.trend) return [];
+    const d = sparklinePath(values, SPARKLINE_MAX[l.scale], SPARK_W, SPARK_H);
+    return d ? [{ ...l, d, count: values.length }] : [];
+  });
+  if (drawn.length === 0)
+    return (
+      <p className={cn('text-[11px]', sub)}>{t('card.notEnoughHistory')}</p>
+    );
+  return (
+    <div className="space-y-1">
+      {drawn.map((l) => (
+        <div key={l.scale} className="flex items-center gap-2">
+          <span className={cn('w-10 shrink-0 text-[11px]', sub)}>
+            {t(
+              l.scale === 'sentiment'
+                ? 'trends.mood.label'
+                : 'trends.lead.label'
+            )}
+          </span>
+          <svg
+            role="img"
+            aria-label={t(`card.${l.label}`, {
+              count: l.count,
+              trend: l.trend ?? '',
+            })}
+            viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+            width={SPARK_W}
+            height={SPARK_H}
+            className={cn('shrink-0', l.colour)}
+          >
+            <path
+              d={l.d}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className={cn('text-[11px]', sub)}>{l.trend}</span>
+        </div>
+      ))}
+    </div>
+  );
 }

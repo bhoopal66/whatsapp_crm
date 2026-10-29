@@ -8519,7 +8519,18 @@
       "urgency": "긴급도",
       "mood": "기분",
       "calm": "차분함",
-      "basedOn": "마지막 메시지 기준 · {when}"
+      "basedOn": "마지막 메시지 기준 · {when}",
+      "pinned": "고정됨 — {reason} · {when}",
+      "pinnedNoReason": "고정됨 · {when}",
+      "markHandled": "처리 완료",
+      "handledToast": "처리 완료로 표시했습니다",
+      "handledFailed": "처리 완료로 표시하지 못했습니다. 다시 시도하세요.",
+      "needsReply": "답장을 기다리는 중",
+      "callback": "전화를 요청함",
+      "objections": "망설이는 이유",
+      "notEnoughHistory": "아직 기록이 충분하지 않습니다",
+      "sparkMood": "최근 메시지 {count}개의 기분: {trend}",
+      "sparkLead": "최근 메시지 {count}개의 리드: {trend}"
     },
     "home": {
       "hot": {

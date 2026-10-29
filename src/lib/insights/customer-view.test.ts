@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CALLBACK_MIN_P,
   LEAD_HOT_MIN,
   LEAD_READY_MIN,
+  NEEDS_REPLY_MIN_P,
+  SENTIMENT_NEGATIVE_MIN,
   UPSET_MIN,
   WANTS_PERSON_MIN,
 } from './bands';
@@ -30,7 +33,74 @@ describe('customerInsightView', () => {
       expect(v.meter).toEqual([]);
       expect(v.mood).toBeNull();
       expect(v.basedOnAt).toBeNull();
+      expect(v.sentiment).toBeNull();
+      expect(v.objections).toEqual([]);
+      expect(v.needsReply).toBe(false);
+      expect(v.callback).toBe(false);
+      expect(v.attention).toBeNull();
     }
+  });
+
+  it('reads the sentiment band, and a sentiment alone counts as judged', () => {
+    const v = customerInsightView({ insight_sentiment: 0.4 });
+    expect(v.sentiment).toBe('very_negative');
+    expect(v.judged).toBe(true);
+    expect(
+      customerInsightView({ insight_sentiment: SENTIMENT_NEGATIVE_MIN })
+        .sentiment
+    ).toBe('negative');
+    expect(
+      customerInsightView({ insight_sentiment: NaN }).sentiment
+    ).toBeNull();
+  });
+
+  it('keeps known objections once each, in display order', () => {
+    const v = customerInsightView({
+      insight_objections: ['trust', 'bogus', 'price', 'trust'],
+    });
+    expect(v.objections).toEqual(['price', 'trust']);
+    expect(v.judged).toBe(true);
+    expect(
+      customerInsightView({ insight_objections: null }).objections
+    ).toEqual([]);
+  });
+
+  it('flags needs reply and call back at their thresholds', () => {
+    const at = customerInsightView({
+      insight_needs_reply: NEEDS_REPLY_MIN_P,
+      insight_callback: CALLBACK_MIN_P,
+    });
+    expect(at.needsReply).toBe(true);
+    expect(at.callback).toBe(true);
+    const below = customerInsightView({
+      insight_needs_reply: NEEDS_REPLY_MIN_P - 0.01,
+      insight_callback: CALLBACK_MIN_P - 0.01,
+    });
+    expect(below.needsReply).toBe(false);
+    expect(below.callback).toBe(false);
+  });
+
+  it('reads the pin: reason and since; an unknown reason keeps the pin', () => {
+    const v = customerInsightView({
+      insight_attention_at: '2026-10-29T08:00:00Z',
+      insight_attention_reason: 'wants_person',
+    });
+    expect(v.attention).toEqual({
+      reason: 'wants_person',
+      since: new Date('2026-10-29T08:00:00Z'),
+    });
+    expect(
+      customerInsightView({
+        insight_attention_at: '2026-10-29T08:00:00Z',
+        insight_attention_reason: 'mystery',
+      }).attention?.reason
+    ).toBeNull();
+    expect(
+      customerInsightView({
+        insight_attention_at: 'nope',
+        insight_attention_reason: 'urgent',
+      }).attention
+    ).toBeNull();
   });
 
   it('reads every figure of a judged chat', () => {
@@ -105,6 +175,13 @@ describe('customerInsightView', () => {
         'insight_upset',
         'insight_urgency',
         'insight_wants_human',
+        'insight_sentiment',
+        'insight_objections',
+        'insight_needs_reply',
+        'insight_callback',
+        'insight_attention_at',
+        'insight_attention_reason',
+        'unread_count',
       ].sort()
     );
   });

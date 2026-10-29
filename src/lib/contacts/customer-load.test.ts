@@ -170,10 +170,16 @@ describe('loadCustomer', () => {
         insight_lead_temp: 1.6,
         insight_upset: 0.1,
         insight_at: '2026-10-29T08:00:00Z',
+        insight_sentiment: 2.8,
+        insight_objections: ['price'],
+        insight_attention_at: '2026-10-29T08:01:00Z',
+        insight_attention_reason: 'callback',
+        unread_count: 2,
       },
     });
     if (l.state !== 'ready') throw new Error(l.state);
     expect(l.insights).toEqual({
+      id: 'v1',
       insight_intent: 'business_loan',
       insight_intent_p: 0.82,
       insight_urgency: null,
@@ -181,6 +187,13 @@ describe('loadCustomer', () => {
       insight_upset: 0.1,
       insight_wants_human: null,
       insight_at: '2026-10-29T08:00:00Z',
+      insight_sentiment: 2.8,
+      insight_objections: ['price'],
+      insight_needs_reply: null,
+      insight_callback: null,
+      insight_attention_at: '2026-10-29T08:01:00Z',
+      insight_attention_reason: 'callback',
+      unread_count: 2,
     });
   });
 
@@ -197,6 +210,14 @@ describe('loadCustomer', () => {
     const conv = issued.find((q) => q.table === 'conversations');
     expect(JSON.stringify(conv?.ops)).toContain('insight_lead_temp');
     expect(JSON.stringify(conv?.ops)).toContain('insight_at');
+    for (const col of [
+      'insight_sentiment',
+      'insight_objections',
+      'insight_attention_at',
+      'insight_attention_reason',
+      'unread_count',
+    ])
+      expect(JSON.stringify(conv?.ops)).toContain(col);
   });
 
   it('shows no messages, and issues no read, without a conversation', async () => {

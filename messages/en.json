@@ -8519,7 +8519,18 @@
       "urgency": "Urgency",
       "mood": "Mood",
       "calm": "Calm",
-      "basedOn": "Based on their last message · {when}"
+      "basedOn": "Based on their last message · {when}",
+      "pinned": "Pinned — {reason} · {when}",
+      "pinnedNoReason": "Pinned · {when}",
+      "markHandled": "Mark handled",
+      "handledToast": "Marked as handled",
+      "handledFailed": "Couldn't mark it as handled. Try again.",
+      "needsReply": "Waiting for a reply",
+      "callback": "Asked for a call",
+      "objections": "What holds them back",
+      "notEnoughHistory": "Not enough history yet",
+      "sparkMood": "Mood over the last {count} messages: {trend}",
+      "sparkLead": "Lead over the last {count} messages: {trend}"
     },
     "home": {
       "hot": {

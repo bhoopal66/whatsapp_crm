@@ -256,6 +256,7 @@ export async function loadCustomer(
     conversation: cv ? { id: cv.id, assignedTo: cv.assigned_agent_id } : null,
     insights: cv
       ? {
+          id: cv.id,
           insight_intent: cv.insight_intent ?? null,
           insight_intent_p: cv.insight_intent_p ?? null,
           insight_urgency: cv.insight_urgency ?? null,
@@ -263,6 +264,13 @@ export async function loadCustomer(
           insight_upset: cv.insight_upset ?? null,
           insight_wants_human: cv.insight_wants_human ?? null,
           insight_at: cv.insight_at ?? null,
+          insight_sentiment: cv.insight_sentiment ?? null,
+          insight_objections: cv.insight_objections ?? null,
+          insight_needs_reply: cv.insight_needs_reply ?? null,
+          insight_callback: cv.insight_callback ?? null,
+          insight_attention_at: cv.insight_attention_at ?? null,
+          insight_attention_reason: cv.insight_attention_reason ?? null,
+          unread_count: cv.unread_count ?? null,
         }
       : null,
     deal: d ? { id: d.id, title: d.title, stage: d.stage?.name ?? null } : null,
