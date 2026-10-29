@@ -554,3 +554,13 @@ jobs:
       # reaches the RPCs, and only that account's map.
       - name: Verify case status map
         run: supabase db query --local --file supabase/ci/verify-case-status-map.sql
+
+      # Migration 152's knowledge-gap topics: an admin reads topics and
+      # members, an agent and another account read nothing; dismiss and
+      # reopen only through kb_gap_topic_set_status (admin+ of the active
+      # account), never a direct write; kb_gap_topics_replace is the
+      # service role's alone, swaps an account's topics in one call, and
+      # another account's gap or answer id fails it whole; a deleted gap
+      # drops its member rows, a deleted answer nulls the coverage link.
+      - name: Verify knowledge-gap topics
+        run: supabase db query --local --file supabase/ci/verify-kb-gap-topics.sql
