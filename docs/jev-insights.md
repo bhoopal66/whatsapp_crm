@@ -155,8 +155,8 @@ chat's latest customer message, without waiting for a new one. It
 follows the Suggest-mode rules above (it can say "no confident
 suggestion", "already tagged that way" or "you dismissed that tag"), and
 it never tags the chat itself, in Auto mode either: applying the result
-is your click. It is available whenever Chat tag suggestions are not
-off.
+is your click. It is offered whenever Chat tag suggestions are not off
+and Jev is available for the workspace.
 
 ## Campaign reply sorting
 
@@ -188,15 +188,15 @@ inbox composer checks a message before it goes out:
 
 What each warning means:
 
-| Warning | Meaning |
-|---|---|
-| Asks for secrets | It asks for card numbers, CVV, PIN, OTP or passwords. Never ask for these in chat. |
-| Promise | It sounds like it promises an approval or a timeline. Only the bank can decide. |
-| Rates and amounts | It quotes a rate, fee or amount. Make sure the bank has confirmed it. |
-| Regulator claim | It says the company is licensed or regulated by the Central Bank. |
-| Bank you don't work with | It names a bank outside the account's partner-bank list. |
-| Cold pitch | The message would start a new chat and reads like a marketing blast, which can get the WhatsApp number restricted. |
-| Tone | It may come across as rude or dismissive. |
+| Warning                  | Meaning                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Asks for secrets         | It asks for card numbers, CVV, PIN, OTP or passwords. Never ask for these in chat.                                 |
+| Promise                  | It sounds like it promises an approval or a timeline. Only the bank can decide.                                    |
+| Rates and amounts        | It quotes a rate, fee or amount. Make sure the bank has confirmed it.                                              |
+| Regulator claim          | It says the company is licensed or regulated by the Central Bank.                                                  |
+| Bank you don't work with | It names a bank outside the account's partner-bank list.                                                           |
+| Cold pitch               | The message would start a new chat and reads like a marketing blast, which can get the WhatsApp number restricted. |
+| Tone                     | It may come across as rude or dismissive.                                                                          |
 
 The box lists them most serious first, in that order. Some are fixed
 rules (secrets, partner banks, regulator wording) and some are Jev

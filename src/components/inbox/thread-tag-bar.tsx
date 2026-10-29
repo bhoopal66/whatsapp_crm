@@ -131,7 +131,8 @@ export function ThreadTagBar({
   const ts = useTranslations('TagSuggest');
   const { accountRole } = useAuth();
   const { tags, tree, reload } = useChatTags();
-  const { settings: insightSettings } = useInsightSettings();
+  const { settings: insightSettings, available: insightsAvailable } =
+    useInsightSettings();
 
   // The suggestion whose Apply or Dismiss is in flight, hidden at once
   // and shown again if it fails; and whether "Suggest a tag" is asking.
@@ -306,7 +307,10 @@ export function ThreadTagBar({
   // flight: it would flash in for the moment the chip is hidden.
   const settling =
     hiddenKey !== null && hiddenKey === suggestionKey(conversation);
+  // Not offered where Jev can't answer (no key, or the workspace outside
+  // TS_ACCOUNT_IDS): the button would only ever say "unavailable".
   const canAsk =
+    insightsAvailable &&
     canAskForSuggestion({ mode, canEdit, chipShown: chip !== null }) &&
     !saving &&
     !settling;
