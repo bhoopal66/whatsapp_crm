@@ -62,10 +62,13 @@ import type { ConversationListItem } from '@/lib/inbox/conversations';
 async function fetchConversationEvents(
   conversationId: string
 ): Promise<ConversationEvent[]> {
+  // Channel-switch notes only: this timeline renders every row as a
+  // switch, and migration 147 added other kinds (chat_tag_auto).
   const { data } = await createClient()
     .from('conversation_events')
     .select('*')
     .eq('conversation_id', conversationId)
+    .eq('kind', 'channel_switched')
     .order('created_at', { ascending: true });
   return (data ?? []) as ConversationEvent[];
 }
@@ -117,6 +120,7 @@ export function useConversationEvents(conversationId: string | null) {
         },
         (payload) => {
           const row = payload.new as ConversationEvent;
+          if (row.kind !== 'channel_switched') return;
           // A note can arrive before the initial fetch lands; start this
           // chat's list rather than dropping it. The fetch then replaces
           // the list with the full set, which includes this row.
