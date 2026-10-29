@@ -159,6 +159,29 @@ describe('judgeMeanings', () => {
     expect(h.intentMatch).toHaveBeenCalledTimes(1);
   });
 
+  it('a changed description is asked again, only for that candidate; an unchanged one is a memo hit', async () => {
+    h.rows = { flows: [row('flow:f1')], automations: [row('automation:a1')] };
+    answer({ 'flow:f1': 0.9, 'automation:a1': 0.9 });
+    // The cached account set (old descriptions) is asked first.
+    await judgeMeanings({ ...base, candidates: [cand('flow:f1')] });
+    expect(h.intentMatch).toHaveBeenCalledTimes(1);
+    // Same text again: memo hit.
+    await judgeMeanings({ ...base, candidates: [cand('flow:f1')] });
+    expect(h.intentMatch).toHaveBeenCalledTimes(1);
+    // The automation's fresh description differs from what was judged.
+    const edited = { ...cand('automation:a1'), description: 'Edited meaning' };
+    h.intentMatch.mockClear();
+    h.intentMatch.mockResolvedValue({ ok: true, latencyMs: 5, p: [0.95] });
+    const out = await judgeMeanings({ ...base, candidates: [edited] });
+    expect([...out.entries()]).toEqual([['automation:a1', 0.95]]);
+    expect(h.intentMatch).toHaveBeenCalledTimes(1);
+    expect(
+      h.intentMatch.mock.calls[0][0].candidates.map(
+        (c: { description: string }) => c.description
+      )
+    ).toEqual(['Edited meaning']);
+  });
+
   it('skips stored configs that fail validation, and flows without an entry node', async () => {
     h.rows = {
       flows: [

@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
     nodes: [] as unknown[],
     inserted: [] as { table: string; row: Record<string, unknown> }[],
     updates: [] as { table: string; row: Record<string, unknown> }[],
+    /** The optimistic node update matches no row (a concurrent tap won). */
+    zeroAdvance: false,
   },
   available: true,
   meaningOn: true,
@@ -28,6 +30,7 @@ vi.mock('./admin-client', () => {
     return [];
   }
   function builder(table: string) {
+    let written: Record<string, unknown> | null = null;
     const b: Record<string, unknown> = {
       select: () => b,
       eq: () => b,
@@ -38,6 +41,7 @@ vi.mock('./admin-client', () => {
       limit: () => b,
       update: (row: Record<string, unknown>) => {
         h.state.updates.push({ table, row });
+        written = row;
         return b;
       },
       insert: (row: Record<string, unknown>) => {
@@ -47,7 +51,17 @@ vi.mock('./admin-client', () => {
       maybeSingle: async () => ({ data: rows(table)[0] ?? null, error: null }),
       single: async () => ({ data: rows(table)[0] ?? null, error: null }),
       then: (resolve: (r: unknown) => unknown) =>
-        resolve({ data: rows(table), error: null, count: 0 }),
+        resolve({
+          data:
+            h.state.zeroAdvance &&
+            table === 'flow_runs' &&
+            written &&
+            'current_node_key' in written
+              ? []
+              : rows(table),
+          error: null,
+          count: 0,
+        }),
     };
     return b;
   }
@@ -197,6 +211,7 @@ beforeEach(() => {
   h.state.nodes = NODES;
   h.state.inserted = [];
   h.state.updates = [];
+  h.state.zeroAdvance = false;
   h.available = true;
   h.meaningOn = true;
   h.replyOption = vi.fn(async () => ({
@@ -295,6 +310,34 @@ describe('typed answers to a waiting send_buttons node', () => {
     await sendText('compare!');
     expect(events()).toContainEqual(
       expect.objectContaining({ event_type: 'error', node_key: 'c_end' })
+    );
+    expect(matchEvent()).toBeUndefined();
+  });
+
+  it('writes no match event when the advance lost the race to a concurrent tap', async () => {
+    // Only a waiting target (buttons, list) does the optimistic node
+    // update; an end node completes without it.
+    h.state.nodes = [
+      ...NODES.filter((n) => (n as { node_key: string }).node_key !== 'c_end'),
+      {
+        id: 'n5',
+        flow_id: 'flow-1',
+        node_key: 'c_end',
+        node_type: 'send_buttons',
+        config: {
+          text: 'Which bank?',
+          buttons: [{ reply_id: 'b1', title: 'Bank', next_node_key: 'q_end' }],
+        },
+      },
+    ];
+    h.state.zeroAdvance = true;
+    await sendText('compare!');
+    expect(events()).toContainEqual(
+      expect.objectContaining({
+        event_type: 'error',
+        node_key: 'c_end',
+        payload: { reason: 'lost_race_during_advance' },
+      })
     );
     expect(matchEvent()).toBeUndefined();
   });

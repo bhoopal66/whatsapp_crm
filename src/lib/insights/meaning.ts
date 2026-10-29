@@ -9,7 +9,8 @@
 //     dispatch both judge the same message. Whichever asks first asks
 //     for every active meaning candidate of the account, both engines'
 //     (`loadMeaningCandidates`, cached per process for CANDIDATES_TTL_MS),
-//     plus its own; p per key is memoised per (account, gateway message
+//     plus its own; p per candidate (key + a hash of its description and
+//     examples, so an edit is asked again) is memoised per (account, gateway message
 //     id) for MEMO_TTL_MS, so the second engine finds everything judged.
 //     A failed or timed-out request is memoised for every candidate it
 //     covered (as "no match"), never retried on the same message, so a
@@ -21,6 +22,7 @@
 //   * Never throws; any failure means no trigger fires.
 // ============================================================
 
+import { createHash } from 'node:crypto';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { getDecisionLayer } from '@/lib/typesafe';
 import { getInsightSettings, insightsAvailable } from './settings';
@@ -186,7 +188,8 @@ export const MEMO_TTL_MS = 60_000;
 
 interface MemoEntry {
   at: number;
-  /** p per candidate key; null when the request for it failed. */
+  /** p per candidate signature (key + judged text); null when the
+   *  request for it failed. */
   p: Map<string, Promise<number | null>>;
 }
 
@@ -197,6 +200,16 @@ export function __resetMeaningMemo(): void {
   memo.clear();
   candidateCache.clear();
   capWarnedAt.clear();
+}
+
+/** A candidate's identity for the memo: its key plus a short hash of the
+ *  text that is judged, so an edited description is asked again. */
+function signature(c: MeaningCandidate): string {
+  const h = createHash('sha1')
+    .update(JSON.stringify([c.description, c.examples]))
+    .digest('hex')
+    .slice(0, 12);
+  return `${c.key}\u0000${h}`;
 }
 
 function entryFor(accountId: string, messageKey: string): MemoEntry {
@@ -265,7 +278,7 @@ export async function judgeMeanings(
     for (const c of input.candidates) all.set(c.key, c);
 
     const entry = entryFor(input.accountId, input.messageKey);
-    const missing = [...all.values()].filter((c) => !entry.p.has(c.key));
+    const missing = [...all.values()].filter((c) => !entry.p.has(signature(c)));
     if (missing.length > 0) {
       const ranked = rankForCap(missing);
       const asked = ranked.slice(0, INTENT_MAX_CANDIDATES);
@@ -274,15 +287,15 @@ export async function judgeMeanings(
       const pending = ask(input, asked);
       asked.forEach((c, i) =>
         entry.p.set(
-          c.key,
+          signature(c),
           pending.then((ps) => ps[i] ?? null)
         )
       );
       for (const c of ranked.slice(asked.length))
-        entry.p.set(c.key, Promise.resolve(null));
+        entry.p.set(signature(c), Promise.resolve(null));
     }
     for (const c of input.candidates) {
-      const p = await entry.p.get(c.key);
+      const p = await entry.p.get(signature(c));
       if (typeof p === 'number' && p >= c.threshold) out.set(c.key, p);
     }
     return out;
