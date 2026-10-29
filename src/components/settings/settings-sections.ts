@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
+  Sparkles,
   Tag,
   TextCursorInput,
   User,
@@ -80,6 +81,7 @@ export const SETTINGS_SECTIONS = [
   'deals',
   // AI & automation.
   'ai',
+  'insights',
   'journey-bot',
   // Cases & collaboration: bank cases and working together on them.
   'cases',
@@ -250,6 +252,15 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   // The AI Agents area, admin-only like the /agents screen it replaced
   // (and the TypeSafe API routes behind its Safety checks tab).
   ai: { id: 'ai', icon: Bot, category: 'automation', minRole: 'admin' },
+  // Smart insights (migration 147): the Jev-powered CRM features, off
+  // until an admin switches each one on. Admin-only like the PUT; every
+  // member still reads the switches through the API.
+  insights: {
+    id: 'insights',
+    icon: Sparkles,
+    category: 'automation',
+    minRole: 'admin',
+  },
   // The journey bot (module 016): a fixed workflow rather than an AI
   // agent, so its own entry beside AI Agents rather than one of the AI
   // area's tabs.

@@ -2397,6 +2397,7 @@
       "deals": "딜 & 통화",
       "team-chat": "팀 채팅",
       "journey-bot": "여정 봇",
+      "insights": "스마트 인사이트",
       "phone-system": "전화 시스템",
       "consent-retention": "동의 및 보존",
       "audit-log": "감사 로그",
@@ -2447,6 +2448,7 @@
       "deals": "딜과 파이프라인 합계에 쓰는 통화.",
       "ai": "AI 어시스턴트, 자동 답장, 지식, 안전 점검.",
       "journey-bot": "Welcome to Close 봇의 템플릿과 메시지.",
+      "insights": "Jev가 채팅을 읽고 리드 평가, 태그 제안, 캠페인 답장 분류, 메시지 점검을 합니다.",
       "cases": "은행, 단계, 작업 템플릿, 서류, SLA 타이머.",
       "deal-rooms": "딜룸 초대 링크를 보내는 템플릿.",
       "team-chat": "팀 채팅 켜기·끄기, 누가 누구에게 메시지할 수 있는지, 감사 기록이 남는 열람과 삭제.",
@@ -2477,6 +2479,7 @@
       "deals": "통화 AED USD 파이프라인 currency pipelines",
       "ai": "인공지능 봇 챗봇 어시스턴트 자동 답장 지식 베이스 안전 ai bot assistant knowledge openai anthropic",
       "journey-bot": "여정 봇 워크플로 자동화 journey bot",
+      "insights": "스마트 인사이트 jev typesafe insights 리드 긴급 태그 제안 캠페인 답장 메시지 점검",
       "cases": "은행 단계 SLA 서류 작업 신청 코디네이터 banks stages documents",
       "deal-rooms": "딜룸 그룹 초대 은행 담당자 deal room invite",
       "team-chat": "내부 채팅 채널 메시지 삭제 감사 internal chat 다이렉트 메시지 DM 메시지 규칙 상담원 팀장 direct messages",
@@ -8385,7 +8388,49 @@
     }
   },
   "Insights": {
-    "_": ""
+    "settings": {
+      "title": "스마트 인사이트",
+      "description": "Jev가 채팅을 읽고 좁은 질문에 답하는 기능입니다. Jev는 메시지를 쓰지 않습니다. 각 기능은 여기서 켜기 전까지 꺼져 있습니다.",
+      "unavailable": "이 워크스페이스에서는 Jev를 사용할 수 없습니다. 서버에 TYPESAFE_API_KEY가 있어야 하고 이 워크스페이스가 TS_ACCOUNT_IDS에 있어야 합니다.",
+      "save": "저장",
+      "saved": "스마트 인사이트 설정을 저장했습니다",
+      "saveFailed": "스마트 인사이트 설정을 저장하지 못했습니다",
+      "conflict": "다른 사람이 이 설정을 변경했습니다. 다시 불러와 최신 설정을 확인하세요.",
+      "reload": "다시 불러오기",
+      "signals": {
+        "title": "고객 인사이트",
+        "description": "받은편지함, 고객 페이지, 파이프라인, 홈 화면에서 각 리드가 얼마나 유망한지, 무엇을 원하는지, 누가 화가 났거나 급한지 보여줍니다."
+      },
+      "tags": {
+        "title": "채팅 태그 제안",
+        "description": "각 대화에 맞는 채팅 태그를 제안하거나 자동으로 적용합니다.",
+        "mode": {
+          "off": "끄기",
+          "suggest": "제안",
+          "auto": "자동 적용"
+        },
+        "minP": "Jev의 확신이 {percent}% 이상일 때만 자동 적용",
+        "autoNote": "자동 태그는 태그가 없는 채팅에만 적용되며, 사람이 설정한 태그는 절대 바꾸지 않습니다."
+      },
+      "replies": {
+        "title": "캠페인 답장 분류",
+        "description": "캠페인 답장을 관심 있음, 관심 없음, 질문, 수신 거부로 분류합니다.",
+        "tagLabel": "관심 있는 답장에 붙일 태그",
+        "none": "없음"
+      },
+      "compose": {
+        "title": "보내기 전 메시지 점검",
+        "description": "승인을 약속하거나, 확인되지 않은 금리를 제시하거나, 거래하지 않는 은행을 언급하거나, 카드 정보나 OTP를 요청하거나, 스팸처럼 보이는 메시지를 보내기 전에 상담원에게 경고합니다.",
+        "mode": {
+          "off": "끄기",
+          "warn": "경고"
+        }
+      },
+      "meaning": {
+        "title": "의미를 이해하는 플로우와 자동화",
+        "description": "플로우와 자동화 트리거가 정확한 키워드뿐 아니라 고객의 의도에 맞게 동작하고, 버튼에 대한 입력 답변도 이해하도록 합니다."
+      }
+    }
   },
   "InsightsUi": {
     "_": ""

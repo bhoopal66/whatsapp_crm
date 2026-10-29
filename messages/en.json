@@ -2397,6 +2397,7 @@
       "deals": "Deals & currency",
       "team-chat": "Team chat",
       "journey-bot": "Journey bot",
+      "insights": "Smart insights",
       "phone-system": "Phone system",
       "consent-retention": "Consent and retention",
       "audit-log": "Audit log",
@@ -2447,6 +2448,7 @@
       "deals": "The currency of deals and of pipeline totals.",
       "ai": "The AI assistant, auto-reply, knowledge and safety checks.",
       "journey-bot": "The Welcome to Close bot: its templates and messages.",
+      "insights": "Jev reads chats to rate leads, suggest tags, sort campaign replies and check messages.",
       "cases": "Banks, stages, task templates, documents and SLA timers.",
       "deal-rooms": "The template that invites people to a deal room.",
       "team-chat": "Turn team chat on or off, who may message whom, audited reads and erasure.",
@@ -2477,6 +2479,7 @@
       "deals": "currency aed usd pipelines money totals",
       "ai": "artificial intelligence bot chatbot assistant auto reply knowledge base openai anthropic model gpt claude safety typesafe guardrail playground usage approved answers",
       "journey-bot": "journey bot welcome to close workflow automation",
+      "insights": "jev typesafe insights signals lead hot urgent upset intent tag suggestions auto tag campaign replies message check meaning triggers",
       "cases": "bank banks stages sla documents tasks submissions applications coordinators",
       "deal-rooms": "deal room group invite whatsapp group bank officers",
       "team-chat": "internal chat channels messages erase audit private direct messages dm who can message rules agents team leader",
@@ -8385,7 +8388,49 @@
     }
   },
   "Insights": {
-    "_": ""
+    "settings": {
+      "title": "Smart insights",
+      "description": "Features powered by Jev, which reads chats and answers narrow questions about them. It never writes messages. Each feature is off until you switch it on here.",
+      "unavailable": "Jev isn't available for this workspace. It needs TYPESAFE_API_KEY on the server and this workspace listed in TS_ACCOUNT_IDS.",
+      "save": "Save",
+      "saved": "Smart insights settings saved",
+      "saveFailed": "Could not save the Smart insights settings",
+      "conflict": "Someone else changed these settings. Reload to see the latest.",
+      "reload": "Reload",
+      "signals": {
+        "title": "Customer insights",
+        "description": "Show how hot each lead is, what they want, and who is upset or urgent, in the inbox, customer page, pipelines and home page."
+      },
+      "tags": {
+        "title": "Chat tag suggestions",
+        "description": "Suggest the chat tag that fits each conversation, or apply it automatically.",
+        "mode": {
+          "off": "Off",
+          "suggest": "Suggest",
+          "auto": "Auto-apply"
+        },
+        "minP": "Auto-apply only when Jev is at least {percent}% sure",
+        "autoNote": "Auto-tagging only tags chats that have no tag; it never changes a tag a person set."
+      },
+      "replies": {
+        "title": "Campaign reply sorting",
+        "description": "Sort replies to campaigns into interested, not interested, questions and opt-outs.",
+        "tagLabel": "Tag interested replies with",
+        "none": "None"
+      },
+      "compose": {
+        "title": "Message check before sending",
+        "description": "Warn agents before they send a message that promises approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam.",
+        "mode": {
+          "off": "Off",
+          "warn": "Warn"
+        }
+      },
+      "meaning": {
+        "title": "Flows and automations that understand meaning",
+        "description": "Let flow and automation triggers match what the customer means, not just exact keywords, and understand typed answers to buttons."
+      }
+    }
   },
   "InsightsUi": {
     "_": ""
