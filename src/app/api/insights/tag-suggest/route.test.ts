@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   suggest: vi.fn(),
   read: vi.fn(),
+  rpc: vi.fn(),
   eqs: [] as [string, unknown][],
 }));
 
@@ -32,7 +33,7 @@ function scopedClient() {
     },
     maybeSingle: () => mocks.read(),
   };
-  return { from: vi.fn(() => chain) };
+  return { from: vi.fn(() => chain), rpc: mocks.rpc };
 }
 
 let auth: {
@@ -63,6 +64,7 @@ beforeEach(() => {
   mocks.requireRole.mockReset().mockImplementation(async () => auth);
   mocks.suggest.mockReset();
   mocks.read.mockReset().mockResolvedValue({ data: { id: CONV }, error: null });
+  mocks.rpc.mockReset().mockResolvedValue({ data: true, error: null });
   mocks.eqs.length = 0;
 });
 
@@ -163,5 +165,34 @@ describe('POST /api/insights/tag-suggest', () => {
     // Another person has their own budget.
     auth = { ...auth, userId: 'user-2' };
     expect((await post({ conversationId: CONV })).status).toBe(200);
+  });
+  it('refuses a viewer of the chat who could not act on a suggestion (a coordinator share)', async () => {
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    const res = await post({ conversationId: CONV });
+    expect(res.status).toBe(404);
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'can_view_conversation',
+      expect.any(Object)
+    );
+    expect(mocks.suggest).not.toHaveBeenCalled();
+  });
+
+  it('answers 500 when the visibility check fails', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const res = await post({ conversationId: CONV });
+    expect(res.status).toBe(500);
+    expect(mocks.suggest).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin through without the visibility check, as dismiss does', async () => {
+    auth.role = 'admin';
+    mocks.suggest.mockResolvedValue({
+      ok: true,
+      suggestion: null,
+      reason: 'not_confident',
+    });
+    const res = await post({ conversationId: CONV });
+    expect(res.status).toBe(200);
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 });

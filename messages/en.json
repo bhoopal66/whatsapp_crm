@@ -8502,6 +8502,7 @@
     "noTags": "There are no chat tags to suggest from yet",
     "noMessage": "There's no customer message to judge yet",
     "sameAsCurrent": "The chat is already tagged that way",
+    "superseded": "The chat changed while Jev was looking. Try again.",
     "dismissed": "You dismissed that tag for this chat",
     "unavailable": "Tag suggestions aren't available right now",
     "rateLimited": "Too many requests. Try again in a minute",

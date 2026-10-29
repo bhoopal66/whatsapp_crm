@@ -106,6 +106,7 @@ export type SuggestToastKey =
   | 'noMessage'
   | 'sameAsCurrent'
   | 'dismissed'
+  | 'superseded'
   | 'unavailable'
   | 'rateLimited'
   | 'failed';
@@ -123,6 +124,7 @@ const EMPTY_REASONS: Record<string, SuggestToastKey> = {
   no_message: 'noMessage',
   same_as_current: 'sameAsCurrent',
   dismissed: 'dismissed',
+  superseded: 'superseded',
 };
 
 /**

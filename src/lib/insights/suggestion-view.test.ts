@@ -150,6 +150,7 @@ describe('suggestOutcome', () => {
     ['no_message', 'noMessage'],
     ['same_as_current', 'sameAsCurrent'],
     ['dismissed', 'dismissed'],
+    ['superseded', 'superseded'],
   ])('answers %s with a plain toast', (reason, key) => {
     expect(suggestOutcome(200, { suggestion: null, reason })).toEqual({
       kind: 'toast',
