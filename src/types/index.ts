@@ -283,6 +283,23 @@ export interface Conversation {
    * it (the messages trigger, whatever the AI config says).
    */
   ai_attention_at?: string | null;
+  /**
+   * Smart insights (migration 147): what Jev last judged about the
+   * customer's messages, written by the service role only. All NULL
+   * (priority 0) for a chat never judged. `insight_intent` is one of
+   * `INSIGHT_INTENT_KEYS` (lib/insights/bands.ts); urgency is 0..2, lead
+   * temperature 0..3, the rest probabilities. `insight_priority` (0
+   * normal, 1 high, 2 urgent) is computed by the writer; `insight_at`
+   * is when the last judged message arrived.
+   */
+  insight_intent?: string | null;
+  insight_intent_p?: number | null;
+  insight_urgency?: number | null;
+  insight_lead_temp?: number | null;
+  insight_upset?: number | null;
+  insight_wants_human?: number | null;
+  insight_priority?: number;
+  insight_at?: string | null;
 }
 
 // ============================================================

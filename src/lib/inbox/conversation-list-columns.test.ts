@@ -16,6 +16,12 @@ import {
   countNeedingAttention,
 } from './attention';
 import { inCampaignInbox } from './campaign-inbox';
+import {
+  insightBadge,
+  insightSummary,
+  matchesInsightFilters,
+  sortForInboxWithInsights,
+} from './insights';
 import { resolveListHandler } from './handler';
 import {
   appendConversationPage,
@@ -64,6 +70,13 @@ function strictRow(
     ai_autoreply_disabled: false,
     ai_reply_count: 1,
     ai_attention_at: '2026-10-28T07:00:00.000Z',
+    insight_intent: 'business_loan',
+    insight_urgency: 1.6,
+    insight_lead_temp: 2,
+    insight_upset: 0.2,
+    insight_wants_human: 0.1,
+    insight_priority: 2,
+    insight_at: '2026-10-28T08:00:00.000Z',
     ...overrides,
   };
   // Every key the fixture holds is a listed column, so a typo in it
@@ -135,6 +148,18 @@ describe('list helpers read only listed columns', () => {
     expect(sortForInbox([b, a]).map((r) => r.id)).toEqual(['c1', 'c2']);
     expect(nextConversationCursor([a, b], 2)).not.toBeNull();
     expect(deltaWatermark([a, b])).not.toBeNull();
+  });
+
+  it('Smart insights badge, filters and Urgent pin', () => {
+    const a = strictRow();
+    const b = strictRow({ id: 'c2', ai_attention_at: null });
+    expect(insightBadge(a)).toBe('urgent');
+    expect(insightSummary(a).intent).toBe('business_loan');
+    expect(matchesInsightFilters(a, ['hot', 'upset', 'attention'])).toBe(false);
+    expect(sortForInboxWithInsights([b, a], true).map((r) => r.id)).toEqual([
+      'c1',
+      'c2',
+    ]);
   });
 
   it('page merges and the avatar patch', () => {

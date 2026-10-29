@@ -14,7 +14,7 @@ export const CONVERSATION_SELECT = '*, contact:contacts(*)';
 /**
  * The conversation columns the Inbox list reads: the row (preview,
  * time, unread badge, number and campaign labels, tag pill, Important
- * pin, handler), the filters it re-applies client-side (chat tag,
+ * pin, handler, the Smart insights badge, filters and Urgent pin), the filters it re-applies client-side (chat tag,
  * by-agent, Campaign inbox), the sort and the keyset cursor, and the
  * delta-resync watermark (`updated_at`).
  *
@@ -44,6 +44,13 @@ export const CONVERSATION_LIST_COLUMNS = [
   'ai_autoreply_disabled',
   'ai_reply_count',
   'ai_attention_at',
+  'insight_intent',
+  'insight_urgency',
+  'insight_lead_temp',
+  'insight_upset',
+  'insight_wants_human',
+  'insight_priority',
+  'insight_at',
 ] as const satisfies readonly (keyof Conversation)[];
 
 /**
@@ -66,7 +73,7 @@ export const CONTACT_LIST_COLUMNS = [
  * pins it to the two lists.
  */
 export const CONVERSATION_LIST_SELECT =
-  'id,user_id,assigned_agent_id,last_message_text,last_message_at,unread_count,updated_at,channel_id,send_channel_id,chat_tag_id,chat_sub_tag_id,campaign_broadcast_id,human_engaged_at,ai_autoreply_disabled,ai_reply_count,ai_attention_at,contact:contacts(id,name,phone,company,avatar_url)';
+  'id,user_id,assigned_agent_id,last_message_text,last_message_at,unread_count,updated_at,channel_id,send_channel_id,chat_tag_id,chat_sub_tag_id,campaign_broadcast_id,human_engaged_at,ai_autoreply_disabled,ai_reply_count,ai_attention_at,insight_intent,insight_urgency,insight_lead_temp,insight_upset,insight_wants_human,insight_priority,insight_at,contact:contacts(id,name,phone,company,avatar_url)';
 
 export type ConversationListContact = Pick<
   Contact,
