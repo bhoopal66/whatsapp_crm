@@ -1,0 +1,167 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  LEAD_HOT_MIN,
+  LEAD_READY_MIN,
+  UPSET_MIN,
+  WANTS_PERSON_MIN,
+} from './bands';
+import {
+  CUSTOMER_INSIGHT_COLUMNS,
+  HOT_LEADS_WAITING,
+  LEAD_METER_STEPS,
+  customerInsightView,
+  insightTileHref,
+  leadMeter,
+  upsetTodayBounds,
+} from './customer-view';
+import {
+  INSIGHT_FILTER_BOUNDS,
+  parseInsightFilters,
+} from '@/lib/inbox/insights';
+
+describe('customerInsightView', () => {
+  it('is empty for a chat never judged', () => {
+    for (const row of [null, undefined, {}, { insight_at: null }]) {
+      const v = customerInsightView(row);
+      expect(v.judged).toBe(false);
+      expect(v.intent).toBeNull();
+      expect(v.meter).toEqual([]);
+      expect(v.mood).toBeNull();
+      expect(v.basedOnAt).toBeNull();
+    }
+  });
+
+  it('reads every figure of a judged chat', () => {
+    const v = customerInsightView({
+      insight_intent: 'business_loan',
+      insight_intent_p: 0.823,
+      insight_lead_temp: LEAD_HOT_MIN,
+      insight_urgency: 1.6,
+      insight_upset: 0.1,
+      insight_wants_human: 0.1,
+      insight_at: '2026-10-29T08:00:00.000Z',
+    });
+    expect(v).toMatchObject({
+      judged: true,
+      intent: 'business_loan',
+      intentPercent: 82,
+      lead: 'hot',
+      urgency: 'urgent',
+      mood: ['calm'],
+    });
+    expect(v.basedOnAt?.toISOString()).toBe('2026-10-29T08:00:00.000Z');
+  });
+
+  it('drops an unknown intent key and its certainty', () => {
+    const v = customerInsightView({
+      insight_intent: 'crypto',
+      insight_intent_p: 0.9,
+    });
+    expect(v.intent).toBeNull();
+    expect(v.intentPercent).toBeNull();
+    expect(v.judged).toBe(false);
+  });
+
+  it('shows no certainty outside 0..1', () => {
+    expect(
+      customerInsightView({ insight_intent: 'complaint', insight_intent_p: 3 })
+        .intentPercent
+    ).toBeNull();
+  });
+
+  it('lists upset and wants a person together, never calm with them', () => {
+    expect(
+      customerInsightView({
+        insight_upset: UPSET_MIN,
+        insight_wants_human: WANTS_PERSON_MIN,
+      }).mood
+    ).toEqual(['upset', 'wantsPerson']);
+    expect(
+      customerInsightView({ insight_wants_human: WANTS_PERSON_MIN }).mood
+    ).toEqual(['wantsPerson']);
+  });
+
+  it('says nothing about mood when the upset figure is unknown', () => {
+    expect(customerInsightView({ insight_wants_human: 0.1 }).mood).toBeNull();
+  });
+
+  it('ignores an invalid timestamp', () => {
+    expect(
+      customerInsightView({ insight_lead_temp: 0, insight_at: 'nope' })
+        .basedOnAt
+    ).toBeNull();
+  });
+
+  it('selects every column it reads', () => {
+    const cols = CUSTOMER_INSIGHT_COLUMNS.split(',').map((s) => s.trim());
+    expect(cols.sort()).toEqual(
+      [
+        'insight_at',
+        'insight_intent',
+        'insight_intent_p',
+        'insight_lead_temp',
+        'insight_upset',
+        'insight_urgency',
+        'insight_wants_human',
+      ].sort()
+    );
+  });
+});
+
+describe('leadMeter', () => {
+  it('highlights the current band and fills up to it', () => {
+    expect(leadMeter('hot')).toEqual([
+      { band: 'cold', current: false, reached: true },
+      { band: 'warm', current: false, reached: true },
+      { band: 'hot', current: true, reached: true },
+      { band: 'ready', current: false, reached: false },
+    ]);
+  });
+
+  it('has four steps, coldest first, and one current step per band', () => {
+    expect(LEAD_METER_STEPS).toEqual(['cold', 'warm', 'hot', 'ready']);
+    for (const band of LEAD_METER_STEPS) {
+      expect(leadMeter(band).filter((s) => s.current)).toHaveLength(1);
+    }
+    expect(
+      customerInsightView({ insight_lead_temp: LEAD_READY_MIN }).meter.at(-1)
+        ?.current
+    ).toBe(true);
+  });
+
+  it('is empty without a band', () => {
+    expect(leadMeter(null)).toEqual([]);
+  });
+});
+
+describe('home tiles', () => {
+  it('count on the same bounds as the inbox filters they open', () => {
+    expect(INSIGHT_FILTER_BOUNDS.hot).toEqual({
+      column: 'insight_lead_temp',
+      min: HOT_LEADS_WAITING.leadTempMin,
+    });
+    expect(INSIGHT_FILTER_BOUNDS.upset).toEqual({
+      column: 'insight_upset',
+      min: upsetTodayBounds(0).upsetMin,
+    });
+  });
+
+  it('bound "today" at the given midnight', () => {
+    const midnight = Date.UTC(2026, 9, 28, 20, 0, 0); // 00:00 in UTC+4
+    expect(upsetTodayBounds(midnight).atFromIso).toBe(
+      '2026-10-28T20:00:00.000Z'
+    );
+  });
+
+  it('link into the inbox with a filter the inbox parses', () => {
+    expect(insightTileHref('/inbox', 'hot')).toBe('/inbox?insight=hot');
+    expect(insightTileHref('/team-inbox', 'upset')).toBe(
+      '/team-inbox?insight=upset'
+    );
+    for (const f of ['hot', 'upset'] as const) {
+      const q = new URL(insightTileHref('/inbox', f), 'http://x').searchParams;
+      expect(parseInsightFilters(q.get('insight'))).toEqual([f]);
+    }
+  });
+});
