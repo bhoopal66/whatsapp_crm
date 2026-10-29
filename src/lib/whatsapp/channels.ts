@@ -230,10 +230,17 @@ export async function loadChannels(
     }
   }
   if (channels.length === 0 && unreadable) throw unreadable;
+  return oldestFirstPerProvider(channels);
+}
 
-  // Within a provider, oldest first, so "the first Whapi number" is a
-  // stable answer across calls rather than whatever order the heap
-  // returned. `sort` is stable, so the provider order above survives.
+/**
+ * Within a provider, oldest first, so "the first Whapi number" is a
+ * stable answer across calls rather than whatever order the heap
+ * returned. `sort` is stable, so the provider order of the read survives.
+ */
+function oldestFirstPerProvider(
+  channels: WhatsAppChannel[]
+): WhatsAppChannel[] {
   return channels.sort((a, b) =>
     a.provider === b.provider
       ? (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
@@ -539,6 +546,67 @@ async function startFor(
     channels.filter((c) => !restricted.has(c.id)).map((c) => c.id)
   );
   return pickChannelForUser(channels, [], routed, shared);
+}
+
+/**
+ * The provider a person's NEW chat would start from (`startFor`), read
+ * without decrypting any token: for a caller that only needs the kind
+ * of number, such as the message check's "starts a chat" (a chat opened
+ * from Contacts has no `channel_id` until its first send stamps one).
+ * Null when nothing is connected or a read fails. Unlike `loadChannels`
+ * it cannot skip an undecryptable row, since it decrypts nothing.
+ */
+export async function newChatProvider(
+  db: SupabaseClient,
+  accountId: string,
+  surface: RoutingSurface,
+  senderUserId: string
+): Promise<WhatsAppProvider | null> {
+  try {
+    const { data, error } = await db
+      .from('whatsapp_config')
+      .select('id, provider, is_primary, created_at')
+      .eq('account_id', accountId)
+      .order('provider', { ascending: true });
+    if (error || !data?.length) return null;
+    const rows = data as Array<{
+      id: string;
+      provider: string;
+      is_primary: boolean | null;
+      created_at: string | null;
+    }>;
+    // Only id, provider, isPrimary and createdAt steer the choice; the
+    // credential fields stay empty.
+    const channels = oldestFirstPerProvider(
+      rows
+        .filter((r) => isWhatsAppProvider(r.provider))
+        .map((r) => ({
+          id: r.id,
+          accountId,
+          provider: r.provider as WhatsAppProvider,
+          label: null,
+          phoneNumberId: '',
+          wabaId: null,
+          accessToken: '',
+          appSecret: null,
+          isPrimary: r.is_primary === true,
+          mirrorInboundMedia: false,
+          status: '',
+          createdAt: r.created_at ?? null,
+        }))
+    );
+    if (channels.length === 0) return null;
+    const start = await startFor(
+      db,
+      accountId,
+      surface,
+      senderUserId,
+      channels
+    );
+    return start.provider;
+  } catch {
+    return null;
+  }
 }
 
 /**

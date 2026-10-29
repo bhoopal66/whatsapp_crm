@@ -243,8 +243,10 @@ inbox composer checks a message before it goes out:
   fails, is rate-limited or takes longer, the message is sent as if the
   check were off. While it runs the send button shows a spinner, so a
   second press does not send twice. Switching to another chat while it
-  runs (or while the box is open) cancels the send; the text stays in
-  the box.
+  runs (or while the box is open) sends nothing: the text and its reply
+  quote wait in the chat they were written in (put back into its empty
+  box when you return), the new chat starts with an empty box, and a
+  notice says the message was not sent.
 
 What each warning means:
 

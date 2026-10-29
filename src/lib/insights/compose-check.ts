@@ -15,11 +15,16 @@
 //     wouldStartChat): no message for 24 hours and the customer did not
 //     write last. It matters only on a linked-device number (Whapi or
 //     OpenWA), where WhatsApp restricts numbers for unsolicited bulk
-//     messages; an unknown number is not a start.
+//     messages; an unknown number is not a start, and neither is a
+//     chat whose messages could not be read. A chat with no number yet
+//     (opened from Contacts) is judged on the number its first send
+//     would use (newChatProvider, the send path's own choice).
 //
 // When there is a warning, one compose_check_events row (migration 149,
 // service role) records its codes — never the text — and its id goes
-// back so the composer can report what the agent did next. Never throws.
+// back so the composer can report what the agent did next — unless the
+// deadline has passed, when the composer has stopped waiting and sent,
+// and a row would only sit "pending". Never throws.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -32,6 +37,7 @@ import {
 } from '@/lib/typesafe';
 import { regulatorClaims } from '@/lib/typesafe/regulator-claim';
 import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
+import { newChatProvider } from '@/lib/whatsapp/channels';
 import { wouldStartChat } from '@/lib/team-activity/thread-guard';
 import { getInsightSettings, insightsAvailable } from './settings';
 
@@ -94,6 +100,8 @@ export interface CheckDraftArgs {
 
 interface ChatContext {
   messages: MessageRow[];
+  /** False when the messages read failed: then nothing is a start. */
+  messagesRead: boolean;
   provider: string | null;
 }
 
@@ -101,8 +109,9 @@ interface ChatContext {
  *  through the caller's RLS client. Unknown parts come back empty. */
 async function loadContext(
   db: SupabaseClient,
-  conversationId: string
+  args: Pick<CheckDraftArgs, 'accountId' | 'userId' | 'conversationId'>
 ): Promise<ChatContext> {
+  const { conversationId } = args;
   const [conv, msgs] = await Promise.all([
     db
       .from('conversations')
@@ -118,13 +127,22 @@ async function loadContext(
   ]);
   if (msgs.error)
     console.error('[insights] compose check: messages read failed');
+  const messagesRead = !msgs.error;
   const messages = ((msgs.data as MessageRow[] | null) ?? []).reverse();
   const row = conv.data as {
     channel_id: string | null;
     send_channel_id: string | null;
   } | null;
   const channelId = row?.send_channel_id ?? row?.channel_id ?? null;
-  if (!channelId) return { messages, provider: null };
+  if (!channelId) {
+    // No number yet: the one a new chat of this person's starts from.
+    // A failed conversations read is not "no number": unknown.
+    const provider =
+      row && !conv.error
+        ? await newChatProvider(db, args.accountId, 'inbox', args.userId)
+        : null;
+    return { messages, messagesRead, provider };
+  }
   const { data } = await db
     .from('whatsapp_config')
     .select('provider')
@@ -133,6 +151,7 @@ async function loadContext(
   const provider = (data as { provider?: unknown } | null)?.provider;
   return {
     messages,
+    messagesRead,
     provider: typeof provider === 'string' ? provider : null,
   };
 }
@@ -210,17 +229,22 @@ export async function checkDraft(
     const [settings, partners, context] = await Promise.all([
       getInsightSettings(args.accountId),
       ts.partners(args.accountId),
-      loadContext(args.db, args.conversationId).catch((err: unknown) => {
+      loadContext(args.db, args).catch((err: unknown) => {
         console.error(
           '[insights] compose check: context read failed:',
           err instanceof Error ? err.message : String(err)
         );
-        return { messages: [], provider: null } as ChatContext;
+        return {
+          messages: [],
+          messagesRead: false,
+          provider: null,
+        } as ChatContext;
       }),
     ]);
     if (settings.composeCheckMode !== 'warn') return NONE;
 
     const isStart =
+      context.messagesRead &&
       context.provider !== null &&
       isLinkedDeviceNumber(context.provider) &&
       wouldStartChat(context.messages, now());
@@ -264,6 +288,9 @@ export async function checkDraft(
       return w ? [w] : [];
     });
     if (!warnings.length) return NONE;
+    // Past the deadline the composer has given up and sent: a row now
+    // would never get an outcome and would only inflate "pending".
+    if (now() > deadlineAt) return { warnings, eventId: null };
     const eventId = await recordEvent(
       args,
       warnings.map((w) => w.code)

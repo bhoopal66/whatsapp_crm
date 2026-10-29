@@ -887,9 +887,14 @@ export function MessageThread({
 
   // Clear any in-progress reply draft when the active conversation changes —
   // a quote pulled from conversation A shouldn't bleed into conversation B.
-  useEffect(() => {
+  // Cleared while rendering, not in an effect: the composer's own switch
+  // effect (a child's, so it runs first) may put back the quote of a
+  // draft parked for this chat, and a later reset here would wipe it.
+  const [replyFor, setReplyFor] = useState(conversationId);
+  if (replyFor !== conversationId) {
+    setReplyFor(conversationId);
     setReplyTo(null);
-  }, [conversationId]);
+  }
 
   // Reset the server-side unread_count to 0 whenever an unread count
   // surfaces on the active conversation — covers both (a) opening a
@@ -1871,6 +1876,8 @@ export function MessageThread({
           onOpenTemplates={handleOpenTemplates}
           replyTo={replyTo}
           onClearReply={() => setReplyTo(null)}
+          onRestoreReply={setReplyTo}
+          contactName={contact.name || contact.phone || null}
           textControl={composerDraftRef}
         />
 

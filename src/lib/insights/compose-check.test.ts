@@ -16,6 +16,16 @@ const h = vi.hoisted(() => ({
   insertError: null as { message: string } | null,
   provider: 'whapi' as string | null,
   messages: [] as Record<string, unknown>[],
+  messagesError: null as { message: string } | null,
+  conv: { channel_id: 'ch-1', send_channel_id: null } as {
+    channel_id: string | null;
+    send_channel_id: string | null;
+  },
+  newChatProvider: vi.fn(),
+}));
+
+vi.mock('@/lib/whatsapp/channels', () => ({
+  newChatProvider: h.newChatProvider,
 }));
 
 vi.mock('./settings', () => ({
@@ -51,13 +61,13 @@ function rlsDb() {
   const from = (table: string) => {
     const b: Record<string, unknown> = {};
     for (const n of ['select', 'eq', 'order']) b[n] = () => b;
-    b.limit = async () => ({
-      data: [...h.messages].reverse(),
-      error: null,
-    });
+    b.limit = async () =>
+      h.messagesError
+        ? { data: null, error: h.messagesError }
+        : { data: [...h.messages].reverse(), error: null };
     b.maybeSingle = async () =>
       table === 'conversations'
-        ? { data: { channel_id: 'ch-1', send_channel_id: null }, error: null }
+        ? { data: h.conv, error: null }
         : { data: h.provider ? { provider: h.provider } : null, error: null };
     return b;
   };
@@ -85,6 +95,10 @@ beforeEach(() => {
   h.inserts = [];
   h.insertError = null;
   h.provider = 'whapi';
+  h.messagesError = null;
+  h.conv = { channel_id: 'ch-1', send_channel_id: null };
+  h.newChatProvider.mockReset();
+  h.newChatProvider.mockResolvedValue(null);
   h.messages = [
     {
       sender_type: 'customer',
@@ -233,5 +247,59 @@ describe('checkDraft isStart', () => {
     h.provider = 'openwa';
     await run('Great offers on loans this week');
     expect(isStartSent()).toBe(true);
+  });
+
+  it('is not a start when the messages could not be read', async () => {
+    h.messages = [];
+    h.messagesError = { message: 'boom' };
+    await run('Great offers on loans this week');
+    expect(isStartSent()).toBe(false);
+  });
+
+  it('judges a chat with no number yet on the number its first send uses', async () => {
+    h.messages = [];
+    h.conv = { channel_id: null, send_channel_id: null };
+    h.newChatProvider.mockResolvedValue('whapi');
+    await run('Great offers on loans this week');
+    expect(isStartSent()).toBe(true);
+    expect(h.newChatProvider).toHaveBeenCalledWith(
+      expect.anything(),
+      'acc-1',
+      'inbox',
+      'user-1'
+    );
+    h.composeCheck.mockClear();
+    h.newChatProvider.mockResolvedValue('meta');
+    await run('Great offers on loans this week');
+    expect(isStartSent()).toBe(false);
+    h.composeCheck.mockClear();
+    h.newChatProvider.mockResolvedValue(null);
+    await run('Great offers on loans this week');
+    expect(isStartSent()).toBe(false);
+  });
+});
+
+describe('checkDraft deadline', () => {
+  it('records no event once the deadline has passed', async () => {
+    jev({ promise: 0.9 });
+    let t = NOW;
+    h.composeCheck.mockImplementation(async () => {
+      t = NOW + 2000;
+      return { ok: true, figures: { promise: 0.9 }, latencyMs: 2000 };
+    });
+    const r = await checkDraft({
+      accountId: 'acc-1',
+      userId: 'user-1',
+      conversationId: 'conv-1',
+      text: 'You will be approved by tomorrow',
+      db: rlsDb(),
+      now: () => t,
+      deadlineAt: NOW + 1800,
+    });
+    expect(r).toEqual({
+      warnings: [{ code: 'promise', source: 'jev' }],
+      eventId: null,
+    });
+    expect(h.inserts).toHaveLength(0);
   });
 });

@@ -63,9 +63,15 @@ import { useInsightSettings } from '@/hooks/use-insight-settings';
 import {
   reportComposeCheckOutcome,
   requestComposeCheck,
-  shouldCheckDraft,
-  type ComposeCheckCode,
 } from '@/lib/insights/compose-check-view';
+import {
+  composeFlow,
+  initialComposeFlow,
+  takeParkedDraft,
+  type ComposeFlowEvent,
+  type ComposeFlowState,
+  type ParkedDrafts,
+} from '@/lib/insights/compose-check-flow';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -166,8 +172,24 @@ interface MessageComposerProps {
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  /** Puts back the reply quote of a draft parked by a chat switch. */
+  onRestoreReply?: (reply: ReplyDraft) => void;
+  /** The open chat's customer, named in the "wasn't sent" notice. */
+  contactName?: string | null;
   textControl?: Ref<ComposerDraftHandle>;
 }
+
+/** The send a check holds back until it answers. */
+interface HeldSend {
+  send: () => void;
+}
+
+/**
+ * Drafts parked by a chat switch during a check, by conversation id.
+ * Module-level so they survive the composer re-rendering or remounting
+ * (leaving the inbox and coming back) for the life of the tab.
+ */
+const parkedDrafts: ParkedDrafts<ReplyDraft> = new Map();
 
 /** The composer's round toolbar buttons, in WhatsApp's icon grey. */
 const TOOL_BUTTON =
@@ -215,6 +237,8 @@ export function MessageComposer({
   onOpenTemplates,
   replyTo,
   onClearReply,
+  onRestoreReply,
+  contactName,
   textControl,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
@@ -270,7 +294,6 @@ export function MessageComposer({
       window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
     };
   }, [conversationId, t]);
-  const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -279,75 +302,126 @@ export function MessageComposer({
   // on, a free-text send or a caption of 12+ characters is checked
   // first; an error, a 429 or no answer within 2.5 s sends anyway
   // (requestComposeCheck fails open), so the check never stops a
-  // message. A chat switch abandons the check and closes the dialog:
-  // the composer outlives the switch, and the send would otherwise
-  // land in the chat now open.
+  // message. The decisions are lib/insights/compose-check-flow.ts; this
+  // runs its effects. A chat switch during a check or with the dialog
+  // open sends nothing: the composer outlives the switch, so the text
+  // is parked for its own chat (and put back on return), the box is
+  // emptied and a notice says where the message is waiting.
   const { settings: insightSettings } = useInsightSettings();
   const composeCheckMode = insightSettings.composeCheckMode;
-  const [checking, setChecking] = useState(false);
-  const checkingRef = useRef(false);
+  const [flow, setFlow] =
+    useState<ComposeFlowState<HeldSend, ReplyDraft>>(initialComposeFlow);
+  const flowRef = useRef(flow);
   const checkAbortRef = useRef<AbortController | null>(null);
   const captionRef = useRef<HTMLInputElement>(null);
-  const [review, setReview] = useState<{
-    conversationId: string;
-    warnings: ComposeCheckCode[];
-    eventId: string | null;
-    send: () => void;
-    focus: 'text' | 'caption';
-  } | null>(null);
+  const checking = flow.phase === 'checking';
   const activeReview =
-    review && review.conversationId === conversationId ? review : null;
-  useEffect(() => () => checkAbortRef.current?.abort(), [conversationId]);
+    flow.phase === 'review' && flow.conversationId === conversationId
+      ? flow
+      : null;
+  const tCheckRef = useRef(tCheck);
+  useEffect(() => {
+    tCheckRef.current = tCheck;
+  }, [tCheck]);
 
-  /** Run `send` now, or after the check if it applies and finds nothing. */
-  const checkThenSend = useCallback(
-    async (draftText: string, send: () => void, focus: 'text' | 'caption') => {
-      if (!shouldCheckDraft(composeCheckMode, draftText)) {
-        send();
-        return;
-      }
-      if (checkingRef.current) return;
-      checkingRef.current = true;
-      setChecking(true);
-      const controller = new AbortController();
-      checkAbortRef.current = controller;
-      try {
-        const decision = await requestComposeCheck({
-          conversationId,
-          text: draftText.trim(),
-          signal: controller.signal,
-        });
-        if (decision.kind === 'cancelled' || controller.signal.aborted) return;
-        if (decision.kind === 'send') send();
-        else
-          setReview({
-            conversationId,
-            warnings: decision.warnings,
-            eventId: decision.eventId,
-            send,
-            focus,
+  const dispatchCheck = useCallback(function dispatch(
+    event: ComposeFlowEvent<HeldSend, ReplyDraft>
+  ) {
+    const step = composeFlow(flowRef.current, event);
+    flowRef.current = step.state;
+    setFlow(step.state);
+    for (const effect of step.effects) {
+      switch (effect.type) {
+        case 'send':
+          effect.payload.send();
+          break;
+        case 'check': {
+          const controller = new AbortController();
+          checkAbortRef.current = controller;
+          void requestComposeCheck({
+            conversationId: effect.conversationId,
+            text: effect.text,
+            signal: controller.signal,
+          }).then((decision) => {
+            if (checkAbortRef.current === controller)
+              checkAbortRef.current = null;
+            dispatch({ type: 'answer', token: effect.token, decision });
           });
-      } finally {
-        if (checkAbortRef.current === controller) checkAbortRef.current = null;
-        checkingRef.current = false;
-        setChecking(false);
+          break;
+        }
+        case 'abort':
+          checkAbortRef.current?.abort();
+          checkAbortRef.current = null;
+          break;
+        case 'report':
+          reportComposeCheckOutcome(effect.eventId, effect.outcome);
+          break;
+        case 'park':
+          parkedDrafts.set(effect.conversationId, effect.draft);
+          break;
+        case 'clearBox':
+          setBox(EMPTY_COMPOSER_BOX);
+          break;
+        case 'notifyParked':
+          toast.warning(
+            effect.contactName
+              ? tCheckRef.current('parked', { name: effect.contactName })
+              : tCheckRef.current('parkedNoName')
+          );
+          break;
       }
-    },
-    [composeCheckMode, conversationId]
+    }
+  }, []);
+
+  // The box's text as of the last render, for the switch below.
+  const boxTextRef = useRef(box.text);
+  useEffect(() => {
+    boxTextRef.current = box.text;
+  }, [box.text]);
+  const restoreReplyRef = useRef(onRestoreReply);
+  useEffect(() => {
+    restoreReplyRef.current = onRestoreReply;
+  }, [onRestoreReply]);
+
+  // On a chat switch: settle a check or dialog of the chat just left
+  // (park, empty the box), then put back a draft parked for this one.
+  useEffect(() => {
+    const before = flowRef.current;
+    dispatchCheck({
+      type: 'switch',
+      to: conversationId,
+      boxText: boxTextRef.current,
+    });
+    const cleared =
+      before.phase !== 'idle' &&
+      before.conversationId !== conversationId &&
+      before.park !== null;
+    const parked = takeParkedDraft(
+      parkedDrafts,
+      conversationId,
+      cleared ? '' : boxTextRef.current
+    );
+    if (!parked) return;
+    setBox((b) =>
+      restoreBox(b, parked.text, parked.origin as SendOrigin | null)
+    );
+    if (parked.reply) restoreReplyRef.current?.(parked.reply);
+  }, [conversationId, dispatchCheck]);
+  // Leaving the inbox mid-check parks the draft the same way.
+  useEffect(
+    () => () =>
+      dispatchCheck({ type: 'switch', to: null, boxText: boxTextRef.current }),
+    [dispatchCheck]
   );
 
-  const reviewSendAnyway = useCallback(() => {
-    if (!activeReview) return;
-    setReview(null);
-    activeReview.send();
-    reportComposeCheckOutcome(activeReview.eventId, 'sent_anyway');
-  }, [activeReview]);
-
-  const reviewEdit = useCallback(() => {
-    if (!activeReview) return;
-    setReview(null);
-    reportComposeCheckOutcome(activeReview.eventId, 'edited');
-  }, [activeReview]);
+  const reviewSendAnyway = useCallback(
+    () => dispatchCheck({ type: 'sendAnyway' }),
+    [dispatchCheck]
+  );
+  const reviewEdit = useCallback(
+    () => dispatchCheck({ type: 'edit' }),
+    [dispatchCheck]
+  );
 
   // Interactive-message builder dialog + quick-reply picker.
   const [interactiveOpen, setInteractiveOpen] = useState(false);
@@ -439,18 +513,23 @@ export function MessageComposer({
     [adjustHeight, setText]
   );
 
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    if (!trimmed) return;
 
     const typed = text;
     const replyToId = replyTo?.id;
     const origin = box.origin ?? undefined;
-    setSending(true);
-    try {
-      await checkThenSend(
-        trimmed,
-        () => {
+    // A second Enter while a check runs or its dialog is open does
+    // nothing (the flow's double-send guard).
+    dispatchCheck({
+      type: 'submit',
+      mode: composeCheckMode,
+      conversationId,
+      text: trimmed,
+      focus: 'text',
+      payload: {
+        send: () => {
           onSend(trimmed, replyToId, origin);
           // Unchanged when there was no check. After one, a restore
           // that landed meanwhile (a failed send's text) must stay.
@@ -459,12 +538,21 @@ export function MessageComposer({
             textareaRef.current.style.height = 'auto';
           }
         },
-        'text'
-      );
-    } finally {
-      setSending(false);
-    }
-  }, [text, box.origin, sending, onSend, replyTo?.id, setText, checkThenSend]);
+      },
+      park: { text: typed, reply: replyTo ?? null, origin: box.origin },
+      contactName: contactName ?? null,
+    });
+  }, [
+    text,
+    box.origin,
+    onSend,
+    replyTo,
+    setText,
+    dispatchCheck,
+    composeCheckMode,
+    conversationId,
+    contactName,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -776,32 +864,53 @@ export function MessageComposer({
     // like typed text; a bare attachment never is.
     const caption =
       staged.kind === 'audio' ? undefined : staged.caption.trim() || undefined;
-    void checkThenSend(
-      caption ?? '',
-      () => {
-        // Discarded or replaced while the check ran: nothing to send.
-        if (draftRef.current !== staged) return;
-        onSendMedia({
-          kind: staged.kind,
-          mediaUrl: staged.mediaUrl,
-          path: staged.path,
-          caption,
-          filename: staged.kind === 'document' ? staged.filename : undefined,
-          replyToId,
-        });
-        // The object is now owned by the sent message — clear without GC.
-        setDraft(null);
-        onClearReply?.();
+    // A switch leaves the staged attachment where it is, as with the
+    // check off, so a caption check parks nothing (park: null).
+    dispatchCheck({
+      type: 'submit',
+      mode: composeCheckMode,
+      conversationId,
+      text: caption ?? '',
+      focus: 'caption',
+      payload: {
+        send: () => {
+          // Replaced while the check ran: nothing to send.
+          if (draftRef.current !== staged) return;
+          onSendMedia({
+            kind: staged.kind,
+            mediaUrl: staged.mediaUrl,
+            path: staged.path,
+            caption,
+            filename: staged.kind === 'document' ? staged.filename : undefined,
+            replyToId,
+          });
+          // The object is now owned by the sent message — clear without GC.
+          setDraft(null);
+          onClearReply?.();
+        },
       },
-      'caption'
-    );
-  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply, checkThenSend]);
+      park: null,
+      contactName: contactName ?? null,
+    });
+  }, [
+    draft,
+    busy,
+    onSendMedia,
+    replyTo?.id,
+    onClearReply,
+    dispatchCheck,
+    composeCheckMode,
+    conversationId,
+    contactName,
+  ]);
 
-  // Discard GCs the staged object — it was uploaded but never sent.
+  // Discard GCs the staged object — it was uploaded but never sent —
+  // and drops a caption check still running for it.
   const discardDraft = useCallback(() => {
+    dispatchCheck({ type: 'discardAttachment' });
     removeStaged(draft?.path);
     setDraft(null);
-  }, [draft?.path, removeStaged]);
+  }, [draft?.path, removeStaged, dispatchCheck]);
 
   const setCaption = useCallback((caption: string) => {
     setDraft((d) => (d ? { ...d, caption } : d));
@@ -1005,7 +1114,7 @@ export function MessageComposer({
             size="sm"
             canAct={!readOnly}
             gateReason="send messages"
-            disabled={!text.trim() || sending}
+            disabled={!text.trim() || checking}
             onClick={handleSend}
             className={SEND_BUTTON}
             aria-busy={checking || undefined}

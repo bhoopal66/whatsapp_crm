@@ -8528,6 +8528,8 @@
     "edit": "메시지 수정",
     "sendAnyway": "그래도 보내기",
     "checking": "메시지를 확인하는 중",
+    "parked": "{name}님에게 보낼 메시지는 전송되지 않았습니다. 해당 채팅에 남아 있습니다.",
+    "parkedNoName": "메시지가 전송되지 않았습니다. 작성한 채팅에 남아 있습니다.",
     "stats": {
       "title": "최근 7일",
       "summary": "경고 {total}건, 그대로 보냄 {sentAnyway}건, 수정함 {edited}건",
