@@ -179,6 +179,10 @@ export const RATE_LIMITS = {
    *  cannot draw a TypeSafe 429 that would pause the checks the bot's
    *  own replies depend on. 60/min covers organic traffic. */
   typesafeWatchAccount: { limit: 60, windowMs: 60_000 },
+  /** Smart insights on inbound customer messages (lib/insights/inbound.ts),
+   *  per account. Off the reply path, so this caps spend: a message over
+   *  it is simply not judged. */
+  insightsAccount: { limit: 120, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

@@ -46,6 +46,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
+import { runInboundInsights } from '@/lib/insights/inbound';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
 
@@ -597,8 +598,9 @@ export async function processMessage(
   // 039).
   channel: WhatsAppChannel,
   // Work that must finish inside the route's after() but need not hold
-  // up the next message of the same delivery (TypeSafe's watch). The
-  // route awaits it after its loop; without it, it is awaited here.
+  // up the next message of the same delivery (TypeSafe's watch, then
+  // Smart insights). The route awaits it after its loop; without it, it
+  // is awaited here.
   later?: Promise<unknown>[],
   options: ProcessMessageOptions = {}
 ) {
@@ -722,6 +724,11 @@ export async function processMessage(
     .limit(1);
   const isFirstInboundMessage = (priorCustomerMsg ?? []).length === 0;
 
+  // The message's own time, as stored on its row. Smart insights stamp it
+  // as `insight_at`, so a late judgment of an older message never
+  // overwrites a newer one's.
+  const messageAt = new Date(parseInt(message.timestamp) * 1000).toISOString();
+
   // Idempotent insert. Meta retries webhook deliveries (a slow ack, a
   // transient 5xx), and each retry replays the exact same message.id. The
   // unique index on (conversation_id, message_id) added in migration 037
@@ -753,7 +760,7 @@ export async function processMessage(
         // The exact number (migration 060) — `provider` stopped naming
         // one once an account could hold two Whapi channels.
         channel_id: channel.id,
-        created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+        created_at: messageAt,
         reply_to_message_id: replyToInternalId,
         // Only populated for content_type='interactive'. Migration 010 added
         // the column; null for every other content_type so existing inserts
@@ -1051,8 +1058,22 @@ export async function processMessage(
     text: inboundText,
     configOwnerUserId,
   });
-  if (later) later.push(watch);
-  else await watch;
+  // Smart insights (docs/jev-insights.md): the customer signals and a
+  // chat-tag suggestion. After the watch, so the triage row it logged for
+  // this message is there to reuse; display data only, off unless the
+  // account switched it on, never throws.
+  const insights = watch.then(() =>
+    runInboundInsights({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      messageId: message.id,
+      text: inboundText,
+      messageAt,
+    })
+  );
+  if (later) later.push(insights);
+  else await insights;
 }
 /**
  * Turn a normalised inbound message into the columns the `messages`

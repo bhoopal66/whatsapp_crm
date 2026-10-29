@@ -49,7 +49,37 @@ switches are disabled.
 
 ## Customer insights
 
-<!-- section: A2 -->
+With **Customer insights** or **Chat tag suggestions** switched on,
+every inbound customer text (a media caption included) is judged once,
+after the message is saved and after TypeSafe's opt-out watch, at the
+end of the webhook's background work: off the reply path, so the
+customer, the bot and the next message never wait for it.
+
+- **What is judged.** With Customer insights on: what the customer
+  wants (intent), urgency, lead temperature, whether they are upset and
+  whether they ask for a person. With Chat tag suggestions on: which of
+  the workspace's main tags (and sub-tag) fits, over the tags' names and
+  their "when does this tag apply" hints, in display order.
+- **One request.** When the bot's triage or the opt-out watch already
+  judged this exact message with the pinned Jev model, its figures are
+  reused from that log row and Jev is asked only about tags, so one
+  request covers both; with tag suggestions off, no request is made at
+  all.
+- **Forward only.** The figures are stamped with the message's own time
+  (`insight_at`). A judgment of an older message that finishes after a
+  newer one's does not overwrite it.
+- **Suggestions.** A tag is suggested when Jev is at least 55% sure, no
+  one dismissed that tag in this chat, and it would change the chat's
+  tags; a sub-tag is included only when Jev is at least 55% sure of it
+  too. Otherwise any earlier suggestion is cleared, so a stale one
+  vanishes on the customer's next message.
+- **Failures.** When Jev is slow or fails, nothing is written: the chat
+  keeps what the last good judgment said.
+- **Rate limit.** At most 120 judgments per workspace per minute; above
+  that, messages are simply not judged.
+
+The figures are display signals (badges, sorting, priority), never
+actions: nothing here sends, tags, assigns or opts anyone out.
 
 <!-- section: B -->
 

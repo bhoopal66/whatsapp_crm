@@ -28,6 +28,7 @@ const h = vi.hoisted(() => ({
   ai: vi.fn(),
   webhook: vi.fn(),
   watch: vi.fn(),
+  insights: vi.fn(),
   reopen: vi.fn(),
 }));
 
@@ -116,6 +117,9 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 vi.mock('@/lib/ai/typesafe-watch', () => ({
   watchInboundMessage: (...args: unknown[]) => h.watch(...args),
 }));
+vi.mock('@/lib/insights/inbound', () => ({
+  runInboundInsights: (...args: unknown[]) => h.insights(...args),
+}));
 vi.mock('@/lib/whatsapp/provider', () => ({ getMediaUrl: vi.fn() }));
 vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
   mirrorInboundMedia: vi.fn(),
@@ -172,6 +176,7 @@ beforeEach(() => {
   h.ai.mockReset().mockResolvedValue(undefined);
   h.webhook.mockReset().mockResolvedValue(undefined);
   h.watch.mockReset().mockResolvedValue(undefined);
+  h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.reopen.mockReset().mockResolvedValue(undefined);
 });
 
@@ -205,6 +210,7 @@ describe('processMessage — fanOut', () => {
     expect(h.ai).not.toHaveBeenCalled();
     expect(h.webhook).not.toHaveBeenCalled();
     expect(h.watch).not.toHaveBeenCalled();
+    expect(h.insights).not.toHaveBeenCalled();
   });
 
   it('by default the same message fans out', async () => {
@@ -298,5 +304,51 @@ describe('processMessage — journey bot', () => {
     expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
     expect(h.ai).toHaveBeenCalledTimes(1);
     expect(h.webhook).toHaveBeenCalled();
+  });
+});
+
+// Smart insights run after TypeSafe's watch (so its triage row can be
+// reused) and are collected in `later` with it, never left floating.
+describe('processMessage — Smart insights', () => {
+  it('runs after the watch, inside the promise handed to later', async () => {
+    let finishWatch!: () => void;
+    h.watch.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishWatch = resolve;
+      })
+    );
+    const later: Promise<unknown>[] = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel, later);
+
+    expect(later).toHaveLength(1);
+    expect(h.watch).toHaveBeenCalledTimes(1);
+    expect(h.insights).not.toHaveBeenCalled();
+
+    finishWatch();
+    await Promise.all(later);
+    expect(h.insights).toHaveBeenCalledTimes(1);
+    expect(h.insights.mock.calls[0][0]).toEqual({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      messageId: 'wamid.over-limit',
+      text: 'hello',
+      // The stored row's created_at.
+      messageAt: '2025-10-09T08:53:20.000Z',
+    });
+    const upsert = h.calls.find(
+      (c) => c.table === 'messages' && c.op === 'upsert'
+    );
+    expect(upsert?.payload).toMatchObject({
+      created_at: '2025-10-09T08:53:20.000Z',
+    });
+  });
+
+  it('without later, processMessage awaits it before returning', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.insights).toHaveBeenCalledTimes(1);
+    expect(h.watch.mock.invocationCallOrder[0]).toBeLessThan(
+      h.insights.mock.invocationCallOrder[0]
+    );
   });
 });
