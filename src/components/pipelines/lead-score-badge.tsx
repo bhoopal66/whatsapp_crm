@@ -56,6 +56,7 @@ export function LeadScoreBadge({ score }: { score: LeadScore }) {
             <span key={r}>{t(`reason.${r}`)}</span>
           ))}
           {score.basis === 'activity' && <span>{t('activityOnly')}</span>}
+          {score.basis === 'stage' && <span>{t('stageOnly')}</span>}
           <span className="opacity-80">{t('guide')}</span>
         </span>
       </TooltipContent>

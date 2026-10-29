@@ -463,8 +463,12 @@ What goes into it, in points out of 100 when every figure is known:
 - **Activity only.** A chat Jev has never judged has no temperature or
   urgency; the score is then worked out over activity, waiting and stage
   alone (rescaled to 100) and the tooltip says "Based on activity only".
-  A deal with no contact, or whose chat the viewer cannot see, is scored
-  on its stage alone.
+- **Stage only.** A deal with no conversation data (no contact, a contact
+  with no chat, a chat the viewer cannot see, or a failed read) is scored
+  on its stage progress alone, rescaled to 100, and the tooltip says
+  "Based on the deal's stage only". Silence is counted only when the
+  chat's last message time is known, so such a deal is never marked
+  at risk for quiet it cannot see.
 - **Sorting.** The board's **Sort** menu (shown with the score) offers
   **Sort by lead score**: highest first within each stage column, deals
   without a score last. The default order (newest first) is unchanged.

@@ -65,8 +65,11 @@ export type LeadScoreReason =
 export interface LeadScore {
   score: number;
   band: LeadScoreBand;
-  /** 'activity' when Jev has judged nothing about the chat yet. */
-  basis: 'insights' | 'activity';
+  /**
+   * 'activity' when Jev has judged nothing about the chat yet; 'stage'
+   * when no conversation data is available at all.
+   */
+  basis: 'insights' | 'activity' | 'stage';
   /** At most MAX_REASONS, most important first (risks lead). */
   reasons: LeadScoreReason[];
   atRisk: boolean;
@@ -79,7 +82,10 @@ export interface LeadScoreInput {
   dealCreatedAt: string;
   /** 0..1: the deal's stage among its pipeline's stages (stageProgress). */
   stageProgress: number;
-  /** The contact's conversation, or null when it has none. */
+  /**
+   * The contact's conversation, or null when there is no data for it: no
+   * chat, a chat the viewer cannot read, or a failed read.
+   */
   conversation: {
     insight_lead_temp?: Figure;
     insight_urgency?: Figure;
@@ -132,29 +138,41 @@ export function leadScore(input: LeadScoreInput): LeadScore | null {
   const waiting = (c?.unread_count ?? 0) > 0 ? 1 : 0;
   const stage = clamp01(input.stageProgress);
 
-  const factors: { weight: number; value: number }[] = [
-    { weight: WEIGHT_ACTIVITY, value: activity },
-    { weight: WEIGHT_WAITING, value: waiting },
-    { weight: WEIGHT_STAGE, value: stage },
-  ];
+  // With no conversation data nothing is known about the chat's silence
+  // or waiting: the deal is scored on stage progress alone.
+  const factors: { weight: number; value: number }[] = c
+    ? [
+        { weight: WEIGHT_ACTIVITY, value: activity },
+        { weight: WEIGHT_WAITING, value: waiting },
+        { weight: WEIGHT_STAGE, value: stage },
+      ]
+    : [{ weight: WEIGHT_STAGE, value: stage }];
   const leadTemp = c?.insight_lead_temp;
   const urgency = c?.insight_urgency;
   if (known(leadTemp))
     factors.push({ weight: WEIGHT_LEAD_TEMP, value: clamp01(leadTemp / 3) });
   if (known(urgency))
     factors.push({ weight: WEIGHT_URGENCY, value: clamp01(urgency / 2) });
-  const basis = known(leadTemp) || known(urgency) ? 'insights' : 'activity';
+  const basis: LeadScore['basis'] = !c
+    ? 'stage'
+    : known(leadTemp) || known(urgency)
+      ? 'insights'
+      : 'activity';
 
   const total = factors.reduce((s, f) => s + f.weight, 0);
   const earned = factors.reduce((s, f) => s + f.weight * f.value, 0);
   const score = Math.round((100 * earned) / total);
 
   // Silence counts from the later of the last message and the deal's
-  // creation: a deal opened yesterday is not "quiet for two weeks".
+  // creation: a deal opened yesterday is not "quiet for two weeks". It
+  // counts only when the last message time is known: a missing chat is
+  // not silence.
   const createdAt = time(input.dealCreatedAt);
   const since = Math.max(lastAt ?? -Infinity, createdAt ?? -Infinity);
   const quiet =
-    Number.isFinite(since) && input.now - since >= QUIET_DAYS * DAY_MS;
+    lastAt !== null &&
+    Number.isFinite(since) &&
+    input.now - since >= QUIET_DAYS * DAY_MS;
   const upset = isUpset(c?.insight_upset);
 
   // Positive reasons, ranked by the points they brought.
@@ -176,7 +194,7 @@ export function leadScore(input: LeadScoreInput): LeadScore | null {
       reason: urg === 'urgent' ? 'urgent' : 'soon',
       points: WEIGHT_URGENCY * clamp01(urgency / 2),
     });
-  if (activity >= ACTIVE_RECENTLY_MIN)
+  if (c && activity >= ACTIVE_RECENTLY_MIN)
     positive.push({
       reason: 'active_recently',
       points: WEIGHT_ACTIVITY * activity,

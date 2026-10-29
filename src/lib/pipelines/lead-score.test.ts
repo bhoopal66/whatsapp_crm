@@ -132,7 +132,12 @@ describe('leadScore', () => {
     )!;
     expect(s.basis).toBe('activity');
     expect(s.score).toBe(100);
-    const half = leadScore(input({ stageProgress: 1, conversation: null }))!;
+    const half = leadScore(
+      input({
+        stageProgress: 1,
+        conversation: { last_message_at: daysAgo(14) },
+      })
+    )!;
     expect(half.basis).toBe('activity');
     expect(half.score).toBe(
       Math.round(
@@ -173,8 +178,31 @@ describe('leadScore', () => {
     )!;
     expect(newDeal.atRisk).toBe(false);
 
-    const noChat = leadScore(input({ dealCreatedAt: daysAgo(20) }))!;
-    expect(noChat.atRisk).toBe(true);
+    // No last_message_at is not silence, whatever the deal's age.
+    const emptyChat = leadScore(
+      input({ dealCreatedAt: daysAgo(20), conversation: {} })
+    )!;
+    expect(emptyChat.atRisk).toBe(false);
+    expect(emptyChat.reasons).not.toContain('quiet_14d');
+  });
+
+  it('scores a deal with no conversation data on stage alone, never at risk', () => {
+    // No chat row: the contact has none, RLS hides it, or the read failed.
+    const noChat = leadScore(
+      input({ dealCreatedAt: daysAgo(60), stageProgress: 1 })
+    )!;
+    expect(noChat.atRisk).toBe(false);
+    expect(noChat.basis).toBe('stage');
+    expect(noChat.score).toBe(100);
+    expect(noChat.reasons).toEqual(['late_stage']);
+
+    const early = leadScore(
+      input({ dealCreatedAt: daysAgo(60), stageProgress: 0 })
+    )!;
+    expect(early.basis).toBe('stage');
+    expect(early.score).toBe(0);
+    expect(early.atRisk).toBe(false);
+    expect(early.reasons).toEqual([]);
   });
 
   it('keeps at most three reasons, hot lead and soon included', () => {

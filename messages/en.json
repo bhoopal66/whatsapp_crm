@@ -8737,6 +8737,7 @@
       "late_stage": "Late in the pipeline"
     },
     "activityOnly": "Based on activity only",
+    "stageOnly": "Based on the deal's stage only",
     "guide": "A guide, not a forecast",
     "sortLabel": "Sort",
     "sortDefault": "Newest first",

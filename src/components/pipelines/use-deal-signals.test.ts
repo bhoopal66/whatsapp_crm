@@ -4,7 +4,9 @@ vi.mock('@/lib/supabase/client', () => ({ createClient: vi.fn() }));
 
 import {
   DEAL_SIGNAL_SELECT,
+  idsFromSignalsKey,
   loadDealSignals,
+  signalsQueryKey,
   type SignalClient,
 } from './use-deal-signals';
 
@@ -52,5 +54,24 @@ describe('loadDealSignals', () => {
     const { client, calls } = fakeClient([]);
     expect((await loadDealSignals(client, [])).size).toBe(0);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('signalsQueryKey', () => {
+  it('is empty when signals are off, so nothing is queried', () => {
+    expect(signalsQueryKey(false, ['a', 'b'])).toBe('');
+    expect(signalsQueryKey(false, [])).toBe('');
+  });
+
+  it('is non-empty when on, even with no contacts', () => {
+    expect(signalsQueryKey(true, [])).toBe('-');
+    expect(idsFromSignalsKey('-')).toEqual([]);
+  });
+
+  it('sorts and de-duplicates ids, and round-trips them', () => {
+    const key = signalsQueryKey(true, ['b', 'a', 'b']);
+    expect(key).toBe('-a,b');
+    expect(idsFromSignalsKey(key)).toEqual(['a', 'b']);
+    expect(signalsQueryKey(true, ['a', 'b'])).toBe(key);
   });
 });

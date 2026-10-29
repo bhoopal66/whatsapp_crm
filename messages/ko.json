@@ -8737,6 +8737,7 @@
       "late_stage": "파이프라인 후반 단계"
     },
     "activityOnly": "활동만을 기준으로 함",
+    "stageOnly": "딜의 단계만을 기준으로 함",
     "guide": "예측이 아닌 참고용입니다",
     "sortLabel": "정렬",
     "sortDefault": "최신순",

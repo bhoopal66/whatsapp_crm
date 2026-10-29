@@ -74,32 +74,56 @@ export interface DealSignals {
   at: number;
 }
 
-/** The board's signals, or null while off or loading. */
+/**
+ * The key the hook loads under: '' when signals are off (nothing is
+ * queried), '-' when on with no contacts (nothing to read), else '-'
+ * and the sorted, de-duplicated ids joined by commas.
+ */
+export function signalsQueryKey(
+  signalsEnabled: boolean,
+  contactIds: readonly string[]
+): string {
+  if (!signalsEnabled) return '';
+  return `-${[...new Set(contactIds)].sort().join(',')}`;
+}
+
+/** The ids a key from `signalsQueryKey` stands for. */
+export function idsFromSignalsKey(key: string): string[] {
+  const list = key.slice(1);
+  return list ? list.split(',') : [];
+}
+
+/**
+ * The board's signals, or null while off or before the first read. While
+ * a reload for a changed contact set is in flight the previous signals
+ * stay, so badges and the score sort do not vanish and jump back; they
+ * are dropped only when signals are switched off.
+ */
 export function useDealSignals(
   contactIds: readonly string[],
   enabled: boolean
 ): DealSignals | null {
-  const [state, setState] = useState<{
-    key: string;
-    value: DealSignals;
-  } | null>(null);
-  const ids = [...new Set(contactIds)].sort();
-  // '' (off) is distinct from '-' (on, no contacts: nothing to read).
-  const key = enabled ? `-${ids.join(',')}` : '';
+  const [value, setValue] = useState<DealSignals | null>(null);
+  const key = signalsQueryKey(enabled, contactIds);
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    const wanted = key.slice(1) ? key.slice(1).split(',') : [];
-    loadDealSignals(createClient() as unknown as SignalClient, wanted).then(
-      (byContact) => {
-        if (!cancelled) setState({ key, value: { byContact, at: Date.now() } });
-      }
-    );
+    loadDealSignals(
+      createClient() as unknown as SignalClient,
+      idsFromSignalsKey(key)
+    )
+      .then((byContact) => {
+        if (!cancelled) setValue({ byContact, at: Date.now() });
+      })
+      .catch((err) => {
+        // Keep the previous value: stale badges beat none.
+        console.error('[pipelines] lead score signals failed', err);
+      });
     return () => {
       cancelled = true;
     };
   }, [key]);
 
-  return key && state && state.key === key ? state.value : null;
+  return key ? value : null;
 }
