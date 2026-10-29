@@ -40,10 +40,19 @@ import {
   Workflow,
   ChevronLeft,
   ChevronRight,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getBroadcastStatus, getRecipientStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
+import { ReplyClassesCard } from '@/components/broadcasts/reply-classes-card';
+import {
+  REPLY_CLASS_LABEL_KEY,
+  REPLY_CLASS_TONE,
+  isReplyClass,
+  matchesReplyClassFilter,
+  type ReplyClassName,
+} from '@/lib/broadcasts/reply-class-view';
 
 interface StatCardProps {
   label: string;
@@ -132,7 +141,7 @@ const UUID_RE =
 const EXPORT_CHUNK = 1000;
 /** Only the columns the table and the export read. */
 const RECIPIENT_COLUMNS =
-  'id, broadcast_id, contact_id, status, sent_at, delivered_at, read_at, error_message, created_at, contact:contacts(id, name, phone)';
+  'id, broadcast_id, contact_id, status, sent_at, delivered_at, read_at, error_message, created_at, reply_class, contact:contacts(id, name, phone)';
 
 interface RecipientCounts {
   all: number;
@@ -177,6 +186,7 @@ export default function BroadcastDetailPage() {
   const tStatus = useTranslations('Broadcasts.status');
   // Reuses the contacts list's pager strings rather than duplicating them.
   const tPager = useTranslations('Contacts.page');
+  const tReply = useTranslations('ReplyClasses');
   const broadcastId = params.id as string;
 
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
@@ -201,6 +211,8 @@ export default function BroadcastDetailPage() {
   const [statusFilter, setStatusFilter] = useState<RecipientStatus | 'all'>(
     'all'
   );
+  /** The Replies card's class filter (migration 148); ANDed with status. */
+  const [classFilter, setClassFilter] = useState<ReplyClassName | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resumingScope, setResumingScope] = useState<
@@ -283,6 +295,7 @@ export default function BroadcastDetailPage() {
       .order('created_at', { ascending: false })
       .range(from, from + RECIPIENTS_PAGE_SIZE - 1);
     if (statusFilter !== 'all') q = q.eq('status', statusFilter);
+    if (classFilter) q = q.eq('reply_class', classFilter);
 
     const { data, count, error: recsError } = await q;
     if (seq !== recipientsSeq.current) return; // superseded
@@ -293,7 +306,7 @@ export default function BroadcastDetailPage() {
       setFilteredTotal(count ?? 0);
     }
     setRecipientsLoading(false);
-  }, [broadcastId, page, statusFilter]);
+  }, [broadcastId, page, statusFilter, classFilter]);
 
   const refreshAll = useCallback(
     () => Promise.all([fetchData(), fetchRecipients()]),
@@ -310,6 +323,11 @@ export default function BroadcastDetailPage() {
 
   function changeStatusFilter(next: RecipientStatus | 'all') {
     setStatusFilter(next);
+    setPage(0);
+  }
+
+  function changeClassFilter(next: ReplyClassName | null) {
+    setClassFilter(next);
     setPage(0);
   }
 
@@ -463,6 +481,11 @@ export default function BroadcastDetailPage() {
   const pendingCount = counts.pending;
   const retryableCount = counts.failed;
   const totalPages = Math.ceil(filteredTotal / RECIPIENTS_PAGE_SIZE);
+  // The class filter is applied server-side; re-applied here so a page
+  // fetched before the filter changed never shows unmatched rows.
+  const visibleRecipients = recipients.filter((r) =>
+    matchesReplyClassFilter(r, classFilter)
+  );
   // A campaign whose tab went away sits in 'sending' with recipients
   // still pending and nothing left to move them. Name that state rather
   // than leaving a permanently pulsing "sending" badge.
@@ -732,11 +755,18 @@ export default function BroadcastDetailPage() {
 
       <FunnelChart steps={funnelSteps} />
 
+      <ReplyClassesCard
+        broadcastId={broadcastId}
+        selected={classFilter}
+        onSelect={changeClassFilter}
+        onSorted={fetchRecipients}
+      />
+
       {/* Recipients Table */}
       <div className="border-border bg-card rounded-xl border">
         <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
           <h2 className="text-foreground text-sm font-medium">
-            {statusFilter !== 'all'
+            {statusFilter !== 'all' || classFilter
               ? t('recipientsHeader', {
                   filtered: filteredTotal,
                   total: counts.all,
@@ -744,6 +774,19 @@ export default function BroadcastDetailPage() {
               : t('recipientsHeaderAll', { total: counts.all })}
           </h2>
           <div className="flex items-center gap-2">
+            {classFilter && (
+              <button
+                type="button"
+                onClick={() => changeClassFilter(null)}
+                aria-label={tReply('clear')}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${REPLY_CLASS_TONE[classFilter].chip}`}
+              >
+                {tReply('filterChip', {
+                  label: tReply(REPLY_CLASS_LABEL_KEY[classFilter]),
+                })}
+                <X className="h-3 w-3" />
+              </button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -804,7 +847,7 @@ export default function BroadcastDetailPage() {
           </div>
         </div>
 
-        {recipients.length === 0 ? (
+        {visibleRecipients.length === 0 ? (
           <div className="flex h-32 items-center justify-center">
             {recipientsLoading ? (
               <Loader2 className="text-primary h-5 w-5 animate-spin" />
@@ -843,8 +886,11 @@ export default function BroadcastDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recipients.map((recipient) => {
+                {visibleRecipients.map((recipient) => {
                   const rStatus = getRecipientStatus(recipient.status);
+                  const rClass = isReplyClass(recipient.reply_class)
+                    ? recipient.reply_class
+                    : null;
                   return (
                     <TableRow key={recipient.id} className="border-border">
                       <TableCell className="text-foreground font-medium">
@@ -859,6 +905,13 @@ export default function BroadcastDetailPage() {
                         >
                           {tStatus(rStatus.label)}
                         </span>
+                        {rClass && (
+                          <span
+                            className={`ml-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${REPLY_CLASS_TONE[rClass].chip}`}
+                          >
+                            {tReply(REPLY_CLASS_LABEL_KEY[rClass])}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {recipient.sent_at

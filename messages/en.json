@@ -8511,7 +8511,29 @@
     "autoNoteUnnamed": "Tagged automatically"
   },
   "ReplyClasses": {
-    "_": ""
+    "title": "Replies",
+    "subtitle": "How customers answered this campaign, sorted by Jev",
+    "interested": "Interested",
+    "question": "Question",
+    "notNow": "Not now",
+    "notInterested": "Not interested",
+    "wrongPerson": "Wrong person",
+    "stop": "Asked to stop",
+    "other": "Other",
+    "legendItem": "{label} {count} ({percent})",
+    "filterBy": "Show only {label} replies",
+    "clear": "Clear",
+    "filterChip": "Replies: {label}",
+    "noneSorted": "No replies have been sorted yet.",
+    "unsorted": "{count, plural, one {# reply not sorted yet} other {# replies not sorted yet}}",
+    "sortPast": "Sort past replies ({count})",
+    "sorting": "Sorting…",
+    "sortedSoFar": "Sorted {count}…",
+    "sortDone": "{count, plural, =0 {No replies could be sorted} one {Sorted # reply} other {Sorted # replies}}",
+    "sortFailed": "Couldn't sort replies: {error}",
+    "turnOn": "Turn on Campaign reply sorting in Settings → Smart insights",
+    "unavailable": "Jev isn't available for this workspace",
+    "loadFailed": "Couldn't load the replies breakdown"
   },
   "ComposeCheck": {
     "title": "Check this message before sending",

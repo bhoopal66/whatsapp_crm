@@ -700,6 +700,12 @@ export interface BroadcastRecipient {
    * Added in migration 038; null on rows created before it.
    */
   template_params?: string[] | null;
+  /**
+   * How Jev sorted the first reply (migration 148): one of
+   * REPLY_CLASS_ORDER in lib/broadcasts/reply-class-view.ts, NULL
+   * until sorted. Service-role writes only.
+   */
+  reply_class?: string | null;
   created_at: string;
   contact?: Contact;
 }
