@@ -94,13 +94,11 @@ const DRAFT = {
 beforeEach(() => {
   mocks.requireRole.mockReset();
   mocks.loadAiConfig.mockReset().mockResolvedValue(CONFIG);
-  mocks.translateText
-    .mockReset()
-    .mockResolvedValue({
-      text: 'ستُشحن بطاقتك غداً.',
-      model: 'claude-std',
-      usage: USAGE,
-    });
+  mocks.translateText.mockReset().mockResolvedValue({
+    text: 'ستُشحن بطاقتك غداً.',
+    model: 'claude-std',
+    usage: USAGE,
+  });
   mocks.logAiUsage.mockReset().mockResolvedValue(undefined);
   mocks.limits = [];
 });

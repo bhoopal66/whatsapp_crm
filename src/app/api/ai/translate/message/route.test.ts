@@ -81,6 +81,8 @@ function setup({
   message = {
     id: MSG,
     conversation_id: CONV,
+    sender_type: 'customer',
+    content_type: 'text',
     content_text: SOURCE,
     conversations: { account_id: ACCOUNT },
   } as unknown,
@@ -114,13 +116,11 @@ const upserts = () => admin.calls.filter((c) => c.method === 'upsert');
 beforeEach(() => {
   mocks.requireRole.mockReset();
   mocks.loadAiConfig.mockReset().mockResolvedValue(CONFIG);
-  mocks.translateText
-    .mockReset()
-    .mockResolvedValue({
-      text: 'How much is the card?',
-      model: 'gpt-small',
-      usage: USAGE,
-    });
+  mocks.translateText.mockReset().mockResolvedValue({
+    text: 'How much is the card?',
+    model: 'gpt-small',
+    usage: USAGE,
+  });
   mocks.logAiUsage.mockReset().mockResolvedValue(undefined);
   mocks.limits = [];
   mocks.limitFail = null;
@@ -155,6 +155,8 @@ describe('POST /api/ai/translate/message', () => {
       message: {
         id: MSG,
         conversation_id: CONV,
+        sender_type: 'customer',
+        content_type: 'text',
         content_text: SOURCE,
         conversations: [{ account_id: 'account-2' }],
       },
@@ -169,6 +171,8 @@ describe('POST /api/ai/translate/message', () => {
       message: {
         id: MSG,
         conversation_id: CONV,
+        sender_type: 'customer',
+        content_type: 'text',
         content_text: '  ',
         conversations: { account_id: ACCOUNT },
       },
@@ -178,11 +182,37 @@ describe('POST /api/ai/translate/message', () => {
     expect((await res.json()).code).toBe('nothing_to_translate');
   });
 
+  it('refuses our own replies and messages that are not text or a caption', async () => {
+    for (const [sender_type, content_type] of [
+      ['agent', 'text'],
+      ['bot', 'text'],
+      ['customer', 'document'],
+      ['customer', 'location'],
+    ]) {
+      setup({
+        message: {
+          id: MSG,
+          conversation_id: CONV,
+          sender_type,
+          content_type,
+          content_text: SOURCE,
+          conversations: { account_id: ACCOUNT },
+        },
+      });
+      const res = await post({ message_id: MSG });
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('nothing_to_translate');
+    }
+    expect(mocks.translateText).not.toHaveBeenCalled();
+  });
+
   it('refuses a message longer than WhatsApp allows', async () => {
     setup({
       message: {
         id: MSG,
         conversation_id: CONV,
+        sender_type: 'customer',
+        content_type: 'text',
         content_text: 'ا'.repeat(4097),
         conversations: { account_id: ACCOUNT },
       },

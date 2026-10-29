@@ -1,7 +1,5 @@
 import { countLetters, isMostlyArabic } from './detect';
-
-/** WhatsApp's limit on a text message; longer text is never sent, so never translated. */
-export const TRANSLATE_MAX_CHARS = 4096;
+import { TRANSLATE_MAX_CHARS } from './limits';
 
 /**
  * Whether the composer shows Translate to Arabic for this draft: some

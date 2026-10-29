@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  canTranslateDraft,
-  landTranslation,
-  TRANSLATE_MAX_CHARS,
-  undoAvailable,
-} from './draft';
+import { canTranslateDraft, landTranslation, undoAvailable } from './draft';
+import { TRANSLATE_MAX_CHARS } from './limits';
 
 describe('canTranslateDraft', () => {
   it('offers English and mixed drafts', () => {

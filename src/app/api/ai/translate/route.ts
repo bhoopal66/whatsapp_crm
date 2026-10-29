@@ -11,7 +11,7 @@ import { logAiUsage } from '@/lib/ai/usage';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { AiError } from '@/lib/ai/types';
 import { isUuid } from '@/lib/coordinators/errors';
-import { TRANSLATE_MAX_CHARS } from '@/lib/translate/draft';
+import { TRANSLATE_MAX_CHARS } from '@/lib/translate/limits';
 
 /**
  * POST /api/ai/translate  (agent+)

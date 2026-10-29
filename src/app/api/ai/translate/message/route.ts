@@ -12,7 +12,8 @@ import { logAiUsage } from '@/lib/ai/usage';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { AiError } from '@/lib/ai/types';
 import { isUuid } from '@/lib/coordinators/errors';
-import { TRANSLATE_MAX_CHARS } from '@/lib/translate/draft';
+import { isTranslatableKind } from '@/lib/translate/detect';
+import { TRANSLATE_MAX_CHARS } from '@/lib/translate/limits';
 
 /**
  * POST /api/ai/translate/message  (viewer+)
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     const { data: message, error: msgErr } = await supabase
       .from('messages')
       .select(
-        'id, conversation_id, content_text, conversations!inner(account_id)'
+        'id, conversation_id, sender_type, content_type, content_text, conversations!inner(account_id)'
       )
       .eq('id', messageId)
       .maybeSingle();
@@ -74,7 +75,9 @@ export async function POST(request: Request) {
 
     const source =
       typeof message.content_text === 'string' ? message.content_text : '';
-    if (!source.trim()) {
+    // Only what the bubble offers (a customer's text or caption): a viewer
+    // must not spend the key on our own replies or on file names.
+    if (!isTranslatableKind(message) || !source.trim()) {
       return NextResponse.json(
         {
           error: 'This message has no text to translate.',

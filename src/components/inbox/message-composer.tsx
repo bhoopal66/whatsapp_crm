@@ -714,7 +714,7 @@ export function MessageComposer({
         toast.error(
           result.code === 'ai_not_configured'
             ? t('translateNotConfigured')
-            : (result.error ?? t('translateFailed'))
+            : t('translateFailed')
         );
         return;
       }

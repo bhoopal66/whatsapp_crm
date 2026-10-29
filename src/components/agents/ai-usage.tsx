@@ -36,7 +36,8 @@ interface UsageResponse {
   by_mode: {
     auto_reply: { calls: number; tokens: number };
     draft: { calls: number; tokens: number };
-    // Composer "Translate to Arabic"; absent from servers that predate it.
+    // Both Translate buttons (inbox messages and the composer); absent
+    // from servers that predate it.
     translate?: { calls: number; tokens: number };
   };
   by_model: {

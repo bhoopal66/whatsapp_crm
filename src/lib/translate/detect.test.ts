@@ -90,6 +90,24 @@ describe('canTranslateMessage', () => {
     }
   });
 
+  it('skips a message longer than the route accepts', () => {
+    const atLimit = 'م'.repeat(4096);
+    expect(
+      canTranslateMessage({
+        sender_type: 'customer',
+        content_type: 'text',
+        content_text: atLimit,
+      })
+    ).toBe(true);
+    expect(
+      canTranslateMessage({
+        sender_type: 'customer',
+        content_type: 'text',
+        content_text: atLimit + 'م',
+      })
+    ).toBe(false);
+  });
+
   it('skips documents, other kinds and empty text', () => {
     expect(
       canTranslateMessage({

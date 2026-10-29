@@ -1,4 +1,5 @@
 import type { ContentType, SenderType } from '@/types';
+import { TRANSLATE_MAX_CHARS } from './limits';
 
 // Letters only: digits (including Arabic-Indic ١٢٣), punctuation such as
 // "؟", emoji and diacritics never make a message "Arabic" on their own.
@@ -59,15 +60,33 @@ const TRANSLATABLE: ReadonlySet<ContentType> = new Set<ContentType>([
   'video',
 ]);
 
-/** Whether a thread message offers Translate: a customer's text or caption in Arabic. */
+/**
+ * Whether a message is the kind Translate is for: a customer's text, or
+ * the caption on their photo or video. The route refuses anything else,
+ * since each translation spends the account's key.
+ */
+export function isTranslatableKind(message: {
+  sender_type: SenderType;
+  content_type: ContentType;
+}): boolean {
+  return (
+    message.sender_type === 'customer' && TRANSLATABLE.has(message.content_type)
+  );
+}
+
+/**
+ * Whether a thread message offers Translate: the right kind, in Arabic,
+ * and short enough for the route to accept (a longer one would only ever
+ * fail).
+ */
 export function canTranslateMessage(message: {
   sender_type: SenderType;
   content_type: ContentType;
   content_text?: string | null;
 }): boolean {
   return (
-    message.sender_type === 'customer' &&
-    TRANSLATABLE.has(message.content_type) &&
+    isTranslatableKind(message) &&
+    (message.content_text?.length ?? 0) <= TRANSLATE_MAX_CHARS &&
     hasArabicText(message.content_text)
   );
 }
