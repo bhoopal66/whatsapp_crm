@@ -42,14 +42,15 @@ import {
 } from '@/lib/inbox/attention';
 import {
   INSIGHT_FILTERS,
-  PRIORITY_URGENT,
   URGENT_PIN_LIMIT,
   insightFilterBounds,
+  insightListQuery,
   isUrgentPin,
   matchesInsightFilters,
   sortForInboxWithInsights,
   type InsightFilter,
 } from '@/lib/inbox/insights';
+import { PRIORITY_URGENT } from '@/lib/insights/bands';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ImportantBadge } from './important-badge';
 import { InsightBadge } from './insight-badge';
@@ -204,6 +205,8 @@ interface ConversationListProps {
    * workspace has signals off.
    */
   initialInsightFilters?: readonly InsightFilter[];
+  /** Seeds the Unread filter (`?filter=unread`). */
+  initialUnread?: boolean;
 }
 
 /** Just enough of a broadcast to label and filter by. */
@@ -392,6 +395,7 @@ export function ConversationList({
   initialAssignee = null,
   initialChatTagIds,
   initialInsightFilters,
+  initialUnread = false,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const tInsights = useTranslations('InsightsUi.list');
@@ -419,7 +423,9 @@ export function ConversationList({
   );
 
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<InboxFilter>('all');
+  const [filter, setFilter] = useState<InboxFilter>(
+    initialUnread ? 'unread' : 'all'
+  );
   // The "Important · N" chip: only the chats the AI handed over.
   const [importantOnly, setImportantOnly] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -453,7 +459,8 @@ export function ConversationList({
   // and the Urgent pin exist only while the workspace has signals on.
   // Off, the filters read as empty and no Urgent query is made, so the
   // list fetches and renders exactly as it did before.
-  const { settings: insightSettings } = useInsightSettings();
+  const { settings: insightSettings, loading: insightLoading } =
+    useInsightSettings();
   const signalsOn = !!insightSettings?.signalsEnabled;
   const [selectedInsightFilters, setSelectedInsightFilters] = useState<
     InsightFilter[]
@@ -535,6 +542,15 @@ export function ConversationList({
     onConversationsLoadedRef.current = onConversationsLoaded;
   });
 
+  // The first page waits for the insight settings (they read "off"
+  // until loaded, which would fetch once without pins/filters and again
+  // with them; a `?insight=hot` deep link would paint unfiltered first).
+  const insightQuery = insightListQuery({
+    signalsEnabled: signalsOn,
+    settingsLoading: insightLoading,
+    insightFilters,
+  });
+
   // What the server-side query asks. Memoised so the fetch effect
   // refires only when one of these actually changes.
   const listParams = useMemo<ListQueryParams>(
@@ -549,7 +565,7 @@ export function ConversationList({
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
       insightFilters,
-      urgentPins: signalsOn,
+      urgentPins: insightQuery.urgentPins,
     }),
     [
       restrictToUserId,
@@ -562,7 +578,7 @@ export function ConversationList({
       assigneeFilter,
       selectedCampaignId,
       insightFilters,
-      signalsOn,
+      insightQuery.urgentPins,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -587,8 +603,9 @@ export function ConversationList({
   // Forces a first-page reload when a delta turns out too big.
   const [reloadNonce, setReloadNonce] = useState(0);
 
+  const insightReady = insightQuery.ready;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !insightReady) return;
     let cancelled = false;
     const generation = ++generationRef.current;
 
@@ -645,7 +662,7 @@ export function ConversationList({
     };
     // `resyncToken` is included so the parent can force a full refetch
     // (manual refresh, or a resync with no watermark to delta from).
-  }, [enabled, resyncToken, reloadNonce, listParams]);
+  }, [enabled, insightReady, resyncToken, reloadNonce, listParams]);
 
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
@@ -1591,7 +1608,7 @@ const ConversationItem = memo(function ConversationItem({
             {important && <ImportantBadge label={t('important')} />}
             {urgentPin && <ImportantBadge label={urgentLabel} />}
             {insights && !urgentPin && (
-              <InsightBadge conversation={conversation} />
+              <InsightBadge conversation={conversation} important={important} />
             )}
             <span
               className={cn(

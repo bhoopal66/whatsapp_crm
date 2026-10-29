@@ -5,6 +5,7 @@ import { sortForInbox } from './attention';
 import {
   INSIGHT_FILTER_BOUNDS,
   insightBadge,
+  insightListQuery,
   insightFilterBounds,
   insightSummary,
   isUrgentPin,
@@ -173,5 +174,55 @@ describe('Urgent pin', () => {
       row('b', '2026-10-29T10:00:00Z'),
     ];
     expect(sortForInboxWithInsights(rows, false)).toEqual(sortForInbox(rows));
+  });
+});
+
+describe('insightBadge on an Important row', () => {
+  it('never says Urgent twice: the next badge, or none', () => {
+    const urgent = {
+      insight_intent: null,
+      insight_urgency: 2,
+      insight_lead_temp: null,
+      insight_upset: 0.9,
+      insight_wants_human: null,
+      insight_priority: 2,
+      insight_at: null,
+    };
+    expect(insightBadge(urgent)).toBe('urgent');
+    expect(insightBadge(urgent, { important: true })).toBe('upset');
+    expect(
+      insightBadge({ ...urgent, insight_upset: 0 }, { important: true })
+    ).toBeNull();
+  });
+});
+
+describe('insightListQuery', () => {
+  it('waits for the settings, whatever else is asked', () => {
+    expect(
+      insightListQuery({
+        signalsEnabled: false,
+        settingsLoading: true,
+        insightFilters: ['hot'],
+      })
+    ).toEqual({ ready: false, urgentPins: false, bounds: [] });
+  });
+  it('signals off: ready at once, no pins, no bounds', () => {
+    expect(
+      insightListQuery({
+        signalsEnabled: false,
+        settingsLoading: false,
+        insightFilters: ['hot', 'upset'],
+      })
+    ).toEqual({ ready: true, urgentPins: false, bounds: [] });
+  });
+  it('signals on: pins and the filters bounds', () => {
+    const q = insightListQuery({
+      signalsEnabled: true,
+      settingsLoading: false,
+      insightFilters: ['upset'],
+    });
+    expect(q.ready).toBe(true);
+    expect(q.urgentPins).toBe(true);
+    expect(q.bounds).toEqual([INSIGHT_FILTER_BOUNDS.upset]);
   });
 });

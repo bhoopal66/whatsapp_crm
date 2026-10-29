@@ -110,9 +110,11 @@ the upset figure has been judged) and when the judged message arrived.
 A chat never judged says so instead. **Two home tiles** join "Needs
 your attention": **Hot leads waiting** (lead temperature at least hot
 and still unread, since conversations do not record who wrote last)
-and **Upset customers today** (judged upset on a message that arrived
-since midnight in the viewer's own time zone). Each opens the Inbox
-(the Team inbox for team leaders) with the matching filter. Card and
+and **Upset customers waiting** (judged upset and still unread). Both
+leave out chats the Campaign inbox holds, as the unread tile does, so
+each count is what its link shows: each opens the Inbox (the Team inbox
+for team leaders) with the matching filter and Unread
+(`?insight=hot&filter=unread`). Card and
 tiles appear only while signals are on.
 
 ## Chat tag suggestions

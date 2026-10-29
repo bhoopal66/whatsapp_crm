@@ -45,12 +45,15 @@ type InsightRow = Pick<
 
 export function InsightBadge({
   conversation,
+  important = false,
   className,
 }: {
   conversation: InsightRow;
+  /** The row wears the Important pill: no second red "Urgent". */
+  important?: boolean;
   className?: string;
 }) {
-  const kind = insightBadge(conversation);
+  const kind = insightBadge(conversation, { important });
   if (!kind) return null;
   return (
     <InsightBadgeInner
@@ -129,6 +132,11 @@ function InsightBadgeInner({
           <Flame className="h-2.5 w-2.5 shrink-0" aria-hidden />
         )}
         {t(`list.badge.${kind}`)}
+        {/* The tooltip is hover-only: keyboard and screen-reader users
+            get the same figures here. */}
+        {lines.length > 0 && (
+          <span className="sr-only">{`: ${lines.join('. ')}`}</span>
+        )}
       </TooltipTrigger>
       {lines.length > 0 && (
         <TooltipContent>

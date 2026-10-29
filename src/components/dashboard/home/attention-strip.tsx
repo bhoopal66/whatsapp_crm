@@ -25,15 +25,14 @@ import {
   overdueCases,
   tileState,
 } from '@/lib/dashboard/home/attention';
-import { zoneDayStart } from '@/lib/dashboard/home/agenda';
-import { browserTimeZone } from '@/lib/dashboard/home/calls';
 import type { OpenCases } from '@/lib/dashboard/home/sources';
 import { taskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
 import {
-  HOT_LEADS_WAITING,
+  INSIGHT_TILE_COLUMNS,
+  INSIGHT_TILE_OR,
+  countInsightTiles,
   insightTileHref,
-  upsetTodayBounds,
 } from '@/lib/insights/customer-view';
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
@@ -87,34 +86,25 @@ async function loadChatCounts(): Promise<ChatCounts> {
   };
 }
 
-interface InsightCounts {
-  hotWaiting: number;
-  upsetToday: number;
-}
+type InsightRow = UnreadRow & {
+  insight_lead_temp: number | null;
+  insight_upset: number | null;
+};
 
 /**
- * The Smart insights tiles' reads (RLS-scoped head counts): hot leads
- * still unread, and customers judged upset on a message since midnight
- * in the viewer's time zone.
+ * The Smart insights tiles' read (RLS-scoped): unread chats that are hot
+ * or upset. Counted at render with the unread tile's own Campaign inbox
+ * rule (`countInsightTiles`), so each tile matches the list it opens.
  */
-async function loadInsightCounts(): Promise<InsightCounts> {
+async function loadInsightRows(): Promise<InsightRow[]> {
   const supabase = createClient();
-  const upset = upsetTodayBounds(zoneDayStart(Date.now(), browserTimeZone()));
-  const [hot, upsetToday] = await Promise.all([
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .gte('insight_lead_temp', HOT_LEADS_WAITING.leadTempMin)
-      .gt('unread_count', HOT_LEADS_WAITING.unreadAbove),
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .gte('insight_upset', upset.upsetMin)
-      .gte('insight_at', upset.atFromIso),
-  ]);
-  if (hot.error) throw hot.error;
-  if (upsetToday.error) throw upsetToday.error;
-  return { hotWaiting: hot.count ?? 0, upsetToday: upsetToday.count ?? 0 };
+  const { data, error } = await supabase
+    .from('conversations')
+    .select(`${UNREAD_ROW_COLUMNS}, ${INSIGHT_TILE_COLUMNS}`)
+    .gt('unread_count', 0)
+    .or(INSIGHT_TILE_OR);
+  if (error) throw error;
+  return (data ?? []) as unknown as InsightRow[];
 }
 
 type Tone = 'destructive' | 'warning' | 'info' | 'success';
@@ -184,8 +174,11 @@ export function AttentionStrip({
     signalsOn && accountId
       ? `attention-insights:${accountId}:${refreshKey}`
       : null,
-    loadInsightCounts
+    loadInsightRows
   );
+  const insightCounts = insights.data
+    ? countInsightTiles(insights.data, aiLive)
+    : null;
   // "Now" for the overdue split, taken once per refresh.
   const [clock, setClock] = useState({ refreshKey, now: new Date() });
   if (clock.refreshKey !== refreshKey)
@@ -233,7 +226,7 @@ export function AttentionStrip({
         icon: Flame,
         label: ti('hot.label'),
         tone: 'success',
-        count: insights.data?.hotWaiting ?? null,
+        count: insightCounts?.hotWaiting ?? null,
         error: insightError,
         hint: ti('hot.hint'),
       },
@@ -243,7 +236,7 @@ export function AttentionStrip({
         icon: Frown,
         label: ti('upset.label'),
         tone: 'warning',
-        count: insights.data?.upsetToday ?? null,
+        count: insightCounts?.upsetWaiting ?? null,
         error: insightError,
         hint: ti('upset.hint'),
       }

@@ -5,6 +5,9 @@ import {
   TAG_SUGGEST_MIN_P,
   isUpset,
   leadBand,
+  PRIORITY_HIGH,
+  PRIORITY_NONE,
+  PRIORITY_URGENT,
   priorityOf,
   urgencyBand,
   wantsPerson,
@@ -83,5 +86,14 @@ describe('insight bands', () => {
 
   it('suggests a tag only from 0.55', () => {
     expect(TAG_SUGGEST_MIN_P).toBe(0.55);
+  });
+});
+
+describe('priority levels', () => {
+  it('are the values priorityOf returns', () => {
+    expect([PRIORITY_NONE, PRIORITY_HIGH, PRIORITY_URGENT]).toEqual([0, 1, 2]);
+    expect(priorityOf({})).toBe(PRIORITY_NONE);
+    expect(priorityOf({ upset: 0.8 })).toBe(PRIORITY_HIGH);
+    expect(priorityOf({ upset: 0.9 })).toBe(PRIORITY_URGENT);
   });
 });

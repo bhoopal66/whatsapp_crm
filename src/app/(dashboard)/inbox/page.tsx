@@ -984,6 +984,7 @@ export function InboxPageInner({
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
             initialInsightFilters={initialFilters.insightFilters}
+            initialUnread={initialFilters.unread}
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}

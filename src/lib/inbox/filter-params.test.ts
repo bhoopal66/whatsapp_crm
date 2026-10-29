@@ -11,11 +11,13 @@ describe('parseInboxFilterParams', () => {
       assignee: 'unassigned',
       chatTagIds: [],
       insightFilters: [],
+      unread: false,
     });
     expect(parseInboxFilterParams(p(`assignee=me&tag=${U}`), 'me-id')).toEqual({
       assignee: 'me-id',
       chatTagIds: [U],
       insightFilters: [],
+      unread: false,
     });
     expect(
       parseInboxFilterParams(p(`assignee=${U.toUpperCase()}`), null).assignee
@@ -30,12 +32,17 @@ describe('parseInboxFilterParams', () => {
       parseInboxFilterParams(p('insight=attention'), null).insightFilters
     ).toEqual(['attention']);
   });
+  it('reads the Unread filter', () => {
+    expect(parseInboxFilterParams(p('filter=unread'), null).unread).toBe(true);
+    expect(parseInboxFilterParams(p('filter=all'), null).unread).toBe(false);
+  });
   it('ignores anything else', () => {
     expect(parseInboxFilterParams(p('assignee=me'), null).assignee).toBeNull();
     expect(parseInboxFilterParams(p('assignee=x&tag=nope'), U)).toEqual({
       assignee: null,
       chatTagIds: [],
       insightFilters: [],
+      unread: false,
     });
   });
 });

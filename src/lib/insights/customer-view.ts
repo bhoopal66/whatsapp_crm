@@ -1,4 +1,9 @@
 import {
+  inCampaignInbox,
+  type CampaignInboxFields,
+} from '@/lib/inbox/campaign-inbox';
+
+import {
   INSIGHT_INTENT_KEYS,
   LEAD_HOT_MIN,
   UPSET_MIN,
@@ -131,33 +136,48 @@ export function customerInsightView(
 // Home tiles
 // ---------------------------------------------------------------------------
 
-/**
- * "Hot leads waiting": lead temperature at least hot (the Inbox's Hot
- * leads filter) and unread. Conversations record no "who wrote last",
- * so an unread chat stands for "the customer wrote last and nobody has
- * opened it since".
- */
-export const HOT_LEADS_WAITING = {
-  leadTempMin: LEAD_HOT_MIN,
-  unreadAbove: 0,
-} as const;
+/** The columns a home tile's read needs beyond the unread row's own. */
+export const INSIGHT_TILE_COLUMNS = 'insight_lead_temp, insight_upset';
 
 /**
- * "Upset customers today": upset at least the Upset band, judged on a
- * message that arrived since `dayStartMs` (midnight in the home page's
- * zone).
+ * The tiles' read: unread chats that are hot or upset, as an `or`
+ * group. The tiles then count these rows through
+ * {@link countInsightTiles}, with the same Campaign inbox exclusion as
+ * the unread tile.
  */
-export function upsetTodayBounds(dayStartMs: number): {
-  upsetMin: number;
-  atFromIso: string;
-} {
-  return { upsetMin: UPSET_MIN, atFromIso: new Date(dayStartMs).toISOString() };
+export const INSIGHT_TILE_OR = `insight_lead_temp.gte.${LEAD_HOT_MIN},insight_upset.gte.${UPSET_MIN}`;
+
+/**
+ * "Hot leads waiting" and "Upset customers waiting": hot (the Inbox's Hot
+ * leads filter) or upset (its Upset filter) AND unread, among the chats
+ * the Inbox lists (`inCampaignInbox` ones excluded, as the unread tile
+ * does). Conversations record no "who wrote last", so unread stands for
+ * "the customer wrote last and nobody has opened it since". Each count
+ * is exactly what its tile's link shows.
+ */
+export function countInsightTiles(
+  rows: readonly (CampaignInboxFields & {
+    unread_count?: number | null;
+    insight_lead_temp?: number | null;
+    insight_upset?: number | null;
+  })[],
+  aiLive: boolean
+): { hotWaiting: number; upsetWaiting: number } {
+  let hotWaiting = 0;
+  let upsetWaiting = 0;
+  for (const row of rows) {
+    if ((row.unread_count ?? 0) <= 0 || inCampaignInbox(row, aiLive)) continue;
+    const { insight_lead_temp: lead, insight_upset: upset } = row;
+    if (typeof lead === 'number' && lead >= LEAD_HOT_MIN) hotWaiting += 1;
+    if (typeof upset === 'number' && upset >= UPSET_MIN) upsetWaiting += 1;
+  }
+  return { hotWaiting, upsetWaiting };
 }
 
-/** Where a tile goes: the inbox with the matching Smart insights filter. */
+/** Where a tile goes: the inbox, Unread, with the matching Smart insights filter. */
 export function insightTileHref(
   inboxPath: string,
   filter: 'hot' | 'upset'
 ): string {
-  return `${inboxPath}?insight=${filter}`;
+  return `${inboxPath}?insight=${filter}&filter=unread`;
 }

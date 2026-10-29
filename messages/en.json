@@ -8507,8 +8507,8 @@
         "hint": "Hot leads with unread messages"
       },
       "upset": {
-        "label": "Upset customers today",
-        "hint": "Upset since midnight"
+        "label": "Upset customers waiting",
+        "hint": "Upset customers with unread messages"
       }
     }
   },

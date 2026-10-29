@@ -1,6 +1,8 @@
 import {
   INSIGHT_INTENT_KEYS,
   LEAD_HOT_MIN,
+  PRIORITY_HIGH,
+  PRIORITY_URGENT,
   UPSET_MIN,
   isUpset,
   leadBand,
@@ -35,10 +37,6 @@ type InsightRow = Pick<
   | 'insight_at'
 >;
 
-/** `insight_priority` levels (the writer computes them, bands.ts). */
-export const PRIORITY_NEEDS_ATTENTION = 1;
-export const PRIORITY_URGENT = 2;
-
 const known = (x: number | null | undefined): x is number =>
   typeof x === 'number' && Number.isFinite(x);
 
@@ -54,8 +52,14 @@ export type InsightBadgeKind =
  * Wants a person › Ready to apply › Hot lead › none. One at most, so the
  * row stays one line tall and the loudest thing wins.
  */
-export function insightBadge(row: InsightRow): InsightBadgeKind | null {
-  if ((row.insight_priority ?? 0) >= PRIORITY_URGENT) return 'urgent';
+export function insightBadge(
+  row: InsightRow,
+  opts: { important?: boolean } = {}
+): InsightBadgeKind | null {
+  // A row already wearing the red Important pill does not also say
+  // Urgent: the next badge in precedence shows instead (or none).
+  if (!opts.important && (row.insight_priority ?? 0) >= PRIORITY_URGENT)
+    return 'urgent';
   if (isUpset(row.insight_upset)) return 'upset';
   if (wantsPerson(row.insight_wants_human)) return 'wants_person';
   const lead = leadBand(row.insight_lead_temp);
@@ -113,7 +117,7 @@ export const INSIGHT_FILTER_BOUNDS: Record<
 > = {
   hot: { column: 'insight_lead_temp', min: LEAD_HOT_MIN },
   upset: { column: 'insight_upset', min: UPSET_MIN },
-  attention: { column: 'insight_priority', min: PRIORITY_NEEDS_ATTENTION },
+  attention: { column: 'insight_priority', min: PRIORITY_HIGH },
 };
 
 /** The bounds of the picked filters, in {@link INSIGHT_FILTERS} order. */
@@ -158,6 +162,33 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
  * Urgent and unread is rare; past this they arrive with their page.
  */
 export const URGENT_PIN_LIMIT = 50;
+
+/**
+ * What the first-page query needs from Smart insights. Until the
+ * settings have loaded the list must wait (they report "off" meanwhile,
+ * so it would load once without pins and filters and again with them);
+ * with signals off it never asks for urgent pins or filter bounds, so
+ * the list loads once, exactly as before.
+ */
+export function insightListQuery(input: {
+  signalsEnabled: boolean;
+  settingsLoading: boolean;
+  insightFilters: readonly InsightFilter[];
+}): {
+  ready: boolean;
+  urgentPins: boolean;
+  bounds: { column: InsightFilterColumn; min: number }[];
+} {
+  if (input.settingsLoading)
+    return { ready: false, urgentPins: false, bounds: [] };
+  if (!input.signalsEnabled)
+    return { ready: true, urgentPins: false, bounds: [] };
+  return {
+    ready: true,
+    urgentPins: true,
+    bounds: insightFilterBounds(input.insightFilters),
+  };
+}
 
 /** Urgent (priority 2) and still unread: pinned under the Important pins. */
 export function isUrgentPin(

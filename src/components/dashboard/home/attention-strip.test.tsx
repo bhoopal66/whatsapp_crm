@@ -32,7 +32,11 @@ vi.mock('./use-widget-data', () => ({
     mocks.keys.push(key);
     if (key) mocks.loaders.set(key.split(':')[0], load);
     const data = key?.startsWith('attention-insights')
-      ? { hotWaiting: 3, upsetToday: 0 }
+      ? [
+          { unread_count: 1, insight_lead_temp: 2 },
+          { unread_count: 1, insight_lead_temp: 2 },
+          { unread_count: 1, insight_lead_temp: 1.5 },
+        ]
       : null;
     return { data, loading: false, error: false, reload() {}, update() {} };
   },
@@ -44,10 +48,10 @@ vi.mock('@/lib/supabase/client', () => ({
       mocks.ops.push(ops);
       const q = {
         select: (...a: unknown[]) => (ops.push(['select', ...a]), q),
-        gte: (...a: unknown[]) => (ops.push(['gte', ...a]), q),
+        or: (...a: unknown[]) => (ops.push(['or', ...a]), q),
         gt: (...a: unknown[]) => (ops.push(['gt', ...a]), q),
         then: (resolve: (r: unknown) => void) =>
-          resolve({ count: 2, error: null }),
+          resolve({ data: [{ id: 'a' }], error: null }),
       };
       return q;
     },
@@ -85,7 +89,7 @@ describe('AttentionStrip Smart insights tiles', () => {
     mocks.signalsEnabled = false;
     const html = render();
     expect(html).not.toContain('Hot leads waiting');
-    expect(html).not.toContain('Upset customers today');
+    expect(html).not.toContain('Upset customers waiting');
     expect(mocks.keys.some((k) => k?.startsWith('attention-insights'))).toBe(
       false
     );
@@ -94,25 +98,22 @@ describe('AttentionStrip Smart insights tiles', () => {
   it('shows both tiles linking to the inbox filters', () => {
     const html = render();
     expect(html).toContain('Hot leads waiting');
-    expect(html).toContain('href="/inbox?insight=hot"');
+    expect(html).toContain('href="/inbox?insight=hot&amp;filter=unread"');
     expect(html).toMatch(/text-success[^>]*>3</);
-    expect(html).toContain('Upset customers today');
-    expect(html).toContain('href="/inbox?insight=upset"');
+    expect(html).toContain('Upset customers waiting');
+    expect(html).toContain('href="/inbox?insight=upset&amp;filter=unread"');
   });
 
-  it('counts with the hot-lead and upset-today bounds', async () => {
+  it('reads unread hot-or-upset chats in one query', async () => {
     render();
     const load = mocks.loaders.get('attention-insights');
     expect(load).toBeDefined();
-    await expect(load!()).resolves.toEqual({ hotWaiting: 2, upsetToday: 2 });
-    const [hot, upset] = mocks.ops;
-    expect(hot).toContainEqual(['gte', 'insight_lead_temp', 1.4]);
-    expect(hot).toContainEqual(['gt', 'unread_count', 0]);
-    expect(upset).toContainEqual(['gte', 'insight_upset', 0.7]);
-    const at = upset.find((o) => o[1] === 'insight_at');
-    expect(at?.[0]).toBe('gte');
-    const since = Date.parse(at?.[2] as string);
-    expect(Date.now() - since).toBeGreaterThanOrEqual(0);
-    expect(Date.now() - since).toBeLessThan(25 * 3600_000);
+    await expect(load!()).resolves.toEqual([{ id: 'a' }]);
+    const [q] = mocks.ops;
+    expect(q).toContainEqual(['gt', 'unread_count', 0]);
+    expect(q).toContainEqual([
+      'or',
+      'insight_lead_temp.gte.1.4,insight_upset.gte.0.7',
+    ]);
   });
 });

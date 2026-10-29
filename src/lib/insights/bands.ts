@@ -89,7 +89,13 @@ export const PRIORITY_MID_UPSET = UPSET_MIN;
 export const PRIORITY_MID_WANTS_HUMAN = WANTS_PERSON_MIN;
 export const PRIORITY_MID_LEAD_TEMP = LEAD_READY_MIN;
 
-export type InsightPriority = 0 | 1 | 2;
+/** `insight_priority` levels, as {@link priorityOf} returns them. */
+export const PRIORITY_NONE = 0;
+export const PRIORITY_HIGH = 1;
+export const PRIORITY_URGENT = 2;
+
+export type InsightPriority =
+  typeof PRIORITY_NONE | typeof PRIORITY_HIGH | typeof PRIORITY_URGENT;
 
 const atLeast = (x: Figure, min: number): boolean => known(x) && x >= min;
 
@@ -109,15 +115,15 @@ export function priorityOf(f: {
     atLeast(f.upset, PRIORITY_HIGH_UPSET) ||
     atLeast(f.wantsHuman, PRIORITY_HIGH_WANTS_HUMAN)
   )
-    return 2;
+    return PRIORITY_URGENT;
   if (
     atLeast(f.urgency, PRIORITY_MID_URGENCY) ||
     atLeast(f.upset, PRIORITY_MID_UPSET) ||
     atLeast(f.wantsHuman, PRIORITY_MID_WANTS_HUMAN) ||
     atLeast(f.leadTemp, PRIORITY_MID_LEAD_TEMP)
   )
-    return 1;
-  return 0;
+    return PRIORITY_HIGH;
+  return PRIORITY_NONE;
 }
 
 /** A chat-tag suggestion below this probability is neither stored nor

@@ -8,13 +8,13 @@ import {
 } from './bands';
 import {
   CUSTOMER_INSIGHT_COLUMNS,
-  HOT_LEADS_WAITING,
   LEAD_METER_STEPS,
   customerInsightView,
   insightTileHref,
   leadMeter,
-  upsetTodayBounds,
+  countInsightTiles,
 } from './customer-view';
+import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import {
   INSIGHT_FILTER_BOUNDS,
   parseInsightFilters,
@@ -136,32 +136,60 @@ describe('leadMeter', () => {
 });
 
 describe('home tiles', () => {
-  it('count on the same bounds as the inbox filters they open', () => {
-    expect(INSIGHT_FILTER_BOUNDS.hot).toEqual({
-      column: 'insight_lead_temp',
-      min: HOT_LEADS_WAITING.leadTempMin,
+  const base = {
+    campaign_broadcast_id: null,
+    human_engaged_at: null,
+    assigned_agent_id: undefined,
+    ai_autoreply_disabled: false,
+    ai_reply_count: 0,
+    chat_tag_id: null,
+  };
+  const campaign = {
+    ...base,
+    campaign_broadcast_id: 'b',
+    ai_reply_count: 2,
+  };
+
+  it('count unread hot / upset chats on the inbox filters bounds', () => {
+    const rows = [
+      { ...base, unread_count: 1, insight_lead_temp: LEAD_HOT_MIN },
+      { ...base, unread_count: 2, insight_upset: UPSET_MIN },
+      { ...base, unread_count: 1, insight_lead_temp: 1, insight_upset: 0.1 },
+      { ...base, unread_count: 0, insight_lead_temp: 3, insight_upset: 1 },
+    ];
+    expect(countInsightTiles(rows, false)).toEqual({
+      hotWaiting: 1,
+      upsetWaiting: 1,
     });
-    expect(INSIGHT_FILTER_BOUNDS.upset).toEqual({
-      column: 'insight_upset',
-      min: upsetTodayBounds(0).upsetMin,
+    expect(INSIGHT_FILTER_BOUNDS.hot.min).toBe(LEAD_HOT_MIN);
+    expect(INSIGHT_FILTER_BOUNDS.upset.min).toBe(UPSET_MIN);
+  });
+
+  it('leave out the Campaign inbox only while the AI is live, like the unread tile', () => {
+    const rows = [
+      { ...campaign, unread_count: 1, insight_lead_temp: 3, insight_upset: 1 },
+    ];
+    expect(countInsightTiles(rows, true)).toEqual({
+      hotWaiting: 0,
+      upsetWaiting: 0,
+    });
+    expect(countInsightTiles(rows, false)).toEqual({
+      hotWaiting: 1,
+      upsetWaiting: 1,
     });
   });
 
-  it('bound "today" at the given midnight', () => {
-    const midnight = Date.UTC(2026, 9, 28, 20, 0, 0); // 00:00 in UTC+4
-    expect(upsetTodayBounds(midnight).atFromIso).toBe(
-      '2026-10-28T20:00:00.000Z'
+  it('link into the inbox with filters the inbox parses', () => {
+    expect(insightTileHref('/inbox', 'hot')).toBe(
+      '/inbox?insight=hot&filter=unread'
     );
-  });
-
-  it('link into the inbox with a filter the inbox parses', () => {
-    expect(insightTileHref('/inbox', 'hot')).toBe('/inbox?insight=hot');
     expect(insightTileHref('/team-inbox', 'upset')).toBe(
-      '/team-inbox?insight=upset'
+      '/team-inbox?insight=upset&filter=unread'
     );
     for (const f of ['hot', 'upset'] as const) {
       const q = new URL(insightTileHref('/inbox', f), 'http://x').searchParams;
       expect(parseInsightFilters(q.get('insight'))).toEqual([f]);
+      expect(parseInboxFilterParams(q, null).unread).toBe(true);
     }
   });
 });
