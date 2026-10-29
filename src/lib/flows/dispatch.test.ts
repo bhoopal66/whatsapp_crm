@@ -386,6 +386,34 @@ describe("dispatchInboundToFlows — campaign follow-up flow (054)", () => {
     expect(engineSendText).toHaveBeenCalledTimes(1);
   });
 
+  it("seeds the campaign reply class when one came back (148)", async () => {
+    h.state.flows = [MANUAL_FLOW];
+
+    await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      campaign: {
+        broadcastId: "bc-1",
+        followUpFlowId: "flow-campaign",
+        replyClass: { cls: "not_now", p: 0.734 },
+      },
+      message: { kind: "text", text: "maybe next month", meta_message_id: "m1" },
+      isFirstInboundMessage: false,
+    });
+
+    const [run] = startedRuns();
+    expect(run.row).toMatchObject({
+      vars: {
+        campaign_reply: "maybe next month",
+        campaign_reply_id: "",
+        campaign_reply_class: "not_now",
+        campaign_reply_class_p: "0.73",
+      },
+    });
+  });
+
   it("wins over a keyword flow the reply also matches", async () => {
     h.state.flows = [MANUAL_FLOW, KEYWORD_FLOW];
 

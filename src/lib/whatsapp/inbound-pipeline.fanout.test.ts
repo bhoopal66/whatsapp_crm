@@ -31,6 +31,10 @@ const h = vi.hoisted(() => ({
   insights: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
+  classify: vi.fn(),
+  tagInterested: vi.fn(),
+  recipientRows: [] as unknown[],
+  order: [] as string[],
 }));
 
 function respond(call: Call): Result {
@@ -42,6 +46,9 @@ function respond(call: Call): Result {
   }
   if (call.table === 'messages' && call.op === 'upsert') {
     return { data: h.upsertRows, error: null };
+  }
+  if (call.table === 'broadcast_recipients' && call.op === 'select') {
+    return { data: h.recipientRows, error: null };
   }
   if (call.table === 'messages' && call.op === 'select') {
     return { data: [{ id: 'earlier' }], error: null };
@@ -124,6 +131,10 @@ vi.mock('@/lib/insights/inbound', () => ({
 vi.mock('@/lib/insights/auto-tag', () => ({
   autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
 }));
+vi.mock('@/lib/broadcasts/reply-class', () => ({
+  classifyCampaignReply: (...args: unknown[]) => h.classify(...args),
+  tagInterestedReply: (...args: unknown[]) => h.tagInterested(...args),
+}));
 vi.mock('@/lib/whatsapp/provider', () => ({ getMediaUrl: vi.fn() }));
 vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
   mirrorInboundMedia: vi.fn(),
@@ -183,6 +194,10 @@ beforeEach(() => {
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
+  h.recipientRows = [];
+  h.order = [];
+  h.classify.mockReset().mockResolvedValue(null);
+  h.tagInterested.mockReset().mockResolvedValue('not_interested');
 });
 
 describe('processMessage — fanOut', () => {
@@ -381,5 +396,97 @@ describe('processMessage — Smart insights', () => {
     finishAutoTag();
     await Promise.all(later);
     expect(settled).toBe(true);
+  });
+});
+
+// Campaign reply sorting (migration 148): a first reply to a broadcast
+// is classified before the follow-up flow starts, the class is seeded
+// into the flow's vars, and an interested reply is tagged after Flows.
+describe('processMessage — campaign reply sorting', () => {
+  beforeEach(() => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: 'flow-9' },
+      },
+    ];
+    h.flows.mockImplementation(async () => {
+      h.order.push('flows');
+      return { consumed: false };
+    });
+    h.tagInterested.mockImplementation(async () => {
+      h.order.push('tag');
+      return 'applied';
+    });
+    h.automations.mockImplementation(async () => {
+      h.order.push('automations');
+    });
+  });
+
+  it('classifies the first reply with a 1.5 s budget and seeds the class', async () => {
+    h.classify.mockResolvedValue({ cls: 'interested', p: 0.91 });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(h.classify).toHaveBeenCalledWith({
+      accountId: 'acct-1',
+      recipientId: 'rec-1',
+      broadcastId: 'bc-1',
+      replyText: 'hello',
+      tappedButton: null,
+      deadlineMs: 1500,
+    });
+    expect(h.flows.mock.calls[0]![0]).toMatchObject({
+      campaign: {
+        broadcastId: 'bc-1',
+        followUpFlowId: 'flow-9',
+        replyClass: { cls: 'interested', p: 0.91 },
+      },
+    });
+    expect(h.tagInterested).toHaveBeenCalledWith({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      replyClass: { cls: 'interested', p: 0.91 },
+    });
+    // The flow's first message goes out before the tag; the tag lands
+    // before automations (relationship triggers still run here).
+    expect(h.order.indexOf('flows')).toBeLessThan(h.order.indexOf('tag'));
+    expect(h.order.indexOf('tag')).toBeLessThan(h.order.indexOf('automations'));
+  });
+
+  it('passes a tapped button as both the reply and the button', async () => {
+    await processMessage(
+      {
+        ...message,
+        type: 'interactive',
+        text: null,
+        interactiveReplyId: 'btn_yes',
+        interactiveReplyTitle: 'Yes please',
+      } as NormalizedInboundMessage,
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(h.classify.mock.calls[0]![0]).toMatchObject({
+      replyText: 'Yes please',
+      tappedButton: 'Yes please',
+    });
+  });
+
+  it('starts the flow without a class when none came back', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.flows.mock.calls[0]![0]).toMatchObject({
+      campaign: { followUpFlowId: 'flow-9', replyClass: null },
+    });
+  });
+
+  it('classifies nothing when the message answers no campaign', async () => {
+    h.recipientRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.classify).not.toHaveBeenCalled();
+    expect(h.tagInterested).toHaveBeenCalledWith(
+      expect.objectContaining({ replyClass: null })
+    );
   });
 });

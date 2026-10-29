@@ -148,19 +148,37 @@ export function entryTriggerTexts(message: ParsedInbound): string[] {
  *   campaign_reply    — the typed text, or the tapped button's title
  *   campaign_reply_id — the tapped button's id ("" for typed text)
  *
+ *   campaign_reply_class   — Jev's class for the reply (interested,
+ *                            question, not_now, not_interested,
+ *                            wrong_person, stop, other), when campaign
+ *                            reply sorting is on and answered in time
+ *   campaign_reply_class_p — its probability, two decimals ("0.86")
+ *
+ * The class vars are absent, not empty, when no class came back, so a
+ * `present` / `absent` condition tells "not judged" apart.
+ *
  * A `condition` node on `var campaign_reply_id equals pos` routes a
  * template quick-reply straight into the POS branch; the false branch
  * (typed text, or a button the flow doesn't know) can send the menu.
+ * `var campaign_reply_class equals interested` routes a typed "yes,
+ * tell me more" the same way.
  */
 export function campaignReplyVars(
-  message: ParsedInbound
+  message: ParsedInbound,
+  replyClass?: { cls: string; p: number } | null
 ): Record<string, string> {
-  if (message.kind === 'text') {
-    return { campaign_reply: message.text, campaign_reply_id: '' };
-  }
+  const base =
+    message.kind === 'text'
+      ? { campaign_reply: message.text, campaign_reply_id: '' }
+      : {
+          campaign_reply: message.reply_title,
+          campaign_reply_id: message.reply_id,
+        };
+  if (!replyClass) return base;
   return {
-    campaign_reply: message.reply_title,
-    campaign_reply_id: message.reply_id,
+    ...base,
+    campaign_reply_class: replyClass.cls,
+    campaign_reply_class_p: replyClass.p.toFixed(2),
   };
 }
 
@@ -1016,7 +1034,10 @@ export async function dispatchInboundToFlows(
         const nodes = await loadAllNodes(db, campaignFlow.id);
         return startNewRun(db, campaignFlow, input, nodes, {
           broadcastId: input.campaign.broadcastId,
-          vars: campaignReplyVars(input.message),
+          vars: campaignReplyVars(
+            input.message,
+            input.campaign.replyClass ?? null
+          ),
         });
       }
       // Archived / draft / deleted flow: fall through to the ordinary

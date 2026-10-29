@@ -321,6 +321,26 @@ describe('campaignReplyVars (migration 054)', () => {
       })
     ).toEqual({ campaign_reply: 'POS Machine', campaign_reply_id: 'pos' });
   });
+
+  it('adds the reply class and its probability when one came back (148)', () => {
+    expect(
+      campaignReplyVars(
+        { kind: 'text', text: 'yes tell me more', meta_message_id: 'm' },
+        { cls: 'interested', p: 0.8567 }
+      )
+    ).toEqual({
+      campaign_reply: 'yes tell me more',
+      campaign_reply_id: '',
+      campaign_reply_class: 'interested',
+      campaign_reply_class_p: '0.86',
+    });
+    expect(
+      campaignReplyVars(
+        { kind: 'text', text: 'hi', meta_message_id: 'm' },
+        null
+      )
+    ).not.toHaveProperty('campaign_reply_class');
+  });
 });
 
 describe('flowContextForNode (migration 054)', () => {

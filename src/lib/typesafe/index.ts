@@ -31,6 +31,7 @@ import { runTriage, type TriageInput } from './checks/triage';
 import { runRoute, type RouteInput } from './checks/route';
 import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
+import { runReplyClass, type ReplyClassInput } from './checks/reply-class';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
 import {
   runComposeCheck,
@@ -193,6 +194,13 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      * switch, policy or log row. Never throws.
      */
     insights: (input: InsightsInput) => runInsights({ config, gateway }, input),
+    /**
+     * Campaign reply sorting (lib/broadcasts/reply-class.ts): a first
+     * reply to a broadcast, sorted into one of seven classes. Not a
+     * safety check: no account switch, policy or log row. Never throws.
+     */
+    replyClass: (input: ReplyClassInput) =>
+      runReplyClass({ config, gateway }, input),
     /**
      * Knowledge-gap topic intent and coverage (lib/kb/gap-recompute.ts).
      * Not a safety check: no account switch, policy or log row. Never

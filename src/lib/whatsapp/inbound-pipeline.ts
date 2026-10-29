@@ -47,6 +47,10 @@ import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
 import { autoTagFromInsights } from '@/lib/insights/auto-tag';
+import {
+  classifyCampaignReply,
+  tagInterestedReply,
+} from '@/lib/broadcasts/reply-class';
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
@@ -411,8 +415,10 @@ async function handOffUndeliveredBotReply(
  * conversations by it, and the AI auto-reply reads it to know which
  * campaign message the customer is answering.
  *
- * Returns the campaign this message was the FIRST reply to, with the
- * flow it asks to be continued by (migration 054), or null when the
+ * Returns the campaign this message was the FIRST reply to, the
+ * recipient row it flagged (campaign reply sorting stores the reply's
+ * class on it, migration 148), and the flow it asks to be continued by
+ * (migration 054), or null when the
  * message answers no campaign — a second reply to the same campaign is
  * null too, because the recipient row is already `replied`. The flow
  * runner starts that flow exactly once, on this first reply.
@@ -420,11 +426,19 @@ async function handOffUndeliveredBotReply(
  * Runs on a best-effort basis — failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
+/** Campaign reply sorting's budget on the inbound path (it runs ahead
+ *  of the follow-up flow). */
+const CAMPAIGN_REPLY_CLASS_DEADLINE_MS = 1500;
+
 async function flagBroadcastReplyIfAny(
   accountId: string,
   contactId: string,
   conversationId: string
-): Promise<{ broadcastId: string; followUpFlowId: string | null } | null> {
+): Promise<{
+  recipientId: string;
+  broadcastId: string;
+  followUpFlowId: string | null;
+} | null> {
   try {
     // Most recent outbound broadcast in this account that hasn't
     // been replied to yet. Account-scoped so a shared inbox reply
@@ -471,6 +485,7 @@ async function flagBroadcastReplyIfAny(
       ? row.broadcasts[0]
       : row.broadcasts;
     return {
+      recipientId: row.id,
       broadcastId: row.broadcast_id,
       followUpFlowId:
         (parent as { follow_up_flow_id?: string | null } | null | undefined)
@@ -863,6 +878,23 @@ export async function processMessage(
     conversation.id
   );
 
+  // Campaign reply sorting (migration 148, docs/jev-insights.md): Jev
+  // sorts that first reply into a class, stored on the recipient row and
+  // seeded into the follow-up flow's vars below. Ahead of the flow so
+  // the flow can branch on it, hence the short deadline: a slow judgment
+  // costs at most 1.5 s, then the flow starts without the class. Gated
+  // on the account's switch inside; never throws.
+  const campaignReplyClass = campaignReply
+    ? await classifyCampaignReply({
+        accountId,
+        recipientId: campaignReply.recipientId,
+        broadcastId: campaignReply.broadcastId,
+        replyText: contentText ?? message.text ?? '',
+        tappedButton: interactiveReplyId ? (contentText ?? null) : null,
+        deadlineMs: CAMPAIGN_REPLY_CLASS_DEADLINE_MS,
+      })
+    : null;
+
   // ============================================================
   // Flow runner dispatch.
   //
@@ -898,6 +930,7 @@ export async function processMessage(
       ? {
           broadcastId: campaignReply.broadcastId,
           followUpFlowId: campaignReply.followUpFlowId,
+          replyClass: campaignReplyClass,
         }
       : null,
     message: interactiveReplyId
@@ -933,6 +966,18 @@ export async function processMessage(
         }).catch(() => ({ consumed: false }))
       ).consumed;
   const botConsumed = flowConsumed || journeyConsumed;
+
+  // An `interested` campaign reply tags an untagged chat with the
+  // account's chosen main tag (and runs the chat_tag_set automations).
+  // After the Flows step on purpose, so a follow-up flow's first
+  // message goes out first; a tag a person set always wins. "stop" is
+  // not acted on here: the opt-out watch below owns opt-outs. Never
+  // throws.
+  await tagInterestedReply({
+    accountId,
+    conversationId: conversation.id,
+    replyClass: campaignReplyClass,
+  });
 
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound

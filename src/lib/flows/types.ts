@@ -364,9 +364,14 @@ export interface DispatchInboundInput {
    * Set by the webhook when this inbound is the contact's FIRST reply
    * to a campaign that names a follow-up flow (migration 054). With no
    * active run for the contact, that flow is started ahead of the
-   * entry-trigger scan and the reply is seeded into its vars.
+   * entry-trigger scan and the reply is seeded into its vars, with
+   * Jev's class for it when campaign reply sorting judged it in time.
    */
-  campaign?: { broadcastId: string; followUpFlowId: string } | null;
+  campaign?: {
+    broadcastId: string;
+    followUpFlowId: string;
+    replyClass?: { cls: string; p: number } | null;
+  } | null;
   /**
    * Which number the inbound arrived on. Needed only for the `ai`
    * fallback (migration 054), which answers on the bot's own number and
