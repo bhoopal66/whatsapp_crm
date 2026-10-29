@@ -22,6 +22,7 @@ import {
   Trash2,
   Loader2,
   Sparkles,
+  Languages,
   Plus,
   MessageSquareDashed,
   Zap,
@@ -86,6 +87,13 @@ import { ReplyQuote } from './reply-quote';
 import { VoiceNotePlayer } from './voice-note-player';
 import { VoiceRecordingBar } from './voice-recording-bar';
 import { useTranslations } from 'next-intl';
+import { translateDraft } from '@/lib/translate/client';
+import {
+  canTranslateDraft,
+  landTranslation,
+  undoAvailable,
+  type DraftTranslation,
+} from '@/lib/translate/draft';
 import {
   InteractiveBuilder,
   blankButtonsPayload,
@@ -302,6 +310,27 @@ export function MessageComposer({
   }, [conversationId, t]);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Translate to Arabic. `translatingFor` is the chat whose draft is being
+  // translated, so a chat switch mid-request frees the button in the next
+  // chat. `translation` is what Undo puts back; it is offered only while
+  // the box holds exactly the Arabic (undoAvailable), and dropped on a
+  // chat switch, while rendering like message-thread's reply quote.
+  // `textRef` lets the answer see the box as it is now, not as it was.
+  const [translatingFor, setTranslatingFor] = useState<string | null>(null);
+  const translating = translatingFor === conversationId;
+  const [translation, setTranslation] = useState<DraftTranslation | null>(
+    null
+  );
+  const [translationFor, setTranslationFor] = useState(conversationId);
+  if (translationFor !== conversationId) {
+    setTranslationFor(conversationId);
+    setTranslation(null);
+  }
+  const textRef = useRef(text);
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
 
   // "Check before sending" (migration 149). With the mode off (the
   // default) every send goes straight out, exactly as before. With it
@@ -669,6 +698,66 @@ export function MessageComposer({
     }
   }, [drafting, conversationId, adjustHeight]);
 
+  // Translate the draft into Arabic in place. Nothing is sent: the agent
+  // reads it, edits it if they like, and sends it as usual. The answer
+  // lands only in the chat that asked, and only over the text it
+  // translated (landTranslation); the updater re-checks at write time.
+  const handleTranslate = useCallback(async () => {
+    if (translating) return;
+    const requested = text;
+    const requestedChat = conversationId;
+    setTranslatingFor(requestedChat);
+    try {
+      const result = await translateDraft(requested, requestedChat);
+      if (!result.ok) {
+        if (openChatRef.current !== requestedChat) return;
+        toast.error(
+          result.code === 'ai_not_configured'
+            ? t('translateNotConfigured')
+            : (result.error ?? t('translateFailed'))
+        );
+        return;
+      }
+      const landing = landTranslation({
+        requested,
+        requestedChat,
+        currentText: textRef.current,
+        currentChat: openChatRef.current,
+      });
+      if (landing === 'moved') return;
+      if (landing === 'changed') {
+        toast.info(t('translateChanged'));
+        return;
+      }
+      const translated = result.text;
+      setText((prev) => (prev === requested ? translated : prev));
+      setTranslation({ original: requested, translated });
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      });
+    } finally {
+      setTranslatingFor((c) => (c === requestedChat ? null : c));
+    }
+  }, [translating, text, conversationId, setText, adjustHeight, t]);
+
+  // Put the English back: only over the untouched Arabic, through
+  // setText like typing, so the missed-call origin rule still holds.
+  const undoTranslation = useCallback(() => {
+    if (!translation) return;
+    const { original, translated } = translation;
+    setText((prev) => (prev === translated ? original : prev));
+    setTranslation(null);
+    requestAnimationFrame(() => {
+      adjustHeight();
+      textareaRef.current?.focus();
+    });
+  }, [translation, setText, adjustHeight]);
+
   // ---- Interactive message + quick replies --------------------------
 
   const openInteractiveBuilder = useCallback(
@@ -1017,6 +1106,22 @@ export function MessageComposer({
         }}
       />
 
+      {/* After Translate to Arabic, until the Arabic is edited or sent. */}
+      {!draft && !recording && undoAvailable(translation, text) && (
+        <div className="text-wa-text-secondary mb-1.5 flex items-center gap-1.5 px-1 text-xs">
+          <Languages className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{t('translatedToArabic')}</span>
+          <span aria-hidden>·</span>
+          <button
+            type="button"
+            onClick={undoTranslation}
+            className="text-wa-teal rounded font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {t('undoTranslate')}
+          </button>
+        </div>
+      )}
+
       {draft ? (
         <MediaDraftPreview
           draft={draft}
@@ -1145,6 +1250,39 @@ export function MessageComposer({
             )}
           </GatedButton>
 
+          {/* Translate to Arabic: shown once there is something to
+              translate, and kept while a request is in flight so it
+              doesn't vanish under the agent's cursor. Never shown on an
+              empty box, so it costs the phone layout no width then. */}
+          {(translating || canTranslateDraft(text)) && (
+            <GatedButton
+              variant="ghost"
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              disabled={translating || checking}
+              title={
+                readOnly
+                  ? undefined
+                  : translating
+                    ? t('translatingToArabic')
+                    : t('translateToArabic')
+              }
+              aria-label={
+                translating ? t('translatingToArabic') : t('translateToArabic')
+              }
+              aria-busy={translating || undefined}
+              className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
+              onClick={handleTranslate}
+            >
+              {translating ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Languages className="h-5 w-5" />
+              )}
+            </GatedButton>
+          )}
+
           <textarea
             ref={textareaRef}
             value={text}
@@ -1156,6 +1294,9 @@ export function MessageComposer({
             disabled={readOnly}
             readOnly={checking}
             rows={1}
+            // Arabic (a translation, or typed) right-aligns and reads
+            // right to left; English stays as it was.
+            dir="auto"
             // Textarea keeps its own inline title — the GatedButton
             // wrapping pattern doesn't apply to non-button inputs.
             // The placeholder text also surfaces the read-only state.

@@ -26,3 +26,22 @@ export function undoAvailable(
 ): state is DraftTranslation {
   return state !== null && state.translated === text;
 }
+
+/**
+ * What the composer does with a translation that came back: `apply` it to
+ * the box, keep the box because the agent `changed` the text meanwhile
+ * (anything typed since must win), or drop it because the composer has
+ * `moved` to another chat (it outlives a chat switch, and the Arabic of
+ * chat A must never land in chat B's box).
+ */
+export type TranslationLanding = 'apply' | 'changed' | 'moved';
+
+export function landTranslation(args: {
+  requested: string;
+  requestedChat: string;
+  currentText: string;
+  currentChat: string | null;
+}): TranslationLanding {
+  if (args.currentChat !== args.requestedChat) return 'moved';
+  return args.currentText === args.requested ? 'apply' : 'changed';
+}
