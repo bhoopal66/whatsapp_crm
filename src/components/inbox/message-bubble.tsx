@@ -1,6 +1,12 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { cn } from '@/lib/utils';
 import type { Message, MessageReaction } from '@/types';
 import {
@@ -14,6 +20,8 @@ import {
   Forward,
   Sparkles,
   UserRound,
+  Languages,
+  Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ReplyQuote } from './reply-quote';
@@ -29,6 +37,11 @@ import { InteractivePreview } from '@/components/interactive/interactive-preview
 import { ContactCardMessage } from './contact-card-message';
 import { SenderLine, type SenderLabel } from './sender-label';
 import { useTranslations } from 'next-intl';
+import { canTranslateMessage } from '@/lib/translate/detect';
+import {
+  cachedMessageTranslation,
+  translateMessage,
+} from '@/lib/translate/client';
 
 interface MessageBubbleProps {
   message: Message;
@@ -282,6 +295,165 @@ function MessageContent({
   }
 }
 
+type TranslationView =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'done'; text: string; showing: boolean }
+  | { kind: 'error'; notConfigured: boolean };
+
+/**
+ * Translate on an Arabic customer message. The state is keyed by the
+ * message id and the text translated, so a bubble that is handed another
+ * message (or an edited one) starts over, and a result that comes back
+ * for a message no longer on screen is dropped.
+ */
+function useMessageTranslation(message: Message) {
+  const enabled = canTranslateMessage(message);
+  const source = message.content_text ?? '';
+  const key = `${message.id}\u0000${source}`;
+
+  const [stored, setStored] = useState<{
+    key: string;
+    view: TranslationView;
+  } | null>(null);
+
+  // The agent already translated it this session and the bubble
+  // remounted (thread reload, virtualised list): open on the English.
+  let view: TranslationView;
+  if (stored && stored.key === key) {
+    view = stored.view;
+  } else {
+    const cached = enabled
+      ? cachedMessageTranslation(message.id, source)
+      : null;
+    view = cached
+      ? { kind: 'done', text: cached, showing: true }
+      : { kind: 'idle' };
+  }
+
+  const keyRef = useRef(key);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    keyRef.current = key;
+  }, [key]);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  const messageId = message.id;
+  const translate = useCallback(() => {
+    const forKey = key;
+    setStored({ key: forKey, view: { kind: 'loading' } });
+    void translateMessage(messageId, source).then((result) => {
+      if (!aliveRef.current || keyRef.current !== forKey) return;
+      setStored((prev) =>
+        prev && prev.key !== forKey
+          ? prev
+          : {
+              key: forKey,
+              view: result.ok
+                ? { kind: 'done', text: result.text, showing: true }
+                : {
+                    kind: 'error',
+                    notConfigured: result.code === 'ai_not_configured',
+                  },
+            }
+      );
+    });
+  }, [key, messageId, source]);
+
+  const toggle = useCallback(() => {
+    if (view.kind !== 'done') return;
+    setStored({ key, view: { ...view, showing: !view.showing } });
+  }, [key, view]);
+
+  return { enabled, view, translate, toggle };
+}
+
+/** The control's quiet meta style; the buttons add hover and focus. */
+const TRANSLATE_LINE =
+  'text-wa-meta flex items-center gap-1 px-1 pt-0.5 text-[11.5px] leading-4';
+const TRANSLATE_BUTTON =
+  'hover:text-wa-teal focus-visible:text-wa-teal focus-visible:ring-wa-teal/40 inline-flex items-center gap-1 rounded-sm outline-none focus-visible:underline focus-visible:ring-2';
+
+function TranslateControl({
+  view,
+  onTranslate,
+  onToggle,
+  t,
+}: {
+  view: TranslationView;
+  onTranslate: () => void;
+  onToggle: () => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  let body: ReactNode;
+  switch (view.kind) {
+    case 'idle':
+      body = (
+        <button
+          type="button"
+          onClick={onTranslate}
+          title={t('translateTitle')}
+          className={TRANSLATE_BUTTON}
+        >
+          <Languages className="h-3 w-3" aria-hidden="true" />
+          {t('translate')}
+        </button>
+      );
+      break;
+    case 'loading':
+      body = (
+        <button
+          type="button"
+          disabled
+          className="inline-flex cursor-default items-center gap-1"
+        >
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+          {t('translating')}
+        </button>
+      );
+      break;
+    case 'done':
+      body = (
+        <>
+          <Languages className="h-3 w-3 shrink-0" aria-hidden="true" />
+          {view.showing && <span>{t('translatedFromArabic')}</span>}
+          {view.showing && <span aria-hidden="true">·</span>}
+          <button type="button" onClick={onToggle} className={TRANSLATE_BUTTON}>
+            {view.showing ? t('showOriginal') : t('showTranslation')}
+          </button>
+        </>
+      );
+      break;
+    case 'error':
+      body = view.notConfigured ? (
+        <span>{t('translateNotConfigured')}</span>
+      ) : (
+        <>
+          <span>{t('translateFailed')}</span>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={onTranslate}
+            className={TRANSLATE_BUTTON}
+          >
+            {t('retry')}
+          </button>
+        </>
+      );
+      break;
+  }
+  return (
+    <div className={TRANSLATE_LINE} aria-live="polite">
+      {body}
+    </div>
+  );
+}
+
 /**
  * WhatsApp's bubble tail (its own 8×13 artwork, with the faint shadow
  * layer under it), filled with the bubble's colour via `currentColor`.
@@ -338,6 +510,17 @@ export function MessageBubble({
   onOpenMedia,
 }: MessageBubbleProps) {
   const t = useTranslations('Inbox.bubble');
+  const translation = useMessageTranslation(message);
+  // The English goes in place of the Arabic, in the same bubble; only
+  // content_text changes, so the time overlay below is laid out as before.
+  // No dir="auto" on the text: the time's room is reserved at the end of
+  // the last line, and an RTL paragraph would move it under the words.
+  const shown =
+    translation.enabled &&
+    translation.view.kind === 'done' &&
+    translation.view.showing
+      ? { ...message, content_text: translation.view.text }
+      : message;
 
   const isAgent =
     message.sender_type === 'agent' || message.sender_type === 'bot';
@@ -388,7 +571,7 @@ export function MessageBubble({
           <ReplyQuote authorLabel={reply.authorLabel} preview={reply.preview} />
         )}
         <MessageContent
-          message={message}
+          message={shown}
           t={t}
           onOpenMedia={onOpenMedia}
           trailing={
@@ -420,6 +603,17 @@ export function MessageBubble({
           reactions={reactions}
           currentUserId={currentUserId}
           onToggle={onToggleReaction}
+        />
+      )}
+      {/* After the reactions: their chip tucks up over the bubble's
+          bottom edge, so a line straight under the bubble would sit
+          beneath it. */}
+      {translation.enabled && (
+        <TranslateControl
+          view={translation.view}
+          onTranslate={translation.translate}
+          onToggle={translation.toggle}
+          t={t}
         />
       )}
     </div>

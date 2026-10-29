@@ -504,7 +504,16 @@
       "expandVideo": "동영상 확대",
       "imageAlt": "공유된 이미지",
       "contactShared": "연락처 공유됨",
-      "forwarded": "전달됨"
+      "forwarded": "전달됨",
+      "translate": "번역",
+      "translateTitle": "AI로 이 메시지를 영어로 번역합니다",
+      "translating": "번역 중…",
+      "translatedFromArabic": "아랍어에서 번역됨",
+      "showOriginal": "원문 보기",
+      "showTranslation": "번역 보기",
+      "translateFailed": "번역하지 못했습니다",
+      "retry": "다시 시도",
+      "translateNotConfigured": "AI가 설정되지 않았습니다 — 관리자가 AI 에이전트 → 어시스턴트에서 켤 수 있습니다."
     },
     "voice": {
       "play": "음성 메시지 재생",

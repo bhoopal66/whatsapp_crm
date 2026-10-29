@@ -504,7 +504,16 @@
       "expandVideo": "Expand video",
       "imageAlt": "Shared image",
       "contactShared": "Contact shared",
-      "forwarded": "Forwarded"
+      "forwarded": "Forwarded",
+      "translate": "Translate",
+      "translateTitle": "Translate this message into English with AI",
+      "translating": "Translating…",
+      "translatedFromArabic": "Translated from Arabic",
+      "showOriginal": "Show original",
+      "showTranslation": "Show translation",
+      "translateFailed": "Couldn't translate",
+      "retry": "Retry",
+      "translateNotConfigured": "AI isn't set up — an admin can turn it on in AI Agents → Assistant."
     },
     "voice": {
       "play": "Play voice message",
