@@ -70,7 +70,9 @@ export function useUnreadChats(): UnreadChats {
       if (cancelled || error) return;
       setShared({
         accountId,
-        ids: [...sharedBankByConversation(data ?? []).keys()],
+        // Sorted as the Inbox sorts them, so the cap in
+        // `inRestrictedInbox` keeps the same 100 the list asks for.
+        ids: [...sharedBankByConversation(data ?? []).keys()].sort(),
       });
     })();
     return () => {
@@ -142,6 +144,9 @@ export function useUnreadChats(): UnreadChats {
     return () => {
       cancelled = true;
       supabase.removeChannel(channel);
+      // A workspace switch must not keep counting the old one's chats
+      // until the new read lands.
+      setRows(new Map());
     };
   }, [accountId]);
 

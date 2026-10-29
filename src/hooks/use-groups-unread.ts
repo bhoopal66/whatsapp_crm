@@ -28,16 +28,21 @@ export function useGroupsUnread(): number {
     if (!accountId || isBankGuest) return;
     const supabase = createClient();
     let cancelled = false;
+    // Only the latest request may set the count: a poll that started
+    // before a mark-read committed can answer after the refresh that
+    // followed it, and would put the old count back for a minute.
+    let seq = 0;
 
     const refresh = async () => {
+      const mine = ++seq;
       try {
         const { data, error } = await supabase.rpc(
           'whatsapp_group_unread_count'
         );
-        if (cancelled) return;
+        if (cancelled || mine !== seq) return;
         setCount(!error && typeof data === 'number' ? data : 0);
       } catch {
-        if (!cancelled) setCount(0);
+        if (!cancelled && mine === seq) setCount(0);
       }
     };
 

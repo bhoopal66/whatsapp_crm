@@ -97,6 +97,9 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   // Realtime: new and updated rows of this group (RLS applies per user).
   useEffect(() => {
     const supabase = createClient();
+    // One mark-read per burst of arrivals, not one per message (each
+    // also refetches the sidebar's count).
+    let readTimer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel(
         `group-messages:${groupId}:${Math.random().toString(36).slice(2)}`
@@ -115,12 +118,14 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
           if (row?.id) setMessages((m) => mergeMessages(m, [row]));
           // Seen as it arrives, so it does not count as unread.
           if (payload.eventType === 'INSERT' && row?.direction === 'in') {
-            void markGroupRead(groupId);
+            if (readTimer) clearTimeout(readTimer);
+            readTimer = setTimeout(() => void markGroupRead(groupId), 2000);
           }
         }
       )
       .subscribe();
     return () => {
+      if (readTimer) clearTimeout(readTimer);
       void supabase.removeChannel(channel);
     };
   }, [groupId]);

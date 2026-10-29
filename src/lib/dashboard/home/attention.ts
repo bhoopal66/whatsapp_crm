@@ -9,8 +9,9 @@ import {
 // ------------------------------------------------------------
 
 /**
- * Unread chats the Inbox lists: the sidebar dot's rule
- * (`useUnreadChats`), without its realtime channel.
+ * Unread chats, by the sidebar's rule (`useUnreadChats`) without its
+ * realtime channel. Not narrowed for a team leader: their tile opens
+ * the Team inbox (`inboxHrefFor`), so it matches that count.
  */
 export function countInboxUnread(
   rows: readonly (CampaignInboxFields & { unread_count?: number | null })[],
