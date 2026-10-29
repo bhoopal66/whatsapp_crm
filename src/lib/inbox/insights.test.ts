@@ -13,6 +13,13 @@ import {
   parseInsightFilters,
   sortForInboxWithInsights,
 } from './insights';
+import {
+  ROW_CHIP_LIMIT,
+  comparePinned,
+  isPinned,
+  rowSignals,
+  sortWithPins,
+} from './insights';
 
 const none = {
   insight_intent: null,
@@ -224,5 +231,283 @@ describe('insightListQuery', () => {
     expect(q.ready).toBe(true);
     expect(q.urgentPins).toBe(true);
     expect(q.bounds).toEqual([INSIGHT_FILTER_BOUNDS.upset]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Coloured rows and pinned until handled (migration 153)
+// ---------------------------------------------------------------------------
+
+const calm = {
+  ...none,
+  insight_sentiment: null,
+  insight_attention_at: null,
+  insight_attention_reason: null,
+  ai_attention_at: null,
+};
+
+describe('rowSignals', () => {
+  it('colours nothing for an unjudged or calm chat', () => {
+    expect(rowSignals(calm)).toEqual({
+      stripe: null,
+      chips: [],
+      attention: null,
+    });
+    expect(
+      rowSignals({
+        ...calm,
+        insight_lead_temp: 0.2,
+        insight_sentiment: 2,
+        insight_intent: 'smalltalk',
+      })
+    ).toEqual({ stripe: null, chips: [], attention: null });
+  });
+
+  it('stripes by attention reason, then urgent priority, then hot/ready lead', () => {
+    const all = {
+      ...calm,
+      insight_attention_at: '2026-10-29T08:00:00Z',
+      insight_attention_reason: 'callback',
+      insight_priority: 2,
+      insight_lead_temp: 3,
+    };
+    expect(rowSignals(all).stripe).toEqual({
+      family: 'attention',
+      key: 'callback',
+    });
+    expect(rowSignals(all).attention).toEqual({
+      reason: 'callback',
+      since: '2026-10-29T08:00:00Z',
+    });
+    const noPin = { ...all, insight_attention_at: null };
+    expect(rowSignals(noPin).stripe).toEqual({
+      family: 'urgency',
+      key: 'urgent',
+    });
+    expect(rowSignals({ ...noPin, insight_priority: 1 }).stripe).toEqual({
+      family: 'lead',
+      key: 'ready',
+    });
+    expect(
+      rowSignals({ ...noPin, insight_priority: 0, insight_lead_temp: 1.5 })
+        .stripe
+    ).toEqual({ family: 'lead', key: 'hot' });
+    // A warm lead tints a chip, never the row.
+    expect(
+      rowSignals({ ...noPin, insight_priority: 0, insight_lead_temp: 1 }).stripe
+    ).toBeNull();
+  });
+
+  it('uses ai_handoff when Important, unless the stored reason is more severe', () => {
+    const imp = { ...calm, ai_attention_at: '2026-10-29T07:00:00Z' };
+    const s = rowSignals(imp, { important: true });
+    expect(s.stripe).toEqual({ family: 'attention', key: 'ai_handoff' });
+    expect(s.attention).toEqual({
+      reason: 'ai_handoff',
+      since: '2026-10-29T07:00:00Z',
+    });
+    // Not Important unless the caller says so.
+    expect(rowSignals(imp).attention).toBeNull();
+    const upset = {
+      ...imp,
+      insight_attention_at: '2026-10-29T06:00:00Z',
+      insight_attention_reason: 'upset',
+    };
+    expect(rowSignals(upset, { important: true }).attention?.reason).toBe(
+      'ai_handoff'
+    );
+    const urgent = { ...upset, insight_attention_reason: 'urgent' };
+    expect(rowSignals(urgent, { important: true }).attention).toEqual({
+      reason: 'urgent',
+      since: '2026-10-29T06:00:00Z',
+    });
+  });
+
+  it('ignores an attention reason it does not know (and ai_handoff stored there)', () => {
+    for (const reason of ['mystery', null, 'ai_handoff']) {
+      const s = rowSignals({
+        ...calm,
+        insight_attention_at: '2026-10-29T08:00:00Z',
+        insight_attention_reason: reason,
+      });
+      expect(s.attention).toBeNull();
+      expect(s.stripe).toBeNull();
+    }
+  });
+
+  it('puts the attention reason or the mood first, then lead, then intent', () => {
+    const row = {
+      ...calm,
+      insight_wants_human: 0.9,
+      insight_upset: 0.9,
+      insight_sentiment: 0.2,
+      insight_lead_temp: 1,
+      insight_intent: 'business_loan',
+    };
+    expect(rowSignals(row).chips).toEqual([
+      { family: 'attention', key: 'wants_person' },
+      { family: 'lead', key: 'warm' },
+      { family: 'intent', key: 'business_loan' },
+    ]);
+    expect(rowSignals({ ...row, insight_wants_human: 0.1 }).chips[0]).toEqual({
+      family: 'attention',
+      key: 'upset',
+    });
+    expect(
+      rowSignals({ ...row, insight_wants_human: 0.1, insight_upset: 0.1 })
+        .chips[0]
+    ).toEqual({ family: 'sentiment', key: 'very_negative' });
+    // A merely negative mood is no chip.
+    expect(
+      rowSignals({
+        ...row,
+        insight_wants_human: 0.1,
+        insight_upset: 0.1,
+        insight_sentiment: 1,
+      }).chips[0]
+    ).toEqual({ family: 'lead', key: 'warm' });
+    // An attention reason replaces the mood chip.
+    expect(
+      rowSignals({
+        ...row,
+        insight_attention_at: '2026-10-29T08:00:00Z',
+        insight_attention_reason: 'callback',
+      }).chips
+    ).toEqual([
+      { family: 'attention', key: 'callback' },
+      { family: 'lead', key: 'warm' },
+      { family: 'intent', key: 'business_loan' },
+    ]);
+  });
+
+  it('never shows more than three chips, nor cold leads or vague intents', () => {
+    expect(ROW_CHIP_LIMIT).toBe(3);
+    const base = { ...calm, insight_lead_temp: 0.1 };
+    for (const intent of ['smalltalk', 'unclear', 'nonsense'])
+      expect(rowSignals({ ...base, insight_intent: intent }).chips).toEqual([]);
+    expect(
+      rowSignals({ ...base, insight_intent: 'other_request' }).chips
+    ).toEqual([{ family: 'intent', key: 'other_request' }]);
+  });
+});
+
+type PinRow = Parameters<typeof comparePinned>[0];
+
+function pin(
+  id: string,
+  over: Partial<PinRow> & { last_message_at?: string } = {}
+): PinRow {
+  return {
+    id,
+    last_message_at: '2026-10-29T09:00:00Z',
+    ai_attention_at: null,
+    insight_attention_at: null,
+    insight_attention_reason: null,
+    ...over,
+  };
+}
+
+const at = (reason: string, time: string) => ({
+  insight_attention_at: time,
+  insight_attention_reason: reason,
+});
+
+describe('isPinned', () => {
+  it('is an attention stamp or an AI hand-off', () => {
+    expect(isPinned(pin('a'))).toBe(false);
+    expect(isPinned(pin('a', at('callback', '2026-10-29T08:00:00Z')))).toBe(
+      true
+    );
+    expect(
+      isPinned(pin('a', { ai_attention_at: '2026-10-29T08:00:00Z' }))
+    ).toBe(true);
+    // A stamp with an unknown reason still pins.
+    expect(isPinned(pin('a', at('mystery', '2026-10-29T08:00:00Z')))).toBe(
+      true
+    );
+    expect(isPinned(pin('a', { insight_attention_at: 'not a time' }))).toBe(
+      false
+    );
+  });
+});
+
+describe('comparePinned / sortWithPins', () => {
+  const ids = (rows: PinRow[]) => sortWithPins(rows).map((r) => r.id);
+
+  it('orders by severity: urgent > ai_handoff > wants_person > upset > callback', () => {
+    const rows = [
+      pin('callback', at('callback', '2026-10-29T01:00:00Z')),
+      pin('upset', at('upset', '2026-10-29T02:00:00Z')),
+      pin('wants', at('wants_person', '2026-10-29T03:00:00Z')),
+      pin('handoff', { ai_attention_at: '2026-10-29T04:00:00Z' }),
+      pin('urgent', at('urgent', '2026-10-29T05:00:00Z')),
+    ];
+    expect(ids(rows)).toEqual([
+      'urgent',
+      'handoff',
+      'wants',
+      'upset',
+      'callback',
+    ]);
+  });
+
+  it('puts the longest waiting first within a reason, then newest message, then id DESC', () => {
+    const rows = [
+      pin('late', at('upset', '2026-10-29T08:00:00Z')),
+      pin('early', at('upset', '2026-10-29T06:00:00Z')),
+      pin('tieOld', {
+        ...at('upset', '2026-10-29T07:00:00Z'),
+        last_message_at: '2026-10-29T07:30:00Z',
+      }),
+      pin('tieNew', {
+        ...at('upset', '2026-10-29T07:00:00Z'),
+        last_message_at: '2026-10-29T07:45:00Z',
+      }),
+      pin('b', at('callback', '2026-10-29T05:00:00Z')),
+      pin('c', at('callback', '2026-10-29T05:00:00Z')),
+    ];
+    expect(ids(rows)).toEqual(['early', 'tieNew', 'tieOld', 'late', 'c', 'b']);
+  });
+
+  it('ranks a row with both pins by its more severe one, timed by that one', () => {
+    const both = pin('both', {
+      ai_attention_at: '2026-10-29T09:00:00Z',
+      ...at('callback', '2026-10-29T01:00:00Z'),
+    });
+    const handoff = pin('handoff', { ai_attention_at: '2026-10-29T08:00:00Z' });
+    const wants = pin('wants', at('wants_person', '2026-10-29T00:00:00Z'));
+    // both counts as ai_handoff since 09:00, after the 08:00 hand-off.
+    expect(ids([wants, both, handoff])).toEqual(['handoff', 'both', 'wants']);
+    const bothUrgent = pin('bothUrgent', {
+      ai_attention_at: '2026-10-29T01:00:00Z',
+      ...at('urgent', '2026-10-29T09:00:00Z'),
+    });
+    expect(ids([handoff, bothUrgent])).toEqual(['bothUrgent', 'handoff']);
+  });
+
+  it('puts an unknown reason after every known one, still above the rest', () => {
+    const rows = [
+      pin('plain', { last_message_at: '2026-10-29T10:00:00Z' }),
+      pin('mystery', at('mystery', '2026-10-29T00:00:00Z')),
+      pin('callback', at('callback', '2026-10-29T08:00:00Z')),
+    ];
+    expect(ids(rows)).toEqual(['callback', 'mystery', 'plain']);
+  });
+
+  it('keeps unpinned rows below, newest message first, and returns a copy', () => {
+    const rows = [
+      pin('old', { last_message_at: '2026-10-28T09:00:00Z' }),
+      pin('new', { last_message_at: '2026-10-29T10:00:00Z' }),
+      pin('pinned', {
+        ...at('callback', '2026-10-29T08:00:00Z'),
+        last_message_at: '2026-10-27T09:00:00Z',
+      }),
+    ];
+    const sorted = sortWithPins(rows);
+    expect(sorted.map((r) => r.id)).toEqual(['pinned', 'new', 'old']);
+    expect(rows.map((r) => r.id)).toEqual(['old', 'new', 'pinned']);
+    expect(comparePinned(rows[0], rows[1])).toBe(0);
+    expect(comparePinned(rows[2], rows[0])).toBeLessThan(0);
+    expect(comparePinned(rows[0], rows[2])).toBeGreaterThan(0);
   });
 });

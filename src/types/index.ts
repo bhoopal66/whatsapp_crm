@@ -324,6 +324,23 @@ export interface Conversation {
   insight_priority?: number;
   insight_at?: string | null;
   /**
+   * Smart insights v2 (migration 153), service role only. Sentiment is
+   * 0..4 (very negative .. very positive); `insight_objections` holds
+   * keys of `PALETTE_KEYS.objection` (lib/insights/palette.ts);
+   * needs-reply and callback are probabilities.
+   */
+  insight_sentiment?: number | null;
+  insight_objections?: string[] | null;
+  insight_needs_reply?: number | null;
+  insight_callback?: number | null;
+  /**
+   * Set when a signal asked for a person (`insight_attention_reason`:
+   * urgent | wants_person | upset | callback). The inbox pins the chat
+   * until a person replies, clicks Handled, or closes it.
+   */
+  insight_attention_at?: string | null;
+  insight_attention_reason?: string | null;
+  /**
    * Jev's chat tag suggestion (migration 147), service role only: a
    * main tag of this workspace, optionally one of its sub-tags, the
    * probability and when it was made. All NULL when there is none.

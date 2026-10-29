@@ -8510,6 +8510,175 @@
         "label": "Upset customers waiting",
         "hint": "Upset customers with unread messages"
       }
+    },
+    "legend": {
+      "trigger": "What do the colours mean?",
+      "title": "What the colours mean",
+      "intro": "Jev reads each customer's messages. These colours mark what it found, the same on every screen.",
+      "families": {
+        "attention": {
+          "title": "Needs a person",
+          "items": {
+            "urgent": {
+              "label": "Urgent",
+              "meaning": "A deadline or real business impact today."
+            },
+            "ai_handoff": {
+              "label": "Important",
+              "meaning": "The AI handed this chat to a person."
+            },
+            "wants_person": {
+              "label": "Wants a person",
+              "meaning": "The customer asked to talk to someone."
+            },
+            "upset": {
+              "label": "Upset",
+              "meaning": "The customer sounds unhappy with us."
+            },
+            "callback": {
+              "label": "Call back",
+              "meaning": "The customer asked for a phone call."
+            }
+          }
+        },
+        "sentiment": {
+          "title": "Mood",
+          "items": {
+            "very_negative": {
+              "label": "Very negative",
+              "meaning": "Angry or very frustrated."
+            },
+            "negative": {
+              "label": "Negative",
+              "meaning": "Annoyed or disappointed."
+            },
+            "neutral": {
+              "label": "Neutral",
+              "meaning": "Matter-of-fact."
+            },
+            "positive": {
+              "label": "Positive",
+              "meaning": "Friendly and satisfied."
+            },
+            "very_positive": {
+              "label": "Very positive",
+              "meaning": "Delighted or grateful."
+            }
+          }
+        },
+        "lead": {
+          "title": "Lead",
+          "items": {
+            "cold": {
+              "label": "Just curious",
+              "meaning": "Asking around, no plan yet."
+            },
+            "warm": {
+              "label": "Comparing options",
+              "meaning": "Weighing us against others."
+            },
+            "hot": {
+              "label": "Hot lead",
+              "meaning": "Intends to apply soon."
+            },
+            "ready": {
+              "label": "Ready to apply",
+              "meaning": "Wants to go ahead now."
+            }
+          }
+        },
+        "urgency": {
+          "title": "Urgency",
+          "items": {
+            "urgent": {
+              "label": "Urgent",
+              "meaning": "Needs an answer today."
+            },
+            "soon": {
+              "label": "Soon",
+              "meaning": "Wants progress in the next few days."
+            },
+            "none": {
+              "label": "No rush",
+              "meaning": "No time pressure."
+            }
+          }
+        },
+        "intent": {
+          "title": "What they want",
+          "items": {
+            "account_opening": {
+              "label": "Business bank account",
+              "meaning": "Opening a business account."
+            },
+            "pos_terminal": {
+              "label": "POS machine",
+              "meaning": "A card machine for their shop."
+            },
+            "business_loan": {
+              "label": "Business loan",
+              "meaning": "Borrowing for the business."
+            },
+            "trade_working_capital": {
+              "label": "Trade / working capital",
+              "meaning": "Trade finance or working capital."
+            },
+            "application_status": {
+              "label": "Application status",
+              "meaning": "Checking on an application already filed."
+            },
+            "other_banking": {
+              "label": "Other banking",
+              "meaning": "Another banking product or question."
+            },
+            "complaint": {
+              "label": "Complaint",
+              "meaning": "Complaining about a service or a person."
+            },
+            "smalltalk": {
+              "label": "Small talk",
+              "meaning": "Greetings or chat, no request."
+            },
+            "unclear": {
+              "label": "Unclear",
+              "meaning": "Not enough to tell yet."
+            },
+            "other_request": {
+              "label": "Other request",
+              "meaning": "Something outside banking."
+            }
+          }
+        },
+        "objection": {
+          "title": "What holds them back",
+          "items": {
+            "price": {
+              "label": "Price",
+              "meaning": "Fees, rates or cost."
+            },
+            "documents": {
+              "label": "Documents",
+              "meaning": "Paperwork they lack or find hard."
+            },
+            "eligibility": {
+              "label": "Eligibility",
+              "meaning": "Unsure they qualify."
+            },
+            "trust": {
+              "label": "Trust",
+              "meaning": "Doubts about us or the bank."
+            },
+            "timing": {
+              "label": "Timing",
+              "meaning": "Not the right moment."
+            },
+            "comparing": {
+              "label": "Comparing",
+              "meaning": "Looking at other offers."
+            }
+          }
+        }
+      }
     }
   },
   "TagSuggest": {

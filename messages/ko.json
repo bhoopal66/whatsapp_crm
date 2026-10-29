@@ -8510,6 +8510,175 @@
         "label": "답변 대기 중인 불만 고객",
         "hint": "읽지 않은 메시지가 있는 불만 고객"
       }
+    },
+    "legend": {
+      "trigger": "색상은 무엇을 뜻하나요?",
+      "title": "색상의 의미",
+      "intro": "Jev가 고객 메시지를 읽고 찾은 내용을 색상으로 표시합니다. 모든 화면에서 같은 색을 씁니다.",
+      "families": {
+        "attention": {
+          "title": "상담원 필요",
+          "items": {
+            "urgent": {
+              "label": "긴급",
+              "meaning": "오늘 마감이거나 실제 업무 영향이 있습니다."
+            },
+            "ai_handoff": {
+              "label": "중요",
+              "meaning": "AI가 이 대화를 상담원에게 넘겼습니다."
+            },
+            "wants_person": {
+              "label": "상담원 요청",
+              "meaning": "고객이 사람과 대화하기를 원합니다."
+            },
+            "upset": {
+              "label": "불만",
+              "meaning": "고객이 불만스러워 보입니다."
+            },
+            "callback": {
+              "label": "회신 전화",
+              "meaning": "고객이 전화를 요청했습니다."
+            }
+          }
+        },
+        "sentiment": {
+          "title": "감정",
+          "items": {
+            "very_negative": {
+              "label": "매우 부정적",
+              "meaning": "화가 났거나 매우 답답해합니다."
+            },
+            "negative": {
+              "label": "부정적",
+              "meaning": "짜증 나거나 실망했습니다."
+            },
+            "neutral": {
+              "label": "중립",
+              "meaning": "담담합니다."
+            },
+            "positive": {
+              "label": "긍정적",
+              "meaning": "친절하고 만족합니다."
+            },
+            "very_positive": {
+              "label": "매우 긍정적",
+              "meaning": "매우 기뻐하거나 감사해합니다."
+            }
+          }
+        },
+        "lead": {
+          "title": "리드",
+          "items": {
+            "cold": {
+              "label": "단순 문의",
+              "meaning": "알아보는 중이며 아직 계획이 없습니다."
+            },
+            "warm": {
+              "label": "비교 중",
+              "meaning": "다른 곳과 비교하고 있습니다."
+            },
+            "hot": {
+              "label": "유망 리드",
+              "meaning": "곧 신청할 생각입니다."
+            },
+            "ready": {
+              "label": "신청 준비됨",
+              "meaning": "지금 진행하고 싶어 합니다."
+            }
+          }
+        },
+        "urgency": {
+          "title": "긴급도",
+          "items": {
+            "urgent": {
+              "label": "긴급",
+              "meaning": "오늘 답변이 필요합니다."
+            },
+            "soon": {
+              "label": "곧",
+              "meaning": "며칠 안에 진행되기를 원합니다."
+            },
+            "none": {
+              "label": "급하지 않음",
+              "meaning": "시간 압박이 없습니다."
+            }
+          }
+        },
+        "intent": {
+          "title": "원하는 것",
+          "items": {
+            "account_opening": {
+              "label": "법인 은행 계좌",
+              "meaning": "법인 계좌 개설."
+            },
+            "pos_terminal": {
+              "label": "POS 단말기",
+              "meaning": "매장용 카드 단말기."
+            },
+            "business_loan": {
+              "label": "사업자 대출",
+              "meaning": "사업 자금 대출."
+            },
+            "trade_working_capital": {
+              "label": "무역 / 운전자금",
+              "meaning": "무역 금융 또는 운전자금."
+            },
+            "application_status": {
+              "label": "신청 현황",
+              "meaning": "이미 낸 신청의 진행 확인."
+            },
+            "other_banking": {
+              "label": "기타 은행 업무",
+              "meaning": "다른 은행 상품이나 질문."
+            },
+            "complaint": {
+              "label": "불만 제기",
+              "meaning": "서비스나 담당자에 대한 불만."
+            },
+            "smalltalk": {
+              "label": "잡담",
+              "meaning": "인사나 대화, 요청 없음."
+            },
+            "unclear": {
+              "label": "불분명",
+              "meaning": "아직 판단하기 어렵습니다."
+            },
+            "other_request": {
+              "label": "기타 요청",
+              "meaning": "은행 업무 외의 요청."
+            }
+          }
+        },
+        "objection": {
+          "title": "망설이는 이유",
+          "items": {
+            "price": {
+              "label": "가격",
+              "meaning": "수수료, 금리 또는 비용."
+            },
+            "documents": {
+              "label": "서류",
+              "meaning": "없거나 준비하기 어려운 서류."
+            },
+            "eligibility": {
+              "label": "자격",
+              "meaning": "자격이 되는지 확신이 없습니다."
+            },
+            "trust": {
+              "label": "신뢰",
+              "meaning": "당사나 은행에 대한 의구심."
+            },
+            "timing": {
+              "label": "시기",
+              "meaning": "지금은 적절한 때가 아닙니다."
+            },
+            "comparing": {
+              "label": "비교 중",
+              "meaning": "다른 제안을 살펴보고 있습니다."
+            }
+          }
+        }
+      }
     }
   },
   "TagSuggest": {

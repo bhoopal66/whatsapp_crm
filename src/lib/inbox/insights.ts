@@ -6,12 +6,19 @@ import {
   UPSET_MIN,
   isUpset,
   leadBand,
+  sentimentBand,
   urgencyBand,
   wantsPerson,
   type InsightIntent,
   type LeadBand,
   type UrgencyBand,
 } from '@/lib/insights/bands';
+import {
+  isPaletteKey,
+  PALETTE_KEYS,
+  type AttentionKey,
+  type PaletteRef,
+} from '@/lib/insights/palette';
 import type { Conversation } from '@/types';
 
 import { compareForInbox, needsAttention } from './attention';
@@ -154,6 +161,10 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
 
 // ---------------------------------------------------------------------------
 // The Urgent pin
+//
+// DEPRECATED: replaced by "pinned until handled" (isPinned / comparePinned
+// / sortWithPins below, migration 153). The Inbox list still calls these
+// until the wiring job switches it over; remove them then.
 // ---------------------------------------------------------------------------
 
 /**
@@ -190,7 +201,10 @@ export function insightListQuery(input: {
   };
 }
 
-/** Urgent (priority 2) and still unread: pinned under the Important pins. */
+/**
+ * Urgent (priority 2) and still unread: pinned under the Important pins.
+ * @deprecated Use {@link isPinned} (migration 153's attention pin).
+ */
 export function isUrgentPin(
   row: Pick<Conversation, 'insight_priority' | 'unread_count'>
 ): boolean {
@@ -210,6 +224,7 @@ type Sortable = Pick<
  * {@link compareForInbox} with the Urgent pin: Important chats first (as
  * before), then urgent unread chats newest message first, then the rest.
  * An Important chat that is also urgent stays with the Important ones.
+ * @deprecated Use {@link comparePinned}.
  */
 export function compareWithUrgentPins(a: Sortable, b: Sortable): number {
   if (!needsAttention(a) && !needsAttention(b)) {
@@ -224,6 +239,7 @@ export function compareWithUrgentPins(a: Sortable, b: Sortable): number {
  * The list in display order: {@link compareWithUrgentPins} when signals
  * are on, else exactly `sortForInbox`'s order
  * (attention.ts). Returns a copy.
+ * @deprecated Use {@link sortWithPins}.
  */
 export function sortForInboxWithInsights<T extends Sortable>(
   rows: readonly T[],
@@ -232,4 +248,205 @@ export function sortForInboxWithInsights<T extends Sortable>(
   return rows
     .slice()
     .sort(urgentPins ? compareWithUrgentPins : compareForInbox);
+}
+
+// ---------------------------------------------------------------------------
+// Coloured rows (migration 153)
+// ---------------------------------------------------------------------------
+
+type SignalRow = InsightRow &
+  Pick<
+    Conversation,
+    | 'insight_sentiment'
+    | 'insight_attention_at'
+    | 'insight_attention_reason'
+    | 'ai_attention_at'
+  >;
+
+/** Why a chat is pinned and since when (an ISO timestamp, or null). */
+export interface RowAttention {
+  reason: AttentionKey;
+  since: string | null;
+}
+
+export interface RowSignals {
+  /** The row's left-border colour, or none. */
+  stripe: PaletteRef | null;
+  /** At most {@link ROW_CHIP_LIMIT}, most telling first. */
+  chips: PaletteRef[];
+  /** The pin's reason, or null when the chat is not pinned for one. */
+  attention: RowAttention | null;
+}
+
+/** The most chips a row carries, so it stays one line tall. */
+export const ROW_CHIP_LIMIT = 3;
+
+/** Attention reasons, most severe first: the pin order. */
+const SEVERITY: readonly AttentionKey[] = PALETTE_KEYS.attention;
+
+/** Intents too vague to be worth a chip. */
+const QUIET_INTENTS: ReadonlySet<string> = new Set(['smalltalk', 'unclear']);
+
+function stamp(ts: string | null | undefined): number | null {
+  if (!ts) return null;
+  const n = Date.parse(ts);
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * The stored attention reason, if the stamp is set and the reason is one
+ * this build knows. `ai_handoff` is never stored there (it is
+ * `ai_attention_at`'s), so it does not count.
+ */
+function storedAttention(
+  row: Pick<Conversation, 'insight_attention_at' | 'insight_attention_reason'>
+): RowAttention | null {
+  if (stamp(row.insight_attention_at) === null) return null;
+  const reason = row.insight_attention_reason;
+  if (!isPaletteKey('attention', reason) || reason === 'ai_handoff')
+    return null;
+  return { reason, since: row.insight_attention_at ?? null };
+}
+
+/**
+ * The pin a row shows: the more severe of the stored attention reason
+ * and the AI hand-off (Important). An attention stamp whose reason this
+ * build does not know still pins the chat ({@link isPinned}) but names
+ * no reason.
+ */
+function rowAttention(
+  row: Pick<
+    Conversation,
+    'insight_attention_at' | 'insight_attention_reason' | 'ai_attention_at'
+  >,
+  important: boolean
+): RowAttention | null {
+  const stored = storedAttention(row);
+  const handoff: RowAttention | null = important
+    ? { reason: 'ai_handoff', since: row.ai_attention_at ?? null }
+    : null;
+  if (!stored) return handoff;
+  if (!handoff) return stored;
+  return SEVERITY.indexOf(handoff.reason) < SEVERITY.indexOf(stored.reason)
+    ? handoff
+    : stored;
+}
+
+/**
+ * What colours an Inbox row. `important` is whether the row wears the
+ * Important pill (the AI hand-off), as for {@link insightBadge}.
+ *
+ * - stripe: the attention reason (ai_handoff when Important and more
+ *   severe), else urgent priority, else a hot or ready lead, else none.
+ * - chips, most telling first, at most three: the attention reason, or
+ *   else the mood (wants a person › upset › very negative); the lead band
+ *   when warm, hot or ready; the intent when known and not small talk or
+ *   unclear.
+ */
+export function rowSignals(
+  row: SignalRow,
+  opts: { important?: boolean } = {}
+): RowSignals {
+  const attention = rowAttention(row, opts.important ?? false);
+  const lead = leadBand(row.insight_lead_temp);
+  const intent = insightSummary(row).intent;
+
+  let stripe: PaletteRef | null = null;
+  if (attention) stripe = { family: 'attention', key: attention.reason };
+  else if ((row.insight_priority ?? 0) >= PRIORITY_URGENT)
+    stripe = { family: 'urgency', key: 'urgent' };
+  else if (lead === 'hot' || lead === 'ready')
+    stripe = { family: 'lead', key: lead };
+
+  const chips: PaletteRef[] = [];
+  if (attention) chips.push({ family: 'attention', key: attention.reason });
+  else if (wantsPerson(row.insight_wants_human))
+    chips.push({ family: 'attention', key: 'wants_person' });
+  else if (isUpset(row.insight_upset))
+    chips.push({ family: 'attention', key: 'upset' });
+  else if (sentimentBand(row.insight_sentiment) === 'very_negative')
+    chips.push({ family: 'sentiment', key: 'very_negative' });
+  if (lead === 'warm' || lead === 'hot' || lead === 'ready')
+    chips.push({ family: 'lead', key: lead });
+  if (intent && !QUIET_INTENTS.has(intent))
+    chips.push({ family: 'intent', key: intent });
+
+  return { stripe, chips: chips.slice(0, ROW_CHIP_LIMIT), attention };
+}
+
+// ---------------------------------------------------------------------------
+// Pinned until handled (migration 153)
+// ---------------------------------------------------------------------------
+
+type PinRow = Pick<
+  Conversation,
+  | 'id'
+  | 'last_message_at'
+  | 'ai_attention_at'
+  | 'insight_attention_at'
+  | 'insight_attention_reason'
+>;
+
+/**
+ * Whether the chat is pinned at the top of the Inbox: a signal asked for
+ * a person (`insight_attention_at`, until a person replies, clicks
+ * Handled or closes it) or the AI handed it over (Important).
+ */
+export function isPinned(
+  row: Pick<Conversation, 'ai_attention_at' | 'insight_attention_at'>
+): boolean {
+  return stamp(row.insight_attention_at) !== null || needsAttention(row);
+}
+
+/** A pinned row's severity rank (0 most severe) and its waiting time. */
+function pinKey(row: PinRow): { rank: number; since: number | null } | null {
+  if (!isPinned(row)) return null;
+  const attention = rowAttention(row, needsAttention(row));
+  // A stamp with a reason this build does not know: pinned, after every
+  // known reason.
+  if (!attention)
+    return { rank: SEVERITY.length, since: stamp(row.insight_attention_at) };
+  return {
+    rank: SEVERITY.indexOf(attention.reason),
+    since: stamp(attention.since),
+  };
+}
+
+/**
+ * The order among pinned chats: severity (urgent › ai_handoff ›
+ * wants_person › upset › callback), then the longest waiting first
+ * (earliest attention time; a missing time last), then the newest
+ * message, then `id DESC`. Pinned rows sort before unpinned ones; two
+ * unpinned rows compare equal, so a stable sort keeps their order.
+ */
+export function comparePinned(a: PinRow, b: PinRow): number {
+  const ak = pinKey(a);
+  const bk = pinKey(b);
+  if (!ak || !bk) return ak ? -1 : bk ? 1 : 0;
+  if (ak.rank !== bk.rank) return ak.rank - bk.rank;
+  if (ak.since !== bk.since) {
+    if (ak.since === null) return 1;
+    if (bk.since === null) return -1;
+    return ak.since - bk.since;
+  }
+  const aAt = stamp(a.last_message_at);
+  const bAt = stamp(b.last_message_at);
+  if (aAt !== bAt) {
+    if (aAt === null) return 1;
+    if (bAt === null) return -1;
+    return bAt - aAt;
+  }
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/**
+ * The list in display order: pinned chats first in
+ * {@link comparePinned} order, then the rest in today's order (newest
+ * message first, `compareForInbox`). Returns a copy.
+ */
+export function sortWithPins<T extends PinRow>(rows: readonly T[]): T[] {
+  const pinned: T[] = [];
+  const rest: T[] = [];
+  for (const r of rows) (isPinned(r) ? pinned : rest).push(r);
+  return [...pinned.sort(comparePinned), ...rest.sort(compareForInbox)];
 }
