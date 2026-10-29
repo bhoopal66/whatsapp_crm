@@ -183,6 +183,11 @@ export const RATE_LIMITS = {
    *  per account. Off the reply path, so this caps spend: a message over
    *  it is simply not judged. */
   insightsAccount: { limit: 120, windowMs: 60_000 },
+  /** Knowledge-gap topics "Refresh" (POST /api/ai/knowledge/gaps/topics),
+   *  per account: one recompute embeds every gap and asks Jev about up
+   *  to 60 topics, and the daily cron already keeps them current, so a
+   *  manual run once per 10 minutes is plenty. */
+  kbGapRecompute: { limit: 1, windowMs: 600_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

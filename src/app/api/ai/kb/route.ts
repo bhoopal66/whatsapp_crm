@@ -3,6 +3,11 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { canEditSettings } from '@/lib/auth/roles';
 import { KB_ENTRY_COLUMNS, summarizeKb } from '@/lib/kb/requests';
 import type { KbEntry } from '@/lib/kb/types';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
 
 /**
  * GET /api/ai/kb  (any member)
@@ -51,6 +56,60 @@ export async function GET() {
       summary: summarizeKb(entries),
       imports,
     });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** Longest question a new entry takes (gap topic labels are ≤ 500). */
+const MAX_NEW_QUESTION = 2000;
+
+/**
+ * POST /api/ai/kb  (admin+) — `{ question }` starts a new approved
+ * answer as a **draft** (never sent until someone approves it), so the
+ * knowledge-gap card's "Write an approved answer" can open the existing
+ * edit dialog on it. The ref is generated (`GAP-XXXXXX`): workbook
+ * imports upsert by ref, and the prefix keeps a created row clear of
+ * the sheet's own refs. The audience is `prospective_client`, a
+ * customer audience, since the question came from a customer.
+ */
+export async function POST(request: Request) {
+  try {
+    const { supabase, accountId, userId } = await requireRole('admin');
+    const limit = checkRateLimit(`ai-kb:${userId}`, RATE_LIMITS.adminAction);
+    if (!limit.success) return rateLimitResponse(limit);
+
+    const body = await request.json().catch(() => null);
+    const question =
+      typeof body?.question === 'string' ? body.question.trim() : '';
+    if (!question || question.length > MAX_NEW_QUESTION) {
+      return NextResponse.json(
+        { error: 'A question is required' },
+        { status: 400 }
+      );
+    }
+
+    const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 6);
+    const { data, error } = await supabase
+      .from('kb_entries')
+      .insert({
+        account_id: accountId,
+        ref: `GAP-${suffix.toUpperCase()}`,
+        audience: 'prospective_client',
+        question,
+        status: 'draft',
+        source: 'knowledge_gap',
+      })
+      .select(KB_ENTRY_COLUMNS)
+      .single();
+    if (error || !data) {
+      console.error('[ai/kb POST] error:', error);
+      return NextResponse.json(
+        { error: 'Failed to start an answer' },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ entry: data }, { status: 201 });
   } catch (err) {
     return toErrorResponse(err);
   }
