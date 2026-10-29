@@ -573,3 +573,12 @@ jobs:
       # CHECKs refuse an unknown class or a probability outside 0..1.
       - name: Verify campaign reply classes
         run: supabase db query --local --file supabase/ci/verify-campaign-reply-classes.sql
+
+      # Migration 149's compose check log: an admin reads their own
+      # account's compose_check_events rows only and an agent reads
+      # nothing; clients cannot insert, update or delete, the service
+      # role can; the warnings CHECK refuses an unknown code or an empty
+      # array; the chat FK is same-account and deleting the chat nulls
+      # conversation_id while the row stays.
+      - name: Verify compose check events
+        run: supabase db query --local --file supabase/ci/verify-compose-check-events.sql
