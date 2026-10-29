@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { INTENTS } from '@/lib/typesafe/questions/triage';
+import { DEEP_QUESTIONS } from '@/lib/typesafe/questions/insights';
 import {
+  ATTENTION_CALLBACK_P,
+  ATTENTION_REASONS,
+  ATTENTION_UPSET_P,
+  ATTENTION_WANTS_PERSON_P,
+  CALLBACK_MIN_P,
+  NEEDS_REPLY_MIN_P,
+  OBJECTION_CODES,
+  OBJECTION_MIN_P,
+  attentionReason,
+  objectionsFrom,
+  sentimentBand,
   INSIGHT_INTENT_KEYS,
   TAG_SUGGEST_MIN_P,
   isUpset,
@@ -95,5 +107,162 @@ describe('priority levels', () => {
     expect(priorityOf({})).toBe(PRIORITY_NONE);
     expect(priorityOf({ upset: 0.8 })).toBe(PRIORITY_HIGH);
     expect(priorityOf({ upset: 0.9 })).toBe(PRIORITY_URGENT);
+  });
+});
+
+describe('customer insights bands (v2)', () => {
+  it('lists the objection codes the deep questions ask, in order', () => {
+    expect([...OBJECTION_CODES]).toEqual([
+      'price',
+      'documents',
+      'eligibility',
+      'trust',
+      'timing',
+      'comparing',
+    ]);
+    const asked = Object.keys(DEEP_QUESTIONS)
+      .filter((k) => k.startsWith('objection_'))
+      .map((k) => k.slice('objection_'.length));
+    expect(asked).toEqual([...OBJECTION_CODES]);
+  });
+
+  it('keeps objections at or above OBJECTION_MIN_P, in code order', () => {
+    expect(OBJECTION_MIN_P).toBe(0.6);
+    expect(
+      objectionsFrom({
+        comparing: 0.9,
+        price: 0.6,
+        documents: 0.599,
+        trust: 0.61,
+        timing: null,
+        eligibility: Number.NaN,
+      })
+    ).toEqual(['price', 'trust', 'comparing']);
+    expect(objectionsFrom({})).toEqual([]);
+    expect(objectionsFrom(null)).toEqual([]);
+    expect(objectionsFrom(undefined)).toEqual([]);
+  });
+
+  it('names the reply and call-back thresholds', () => {
+    expect(NEEDS_REPLY_MIN_P).toBe(0.6);
+    expect(CALLBACK_MIN_P).toBe(0.7);
+  });
+
+  it('bands sentiment at its edges', () => {
+    expect(sentimentBand(0)).toBe('very_negative');
+    expect(sentimentBand(0.999)).toBe('very_negative');
+    expect(sentimentBand(1)).toBe('negative');
+    expect(sentimentBand(1.749)).toBe('negative');
+    expect(sentimentBand(1.75)).toBe('neutral');
+    expect(sentimentBand(2.499)).toBe('neutral');
+    expect(sentimentBand(2.5)).toBe('positive');
+    expect(sentimentBand(3.249)).toBe('positive');
+    expect(sentimentBand(3.25)).toBe('very_positive');
+    expect(sentimentBand(4)).toBe('very_positive');
+    expect(sentimentBand(null)).toBeNull();
+    expect(sentimentBand(undefined)).toBeNull();
+    expect(sentimentBand(Number.NaN)).toBeNull();
+  });
+});
+
+describe('attentionReason', () => {
+  const ALL_ON = {
+    urgent: true,
+    upset: true,
+    wantsPerson: true,
+    callback: true,
+  };
+  /** Every condition holds. */
+  const ALL = { urgency: 1.9, wantsHuman: 0.95, upset: 0.95, callback: 0.95 };
+
+  it('lists the reasons in precedence order with their thresholds', () => {
+    expect([...ATTENTION_REASONS]).toEqual([
+      'urgent',
+      'wants_person',
+      'upset',
+      'callback',
+    ]);
+    expect(ATTENTION_WANTS_PERSON_P).toBe(0.85);
+    expect(ATTENTION_UPSET_P).toBe(0.85);
+    expect(ATTENTION_CALLBACK_P).toBe(0.75);
+  });
+
+  it('returns the highest-precedence reason that holds', () => {
+    expect(attentionReason(ALL, ALL_ON)).toBe('urgent');
+    expect(attentionReason({ ...ALL, urgency: 0 }, ALL_ON)).toBe(
+      // 0.95 wantsHuman / upset still make priorityOf urgent
+      'urgent'
+    );
+    // upset >= 0.85 is also priorityOf urgent, so the urgent rule is off here
+    const NO_URGENT = { ...ALL_ON, urgent: false };
+    const notUrgent = { wantsHuman: 0.87, upset: 0.86, callback: 0.8 };
+    expect(attentionReason(notUrgent, NO_URGENT)).toBe('wants_person');
+    expect(attentionReason({ ...notUrgent, wantsHuman: 0 }, NO_URGENT)).toBe(
+      'upset'
+    );
+    expect(
+      attentionReason({ ...notUrgent, wantsHuman: 0, upset: 0 }, NO_URGENT)
+    ).toBe('callback');
+    expect(attentionReason({}, NO_URGENT)).toBeNull();
+  });
+
+  it('counts urgent as priorityOf at PRIORITY_URGENT', () => {
+    expect(attentionReason({ urgency: 1.5 }, ALL_ON)).toBe('urgent');
+    expect(attentionReason({ urgency: 1.499 }, ALL_ON)).toBeNull();
+    // ready to apply is only PRIORITY_HIGH: not an attention reason
+    expect(attentionReason({ leadTemp: 3 }, ALL_ON)).toBeNull();
+  });
+
+  it('holds each threshold at its edge', () => {
+    expect(attentionReason({ wantsHuman: 0.85 }, ALL_ON)).toBe('wants_person');
+    expect(attentionReason({ wantsHuman: 0.849 }, ALL_ON)).toBeNull();
+    expect(attentionReason({ upset: 0.85 }, { ...ALL_ON, urgent: false })).toBe(
+      'upset'
+    );
+    expect(
+      attentionReason({ upset: 0.849 }, { ...ALL_ON, urgent: false })
+    ).toBeNull();
+    expect(attentionReason({ callback: 0.75 }, ALL_ON)).toBe('callback');
+    expect(attentionReason({ callback: 0.749 }, ALL_ON)).toBeNull();
+  });
+
+  it('skips a reason whose rule is off', () => {
+    expect(attentionReason(ALL, { ...ALL_ON, urgent: false })).toBe(
+      'wants_person'
+    );
+    expect(
+      attentionReason(ALL, { ...ALL_ON, urgent: false, wantsPerson: false })
+    ).toBe('upset');
+    expect(
+      attentionReason(ALL, {
+        urgent: false,
+        wantsPerson: false,
+        upset: false,
+        callback: true,
+      })
+    ).toBe('callback');
+    expect(attentionReason(ALL, { ...ALL_ON, callback: false })).toBe('urgent');
+    expect(
+      attentionReason(ALL, {
+        urgent: false,
+        wantsPerson: false,
+        upset: false,
+        callback: false,
+      })
+    ).toBeNull();
+  });
+
+  it('treats null and NaN figures as absent', () => {
+    expect(
+      attentionReason(
+        {
+          urgency: Number.NaN,
+          wantsHuman: null,
+          upset: Number.NaN,
+          callback: null,
+        },
+        ALL_ON
+      )
+    ).toBeNull();
   });
 });

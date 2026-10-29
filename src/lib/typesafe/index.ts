@@ -313,6 +313,7 @@ export {
 export type {
   InsightsInput,
   InsightsJudgment,
+  InsightsDeep,
   InsightsSignals,
   TagSuggestion,
 } from './checks/insights';

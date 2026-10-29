@@ -2,8 +2,9 @@
  * Smart insights judgment (docs/jev-insights.md): one TypeSafe request per
  * inbound customer turn, answering the customer signals (unless the bot's
  * or the watch's triage already judged this exact message — the caller
- * then passes `askSignals: false`) and a chat-tag suggestion over the
- * workspace's own tags.
+ * then passes `askSignals: false`), the deeper customer reading of
+ * `DEEP_QUESTIONS` when Customer insights are on (`askDeep`), and a
+ * chat-tag suggestion over the workspace's own tags.
  *
  * Not a safety check: no account switch, policy or decision-log row. It
  * goes through the same gateway — PII guard, size budget, its own
@@ -16,7 +17,9 @@ import { accountEnabled } from '../config';
 import type { ErrorCode, TypeSafeGateway } from '../client';
 import type { Ts013Config } from '../config';
 import type { Intent } from '../questions/triage';
+import { OBJECTION_CODES, type ObjectionCode } from '@/lib/insights/bands';
 import {
+  DEEP_QUESTIONS,
   NONE_OPTION,
   SIGNAL_QUESTIONS,
   TAG_QUESTION_KEY,
@@ -34,6 +37,9 @@ export interface InsightsInput {
   journeyStage?: string;
   /** false when triage already answered the signals for this message. */
   askSignals: boolean;
+  /** true when Customer insights are on: ask `DEEP_QUESTIONS`. Independent
+   *  of `askSignals`. */
+  askDeep: boolean;
   /** The workspace's tags when tag suggestions are on; else null/absent. */
   tags?: TagCatalogue | null;
   /** Hard deadline for the whole call, retries included. Default 4000 ms. */
@@ -50,6 +56,17 @@ export interface InsightsSignals {
   upset: number;
   /** P(the customer asks for a person). */
   wantsHuman: number;
+}
+
+export interface InsightsDeep {
+  /** Expected sentiment level, 0..4 (very negative … very positive). */
+  sentiment: number;
+  /** P(the customer raises each objection); several may be high. */
+  objections: Record<ObjectionCode, number>;
+  /** P(the message expects an answer or action from the business). */
+  needsReply: number;
+  /** P(the customer asks to be called or proposes a call time). */
+  callback: number;
 }
 
 export interface TagSuggestion {
@@ -70,6 +87,8 @@ export type InsightsJudgment =
       ok: true;
       /** null when `askSignals` was false. */
       signals: InsightsSignals | null;
+      /** null when `askDeep` was false. */
+      deep: InsightsDeep | null;
       /** null when no tag catalogue (or an empty one) was given. */
       tag: TagSuggestion | null;
       latencyMs: number;
@@ -120,11 +139,12 @@ export async function runInsights(
     input.tags && input.tags.mains.length > 0
       ? buildTagQuestions(input.tags)
       : null;
-  if (!input.askSignals && !tagged)
-    return { ok: true, signals: null, tag: null, latencyMs: 0 };
+  if (!input.askSignals && !input.askDeep && !tagged)
+    return { ok: true, signals: null, deep: null, tag: null, latencyMs: 0 };
 
   const questions: Questions = {
     ...(input.askSignals ? SIGNAL_QUESTIONS : {}),
+    ...(input.askDeep ? DEEP_QUESTIONS : {}),
     ...(tagged?.questions ?? {}),
   };
   const res = await deps.gateway.ask(
@@ -155,6 +175,19 @@ export async function runInsights(
     };
   }
 
+  let deep: InsightsDeep | null = null;
+  if (input.askDeep) {
+    const p = (key: string) => (a[key] as { noul: number }).noul;
+    deep = {
+      sentiment: (a.sentiment as { score: number }).score,
+      objections: Object.fromEntries(
+        OBJECTION_CODES.map((c) => [c, p(`objection_${c}`)])
+      ) as Record<ObjectionCode, number>,
+      needsReply: p('needs_reply'),
+      callback: p('callback_request'),
+    };
+  }
+
   let tag: TagSuggestion | null = null;
   if (tagged) {
     const main = a[TAG_QUESTION_KEY] as ChoiceResponse;
@@ -176,5 +209,5 @@ export async function runInsights(
     }
   }
 
-  return { ok: true, signals, tag, latencyMs: res.latencyMs };
+  return { ok: true, signals, deep, tag, latencyMs: res.latencyMs };
 }

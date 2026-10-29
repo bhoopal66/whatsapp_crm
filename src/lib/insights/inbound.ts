@@ -331,6 +331,7 @@ export async function runInboundInsights(
           })),
         journeyStage: 'open_conversation',
         askSignals,
+        askDeep: false,
         tags,
       });
       out.judgment = judgment;

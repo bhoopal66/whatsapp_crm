@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeLayer, makeSim, TEST_ACCOUNT } from './test-helpers';
 import { MAX_REQUEST_CHARS } from './client';
 import { TRIAGE_QUESTIONS } from './questions/triage';
+import { OBJECTION_CODES } from '@/lib/insights/bands';
 import {
   INSIGHTS_QS_VERSION,
   MAX_SUB_TAG_QUESTIONS,
@@ -11,6 +12,7 @@ import {
   MAX_TAG_NAME_CHARS,
   MAX_SUB_TAG_HINT_CHARS,
   SIGNAL_QUESTIONS,
+  DEEP_QUESTIONS,
   buildTagQuestions,
   type TagCatalogue,
   type TagCatalogueMain,
@@ -48,11 +50,15 @@ const catalogue = (): TagCatalogue => ({
 const allIds = (c: TagCatalogue) =>
   c.mains.flatMap((m) => [m.id, ...m.subs.map((s) => s.id)]);
 
-const base = { accountId: TEST_ACCOUNT, message: 'I want a loan' };
+const base = {
+  accountId: TEST_ACCOUNT,
+  message: 'I want a loan',
+  askDeep: false,
+};
 
 describe('insights questions', () => {
   it('reuses the triage question objects for the signals', () => {
-    expect(INSIGHTS_QS_VERSION).toBe('qs-insights-v1');
+    expect(INSIGHTS_QS_VERSION).toBe('qs-insights-v2');
     expect(Object.keys(SIGNAL_QUESTIONS)).toEqual([
       'intent',
       'urgency',
@@ -62,6 +68,37 @@ describe('insights questions', () => {
     ]);
     for (const [k, q] of Object.entries(SIGNAL_QUESTIONS))
       expect(q).toBe(TRIAGE_QUESTIONS[k as keyof typeof TRIAGE_QUESTIONS]);
+  });
+
+  it('asks the deep questions as a five-level score and one noul each', () => {
+    expect(Object.keys(DEEP_QUESTIONS)).toEqual([
+      'sentiment',
+      ...OBJECTION_CODES.map((c) => `objection_${c}`),
+      'needs_reply',
+      'callback_request',
+    ]);
+    const { sentiment, ...nouls } = DEEP_QUESTIONS;
+    expect(sentiment.type).toBe('score');
+    expect(sentiment.criteria).toEqual([
+      'Very negative: angry, insulting or deeply frustrated.',
+      'Negative: annoyed, disappointed or worried.',
+      'Neutral: matter-of-fact.',
+      'Positive: friendly, pleased or appreciative.',
+      'Very positive: enthusiastic or delighted.',
+    ]);
+    for (const q of Object.values(nouls)) {
+      expect(q.type).toBe('noul');
+      expect(Object.keys(q.criteria as object)).toEqual(['true', 'false']);
+    }
+    for (const q of Object.values(DEEP_QUESTIONS)) {
+      const text = String(q.instructions);
+      expect(text).toContain('`message`');
+      expect(text).toContain(
+        'Use `recent_turns` only to understand what `message` refers to.'
+      );
+      // the deep questions are insights-only, never a triage object
+      expect(Object.values(TRIAGE_QUESTIONS)).not.toContain(q);
+    }
   });
 
   it('offers main tags as ordinals plus none, with the hint after the name', () => {
@@ -197,6 +234,7 @@ describe('insights questions', () => {
       state,
       questions: {
         ...SIGNAL_QUESTIONS,
+        ...DEEP_QUESTIONS,
         ...buildTagQuestions({ mains }).questions,
       },
     }).length;
@@ -348,24 +386,127 @@ describe('DecisionLayer.insights (through the real SDK)', () => {
     );
   });
 
+  it('maps the deep answers, alongside the signals and the tag', async () => {
+    const c = catalogue();
+    const sim = makeSim(() => ({
+      answers: {
+        intent: 'business_loan',
+        sentiment: 0.6,
+        objection_price: 0.82,
+        objection_documents: 0.1,
+        objection_eligibility: 0.2,
+        objection_trust: 0.3,
+        objection_timing: 0.4,
+        objection_comparing: 0.71,
+        needs_reply: 0.93,
+        callback_request: 0.77,
+        chat_tag: 't1',
+      },
+    }));
+    const { layer } = makeLayer({ sim });
+    const r = await layer.insights({
+      ...base,
+      askSignals: true,
+      askDeep: true,
+      tags: c,
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      signals: { intent: { key: 'business_loan' } },
+      tag: { mainId: c.mains[0]!.id },
+    });
+    if (!r.ok) return;
+    expect(r.deep).toEqual({
+      sentiment: expect.closeTo(0.6, 6),
+      objections: {
+        price: expect.closeTo(0.82, 6),
+        documents: expect.closeTo(0.1, 6),
+        eligibility: expect.closeTo(0.2, 6),
+        trust: expect.closeTo(0.3, 6),
+        timing: expect.closeTo(0.4, 6),
+        comparing: expect.closeTo(0.71, 6),
+      },
+      needsReply: expect.closeTo(0.93, 6),
+      callback: expect.closeTo(0.77, 6),
+    });
+    expect(Object.keys(sim.calls[0]!.body.questions)).toEqual([
+      ...Object.keys(SIGNAL_QUESTIONS),
+      ...Object.keys(DEEP_QUESTIONS),
+      'chat_tag',
+      'sub_t2',
+      'sub_t3',
+    ]);
+  });
+
+  it('asks only the deep and tag questions when triage answered the signals', async () => {
+    const sim = makeSim(() => ({ answers: { chat_tag: 't1' } }));
+    const { layer } = makeLayer({ sim });
+    const r = await layer.insights({
+      ...base,
+      askSignals: false,
+      askDeep: true,
+      tags: catalogue(),
+    });
+    expect(r).toMatchObject({ ok: true, signals: null });
+    if (r.ok) expect(r.deep).not.toBeNull();
+    expect(Object.keys(sim.calls[0]!.body.questions)).toEqual([
+      ...Object.keys(DEEP_QUESTIONS),
+      'chat_tag',
+      'sub_t2',
+      'sub_t3',
+    ]);
+  });
+
+  it('asks the deep questions alone when nothing else is wanted', async () => {
+    const sim = makeSim();
+    const { layer } = makeLayer({ sim });
+    const r = await layer.insights({
+      ...base,
+      askSignals: false,
+      askDeep: true,
+    });
+    expect(r).toMatchObject({ ok: true, signals: null, tag: null });
+    expect(sim.calls).toHaveLength(1);
+    expect(Object.keys(sim.calls[0]!.body.questions)).toEqual(
+      Object.keys(DEEP_QUESTIONS)
+    );
+  });
+
+  it('leaves the deep questions out unless asked', async () => {
+    const sim = makeSim();
+    const { layer } = makeLayer({ sim });
+    const r = await layer.insights({
+      ...base,
+      askSignals: true,
+      tags: catalogue(),
+    });
+    expect(r).toMatchObject({ ok: true, deep: null });
+    const asked = Object.keys(sim.calls[0]!.body.questions);
+    for (const k of Object.keys(DEEP_QUESTIONS)) expect(asked).not.toContain(k);
+  });
+
   it('makes no request when there is nothing to ask', async () => {
     const sim = makeSim();
     const { layer } = makeLayer({ sim });
     expect(await layer.insights({ ...base, askSignals: false })).toEqual({
       ok: true,
       signals: null,
+      deep: null,
       tag: null,
       latencyMs: 0,
     });
     expect(
       await layer.insights({ ...base, askSignals: false, tags: { mains: [] } })
-    ).toMatchObject({ ok: true, signals: null, tag: null });
+    ).toMatchObject({ ok: true, signals: null, deep: null, tag: null });
     expect(sim.calls).toHaveLength(0);
   });
 
   it('treats an answer from another model as unavailable', async () => {
     const sim = makeSim(() => ({ model: 'jev-9.9.9' }));
     const { layer } = makeLayer({ sim });
+    expect(
+      await layer.insights({ ...base, askSignals: false, askDeep: true })
+    ).toMatchObject({ ok: false, errorCode: 'MODEL_MISMATCH' });
     expect(await layer.insights({ ...base, askSignals: true })).toMatchObject({
       ok: false,
       errorCode: 'MODEL_MISMATCH',

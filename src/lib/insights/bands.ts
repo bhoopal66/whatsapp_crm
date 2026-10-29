@@ -129,3 +129,110 @@ export function priorityOf(f: {
 /** A chat-tag suggestion below this probability is neither stored nor
  *  shown. Uncalibrated. */
 export const TAG_SUGGEST_MIN_P = 0.55;
+
+// ── Customer insights (qs-insights-v2) ──────────────────────────────────
+
+/** The objection codes, in display order. `DEEP_QUESTIONS` in
+ *  lib/typesafe/questions/insights.ts asks `objection_<code>` for each. */
+export const OBJECTION_CODES = [
+  'price',
+  'documents',
+  'eligibility',
+  'trust',
+  'timing',
+  'comparing',
+] as const;
+
+export type ObjectionCode = (typeof OBJECTION_CODES)[number];
+
+/** P(objection) at or above which it shows. Uncalibrated. */
+export const OBJECTION_MIN_P = 0.6;
+
+/** The objections at or above {@link OBJECTION_MIN_P}, in
+ *  {@link OBJECTION_CODES} order. A missing, null or NaN figure is absent. */
+export function objectionsFrom(
+  map: Partial<Record<ObjectionCode, Figure>> | null | undefined
+): ObjectionCode[] {
+  if (!map) return [];
+  return OBJECTION_CODES.filter((c) => atLeast(map[c], OBJECTION_MIN_P));
+}
+
+/** P(the message expects an answer) at or above which it shows as
+ *  waiting for a reply. Uncalibrated. */
+export const NEEDS_REPLY_MIN_P = 0.6;
+/** P(asks for a call) at or above which it shows. Uncalibrated. */
+export const CALLBACK_MIN_P = 0.7;
+
+// Sentiment: expected level 0..4 (very negative / negative / neutral /
+// positive / very positive). Uncalibrated.
+/** Below: very negative. */
+export const SENTIMENT_NEGATIVE_MIN = 1;
+/** Below: negative. */
+export const SENTIMENT_NEUTRAL_MIN = 1.75;
+/** Below: neutral. */
+export const SENTIMENT_POSITIVE_MIN = 2.5;
+/** Below: positive; at or above: very positive. */
+export const SENTIMENT_VERY_POSITIVE_MIN = 3.25;
+
+export type SentimentBand =
+  'very_negative' | 'negative' | 'neutral' | 'positive' | 'very_positive';
+
+/** The sentiment band of an expected sentiment, or null when unknown. */
+export function sentimentBand(s: Figure): SentimentBand | null {
+  if (!known(s)) return null;
+  if (s < SENTIMENT_NEGATIVE_MIN) return 'very_negative';
+  if (s < SENTIMENT_NEUTRAL_MIN) return 'negative';
+  if (s < SENTIMENT_POSITIVE_MIN) return 'neutral';
+  if (s < SENTIMENT_VERY_POSITIVE_MIN) return 'positive';
+  return 'very_positive';
+}
+
+/** Why a chat needs attention, highest precedence first. */
+export const ATTENTION_REASONS = [
+  'urgent',
+  'wants_person',
+  'upset',
+  'callback',
+] as const;
+
+export type AttentionReason = (typeof ATTENTION_REASONS)[number];
+
+// Attention thresholds: stricter than the badges, because attention
+// interrupts someone. Uncalibrated.
+export const ATTENTION_WANTS_PERSON_P = 0.85;
+export const ATTENTION_UPSET_P = 0.85;
+export const ATTENTION_CALLBACK_P = 0.75;
+
+/** Which attention reasons the workspace has switched on. */
+export interface AttentionRules {
+  urgent: boolean;
+  upset: boolean;
+  wantsPerson: boolean;
+  callback: boolean;
+}
+
+export interface AttentionFigures {
+  urgency?: Figure;
+  upset?: Figure;
+  wantsHuman?: Figure;
+  leadTemp?: Figure;
+  callback?: Figure;
+}
+
+/**
+ * The highest-precedence {@link ATTENTION_REASONS} entry whose rule is on
+ * and whose condition holds, else null. `urgent` is {@link priorityOf} at
+ * {@link PRIORITY_URGENT}. A null, missing or NaN figure counts as absent.
+ */
+export function attentionReason(
+  f: AttentionFigures,
+  rules: AttentionRules
+): AttentionReason | null {
+  if (rules.urgent && priorityOf(f) === PRIORITY_URGENT) return 'urgent';
+  if (rules.wantsPerson && atLeast(f.wantsHuman, ATTENTION_WANTS_PERSON_P))
+    return 'wants_person';
+  if (rules.upset && atLeast(f.upset, ATTENTION_UPSET_P)) return 'upset';
+  if (rules.callback && atLeast(f.callback, ATTENTION_CALLBACK_P))
+    return 'callback';
+  return null;
+}

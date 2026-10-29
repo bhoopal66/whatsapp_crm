@@ -9,6 +9,12 @@
  * triage or this request produced it, so the two can be stored side by
  * side. A change to their wording is a triage change (QS_VERSION).
  *
+ * The deep questions (v2) read more of the customer than triage does:
+ * sentiment on a five-level scale, which objections they raise, whether
+ * the message waits for an answer, and whether they ask for a call. They
+ * are insights-only — no triage question asks them — and are asked when
+ * the workspace has Customer insights on.
+ *
  * The tag questions are built per workspace from its catalogue. Tag ids
  * are UUIDs, and the gateway's PII guard refuses a request carrying one,
  * so options are ordinals (`t1`, `s1`) mapped back through `keyMap`.
@@ -16,11 +22,11 @@
  * Wording is literal by design (jev reads instructions at face value).
  * Changing any wording here means a new INSIGHTS_QS_VERSION.
  */
-import { choice, type ChoiceQuestion } from '@typesafe-ai/sdk';
+import { choice, noul, score, type ChoiceQuestion } from '@typesafe-ai/sdk';
 import { redactClipped } from '../checks/common';
 import { TRIAGE_QUESTIONS } from './triage';
 
-export const INSIGHTS_QS_VERSION = 'qs-insights-v1';
+export const INSIGHTS_QS_VERSION = 'qs-insights-v2';
 
 export const SIGNAL_QUESTIONS = {
   intent: TRIAGE_QUESTIONS.intent,
@@ -30,8 +36,90 @@ export const SIGNAL_QUESTIONS = {
   wants_human: TRIAGE_QUESTIONS.wants_human,
 } as const;
 
-/** The fields SIGNAL_QUESTIONS and the tag questions refer to. None of the
- *  reused triage questions reads `partner_banks`, so it is not sent. */
+/** What the deep questions say about `recent_turns`. */
+const CONTEXT =
+  'Use `recent_turns` only to understand what `message` refers to.';
+
+/**
+ * Customer insights (v2). Objection keys are `objection_<code>` for each
+ * code of `OBJECTION_CODES` in lib/insights/bands.ts, in that order
+ * (insights.test.ts keeps the two equal); several may be true at once.
+ */
+export const DEEP_QUESTIONS = {
+  sentiment: score(`How does the customer feel in \`message\`? ${CONTEXT}`, [
+    'Very negative: angry, insulting or deeply frustrated.',
+    'Negative: annoyed, disappointed or worried.',
+    'Neutral: matter-of-fact.',
+    'Positive: friendly, pleased or appreciative.',
+    'Very positive: enthusiastic or delighted.',
+  ]),
+  objection_price: noul(
+    `Is the customer in \`message\` concerned about the interest or profit rate, the fees or the cost? ${CONTEXT}`,
+    {
+      true: 'The customer worries about, objects to or hesitates over the interest or profit rate, the fees or the cost, for example finding them too high.',
+      false:
+        'The rate, fees or cost are not a concern in this message. Only asking what they are, without doubt or hesitation, is false.',
+    }
+  ),
+  objection_documents: noul(
+    `Is the customer in \`message\` concerned about the documents or paperwork needed? ${CONTEXT}`,
+    {
+      true: 'The customer worries about, objects to or hesitates over the documents or paperwork needed, for example finding them too many or not having them.',
+      false:
+        'The documents or paperwork are not a concern in this message. Sending a document, or only asking which documents are needed, is false.',
+    }
+  ),
+  objection_eligibility: noul(
+    `Does the customer in \`message\` doubt that they or their business qualify? ${CONTEXT}`,
+    {
+      true: 'The customer doubts or worries that they or their business qualify, for example because of the age of the business, turnover, salary, credit history or location.',
+      false:
+        'Qualifying is not a concern in this message. Only asking what the requirements are, without doubting that they meet them, is false.',
+    }
+  ),
+  objection_trust: noul(
+    `Does the customer in \`message\` doubt that the business or the offer is legitimate? ${CONTEXT}`,
+    {
+      true: 'The customer doubts that the business or the offer is legitimate, for example suspecting a scam, asking for proof that the business is real, or distrusting the offer.',
+      false:
+        'Whether the business or the offer is legitimate is not a concern in this message.',
+    }
+  ),
+  objection_timing: noul(
+    `Does the customer in \`message\` say it is not the right time, or that they want to wait or decide later? ${CONTEXT}`,
+    {
+      true: 'The customer says it is not the right time, or that they want to wait, think about it or decide later.',
+      false:
+        'Timing is not a concern in this message. Only asking how long the process takes is false.',
+    }
+  ),
+  objection_comparing: noul(
+    `Is the customer in \`message\` comparing with another bank, broker or offer? ${CONTEXT}`,
+    {
+      true: 'The customer compares with, or says they are considering, another bank, broker or offer.',
+      false:
+        'Comparing is not a concern in this message. Only naming the bank they use today, without comparing offers, is false.',
+    }
+  ),
+  needs_reply: noul(
+    `Does \`message\` expect an answer or an action from the business? ${CONTEXT}`,
+    {
+      true: 'The customer asks or requests something, or clearly waits for a response.',
+      false:
+        'The message is only an acknowledgement, thanks or a closing remark.',
+    }
+  ),
+  callback_request: noul(
+    `Does the customer in \`message\` ask to be called, or propose a time for a call? ${CONTEXT}`,
+    {
+      true: 'The customer asks to be called, or proposes a day or time for a call.',
+      false: 'No request for a call and no proposed call time.',
+    }
+  ),
+} as const;
+
+/** The fields SIGNAL_QUESTIONS, DEEP_QUESTIONS and the tag questions
+ *  refer to. None of them reads `partner_banks`, so it is not sent. */
 export interface InsightsState {
   message: string;
   recent_turns: { from: 'customer' | 'taamul'; text: string }[];
@@ -70,8 +158,9 @@ export const MAX_TAG_NAME_CHARS = 60;
 export const MAX_TAG_HINT_CHARS = 200;
 /** Shorter than a main tag's: up to 96 sub-tag hints share the request
  *  with the conversation, and the worst case must stay well inside
- *  MAX_REQUEST_CHARS (insights.test.ts measures it). */
-export const MAX_SUB_TAG_HINT_CHARS = 120;
+ *  MAX_REQUEST_CHARS (insights.test.ts measures it). 120 until v2 added
+ *  DEEP_QUESTIONS to the same request. */
+export const MAX_SUB_TAG_HINT_CHARS = 100;
 
 export const TAG_QUESTION_KEY = 'chat_tag';
 export const NONE_OPTION = 'none';

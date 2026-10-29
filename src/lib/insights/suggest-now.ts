@@ -106,6 +106,7 @@ export async function suggestTagForConversation(
         })),
       journeyStage: 'open_conversation',
       askSignals: false,
+      askDeep: false,
       tags: catalogue,
     });
     // A failed judgment stores nothing: the chip keeps what it had.
