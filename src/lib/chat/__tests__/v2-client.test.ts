@@ -253,7 +253,7 @@ describe('156 wrappers', () => {
     expect(out.m1.map((p) => p.userId)).toEqual(['u1', 'u2']);
   });
 
-  it('typingIn maps rows', async () => {
+  it('typingIn maps rows, stopped included', async () => {
     const { sb } = fakeSb([
       ok([
         {
@@ -262,6 +262,14 @@ describe('156 wrappers', () => {
           user_id: 'u',
           thread_root_id: null,
           at: 't',
+        },
+        {
+          channel_id: SRC,
+          account_id: WS,
+          user_id: 'u2',
+          thread_root_id: null,
+          at: 't',
+          stopped: true,
         },
       ]),
     ]);
@@ -272,7 +280,16 @@ describe('156 wrappers', () => {
         user_id: 'u',
         at: 't',
       }),
+      {
+        channelId: SRC,
+        accountId: WS,
+        userId: 'u2',
+        threadRootId: null,
+        at: 't',
+        stopped: true,
+      },
     ]);
+    expect(toTypingRow({ channel_id: SRC, at: 't' }).stopped).toBe(false);
   });
 
   it('messagesByIds fills attachments and short-circuits on no ids', async () => {

@@ -307,13 +307,20 @@ audited as `update_sensitive_guard` (old and new).
   carried (the dialog says so). The source must be readable and live
   (deleted: `22023`; missing or unreadable: `P0002`) and in the same
   workspace (`42501`). Needs _forward messages_; forwarded attachments
-  do not need _upload files_. The sensitive-data guard applies to the
-  copy.
+  do not need _upload files_, so each one must match a distinct
+  attachment of the source on name, type, size, kind and duration (no
+  more of them than the source has; else `22023`, "copies of the source
+  message"). Every attachment, posted or forwarded, needs a storage
+  object no other attachment row has (`22023`, "already belongs to a
+  message"). The sensitive-data guard applies to the copy.
 - **Typing** (156). `chat_set_typing(p_channel, p_thread_root,
   p_typing)` marks the caller as typing, only where they could post
   (`chat_assert_can_write(p_channel, false)`), never joins anyone to a
   channel, and is throttled in the database (a row under 2 seconds old
-  in the same thread is left alone). Stopping is never refused. Rows
+  in the same thread is left alone, even a stopped one, so stop +
+  start cannot bypass it). Stopping is never refused and marks the row
+  `stopped = true` instead of deleting it, because realtime does not
+  RLS-filter DELETE events; `activeTypers` ignores stopped rows. Rows
   are readable by the channel's readers and delivered by realtime. The
   database and `src/lib/chat/typing.ts` implement it; this branch
   shows no typing indicator in the UI yet.
@@ -596,8 +603,8 @@ deactivated).
   removed from storage.
 - **Forwarded copies** of their messages (and forwards of forwards) are
   erased too: text `[erased]`, attachments deleted and removed from
-  storage. The audit detail gains `forwarded_copies`. A push already
-  queued for a copy is not deleted; it is skipped when claimed.
+  storage. The audit detail gains `forwarded_copies`. Chat
+  notifications and queued pushes of a copy are deleted too.
 - **Also deleted:** their typing rows and voice plays, their
   reactions, saved messages and chat notifications; mentions in their messages and mentions of them;
   and the bell rows that are theirs or that quote them.

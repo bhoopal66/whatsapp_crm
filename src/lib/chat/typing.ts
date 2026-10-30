@@ -1,7 +1,8 @@
 /**
  * Typing indicators (156): pure rules over chat_typing rows. A row is a
  * heartbeat, never a fact: it counts only while younger than the TTL, so
- * a closed tab (no stop call) fades by itself.
+ * a closed tab (no stop call) fades by itself. A stop marks the row
+ * `stopped` (never a delete, whose realtime event is not RLS-filtered).
  */
 import type { TypingRow } from './types';
 
@@ -29,6 +30,7 @@ export function activeTypers(
         r.channelId === o.channelId &&
         r.threadRootId === o.threadRootId &&
         r.userId !== o.selfId &&
+        !r.stopped &&
         Number.isFinite(t) &&
         o.now - t <= TYPING_TTL_MS
     )

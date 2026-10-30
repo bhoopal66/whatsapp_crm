@@ -87,12 +87,39 @@ ALTER TABLE public.chat_channel_teams FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.chat_channel_teams FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.chat_channel_teams TO authenticated;
 
-ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
-ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
-  'admin_read_private','erase_person','add_members','set_member_role',
-  'update_channel','archive_channel','unarchive_channel','remove_member',
-  'set_permissions','update_settings','update_policy','update_sensitive_guard',
-  'set_audience','moderate_delete','restrict_member','export_channel'));
+-- Re-runnable without loss: re-running an older file on a newer
+-- database must not narrow the list, so the constraint is replaced only
+-- when it does not already name every action below.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+     WHERE c.conrelid = 'public.chat_audit_log'::regclass
+       AND c.conname = 'chat_audit_log_action_check'
+       AND pg_get_constraintdef(c.oid) LIKE '%''admin_read_private''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''erase_person''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''add_members''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_member_role''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''archive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''unarchive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''remove_member''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_permissions''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_settings''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_policy''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_sensitive_guard''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_audience''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''moderate_delete''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''restrict_member''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''export_channel''%') THEN
+    ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
+    ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
+      'admin_read_private','erase_person','add_members','set_member_role',
+      'update_channel','archive_channel','unarchive_channel','remove_member',
+      'set_permissions','update_settings','update_policy','update_sensitive_guard',
+      'set_audience','moderate_delete','restrict_member','export_channel'));
+  END IF;
+END $$;
 
 -- ---------- 2. Internal helpers (executable by nobody) ----------
 
@@ -135,6 +162,17 @@ CREATE OR REPLACE FUNCTION public.chat_audience_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_user uuid;
 BEGIN
+  -- Stopping typing is never refused (156): an UPDATE that only marks
+  -- the row stopped passes, whoever's audience it is. Nested IFs: an
+  -- expression naming NEW.stopped fails on the other tables' rows.
+  IF TG_TABLE_NAME = 'chat_typing' AND TG_OP = 'UPDATE' THEN
+    IF NEW.stopped AND NOT OLD.stopped
+       AND (NEW.channel_id, NEW.account_id, NEW.user_id, NEW.at)
+           IS NOT DISTINCT FROM (OLD.channel_id, OLD.account_id, OLD.user_id, OLD.at)
+       AND NEW.thread_root_id IS NOT DISTINCT FROM OLD.thread_root_id THEN
+      RETURN NEW;
+    END IF;
+  END IF;
   IF TG_TABLE_NAME = 'internal_messages' THEN
     IF NEW.author_kind IS DISTINCT FROM 'user' OR NEW.author_id IS NULL THEN RETURN NEW; END IF;
     v_user := NEW.author_id;

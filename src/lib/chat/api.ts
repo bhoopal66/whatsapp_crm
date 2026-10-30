@@ -197,7 +197,7 @@ export async function typingIn(
     await rows(
       sb
         .from('chat_typing')
-        .select('channel_id,account_id,user_id,thread_root_id,at')
+        .select('channel_id,account_id,user_id,thread_root_id,at,stopped')
         .eq('channel_id', channelId)
     )
   ).map(toTypingRow);

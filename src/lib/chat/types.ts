@@ -145,6 +145,8 @@ export interface TypingRow {
   /** NULL: the channel's main timeline. */
   threadRootId: string | null;
   at: string;
+  /** 156: a stop marks the row instead of deleting it; a stopped row is nobody typing. */
+  stopped: boolean;
 }
 
 /** 156 chat_voice_plays row: someone played a voice note. */
@@ -369,6 +371,7 @@ export const toTypingRow = (r: Row): TypingRow => ({
   userId: str(r.user_id),
   threadRootId: opt(r.thread_root_id),
   at: str(r.at),
+  stopped: r.stopped === true,
 });
 
 export const toVoicePlay = (r: Row): VoicePlay => ({

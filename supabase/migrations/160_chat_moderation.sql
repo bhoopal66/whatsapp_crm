@@ -46,12 +46,39 @@ END $$;
 
 -- ---------- D. Audit actions (the same union as 159) ----------
 
-ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
-ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
-  'admin_read_private','erase_person','add_members','set_member_role',
-  'update_channel','archive_channel','unarchive_channel','remove_member',
-  'set_permissions','update_settings','update_policy','update_sensitive_guard',
-  'set_audience','moderate_delete','restrict_member','export_channel'));
+-- Re-runnable without loss: re-running an older file on a newer
+-- database must not narrow the list, so the constraint is replaced only
+-- when it does not already name every action below.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+     WHERE c.conrelid = 'public.chat_audit_log'::regclass
+       AND c.conname = 'chat_audit_log_action_check'
+       AND pg_get_constraintdef(c.oid) LIKE '%''admin_read_private''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''erase_person''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''add_members''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_member_role''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''archive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''unarchive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''remove_member''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_permissions''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_settings''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_policy''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_sensitive_guard''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_audience''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''moderate_delete''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''restrict_member''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''export_channel''%') THEN
+    ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
+    ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
+      'admin_read_private','erase_person','add_members','set_member_role',
+      'update_channel','archive_channel','unarchive_channel','remove_member',
+      'set_permissions','update_settings','update_policy','update_sensitive_guard',
+      'set_audience','moderate_delete','restrict_member','export_channel'));
+  END IF;
+END $$;
 
 -- ---------- Columns ----------
 

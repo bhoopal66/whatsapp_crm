@@ -182,18 +182,18 @@ BEGIN
     format('SELECT string_agg(kind || ''|'' || duration_ms, '','') FROM message_attachments WHERE message_id = %L', v1), 'voice|4200');
   n := n + 1; failed := failed || pg_temp.tc_check('a voice note with a second attachment was accepted', u_ag,
     format(post, ch, 'voice+pdf', NULL, format('[{"storage_path":%s,"name":"v.ogg","mime":"audio/ogg","bytes":10,"kind":"voice","duration_ms":5},'
-      || '{"storage_path":%s,"name":"d.pdf","mime":"application/pdf","bytes":10}]', to_json(vp), to_json(pg_temp.tc_up(a, ch, 'd.pdf'))), NULL),
+      || '{"storage_path":%s,"name":"d.pdf","mime":"application/pdf","bytes":10}]', to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), to_json(pg_temp.tc_up(a, ch, 'd.pdf'))), NULL),
     'ERROR 22023:%only attachment%');
   n := n + 1; failed := failed || pg_temp.tc_check('a voice note with a non-audio mime was accepted', u_ag,
-    format(post, ch, 'x', NULL, format(att, to_json(vp), 'v.pdf', 'application/pdf', ',"kind":"voice","duration_ms":5'), NULL), 'ERROR 22023:%');
+    format(post, ch, 'x', NULL, format(att, to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), 'v.pdf', 'application/pdf', ',"kind":"voice","duration_ms":5'), NULL), 'ERROR 22023:%');
   n := n + 1; failed := failed || pg_temp.tc_check('a voice note without a duration was accepted', u_ag,
-    format(post, ch, 'x', NULL, format(att, to_json(vp), 'v.ogg', 'audio/ogg', ',"kind":"voice"'), NULL), 'ERROR 22023:%');
+    format(post, ch, 'x', NULL, format(att, to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), 'v.ogg', 'audio/ogg', ',"kind":"voice"'), NULL), 'ERROR 22023:%');
   n := n + 1; failed := failed || pg_temp.tc_check('a duration of 0 ms was accepted', u_ag,
-    format(post, ch, 'x', NULL, format(att, to_json(vp), 'v.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":0'), NULL), 'ERROR 22023:%');
+    format(post, ch, 'x', NULL, format(att, to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), 'v.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":0'), NULL), 'ERROR 22023:%');
   n := n + 1; failed := failed || pg_temp.tc_check('a duration over 1200000 ms was accepted', u_ag,
-    format(post, ch, 'x', NULL, format(att, to_json(vp), 'v.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":1200001'), NULL), 'ERROR 22023:%');
+    format(post, ch, 'x', NULL, format(att, to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), 'v.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":1200001'), NULL), 'ERROR 22023:%');
   n := n + 1; failed := failed || pg_temp.tc_check('an attachment kind other than file/voice was accepted', u_ag,
-    format(post, ch, 'x', NULL, format(att, to_json(vp), 'v.ogg', 'audio/ogg', ',"kind":"image"'), NULL), 'ERROR 22023:%');
+    format(post, ch, 'x', NULL, format(att, to_json(pg_temp.tc_up(a, ch, 'probe.ogg')), 'v.ogg', 'audio/ogg', ',"kind":"image"'), NULL), 'ERROR 22023:%');
   n := n + 1; failed := failed || pg_temp.tc_check('a direct non-audio voice row passed the table CHECK', NULL,
     format('INSERT INTO message_attachments (message_id, storage_path, name, mime, bytes, kind, duration_ms) VALUES (%L, %L, ''v'', ''application/pdf'', 1, ''voice'', 5) RETURNING 1', m1, vp),
     'ERROR 23514:%');
@@ -284,8 +284,8 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('a member does not see a typing row', u_own,
     format('SELECT count(*)::text FROM chat_typing WHERE channel_id = %L', ch), '1');
   r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L, NULL, false)::text', ch));
-  n := n + 1; failed := failed || pg_temp.tc_check('typing false did not delete the row', NULL,
-    format('SELECT count(*)::text FROM chat_typing WHERE channel_id = %L AND user_id = %L', ch, u_ag), '0');
+  n := n + 1; failed := failed || pg_temp.tc_check('typing false did not keep the row and mark it stopped', NULL,
+    format('SELECT count(*) FILTER (WHERE stopped) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', ch, u_ag), '1/1');
   r := pg_temp.tc_try('authenticated', u_x, format('SELECT public.chat_set_typing(%L)::text', ch));
   n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'a workspace member could not type in a team channel (' || r || ')');
   n := n + 1; failed := failed || pg_temp.tc_check('typing in a team channel made the typist a member', NULL,
@@ -303,7 +303,7 @@ BEGIN
   INSERT INTO chat_typing (channel_id, account_id, user_id) VALUES (pv, a, u_ag2);
   r := pg_temp.tc_try('authenticated', u_ag2, format('SELECT public.chat_set_typing(%L, NULL, false)::text', pv));
   n := n + 1; failed := failed || pg_temp.tc_check('typing false without access did not clear the caller''s own row', NULL,
-    format('SELECT %L || ''|'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', r, pv, u_ag2), 'ok|0');
+    format('SELECT %L || ''|'' || count(*) FILTER (WHERE stopped) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', r, pv, u_ag2), 'ok|1/1');
   -- deal room: the guest cannot read the Team notes, so no typing either way
   r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', dr));
   n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'a staff member could not type in a deal room (' || r || ')');
@@ -403,10 +403,10 @@ BEGIN
   -- typing row and a play of own's voice note.
   vpc := pg_temp.tc_up(a, ch, 'fwd.ogg');
   fv := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text', v1, ch,
-          format(att, to_json(vpc), 'fwd.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":4200')));
+          format(att, to_json(vpc), 'voice.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":4200')));
   vpcc := pg_temp.tc_up(a, ch, 'fwd2.ogg');
   ff := pg_temp.tc_try('authenticated', u_x, format('SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text', fv, ch,
-          format(att, to_json(vpcc), 'fwd2.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":4200')));
+          format(att, to_json(vpcc), 'voice.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":4200')));
   n := n + 1; failed := failed || pg_temp.tc_check('the forward-of-a-forward fixture does not chain', NULL,
     format('SELECT concat_ws(''|'', meta->''forwarded''->>''message_id'', meta->''forwarded''->>''author_id'') FROM internal_messages WHERE id = %L', ff),
     fv || '|' || u_own);

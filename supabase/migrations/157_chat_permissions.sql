@@ -55,11 +55,33 @@ END $$;
 
 -- ---------- E. Audit actions ----------
 
-ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
-ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
-  'admin_read_private','erase_person','add_members','set_member_role',
-  'update_channel','archive_channel','unarchive_channel','remove_member',
-  'set_permissions','update_settings','update_policy'));
+-- Re-runnable without loss: re-running an older file on a newer
+-- database must not narrow the list, so the constraint is replaced only
+-- when it does not already name every action below.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+     WHERE c.conrelid = 'public.chat_audit_log'::regclass
+       AND c.conname = 'chat_audit_log_action_check'
+       AND pg_get_constraintdef(c.oid) LIKE '%''admin_read_private''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''erase_person''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''add_members''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_member_role''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''archive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''unarchive_channel''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''remove_member''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''set_permissions''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_settings''%'
+       AND pg_get_constraintdef(c.oid) LIKE '%''update_policy''%') THEN
+    ALTER TABLE public.chat_audit_log DROP CONSTRAINT IF EXISTS chat_audit_log_action_check;
+    ALTER TABLE public.chat_audit_log ADD CONSTRAINT chat_audit_log_action_check CHECK (action IN (
+      'admin_read_private','erase_person','add_members','set_member_role',
+      'update_channel','archive_channel','unarchive_channel','remove_member',
+      'set_permissions','update_settings','update_policy'));
+  END IF;
+END $$;
 
 -- ---------- A. Role permission matrix ----------
 
@@ -645,6 +667,24 @@ BEGIN
   RETURNING id INTO v_id;
 
   PERFORM public.chat_insert_attachments(v_ch, v_id, p_attachments);
+  -- The copies must be the source's own files: each one matches a
+  -- distinct attachment of the source on (name, mime, bytes, kind,
+  -- duration_ms), so no more of them than the source has. Otherwise a
+  -- forward would post any uploaded file without upload_files (157).
+  IF EXISTS (
+    SELECT 1
+      FROM (SELECT a.name, a.mime, a.bytes, a.kind, a.duration_ms, count(*) AS n
+              FROM public.message_attachments a WHERE a.message_id = v_id
+             GROUP BY 1, 2, 3, 4, 5) f
+      LEFT JOIN (SELECT a.name, a.mime, a.bytes, a.kind, a.duration_ms, count(*) AS n
+                   FROM public.message_attachments a WHERE a.message_id = v_src.id
+                  GROUP BY 1, 2, 3, 4, 5) s
+        ON s.name = f.name AND s.mime = f.mime AND s.bytes = f.bytes AND s.kind = f.kind
+       AND s.duration_ms IS NOT DISTINCT FROM f.duration_ms
+     WHERE s.n IS NULL OR f.n > s.n) THEN
+    RAISE EXCEPTION 'chat_forward_message: attachments must be copies of the source message''s attachments'
+      USING ERRCODE = '22023';
+  END IF;
 
   INSERT INTO public.chat_notifications (user_id, account_id, message_id, kind)
   SELECT cm.user_id, v_ch.account_id, v_id, 'dm'
@@ -666,7 +706,8 @@ BEGIN
     RAISE EXCEPTION 'chat: no authenticated user' USING ERRCODE = '42501';
   END IF;
   IF NOT coalesce(p_typing, false) THEN
-    DELETE FROM public.chat_typing WHERE channel_id = p_channel AND user_id = v_uid;
+    UPDATE public.chat_typing SET stopped = true
+     WHERE channel_id = p_channel AND user_id = v_uid AND NOT stopped;
     RETURN;
   END IF;
 
@@ -680,12 +721,13 @@ BEGIN
   -- 157: typing where one could not post is refused the same way.
   PERFORM public.chat_assert_post_rules(v_ch, p_thread_root);
 
-  INSERT INTO public.chat_typing AS t (channel_id, account_id, user_id, thread_root_id, at)
-  VALUES (p_channel, v_ch.account_id, v_uid, p_thread_root, now())
+  INSERT INTO public.chat_typing AS t (channel_id, account_id, user_id, thread_root_id, at, stopped)
+  VALUES (p_channel, v_ch.account_id, v_uid, p_thread_root, now(), false)
   ON CONFLICT (channel_id, user_id) DO UPDATE
-     SET account_id = EXCLUDED.account_id, thread_root_id = EXCLUDED.thread_root_id, at = EXCLUDED.at
-   WHERE t.at < now() - interval '2 seconds'
-      OR t.thread_root_id IS DISTINCT FROM EXCLUDED.thread_root_id;
+     SET account_id = EXCLUDED.account_id, thread_root_id = EXCLUDED.thread_root_id, at = EXCLUDED.at,
+         stopped = false
+   WHERE NOT (t.at > now() - interval '2 seconds'
+              AND t.thread_root_id IS NOT DISTINCT FROM EXCLUDED.thread_root_id);
 END $$;
 
 -- chat_share_call (103_chat_call_cards.sql): share_cards and the posting rule.

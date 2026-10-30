@@ -202,6 +202,16 @@ BEGIN
                     WHERE o.bucket_id = 'chat-files' AND o.name = v_att->>'storage_path') THEN
       RAISE EXCEPTION 'chat: attachment % was not uploaded', v_att->>'storage_path' USING ERRCODE = 'P0002';
     END IF;
+    -- One object, one attachment row: a path already attached (or named
+    -- twice in this call) would let a post or forward re-publish a file
+    -- the caller never uploaded, and a delete of one row would free an
+    -- object another message still shows.
+    IF EXISTS (SELECT 1 FROM public.message_attachments a WHERE a.storage_path = v_att->>'storage_path')
+       OR (SELECT count(*) FROM jsonb_array_elements(v_atts) x
+            WHERE x->>'storage_path' = v_att->>'storage_path') > 1 THEN
+      RAISE EXCEPTION 'chat: attachment % already belongs to a message', v_att->>'storage_path'
+        USING ERRCODE = '22023';
+    END IF;
   END LOOP;
   IF v_voice > 0 AND jsonb_array_length(v_atts) <> 1 THEN
     RAISE EXCEPTION 'chat: a voice attachment must be the message''s only attachment' USING ERRCODE = '22023';
@@ -340,6 +350,24 @@ BEGIN
   RETURNING id INTO v_id;
 
   PERFORM public.chat_insert_attachments(v_ch, v_id, p_attachments);
+  -- The copies must be the source's own files: each one matches a
+  -- distinct attachment of the source on (name, mime, bytes, kind,
+  -- duration_ms), so no more of them than the source has. Otherwise a
+  -- forward would post any uploaded file without upload_files (157).
+  IF EXISTS (
+    SELECT 1
+      FROM (SELECT a.name, a.mime, a.bytes, a.kind, a.duration_ms, count(*) AS n
+              FROM public.message_attachments a WHERE a.message_id = v_id
+             GROUP BY 1, 2, 3, 4, 5) f
+      LEFT JOIN (SELECT a.name, a.mime, a.bytes, a.kind, a.duration_ms, count(*) AS n
+                   FROM public.message_attachments a WHERE a.message_id = v_src.id
+                  GROUP BY 1, 2, 3, 4, 5) s
+        ON s.name = f.name AND s.mime = f.mime AND s.bytes = f.bytes AND s.kind = f.kind
+       AND s.duration_ms IS NOT DISTINCT FROM f.duration_ms
+     WHERE s.n IS NULL OR f.n > s.n) THEN
+    RAISE EXCEPTION 'chat_forward_message: attachments must be copies of the source message''s attachments'
+      USING ERRCODE = '22023';
+  END IF;
 
   INSERT INTO public.chat_notifications (user_id, account_id, message_id, kind)
   SELECT cm.user_id, v_ch.account_id, v_id, 'dm'
@@ -348,6 +376,13 @@ BEGIN
      AND public.chat_user_can_read_channel(p_channel, cm.user_id, true);
   RETURN v_id;
 END $$;
+
+-- chat_erase_person looks forwarded copies up by their source message
+-- and by the source's author (meta.forwarded), recursively.
+CREATE INDEX IF NOT EXISTS internal_messages_forwarded_message_idx
+  ON public.internal_messages ((meta->'forwarded'->>'message_id')) WHERE meta ? 'forwarded';
+CREATE INDEX IF NOT EXISTS internal_messages_forwarded_author_idx
+  ON public.internal_messages ((meta->'forwarded'->>'author_id')) WHERE meta ? 'forwarded';
 
 -- ---------- E. Typing ----------
 
@@ -359,15 +394,21 @@ CREATE TABLE IF NOT EXISTS public.chat_typing (
   at             timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (channel_id, user_id)
 );
+-- A stop is an UPDATE to stopped = true, never a DELETE: realtime does
+-- not RLS-filter DELETE events, so a delete would tell every subscriber
+-- of the table who stopped typing where.
+ALTER TABLE public.chat_typing ADD COLUMN IF NOT EXISTS stopped boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS chat_typing_account_user_idx ON public.chat_typing (account_id, user_id);
 
 -- Typing is allowed where the caller could post right now:
 -- chat_assert_can_write with p_autojoin = false runs every check of a
 -- post (workspace role, CH001, archived, guest, membership, DM rules)
--- but never adds a team-channel member. p_typing = false only removes
--- the caller's own row and needs no gate, so a person who lost access
--- can still clear it. A row younger than 2 seconds on the same thread is
--- left alone, which caps the realtime traffic a keyboard produces.
+-- but never adds a team-channel member. p_typing = false only marks the
+-- caller's own row stopped (never a DELETE, see the table) and needs no
+-- gate, so a person who lost access can still clear it. A row younger
+-- than 2 seconds on the same thread is left alone, stopped or not, which
+-- caps the realtime traffic a keyboard produces (stop + start cannot
+-- bypass it).
 CREATE OR REPLACE FUNCTION public.chat_set_typing(p_channel uuid, p_thread_root uuid DEFAULT NULL,
   p_typing boolean DEFAULT true)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -379,7 +420,8 @@ BEGIN
     RAISE EXCEPTION 'chat: no authenticated user' USING ERRCODE = '42501';
   END IF;
   IF NOT coalesce(p_typing, false) THEN
-    DELETE FROM public.chat_typing WHERE channel_id = p_channel AND user_id = v_uid;
+    UPDATE public.chat_typing SET stopped = true
+     WHERE channel_id = p_channel AND user_id = v_uid AND NOT stopped;
     RETURN;
   END IF;
 
@@ -391,12 +433,13 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  INSERT INTO public.chat_typing AS t (channel_id, account_id, user_id, thread_root_id, at)
-  VALUES (p_channel, v_ch.account_id, v_uid, p_thread_root, now())
+  INSERT INTO public.chat_typing AS t (channel_id, account_id, user_id, thread_root_id, at, stopped)
+  VALUES (p_channel, v_ch.account_id, v_uid, p_thread_root, now(), false)
   ON CONFLICT (channel_id, user_id) DO UPDATE
-     SET account_id = EXCLUDED.account_id, thread_root_id = EXCLUDED.thread_root_id, at = EXCLUDED.at
-   WHERE t.at < now() - interval '2 seconds'
-      OR t.thread_root_id IS DISTINCT FROM EXCLUDED.thread_root_id;
+     SET account_id = EXCLUDED.account_id, thread_root_id = EXCLUDED.thread_root_id, at = EXCLUDED.at,
+         stopped = false
+   WHERE NOT (t.at > now() - interval '2 seconds'
+              AND t.thread_root_id IS NOT DISTINCT FROM EXCLUDED.thread_root_id);
 END $$;
 
 -- ---------- F. Voice plays ----------
@@ -547,7 +590,8 @@ BEGIN
    WHERE r.message_id = m.id AND m.account_id = p_ws AND r.user_id = p_user_id;
   DELETE FROM public.saved_messages s USING public.internal_messages m
    WHERE s.message_id = m.id AND m.account_id = p_ws AND s.user_id = p_user_id;
-  DELETE FROM public.chat_notifications WHERE account_id = p_ws AND user_id = p_user_id;
+  DELETE FROM public.chat_notifications
+   WHERE account_id = p_ws AND (user_id = p_user_id OR message_id = ANY (v_copies));
   -- bell rows: the person's own, and everyone's that quote the person
   -- (156: including the bells of forwarded copies)
   DELETE FROM public.notifications
@@ -560,7 +604,8 @@ BEGIN
   -- words, and the person's own.
   DELETE FROM public.push_outbox
    WHERE account_id = p_ws AND kind = 'chat_message'
-     AND (source_user_id = p_user_id OR user_id = p_user_id);
+     AND (source_user_id = p_user_id OR user_id = p_user_id
+          OR message_id = ANY (v_copies));   -- 156: pushes of forwarded copies (message_id since 112)
 
   -- 156: the person's typing and voice-play rows
   DELETE FROM public.chat_typing WHERE account_id = p_ws AND user_id = p_user_id;

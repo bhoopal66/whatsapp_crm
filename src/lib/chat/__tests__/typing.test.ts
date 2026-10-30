@@ -22,6 +22,7 @@ const row = (
   userId,
   threadRootId: thread,
   at: ago(ms),
+  stopped: false,
 });
 const o = { channelId: 'c1', threadRootId: null, selfId: 'me', now: NOW };
 
@@ -46,6 +47,11 @@ describe('activeTypers', () => {
     expect(activeTypers(rows, o)).toEqual(['main']);
     expect(activeTypers(rows, { ...o, threadRootId: 't1' })).toEqual(['th']);
     expect(activeTypers(rows, { ...o, threadRootId: 't2' })).toEqual([]);
+  });
+
+  it('ignores a stopped row, however fresh', () => {
+    const stopped = { ...row('s', 0), stopped: true };
+    expect(activeTypers([stopped, row('a', 100)], o)).toEqual(['a']);
   });
 
   it('ignores other channels and unparseable times', () => {
