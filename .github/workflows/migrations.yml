@@ -610,3 +610,11 @@ jobs:
       # place; ai_usage_log.mode accepts 'translate'.
       - name: Verify message translations
         run: supabase db query --local --file supabase/ci/verify-message-translations.sql
+
+      # Migration 155's staged-upload sweep: chat_media_staged_orphans
+      # lists only old account-<uuid>/staged/<name> chat-media objects
+      # no message, template or broadcast URL points at (matched on the
+      # URL path, any origin or query); refuses p_min_age under a day;
+      # service role only.
+      - name: Verify chat-media staged sweep
+        run: supabase db query --local --file supabase/ci/verify-chat-media-staged.sql
