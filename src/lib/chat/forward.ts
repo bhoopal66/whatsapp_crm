@@ -4,6 +4,13 @@
  * refuses another workspace's channel and a channel the caller may not
  * post in); this only keeps the picker to places a forward can land.
  */
+import {
+  canManageMembers,
+  isBankGuest,
+  type AccountRole,
+} from '@/lib/auth/roles';
+
+import { countsAsChannelAdmin } from './composer-gating';
 import { normalizeDigits } from './search-view';
 import { channelDisplayName } from './view';
 import type { ChannelWithMembership, ChatMessage, ChatPerson } from './types';
@@ -24,8 +31,11 @@ export interface ForwardTarget {
  * Open team channels (posting joins them), and the private channels and
  * DMs the viewer belongs to, whose name contains `query`. Never a deal
  * room (its Team notes are reached from the room), an archived channel
- * or the message's own channel (`exclude`). Channels by name, then DMs
- * by name.
+ * or the message's own channel (`exclude`), and never an admins-only
+ * channel (`posting` 'admins') the viewer is not a channel admin of: a
+ * forward is a top-level post, which chat_assert_post_rules refuses there
+ * unless the viewer is its channel admin or a workspace owner/admin (never
+ * a bank guest). Channels by name, then DMs by name.
  */
 export function forwardTargets(
   channels: readonly ChannelWithMembership[],
@@ -35,8 +45,11 @@ export function forwardTargets(
     query = '',
     unknown,
     exclude,
+    accountRole,
   }: {
     selfId: string;
+    /** The viewer's role in the active workspace. */
+    accountRole: AccountRole | null;
     peopleById: ReadonlyMap<string, Pick<ChatPerson, 'fullName'>>;
     query?: string;
     unknown: string;
@@ -45,13 +58,23 @@ export function forwardTargets(
 ): ForwardTarget[] {
   const q = normalizeDigits(query.trim()).toLowerCase().replace(/^[#@]/, '');
   const rank = (k: ForwardTarget['kind']) => (k === 'dm' ? 1 : 0);
+  const workspaceAdmin = !!accountRole && canManageMembers(accountRole);
+  const bankGuest = isBankGuest(accountRole);
+  const mayPost = (c: ChannelWithMembership) =>
+    c.posting !== 'admins' ||
+    countsAsChannelAdmin({
+      workspaceAdmin,
+      role: c.membership?.role,
+      bankGuest,
+    });
   return channels
     .filter(
       (c) =>
         c.id !== exclude &&
         !c.archivedAt &&
         (c.kind === 'team' ||
-          ((c.kind === 'private' || c.kind === 'dm') && !!c.membership))
+          ((c.kind === 'private' || c.kind === 'dm') && !!c.membership)) &&
+        mayPost(c)
     )
     .map((c) => ({
       id: c.id,

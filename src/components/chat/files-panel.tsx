@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { CornerDownRight, Download, X } from 'lucide-react';
 
@@ -13,8 +13,11 @@ import {
 import {
   appendPage,
   FILE_TABS,
+  isCurrentFilesRequest,
+  nextFilesRequest,
   pageCut,
   tabKind,
+  type FilesRequest,
   type FileTab,
 } from '@/lib/chat/files';
 import { attachmentDisplay } from '@/lib/chat/voice';
@@ -54,6 +57,8 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
   const [tab, setTab] = useState<FileTab>('all');
   const [state, setState] = useState<TabState | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
+  // The list on screen; a page asked for under another one is dropped.
+  const current = useRef<FilesRequest>({ tab: 'all', gen: 0 });
 
   const load = useCallback(
     (which: FileTab, before: string | null, prev: ChannelFile[]) => {
@@ -76,10 +81,13 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
 
   useEffect(() => {
     let off = false;
+    const req = nextFilesRequest(current.current, tab);
+    current.current = req;
+    const stale = () => off || !isCurrentFilesRequest(req, current.current);
     load(tab, null, [])
-      .then((s) => !off && setState(s))
+      .then((s) => !stale() && setState(s))
       .catch((err) => {
-        if (off) return;
+        if (stale()) return;
         setState({ items: [], before: null, loading: false });
         fail(err);
       });
@@ -91,10 +99,13 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
   const more = () => {
     if (!state?.before || state.loading) return;
     const prev = state.items;
+    const req = current.current;
+    const stale = () => !isCurrentFilesRequest(req, current.current);
     setState({ ...state, loading: true });
     load(tab, state.before, prev)
-      .then(setState)
+      .then((s) => !stale() && setState(s))
       .catch((err) => {
+        if (stale()) return;
         setState((s) => s && { ...s, loading: false });
         fail(err);
       });
@@ -203,6 +214,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
                 // A new tab starts from its first page, viewer closed.
                 setViewing(null);
                 setState(null);
+                current.current = nextFilesRequest(current.current, k);
                 setTab(k);
               }}
               className={cn(

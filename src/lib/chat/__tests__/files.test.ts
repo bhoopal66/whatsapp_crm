@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   appendPage,
   fileKind,
+  isCurrentFilesRequest,
   lightboxKeyDelta,
+  nextFilesRequest,
   opensInTab,
   pageCut,
   stepIndex,
   tabKind,
+  type FilesRequest,
 } from '../files';
 
 describe('fileKind', () => {
@@ -105,5 +108,28 @@ describe('pageCut', () => {
       keep: [f('a', '2'), f('b', '1')],
       before: null,
     });
+  });
+});
+
+describe('Files panel requests', () => {
+  const start: FilesRequest = { tab: 'all', gen: 0 };
+
+  it('drops a Load more on All that lands after switching to Images', () => {
+    const more = nextFilesRequest(start, 'all'); // All on screen, Load more
+    const images = nextFilesRequest(more, 'image'); // then a tab switch
+    expect(isCurrentFilesRequest(more, images)).toBe(false);
+    expect(isCurrentFilesRequest(images, images)).toBe(true);
+  });
+
+  it('drops it after switching away and back to the same tab', () => {
+    const all = nextFilesRequest(start, 'all');
+    const back = nextFilesRequest(nextFilesRequest(all, 'image'), 'all');
+    expect(back.tab).toBe('all');
+    expect(isCurrentFilesRequest(all, back)).toBe(false);
+  });
+
+  it('keeps a page asked for under the list still on screen', () => {
+    const all = nextFilesRequest(start, 'all');
+    expect(isCurrentFilesRequest(all, { ...all })).toBe(true);
   });
 });

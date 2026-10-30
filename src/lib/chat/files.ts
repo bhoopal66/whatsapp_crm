@@ -150,3 +150,29 @@ export function pageCut<T extends { createdAt: string }>(
   const keep = end === 0 ? [...items] : items.slice(0, end);
   return { keep, before: keep[keep.length - 1].createdAt };
 }
+
+/**
+ * Which list a Files panel request was made for. Every tab switch (and a
+ * first-page load) starts a new generation, so a "Load more" that lands
+ * after the viewer moved on, even back to the same tab, is recognised.
+ */
+export interface FilesRequest {
+  tab: FileTab;
+  gen: number;
+}
+
+/** The request a tab switch starts. */
+export const nextFilesRequest = (
+  current: FilesRequest,
+  tab: FileTab
+): FilesRequest => ({ tab, gen: current.gen + 1 });
+
+/**
+ * Whether a result asked for as `req` may still be shown: only while it
+ * is the panel's current request. A late All page would otherwise replace
+ * the Images grid (and mint image URLs for PDFs).
+ */
+export const isCurrentFilesRequest = (
+  req: FilesRequest,
+  current: FilesRequest
+): boolean => req.tab === current.tab && req.gen === current.gen;

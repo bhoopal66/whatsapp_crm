@@ -48,7 +48,12 @@ const ch = (
     ...rest,
   };
 };
-const opts = { selfId: ME, peopleById, unknown: 'Someone' };
+const opts = {
+  selfId: ME,
+  peopleById,
+  unknown: 'Someone',
+  accountRole: 'agent' as const,
+};
 
 const channels = [
   ch('sales', 'team'),
@@ -96,6 +101,46 @@ describe('forwardTargets', () => {
       forwardTargets(channels, { ...opts, query: '@sara' }).map((t) => t.id)
     ).toEqual(['dm-sara', 'dm-group']);
     expect(forwardTargets(channels, { ...opts, query: 'zzz' })).toEqual([]);
+  });
+});
+
+describe('forwardTargets and admins-only channels', () => {
+  const asAdmin = (id: string, kind: ChannelWithMembership['kind']) => {
+    const c = ch(id, kind, { posting: 'admins' });
+    return { ...c, membership: { ...member(id), role: 'admin' as const } };
+  };
+  const list = [
+    ch('news', 'team', { posting: 'admins' }),
+    ch('news-out', 'team', { posting: 'admins', joined: false }),
+    ch('leads', 'private', { posting: 'admins' }),
+    asAdmin('mine', 'team'),
+    ch('sales', 'team', { posting: 'admins', threadReplies: 'everyone' }),
+    ch('open', 'team'),
+  ];
+  const ids = (
+    accountRole: Parameters<typeof forwardTargets>[1]['accountRole']
+  ) => forwardTargets(list, { ...opts, accountRole }).map((t) => t.id);
+
+  it('leaves out admins-only channels where the viewer is only a member', () => {
+    expect(ids('agent')).toEqual(['mine', 'open']);
+    expect(ids('team_leader')).toEqual(['mine', 'open']);
+    expect(ids(null)).toEqual(['mine', 'open']);
+  });
+
+  it('offers them to workspace owners and admins, joined or not', () => {
+    expect(ids('admin')).toEqual([
+      'leads',
+      'mine',
+      'news',
+      'news-out',
+      'open',
+      'sales',
+    ]);
+    expect(ids('owner')).toContain('news-out');
+  });
+
+  it('never counts a bank guest as a channel admin', () => {
+    expect(ids('bank_guest')).toEqual(['open']);
   });
 });
 

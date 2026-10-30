@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useAuth } from '@/hooks/use-auth';
 import {
   channelsWithGuests,
   forwardMessage,
@@ -58,6 +59,7 @@ export function ForwardDialog({
   const t = useTranslations('Chat');
   const { sb, accountId, userId, channels, people, peopleById } =
     useChatWorkspaceContext();
+  const { accountRole } = useAuth();
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
@@ -72,8 +74,9 @@ export function ForwardDialog({
         peopleById,
         unknown: t('unknownPerson'),
         exclude: m.channelId,
+        accountRole,
       }),
-    [channels, userId, peopleById, t, m.channelId]
+    [channels, userId, peopleById, t, m.channelId, accountRole]
   );
   const shown = useMemo(
     () =>
@@ -83,8 +86,9 @@ export function ForwardDialog({
         query,
         unknown: t('unknownPerson'),
         exclude: m.channelId,
+        accountRole,
       }),
-    [channels, userId, peopleById, query, t, m.channelId]
+    [channels, userId, peopleById, query, t, m.channelId, accountRole]
   );
 
   // A failed lookup only means the warning is missing; the forward

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -16,6 +16,7 @@ import {
   unreadSince,
 } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
+import { shouldMarkRead, type ReadMark } from '@/lib/chat/read-mark';
 import { channelDisplayName } from '@/lib/chat/view';
 
 import { ChannelHeader } from './channel-header';
@@ -161,25 +162,35 @@ export function ChannelView({
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
-  const newest = tl.messages[tl.messages.length - 1]?.id;
+  const newest = tl.messages[tl.messages.length - 1]?.id ?? null;
+  // Keyed on whether a member row exists, never on the row itself: each
+  // mark's own echo reloads the list with a new row object, which marked
+  // an idle channel every couple of seconds (shouldMarkRead).
+  const member = !!channel?.membership;
+  const lastMark = useRef<ReadMark | null>(null);
   useEffect(() => {
-    if (tl.loading || !channel?.membership) return;
     const timer = setTimeout(() => {
-      if (document.visibilityState !== 'visible') return;
+      const mark: ReadMark = { channelId, newestId: newest };
+      if (
+        !shouldMarkRead({
+          ...mark,
+          loading: tl.loading,
+          member,
+          visible: document.visibilityState === 'visible',
+          last: lastMark.current,
+        })
+      )
+        return;
+      lastMark.current = mark;
       markRead(sb, channelId)
         .then(refreshUnread)
-        .catch(() => {});
+        .catch(() => {
+          // Let the next change or visit try again.
+          if (lastMark.current === mark) lastMark.current = null;
+        });
     }, MARK_READ_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [
-    sb,
-    channelId,
-    newest,
-    shownTick,
-    tl.loading,
-    channel?.membership,
-    refreshUnread,
-  ]);
+  }, [sb, channelId, newest, shownTick, tl.loading, member, refreshUnread]);
 
   // "Seen by" under the viewer's last own top-level message.
   const seenId = useMemo(
