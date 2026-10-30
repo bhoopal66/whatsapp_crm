@@ -59,6 +59,25 @@ export function validateChatFiles(
     );
 }
 
+/** Maps a Storage upload/copy failure to the ChatError the composer shows. */
+export function storageUploadError(error: { message: string }): ChatError {
+  const status = String((error as { statusCode?: unknown }).statusCode ?? '');
+  const forbidden =
+    status === '403' ||
+    /row-level security|unauthori[sz]ed/i.test(error.message);
+  return new ChatError(
+    forbidden ? 'FORBIDDEN' : status === '413' ? 'INVALID' : 'UNKNOWN',
+    forbidden
+      ? 'forbidden'
+      : status === '413'
+        ? 'fileTooLarge'
+        : 'uploadFailed',
+    error.message,
+    undefined,
+    { cause: error }
+  );
+}
+
 export async function uploadChatFile(
   sb: SupabaseClient,
   i: { accountId: string; channelId: string; file: File }
@@ -73,23 +92,7 @@ export async function uploadChatFile(
       upsert: false,
       cacheControl: '3600',
     });
-  if (error) {
-    const status = String((error as { statusCode?: unknown }).statusCode ?? '');
-    const forbidden =
-      status === '403' ||
-      /row-level security|unauthori[sz]ed/i.test(error.message);
-    throw new ChatError(
-      forbidden ? 'FORBIDDEN' : status === '413' ? 'INVALID' : 'UNKNOWN',
-      forbidden
-        ? 'forbidden'
-        : status === '413'
-          ? 'fileTooLarge'
-          : 'uploadFailed',
-      error.message,
-      undefined,
-      { cause: error }
-    );
-  }
+  if (error) throw storageUploadError(error);
   const name = i.file.name.trim().slice(0, 255) || 'file';
   return { storage_path: path, name, mime, bytes: i.file.size };
 }

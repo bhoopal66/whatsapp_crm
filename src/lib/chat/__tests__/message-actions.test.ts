@@ -26,6 +26,8 @@ const msg = (o: Partial<ChatMessage> = {}): ChatMessage => ({
   editedAt: null,
   deletedAt: null,
   erasedAt: null,
+  replyToId: null,
+  forwarded: null,
   attachments: [],
   reactions: [],
   thread: null,

@@ -37,6 +37,8 @@ function msg(id: string, p: Partial<ChatMessage> = {}): ChatMessage {
     editedAt: null,
     deletedAt: null,
     erasedAt: null,
+    replyToId: null,
+    forwarded: null,
     attachments: [],
     reactions: [],
     thread: null,
@@ -127,6 +129,8 @@ describe('applyMessageEvent', () => {
       name: 'n',
       mime: 'x',
       bytes: 1,
+      kind: 'file' as const,
+      durationMs: null,
     };
     const reactions = [{ emoji: '👍', count: 1, userIds: [B] }];
     const thread = summarizeReplies([

@@ -39,6 +39,9 @@ export interface ChannelWithMembership extends Channel {
   membership: ChannelMember | null;
 }
 
+/** 156: a voice note is an attachment of kind 'voice' with a duration. */
+export type AttachmentKind = 'file' | 'voice';
+
 export interface ChatAttachment {
   id: string;
   messageId: string;
@@ -46,6 +49,9 @@ export interface ChatAttachment {
   name: string;
   mime: string;
   bytes: number;
+  kind: AttachmentKind;
+  /** Voice notes only (1..1200000); null for a file. */
+  durationMs: number | null;
 }
 
 /** One element of chat_post_message(p_attachments). */
@@ -54,6 +60,16 @@ export interface AttachmentInput {
   name: string;
   mime: string;
   bytes: number;
+  kind?: AttachmentKind;
+  duration_ms?: number;
+}
+
+/** 156: where a forwarded message came from (meta.forwarded). */
+export interface ForwardedFrom {
+  messageId: string;
+  authorId: string | null;
+  authorKind: AuthorKind;
+  createdAt: string;
 }
 
 export interface ReactionSummary {
@@ -93,10 +109,38 @@ export interface ChatMessage {
   editedAt: string | null;
   deletedAt: string | null;
   erasedAt: string | null;
+  /** 156: the message this one quotes; null when it quotes none. */
+  replyToId: string | null;
+  /** 156: set on a forwarded copy; null otherwise. */
+  forwarded: ForwardedFrom | null;
   attachments: ChatAttachment[];
   reactions: ReactionSummary[];
   /** Top-level messages only; null when there are no replies (or not loaded). */
   thread: ThreadSummary | null;
+}
+
+/** 156 chat_typing row: who is typing where, as of `at`. */
+export interface TypingRow {
+  channelId: string;
+  accountId: string;
+  userId: string;
+  /** NULL: the channel's main timeline. */
+  threadRootId: string | null;
+  at: string;
+}
+
+/** 156 chat_voice_plays row: someone played a voice note. */
+export interface VoicePlay {
+  messageId: string;
+  userId: string;
+  playedAt: string;
+}
+
+/** 156 chat_channel_files row: an attachment with its message context. */
+export interface ChannelFile extends ChatAttachment {
+  createdAt: string;
+  authorId: string | null;
+  threadRootId: string | null;
 }
 
 export interface MessagePage {
@@ -243,7 +287,20 @@ export function toChannelMember(r: Row): ChannelMember {
   };
 }
 
+function toForwarded(meta: Row): ForwardedFrom | null {
+  const f = obj(meta.forwarded);
+  if (typeof f.message_id !== 'string' || typeof f.created_at !== 'string')
+    return null;
+  return {
+    messageId: f.message_id,
+    authorId: typeof f.author_id === 'string' ? f.author_id : null,
+    authorKind: f.author_kind === 'system' ? 'system' : 'user',
+    createdAt: f.created_at,
+  };
+}
+
 export function toChatMessage(r: Row): ChatMessage {
+  const meta = obj(r.meta);
   return {
     id: str(r.id),
     channelId: str(r.channel_id),
@@ -252,11 +309,13 @@ export function toChatMessage(r: Row): ChatMessage {
     authorKind: r.author_kind === 'system' ? 'system' : 'user',
     authorId: opt(r.author_id),
     body: str(r.body),
-    meta: obj(r.meta),
+    meta,
     createdAt: str(r.created_at),
     editedAt: opt(r.edited_at),
     deletedAt: opt(r.deleted_at),
     erasedAt: opt(r.erased_at),
+    replyToId: opt(r.reply_to_id),
+    forwarded: toForwarded(meta),
     attachments: [],
     reactions: [],
     thread: null,
@@ -271,8 +330,32 @@ export function toAttachment(r: Row): ChatAttachment {
     name: str(r.name),
     mime: str(r.mime),
     bytes: num(r.bytes),
+    kind: r.kind === 'voice' ? 'voice' : 'file',
+    durationMs: r.duration_ms == null ? null : num(r.duration_ms),
   };
 }
+
+export const toTypingRow = (r: Row): TypingRow => ({
+  channelId: str(r.channel_id),
+  accountId: str(r.account_id),
+  userId: str(r.user_id),
+  threadRootId: opt(r.thread_root_id),
+  at: str(r.at),
+});
+
+export const toVoicePlay = (r: Row): VoicePlay => ({
+  messageId: str(r.message_id),
+  userId: str(r.user_id),
+  playedAt: str(r.played_at),
+});
+
+export const toChannelFile = (r: Row): ChannelFile => ({
+  // chat_channel_files names the attachment id `id`.
+  ...toAttachment(r),
+  createdAt: str(r.created_at),
+  authorId: opt(r.author_id),
+  threadRootId: opt(r.thread_root_id),
+});
 
 /**
  * A call card (103), read live from the call. Every field but

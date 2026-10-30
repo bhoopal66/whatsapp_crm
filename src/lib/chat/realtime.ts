@@ -6,6 +6,9 @@
  * events carry only the primary key and are not RLS-filtered — the
  * reducers ignore ids they do not hold.
  *
+ * chat_typing and chat_voice_plays exist from migration 156; against an
+ * older database those two subscriptions error, so apply 156 first.
+ *
  * Handlers are read off `opts` at event time, so a hook can pass one
  * object and swap its callbacks (refs) without resubscribing.
  */
@@ -17,9 +20,13 @@ import {
   toChannelMember,
   toChatMessage,
   toChatNotification,
+  toTypingRow,
+  toVoicePlay,
   type Channel,
   type ChannelMember,
   type ChatNotification,
+  type TypingRow,
+  type VoicePlay,
 } from './types';
 
 type Row = Record<string, unknown>;
@@ -46,6 +53,12 @@ export interface ChatSubscription {
     type: Change;
     notification: ChatNotification;
   }) => void;
+  /** DELETE carries only channel + user (the primary key). */
+  onTyping?: (e: {
+    type: Change;
+    row: TypingRow | Pick<TypingRow, 'channelId' | 'userId'>;
+  }) => void;
+  onVoicePlay?: (p: VoicePlay) => void;
   onStatus?: (status: string) => void;
 }
 
@@ -124,6 +137,20 @@ export function subscribeChat(
       notification: toChatNotification(rowOf(p)),
     })
   );
+  on('chat_typing', byAccount, (p) => {
+    const r = rowOf(p);
+    opts.onTyping?.({
+      type: change(p),
+      row:
+        p.eventType === 'DELETE'
+          ? { channelId: String(r.channel_id), userId: String(r.user_id) }
+          : toTypingRow(r),
+    });
+  });
+  on('chat_voice_plays', byAccount, (p) => {
+    if (p.eventType !== 'INSERT') return;
+    opts.onVoicePlay?.(toVoicePlay(rowOf(p)));
+  });
 
   const channel = ch.subscribe((status) => opts.onStatus?.(status));
   return () => {

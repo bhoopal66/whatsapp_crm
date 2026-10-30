@@ -14,12 +14,16 @@ import {
   type ChatErrorKey,
 } from './errors';
 import { isUuid } from './mentions';
+import { CHAT_FILES_BUCKET, chatFilePath, storageUploadError } from './uploads';
 import {
   toAttachment,
   toChannel,
   toChannelMember,
   toChatMessage,
   toChatPerson,
+  toChannelFile,
+  toTypingRow,
+  toVoicePlay,
   toMessageEdit,
   toPin,
   toSearchHit,
@@ -28,6 +32,7 @@ import {
   toUnreadCount,
   toWorkspaceBadge,
   type AttachmentInput,
+  type ChannelFile,
   type ChannelMember,
   type ChannelWithMembership,
   type ChatAttachment,
@@ -41,6 +46,8 @@ import {
   type SharedCard,
   type SharedCallCard,
   type ThreadSummary,
+  type TypingRow,
+  type VoicePlay,
   type UnreadCount,
   type WorkspaceBadge,
 } from './types';
@@ -51,7 +58,7 @@ type Row = Record<string, unknown>;
 
 /** internal_messages without the generated `search` tsvector. */
 export const MESSAGE_COLUMNS =
-  'id,channel_id,account_id,thread_root_id,author_kind,author_id,body,meta,created_at,edited_at,deleted_at,erased_at';
+  'id,channel_id,account_id,thread_root_id,author_kind,author_id,body,meta,created_at,edited_at,deleted_at,erased_at,reply_to_id';
 
 async function rpc<T>(sb: SupabaseClient, fn: string, args?: Row): Promise<T> {
   const { data, error } = await sb.rpc(fn, args);
@@ -102,6 +109,8 @@ export const postMessage = (
     threadRootId?: string | null;
     shareConversationId?: string | null;
     attachments?: AttachmentInput[];
+    /** 156: the message this one quotes. */
+    replyToId?: string | null;
   }
 ): Promise<string> =>
   rpc(sb, 'chat_post_message', {
@@ -110,7 +119,141 @@ export const postMessage = (
     p_thread_root: i.threadRootId ?? null,
     p_share_conversation: i.shareConversationId ?? null,
     p_attachments: i.attachments ?? [],
+    // Sent only when set: a database still on 087-155 has no p_reply_to
+    // and would reject the named argument, so ordinary posts must not carry it.
+    ...(i.replyToId ? { p_reply_to: i.replyToId } : {}),
   });
+
+/**
+ * Forwards a message into another channel (156). The server copies body
+ * and meta; the files are copied here, into the TARGET channel's storage
+ * prefix, because the storage policies and the path checks are per
+ * channel. A failed copy throws before the RPC, so nothing posts.
+ */
+export async function forwardMessage(
+  sb: SupabaseClient,
+  i: {
+    accountId: string;
+    messageId: string;
+    targetChannelId: string;
+    attachments: ChatAttachment[];
+  }
+): Promise<string> {
+  const copies = await Promise.all(
+    i.attachments.map(async (a): Promise<AttachmentInput> => {
+      const to = chatFilePath(i.accountId, i.targetChannelId, a.name);
+      const { error } = await sb.storage
+        .from(CHAT_FILES_BUCKET)
+        .copy(a.storagePath, to);
+      if (error) throw storageUploadError(error);
+      return {
+        storage_path: to,
+        name: a.name,
+        mime: a.mime,
+        bytes: a.bytes,
+        kind: a.kind,
+        ...(a.kind === 'voice' && a.durationMs != null
+          ? { duration_ms: a.durationMs }
+          : {}),
+      };
+    })
+  );
+  return rpc(sb, 'chat_forward_message', {
+    p_message: i.messageId,
+    p_channel: i.targetChannelId,
+    p_attachments: copies,
+  });
+}
+
+/** Tells the channel (or one thread) the caller is typing, or has stopped (156). */
+export const setTyping = (
+  sb: SupabaseClient,
+  i: { channelId: string; threadRootId?: string | null; typing: boolean }
+): Promise<void> =>
+  rpc(sb, 'chat_set_typing', {
+    p_channel: i.channelId,
+    p_thread_root: i.threadRootId ?? null,
+    p_typing: i.typing,
+  });
+
+/** Who is typing in a channel right now (rows may be stale; see typing.ts). */
+export async function typingIn(
+  sb: SupabaseClient,
+  channelId: string
+): Promise<TypingRow[]> {
+  return (
+    await rows(
+      sb
+        .from('chat_typing')
+        .select('channel_id,account_id,user_id,thread_root_id,at')
+        .eq('channel_id', channelId)
+    )
+  ).map(toTypingRow);
+}
+
+export const markVoicePlayed = (
+  sb: SupabaseClient,
+  messageId: string
+): Promise<void> => rpc(sb, 'chat_mark_voice_played', { p_message: messageId });
+
+export async function voicePlaysFor(
+  sb: SupabaseClient,
+  messageIds: string[]
+): Promise<Record<string, VoicePlay[]>> {
+  if (messageIds.length === 0) return {};
+  const data = await rows(
+    sb
+      .from('chat_voice_plays')
+      .select('message_id,user_id,played_at')
+      .in('message_id', messageIds)
+      .order('played_at')
+  );
+  const out: Record<string, VoicePlay[]> = {};
+  for (const r of data) (out[String(r.message_id)] ??= []).push(toVoicePlay(r));
+  return out;
+}
+
+/** Messages by id, attachments filled; for quotes outside the loaded page. RLS drops what the caller cannot read. */
+export async function messagesByIds(
+  sb: SupabaseClient,
+  ids: string[]
+): Promise<ChatMessage[]> {
+  if (ids.length === 0) return [];
+  const msgs = (
+    await rows(
+      sb.from('internal_messages').select(MESSAGE_COLUMNS).in('id', ids)
+    )
+  ).map(toChatMessage);
+  const atts = await attachmentsFor(
+    sb,
+    msgs.map((m) => m.id)
+  );
+  return msgs.map((m) => ({ ...m, attachments: atts[m.id] ?? [] }));
+}
+
+/** A channel's files, newest first (156); `kind` filters voice/image/video/file. */
+export async function channelFiles(
+  sb: SupabaseClient,
+  i: {
+    channelId: string;
+    kind?: 'voice' | 'image' | 'video' | 'file' | null;
+    before?: string | null;
+    limit?: number;
+  }
+): Promise<{ items: ChannelFile[]; hasMore: boolean }> {
+  const limit = Math.min(Math.max(Math.trunc(i.limit ?? 60), 1), 200);
+  const data = await rpc<Row[] | null>(sb, 'chat_channel_files', {
+    p_channel: i.channelId,
+    p_kind: i.kind ?? null,
+    p_before: i.before ?? null,
+    p_limit: limit + 1,
+  });
+  const list = data ?? [];
+  return {
+    items: list.slice(0, limit).map(toChannelFile),
+    hasMore: list.length > limit,
+  };
+}
 
 /**
  * Posts a card of a phone call (103). The body is the sharer's comment
@@ -612,7 +755,7 @@ export async function attachmentsFor(
   const data = await rows(
     sb
       .from('message_attachments')
-      .select('id,message_id,storage_path,name,mime,bytes')
+      .select('id,message_id,storage_path,name,mime,bytes,kind,duration_ms')
       .in('message_id', messageIds)
       .order('name')
   );

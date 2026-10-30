@@ -416,6 +416,8 @@ describe('table reads', () => {
         name: 'n.pdf',
         mime: 'application/pdf',
         bytes: 42,
+        kind: 'file',
+        durationMs: null,
       },
     ]);
   });
