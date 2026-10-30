@@ -53,6 +53,10 @@ DECLARE
   t1     UUID;  -- A team, leader tl, member ag (and ag3)
   t2     UUID;  -- A team, member ag2
   tb     UUID;  -- B team
+  ch3    UUID;  -- A team, the manage checks: ag2 (channel admin, T2), ag and ag3 (T1); audience T1
+  ch4    UUID;  -- A team, the deleted-team checks; audience T3
+  t3     UUID;  -- A team, member vw; deleted
+  mg     TEXT := 'ERROR 42501:%outside this channel''s audience%';
   mv     UUID;  -- tl's voice note in ch
   m      UUID;
   pre    TEXT;  -- ch's storage prefix
@@ -383,6 +387,77 @@ BEGIN
     format('UPDATE chat_channels SET audience_min_role = ''agent'' WHERE id = %L RETURNING ''updated''', pv), 'ERROR 23514%audience_team_only%');
   n := n + 1; failed := failed || pg_temp.tc_check('CHECK: a team channel cannot store min role agent', NULL,
     format('UPDATE chat_channels SET audience_min_role = ''agent'' WHERE id = %L RETURNING ''updated''', ch), 'updated');
+
+  -- ---------- I. managing a team channel needs its audience ----------
+  ch3 := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text',
+          a, 'team', 'TC159 manage', ARRAY[u_ag, u_ag2, u_ag3]));
+  r := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag2, 'admin'));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: ch3 channel admin (%)', r; END IF;
+  r := pg_temp.tc_try('authenticated', u_own, format(aud, ch3, NULL, ARRAY[t1]));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: ch3 audience T1 (%)', r; END IF;
+  -- u_ag2 (T2) is a channel admin the audience now excludes
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin renamed the channel', u_ag2,
+    format('SELECT public.chat_update_channel(%L, %L, NULL)::text', ch3, 'renamed'), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin set a member role', u_ag2,
+    format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag, 'admin'), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin set the channel policy', u_ag2,
+    format('SELECT public.chat_set_channel_policy(%L, %L, %L, %L)::text', ch3, 'admins', 'everyone', 'admins'), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin restricted a member', u_ag2,
+    format('SELECT public.chat_restrict_member(%L, %L, now() + interval ''1 hour'', %L)::text', ch3, u_ag3, 'cool down'), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin removed a member', u_ag2,
+    format('SELECT public.chat_remove_member(%L, %L)::text', ch3, u_ag3), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin reopened the audience', u_ag2,
+    format(aud, ch3, NULL, '{}'::uuid[]), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an out-of-audience channel admin archived the channel', u_ag2,
+    format('SELECT public.chat_archive_channel(%L, true)::text', ch3), mg);
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: a refused manager changed the channel', NULL,
+    format('SELECT c.name || ''/'' || (c.archived_at IS NULL) || ''/'' || c.audience_team_restricted || ''/'' || (SELECT string_agg(user_id::text || '':'' || role, '','' ORDER BY role, user_id) FROM chat_channel_members WHERE channel_id = c.id AND user_id IN (%L, %L, %L)) || ''/'' || (SELECT count(*) FROM chat_channel_restrictions WHERE channel_id = c.id) FROM chat_channels c WHERE c.id = %L', u_ag, u_ag2, u_ag3, ch3),
+    'TC159 manage/true/true/' || u_ag2 || ':admin,' || u_ag || ':member,' || u_ag3 || ':member/0');
+  -- (only a broken gate archives it; un-archive so the controls below stand alone)
+  UPDATE chat_channels SET archived_at = NULL WHERE id = ch3;
+  -- a workspace admin (not a member) still manages it
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: a workspace admin could not rename the channel', u_adm2,
+    format('SELECT public.chat_update_channel(%L, %L, NULL)::text', ch3, 'TC159 manage 2'), 'ok');
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: a workspace admin could not set a member role', u_adm2,
+    format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag, 'admin'), 'ok');
+  -- an in-audience channel admin (u_ag, T1) still manages it
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an in-audience channel admin could not rename the channel', u_ag,
+    format('SELECT public.chat_update_channel(%L, %L, NULL)::text', ch3, 'TC159 manage 3'), 'ok');
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an in-audience channel admin could not set the channel policy', u_ag,
+    format('SELECT public.chat_set_channel_policy(%L, %L, %L, %L)::text', ch3, 'admins', 'everyone', 'admins'), 'ok');
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: an in-audience channel admin could not set a member role', u_ag,
+    format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag2, 'member'), 'ok');
+  n := n + 1; failed := failed || pg_temp.tc_check('manage: the controls did not take effect', NULL,
+    format('SELECT c.name || ''/'' || (SELECT string_agg(user_id::text || '':'' || role, '','' ORDER BY role, user_id) FROM chat_channel_members WHERE channel_id = c.id AND user_id IN (%L, %L)) FROM chat_channels c WHERE c.id = %L', u_ag, u_ag2, ch3),
+    'TC159 manage 3/' || u_ag || ':admin,' || u_ag2 || ':member');
+
+  -- ---------- J. a deleted team leaves the channel closed, not open ----------
+  INSERT INTO teams (account_id, name) VALUES (a, 'TC159 T3') RETURNING id INTO t3;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (t3, u_vw, a);
+  ch4 := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text',
+          a, 'team', 'TC159 deleted team', ARRAY[u_vw]));
+  r := pg_temp.tc_try('authenticated', u_own, format(aud, ch4, NULL, ARRAY[t3]));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: ch4 audience T3 (%)', r; END IF;
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_vw, ch4) = '1' AND pg_temp.tc_sees(u_ag, ch4) = '0',
+    'deleted team: before the delete, T3''s member does not see the channel or an outsider does');
+  DELETE FROM teams WHERE id = t3;
+  n := n + 1; failed := failed || pg_temp.tc_check('deleted team: the flag was cleared or the rows survived', NULL,
+    format('SELECT c.audience_team_restricted::text || ''/'' || (SELECT count(*) FROM chat_channel_teams WHERE channel_id = c.id) FROM chat_channels c WHERE c.id = %L', ch4),
+    'true/0');
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_vw, ch4) = '0',
+    'deleted team: the deleted team''s former member still reads the channel');
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_ag, ch4) = '0',
+    'deleted team: a staff member outside the deleted team reads the channel');
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_tl, ch4) = '0',
+    'deleted team: a team leader reads the channel');
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_adm2, ch4) = '1',
+    'deleted team: a workspace admin does not read the channel');
+  r := pg_temp.tc_try('authenticated', u_own, format(aud, ch4, NULL, '{}'::uuid[]));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'deleted team: saving the audience with no teams failed (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('deleted team: saving no teams left the flag on', NULL,
+    format('SELECT audience_team_restricted::text FROM chat_channels WHERE id = %L', ch4), 'false');
+  n := n + 1; failed := failed || pg_temp.tc_ok(pg_temp.tc_sees(u_ag, ch4) = '1' AND pg_temp.tc_sees(u_vw, ch4) = '1',
+    'deleted team: saving no teams did not reopen the channel to staff');
 
   -- ---------- privileges ----------
   n := n + 1; failed := failed || pg_temp.tc_ok(

@@ -45,12 +45,14 @@ DECLARE
   u_ag4  UUID := '00000000-0000-4000-8000-000000160107';  -- agent, not in ch until restricted
   u_x    UUID := '00000000-0000-4000-8000-000000160108';  -- agent, in nothing
   u_g    UUID := '00000000-0000-4000-8000-000000160109';  -- bank guest, admin row in pv
+  u_pr   UUID := '00000000-0000-4000-8000-000000160110';  -- agent, restricted in lv, then made admin
   a      UUID;
   ch     UUID;  -- team: own adm tl ag(admin) ag2 ag3
   pv     UUID;  -- private: ag(admin) ag2 g(admin row)
   pv2    UUID;  -- private, exported: ag ag2
   dm     UUID;  -- DM: ag ag2
   arc    UUID;  -- archived team channel: own ag3
+  lv     UUID;  -- team: x ag2 pr ag(admin), the timeout-row checks
   m      UUID;
   m2     UUID;
   m3     UUID;
@@ -141,7 +143,7 @@ BEGIN
     (u_tl, 'ci-mod-tl@example.invalid'), (u_ag, 'ci-mod-ag@example.invalid'),
     (u_ag2, 'ci-mod-ag2@example.invalid'), (u_ag3, 'ci-mod-ag3@example.invalid'),
     (u_ag4, 'ci-mod-ag4@example.invalid'), (u_x, 'ci-mod-x@example.invalid'),
-    (u_g, 'ci-mod-g@example.invalid')
+    (u_g, 'ci-mod-g@example.invalid'), (u_pr, 'ci-mod-pr@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a FROM profiles WHERE user_id = u_own;
   IF a IS NULL THEN
@@ -150,7 +152,7 @@ BEGIN
   UPDATE accounts SET internal_chat_enabled = true WHERE id = a;
   UPDATE profiles SET account_id = a, account_role = 'admin' WHERE user_id = u_adm;
   UPDATE profiles SET account_id = a, account_role = 'team_leader' WHERE user_id = u_tl;
-  UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_ag, u_ag2, u_ag3, u_ag4, u_x);
+  UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_ag, u_ag2, u_ag3, u_ag4, u_x, u_pr);
   UPDATE profiles SET full_name = 'Mod Two' WHERE user_id = u_ag2;
   INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
@@ -357,6 +359,54 @@ BEGIN
     '0/true');
   n := n + 1; failed := failed || pg_temp.tc_check('restricted team non-member posted', u_ag4,
     format(post, ch, 'hi'), 'ERROR 42501:%restricted from posting%');
+
+  -- ---------- B. the timeout lives in chat_channel_restrictions ----------
+  lv := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'team', 'Mod leave', ARRAY[u_x, u_ag2, u_pr, u_ag]));
+  r := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_set_member_role(%L, %L, %L)::text', lv, u_ag, 'admin'));
+  IF r LIKE '%ERROR%' THEN RAISE EXCEPTION 'fixture: lv channel admin (%)', r; END IF;
+  -- leaving a team channel (which deletes the member row) and posting
+  -- again (which auto-joins) does not shed the timeout
+  r := pg_temp.tc_try('authenticated', u_own, format(rs, lv, u_x, hour, 'cool down'));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: restrict x in lv (%)', r; END IF;
+  r := pg_temp.tc_try('authenticated', u_x, format('SELECT public.chat_leave_channel(%L)::text', lv));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'a restricted member could not leave a team channel (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('leave: the member row is still there, or the restriction row is gone', NULL,
+    format('SELECT (SELECT count(*) FROM chat_channel_members WHERE channel_id = %L AND user_id = %L) || ''/'' || (SELECT (until > now())::text FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L)', lv, u_x, lv, u_x),
+    '0/true');
+  n := n + 1; failed := failed || pg_temp.tc_check('a restricted member who left a team channel posted again', u_x,
+    format(post, lv, 'back again'), 'ERROR 42501:%restricted from posting%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a refused post after leaving re-joined the channel', NULL,
+    format('SELECT count(*)::text FROM chat_channel_members WHERE channel_id = %L AND user_id = %L', lv, u_x), '0');
+  -- lifting is an UPDATE (the row stays, until <= now()), never a DELETE
+  r := pg_temp.tc_try('authenticated', u_ag, format(rs, lv, u_ag2, hour, 'cool down'));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: restrict ag2 in lv (%)', r; END IF;
+  r := pg_temp.tc_try('authenticated', u_ag, format(rs, lv, u_ag2, 'NULL', NULL));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'lifting a timeout failed (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('lifting a timeout deleted the row, or left it live', NULL,
+    format('SELECT count(*)::text || ''/'' || bool_and(until <= now())::text || ''/'' || bool_and(set_by = %L)::text FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L', u_ag, lv, u_ag2),
+    '1/true/true');
+  r := pg_temp.tc_try('authenticated', u_ag2, format(post, lv, 'lifted'));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r ~ uuid_re, 'a lifted member could not post (' || r || ')');
+  -- a timed-out agent since made a workspace admin is no longer held
+  r := pg_temp.tc_try('authenticated', u_own, format(rs, lv, u_pr, hour, 'cool down'));
+  IF r <> 'ok' THEN RAISE EXCEPTION 'fixture: restrict pr in lv (%)', r; END IF;
+  n := n + 1; failed := failed || pg_temp.tc_check('a timed-out agent posted', u_pr,
+    format(post, lv, 'hi'), 'ERROR 42501:%restricted from posting%');
+  UPDATE profiles SET account_role = 'admin' WHERE user_id = u_pr AND account_id = a;
+  r := pg_temp.tc_try('authenticated', u_pr, format(post, lv, 'promoted'));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r ~ uuid_re, 'a timed-out agent made workspace admin is still blocked (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('promotion: the restriction row is gone or no longer live', NULL,
+    format('SELECT (until > now())::text FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L', lv, u_pr), 'true');
+  -- who reads the rows (lv holds x live, ag2 lifted, pr live)
+  n := n + 1; failed := failed || pg_temp.tc_check('RLS: the restricted person does not read exactly their own row', u_x,
+    format('SELECT count(*)::text || ''/'' || coalesce(string_agg(user_id::text, '',''), '''') FROM chat_channel_restrictions WHERE channel_id = %L', lv),
+    '1/' || u_x);
+  n := n + 1; failed := failed || pg_temp.tc_check('RLS: a channel admin does not read the channel''s rows', u_ag,
+    format('SELECT count(*)::text FROM chat_channel_restrictions WHERE channel_id = %L', lv), '3');
+  n := n + 1; failed := failed || pg_temp.tc_check('RLS: a plain member reads someone else''s row', u_ag2,
+    format('SELECT count(*)::text FROM chat_channel_restrictions WHERE channel_id = %L AND user_id <> %L', lv, u_ag2), '0');
+  n := n + 1; failed := failed || pg_temp.tc_check('RLS: a member not in the channel reads its rows', u_ag3,
+    format('SELECT count(*)::text FROM chat_channel_restrictions WHERE channel_id = %L', lv), '0');
 
   -- ---------- C. chat_export_channel ----------
   m := pg_temp.tc_try('authenticated', u_ag, format(post, pv2, format('hello <@%s>', u_ag2)));
