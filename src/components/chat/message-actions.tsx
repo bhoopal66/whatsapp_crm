@@ -46,6 +46,7 @@ import {
   type ContextMenuEntry,
 } from '@/components/context-menu/registry';
 import {
+  channelsWithGuests,
   deleteMessageAndFiles,
   editMessage,
   messageEdits,
@@ -55,6 +56,13 @@ import {
 import { chatHref } from '@/lib/chat/compose';
 import { deserializeBody } from '@/lib/chat/composer';
 import { editSubmission } from '@/lib/chat/composer-input';
+import {
+  needsGuestLookup,
+  sensitiveDecision,
+  stripMentionTokens,
+  type SensitiveKind,
+} from '@/lib/chat/composer-gating';
+import { sensitiveKinds } from '@/lib/kb/sensitive';
 import {
   applyLocalPatch,
   canViewEditHistory,
@@ -71,6 +79,7 @@ import {
   reasonLength,
 } from '@/lib/chat/moderation';
 import { cn } from '@/lib/utils';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { ForwardDialog } from './forward-dialog';
@@ -130,7 +139,12 @@ export function useMessageEdits(message: ChatMessage) {
   };
 }
 
-/** The inline editor of one's own message: Enter or Save saves, Esc or Cancel cancels. */
+/**
+ * The inline editor of one's own message: Enter or Save saves, Esc or
+ * Cancel cancels. Save runs the composer's sensitive-data check (158):
+ * 'warn' asks first, 'block' explains inline. UX only: the database
+ * enforces 'block' on the edit as well.
+ */
 export function MessageEditor({
   message,
   broadcasts,
@@ -143,31 +157,80 @@ export function MessageEditor({
   onCancel: () => void;
 }) {
   const t = useTranslations('Chat');
-  const { peopleById } = useChatWorkspaceContext();
+  const { sb, peopleById, channels } = useChatWorkspaceContext();
+  const { permissions } = useChatPermissions();
   const [draft, setDraft] = useState(() =>
     deserializeBody(message.body, peopleById)
   );
-  const save = () => {
+  const [checking, setChecking] = useState(false);
+  const [blocked, setBlocked] = useState<SensitiveKind[] | null>(null);
+  const [confirm, setConfirm] = useState<{
+    body: string;
+    kinds: SensitiveKind[];
+    guests: boolean;
+  } | null>(null);
+  const kindNames = (kinds: readonly SensitiveKind[]) =>
+    kinds.map((k) => t(`composer.sensitive.kind_${k}`)).join(', ');
+  const kind = channels?.find((c) => c.id === message.channelId)?.kind;
+
+  const save = async () => {
+    if (checking) return;
     const s = editSubmission(
       message.body,
       draft,
       message.attachments.map((a) => a.name)
     );
-    if (s.kind === 'unchanged') onCancel();
-    else if (s.kind === 'save') onSave(s.body);
-    else if (s.reason === 'bodyLength') toast.error(t('errors.bodyLength'));
+    if (s.kind === 'unchanged') return onCancel();
+    if (s.kind !== 'save') {
+      if (s.reason === 'bodyLength') toast.error(t('errors.bodyLength'));
+      return;
+    }
+    // Channel not loaded: nothing to judge the scope by, the server decides.
+    if (!kind) return onSave(s.body);
+    const kinds = sensitiveKinds(stripMentionTokens(s.body));
+    setChecking(true);
+    try {
+      const hasGuest = needsGuestLookup(permissions.sensitive, kind, kinds)
+        ? await channelsWithGuests(sb, [message.channelId]).then(
+            (set) =>
+              set.has(message.channelId) ||
+              set.has(message.channelId.toLowerCase()),
+            () => null
+          )
+        : null;
+      const d = sensitiveDecision({
+        kinds,
+        guard: permissions.sensitive,
+        kind,
+        hasGuest,
+      });
+      if (d.action === 'block') setBlocked(d.kinds);
+      else if (d.action === 'warn')
+        setConfirm({ body: s.body, kinds: d.kinds, guests: d.guests });
+      else onSave(s.body);
+    } finally {
+      setChecking(false);
+    }
   };
   return (
     <div className="mt-1 rounded-lg border p-2">
       <MentionTextarea
         draft={draft}
-        onDraftChange={setDraft}
-        onSubmit={save}
+        onDraftChange={(next) => {
+          setDraft(next);
+          setBlocked(null);
+        }}
+        onSubmit={() => void save()}
         onCancel={onCancel}
         broadcasts={broadcasts}
         ariaLabel={t('actions.editLabel')}
         autoFocus
       />
+      {blocked && (
+        <p role="alert" className="text-destructive mt-1.5 text-xs">
+          {t('actions.editSensitiveBlocked', { kinds: kindNames(blocked) })}
+        </p>
+      )}
       <div className="mt-2 flex items-center gap-2">
         <span className="text-muted-foreground flex-1 text-xs">
           {t('actions.editHint')}
@@ -175,10 +238,44 @@ export function MessageEditor({
         <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
           {t('actions.editCancel')}
         </Button>
-        <Button type="button" size="sm" onClick={save}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={checking}
+          onClick={() => void save()}
+        >
           {t('actions.editSave')}
         </Button>
       </div>
+      {confirm && (
+        <Dialog open onOpenChange={(next) => !next && setConfirm(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('composer.sensitive.warnTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('composer.sensitive.warnBody', {
+                  kinds: kindNames(confirm.kinds),
+                })}
+                {confirm.guests && ` ${t('composer.sensitive.warnGuests')}`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirm(null)}>
+                {t('composer.sensitive.edit')}
+              </Button>
+              <Button
+                onClick={() => {
+                  const body = confirm.body;
+                  setConfirm(null);
+                  onSave(body);
+                }}
+              >
+                {t('actions.editSaveAnyway')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -362,7 +459,21 @@ export function MessageActions({
   const [moderating, setModerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [forwarding, setForwarding] = useState(false);
-  const can = messageActions(m, ctx);
+  const { permissions } = useChatPermissions();
+  // The edit/delete windows (157) are judged at the moment the toolbar
+  // is reached (hover, focus, menu open) and right-click: no timer, and
+  // the RPC refuses a closed window anyway.
+  const [now, setNow] = useState(() => Date.now());
+  const refreshNow = () => setNow(Date.now());
+  const can = messageActions(m, { ...ctx, permissions, now });
+  // The toolbar shows on hovering the row, so the row's hover refreshes it.
+  useEffect(() => {
+    const row = rowRef?.current;
+    if (!row) return;
+    const onEnter = () => setNow(Date.now());
+    row.addEventListener('pointerenter', onEnter);
+    return () => row.removeEventListener('pointerenter', onEnter);
+  }, [rowRef]);
   const replyTarget = useReplyTarget();
   // Only inside a composer's ReplyTargetProvider (channel view, thread panel).
   const quotes = can.quote && replyTarget.available;
@@ -386,8 +497,11 @@ export function MessageActions({
     channels?.find((c) => c.id === m.channelId)?.kind !== 'deal_room';
 
   // Registered before the early return below: hooks run on every render.
-  useContextMenuItems(rowRef ?? NO_ROW, (): ContextMenuEntry[] =>
-    !Object.values(can).some(Boolean)
+  useContextMenuItems(rowRef ?? NO_ROW, (): ContextMenuEntry[] => {
+    // Built at right-click time, so the windows are judged then.
+    const can = messageActions(m, { ...ctx, permissions, now: Date.now() });
+    const quotes = can.quote && replyTarget.available;
+    return !Object.values(can).some(Boolean)
       ? []
       : [
           ...(quotes
@@ -527,8 +641,8 @@ export function MessageActions({
                 },
               ]
             : []),
-        ]
-  );
+        ];
+  });
 
   if (!Object.values(can).some(Boolean)) return null;
 
@@ -537,6 +651,7 @@ export function MessageActions({
       <div
         role="toolbar"
         aria-label={t('actions.toolbar')}
+        onFocus={refreshNow}
         className="bg-popover absolute -top-3 right-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 opacity-0 shadow-sm group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:top-1 pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:opacity-100 pointer-coarse:shadow-none"
       >
         {can.react &&
@@ -578,7 +693,7 @@ export function MessageActions({
             <MessagesSquare className="size-4" aria-hidden />
           </button>
         )}
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && refreshNow()}>
           <DropdownMenuTrigger
             aria-label={t('actions.more')}
             title={t('actions.more')}

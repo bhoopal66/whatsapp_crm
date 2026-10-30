@@ -22,7 +22,9 @@ import {
   filterPeople,
   togglePick,
 } from '@/lib/chat/compose';
+import { dmSelectionMax } from '@/lib/chat/new-channel';
 import { avatarTint, initialOf, roleLabelKey } from '@/lib/chat/view';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
@@ -158,6 +160,10 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
   const ws = useChatWorkspaceContext();
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // Without open_group_dm (157) only a one-to-one DM; the RPC re-checks.
+  const { permissions } = useChatPermissions();
+  const max = dmSelectionMax(permissions.can);
+  const tooMany = picked.length > max;
   // Whom the workspace's DM rules (143) let the caller message. null
   // until loaded, and on failure: then everyone is listed and the
   // server refuses what the rules do not allow.
@@ -181,7 +187,7 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
   );
 
   const open = async () => {
-    if (!ws.accountId || picked.length === 0 || busy) return;
+    if (!ws.accountId || picked.length === 0 || tooMany || busy) return;
     setBusy(true);
     try {
       const id = await openDm(ws.sb, {
@@ -218,9 +224,12 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
           candidates={candidates}
           picked={picked}
           onChange={setPicked}
-          max={DM_MAX_OTHERS}
+          max={max}
           autoFocus
         />
+      )}
+      {!permissions.can.open_group_dm && (
+        <p className="text-muted-foreground text-xs">{t('groupRestricted')}</p>
       )}
       {hidden > 0 && (
         <p className="text-muted-foreground text-xs">{t('hiddenByRules')}</p>
@@ -231,7 +240,7 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
         </Button>
         <Button
           className={GREEN_BUTTON}
-          disabled={picked.length === 0 || busy}
+          disabled={picked.length === 0 || tooMany || busy}
           onClick={() => void open()}
         >
           {t('open')}

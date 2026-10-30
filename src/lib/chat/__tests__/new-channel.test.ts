@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { ChatError } from '../errors';
+import { DM_MAX_OTHERS } from '../compose';
 import {
+  allowedChannelKinds,
   createChannelInput,
   dealRoomOption,
+  dmSelectionMax,
   nameTakenError,
   privateMemberCandidates,
   type NewChannelForm,
@@ -114,5 +117,23 @@ describe('dealRoomOption', () => {
     expect(dealRoomOption('bank_guest')).toBe('hidden');
     expect(dealRoomOption(null)).toBe('hidden');
     expect(dealRoomOption('nonsense')).toBe('hidden');
+  });
+});
+
+describe('creation permissions (157)', () => {
+  it('offers only the channel kinds the role may create', () => {
+    const k = (team: boolean, priv: boolean) =>
+      allowedChannelKinds({
+        create_team_channel: team,
+        create_private_channel: priv,
+      });
+    expect(k(true, true)).toEqual(['team', 'private']);
+    expect(k(false, true)).toEqual(['private']);
+    expect(k(true, false)).toEqual(['team']);
+    expect(k(false, false)).toEqual([]);
+  });
+  it('limits a DM to one other person without open_group_dm', () => {
+    expect(dmSelectionMax({ open_group_dm: false })).toBe(1);
+    expect(dmSelectionMax({ open_group_dm: true })).toBe(DM_MAX_OTHERS);
   });
 });

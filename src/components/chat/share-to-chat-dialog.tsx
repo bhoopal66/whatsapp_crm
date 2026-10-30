@@ -18,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 import {
   channelsWithGuests,
   listChannels,
@@ -37,7 +38,8 @@ import { cn } from '@/lib/utils';
 /**
  * Inbox → "Share to team chat": posts a read-only card of this
  * conversation, with an optional comment, to a team or private channel.
- * Hidden for viewers and bank guests; the database re-checks the rest.
+ * Hidden for viewers, bank guests and a role without share_cards (157);
+ * the database re-checks the rest.
  */
 export function ShareToChatButton({
   conversationId,
@@ -47,7 +49,9 @@ export function ShareToChatButton({
   const t = useTranslations('Chat');
   const { accountRole } = useAuth();
   const [open, setOpen] = useState(false);
-  if (!canShareToTeamChat(accountRole)) return null;
+  const { permissions } = useChatPermissions();
+  if (!canShareToTeamChat(accountRole) || !permissions.can.share_cards)
+    return null;
   return (
     <>
       <button
@@ -82,7 +86,8 @@ export function ShareToChatButton({
  * "Share to chat" on a call (103): posts a card of the call, with an
  * optional comment, to a team or private channel or a deal room's Team
  * notes. Never to the customer, the WhatsApp chat or a deal room's group.
- * Hidden for viewers, bank guests and an erased call; the database
+ * Hidden for viewers, bank guests, a role without share_cards (157) and
+ * an erased call; the database
  * re-checks the rest (the sharer must see the call, no bank guest).
  */
 export function ShareCallButton({
@@ -95,7 +100,12 @@ export function ShareCallButton({
   const t = useTranslations('Chat');
   const { accountRole } = useAuth();
   const [open, setOpen] = useState(false);
-  if (!canShareCall(accountRole, recordingState)) return null;
+  const { permissions } = useChatPermissions();
+  if (
+    !canShareCall(accountRole, recordingState) ||
+    !permissions.can.share_cards
+  )
+    return null;
   return (
     <>
       <button

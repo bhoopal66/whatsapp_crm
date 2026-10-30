@@ -287,15 +287,16 @@ export function ChatSidebar({
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onCompose}
-          disabled={!onCompose || isBankGuest}
-          aria-label={t('compose')}
-          className="border-input text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring flex size-8 items-center justify-center rounded-lg border bg-transparent focus-visible:ring-2 focus-visible:outline-none disabled:opacity-40"
-        >
-          <PenSquare className="size-4" />
-        </button>
+        {onCompose && !isBankGuest && (
+          <button
+            type="button"
+            onClick={onCompose}
+            aria-label={t('compose')}
+            className="border-input text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring flex size-8 items-center justify-center rounded-lg border bg-transparent focus-visible:ring-2 focus-visible:outline-none disabled:opacity-40"
+          >
+            <PenSquare className="size-4" />
+          </button>
+        )}
       </div>
       <form
         className="px-3"

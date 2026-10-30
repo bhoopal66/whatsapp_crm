@@ -6,8 +6,9 @@ import { useParams, usePathname } from 'next/navigation';
 import { CreateDealRoomDialog } from '@/components/deal-rooms/create-dialog';
 import { DealRoomsSidebar } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 import { useDealRooms } from '@/hooks/use-deal-rooms';
-import { dealRoomOption } from '@/lib/chat/new-channel';
+import { allowedChannelKinds, dealRoomOption } from '@/lib/chat/new-channel';
 import { isSavedPath } from '@/lib/chat/saved';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +36,10 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
   } = useAuth();
   const { rooms } = useDealRooms(accountId, isBankGuest);
   const [composeOpen, setComposeOpen] = useState(false);
+  // No compose button when the role may create neither a team nor a
+  // private channel (157).
+  const { permissions } = useChatPermissions();
+  const canCreateChannel = allowedChannelKinds(permissions.can).length > 0;
   const [dmOpen, setDmOpen] = useState(false);
   const [dealRoomOpen, setDealRoomOpen] = useState(false);
   // Agents and up open deal rooms (deal_room_create refuses viewers).
@@ -74,7 +79,11 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
           <ChatSidebar
             activeChannelId={activeChannelId}
             rooms={rooms}
-            onCompose={isBankGuest ? undefined : () => setComposeOpen(true)}
+            onCompose={
+              isBankGuest || !canCreateChannel
+                ? undefined
+                : () => setComposeOpen(true)
+            }
             onNewDm={isBankGuest ? undefined : () => setDmOpen(true)}
             className={sidebarClass}
           />

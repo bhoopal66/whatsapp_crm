@@ -9,6 +9,7 @@
  */
 import { mentionSegments } from './mentions';
 import { canModerate } from './moderation';
+import { windowOpen, type ChatPermissions } from './permissions';
 import type { ChatMessage, ChatPerson, MessageEdit } from './types';
 
 export const QUICK_REACTIONS = ['👍', '✅', '👀', '🙏', '❤️', '😂'] as const;
@@ -45,13 +46,20 @@ const NONE: MessageActionSet = {
 
 /**
  * A tombstone has no actions; a system post only reactions, a quote
- * reply and Forward; a person's post the rest, by the rules above. `threads` = the view can open a
+ * reply and Forward; a person's post the rest, by the rules above and
+ * the role permissions and time windows of 157 (UX only: the RPCs
+ * re-check them). `threads` = the view can open a
  * thread (replies themselves cannot have one).
  */
 export function messageActions(
   m: Pick<
     ChatMessage,
-    'authorKind' | 'authorId' | 'deletedAt' | 'erasedAt' | 'threadRootId'
+    | 'authorKind'
+    | 'authorId'
+    | 'deletedAt'
+    | 'erasedAt'
+    | 'threadRootId'
+    | 'createdAt'
   >,
   i: {
     userId: string | null;
@@ -60,8 +68,22 @@ export function messageActions(
     channelAdmin?: boolean;
     canWrite: boolean;
     threads: boolean;
+    /**
+     * The viewer's chat permissions (157): pin_messages, forward_messages,
+     * edit_own, delete_own and the edit/delete windows. Moderation is
+     * not affected.
+     */
+    permissions: Pick<
+      ChatPermissions,
+      'can' | 'editWindowMinutes' | 'deleteWindowMinutes' | 'windowsApply'
+    >;
+    /** Evaluated at render: a window that closes shows on the next one. */
+    now: number;
   }
 ): MessageActionSet {
+  const p = i.permissions;
+  const inWindow = (minutes: number | null) =>
+    !p.windowsApply || windowOpen(m.createdAt, minutes, i.now);
   if (m.deletedAt || m.erasedAt) return NONE;
   const moderate = canModerate(m, {
     userId: i.userId,
@@ -73,7 +95,7 @@ export function messageActions(
       ...NONE,
       react: i.canWrite,
       quote: i.canWrite,
-      forward: true,
+      forward: p.can.forward_messages,
       moderate,
     };
   const own =
@@ -82,14 +104,14 @@ export function messageActions(
     react: i.canWrite,
     quote: i.canWrite,
     thread: i.threads && !m.threadRootId,
-    edit: i.canWrite && own,
-    delete: own,
+    edit: i.canWrite && own && p.can.edit_own && inWindow(p.editWindowMinutes),
+    delete: own && p.can.delete_own && inWindow(p.deleteWindowMinutes),
     moderate,
-    pin: i.canWrite,
+    pin: i.canWrite && p.can.pin_messages,
     save: true,
     copy: true,
     // Posts into the targets, not here: write access here is not needed.
-    forward: true,
+    forward: p.can.forward_messages,
   };
 }
 

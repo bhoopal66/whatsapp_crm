@@ -9,6 +9,7 @@ import {
   messageActions,
   plainText,
 } from '../message-actions';
+import { ALL_ALLOWED, type ChatCapability } from '../permissions';
 import type { ChatMessage } from '../types';
 
 const ME = '11111111-1111-4111-8111-111111111111';
@@ -34,12 +35,28 @@ const msg = (o: Partial<ChatMessage> = {}): ChatMessage => ({
   thread: null,
   ...o,
 });
+const POSTED = Date.parse('2026-10-12T09:00:00Z');
 const who = {
   userId: ME,
   workspaceAdmin: false,
   canWrite: true,
   threads: true,
+  permissions: ALL_ALLOWED,
+  now: POSTED + 60_000,
 };
+const denied = (...caps: ChatCapability[]) => ({
+  ...ALL_ALLOWED,
+  can: {
+    ...ALL_ALLOWED.can,
+    ...Object.fromEntries(caps.map((c) => [c, false])),
+  },
+});
+const windows = (edit: number | null, del: number | null, apply = true) => ({
+  ...ALL_ALLOWED,
+  editWindowMinutes: edit,
+  deleteWindowMinutes: del,
+  windowsApply: apply,
+});
 
 describe('messageActions', () => {
   it('gives the author everything', () => {
@@ -114,6 +131,77 @@ describe('messageActions', () => {
     ).toBe(false);
     for (const m of [msg({ deletedAt: 'x' }), msg({ erasedAt: 'x' })])
       expect(Object.values(messageActions(m, who)).some(Boolean)).toBe(false);
+  });
+});
+
+describe('messageActions and chat permissions (157)', () => {
+  it('pin and unpin need pin_messages', () => {
+    expect(
+      messageActions(msg(), { ...who, permissions: denied('pin_messages') })
+    ).toEqual({ ...messageActions(msg(), who), pin: false });
+  });
+  it('forward needs forward_messages, system posts included', () => {
+    const permissions = denied('forward_messages');
+    expect(messageActions(msg(), { ...who, permissions })).toEqual({
+      ...messageActions(msg(), who),
+      forward: false,
+    });
+    const system = msg({ authorKind: 'system', authorId: null });
+    expect(messageActions(system, { ...who, permissions }).forward).toBe(false);
+  });
+  it('edit needs edit_own; own delete needs delete_own', () => {
+    expect(
+      messageActions(msg(), { ...who, permissions: denied('edit_own') })
+    ).toEqual({ ...messageActions(msg(), who), edit: false });
+    expect(
+      messageActions(msg(), { ...who, permissions: denied('delete_own') })
+    ).toEqual({ ...messageActions(msg(), who), delete: false });
+  });
+  it('removing someone else’s message is not affected by delete_own', () => {
+    const theirs = msg({ authorId: YOU });
+    expect(
+      messageActions(theirs, {
+        ...who,
+        workspaceAdmin: true,
+        permissions: denied('delete_own', 'edit_own'),
+      })
+    ).toMatchObject({ delete: false, moderate: true });
+  });
+  it('edit and delete close with their windows, the boundary still open', () => {
+    const permissions = windows(5, 10);
+    const at = (minutes: number) =>
+      messageActions(msg(), {
+        ...who,
+        permissions,
+        now: POSTED + minutes * 60_000,
+      });
+    expect(at(5)).toMatchObject({ edit: true, delete: true });
+    expect(at(5.01)).toMatchObject({ edit: false, delete: true });
+    expect(at(10)).toMatchObject({ edit: false, delete: true });
+    expect(at(10.01)).toMatchObject({ edit: false, delete: false });
+    // Everything else stays.
+    expect(at(60)).toEqual({
+      ...messageActions(msg(), who),
+      edit: false,
+      delete: false,
+    });
+  });
+  it('the windows bind only when they apply; no window never closes', () => {
+    const late = POSTED + 24 * 60 * 60_000;
+    expect(
+      messageActions(msg(), {
+        ...who,
+        permissions: windows(5, 5, false),
+        now: late,
+      })
+    ).toMatchObject({ edit: true, delete: true });
+    expect(
+      messageActions(msg(), {
+        ...who,
+        permissions: windows(null, null),
+        now: late,
+      })
+    ).toMatchObject({ edit: true, delete: true });
   });
 });
 

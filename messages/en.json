@@ -4770,6 +4770,8 @@
       "editSave": "Save",
       "editCancel": "Cancel",
       "editHint": "Enter to save · Esc to cancel",
+      "editSensitiveBlocked": "You can't save this: it contains {kinds}, which this workspace doesn't allow here.",
+      "editSaveAnyway": "Save anyway",
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete",
@@ -4881,6 +4883,7 @@
       "open": "Open",
       "cancel": "Cancel",
       "hiddenByRules": "Some people aren't shown because of your workspace's message rules.",
+      "groupRestricted": "You can only message one person at a time.",
       "peersLoading": "Checking who you can message…"
     },
     "newChannel": {

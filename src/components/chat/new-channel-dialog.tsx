@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 import { createChannel } from '@/lib/chat';
 import {
   CHANNEL_NAME_MAX,
@@ -23,6 +24,7 @@ import {
   normalizeChannelName,
 } from '@/lib/chat/compose';
 import {
+  allowedChannelKinds,
   createChannelInput,
   dealRoomOption,
   nameTakenError,
@@ -56,7 +58,16 @@ function NewChannelBody({
   const router = useRouter();
   const { account, workspaces, activeWorkspaceId, accountRole } = useAuth();
   const ws = useChatWorkspaceContext();
-  const [type, setType] = useState<NewChannelType>('team');
+  const { permissions } = useChatPermissions();
+  // Only the kinds the role permissions (157) allow; the RPC re-checks.
+  const kinds = allowedChannelKinds(permissions.can);
+  const [chosen, setType] = useState<NewChannelType>('team');
+  // A kind that became unavailable (permissions loaded after open)
+  // falls back to the first one allowed.
+  const type: NewChannelType =
+    chosen === 'deal_room' || kinds.includes(chosen)
+      ? chosen
+      : (kinds[0] ?? chosen);
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [memberIds, setMemberIds] = useState<string[]>([]);
@@ -80,13 +91,26 @@ function NewChannelBody({
   const dealRoom = dealRoomOption(accountRole);
 
   const cards: TypeCard[] = [
-    { type: 'team', title: t('team'), body: t('teamBody'), disabled: false },
-    {
-      type: 'private',
-      title: t('private'),
-      body: t('privateBody'),
-      disabled: false,
-    },
+    ...(kinds.includes('team')
+      ? [
+          {
+            type: 'team' as const,
+            title: t('team'),
+            body: t('teamBody'),
+            disabled: false,
+          },
+        ]
+      : []),
+    ...(kinds.includes('private')
+      ? [
+          {
+            type: 'private' as const,
+            title: t('private'),
+            body: t('privateBody'),
+            disabled: false,
+          },
+        ]
+      : []),
     ...(dealRoom === 'hidden'
       ? []
       : [

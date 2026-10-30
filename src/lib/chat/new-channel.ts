@@ -6,13 +6,17 @@ import { hasMinRole, isAccountRole, isBankGuest } from '@/lib/auth/roles';
 
 import {
   CHANNEL_TOPIC_MAX,
+  DM_MAX_OTHERS,
   channelNameProblem,
   finalChannelName,
   type NameProblem,
 } from './compose';
 import { addCandidates, addRules } from './membership';
+import type { ChatCapability } from './permissions';
 import type { Channel, ChatPerson } from './types';
 import { chatErrorKey } from './view';
+
+type ChatCapabilities = Record<ChatCapability, boolean>;
 
 export type NewChannelType = 'team' | 'private' | 'deal_room';
 
@@ -87,3 +91,27 @@ export function createChannelInput(
 /** A failed create that is the name's fault: the unique index refused it. */
 export const nameTakenError = (err: unknown): boolean =>
   chatErrorKey(err) === 'duplicateName';
+
+/**
+ * The channel kinds the role permissions (157) let the caller create,
+ * in the dialog's order. Empty = the sidebar hides its compose button.
+ */
+export function allowedChannelKinds(
+  can: Readonly<
+    Pick<ChatCapabilities, 'create_team_channel' | 'create_private_channel'>
+  >
+): ('team' | 'private')[] {
+  return [
+    ...(can.create_team_channel ? (['team'] as const) : []),
+    ...(can.create_private_channel ? (['private'] as const) : []),
+  ];
+}
+
+/**
+ * How many other people the DM picker lets the caller choose: one
+ * without open_group_dm (a group DM is 3+ people including the
+ * caller), else the 087 maximum.
+ */
+export const dmSelectionMax = (
+  can: Readonly<Pick<ChatCapabilities, 'open_group_dm'>>
+): number => (can.open_group_dm ? DM_MAX_OTHERS : 1);
