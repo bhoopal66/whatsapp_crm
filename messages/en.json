@@ -4479,7 +4479,15 @@
       "deleted": "This message was deleted.",
       "system": "wacrm · automation",
       "react": "React with {emoji}",
-      "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}"
+      "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}",
+      "newMessages": "New messages"
+    },
+    "receipts": {
+      "seen": "Seen",
+      "sent": "Sent",
+      "seenBy": "Seen by {count}",
+      "seenList": "Seen by",
+      "notYetList": "Not seen yet"
     },
     "card": {
       "header": "Shared from WhatsApp inbox · read-only copy",

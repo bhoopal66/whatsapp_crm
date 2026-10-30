@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import {
@@ -30,9 +37,14 @@ export interface MessageTimelineProps {
   focusId?: string | null;
   /** The jump to `focusId` ended: scrolled to it, or gave up. */
   onFocusDone?: (found: boolean) => void;
+  /** The "New messages" divider goes before this message. */
+  unreadId?: string | null;
+  /** Drawn right under one message's row (the "Seen by" line). */
+  after?: { id: string; node: React.ReactNode } | null;
 }
 
 const HIGHLIGHT_MS = 2000;
+const UNREAD_TOP_GAP_PX = 8;
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -124,6 +136,25 @@ export function MessageTimeline(p: MessageTimelineProps) {
     }
   }, [p.messages]);
 
+  // On open the timeline sits at the bottom (above). If the "New
+  // messages" divider is out of view there, bring it near the top
+  // instead, once per divider; a jump (focusId) takes precedence.
+  const unreadShown = useRef<string | null>(null);
+  const { unreadId } = p;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || loading || !unreadId || unreadShown.current === unreadId) return;
+    unreadShown.current = unreadId;
+    if (focusId) return;
+    const divider = el.querySelector('[data-unread-divider]');
+    if (!divider) return;
+    const box = el.getBoundingClientRect();
+    const at = divider.getBoundingClientRect();
+    if (at.top >= box.top && at.bottom <= box.bottom) return;
+    el.scrollTop += at.top - box.top - UNREAD_TOP_GAP_PX;
+    atBottom.current = false;
+  }, [unreadId, loading, focusId]);
+
   const onScroll = () => {
     const el = ref.current;
     if (!el) return;
@@ -193,18 +224,35 @@ export function MessageTimeline(p: MessageTimelineProps) {
             <span className="bg-border h-px flex-1" />
           </div>
           {g.messages.map((m, i) => (
-            <MessageRow
-              key={m.id}
-              message={m}
-              grouped={isGroupedWithPrevious(g.messages[i - 1], m)}
-              card={p.cards[m.id]}
-              callCard={p.callCards[m.id]}
-              actions={p.actions}
-              onToggleReaction={p.onToggleReaction}
-              onOpenThread={p.onOpenThread}
-              anchor
-              highlighted={m.id === highlightId}
-            />
+            <Fragment key={m.id}>
+              {m.id === p.unreadId && (
+                <div
+                  data-unread-divider
+                  role="separator"
+                  className="flex items-center gap-3 px-4 pt-3 pb-1"
+                >
+                  <span className="bg-destructive h-px flex-1" />
+                  <span className="text-destructive text-xs font-semibold">
+                    {t('timeline.newMessages')}
+                  </span>
+                </div>
+              )}
+              <MessageRow
+                message={m}
+                grouped={
+                  m.id !== p.unreadId &&
+                  isGroupedWithPrevious(g.messages[i - 1], m)
+                }
+                card={p.cards[m.id]}
+                callCard={p.callCards[m.id]}
+                actions={p.actions}
+                onToggleReaction={p.onToggleReaction}
+                onOpenThread={p.onOpenThread}
+                anchor
+                highlighted={m.id === highlightId}
+              />
+              {p.after?.id === m.id && p.after.node}
+            </Fragment>
           ))}
         </section>
       ))}

@@ -4,8 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useChannelMembers } from '@/hooks/use-channel-members';
 import { useChannelTimeline } from '@/hooks/use-channel-timeline';
-import { channelMembers, markRead } from '@/lib/chat';
+import {
+  firstUnreadId,
+  lastOwnTopLevelId,
+  markRead,
+  showsReceipts,
+  unreadSince,
+} from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
 import { channelDisplayName } from '@/lib/chat/view';
 
@@ -14,9 +21,22 @@ import { useChatWorkspaceContext } from './chat-context';
 import type { RowActionContext } from './message-actions';
 import { useMessageMarks } from './message-marks';
 import { MessageTimeline } from './message-timeline';
+import { SeenBy } from './seen-by';
 import { useWriteBlock } from './use-write-block';
 
 const MARK_READ_DEBOUNCE_MS = 800;
+
+/**
+ * This visit's "New messages" baseline: the viewer's read mark as it was
+ * on opening (before this visit marks it read), and the newest message
+ * there once the timeline loaded, so later arrivals never add a divider.
+ */
+interface Visit {
+  channelId: string;
+  since: string | null;
+  /** Undefined until the first page has loaded. */
+  until?: string | null;
+}
 
 export interface ChannelViewProps {
   channelId: string;
@@ -49,23 +69,49 @@ export function ChannelView({
   const ws = useChatWorkspaceContext();
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
   const tl = useChannelTimeline(ws, channelId);
-  const [memberCount, setMemberCount] = useState<number | null>(null);
-  const { sb, refreshUnread } = ws;
+  const members = useChannelMembers(ws, channelId);
+  const memberCount = members?.length ?? null;
+  const { sb, refreshUnread, userId } = ws;
   const { canManageMembers } = useAuth();
   const marks = useMessageMarks();
   const block = useWriteBlock(channel);
 
-  useEffect(() => {
-    let off = false;
-    channelMembers(sb, channelId)
-      .then((m) => !off && setMemberCount(m.length))
-      .catch(() => {});
-    return () => {
-      off = true;
-    };
-  }, [sb, channelId]);
+  // Frozen per visit (derived state, set during render): captured from
+  // the channel list's own membership row the moment the channel is
+  // known, which is before markRead below can run.
+  const [visit, setVisit] = useState<Visit | null>(null);
+  if (channel && visit?.channelId !== channelId)
+    setVisit({ channelId, since: unreadSince(channel.membership) });
+  if (
+    visit?.channelId === channelId &&
+    visit.until === undefined &&
+    !tl.loading
+  ) {
+    const last = tl.messages[tl.messages.length - 1];
+    setVisit({
+      channelId,
+      since: last ? visit.since : null,
+      until: last?.createdAt ?? null,
+    });
+  }
+  const unreadId = useMemo(
+    () =>
+      visit?.channelId === channelId && visit.until !== undefined
+        ? firstUnreadId(tl.messages, visit.since, userId, visit.until)
+        : null,
+    [visit, channelId, tl.messages, userId]
+  );
 
-  // Read up to now whenever the visible timeline changes.
+  // Read up to now whenever the visible timeline changes, and again when
+  // the tab comes back into view.
+  const [shownTick, setShownTick] = useState(0);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setShownTick((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const newest = tl.messages[tl.messages.length - 1]?.id;
   useEffect(() => {
     if (tl.loading || !channel?.membership) return;
@@ -76,7 +122,24 @@ export function ChannelView({
         .catch(() => {});
     }, MARK_READ_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [sb, channelId, newest, tl.loading, channel?.membership, refreshUnread]);
+  }, [
+    sb,
+    channelId,
+    newest,
+    shownTick,
+    tl.loading,
+    channel?.membership,
+    refreshUnread,
+  ]);
+
+  // "Seen by" under the viewer's last own top-level message.
+  const seenId = useMemo(
+    () => lastOwnTopLevelId(tl.messages, userId),
+    [tl.messages, userId]
+  );
+  const seenMessage = seenId
+    ? (tl.messages.find((m) => m.id === seenId) ?? null)
+    : null;
 
   const name = useMemo(
     () =>
@@ -137,6 +200,24 @@ export function ChannelView({
             actions={actions}
             focusId={focusMessageId}
             onFocusDone={onFocusDone}
+            unreadId={unreadId}
+            after={
+              seenMessage &&
+              members &&
+              showsReceipts(channel.kind, members.length)
+                ? {
+                    id: seenMessage.id,
+                    node: (
+                      <SeenBy
+                        message={seenMessage}
+                        kind={channel.kind}
+                        members={members}
+                        peopleById={ws.peopleById}
+                      />
+                    ),
+                  }
+                : null
+            }
           />
           {footer}
         </>

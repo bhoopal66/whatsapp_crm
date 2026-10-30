@@ -16,6 +16,7 @@ import {
   unreadCounts,
   type ChannelWithMembership,
   type ChatPerson,
+  type MemberEvent,
   type MessageEvent,
   type ReactionEvent,
   type UnreadCount,
@@ -31,7 +32,9 @@ export type ChatEvent =
   | {
       kind: 'pin';
       event: { type: 'pin' | 'unpin'; channelId: string; messageId: string };
-    };
+    }
+  /** A chat_channel_members row changed: read marks for receipts (156). */
+  | { kind: 'member'; event: MemberEvent };
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
@@ -125,7 +128,8 @@ export function useChatWorkspace() {
       onReaction: (event) => emit({ kind: 'reaction', event }),
       onPin: (event) => emit({ kind: 'pin', event }),
       onChannel: () => later('loadChannels'),
-      onMember: () => {
+      onMember: (event) => {
+        emit({ kind: 'member', event });
         later('loadChannels');
         later('refreshUnread');
       },

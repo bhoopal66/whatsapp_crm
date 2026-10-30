@@ -4479,7 +4479,15 @@
       "deleted": "삭제된 메시지입니다.",
       "system": "wacrm · 자동화",
       "react": "{emoji}(으)로 반응",
-      "replies": "답글 {count}개 · 마지막 {time}"
+      "replies": "답글 {count}개 · 마지막 {time}",
+      "newMessages": "새 메시지"
+    },
+    "receipts": {
+      "seen": "읽음",
+      "sent": "보냄",
+      "seenBy": "{count}명이 읽음",
+      "seenList": "읽은 사람",
+      "notYetList": "아직 읽지 않음"
     },
     "card": {
       "header": "WhatsApp 받은편지함에서 공유됨 · 읽기 전용 사본",
