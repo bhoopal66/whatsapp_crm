@@ -175,6 +175,8 @@ export function MentionTextarea(p: MentionTextareaProps) {
       count > 0
     );
     if (!action) return;
+    // Nothing to cancel: leave Escape to outer handlers (closing a panel).
+    if (action === 'cancel' && !candidates && !p.onCancel) return;
     e.preventDefault();
     if (action === 'next' || action === 'prev')
       setActive({
