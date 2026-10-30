@@ -6,8 +6,9 @@
  * events carry only the primary key and are not RLS-filtered — the
  * reducers ignore ids they do not hold.
  *
- * chat_typing and chat_voice_plays exist from migration 156; against an
- * older database those two subscriptions error, so apply 156 first.
+ * chat_typing and chat_voice_plays exist from migration 156, and
+ * chat_channel_restrictions from 160; against an older database those
+ * subscriptions error, so apply the migrations first.
  *
  * Handlers are read off `opts` at event time, so a hook can pass one
  * object and swap its callbacks (refs) without resubscribing.
@@ -18,12 +19,14 @@ import type { MessageEvent, ReactionEvent } from './message-list';
 import {
   toChannel,
   toChannelMember,
+  toChannelRestriction,
   toChatMessage,
   toChatNotification,
   toTypingRow,
   toVoicePlay,
   type Channel,
   type ChannelMember,
+  type ChannelRestriction,
   type ChatNotification,
   type TypingRow,
   type VoicePlay,
@@ -59,6 +62,8 @@ export interface ChatSubscription {
     row: TypingRow | Pick<TypingRow, 'channelId' | 'userId'>;
   }) => void;
   onVoicePlay?: (p: VoicePlay) => void;
+  /** 160: a posting timeout set, changed or lifted (INSERT / UPDATE only). */
+  onRestriction?: (r: ChannelRestriction) => void;
   onStatus?: (status: string) => void;
 }
 
@@ -150,6 +155,11 @@ export function subscribeChat(
   on('chat_voice_plays', byAccount, (p) => {
     if (p.eventType !== 'INSERT') return;
     opts.onVoicePlay?.(toVoicePlay(rowOf(p)));
+  });
+  // A lift is an UPDATE (until = now); rows are not deleted on a lift.
+  on('chat_channel_restrictions', byAccount, (p) => {
+    if (p.eventType === 'DELETE') return;
+    opts.onRestriction?.(toChannelRestriction(p.new));
   });
 
   const channel = ch.subscribe((status) => opts.onStatus?.(status));

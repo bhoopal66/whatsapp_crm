@@ -50,7 +50,6 @@ import {
   type ChannelCtx,
 } from '@/lib/chat/membership';
 import {
-  activeRestriction,
   canRestrictMember,
   isChannelModerator,
   restrictionEnd,
@@ -72,6 +71,7 @@ import { cn } from '@/lib/utils';
 import { useChatWorkspaceContext } from './chat-context';
 import { PresenceDot } from './presence-dot';
 import { RestrictMemberDialog } from './restrict-member-dialog';
+import { useChannelRestrictions } from './use-channel-restrictions';
 
 const RESTRICTED_CHIP =
   'bg-warning-soft text-warning inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold';
@@ -92,6 +92,12 @@ export interface MembersPanelProps {
   onClose: () => void;
   /** The viewer left the channel. */
   onLeft: () => void;
+}
+
+/** A workspace owner or admin: never restricted, never blocked (160). */
+function isWorkspaceAdminPerson(person: ChatPerson | undefined): boolean {
+  const role = person?.role;
+  return isAccountRole(role) && canManageMembers(role);
 }
 
 function Avatar({ person, userId }: { person?: ChatPerson; userId: string }) {
@@ -139,6 +145,8 @@ export function MembersPanel({
   const [removing, setRemoving] = useState<ChannelMember | null>(null);
   const [restricting, setRestricting] = useState<ChannelMember | null>(null);
   const [lifting, setLifting] = useState<ChannelMember | null>(null);
+  // 160: timeouts live in chat_channel_restrictions, not on the members.
+  const restrictions = useChannelRestrictions(channelId);
   // Presence dots go stale by time alone, so the clock ticks.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -215,7 +223,7 @@ export function MembersPanel({
       })
     : false;
   const restrictable = (m: ChannelMember) => {
-    const role = peopleById.get(m.userId.toLowerCase())?.role;
+    const person = peopleById.get(m.userId.toLowerCase());
     return (
       !!channel &&
       canRestrictMember({
@@ -225,7 +233,7 @@ export function MembersPanel({
         viewerChannelAdmin,
         memberId: m.userId,
         memberRole: m.role,
-        memberWorkspaceAdmin: isAccountRole(role) && canManageMembers(role),
+        memberWorkspaceAdmin: isWorkspaceAdminPerson(person),
       })
     );
   };
@@ -256,7 +264,7 @@ export function MembersPanel({
           ? t('members.restricted', { name, time: timeOf(until) })
           : t('members.lifted', { name })
       );
-      void reloadChannels();
+      void restrictions.refresh();
       return true;
     } catch (err) {
       toast.error(t(`errors.${chatErrorKey(err)}`));
@@ -293,7 +301,10 @@ export function MembersPanel({
     const removable =
       !!ctx && canRemoveMember(m, { ...ctx, ...roster, userId: me });
     const canRestrict = restrictable(m);
-    const blockedUntil = activeRestriction(m.postBlockedUntil, now);
+    // A workspace owner or admin is never blocked by a timeout.
+    const blockedUntil = isWorkspaceAdminPerson(person)
+      ? null
+      : (restrictions.active.get(m.userId.toLowerCase()) ?? null);
     const name = person?.fullName ?? t('unknownPerson');
     return (
       <li key={m.userId} className="flex items-center gap-3 px-4 py-2">

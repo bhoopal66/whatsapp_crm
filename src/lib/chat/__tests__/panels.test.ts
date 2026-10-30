@@ -91,7 +91,6 @@ describe('addPickerRows', () => {
     joinedAt: '2026-10-01T00:00:00Z',
     lastReadAt: null,
     muted: false,
-    postBlockedUntil: null,
   });
   const people = [
     person('gus', 'bank_guest'),

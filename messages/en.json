@@ -5384,6 +5384,8 @@
       "summaryRole": "Visible to {role, select, agent {agents and up} other {team leaders and up}}, plus owners and admins",
       "summaryRoleTeams": "Visible to {role, select, agent {agents and up} other {team leaders and up}} in {teams}, plus owners and admins",
       "summaryTeams": "Visible to members of {teams}, plus owners and admins",
+      "summaryTeamsDeleted": "Visible only to owners and admins (its teams were deleted)",
+      "teamsDeletedNotice": "The teams chosen for this channel were all deleted, so only owners and admins can see it. Choose teams, or save with none to open it to the minimum role above.",
       "audienceSaved": "Channel audience updated",
       "announcements": "Announcements",
       "announcementsHint": "Only channel admins can post here",

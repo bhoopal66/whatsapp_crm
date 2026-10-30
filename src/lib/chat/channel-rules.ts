@@ -87,7 +87,20 @@ export const audienceMinRole = (o: AudienceRoleOption): string | null =>
 export interface AudienceForm {
   role: AudienceRoleOption;
   teamIds: readonly string[];
+  /**
+   * The stored audience_team_restricted (159): teams were chosen. Absent
+   * in what a form will save, since the server sets it from the team list.
+   */
+  teamRestricted?: boolean;
 }
+
+/**
+ * Teams were chosen and every one has since been deleted, which leaves
+ * the channel to owners and admins only (159's audience_team_restricted
+ * with no teams left).
+ */
+export const audienceTeamsDeleted = (form: AudienceForm): boolean =>
+  !!form.teamRestricted && form.teamIds.length === 0;
 
 const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
   const sa = new Set(a);
@@ -95,23 +108,31 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
   return sa.size === sb.size && [...sa].every((x) => sb.has(x));
 };
 
-/** Whether Save would change anything (team order does not matter). */
+/**
+ * Whether Save would change anything (team order does not matter). A
+ * channel whose teams were all deleted changes by saving with no teams,
+ * which clears the flag.
+ */
 export const audienceChanged = (
   stored: AudienceForm,
   form: AudienceForm
 ): boolean =>
-  stored.role !== form.role || !sameSet(stored.teamIds, form.teamIds);
+  stored.role !== form.role ||
+  !sameSet(stored.teamIds, form.teamIds) ||
+  audienceTeamsDeleted(stored) !== audienceTeamsDeleted(form);
 
 /**
  * What the audience summary says, as parts for Chat.audience.summary:
  * `everyone` (unrestricted), `adminsOnly` (a minimum of admin leaves only
- * owners and admins, whatever the teams), else `restricted` with the role
+ * owners and admins, whatever the teams), `teamsDeleted` (the teams
+ * chosen were all deleted: owners and admins only), else `restricted` with the role
  * floor and the chosen teams' names in the order given. Ids with no known
  * name are left out of the names.
  */
 export type AudienceSummary =
   | { kind: 'everyone' }
   | { kind: 'adminsOnly' }
+  | { kind: 'teamsDeleted' }
   | {
       kind: 'restricted';
       role: Exclude<AudienceRoleOption, 'admin'>;
@@ -123,6 +144,7 @@ export function audienceSummary(
   teams: readonly { id: string; name: string }[]
 ): AudienceSummary {
   if (form.role === 'admin') return { kind: 'adminsOnly' };
+  if (audienceTeamsDeleted(form)) return { kind: 'teamsDeleted' };
   if (form.role === 'all' && form.teamIds.length === 0) {
     return { kind: 'everyone' };
   }
@@ -131,9 +153,12 @@ export function audienceSummary(
   return { kind: 'restricted', role: form.role, teams: names };
 }
 
-/** The header's lock badge: a role floor above all staff, or any team. */
+/**
+ * The header's lock badge: a role floor above all staff, any team, or
+ * teams chosen and since deleted.
+ */
 export const isRestrictedAudience = (form: AudienceForm): boolean =>
-  form.role !== 'all' || form.teamIds.length > 0;
+  form.role !== 'all' || form.teamIds.length > 0 || audienceTeamsDeleted(form);
 
 /** Teams matching the picker's search, case-insensitively, by name. */
 export function filterTeams<T extends { name: string }>(

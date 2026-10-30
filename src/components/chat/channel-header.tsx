@@ -68,6 +68,8 @@ export function ChannelHeader({
   const audienceForm = {
     role: audienceRoleOption(channel.audienceMinRole),
     teamIds: audience.teamIds ?? [],
+    // "Its teams were deleted" only once the team list is known to be empty.
+    teamRestricted: channel.audienceTeamRestricted && audience.teamIds !== null,
   };
   const restricted =
     channel.kind === 'team' && isRestrictedAudience(audienceForm);

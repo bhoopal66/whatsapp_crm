@@ -1,17 +1,90 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ChannelRestriction } from '../types';
 import {
   activeRestriction,
+  activeRestrictions,
   canModerate,
   canRestrictMember,
   isChannelModerator,
   moderationReasonValid,
+  nextRestrictionEnd,
   reasonLength,
   removedByModerator,
   RESTRICT_DURATION_KEYS,
   restrictionEnd,
   restrictUntil,
+  upsertRestriction,
 } from '../moderation';
+
+const CH = 'chan-1';
+const row = (
+  userId: string,
+  until: string,
+  channelId = CH
+): ChannelRestriction => ({
+  channelId,
+  userId,
+  until,
+  reason: 'flooding',
+  setBy: 'mod',
+  setAt: '2026-10-30T09:00:00Z',
+});
+
+describe('activeRestrictions (160 table)', () => {
+  const now = Date.parse('2026-10-30T10:00:00Z');
+
+  it('maps lower-cased user ids to the until of timeouts in force', () => {
+    const active = activeRestrictions(
+      [
+        row('USER-A', '2026-10-30 11:00:00+00'),
+        // Lifted: the lift sets until = now(), so it is never in force.
+        row('user-b', '2026-10-30T10:00:00Z'),
+        row('user-c', '2026-10-30T09:00:00Z'),
+        row('user-d', '2026-10-31T00:00:00Z', 'other-channel'),
+      ],
+      CH,
+      now
+    );
+    expect([...active]).toEqual([['user-a', '2026-10-30 11:00:00+00']]);
+  });
+
+  it('is empty with no rows', () => {
+    expect(activeRestrictions([], CH, now).size).toBe(0);
+  });
+
+  it('nextRestrictionEnd is the soonest end, else null', () => {
+    const active = activeRestrictions(
+      [row('a', '2026-10-30T12:00:00Z'), row('b', '2026-10-30 10:30:00+00')],
+      CH,
+      now
+    );
+    expect(nextRestrictionEnd(active)).toBe(Date.parse('2026-10-30T10:30:00Z'));
+    expect(nextRestrictionEnd(new Map())).toBeNull();
+  });
+});
+
+describe('upsertRestriction', () => {
+  it('replaces the same person (case-insensitively), else appends', () => {
+    const rows = [row('user-a', '2026-10-30T11:00:00Z')];
+    const lifted = upsertRestriction(
+      rows,
+      CH,
+      row('USER-A', '2026-10-30T10:05:00Z')
+    );
+    expect(lifted).toEqual([row('USER-A', '2026-10-30T10:05:00Z')]);
+    expect(
+      upsertRestriction(rows, CH, row('user-b', '2026-10-30T11:00:00Z'))
+    ).toHaveLength(2);
+  });
+
+  it("leaves another channel's row out (same array)", () => {
+    const rows = [row('user-a', '2026-10-30T11:00:00Z')];
+    expect(
+      upsertRestriction(rows, CH, row('user-b', '2026-10-30T11:00:00Z', 'x'))
+    ).toBe(rows);
+  });
+});
 
 describe('restrictionEnd', () => {
   it('reads the Postgres text form and ISO, else null', () => {

@@ -37,6 +37,11 @@ export interface Channel {
    * ('viewer' | 'agent' | 'team_leader' | 'admin'); null = all staff.
    */
   audienceMinRole: string | null;
+  /**
+   * 159: teams were chosen for this team channel's audience. Set with no
+   * teams left (all deleted), only owners and admins can see it.
+   */
+  audienceTeamRestricted: boolean;
 }
 
 export interface ChannelMember {
@@ -46,8 +51,21 @@ export interface ChannelMember {
   joinedAt: string;
   lastReadAt: string | null;
   muted: boolean;
-  /** 160: posting is blocked until this time (a timeout); null = not blocked. */
-  postBlockedUntil: string | null;
+}
+
+/**
+ * 160: a posting timeout (chat_channel_restrictions), one row per channel
+ * and person. In force while `until` is in the future; lifting sets it to
+ * now, so a lifted row stays. RLS shows a row to its person and to those
+ * who can manage the channel.
+ */
+export interface ChannelRestriction {
+  channelId: string;
+  userId: string;
+  until: string;
+  reason: string | null;
+  setBy: string | null;
+  setAt: string;
 }
 
 export interface ChannelWithMembership extends Channel {
@@ -301,6 +319,7 @@ export function toChannel(r: Row): Channel {
     threadReplies: channelRule(r.thread_replies),
     mentionEveryone: channelRule(r.mention_everyone),
     audienceMinRole: opt(r.audience_min_role),
+    audienceTeamRestricted: r.audience_team_restricted === true,
   };
 }
 
@@ -312,7 +331,17 @@ export function toChannelMember(r: Row): ChannelMember {
     joinedAt: str(r.joined_at),
     lastReadAt: opt(r.last_read_at),
     muted: r.muted === true,
-    postBlockedUntil: opt(r.post_blocked_until),
+  };
+}
+
+export function toChannelRestriction(r: Row): ChannelRestriction {
+  return {
+    channelId: str(r.channel_id),
+    userId: str(r.user_id),
+    until: str(r.until),
+    reason: opt(r.reason),
+    setBy: opt(r.set_by),
+    setAt: str(r.set_at),
   };
 }
 

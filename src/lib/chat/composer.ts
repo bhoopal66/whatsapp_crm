@@ -285,7 +285,7 @@ export type ComposerBlock =
   | 'guestNotes'
   | 'guestPrivateOnly'
   | 'notMember'
-  /** 160: a timeout on the viewer's membership (postBlockedUntil). */
+  /** 160: a posting timeout on the viewer (chat_channel_restrictions). */
   | 'restricted'
   /** 157: the channel's posting rule is admins-only (top-level posts). */
   | 'postingRestricted'
@@ -306,7 +306,7 @@ export function composerBlock(i: {
   member: boolean;
   bankGuest: boolean;
   chatEnabled: boolean;
-  /** The viewer's own postBlockedUntil is still in the future (160). */
+  /** The viewer's own posting timeout is still in force (160). */
   restricted?: boolean;
 }): ComposerBlock | null {
   if (!i.chatEnabled) return 'disabled';

@@ -19,6 +19,7 @@ import {
   toAttachment,
   toChannel,
   toChannelMember,
+  toChannelRestriction,
   toChatMessage,
   toChatPerson,
   toChannelFile,
@@ -37,6 +38,7 @@ import {
   type ChannelKind,
   type ChannelFile,
   type ChannelMember,
+  type ChannelRestriction,
   type ChannelWithMembership,
   type ChatAttachment,
   type ChatMessage,
@@ -967,6 +969,25 @@ export async function channelTeams(
         .eq('channel_id', channelId)
     )
   ).map((r) => String(r.team_id));
+}
+
+/**
+ * 160: a channel's posting timeouts, lifted ones included (a lift sets
+ * `until` to now; activeRestrictions picks the ones in force). RLS
+ * decides the rows: the caller's own, or all when they can manage it.
+ */
+export async function channelRestrictions(
+  sb: SupabaseClient,
+  channelId: string
+): Promise<ChannelRestriction[]> {
+  return (
+    await rows(
+      sb
+        .from('chat_channel_restrictions')
+        .select('channel_id,user_id,until,reason,set_by,set_at')
+        .eq('channel_id', channelId)
+    )
+  ).map(toChannelRestriction);
 }
 
 /** 160: block a member from posting until `until`; null clears the block. */

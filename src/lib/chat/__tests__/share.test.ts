@@ -32,6 +32,7 @@ const ch = (
   threadReplies: 'everyone',
   mentionEveryone: 'everyone',
   audienceMinRole: null,
+  audienceTeamRestricted: false,
   membership: o.member
     ? {
         channelId: id,
@@ -40,7 +41,6 @@ const ch = (
         joinedAt: '2026-01-01T00:00:00Z',
         lastReadAt: null,
         muted: false,
-        postBlockedUntil: null,
       }
     : null,
 });

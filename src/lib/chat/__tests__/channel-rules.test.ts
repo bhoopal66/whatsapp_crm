@@ -5,6 +5,7 @@ import {
   audienceMinRole,
   audienceRoleOption,
   audienceSummary,
+  audienceTeamsDeleted,
   channelRuleActions,
   filterTeams,
   isAnnouncementChannel,
@@ -151,10 +152,57 @@ describe('audienceSummary', () => {
     });
   });
 
+  it('is owners and admins only when every chosen team was deleted', () => {
+    const orphan = {
+      role: 'agent' as const,
+      teamIds: [],
+      teamRestricted: true,
+    };
+    expect(audienceSummary(orphan, TEAMS)).toEqual({ kind: 'teamsDeleted' });
+    expect(audienceSummary({ ...orphan, role: 'all' }, TEAMS)).toEqual({
+      kind: 'teamsDeleted',
+    });
+    // The admin floor reads as admins only whatever the teams.
+    expect(audienceSummary({ ...orphan, role: 'admin' }, TEAMS)).toEqual({
+      kind: 'adminsOnly',
+    });
+    // The flag with teams left is an ordinary team restriction.
+    expect(audienceSummary({ ...orphan, teamIds: ['t1'] }, TEAMS)).toEqual({
+      kind: 'restricted',
+      role: 'agent',
+      teams: ['Sales'],
+    });
+  });
+
   it('leaves out ids with no known name', () => {
     expect(
       audienceSummary({ role: 'agent', teamIds: ['gone', 't1'] }, TEAMS)
     ).toEqual({ kind: 'restricted', role: 'agent', teams: ['Sales'] });
+  });
+});
+
+describe('teams deleted (159 audience_team_restricted)', () => {
+  const orphan = { role: 'all' as const, teamIds: [], teamRestricted: true };
+
+  it('needs the flag and no teams left', () => {
+    expect(audienceTeamsDeleted(orphan)).toBe(true);
+    expect(audienceTeamsDeleted({ ...orphan, teamIds: ['t1'] })).toBe(false);
+    expect(audienceTeamsDeleted({ role: 'all', teamIds: [] })).toBe(false);
+  });
+
+  it('saving with no teams is a change (it clears the flag)', () => {
+    expect(audienceChanged(orphan, { role: 'all', teamIds: [] })).toBe(true);
+    // With teams left the flag alone is no change.
+    expect(
+      audienceChanged(
+        { ...orphan, teamIds: ['t1'] },
+        { role: 'all', teamIds: ['t1'] }
+      )
+    ).toBe(false);
+  });
+
+  it('shows the lock badge', () => {
+    expect(isRestrictedAudience(orphan)).toBe(true);
   });
 });
 

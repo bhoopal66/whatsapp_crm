@@ -22,7 +22,6 @@ const member = (channelId: string) => ({
   joinedAt: '2026-10-01T00:00:00Z',
   lastReadAt: null,
   muted: false,
-  postBlockedUntil: null,
 });
 const ch = (
   id: string,
@@ -44,6 +43,7 @@ const ch = (
     threadReplies: 'everyone',
     mentionEveryone: 'everyone',
     audienceMinRole: null,
+    audienceTeamRestricted: false,
     membership: joined ? member(id) : null,
     ...rest,
   };

@@ -29,6 +29,7 @@ import {
   audienceMinRole,
   audienceRoleOption,
   audienceSummary,
+  audienceTeamsDeleted,
   filterTeams,
   policyChanges,
   policyOf,
@@ -114,6 +115,7 @@ export function audienceSummaryText(
 ): string {
   if (s.kind === 'everyone') return t('rules.summaryEveryone');
   if (s.kind === 'adminsOnly') return t('rules.summaryAdminsOnly');
+  if (s.kind === 'teamsDeleted') return t('rules.summaryTeamsDeleted');
   const teams = s.teams.join(', ');
   if (s.role === 'all') return t('rules.summaryTeams', { teams });
   return s.teams.length > 0
@@ -228,8 +230,12 @@ export function ChannelAudienceForm({
   const stored: AudienceForm = {
     role: audienceRoleOption(channel.audienceMinRole),
     teamIds: storedTeamIds ?? [],
+    teamRestricted: channel.audienceTeamRestricted,
   };
+  // What Save sends: the server sets the team flag from the team list,
+  // so saving with no teams clears a channel whose teams were deleted.
   const form: AudienceForm = { role, teamIds };
+  const teamsDeleted = storedTeamIds !== null && audienceTeamsDeleted(stored);
   const ready = storedTeamIds !== null && loaded.teams !== null;
   const changed = ready && audienceChanged(stored, form);
   const teams = useMemo(() => loaded.teams ?? [], [loaded.teams]);
@@ -341,6 +347,14 @@ export function ChannelAudienceForm({
             </>
           )}
         </div>
+        {teamsDeleted && (
+          <p
+            className="bg-warning-soft text-warning rounded-md px-3 py-2 text-xs font-medium"
+            role="status"
+          >
+            {t('rules.teamsDeletedNotice')}
+          </p>
+        )}
         <p
           className="bg-info-soft text-info rounded-md px-3 py-2 text-xs font-medium"
           aria-live="polite"

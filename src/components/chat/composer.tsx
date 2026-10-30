@@ -252,7 +252,7 @@ export function Composer({
   const format = useFormatter();
   const restrictedUntil = useRestrictedUntil(channel);
   // A timeout learnt from a refusal (160) lifts when it ends, or after a
-  // minute when the membership row has not told us the time yet.
+  // minute when the restriction row has not told us the time yet.
   useEffect(() => {
     if (refused !== 'restricted') return;
     const left = restrictedUntil

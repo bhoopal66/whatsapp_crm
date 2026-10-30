@@ -4,7 +4,12 @@
  * it, and posting timeouts. The database decides; these only choose
  * what to offer.
  */
-import type { ChannelKind, ChannelRole, ChatMessage } from './types';
+import type {
+  ChannelKind,
+  ChannelRestriction,
+  ChannelRole,
+  ChatMessage,
+} from './types';
 
 /** chat_delete_message / chat_restrict_member: a reason of 5–500 characters. */
 export const MODERATION_REASON_MIN = 5;
@@ -95,26 +100,72 @@ export const restrictUntil = (d: RestrictDuration, now: number): string =>
   new Date(now + RESTRICT_DURATIONS[d]).toISOString();
 
 /**
- * A post_blocked_until as a Date, in Postgres's text form
+ * A restriction's `until` as a Date, in Postgres's text form
  * ("2026-10-30 10:00:01+00") as well as ISO; null when unreadable.
  */
-export function restrictionEnd(
-  postBlockedUntil: string | null | undefined
-): Date | null {
-  if (!postBlockedUntil) return null;
-  const t = Date.parse(
-    postBlockedUntil.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')
-  );
+export function restrictionEnd(until: string | null | undefined): Date | null {
+  if (!until) return null;
+  const t = Date.parse(until.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));
   return Number.isFinite(t) ? new Date(t) : null;
 }
 
 /** The time a block ends while it is still in force, else null. */
 export function activeRestriction(
-  postBlockedUntil: string | null | undefined,
+  until: string | null | undefined,
   now: number
 ): string | null {
-  const end = restrictionEnd(postBlockedUntil);
-  return end && end.getTime() > now ? (postBlockedUntil as string) : null;
+  const end = restrictionEnd(until);
+  return end && end.getTime() > now ? (until as string) : null;
+}
+
+/**
+ * One channel's timeouts in force at `now`, lower-cased user id → until.
+ * A lifted row (until = the lift time) is left out, as is another
+ * channel's row.
+ */
+export function activeRestrictions(
+  rows: readonly ChannelRestriction[],
+  channelId: string,
+  now: number
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (r.channelId !== channelId) continue;
+    const until = activeRestriction(r.until, now);
+    if (until) out.set(r.userId.toLowerCase(), until);
+  }
+  return out;
+}
+
+/**
+ * Rows with a realtime INSERT / UPDATE applied: replaces the row for the
+ * same channel and person, else appends it. Another channel's row leaves
+ * `rows` as it is (same array).
+ */
+export function upsertRestriction(
+  rows: readonly ChannelRestriction[],
+  channelId: string,
+  r: ChannelRestriction
+): readonly ChannelRestriction[] {
+  if (r.channelId !== channelId) return rows;
+  const user = r.userId.toLowerCase();
+  const at = rows.findIndex((x) => x.userId.toLowerCase() === user);
+  if (at < 0) return [...rows, r];
+  const next = rows.slice();
+  next[at] = r;
+  return next;
+}
+
+/** The soonest end among timeouts in force (ms since epoch), else null. */
+export function nextRestrictionEnd(
+  active: ReadonlyMap<string, string>
+): number | null {
+  let soonest: number | null = null;
+  for (const until of active.values()) {
+    const t = restrictionEnd(until)?.getTime();
+    if (t !== undefined && (soonest === null || t < soonest)) soonest = t;
+  }
+  return soonest;
 }
 
 /**

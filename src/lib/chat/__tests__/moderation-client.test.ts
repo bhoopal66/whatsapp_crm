@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import * as api from '../api';
 import { exportFileName, exportToCsv } from '../export';
-import { toChannel, toChannelMember, toChatMessage } from '../types';
+import {
+  toChannel,
+  toChannelMember,
+  toChannelRestriction,
+  toChatMessage,
+} from '../types';
 
 type Result = { data: unknown; error: unknown };
 
@@ -40,14 +45,45 @@ describe('159/160 mappers', () => {
     ).toBe('agent');
     expect(toChannel({ id: CH }).audienceMinRole).toBeNull();
     expect(
-      toChannelMember({
-        channel_id: CH,
-        post_blocked_until: '2026-11-01T00:00:00Z',
-      }).postBlockedUntil
-    ).toBe('2026-11-01T00:00:00Z');
-    expect(toChannelMember({ channel_id: CH }).postBlockedUntil).toBeNull();
+      toChannel({ id: CH, audience_team_restricted: true })
+        .audienceTeamRestricted
+    ).toBe(true);
+    expect(toChannel({ id: CH }).audienceTeamRestricted).toBe(false);
+    // 160 moved the timeout off the membership row.
+    expect(Object.keys(toChannelMember({ channel_id: CH })).sort()).toEqual([
+      'channelId',
+      'joinedAt',
+      'lastReadAt',
+      'muted',
+      'role',
+      'userId',
+    ]);
     expect(toChatMessage({ id: MSG, deleted_by: US }).deletedBy).toBe(US);
     expect(toChatMessage({ id: MSG }).deletedBy).toBeNull();
+  });
+
+  it('maps a chat_channel_restrictions row', () => {
+    expect(
+      toChannelRestriction({
+        channel_id: CH,
+        user_id: US,
+        account_id: 'aaaaaaaa-0000-4000-8000-00000000000a',
+        until: '2026-11-01 00:00:00+00',
+        reason: 'Off-topic posts',
+        set_by: MSG,
+        set_at: '2026-10-30T09:00:00Z',
+      })
+    ).toEqual({
+      channelId: CH,
+      userId: US,
+      until: '2026-11-01 00:00:00+00',
+      reason: 'Off-topic posts',
+      setBy: MSG,
+      setAt: '2026-10-30T09:00:00Z',
+    });
+    const bare = toChannelRestriction({ channel_id: CH, user_id: US });
+    expect(bare.reason).toBeNull();
+    expect(bare.setBy).toBeNull();
   });
 
   it('selects deleted_by with the message columns', () => {
@@ -97,6 +133,19 @@ describe('wrappers', () => {
     });
     expect(await api.channelTeams(t.sb, CH)).toEqual(['t1', 't2']);
     expect(t.chain[0].args).toEqual(['chat_channel_teams']);
+  });
+
+  it('channelRestrictions reads one channel from the 160 table', async () => {
+    const t = fakeSb({
+      data: [{ channel_id: CH, user_id: US, until: '2026-11-01T00:00:00Z' }],
+      error: null,
+    });
+    const got = await api.channelRestrictions(t.sb, CH);
+    expect(got.map((r) => [r.userId, r.until])).toEqual([
+      [US, '2026-11-01T00:00:00Z'],
+    ]);
+    expect(t.chain[0].args).toEqual(['chat_channel_restrictions']);
+    expect(t.chain).toContainEqual({ op: 'eq', args: ['channel_id', CH] });
   });
 
   it('restrictMember passes null until and reason', async () => {

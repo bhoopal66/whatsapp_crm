@@ -14,6 +14,7 @@ import {
   listChannels,
   subscribeChat,
   unreadCounts,
+  type ChannelRestriction,
   type ChannelWithMembership,
   type ChatPerson,
   type MemberEvent,
@@ -39,6 +40,8 @@ export type ChatEvent =
   | { kind: 'member'; event: MemberEvent }
   /** A chat_voice_plays row was inserted: someone played a voice note (156). */
   | { kind: 'voicePlay'; play: VoicePlay }
+  /** A chat_channel_restrictions row was set or lifted: a posting timeout (160). */
+  | { kind: 'restriction'; restriction: ChannelRestriction }
   /** A chat_typing row changed: someone typing, or stopped (156). */
   | { kind: 'typing'; change: TypingChange };
 
@@ -140,6 +143,8 @@ export function useChatWorkspace() {
         later('refreshUnread');
       },
       onVoicePlay: (play) => emit({ kind: 'voicePlay', play }),
+      onRestriction: (restriction) =>
+        emit({ kind: 'restriction', restriction }),
       onTyping: (change) => emit({ kind: 'typing', change }),
     });
     return () => {
