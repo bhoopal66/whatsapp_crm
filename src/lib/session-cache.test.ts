@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   SESSION_CACHE_MAX_ENTRIES,
+  SESSION_LOCAL_WRITE_RETRIES,
+  SESSION_LOCAL_WRITE_RETRY_MS,
   type SessionKey,
   isCurrentRequest,
   noteSessionUser,
@@ -11,6 +13,7 @@ import {
   sessionCache,
   sessionKey,
   sessionQueryView,
+  shouldRevalidateAfterWipe,
   shouldStoreFetchResult,
 } from './session-cache';
 
@@ -220,6 +223,122 @@ describe('prefetchSession', () => {
     await prefetchSession(key('a'), async () => 1);
     // start, the stored answer, done
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('keepLocalWrites', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps a patch made while the fetch ran, then re-reads', async () => {
+    vi.useFakeTimers();
+    sessionCache.set(key('deals'), ['card in New']);
+    const slow = deferred<string[]>();
+    const fetcher = vi
+      .fn<() => Promise<string[]>>()
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValueOnce(['card in Won (server)']);
+
+    const pending = prefetchSession(key('deals'), fetcher, {
+      keepLocalWrites: true,
+    });
+    sessionCache.update<string[]>(key('deals'), () => ['card in Won']);
+    slow.resolve(['card in New']);
+
+    await expect(pending).resolves.toEqual(['card in Won']);
+    expect(sessionCache.peek(key('deals'))?.value).toEqual(['card in Won']);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // The re-read brings the server's answer in.
+    await vi.advanceTimersByTimeAsync(SESSION_LOCAL_WRITE_RETRY_MS);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(sessionCache.peek(key('deals'))?.value).toEqual([
+      'card in Won (server)',
+    ]);
+  });
+
+  it('stores as before for a consumer that did not opt in', async () => {
+    sessionCache.set(key('a'), 'seen');
+    const slow = deferred<string>();
+    const pending = prefetchSession(key('a'), () => slow.promise);
+    sessionCache.update<string>(key('a'), () => 'patched');
+    slow.resolve('server');
+    await pending;
+    expect(sessionCache.peek(key('a'))?.value).toBe('server');
+  });
+
+  it('stores an answer when no local write landed during the fetch', async () => {
+    sessionCache.set(key('a'), 'seen');
+    await prefetchSession(key('a'), async () => 'server', {
+      keepLocalWrites: true,
+    });
+    expect(sessionCache.peek(key('a'))?.value).toBe('server');
+  });
+
+  it('bounds the re-reads under a steady stream of local writes', async () => {
+    vi.useFakeTimers();
+    sessionCache.set(key('a'), 0);
+    const fetcher = vi.fn(async () => {
+      // Every read is overtaken by another local write.
+      sessionCache.update<number>(key('a'), (v) => v + 1);
+      return -1;
+    });
+
+    await prefetchSession(key('a'), fetcher, { keepLocalWrites: true });
+    for (let i = 0; i < SESSION_LOCAL_WRITE_RETRIES + 3; i++) {
+      await vi.advanceTimersByTimeAsync(SESSION_LOCAL_WRITE_RETRY_MS);
+    }
+
+    expect(fetcher).toHaveBeenCalledTimes(1 + SESSION_LOCAL_WRITE_RETRIES);
+    expect(sessionCache.peek(key('a'))?.value).toBe(
+      1 + SESSION_LOCAL_WRITE_RETRIES
+    );
+  });
+
+  it.each([
+    ['clear', () => sessionCache.clear()],
+    ['delete', () => sessionCache.delete(key('a'))],
+    ['deletePrefix', () => sessionCache.deletePrefix(key(''))],
+  ])('%s cancels a scheduled re-read', async (_name, wipe) => {
+    vi.useFakeTimers();
+    sessionCache.set(key('a'), 'seen');
+    const slow = deferred<string>();
+    const fetcher = vi
+      .fn<() => Promise<string>>()
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValue('previous user data');
+
+    const pending = prefetchSession(key('a'), fetcher, {
+      keepLocalWrites: true,
+    });
+    sessionCache.update<string>(key('a'), () => 'patched');
+    slow.resolve('server');
+    await pending;
+
+    wipe();
+    await vi.advanceTimersByTimeAsync(SESSION_LOCAL_WRITE_RETRY_MS * 5);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sessionCache.peek(key('a'))).toBeUndefined();
+  });
+});
+
+describe('shouldRevalidateAfterWipe', () => {
+  it('re-reads only a shown key left with nothing at all', () => {
+    const entry = { value: 1, storedAt: 0 };
+    const base = { active: true, fetching: false, hasError: false };
+    expect(shouldRevalidateAfterWipe({ ...base, entry: undefined })).toBe(true);
+    expect(shouldRevalidateAfterWipe({ ...base, entry })).toBe(false);
+    expect(
+      shouldRevalidateAfterWipe({ ...base, entry: undefined, fetching: true })
+    ).toBe(false);
+    expect(
+      shouldRevalidateAfterWipe({ ...base, entry: undefined, hasError: true })
+    ).toBe(false);
+    expect(
+      shouldRevalidateAfterWipe({ ...base, entry: undefined, active: false })
+    ).toBe(false);
   });
 });
 

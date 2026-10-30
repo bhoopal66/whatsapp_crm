@@ -13,6 +13,8 @@ import {
   prefetchSession,
   sessionCache,
   sessionQueryView,
+  shouldRevalidateAfterWipe,
+  type PrefetchOptions,
   type SessionEntry,
   type SessionKey,
 } from '@/lib/session-cache';
@@ -41,13 +43,16 @@ const noopUnsubscribe = () => {};
  * realtime handler re-renders all of them.
  *
  * `fetcher` may be an inline function; the latest one is used.
+ * `keepLocalWrites` is `prefetchSession`'s opt-in, for a screen that
+ * patches its entry optimistically while a revalidate may be running.
  */
 export function useSessionQuery<T>(
   key: SessionKey | null,
   fetcher: () => Promise<T>,
-  options: { enabled?: boolean } = {}
+  options: { enabled?: boolean; keepLocalWrites?: boolean } = {}
 ): SessionQueryResult<T> {
   const enabled = options.enabled ?? true;
+  const keepLocalWrites = options.keepLocalWrites ?? false;
   const activeKey = enabled ? key : null;
 
   const fetcherRef = useRef(fetcher);
@@ -74,6 +79,11 @@ export function useSessionQuery<T>(
     () => (activeKey ? sessionCache.isFetching(activeKey) : false),
     () => false
   );
+  const wipes = useSyncExternalStore(
+    subscribe,
+    () => sessionCache.wipeCount(),
+    () => 0
+  );
 
   // The error belongs to the key it was raised for, so a failure of the
   // chat just left never shows on the next one.
@@ -83,10 +93,8 @@ export function useSessionQuery<T>(
   } | null>(null);
   const error = failure && failure.key === activeKey ? failure.error : null;
 
-  const run = useCallback((requestKey: SessionKey, force: boolean) => {
-    return prefetchSession(requestKey, () => fetcherRef.current(), {
-      force,
-    }).then(
+  const run = useCallback((requestKey: SessionKey, opts: PrefetchOptions) => {
+    return prefetchSession(requestKey, () => fetcherRef.current(), opts).then(
       () => {
         if (isCurrentRequest(requestKey, keyRef.current)) setFailure(null);
       },
@@ -107,12 +115,32 @@ export function useSessionQuery<T>(
       entry: sessionCache.get(activeKey),
       fetching: sessionCache.isFetching(activeKey),
     });
-    if (plan.revalidate) void run(activeKey, false);
-  }, [activeKey, run]);
+    if (plan.revalidate) void run(activeKey, { keepLocalWrites });
+  }, [activeKey, run, keepLocalWrites]);
+
+  // A wipe (`delete`, `deletePrefix`, or a `clear()` that dropped the
+  // first fetch) can leave the shown key with nothing cached and nothing
+  // fetching: read it again rather than leave the skeleton up. A failed
+  // fetch is no wipe and leaves an error, so it is never retried in a
+  // loop.
+  const hasError = error !== null;
+  useEffect(() => {
+    if (!activeKey) return;
+    if (
+      shouldRevalidateAfterWipe({
+        active: true,
+        entry: sessionCache.peek(activeKey),
+        fetching: sessionCache.isFetching(activeKey),
+        hasError,
+      })
+    ) {
+      void run(activeKey, { keepLocalWrites });
+    }
+  }, [activeKey, wipes, hasError, run, keepLocalWrites]);
 
   const refresh = useCallback(async () => {
-    if (activeKey) await run(activeKey, true);
-  }, [activeKey, run]);
+    if (activeKey) await run(activeKey, { force: true, keepLocalWrites });
+  }, [activeKey, run, keepLocalWrites]);
 
   const view = sessionQueryView({
     active: activeKey !== null,

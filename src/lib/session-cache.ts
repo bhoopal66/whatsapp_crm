@@ -85,6 +85,13 @@ export interface SessionCache {
   /** Called on every change to `key`'s value or its fetching state. */
   subscribe(key: SessionKey, listener: Listener): () => void;
   isFetching(key: SessionKey): boolean;
+  /**
+   * How many wipes (`delete`, `deletePrefix`, `clear`) have run in this
+   * tab. A screen whose entry a wipe took re-reads it
+   * (`shouldRevalidateAfterWipe`); a failed fetch is not a wipe, so a
+   * failing read is not retried in a loop.
+   */
+  wipeCount(): number;
   size(): number;
 }
 
@@ -92,6 +99,39 @@ const entries = new Map<SessionKey, SessionEntry>();
 const listeners = new Map<SessionKey, Set<Listener>>();
 const inflight = new Map<SessionKey, Inflight>();
 let fetchSeq = 0;
+let wipes = 0;
+
+// Local writes (`set` / `update`: an optimistic edit, a realtime patch)
+// are stamped from one counter, so a fetch opted in with
+// `keepLocalWrites` can tell one landed while it ran. A fetch's own
+// store is not a local write.
+let localWriteSeq = 0;
+const lastLocalWrite = new Map<SessionKey, number>();
+
+/** Re-reads scheduled because a local write overtook a fetch. */
+const scheduled = new Map<SessionKey, ReturnType<typeof setTimeout>>();
+
+/** Delay before re-reading a key whose fetch a local write overtook. */
+export const SESSION_LOCAL_WRITE_RETRY_MS = 1_000;
+/**
+ * Re-reads after an overtaken fetch, at most. Past that the local value
+ * stays until the next show revalidates, so a steady stream of local
+ * writes cannot turn into a read loop.
+ */
+export const SESSION_LOCAL_WRITE_RETRIES = 2;
+
+function cancelScheduled(key: SessionKey): void {
+  const timer = scheduled.get(key);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  scheduled.delete(key);
+}
+
+function store(key: SessionKey, value: unknown, now: number): void {
+  touch(key, { value, storedAt: now });
+  evict();
+  notify(key);
+}
 
 function notify(key: SessionKey): void {
   const set = listeners.get(key);
@@ -128,24 +168,34 @@ export const sessionCache: SessionCache = {
   },
 
   set<T>(key: SessionKey, value: T, now: number = Date.now()) {
-    touch(key, { value, storedAt: now });
-    evict();
-    notify(key);
+    lastLocalWrite.set(key, ++localWriteSeq);
+    store(key, value, now);
   },
 
   update<T>(key: SessionKey, fn: (prev: T) => T, now: number = Date.now()) {
     const entry = entries.get(key) as SessionEntry<T> | undefined;
     if (!entry) return false;
+    lastLocalWrite.set(key, ++localWriteSeq);
     touch(key, { value: fn(entry.value), storedAt: now });
     notify(key);
     return true;
   },
 
   delete(key: SessionKey) {
+    cancelScheduled(key);
+    lastLocalWrite.delete(key);
+    wipes++;
     if (entries.delete(key)) notify(key);
   },
 
   deletePrefix(prefix: SessionKey) {
+    for (const key of [...scheduled.keys()]) {
+      if (key.startsWith(prefix)) cancelScheduled(key);
+    }
+    for (const key of [...lastLocalWrite.keys()]) {
+      if (key.startsWith(prefix)) lastLocalWrite.delete(key);
+    }
+    wipes++;
     for (const key of [...entries.keys()]) {
       if (key.startsWith(prefix)) {
         entries.delete(key);
@@ -157,9 +207,15 @@ export const sessionCache: SessionCache = {
   clear() {
     // Dropping the in-flight records is what stops a fetch started
     // before a sign-out or switch from writing its answer back.
+    // Cancelling the scheduled re-reads stops one from firing after a
+    // sign-out and storing the previous user's answer.
     const keys = new Set([...entries.keys(), ...inflight.keys()]);
+    for (const timer of scheduled.values()) clearTimeout(timer);
+    scheduled.clear();
+    lastLocalWrite.clear();
     entries.clear();
     inflight.clear();
+    wipes++;
     for (const key of keys) notify(key);
   },
 
@@ -182,6 +238,10 @@ export const sessionCache: SessionCache = {
     return inflight.has(key);
   },
 
+  wipeCount() {
+    return wipes;
+  },
+
   size() {
     return entries.size;
   },
@@ -201,26 +261,77 @@ export function shouldStoreFetchResult(fetch: {
 }
 
 /**
+ * Whether a fetch opted in with `keepLocalWrites` must not store its
+ * answer: a local write to the key landed after the fetch started, so
+ * the answer may predate it (a deal dragged while the board reloaded).
+ */
+export function overtakenByLocalWrite(fetch: {
+  startedAfterWrite: number;
+  lastLocalWrite: number | undefined;
+}): boolean {
+  return (fetch.lastLocalWrite ?? 0) > fetch.startedAfterWrite;
+}
+
+export interface PrefetchOptions {
+  /** Start a new fetch even if one is in flight; its answer wins. */
+  force?: boolean;
+  /**
+   * Opt-in for screens that patch their own entry optimistically: an
+   * answer that a local `set` / `update` overtook is not stored (the
+   * patch stays on screen), and the key is read again after
+   * `SESSION_LOCAL_WRITE_RETRY_MS`, at most `SESSION_LOCAL_WRITE_RETRIES`
+   * times, so the entry still converges on the server's answer.
+   * Without it, the last fetch to settle wins, as consumers that merge
+   * with `peek()` themselves expect.
+   */
+  keepLocalWrites?: boolean;
+}
+
+/**
  * Fetch `key` and store the answer. Joins a fetch already in flight for
  * the key (two prefetches, or a hover prefetch followed by the screen,
  * make one request); `force` starts a new one, whose answer then wins
  * over the older one's. Rejects with the fetcher's error; the cached
- * value, if any, is kept.
+ * value, if any, is kept. An answer held back by `keepLocalWrites`
+ * resolves with the cached value instead.
  */
 export function prefetchSession<T>(
   key: SessionKey,
   fetcher: () => Promise<T>,
-  opts: { force?: boolean } = {}
+  opts: PrefetchOptions = {}
+): Promise<T> {
+  return startFetch(key, fetcher, opts, 0);
+}
+
+function startFetch<T>(
+  key: SessionKey,
+  fetcher: () => Promise<T>,
+  opts: PrefetchOptions,
+  retries: number
 ): Promise<T> {
   const running = inflight.get(key);
   if (running && !opts.force) return running.promise as Promise<T>;
 
+  // This fetch covers whatever a scheduled re-read would have asked.
+  cancelScheduled(key);
   const seq = ++fetchSeq;
+  const startedAfterWrite = localWriteSeq;
   const promise = (async () => {
     try {
       const value = await fetcher();
       if (shouldStoreFetchResult({ seq, latestSeq: inflight.get(key)?.seq })) {
-        sessionCache.set(key, value);
+        if (
+          opts.keepLocalWrites &&
+          overtakenByLocalWrite({
+            startedAfterWrite,
+            lastLocalWrite: lastLocalWrite.get(key),
+          })
+        ) {
+          scheduleReread(key, fetcher, opts, retries);
+          const kept = entries.get(key);
+          return kept ? (kept.value as T) : value;
+        }
+        store(key, value, Date.now());
       }
       return value;
     } finally {
@@ -233,6 +344,24 @@ export function prefetchSession<T>(
   inflight.set(key, { promise, seq });
   notify(key);
   return promise;
+}
+
+function scheduleReread<T>(
+  key: SessionKey,
+  fetcher: () => Promise<T>,
+  opts: PrefetchOptions,
+  retries: number
+): void {
+  if (retries >= SESSION_LOCAL_WRITE_RETRIES) return;
+  cancelScheduled(key);
+  const timer = setTimeout(() => {
+    scheduled.delete(key);
+    // Joins a fetch already running rather than adding another.
+    startFetch(key, fetcher, { ...opts, force: false }, retries + 1).catch(
+      () => {} // a failed background re-read keeps the cached value
+    );
+  }, SESSION_LOCAL_WRITE_RETRY_MS);
+  scheduled.set(key, timer);
 }
 
 // ------------------------------------------------------------
@@ -309,6 +438,20 @@ export function planSessionMount<T>(state: {
     revalidate: true,
     joinInflight: state.fetching,
   };
+}
+
+/**
+ * After a wipe: whether the shown key is stuck loading, its entry (or
+ * its first fetch, dropped by `clear()`) gone with nothing fetching and
+ * no error to show, so the hook must read it again.
+ */
+export function shouldRevalidateAfterWipe<T>(state: {
+  active: boolean;
+  entry: SessionEntry<T> | undefined;
+  fetching: boolean;
+  hasError: boolean;
+}): boolean {
+  return state.active && !state.entry && !state.fetching && !state.hasError;
 }
 
 /**

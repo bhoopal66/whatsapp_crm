@@ -1,23 +1,62 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The test environment has no DOM, so React's hooks are stood in for:
-// state is its initial value, an effect runs at once, and an external
-// store is read through its snapshot. That is enough to check what the
-// hook shows on mount and that it always revalidates.
+// The test environment has no DOM, so React's hooks are stood in for
+// by a one-component renderer: `render()` calls the hook once, state,
+// refs and callbacks keep their slot between renders, and an effect
+// runs at once when its dependencies changed (as on mount). A state
+// setter stores the value for the next `render()`; an external store
+// is read through its snapshot.
+const react = vi.hoisted(() => ({ slots: [] as unknown[], index: 0 }));
+
+function slot<T>(init: () => T): { value: T } {
+  const i = react.index++;
+  if (!(i in react.slots)) react.slots[i] = { value: init() };
+  return react.slots[i] as { value: T };
+}
+
+function depsChanged(prev: unknown[] | undefined, next?: unknown[]) {
+  return !prev || !next || next.some((dep, i) => !Object.is(dep, prev[i]));
+}
+
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
-  useState: (init: unknown) => [
-    typeof init === 'function' ? (init as () => unknown)() : init,
-    () => {},
-  ],
-  useEffect: (effect: () => void | (() => void)) => {
-    effect();
+  useState: (init: unknown) => {
+    const s = slot(() =>
+      typeof init === 'function' ? (init as () => unknown)() : init
+    );
+    return [
+      s.value,
+      (next: unknown) => {
+        s.value =
+          typeof next === 'function'
+            ? (next as (prev: unknown) => unknown)(s.value)
+            : next;
+      },
+    ];
   },
-  useCallback: (fn: unknown) => fn,
-  useRef: (value: unknown) => ({ current: value }),
+  useEffect: (effect: () => void | (() => void), deps?: unknown[]) => {
+    const s = slot<unknown[] | undefined>(() => undefined);
+    if (depsChanged(s.value, deps) || s.value === undefined) {
+      s.value = deps ?? [];
+      effect();
+    }
+  },
+  useCallback: (fn: unknown, deps?: unknown[]) => {
+    const s = slot<{ fn: unknown; deps?: unknown[] } | undefined>(
+      () => undefined
+    );
+    if (!s.value || depsChanged(s.value.deps, deps)) s.value = { fn, deps };
+    return s.value.fn;
+  },
+  useRef: (value: unknown) => slot(() => ({ current: value })).value,
   useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) =>
     getSnapshot(),
 }));
+
+function render<T>(hook: () => T): T {
+  react.index = 0;
+  return hook();
+}
 
 import {
   type SessionKey,
@@ -32,6 +71,8 @@ const KEY = sessionKey('acct-1', 'user-1', 'inbox:list') as SessionKey;
 
 beforeEach(() => {
   resetSessionCacheForTests();
+  react.slots = [];
+  react.index = 0;
 });
 
 describe('useSessionQuery', () => {
@@ -85,5 +126,49 @@ describe('useSessionQuery', () => {
       loading: false,
     });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('re-reads a shown key whose entry was deleted', async () => {
+    sessionCache.set(KEY, ['last seen']);
+    const fetcher = vi.fn(async () => ['fresh']);
+    render(() => useSessionQuery(KEY, fetcher));
+    await vi.waitFor(() => expect(sessionCache.isFetching(KEY)).toBe(false));
+
+    sessionCache.delete(KEY);
+    render(() => useSessionQuery(KEY, fetcher));
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() =>
+      expect(sessionCache.peek(KEY)?.value).toEqual(['fresh'])
+    );
+  });
+
+  it('re-reads a first load that clear() dropped under the same key', async () => {
+    const fetcher = vi
+      .fn<() => Promise<string[]>>()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce(['fresh']);
+    render(() => useSessionQuery(KEY, fetcher));
+
+    sessionCache.clear();
+    const shown = render(() => useSessionQuery(KEY, fetcher));
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(shown.loading).toBe(true);
+    await vi.waitFor(() =>
+      expect(sessionCache.peek(KEY)?.value).toEqual(['fresh'])
+    );
+  });
+
+  it('does not retry a failed first load on re-render', async () => {
+    const fetcher = vi.fn(() => Promise.reject(new Error('offline')));
+    render(() => useSessionQuery(KEY, fetcher));
+    await new Promise((settled) => setTimeout(settled, 0));
+
+    const shown = render(() => useSessionQuery(KEY, fetcher));
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(shown.loading).toBe(false);
+    expect(shown.error).toBeInstanceOf(Error);
   });
 });

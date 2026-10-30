@@ -378,7 +378,10 @@ export default function PipelinesPage() {
       )
         return started.promise;
       return loadDeals(selectedPipelineId, ownerFilter);
-    }
+    },
+    // A drag patches the board while a revalidate may be running: keep
+    // the patch rather than let the older answer move the card back.
+    { keepLocalWrites: true }
   );
   const deals = useMemo(() => dealsQuery.data ?? [], [dealsQuery.data]);
   const refreshDealsQuery = dealsQuery.refresh;
