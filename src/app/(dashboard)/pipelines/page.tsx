@@ -45,6 +45,20 @@ import { useCan } from '@/hooks/use-can';
 import { useAuth } from '@/hooks/use-auth';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useSessionQuery } from '@/hooks/use-session-query';
+import { sessionCache, sessionKey } from '@/lib/session-cache';
+import {
+  cachedQuery,
+  invalidateCached,
+  REFERENCE_CACHE_TTL_MS,
+} from '@/lib/client-cache';
+import {
+  canUseSpeculativeDeals,
+  dealsQuestion,
+  pipelinesCacheKey,
+  planFirstWave,
+  stagesCacheKey,
+} from '@/lib/pipelines/load-plan';
 import { useDealPeople } from '@/components/pipelines/use-deal-people';
 import { dealOwnerOrFilter, ownerFilterOptions } from '@/lib/pipelines/owner';
 import { useDealSignals } from '@/components/pipelines/use-deal-signals';
@@ -102,7 +116,8 @@ export default function PipelinesPage() {
   const supabase = createClient();
   const canEditSettings = useCan('edit-settings');
   const canCreateDeals = useCan('send-messages');
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
+  const userId = user?.id ?? null;
   // Whose deals the board shows (migration 080). RLS already returns
   // only what this member may see; the picker narrows within that, in
   // the query, so the board, the analytics and the counts agree.
@@ -126,7 +141,6 @@ export default function PipelinesPage() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
   const [stages, setStages] = useState<PipelineStage[]>([]);
-  const [deals, setDeals] = useState<BoardDeal[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Dialog / sheet state
@@ -140,37 +154,6 @@ export default function PipelinesPage() {
   const [dealFormOpen, setDealFormOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<BoardDeal | null>(null);
   const [defaultStageId, setDefaultStageId] = useState<string>('');
-
-  // Lead scores (docs/jev-insights.md): only while Customer insights
-  // are on, from one batched read of the deals' conversations.
-  const tScore = useTranslations('LeadScore');
-  const { settings: insightSettings } = useInsightSettings();
-  const signalsOn = insightSettings?.signalsEnabled === true;
-  const [sortByScore, setSortByScore] = useState(false);
-  const dealContactIds = useMemo(
-    () => deals.flatMap((d) => (d.contact_id ? [d.contact_id] : [])),
-    [deals]
-  );
-  const signals = useDealSignals(dealContactIds, signalsOn);
-  const scores = useMemo(() => {
-    if (!signals) return null;
-    const map = new Map<string, LeadScore | null>();
-    for (const d of deals) {
-      map.set(
-        d.id,
-        leadScore({
-          status: d.status,
-          dealCreatedAt: d.created_at,
-          stageProgress: stageProgress(d.stage_id, stages),
-          conversation: d.contact_id
-            ? (signals.byContact.get(d.contact_id) ?? null)
-            : null,
-          now: signals.at,
-        })
-      );
-    }
-    return map;
-  }, [signals, deals, stages]);
 
   // Guard against double-seeding (React StrictMode double-effect in dev).
   const seedAttempted = useRef(false);
@@ -198,13 +181,29 @@ export default function PipelinesPage() {
   } | null>(null);
 
   const loadPipelines = useCallback(async (): Promise<Pipeline[]> => {
-    const { data, error } = await supabase
-      .from('pipelines')
-      .select('*, pipeline_stages(*)')
-      .order('created_at')
-      .order('position', { referencedTable: 'pipeline_stages' });
-    if (error) {
-      console.error('Failed to load pipelines:', error.message);
+    const fetchRows = async () => {
+      const { data, error } = await supabase
+        .from('pipelines')
+        .select('*, pipeline_stages(*)')
+        .order('created_at')
+        .order('position', { referencedTable: 'pipeline_stages' });
+      if (error) throw new Error(error.message);
+      return data;
+    };
+    // Reference data: served from the cache when this tab asked lately
+    // (a failure is never cached). Without an account id yet, ask direct.
+    const id = accountIdRef.current;
+    let data;
+    try {
+      data = id
+        ? await cachedQuery(
+            pipelinesCacheKey(id),
+            REFERENCE_CACHE_TTL_MS,
+            fetchRows
+          )
+        : await fetchRows();
+    } catch (err) {
+      console.error('Failed to load pipelines:', (err as Error).message);
       return [];
     }
     const map = new Map<string, PipelineStage[]>();
@@ -220,12 +219,24 @@ export default function PipelinesPage() {
 
   const loadStages = useCallback(
     async (pipelineId: string) => {
-      const { data } = await supabase
-        .from('pipeline_stages')
-        .select('*')
-        .eq('pipeline_id', pipelineId)
-        .order('position');
-      return data ?? [];
+      const fetchRows = async () => {
+        const { data, error } = await supabase
+          .from('pipeline_stages')
+          .select('*')
+          .eq('pipeline_id', pipelineId)
+          .order('position');
+        if (error) throw new Error(error.message);
+        return (data ?? []) as PipelineStage[];
+      };
+      try {
+        return await cachedQuery(
+          stagesCacheKey(pipelineId),
+          REFERENCE_CACHE_TTL_MS,
+          fetchRows
+        );
+      } catch {
+        return [];
+      }
     },
     [supabase]
   );
@@ -237,7 +248,12 @@ export default function PipelinesPage() {
         .select(BOARD_DEAL_SELECT)
         .eq('pipeline_id', pipelineId);
       if (owner) query = query.or(owner);
-      const { data } = await query.order('created_at', { ascending: false });
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
+      // Throw rather than answer [] so a failed refresh keeps the board
+      // the session cache already holds instead of emptying it.
+      if (error) throw new Error(error.message);
       return (data ?? []) as BoardDeal[];
     },
     [supabase]
@@ -276,6 +292,7 @@ export default function PipelinesPage() {
         position: s.position,
       }));
       await supabase.from('pipeline_stages').insert(stagesPayload);
+      invalidateCached(pipelinesCacheKey(accountId));
 
       return pipeline as Pipeline;
     }, [supabase]);
@@ -285,9 +302,16 @@ export default function PipelinesPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const guess = readInitialPipelineGuess();
-      if (guess)
-        prefetchedDeals.current = { id: guess, promise: loadDeals(guess) };
+      // First wave: the remembered pipeline's deals start with the list.
+      // Its stages arrive embedded in the list, so they need no request
+      // of their own; a wrong guess just loads the right pipeline below.
+      const { dealsFor } = planFirstWave(readInitialPipelineGuess(), null);
+      if (dealsFor)
+        prefetchedDeals.current = {
+          id: dealsFor,
+          promise: loadDeals(dealsFor),
+        };
+      prefetchedDeals.current?.promise.catch(() => {});
       let list = await loadPipelines();
 
       if (list.length === 0 && !seedAttempted.current) {
@@ -315,39 +339,90 @@ export default function PipelinesPage() {
     };
   }, [loadPipelines, loadDeals, seedDefaultPipeline]);
 
-  // Load stages + deals whenever selected pipeline changes.
-  // Clearing on no-selection is a legitimate sync with URL/prop
-  // state; the load completion uses async setters inside promise
-  // callbacks (not synchronous in the effect body).
+  // Load stages whenever the selected pipeline changes (deals come from
+  // the session cache below). Clearing on no-selection is a legitimate
+  // sync with URL/prop state; the load completion uses async setters
+  // inside promise callbacks (not synchronous in the effect body).
   useEffect(() => {
     if (!selectedPipelineId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStages([]);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDeals([]);
       return;
     }
     let cancelled = false;
-    const prefetched = prefetchedDeals.current;
-    prefetchedDeals.current = null; // one use only; later loads are fresh
     const cachedStages = stagesByPipeline.current.get(selectedPipelineId);
     (async () => {
-      const [s, d] = await Promise.all([
-        cachedStages ?? loadStages(selectedPipelineId),
-        prefetched?.id === selectedPipelineId && !ownerFilter
-          ? prefetched.promise
-          : loadDeals(selectedPipelineId, ownerFilter),
-      ]);
+      const s = await (cachedStages ?? loadStages(selectedPipelineId));
       if (cancelled) return;
       setStages(s);
-      setDeals(d);
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedPipelineId, ownerFilter, loadStages, loadDeals]);
+  }, [selectedPipelineId, loadStages]);
+
+  // Deals: shown at once from the last visit, always revalidated.
+  const dealsKey = sessionKey(
+    accountId,
+    userId,
+    dealsQuestion(selectedPipelineId, ownerFilter)
+  );
+  const dealsQuery = useSessionQuery<BoardDeal[]>(
+    selectedPipelineId ? dealsKey : null,
+    () => {
+      const started = prefetchedDeals.current;
+      prefetchedDeals.current = null; // one use only; later loads are fresh
+      if (
+        started &&
+        canUseSpeculativeDeals(started, selectedPipelineId, ownerFilter)
+      )
+        return started.promise;
+      return loadDeals(selectedPipelineId, ownerFilter);
+    }
+  );
+  const deals = useMemo(() => dealsQuery.data ?? [], [dealsQuery.data]);
+  const refreshDealsQuery = dealsQuery.refresh;
+  const setDeals = useCallback(
+    (fn: (prev: BoardDeal[]) => BoardDeal[]) => {
+      if (dealsKey) sessionCache.update<BoardDeal[]>(dealsKey, fn);
+    },
+    [dealsKey]
+  );
+
+  // Lead scores (docs/jev-insights.md): only while Customer insights
+  // are on, from one batched read of the deals' conversations.
+  const tScore = useTranslations('LeadScore');
+  const { settings: insightSettings } = useInsightSettings();
+  const signalsOn = insightSettings?.signalsEnabled === true;
+  const [sortByScore, setSortByScore] = useState(false);
+  const dealContactIds = useMemo(
+    () => deals.flatMap((d) => (d.contact_id ? [d.contact_id] : [])),
+    [deals]
+  );
+  const signals = useDealSignals(dealContactIds, signalsOn);
+  const scores = useMemo(() => {
+    if (!signals) return null;
+    const map = new Map<string, LeadScore | null>();
+    for (const d of deals) {
+      map.set(
+        d.id,
+        leadScore({
+          status: d.status,
+          dealCreatedAt: d.created_at,
+          stageProgress: stageProgress(d.stage_id, stages),
+          conversation: d.contact_id
+            ? (signals.byContact.get(d.contact_id) ?? null)
+            : null,
+          now: signals.at,
+        })
+      );
+    }
+    return map;
+  }, [signals, deals, stages]);
 
   const refreshPipelines = useCallback(async () => {
+    if (accountIdRef.current)
+      invalidateCached(pipelinesCacheKey(accountIdRef.current));
     const list = await loadPipelines();
     setPipelines(list);
     if (list.length === 0) setSelectedPipelineId('');
@@ -357,6 +432,10 @@ export default function PipelinesPage() {
 
   const refreshStages = useCallback(async () => {
     if (!selectedPipelineId) return;
+    // The stage list and the copy embedded in the pipeline list both go.
+    invalidateCached(stagesCacheKey(selectedPipelineId));
+    if (accountIdRef.current)
+      invalidateCached(pipelinesCacheKey(accountIdRef.current));
     const fresh = await loadStages(selectedPipelineId);
     // Keep the embedded copy in step, or switching away and back would
     // show the stages as they were before the edit.
@@ -366,8 +445,8 @@ export default function PipelinesPage() {
 
   const refreshDeals = useCallback(async () => {
     if (!selectedPipelineId) return;
-    setDeals(await loadDeals(selectedPipelineId, ownerFilter));
-  }, [loadDeals, selectedPipelineId, ownerFilter]);
+    await refreshDealsQuery();
+  }, [refreshDealsQuery, selectedPipelineId]);
 
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
@@ -384,7 +463,7 @@ export default function PipelinesPage() {
         refreshDeals();
       }
     },
-    [supabase, refreshDeals, t]
+    [supabase, refreshDeals, setDeals, t]
   );
 
   const handleAddDeal = useCallback(
@@ -442,6 +521,7 @@ export default function PipelinesPage() {
     }));
     await supabase.from('pipeline_stages').insert(stagesPayload);
 
+    invalidateCached(pipelinesCacheKey(accountId));
     setNewPipelineName('');
     setNewPipelineOpen(false);
     setSelectedPipelineId(pipeline.id);
@@ -465,7 +545,12 @@ export default function PipelinesPage() {
     }
   }
 
-  if (loading) {
+  // Nothing cached for this board yet: the skeleton, as before.
+  const boardLoading =
+    loading ||
+    (!!selectedPipelineId && dealsQuery.loading && !dealsQuery.error);
+
+  if (boardLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
