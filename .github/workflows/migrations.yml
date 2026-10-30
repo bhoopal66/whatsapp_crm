@@ -572,6 +572,20 @@ jobs:
       - name: Verify chat sensitive guard
         run: supabase db query --local --file supabase/ci/verify-chat-sensitive-guard.sql
 
+      # Migration 159's restricted team channels: a minimum role and/or
+      # a team list hide a team channel from everyone outside them but
+      # workspace owners and admins; a joined member outside the
+      # audience reads, posts, types, gets added and gets mentioned in
+      # nothing, keeps the member row and gets it all back when the
+      # audience widens; the triggers refuse below the RPCs (system
+      # posts pass); chat_set_channel_audience refuses non-managers,
+      # non-team channels, unknown roles, foreign teams and a channel
+      # admin hiding the channel from themselves, and audits each save;
+      # the helpers are executable by nobody, the setter by
+      # authenticated only.
+      - name: Verify chat restricted channels
+        run: supabase db query --local --file supabase/ci/verify-chat-restricted-channels.sql
+
       # Migration 147's Smart insights foundation: members read the
       # per-account settings and admins write them (bank guests and other
       # workspaces see nothing); the interested-reply tag is a main tag
