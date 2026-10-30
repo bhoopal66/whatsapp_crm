@@ -125,6 +125,21 @@ export function chatTagsCacheKey(accountId: string): string {
   return `${CHAT_TAGS_CACHE_PREFIX}${accountId}`;
 }
 
+/** Prefix covering every account's and user's chat permissions. */
+export const CHAT_PERMISSIONS_CACHE_PREFIX = 'chat-permissions:';
+
+/**
+ * A person's team-chat permissions (migration 157) in a workspace. Keyed
+ * by both: the answer depends on the caller's role there, so two users
+ * on one device (or one user in two workspaces) must never share it.
+ */
+export function chatPermissionsCacheKey(
+  accountId: string,
+  userId: string
+): string {
+  return `${CHAT_PERMISSIONS_CACHE_PREFIX}${accountId}:${userId}`;
+}
+
 /**
  * How long reference data may be served without re-asking.
  *

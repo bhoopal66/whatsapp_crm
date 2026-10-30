@@ -4541,7 +4541,8 @@
       "deleteWindowClosed": "The time to delete this message has passed.",
       "sensitiveData": "This message contains sensitive data (a card number, Emirates ID or IBAN), which this workspace blocks here.",
       "restrictedPosting": "You've been restricted from posting here.",
-      "audienceHidesYou": "That change would hide this channel from you."
+      "audienceHidesYou": "That change would hide this channel from you.",
+      "outsideAudience": "You're outside this channel's audience, so you can't post or join here."
     },
     "composer": {
       "replyingTo": "Replying to {name}",

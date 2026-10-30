@@ -80,7 +80,10 @@ export function isValidIban(compact: string): boolean {
  * it never borrows part of a following word ("… 456 and") nor stops
  * inside a longer one.
  */
-function ibanAt(text: string, m: RegExpMatchArray): string | null {
+function ibanAt(
+  text: string,
+  m: RegExpMatchArray
+): { compact: string; end: number } | null {
   const country = m[1].toUpperCase();
   const length = IBAN_LENGTHS[country];
   if (!length) return null;
@@ -97,17 +100,71 @@ function ibanAt(text: string, m: RegExpMatchArray): string | null {
   if (compact.slice(4).replace(/\D/g, '').length < MIN_BBAN_DIGITS) {
     return null;
   }
-  return compact;
+  return { compact, end: i };
 }
 
-function containsIban(text: string): boolean {
+/**
+ * The valid IBANs of a text read with each whitespace run as one space.
+ * `blanked` is a copy with every valid IBAN's characters (country code
+ * to `ibanAt`'s end index) replaced by '#'.
+ */
+function findIbans(text: string): { found: boolean; blanked: string } {
   // One space for any whitespace run (a pasted NBSP, a double space).
   const t = text.replace(/\s+/g, ' ');
+  const chars = t.split('');
+  let found = false;
   for (const m of t.matchAll(IBAN_START)) {
-    const iban = ibanAt(t, m);
-    if (iban && isValidIban(iban)) return true;
+    const at = ibanAt(t, m);
+    if (at && isValidIban(at.compact)) {
+      found = true;
+      for (let q = m.index ?? 0; q < at.end; q++) chars[q] = '#';
+    }
+  }
+  return { found, blanked: chars.join('') };
+}
+
+function hasCard(text: string): boolean {
+  const digits = (s: string) => s.replace(/\D/g, '');
+  // Phone numbers go first: a 00971 number has 14 digits, and one in
+  // ten of those passes Luhn. The replacement is not a CARD separator,
+  // so digits on either side cannot join into one run.
+  const withoutPhones = text
+    .replace(PHONE_UAE, ' # ')
+    .replace(PHONE_INTL, (m) => {
+      const n = digits(m).length;
+      return n >= 8 && n <= 15 ? ' # ' : m;
+    });
+  for (const m of withoutPhones.matchAll(CARD)) {
+    const d = digits(m[0]);
+    if (d.length >= 13 && d.length <= 19 && luhnValid(d)) return true;
   }
   return false;
+}
+
+/**
+ * Which kinds of sensitive data a message carries, in the order card,
+ * emirates_id, iban. A copy of migration 158's `chat_sensitive_kinds`:
+ * change one, change both.
+ *
+ * A card is called one only if it survives a second look with the
+ * Emirates ID and IBAN blanked out, so an ID that happens to pass Luhn
+ * is not also labelled a card.
+ */
+export function sensitiveKinds(
+  text: string
+): ('card' | 'emirates_id' | 'iban')[] {
+  const t = normaliseDigits(text);
+  const eid = !!t.match(EID);
+  const iban = findIbans(t);
+  let card = hasCard(t);
+  if (card && (eid || iban.found)) {
+    card = hasCard(iban.blanked.replace(EID, ' # '));
+  }
+  const kinds: ('card' | 'emirates_id' | 'iban')[] = [];
+  if (card) kinds.push('card');
+  if (eid) kinds.push('emirates_id');
+  if (iban.found) kinds.push('iban');
+  return kinds;
 }
 
 /**
@@ -123,21 +180,5 @@ function containsIban(text: string): boolean {
  * replace (which reset lastIndex), never .test().
  */
 export function containsSensitiveData(text: string): boolean {
-  const t = normaliseDigits(text);
-  const digits = (s: string) => s.replace(/\D/g, '');
-
-  if (t.match(EID) || containsIban(t)) return true;
-
-  // Phone numbers go first: a 00971 number has 14 digits, and one in
-  // ten of those passes Luhn. The replacement is not a CARD separator,
-  // so digits on either side cannot join into one run.
-  const withoutPhones = t.replace(PHONE_UAE, ' # ').replace(PHONE_INTL, (m) => {
-    const n = digits(m).length;
-    return n >= 8 && n <= 15 ? ' # ' : m;
-  });
-  for (const m of withoutPhones.matchAll(CARD)) {
-    const d = digits(m[0]);
-    if (d.length >= 13 && d.length <= 19 && luhnValid(d)) return true;
-  }
-  return false;
+  return sensitiveKinds(text).length > 0;
 }

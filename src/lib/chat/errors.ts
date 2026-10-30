@@ -64,7 +64,9 @@ export type ChatErrorKey =
   | 'sensitiveData'
   // posting restrictions and channel audiences (migrations in progress)
   | 'restrictedPosting'
-  | 'audienceHidesYou';
+  | 'audienceHidesYou'
+  // 159's restricted channels
+  | 'outsideAudience';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -110,6 +112,7 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     // read as adminRequired below.
     [/your role may not/i, 'permissionDenied'],
     [/only channel admins can post here/i, 'postingRestricted'],
+    [/outside this channel's audience/i, 'outsideAudience'],
     [/only channel admins can reply in threads here/i, 'repliesRestricted'],
     [/you may not notify everyone/i, 'mentionEveryoneRestricted'],
     [/the edit window has passed/i, 'editWindowClosed'],

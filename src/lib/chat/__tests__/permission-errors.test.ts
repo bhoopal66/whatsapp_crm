@@ -44,6 +44,7 @@ const CASES: [string, string, ChatErrorKey][] = [
     'chat_set_audience: that audience would hide this channel from you',
     'audienceHidesYou',
   ],
+  ['42501', "chat: outside this channel's audience", 'outsideAudience'],
 ];
 
 describe('157/158 refusals → ChatError keys', () => {

@@ -555,6 +555,7 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   sensitiveData: true,
   restrictedPosting: true,
   audienceHidesYou: true,
+  outsideAudience: true,
 };
 
 /** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */

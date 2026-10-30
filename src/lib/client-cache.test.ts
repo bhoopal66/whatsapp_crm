@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   MEMBERS_CACHE_KEY,
+  chatPermissionsCacheKey,
   cachedQuery,
   clearClientCache,
   invalidateCached,
@@ -145,5 +146,36 @@ describe('membersCacheKey', () => {
     await cachedQuery(membersCacheKey('acc-b'), 1000, loader, 1);
 
     expect(loader).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('chatPermissionsCacheKey', () => {
+  beforeEach(() => {
+    clearClientCache();
+  });
+
+  it('names the account and the user', () => {
+    expect(chatPermissionsCacheKey('acc-a', 'u1')).toBe(
+      'chat-permissions:acc-a:u1'
+    );
+    expect(chatPermissionsCacheKey('acc-a', 'u1')).not.toBe(
+      chatPermissionsCacheKey('acc-b', 'u1')
+    );
+    expect(chatPermissionsCacheKey('acc-a', 'u1')).not.toBe(
+      chatPermissionsCacheKey('acc-a', 'u2')
+    );
+  });
+
+  it('keeps two users of one account apart in the cache', async () => {
+    const loader = vi
+      .fn()
+      .mockResolvedValueOnce('admin')
+      .mockResolvedValueOnce('agent');
+    expect(
+      await cachedQuery(chatPermissionsCacheKey('a', 'u1'), 1000, loader, 0)
+    ).toBe('admin');
+    expect(
+      await cachedQuery(chatPermissionsCacheKey('a', 'u2'), 1000, loader, 0)
+    ).toBe('agent');
   });
 });
