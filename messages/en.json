@@ -4655,7 +4655,11 @@
       "sent": "Sent",
       "seenBy": "Seen by {count}",
       "seenList": "Seen by",
-      "notYetList": "Not seen yet"
+      "notYetList": "Not seen yet",
+      "played": "Played",
+      "playedBy": "Played by {count}",
+      "playedList": "Played by",
+      "notPlayedList": "Not played yet"
     },
     "card": {
       "header": "Shared from WhatsApp inbox · read-only copy",

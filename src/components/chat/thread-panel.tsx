@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useChannelMembers } from '@/hooks/use-channel-members';
 import { isChannelModerator } from '@/lib/chat/moderation';
 import {
   applyMessageEvent,
@@ -33,6 +34,7 @@ import { useChatWorkspaceContext } from './chat-context';
 import { Composer } from './composer';
 import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
+import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
 import { QuoteProvider, useQuoteResolver } from './quotes';
 import { ReplyTargetProvider } from './reply-target';
 import { useWriteBlock } from './use-write-block';
@@ -182,6 +184,8 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
     [rootMsg, replies.messages]
   );
   const getQuote = useQuoteResolver(channelId, shown);
+  const members = useChannelMembers(ws, channelId);
+  const voicePlays = useVoicePlaysValue(shown, channel?.kind ?? null, members);
   const quoteLookup = useMemo(
     () => ({
       get: getQuote,
@@ -244,51 +248,56 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
       <ReplyTargetProvider scope={`${channelId}:${rootId}`}>
         <QuoteProvider value={quoteLookup}>
           {/* useNearViewport's root: voice notes load a screen ahead. */}
-          <div
-            ref={scrollerRef}
-            data-inbox-scroll-root=""
-            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
-          >
-            {loading ? (
-              <p className="text-muted-foreground p-6 text-center text-sm">
-                {t('thread.loading')}
-              </p>
-            ) : rootMsg ? (
-              <>
-                <MessageRow
-                  message={rootMsg}
-                  grouped={false}
-                  card={card ?? undefined}
-                  callCard={callCard ?? undefined}
-                  actions={actions}
-                  onToggleReaction={toggle}
-                  highlighted={rootMsg.id === highlightId}
-                />
-                <div className="flex items-center gap-3 px-4 pt-3 pb-1">
-                  <span className="text-muted-foreground text-xs font-medium">
-                    {t('thread.replies', {
-                      count: rootMsg.thread?.replyCount ?? 0,
-                    })}
-                  </span>
-                  <span className="bg-border h-px flex-1" />
-                </div>
-                {replies.messages.map((m, i) => (
+          <VoicePlaysProvider value={voicePlays}>
+            <div
+              ref={scrollerRef}
+              data-inbox-scroll-root=""
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
+            >
+              {loading ? (
+                <p className="text-muted-foreground p-6 text-center text-sm">
+                  {t('thread.loading')}
+                </p>
+              ) : rootMsg ? (
+                <>
                   <MessageRow
-                    key={m.id}
-                    message={m}
-                    grouped={isGroupedWithPrevious(replies.messages[i - 1], m)}
+                    message={rootMsg}
+                    grouped={false}
+                    card={card ?? undefined}
+                    callCard={callCard ?? undefined}
                     actions={actions}
                     onToggleReaction={toggle}
-                    highlighted={m.id === highlightId}
+                    highlighted={rootMsg.id === highlightId}
                   />
-                ))}
-              </>
-            ) : (
-              <p className="text-muted-foreground p-6 text-center text-sm">
-                {t('thread.gone')}
-              </p>
-            )}
-          </div>
+                  <div className="flex items-center gap-3 px-4 pt-3 pb-1">
+                    <span className="text-muted-foreground text-xs font-medium">
+                      {t('thread.replies', {
+                        count: rootMsg.thread?.replyCount ?? 0,
+                      })}
+                    </span>
+                    <span className="bg-border h-px flex-1" />
+                  </div>
+                  {replies.messages.map((m, i) => (
+                    <MessageRow
+                      key={m.id}
+                      message={m}
+                      grouped={isGroupedWithPrevious(
+                        replies.messages[i - 1],
+                        m
+                      )}
+                      actions={actions}
+                      onToggleReaction={toggle}
+                      highlighted={m.id === highlightId}
+                    />
+                  ))}
+                </>
+              ) : (
+                <p className="text-muted-foreground p-6 text-center text-sm">
+                  {t('thread.gone')}
+                </p>
+              )}
+            </div>
+          </VoicePlaysProvider>
           {rootMsg && !rootMsg.deletedAt && (
             <Composer
               key={rootId}

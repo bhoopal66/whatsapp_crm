@@ -20,6 +20,7 @@ import {
   type MessageEvent,
   type ReactionEvent,
   type UnreadCount,
+  type VoicePlay,
 } from '@/lib/chat';
 import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
@@ -34,7 +35,9 @@ export type ChatEvent =
       event: { type: 'pin' | 'unpin'; channelId: string; messageId: string };
     }
   /** A chat_channel_members row changed: read marks for receipts (156). */
-  | { kind: 'member'; event: MemberEvent };
+  | { kind: 'member'; event: MemberEvent }
+  /** A chat_voice_plays row was inserted: someone played a voice note (156). */
+  | { kind: 'voicePlay'; play: VoicePlay };
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
@@ -133,6 +136,7 @@ export function useChatWorkspace() {
         later('loadChannels');
         later('refreshUnread');
       },
+      onVoicePlay: (play) => emit({ kind: 'voicePlay', play }),
     });
     return () => {
       Object.values(timers).forEach(clearTimeout);

@@ -4655,7 +4655,11 @@
       "sent": "보냄",
       "seenBy": "{count}명이 읽음",
       "seenList": "읽은 사람",
-      "notYetList": "아직 읽지 않음"
+      "notYetList": "아직 읽지 않음",
+      "played": "재생함",
+      "playedBy": "{count}명이 재생함",
+      "playedList": "재생한 사람",
+      "notPlayedList": "아직 재생하지 않음"
     },
     "card": {
       "header": "WhatsApp 받은편지함에서 공유됨 · 읽기 전용 사본",

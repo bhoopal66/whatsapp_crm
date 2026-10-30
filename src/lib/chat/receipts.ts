@@ -2,7 +2,12 @@
  * Seen-by receipts (156) from members' read marks. Shown only where the
  * list is small enough to mean something.
  */
-import type { ChannelKind, ChannelMember, ChatMessage } from './types';
+import type {
+  ChannelKind,
+  ChannelMember,
+  ChatMessage,
+  VoicePlay,
+} from './types';
 
 export const RECEIPTS_MAX_MEMBERS = 20;
 
@@ -152,4 +157,88 @@ export function applyMemberEvent(
       postBlockedUntil: e.member.postBlockedUntil ?? null,
     },
   ];
+}
+
+export type PlayedLabel = 'none' | 'played' | 'playedBy';
+
+export interface PlayedSummary {
+  label: PlayedLabel;
+  /** Who played it, each once at their first play, earliest first. */
+  played: { userId: string; playedAt: string }[];
+  /** Current members other than the author who have not played it. */
+  notYet: string[];
+}
+
+/**
+ * The played line under the author's own voice note (156's
+ * chat_voice_plays), on the receipts rule (showsReceipts). A 1:1 DM says
+ * "Played" once the other person has, anywhere else "Played by N";
+ * nothing before the first play. A listener who has since left the
+ * channel still counts: they did play it.
+ */
+export function playedSummary(i: {
+  plays: readonly Pick<VoicePlay, 'userId' | 'playedAt'>[];
+  members: readonly Pick<ChannelMember, 'userId'>[];
+  authorId: string | null;
+  kind: ChannelKind;
+}): PlayedSummary {
+  const first = new Map<string, { userId: string; playedAt: string }>();
+  for (const p of i.plays) {
+    if (sameUser(p.userId, i.authorId)) continue;
+    const key = p.userId.toLowerCase();
+    const had = first.get(key);
+    if (!had || Date.parse(p.playedAt) < Date.parse(had.playedAt))
+      first.set(key, { userId: p.userId, playedAt: p.playedAt });
+  }
+  const played = [...first.values()].sort(
+    (a, b) => Date.parse(a.playedAt) - Date.parse(b.playedAt)
+  );
+  const notYet = i.members
+    .map((m) => m.userId)
+    .filter((id) => !sameUser(id, i.authorId) && !first.has(id.toLowerCase()));
+  let label: PlayedLabel = 'none';
+  if (showsReceipts(i.kind, i.members.length) && played.length > 0)
+    label = i.kind === 'dm' && i.members.length <= 2 ? 'played' : 'playedBy';
+  return { label, played, notYet };
+}
+
+/**
+ * The viewer's own voice notes among `messages`, not deleted or erased:
+ * the only ones whose plays the played line reads.
+ */
+export function ownVoiceNoteIds(
+  messages: readonly (Pick<ChatMessage, 'id' | 'authorId' | 'attachments'> &
+    Partial<Pick<ChatMessage, 'deletedAt' | 'erasedAt'>>)[],
+  selfId: string | null
+): string[] {
+  return messages
+    .filter(
+      (m) =>
+        !m.deletedAt &&
+        !m.erasedAt &&
+        sameUser(m.authorId, selfId) &&
+        m.attachments.some((a) => a.kind === 'voice')
+    )
+    .map((m) => m.id);
+}
+
+/**
+ * Plays by message with `add` merged in, one row per (message, person),
+ * the earlier play kept: a realtime insert the first read already
+ * returned gives back the same object.
+ */
+export function mergeVoicePlays(
+  held: Readonly<Record<string, readonly VoicePlay[]>>,
+  add: readonly VoicePlay[]
+): Readonly<Record<string, readonly VoicePlay[]>> {
+  let out: Record<string, readonly VoicePlay[]> | null = null;
+  for (const p of add) {
+    const cur: readonly VoicePlay[] = (out ?? held)[p.messageId] ?? [];
+    const at = cur.findIndex((x) => sameUser(x.userId, p.userId));
+    if (at >= 0 && !(Date.parse(p.playedAt) < Date.parse(cur[at].playedAt)))
+      continue;
+    const next = at >= 0 ? cur.map((x, j) => (j === at ? p : x)) : [...cur, p];
+    out = { ...(out ?? held), [p.messageId]: next };
+  }
+  return out ?? held;
 }

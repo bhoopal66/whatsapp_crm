@@ -23,6 +23,7 @@ import { useChatWorkspaceContext } from './chat-context';
 import type { RowActionContext } from './message-actions';
 import { useMessageMarks } from './message-marks';
 import { MessageTimeline } from './message-timeline';
+import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
 import { QuoteProvider, useQuoteResolver } from './quotes';
 import { ReplyTargetProvider } from './reply-target';
 import { SeenBy } from './seen-by';
@@ -77,6 +78,11 @@ export function ChannelView({
   const tl = useChannelTimeline(ws, channelId);
   const members = useChannelMembers(ws, channelId);
   const memberCount = members?.length ?? null;
+  const voicePlays = useVoicePlaysValue(
+    tl.messages,
+    channel?.kind ?? null,
+    members
+  );
   const { sb, refreshUnread, userId } = ws;
   const { canManageMembers, isBankGuest } = useAuth();
   const marks = useMessageMarks();
@@ -236,38 +242,40 @@ export function ChannelView({
       ) : (
         <ReplyTargetProvider scope={channelId}>
           <QuoteProvider value={quoteLookup}>
-            <MessageTimeline
-              messages={tl.messages}
-              cards={tl.cards}
-              callCards={tl.callCards}
-              hasMoreOlder={tl.hasMoreOlder}
-              loading={tl.loading}
-              loadingOlder={tl.loadingOlder}
-              onLoadOlder={tl.loadOlder}
-              onToggleReaction={tl.toggle}
-              onOpenThread={onOpenThread}
-              actions={actions}
-              focusId={timelineFocusId}
-              onFocusDone={onTimelineFocusDone}
-              unreadId={unreadId}
-              after={
-                seenMessage &&
-                members &&
-                showsReceipts(channel.kind, members.length)
-                  ? {
-                      id: seenMessage.id,
-                      node: (
-                        <SeenBy
-                          message={seenMessage}
-                          kind={channel.kind}
-                          members={members}
-                          peopleById={ws.peopleById}
-                        />
-                      ),
-                    }
-                  : null
-              }
-            />
+            <VoicePlaysProvider value={voicePlays}>
+              <MessageTimeline
+                messages={tl.messages}
+                cards={tl.cards}
+                callCards={tl.callCards}
+                hasMoreOlder={tl.hasMoreOlder}
+                loading={tl.loading}
+                loadingOlder={tl.loadingOlder}
+                onLoadOlder={tl.loadOlder}
+                onToggleReaction={tl.toggle}
+                onOpenThread={onOpenThread}
+                actions={actions}
+                focusId={timelineFocusId}
+                onFocusDone={onTimelineFocusDone}
+                unreadId={unreadId}
+                after={
+                  seenMessage &&
+                  members &&
+                  showsReceipts(channel.kind, members.length)
+                    ? {
+                        id: seenMessage.id,
+                        node: (
+                          <SeenBy
+                            message={seenMessage}
+                            kind={channel.kind}
+                            members={members}
+                            peopleById={ws.peopleById}
+                          />
+                        ),
+                      }
+                    : null
+                }
+              />
+            </VoicePlaysProvider>
             {footer}
           </QuoteProvider>
         </ReplyTargetProvider>

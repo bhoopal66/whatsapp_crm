@@ -31,6 +31,7 @@ import {
   useMessageEdits,
   type RowActionContext,
 } from './message-actions';
+import { PlayedBy } from './played-by';
 import { ForwardedLine, forwardedText, QuoteBlock } from './quote-block';
 import { useQuoteLookup } from './quotes';
 import { RichText } from './rich-text';
@@ -64,14 +65,25 @@ function AttachmentView({
   onOpenImage: () => void;
 }) {
   const display = attachmentDisplay(a);
-  if (display === 'voice' || display === 'audio')
+  if (display === 'audio')
     return (
       <ChatVoiceNote
         attachment={a}
         messageId={a.messageId}
         authorId={authorId}
-        file={display === 'audio'}
+        file
       />
+    );
+  if (display === 'voice')
+    return (
+      <div className="flex max-w-full flex-col">
+        <ChatVoiceNote
+          attachment={a}
+          messageId={a.messageId}
+          authorId={authorId}
+        />
+        <PlayedBy messageId={a.messageId} authorId={authorId} />
+      </div>
     );
   if (display === 'image') return <ChatImageThumb a={a} onOpen={onOpenImage} />;
   if (display === 'video') return <ChatVideo a={a} />;
