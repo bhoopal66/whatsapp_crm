@@ -17,8 +17,11 @@
 // each mount asked again from scratch.
 //
 // What it does NOT do: conversations, messages, contacts — anything
-// the user is actively reading or editing — must stay uncached. This
-// is for slow-moving reference data only.
+// the user is actively reading or editing — never go here, because a
+// TTL hit skips the round trip and would show them stale. This is for
+// slow-moving reference data only. Screen data goes in
+// `session-cache.ts`, which shows the last answer at once and always
+// refreshes it.
 //
 // The promise, not the value, is cached: two components mounting in
 // the same tick share one in-flight request instead of racing two.
@@ -78,8 +81,8 @@ export function invalidateCached(keyOrPrefix: string): void {
   }
 }
 
-/** Drop everything. For tests, and for any future user switch that
- *  does not go through a full page load. */
+/** Drop everything. Called on a workspace switch (`use-auth.tsx`, next
+ *  to `sessionCache.clear()`), and by tests. */
 export function clearClientCache(): void {
   store.clear();
 }

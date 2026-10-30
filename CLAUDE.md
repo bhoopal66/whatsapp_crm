@@ -1672,9 +1672,17 @@ origin and ~700ms through Cloudflare. Hence `experimental.staleTimes` in
 dashboard screens are client components that fetch their own data on
 mount) and `lib/client-cache.ts` (`cachedQuery`, a TTL cache for
 slow-moving reference data: chat tags, members, team rosters, channel
-status). Conversations, messages, and contacts must stay uncached, and
-cache keys must name the *question* including any user/team parameter,
-or two users on one device read each other's data.
+status); its keys must name the *question* including any user/team
+parameter, or two users on one device read each other's data.
+Conversations, messages, and contacts never go in `client-cache.ts`
+(a TTL hit skips the round trip). They may be kept only in
+`src/lib/session-cache.ts` (`useSessionQuery`), under the rule the
+product owner approved: **memory only** (never localStorage,
+IndexedDB or any other disk); **kept separately per user and
+workspace** (`sessionKey(accountId, userId, question)`); **wiped on
+sign-out, workspace switch or user change** (`use-auth.tsx`:
+`sessionCache.clear()`, `noteSessionUser`); and **always refreshed the
+moment it is shown** (no TTL; a cached value is only a starting point).
 
 ### `next.config.ts` is a constraint file
 

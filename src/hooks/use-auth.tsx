@@ -30,6 +30,7 @@ import {
   type Workspace,
 } from "@/lib/auth/my-workspaces";
 import { clearClientCache } from "@/lib/client-cache";
+import { noteSessionUser, sessionCache } from "@/lib/session-cache";
 import { signOutReleasingPush } from "@/lib/push/sign-out";
 
 interface Profile {
@@ -261,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const enterWorkspace = useCallback(
     (role: AccountRole | null, next?: string) => {
       clearClientCache();
+      sessionCache.clear();
       try {
         workspaceChannelRef.current?.postMessage({ type: "switched", role });
       } catch {
@@ -392,6 +394,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           supabase.auth.signOut()
         ).catch((err: unknown) => ({ error: err }));
         if (signOutError) await supabase.auth.signOut({ scope: "local" });
+        sessionCache.clear();
         window.location.href = "/login?deactivated=1";
         return;
       }
@@ -515,6 +518,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     channel.onmessage = (event: MessageEvent) => {
       const role: unknown = (event.data as { role?: unknown } | null)?.role;
       clearClientCache();
+      sessionCache.clear();
       window.location.assign(
         workspaceHomePath(isAccountRole(role) ? role : null),
       );
@@ -548,6 +552,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!mounted) return;
         const currentUser = session?.user ?? null;
+        noteSessionUser(currentUser?.id ?? null);
         setUser(currentUser);
 
         if (currentUser) {
@@ -577,6 +582,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       const currentUser = session?.user ?? null;
+      // Screen data is per user: a sign-out (here or in another tab) or
+      // a different user signing in to this tab empties it.
+      noteSessionUser(currentUser?.id ?? null);
       setUser(currentUser);
 
       if (currentUser) {
@@ -604,6 +612,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = createClient();
     await signOutReleasingPush(() => supabase.auth.signOut());
+    sessionCache.clear();
     setUser(null);
     setProfile(null);
     setAccount(null);
