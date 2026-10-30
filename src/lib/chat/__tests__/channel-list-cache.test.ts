@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { patchOwnReadMark } from '../channel-list-cache';
+import { isOwnMemberEvent, patchOwnReadMark } from '../channel-list-cache';
 import type { MemberEvent } from '../receipts';
 import type { ChannelMember, ChannelWithMembership } from '../types';
 
@@ -117,5 +117,20 @@ describe('patchOwnReadMark', () => {
         'u1'
       )
     ).toBeNull();
+  });
+});
+
+describe('isOwnMemberEvent', () => {
+  const ev = (userId: string, type: MemberEvent['type'] = 'update') =>
+    ({ type, member: { channelId: 'c1', userId } }) as MemberEvent;
+
+  it("is true only for the viewer's own row, whatever the case", () => {
+    expect(isOwnMemberEvent(ev('U-1'), 'u-1')).toBe(true);
+    expect(isOwnMemberEvent(ev('u-2'), 'u-1')).toBe(false);
+  });
+
+  it("ignores another person's join, leave and read mark alike", () => {
+    for (const type of ['insert', 'update', 'delete'] as const)
+      expect(isOwnMemberEvent(ev('u-2', type), 'u-1')).toBe(false);
   });
 });

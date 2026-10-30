@@ -22,6 +22,18 @@ export const CHAT_UNREAD_QUESTION = 'chat:unread';
  * a role or mute change, a channel not held — returns null: today's
  * reload.
  */
+/**
+ * Whether a member-row event can change the channel list or the unread
+ * counts at all: `listChannels` embeds only the viewer's own membership
+ * (`me.user_id = userId`) and unread counts read only the viewer's own
+ * last_read_at, so another person's join, leave or read mark changes
+ * neither — while their reads would otherwise reload the list for every
+ * viewer of a busy channel.
+ */
+export function isOwnMemberEvent(e: MemberEvent, userId: string): boolean {
+  return e.member.userId.toLowerCase() === userId.toLowerCase();
+}
+
 export function patchOwnReadMark(
   channels: ChannelWithMembership[],
   e: MemberEvent,

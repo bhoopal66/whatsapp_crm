@@ -33,6 +33,7 @@ import { useSessionQuery } from '@/hooks/use-session-query';
 import {
   CHAT_CHANNELS_QUESTION,
   CHAT_UNREAD_QUESTION,
+  isOwnMemberEvent,
   patchOwnReadMark,
 } from '@/lib/chat/channel-list-cache';
 
@@ -144,6 +145,8 @@ export function useChatWorkspace() {
       onChannel: () => later('loadChannels'),
       onMember: (event) => {
         emit({ kind: 'member', event });
+        // Someone else's row is in neither the list nor our unread counts.
+        if (!isOwnMemberEvent(event, userId)) return;
         // The echo of our own mark-read only moves last_read_at: patch it
         // in place rather than reload the list. While a fetch is in
         // flight its older answer would overwrite the patch, so reload.
