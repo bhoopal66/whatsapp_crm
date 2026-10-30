@@ -1,4 +1,5 @@
 import type { Message } from '@/types';
+import { isExpiredStagedMedia } from '@/lib/storage/staged-media';
 import type { ConsentRefusal } from '@/lib/whatsapp/send-origin';
 
 /**
@@ -138,6 +139,20 @@ export function retryAttempt(
     restoreText: failed.restoreText,
     uploadPath: failed.uploadPath,
   };
+}
+
+/**
+ * Whether a failed media send's upload is too old to send again. A
+ * failed row lives as long as the tab, and the server sweeps an
+ * unreferenced staged upload after 30 days: a Retry after that would
+ * send a link to a deleted file. The caller drops the row and deletes
+ * the upload instead.
+ */
+export function hasExpiredUpload(
+  failed: Pick<SendAttempt, 'uploadPath'>,
+  now: number = Date.now()
+): boolean {
+  return !!failed.uploadPath && isExpiredStagedMedia(failed.uploadPath, now);
 }
 
 /**

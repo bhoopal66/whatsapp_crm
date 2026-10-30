@@ -29,9 +29,9 @@ vi.mock("@/lib/supabase/client", () => ({
 import {
   buildMediaPath,
   MEDIA_MAX_BYTES_BY_KIND,
-  STAGED_MEDIA_SUBFOLDER,
   uploadAccountMedia,
 } from "./upload-media";
+import { STAGED_MEDIA_SUBFOLDER } from "./staged-media";
 
 const ACCOUNT = "11111111-2222-3333-4444-555555555555";
 

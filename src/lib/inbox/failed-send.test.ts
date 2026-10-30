@@ -4,6 +4,7 @@ import type { Message } from '@/types';
 import {
   consentRefusalOf,
   forgetKeptUpload,
+  hasExpiredUpload,
   isRetryableSendFailure,
   KEPT_UPLOADS_KEY,
   partitionRestoredDrafts,
@@ -201,6 +202,27 @@ describe('retryAttempt', () => {
     retryAttempt(failed, 'temp-2');
     expect(failed.message.id).toBe('temp-1');
     expect(failed.message.status).toBe('failed');
+  });
+});
+
+describe('hasExpiredUpload', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = 1_800_000_000_000;
+  const path = (stamp: number) =>
+    `account-11111111-2222-3333-4444-555555555555/staged/${stamp}-photo.png`;
+
+  it('is true only for a staged upload past the client limit', () => {
+    expect(hasExpiredUpload({ uploadPath: path(NOW - 30 * DAY) }, NOW)).toBe(
+      true
+    );
+    expect(hasExpiredUpload({ uploadPath: path(NOW - 2 * DAY) }, NOW)).toBe(
+      false
+    );
+  });
+
+  it('is false for a text send, which has no upload', () => {
+    expect(hasExpiredUpload({}, NOW)).toBe(false);
+    expect(hasExpiredUpload({ uploadPath: '' }, NOW)).toBe(false);
   });
 });
 

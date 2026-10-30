@@ -6,18 +6,23 @@
  * browser remove() on tab close cannot be trusted to run, so the server
  * cleans up instead: chat_media_staged_orphans() (migration 155) lists
  * staged objects older than the minimum age that no message, template or
- * broadcast header references. The 7-day age keeps any draft still open in
- * a tab safe. Removal goes through the Storage API with the service role,
- * never by deleting storage.objects rows. Never throws on a failed remove;
- * a failed listing throws.
+ * broadcast header references. The age (STAGED_MEDIA_MAX_AGE_DAYS) was 7
+ * days, which a long-lived tab outlived: a parked draft, an attachment left
+ * in an open composer or a failed send kept for Retry pointed at a deleted
+ * file. It is now 30 days, and the client stops using a staged attachment
+ * a day before that (isExpiredStagedMedia). Removal goes through the
+ * Storage API with the service role, never by deleting storage.objects
+ * rows. Never throws on a failed remove; a failed listing throws.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+import { STAGED_MEDIA_MAX_AGE_DAYS } from './staged-media';
 
 // message-composer.tsx owns the same constant but is a client component.
 const CHAT_MEDIA_BUCKET = 'chat-media';
 
 /** Staged objects younger than this are left alone (SQL refuses < 1 day). */
-export const STAGED_MEDIA_MIN_AGE = '7 days';
+export const STAGED_MEDIA_MIN_AGE = `${STAGED_MEDIA_MAX_AGE_DAYS} days`;
 
 /** At most this many per sweep; the next run takes the rest. */
 export const STAGED_MEDIA_SWEEP_LIMIT = 500;

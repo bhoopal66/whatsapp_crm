@@ -13,11 +13,11 @@ const ok = async (p: string[]) => ({
 });
 
 describe('runStagedMediaSweep', () => {
-  it('asks for 7-day-old orphans, at most 500', async () => {
+  it('asks for 30-day-old orphans, at most 500', async () => {
     const a = admin([]);
     await runStagedMediaSweep(a.client);
     expect(a.rpc).toHaveBeenCalledWith('chat_media_staged_orphans', {
-      p_min_age: '7 days',
+      p_min_age: '30 days',
       p_limit: 500,
     });
   });

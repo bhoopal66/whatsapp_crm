@@ -454,7 +454,8 @@
       "maybeSent": "It may still have reached the customer. Check before sending it again.",
       "doNotContact": "This customer is marked do-not-contact, so the missed-call draft was not sent.",
       "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent.",
-      "sharedChatNumber": "This chat was shared with you, so you can reply only on the chat's own WhatsApp number."
+      "sharedChatNumber": "This chat was shared with you, so you can reply only on the chat's own WhatsApp number.",
+      "attachmentExpired": "This attachment is too old to send again and has been removed. Attach the file again."
     },
     "composer": {
       "templates": "Templates",
@@ -490,7 +491,8 @@
       "quickReplySaved": "Saved as a quick reply.",
       "quickReplySaveError": "Couldn't save the quick reply.",
       "draftDroppedDoNotContact": "Missed-call draft removed: this customer is now marked do-not-contact.",
-      "draftDroppedOptedOut": "Missed-call draft removed: this customer has opted out of messages."
+      "draftDroppedOptedOut": "Missed-call draft removed: this customer has opted out of messages.",
+      "attachmentExpired": "This attachment was staged too long ago and has been removed. Attach the file again."
     },
     "bubble": {
       "photo": "Photo",

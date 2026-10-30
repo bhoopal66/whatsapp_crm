@@ -83,9 +83,12 @@ import { toast } from 'sonner';
 import {
   uploadAccountMedia,
   deleteAccountMedia,
-  STAGED_MEDIA_SUBFOLDER,
   MEDIA_MAX_BYTES_BY_KIND,
 } from '@/lib/storage/upload-media';
+import {
+  isExpiredStagedMedia,
+  STAGED_MEDIA_SUBFOLDER,
+} from '@/lib/storage/staged-media';
 import { ReplyQuote } from './reply-quote';
 import { VoiceNotePlayer } from './voice-note-player';
 import { VoiceRecordingBar } from './voice-recording-bar';
@@ -386,9 +389,11 @@ export function MessageComposer({
       ? flow
       : null;
   const tCheckRef = useRef(tCheck);
+  const tRef = useRef(t);
   useEffect(() => {
     tCheckRef.current = tCheck;
-  }, [tCheck]);
+    tRef.current = t;
+  }, [tCheck, t]);
 
   const dispatchCheck = useCallback(function dispatch(
     event: ComposeFlowEvent<HeldSend, ReplyDraft, MediaDraft>
@@ -504,7 +509,7 @@ export function MessageComposer({
     // its object first. The delete runs as the newly signed-in user and
     // storage RLS only allows deletes inside that user's own
     // account-<id> folder: another account's leftovers stay, and the
-    // 7-day staged sweep removes them. The first sign-in on a tab finds
+    // staged sweep removes them. The first sign-in on a tab finds
     // an empty stash.
     for (const a of clearParkedDrafts(parkedDrafts)) removeStaged(a.path);
     parkedFor = userId;
@@ -541,11 +546,19 @@ export function MessageComposer({
         restoreBox(b, parked.text, parked.origin as SendOrigin | null)
       );
     if (parked.attachment) {
-      draftRef.current = parked.attachment;
-      setDraft(parked.attachment);
+      // Parked longer than the server's sweep age (a tab left open for
+      // weeks): the object may be gone, and staging it would send a dead
+      // link. Taken out of the stash either way; deleted, best effort.
+      if (isExpiredStagedMedia(parked.attachment.path)) {
+        removeStaged(parked.attachment.path);
+        toast.warning(tRef.current('attachmentExpired'));
+      } else {
+        draftRef.current = parked.attachment;
+        setDraft(parked.attachment);
+      }
     }
     if (parked.reply) restoreReplyRef.current?.(parked.reply);
-  }, [conversationId, dispatchCheck]);
+  }, [conversationId, dispatchCheck, removeStaged]);
   // Leaving the inbox parks the draft the same way, so coming back to
   // the chat (the stash lives as long as the tab) puts it back. Declared
   // before the unmount cleanup below: a parked attachment is unstaged
@@ -1089,9 +1102,26 @@ export function MessageComposer({
 
   // ---- Draft send / discard -----------------------------------------
 
+  // An attachment left staged longer than the server's sweep age may be
+  // deleted already, and Meta would fetch a dead link. It is unstaged,
+  // deleted (best effort) and never sent.
+  const dropIfExpired = useCallback(
+    (staged: MediaDraft) => {
+      if (!isExpiredStagedMedia(staged.path)) return false;
+      dispatchCheck({ type: 'discardAttachment' });
+      removeStaged(staged.path);
+      if (draftRef.current === staged) draftRef.current = null;
+      setDraft((d) => (d === staged ? null : d));
+      toast.warning(t('attachmentExpired'));
+      return true;
+    },
+    [dispatchCheck, removeStaged, t]
+  );
+
   const sendDraft = useCallback(() => {
     if (!draft || busy) return;
     const staged = draft;
+    if (dropIfExpired(staged)) return;
     const replyToId = replyTo?.id;
     // Audio takes no caption (Meta rejects it). Everything else: the
     // trimmed caption, or undefined when blank. A caption is checked
@@ -1111,6 +1141,8 @@ export function MessageComposer({
         send: () => {
           // Replaced while the check ran: nothing to send.
           if (draftRef.current !== staged) return;
+          // A review dialog can stay open for days.
+          if (dropIfExpired(staged)) return;
           onSendMedia({
             kind: staged.kind,
             mediaUrl: staged.mediaUrl,
@@ -1135,6 +1167,7 @@ export function MessageComposer({
   }, [
     draft,
     busy,
+    dropIfExpired,
     onSendMedia,
     replyTo,
     onClearReply,

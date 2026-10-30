@@ -76,6 +76,7 @@ import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
   forgetKeptUpload,
+  hasExpiredUpload,
   isRetryableSendFailure,
   partitionRestoredDrafts,
   consentRefusalOf,
@@ -1131,6 +1132,13 @@ export function MessageThread({
       if (retriedRef.current.has(failed)) return;
       retriedRef.current.add(failed);
       setFailedSends((prev) => prev.filter((f) => f !== failed));
+      // Kept past the server's sweep age, the upload may be gone, and a
+      // Retry would send a dead link. Dropped instead, like a Discard.
+      if (hasExpiredUpload(failed)) {
+        if (failed.uploadPath) deleteKeptUpload(failed.uploadPath);
+        toast.error(tFailedSend('attachmentExpired'));
+        return;
+      }
       // The restored draft is what this sends. Left in the composer, it
       // would be one Enter away from going out twice.
       if (failed.restoreText) {
@@ -1142,7 +1150,7 @@ export function MessageThread({
       if (failed.uploadPath) forgetKeptUpload(tabStorage(), failed.uploadPath);
       void deliver(retryAttempt(failed, `temp-${Date.now()}`));
     },
-    [deliver]
+    [deliver, tFailedSend]
   );
 
   const handleDiscard = useCallback((failed: FailedSend) => {
