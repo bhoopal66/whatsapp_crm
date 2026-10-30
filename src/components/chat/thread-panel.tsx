@@ -200,7 +200,11 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
           <X className="size-4" />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3">
+      {/* useNearViewport's root: voice notes load a screen ahead. */}
+      <div
+        data-inbox-scroll-root=""
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
+      >
         {loading ? (
           <p className="text-muted-foreground p-6 text-center text-sm">
             {t('thread.loading')}

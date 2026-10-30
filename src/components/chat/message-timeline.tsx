@@ -165,6 +165,9 @@ export function MessageTimeline(p: MessageTimelineProps) {
     <div
       ref={ref}
       onScroll={onScroll}
+      // Roots useNearViewport here, so voice notes mint and load their
+      // URL a screen ahead instead of at the scroller's clipped edge.
+      data-inbox-scroll-root=""
       className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-4"
     >
       {p.loadingOlder && (

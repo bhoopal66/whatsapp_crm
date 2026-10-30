@@ -20,6 +20,7 @@ import {
   initialOf,
   roleLabelKey,
 } from '@/lib/chat/view';
+import { attachmentDisplay, hidesVoiceBody } from '@/lib/chat/voice';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
@@ -32,6 +33,7 @@ import {
 import { RichText } from './rich-text';
 import { SharedCallCardBox } from './shared-call-card';
 import { SharedConversationCard } from './shared-conversation-card';
+import { ChatVoiceNote } from './voice-note';
 
 export interface MessageRowProps {
   message: ChatMessage;
@@ -49,10 +51,17 @@ export interface MessageRowProps {
   highlighted?: boolean;
 }
 
-function AttachmentView({ a }: { a: ChatAttachment }) {
+function AttachmentView({
+  a,
+  authorId,
+}: {
+  a: ChatAttachment;
+  authorId: string | null;
+}) {
   const { sb } = useChatWorkspaceContext();
   const [url, setUrl] = useState<string | null>(null);
-  const image = a.mime.startsWith('image/');
+  const display = attachmentDisplay(a);
+  const image = display === 'image';
   useEffect(() => {
     if (!image) return;
     let off = false;
@@ -63,6 +72,15 @@ function AttachmentView({ a }: { a: ChatAttachment }) {
       off = true;
     };
   }, [sb, a.storagePath, image]);
+  if (display === 'voice' || display === 'audio')
+    return (
+      <ChatVoiceNote
+        attachment={a}
+        messageId={a.messageId}
+        authorId={authorId}
+        file={display === 'audio'}
+      />
+    );
   if (image)
     return url ? (
       // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL
@@ -135,6 +153,7 @@ export function MessageRow({
         )}
       </p>
     );
+  else if (hidesVoiceBody(m)) body = null;
   else
     body = (
       <RichText
@@ -212,9 +231,14 @@ export function MessageRow({
         )}
         {body}
         {m.attachments.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-2">
+          <div
+            className={cn(
+              'flex flex-wrap gap-2',
+              body === null ? 'mt-1' : 'mt-1.5'
+            )}
+          >
             {m.attachments.map((a) => (
-              <AttachmentView key={a.id} a={a} />
+              <AttachmentView key={a.id} a={a} authorId={m.authorId} />
             ))}
           </div>
         )}

@@ -93,6 +93,22 @@ export function formatClock(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+/**
+ * A note's length in seconds: the decoded buffer's, else the element's
+ * when it is a real number (Chrome says Infinity for a browser-recorded
+ * Ogg, and 0 / NaN before metadata), else what the sender said it was
+ * (`known`), else 0.
+ */
+export function voiceDuration(
+  decoded: number | undefined,
+  element: number,
+  known?: number
+): number {
+  if (decoded !== undefined) return decoded;
+  if (Number.isFinite(element) && element > 0) return element;
+  return known !== undefined && Number.isFinite(known) && known > 0 ? known : 0;
+}
+
 /** The speed after `rate` on the pill; an unknown rate restarts at 1×. */
 export function nextPlaybackRate(rate: number): PlaybackRate {
   const i = PLAYBACK_RATES.indexOf(rate as PlaybackRate);

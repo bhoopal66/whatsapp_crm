@@ -10,6 +10,7 @@ import {
   peaksFromSamples,
   seededPeaks,
   seekFraction,
+  voiceDuration,
 } from './voice-waveform';
 
 describe('peaksFromSamples', () => {
@@ -118,5 +119,29 @@ describe('live level', () => {
   it('keeps the newest entries', () => {
     expect(pushLevel([1, 2, 3], 4, 3)).toEqual([2, 3, 4]);
     expect(pushLevel([], 0.5, 3)).toEqual([0.5]);
+  });
+});
+
+describe('voiceDuration', () => {
+  it('prefers the decoded length', () => {
+    expect(voiceDuration(4.2, 9, 12)).toBe(4.2);
+  });
+
+  it("uses the element's length when it is a real number", () => {
+    expect(voiceDuration(undefined, 9, 12)).toBe(9);
+  });
+
+  it("falls back to the sender's length while the element doesn't know", () => {
+    // Chrome on a browser-recorded Ogg, before metadata, and NaN.
+    expect(voiceDuration(undefined, Infinity, 42)).toBe(42);
+    expect(voiceDuration(undefined, 0, 42)).toBe(42);
+    expect(voiceDuration(undefined, NaN, 42)).toBe(42);
+  });
+
+  it('is 0 with nothing usable, as the inbox had it', () => {
+    expect(voiceDuration(undefined, Infinity)).toBe(0);
+    expect(voiceDuration(undefined, 0)).toBe(0);
+    expect(voiceDuration(undefined, NaN, NaN)).toBe(0);
+    expect(voiceDuration(undefined, 0, -1)).toBe(0);
   });
 });

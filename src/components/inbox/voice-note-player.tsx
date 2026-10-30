@@ -20,6 +20,7 @@ import {
   peaksFromSamples,
   seededPeaks,
   seekFraction,
+  voiceDuration,
   type PlaybackRate,
 } from '@/lib/media/voice-waveform';
 
@@ -124,42 +125,132 @@ function useVoiceSource(url: string, enabled: boolean) {
   };
 }
 
+export type VoiceTone = 'in' | 'out' | 'chat';
+
+/**
+ * Colours per surface. 'in' / 'out' are the inbox bubbles' WhatsApp
+ * palette, exactly as before 'chat' existed; 'chat' is a plain team-chat
+ * row with no bubble, so it brings its own bordered `bg-card-2` card and
+ * the semantic tokens (light and dark come from the theme).
+ */
+const TONES: Record<
+  VoiceTone,
+  {
+    root: string;
+    button: string;
+    broken: string;
+    played: string;
+    unplayed: string;
+    knob: string;
+    knobRing: string;
+    focus: string;
+    rate: string;
+    mic: string;
+    meta: string;
+    metaHover: string;
+  }
+> = {
+  in: {
+    root: '',
+    button:
+      'bg-wa-green text-wa-green-fg hover:bg-wa-green/90 focus-visible:ring-wa-green',
+    broken: 'bg-wa-text/10 text-wa-meta cursor-not-allowed shadow-none',
+    played: 'bg-wa-teal',
+    unplayed: 'bg-wa-text/25',
+    knob: 'bg-wa-teal',
+    knobRing: 'shadow-[0_0_0_2px_var(--wa-bubble-in)]',
+    focus: 'focus-visible:ring-wa-teal/60',
+    rate: 'bg-wa-text/10 text-wa-text hover:bg-wa-text/15',
+    mic: 'bg-wa-teal/12 text-wa-teal',
+    meta: 'text-wa-meta',
+    metaHover: 'hover:text-wa-text',
+  },
+  out: {
+    root: '',
+    button:
+      'bg-wa-text text-wa-bubble-out focus-visible:ring-wa-text hover:opacity-90',
+    broken: 'bg-wa-text/10 text-wa-meta cursor-not-allowed shadow-none',
+    played: 'bg-wa-text/75',
+    unplayed: 'bg-wa-text/25',
+    knob: 'bg-wa-text',
+    knobRing: 'shadow-[0_0_0_2px_var(--wa-bubble-out)]',
+    focus: 'focus-visible:ring-wa-teal/60',
+    rate: 'bg-wa-text/10 text-wa-text hover:bg-wa-text/15',
+    mic: 'bg-wa-text/10 text-wa-text/70',
+    meta: 'text-wa-meta',
+    metaHover: 'hover:text-wa-text',
+  },
+  chat: {
+    root: 'bg-card-2 rounded-xl border px-2.5 pt-2 pb-2.5',
+    button:
+      'bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary',
+    broken: 'bg-muted text-muted-foreground cursor-not-allowed shadow-none',
+    played: 'bg-primary',
+    unplayed: 'bg-muted-foreground/30',
+    knob: 'bg-primary',
+    knobRing: 'shadow-[0_0_0_2px_var(--card-2)]',
+    focus: 'focus-visible:ring-ring/60',
+    rate: 'bg-foreground/10 text-foreground hover:bg-foreground/15',
+    mic: 'bg-primary-soft text-primary',
+    meta: 'text-muted-foreground',
+    metaHover: 'hover:text-foreground',
+  },
+};
+
 export function VoiceNotePlayer({
   src,
   seed,
   tone,
+  knownDuration,
+  onPlay,
+  onLoadError,
+  unavailable = false,
   onDownload,
   downloading = false,
   className,
 }: {
-  src: string;
+  /** null: not known yet (a URL still to be minted), so nothing loads. */
+  src: string | null;
   /** Seeds the stand-in waveform; a message id keeps it stable. */
   seed: string;
-  /** Which bubble it sits on: inbound grey or outbound green. */
-  tone: 'in' | 'out';
+  /** An inbox bubble (inbound grey, outbound green) or a team-chat row. */
+  tone: VoiceTone;
+  /** Seconds, from the sender; shown only until the real length is known. */
+  knownDuration?: number;
+  /** Playback actually started (the element's `playing`); may repeat. */
+  onPlay?: () => void;
+  /** The element could not load `src` (an expired signed URL, say). */
+  onLoadError?: () => void;
+  /** There is no source to be had: show the can't-play state. */
+  unavailable?: boolean;
   onDownload?: () => void;
   downloading?: boolean;
   className?: string;
 }) {
   const t = useTranslations('Inbox.voice');
+  const c = TONES[tone];
   const { ref: nearRef, near } = useNearViewport();
-  const { src: audioSrc, decoded } = useVoiceSource(src, near);
+  const { src: audioSrc, decoded } = useVoiceSource(src ?? '', near && !!src);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [elementDuration, setElementDuration] = useState(0);
   const [rate, setRate] = useState<PlaybackRate>(1);
-  const [broken, setBroken] = useState(false);
+  // Keyed to the source that failed, so a re-minted URL gets a fresh try.
+  const [brokenSrc, setBrokenSrc] = useState<string | null>();
+  const broken = unavailable || (brokenSrc !== undefined && brokenSrc === src);
   // Play pressed before the bytes arrived: start as soon as they do.
   const [wantPlay, setWantPlay] = useState(false);
   const dragging = useRef(false);
 
   const [fallbackPeaks] = useState(() => seededPeaks(seed));
   const peaks = decoded?.peaks ?? fallbackPeaks;
-  const duration =
-    decoded?.duration ??
-    (Number.isFinite(elementDuration) ? elementDuration : 0);
+  const duration = voiceDuration(
+    decoded?.duration,
+    elementDuration,
+    knownDuration
+  );
   const progress = duration > 0 ? Math.min(1, current / duration) : 0;
 
   const startPlayback = useCallback(() => {
@@ -169,10 +260,10 @@ export function VoiceNotePlayer({
       // AbortError is a pause that beat the play; only a real refusal
       // means this clip can't be played here.
       if (err instanceof DOMException && err.name === 'NotSupportedError') {
-        setBroken(true);
+        setBrokenSrc(src);
       }
     });
-  }, []);
+  }, [src]);
 
   // Play pressed while the bytes were still loading.
   const playIfWanted = () => {
@@ -253,13 +344,10 @@ export function VoiceNotePlayer({
   const showRate = playing || rate !== 1;
   const clock = formatClock(playing || current > 0 ? current : duration);
 
-  const played = tone === 'out' ? 'bg-wa-text/75' : 'bg-wa-teal';
-  const knob = tone === 'out' ? 'bg-wa-text' : 'bg-wa-teal';
-
   return (
     <div
       ref={nearRef}
-      className={cn('w-[18rem] max-w-full select-none', className)}
+      className={cn('w-[18rem] max-w-full select-none', c.root, className)}
     >
       <audio
         ref={audioRef}
@@ -271,6 +359,7 @@ export function VoiceNotePlayer({
           playingNow = el;
           setPlaying(true);
         }}
+        onPlaying={onPlay}
         onPause={(e) => {
           if (playingNow === e.currentTarget) playingNow = null;
           setPlaying(false);
@@ -289,7 +378,10 @@ export function VoiceNotePlayer({
         }}
         onDurationChange={(e) => setElementDuration(e.currentTarget.duration)}
         onCanPlay={playIfWanted}
-        onError={() => setBroken(true)}
+        onError={() => {
+          setBrokenSrc(src);
+          onLoadError?.();
+        }}
       />
 
       <div className="flex items-center gap-2.5">
@@ -301,11 +393,7 @@ export function VoiceNotePlayer({
           title={playing ? t('pause') : t('play')}
           className={cn(
             'flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm transition-[transform,background-color] outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent active:scale-95',
-            broken
-              ? 'bg-wa-text/10 text-wa-meta cursor-not-allowed shadow-none'
-              : tone === 'out'
-                ? 'bg-wa-text text-wa-bubble-out focus-visible:ring-wa-text hover:opacity-90'
-                : 'bg-wa-green text-wa-green-fg hover:bg-wa-green/90 focus-visible:ring-wa-green'
+            broken ? c.broken : c.button
           )}
         >
           {broken ? (
@@ -345,7 +433,8 @@ export function VoiceNotePlayer({
             dragging.current = false;
           }}
           className={cn(
-            'focus-visible:ring-wa-teal/60 relative flex h-9 min-w-0 flex-1 touch-none items-center justify-between gap-[2px] rounded outline-none focus-visible:ring-2',
+            c.focus,
+            'relative flex h-9 min-w-0 flex-1 touch-none items-center justify-between gap-[2px] rounded outline-none focus-visible:ring-2',
             duration > 0 && !broken ? 'cursor-pointer' : 'cursor-default',
             broken && 'opacity-40'
           )}
@@ -355,7 +444,7 @@ export function VoiceNotePlayer({
               key={i}
               className={cn(
                 'w-[3px] max-w-[3px] min-w-[2px] flex-1 rounded-full transition-[height,background-color] duration-300',
-                (i + 0.5) / peaks.length <= progress ? played : 'bg-wa-text/25'
+                (i + 0.5) / peaks.length <= progress ? c.played : c.unplayed
               )}
               style={{ height: `${Math.round(p * 100)}%` }}
             />
@@ -365,10 +454,8 @@ export function VoiceNotePlayer({
               aria-hidden="true"
               className={cn(
                 'pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full',
-                tone === 'out'
-                  ? 'shadow-[0_0_0_2px_var(--wa-bubble-out)]'
-                  : 'shadow-[0_0_0_2px_var(--wa-bubble-in)]',
-                knob
+                c.knobRing,
+                c.knob
               )}
               style={{ left: `${progress * 100}%` }}
             />
@@ -382,7 +469,11 @@ export function VoiceNotePlayer({
               onClick={() => setRate((r) => nextPlaybackRate(r))}
               aria-label={t('speed', { rate: formatRate(rate) })}
               title={t('speed', { rate: formatRate(rate) })}
-              className="bg-wa-text/10 text-wa-text hover:bg-wa-text/15 focus-visible:ring-wa-teal/60 h-6 min-w-[2.5rem] rounded-full px-2 text-[11px] font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2"
+              className={cn(
+                c.rate,
+                c.focus,
+                'h-6 min-w-[2.5rem] rounded-full px-2 text-[11px] font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2'
+              )}
             >
               {formatRate(rate)}
             </button>
@@ -391,9 +482,7 @@ export function VoiceNotePlayer({
               aria-hidden="true"
               className={cn(
                 'flex h-9 w-9 items-center justify-center rounded-full',
-                tone === 'out'
-                  ? 'bg-wa-text/10 text-wa-text/70'
-                  : 'bg-wa-teal/12 text-wa-teal'
+                c.mic
               )}
             >
               <Mic className="h-[18px] w-[18px]" />
@@ -402,7 +491,12 @@ export function VoiceNotePlayer({
         </div>
       </div>
 
-      <div className="text-wa-meta mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 pl-[3.125rem] text-[11px] leading-[15px] tabular-nums">
+      <div
+        className={cn(
+          c.meta,
+          'mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 pl-[3.125rem] text-[11px] leading-[15px] tabular-nums'
+        )}
+      >
         {broken ? (
           <span className="truncate">{t('cannotPlay')}</span>
         ) : (
@@ -415,7 +509,11 @@ export function VoiceNotePlayer({
             disabled={downloading}
             aria-label={t('download')}
             title={t('download')}
-            className="hover:text-wa-text focus-visible:ring-wa-teal/60 -my-1 flex h-5 w-5 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2 disabled:opacity-60"
+            className={cn(
+              c.metaHover,
+              c.focus,
+              '-my-1 flex h-5 w-5 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2 disabled:opacity-60'
+            )}
           >
             {downloading ? (
               <Loader2 className="h-3 w-3 animate-spin" />

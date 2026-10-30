@@ -49,6 +49,31 @@ export async function downloadMediaMessage(message: Message): Promise<void> {
   }
 }
 
+/**
+ * Save the bytes behind any fetchable URL (a signed storage URL, say)
+ * under `filename`, with the same new-tab fallback as above. Throws on a
+ * refused response.
+ */
+export async function downloadUrlAs(
+  url: string,
+  filename: string
+): Promise<void> {
+  let blob: Blob;
+  try {
+    blob = await loadMediaBlob(url);
+  } catch (error) {
+    if (error instanceof MediaResponseError) throw error;
+    if (openInNewTab(url)) return;
+    throw error;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    clickAnchor({ href: objectUrl, download: filename });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+}
+
 function openInNewTab(url: string): boolean {
   if (typeof document === "undefined") return false;
   clickAnchor({ href: url, target: "_blank" });
