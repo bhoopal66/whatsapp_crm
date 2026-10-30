@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   inboxListCacheKey,
   inboxListQuestion,
+  inboxListRowsKey,
+  mayAppendOlderPage,
   writeThroughInboxList,
+  type InboxListHandover,
+  type InboxListPageOrigin,
   type InboxListQuestion,
   type InboxListSnapshot,
 } from './list-cache';
@@ -132,5 +136,70 @@ describe('writeThroughInboxList', () => {
 
   it('does nothing without a key', () => {
     expect(writeThroughInboxList(null, null, snap(['1']))).toBe(false);
+  });
+});
+
+describe('mayAppendOlderPage', () => {
+  // The list's counters: `generation` per first-page load, `delivery`
+  // per hand-over (cached snapshot, then fresh page).
+  const at = (generation: number, delivery: number): InboxListPageOrigin => ({
+    generation,
+    delivery,
+  });
+
+  it('lets a page land on the rows its cursor came from', () => {
+    expect(mayAppendOlderPage(at(1, 2), at(1, 2))).toBe(true);
+  });
+
+  it('drops a page started from the cached cursor once the fresh page replaced it', () => {
+    // Cached snapshot delivered (delivery 1), loadMore starts from its
+    // cursor; the fresh first page lands (delivery 2) before it does.
+    // Appending it would leave a hole between the fresh page's end and
+    // the stale cursor.
+    expect(mayAppendOlderPage(at(1, 1), at(1, 2))).toBe(false);
+  });
+
+  it('drops a page started before a filter change or refresh', () => {
+    expect(mayAppendOlderPage(at(1, 2), at(2, 2))).toBe(false);
+  });
+});
+
+describe('inboxListRowsKey', () => {
+  beforeEach(() => resetSessionCacheForTests());
+
+  type Row = { id: string };
+  const k2 = inboxListCacheKey('a', 'u', { ...BASE, status: 'unread' })!;
+  const rowsOf = (...ids: string[]): Row[] => ids.map((id) => ({ id }));
+
+  it('files nothing until the parent re-renders with the handed-over rows', () => {
+    // On screen: k1's rows. The filter moves to k2 and k2's cached
+    // snapshot is handed over; the write-through runs in the same
+    // commit, before the parent's state update re-renders.
+    const k1Rows = rowsOf('old');
+    const k2Cached = { rows: rowsOf('new'), cursor: null };
+    sessionCache.set(k2, k2Cached);
+    const handover: InboxListHandover<Row> = { key: k2, replaced: k1Rows };
+
+    expect(inboxListRowsKey(handover, k1Rows)).toBeNull();
+    expect(
+      writeThroughInboxList(k2, inboxListRowsKey(handover, k1Rows), {
+        rows: k1Rows,
+        cursor: null,
+      })
+    ).toBe(false);
+    expect(sessionCache.peek(k2)?.value).toBe(k2Cached);
+  });
+
+  it('files the rows under the handed-over key once they are on screen', () => {
+    const handover: InboxListHandover<Row> = {
+      key: k2,
+      replaced: rowsOf('old'),
+    };
+    // The parent's replace, or anything it later derives from it.
+    expect(inboxListRowsKey(handover, rowsOf('new'))).toBe(k2);
+  });
+
+  it('files nothing before any first page was handed over', () => {
+    expect(inboxListRowsKey(null, rowsOf('x'))).toBeNull();
   });
 });

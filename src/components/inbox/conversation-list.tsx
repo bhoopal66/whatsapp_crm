@@ -10,14 +10,14 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
-import {
-  prefetchSession,
-  sessionCache,
-  type SessionKey,
-} from '@/lib/session-cache';
+import { prefetchSession, sessionCache } from '@/lib/session-cache';
 import {
   inboxListCacheKey,
+  inboxListRowsKey,
+  mayAppendOlderPage,
   writeThroughInboxList,
+  type InboxListHandover,
+  type InboxListPageOrigin,
   type InboxListSnapshot,
 } from '@/lib/inbox/list-cache';
 import { useCan } from '@/hooks/use-can';
@@ -660,6 +660,10 @@ export function ConversationList({
   // load so an in-flight loadMore / delta for the previous filters
   // can't append rows that no longer belong.
   const generationRef = useRef(0);
+  // Ticks on every first-page hand-over (the cached snapshot, then the
+  // fresh page, of one generation), so a loadMore started from the
+  // cached cursor can't append onto the fresh page (mayAppendOlderPage).
+  const deliveryRef = useRef(0);
   const cursorRef = useRef<ConversationCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -679,10 +683,18 @@ export function ConversationList({
     () => inboxListCacheKey(accountId, viewerId, { ...listParams, teamView }),
     [accountId, viewerId, listParams, teamView]
   );
-  // The key whose rows the parent now holds (set where they are handed
-  // over, in the same task), so the write-through below never files
-  // the previous view's rows under a new key.
-  const rowsKeyRef = useRef<SessionKey | null>(null);
+  // The last first page handed to the parent: its key, and the rows the
+  // parent held then. The write-through below files the rows on screen
+  // under that key only once the parent has re-rendered past them
+  // (inboxListRowsKey), so it never files the previous view's rows,
+  // or the previous cursor, under a new key.
+  const handoverRef = useRef<InboxListHandover<ConversationListItem> | null>(
+    null
+  );
+  const conversationsRef = useRef(conversations);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -698,7 +710,8 @@ export function ConversationList({
       cursorRef.current = snap.cursor;
       setHasMore(snap.cursor !== null);
       setPageCount((n) => n + 1);
-      rowsKeyRef.current = key;
+      deliveryRef.current += 1;
+      handoverRef.current = { key, replaced: conversationsRef.current };
       onConversationsLoadedRef.current(snap.rows, {
         mode: 'replace',
         cursor: snap.cursor,
@@ -753,7 +766,7 @@ export function ConversationList({
       const cached = key
         ? sessionCache.get<InboxListSnapshot<ConversationListItem>>(key)
         : undefined;
-      if (cached && rowsKeyRef.current !== key) deliver(cached.value);
+      if (cached && handoverRef.current?.key !== key) deliver(cached.value);
 
       let snap: InboxListSnapshot<ConversationListItem>;
       try {
@@ -803,10 +816,14 @@ export function ConversationList({
   // (realtime, unread marks, further pages, deltas, the pins) lands in
   // the view's entry, so a revisit starts from what was last on screen.
   useEffect(() => {
-    writeThroughInboxList(cacheKey, rowsKeyRef.current, {
-      rows: conversations,
-      cursor: cursorRef.current,
-    });
+    writeThroughInboxList(
+      cacheKey,
+      inboxListRowsKey(handoverRef.current, conversations),
+      {
+        rows: conversations,
+        cursor: cursorRef.current,
+      }
+    );
   }, [conversations, cacheKey]);
 
   const loadMore = useCallback(async () => {
@@ -814,12 +831,28 @@ export function ConversationList({
     if (!cursor || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
-    const generation = generationRef.current;
+    const origin: InboxListPageOrigin = {
+      generation: generationRef.current,
+      delivery: deliveryRef.current,
+    };
     try {
       const { data, error } = await conversationsQuery(listParamsRef.current, {
         cursor,
       });
-      if (generation !== generationRef.current) return;
+      if (
+        !mayAppendOlderPage(origin, {
+          generation: generationRef.current,
+          delivery: deliveryRef.current,
+        })
+      ) {
+        // The first page was replaced meanwhile (the fresh page over the
+        // cached one). Its own cursor goes next: re-observe the sentinel,
+        // whose fire during this call found loadingMoreRef held.
+        if (origin.generation === generationRef.current) {
+          setPageCount((n) => n + 1);
+        }
+        return;
+      }
       if (error) {
         logFetchError('Failed to fetch more conversations:', error);
         return;

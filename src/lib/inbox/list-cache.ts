@@ -86,3 +86,53 @@ export function writeThroughInboxList<Row>(
   if (!key || rowsKey !== key) return false;
   return sessionCache.update<InboxListSnapshot<Row>>(key, () => snapshot);
 }
+
+/**
+ * Which first-page rows an infinite-scroll page started from: the
+ * first-page load (`generation`, ticked on every filter change or
+ * refresh) and which hand-over of it (`delivery`, ticked on every
+ * replace: the cached snapshot, then the fresh page).
+ */
+export interface InboxListPageOrigin {
+  generation: number;
+  delivery: number;
+}
+
+/**
+ * May an older page land on the rows held now? Only on the rows its
+ * cursor was read from. A page started from the cached snapshot's
+ * cursor must not append after the fresh first page replaced it: chats
+ * pushed down past the fresh page's end, but above the stale cursor,
+ * would be in neither page and missing from the list.
+ */
+export function mayAppendOlderPage(
+  started: InboxListPageOrigin,
+  now: InboxListPageOrigin
+): boolean {
+  return (
+    started.generation === now.generation && started.delivery === now.delivery
+  );
+}
+
+/**
+ * A first page handed to the parent: the view it answers, and the
+ * array the parent held at that moment.
+ */
+export interface InboxListHandover<Row> {
+  key: SessionKey | null;
+  replaced: readonly Row[];
+}
+
+/**
+ * Which view the rows on screen belong to, for the write-through. The
+ * hand-over is a state update, so until the parent re-renders the
+ * screen still holds `replaced` — the previous view's rows, or this
+ * view's older ones — and those are filed under no key.
+ */
+export function inboxListRowsKey<Row>(
+  handover: InboxListHandover<Row> | null,
+  rows: readonly Row[]
+): SessionKey | null {
+  if (!handover || rows === handover.replaced) return null;
+  return handover.key;
+}
