@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatAttachment } from '../types';
+import type { AttachmentInput, ChatAttachment } from '../types';
 import {
+  CHAT_VOICE_MAX_SECONDS,
   REMINT_MIN_AGE_MS,
   attachmentDisplay,
   claimVoicePlay,
   hidesVoiceBody,
   shouldRemint,
+  voiceAttachment,
+  voiceDurationMs,
+  voiceFileName,
 } from '../voice';
 
 const att = (over: Partial<ChatAttachment> = {}): ChatAttachment => ({
@@ -107,5 +111,80 @@ describe('claimVoicePlay', () => {
 
   it('needs a known viewer', () => {
     expect(claimVoicePlay(new Set(), 'm1', null, 'u-them')).toBe(false);
+  });
+});
+
+describe('CHAT_VOICE_MAX_SECONDS', () => {
+  it('caps a take at 15 minutes, inside the database bound', () => {
+    expect(CHAT_VOICE_MAX_SECONDS).toBe(900);
+    expect(CHAT_VOICE_MAX_SECONDS * 1000).toBeLessThanOrEqual(1_200_000);
+  });
+});
+
+describe('voiceDurationMs', () => {
+  it('measures the take in whole milliseconds', () => {
+    expect(voiceDurationMs(1000, 43_000.4)).toBe(42_000);
+    expect(voiceDurationMs(10.2, 12.9)).toBe(3);
+  });
+
+  it('never goes below 1 ms', () => {
+    expect(voiceDurationMs(500, 500)).toBe(1);
+    expect(voiceDurationMs(500, 500.2)).toBe(1);
+    expect(voiceDurationMs(900, 100)).toBe(1);
+    expect(voiceDurationMs(0, Number.NaN)).toBe(1);
+  });
+
+  it('never goes above the database cap of 20 minutes', () => {
+    expect(voiceDurationMs(0, 1_200_000)).toBe(1_200_000);
+    expect(voiceDurationMs(0, 1_200_001)).toBe(1_200_000);
+    expect(voiceDurationMs(0, 5_000_000)).toBe(1_200_000);
+  });
+});
+
+describe('voiceFileName', () => {
+  it('names the take after the local time it was recorded', () => {
+    // The local-time constructor keeps this independent of the TZ.
+    expect(voiceFileName(new Date(2026, 9, 30, 7, 5, 9))).toBe(
+      'voice-20261030-070509.ogg'
+    );
+    expect(voiceFileName(new Date(2027, 0, 1, 23, 59, 59))).toBe(
+      'voice-20270101-235959.ogg'
+    );
+  });
+});
+
+describe('voiceAttachment', () => {
+  const upload = (over: Partial<AttachmentInput> = {}): AttachmentInput => ({
+    storage_path: 'account-a/channel-c/u-voice.ogg',
+    name: 'voice-20261030-070509.ogg',
+    mime: 'audio/ogg',
+    bytes: 12_000,
+    ...over,
+  });
+
+  it('marks the upload as a voice note with its duration', () => {
+    expect(voiceAttachment(upload(), 42_000)).toEqual({
+      storage_path: 'account-a/channel-c/u-voice.ogg',
+      name: 'voice-20261030-070509.ogg',
+      mime: 'audio/ogg',
+      bytes: 12_000,
+      kind: 'voice',
+      duration_ms: 42_000,
+    });
+  });
+
+  it('keeps an audio mime the browser gave', () => {
+    expect(voiceAttachment(upload({ mime: 'audio/webm' }), 5).mime).toBe(
+      'audio/webm'
+    );
+  });
+
+  it('falls back to audio/ogg when the browser left the type blank', () => {
+    expect(voiceAttachment(upload({ mime: '' }), 5).mime).toBe('audio/ogg');
+    expect(voiceAttachment(upload({ mime: '  ' }), 5).mime).toBe('audio/ogg');
+    // uploadChatFile stores a blank type as application/octet-stream.
+    expect(
+      voiceAttachment(upload({ mime: 'application/octet-stream' }), 5).mime
+    ).toBe('audio/ogg');
   });
 });

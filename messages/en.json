@@ -4566,6 +4566,16 @@
         "notMember": "You're not a member of this channel, so you can't post here."
       }
     },
+    "voice": {
+      "record": "Record a voice message",
+      "body": "🎤 Voice message ({duration})",
+      "discard": "Discard voice message",
+      "send": "Send",
+      "sending": "Sending…",
+      "unsupported": "Voice recording isn't supported in this browser.",
+      "micDenied": "Microphone access was denied or is unavailable.",
+      "tooLarge": "The recording is too large to send (over 25 MB)."
+    },
     "actions": {
       "toolbar": "Message actions",
       "more": "More actions",

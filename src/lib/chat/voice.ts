@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatMessage } from './types';
+import type { AttachmentInput, ChatAttachment, ChatMessage } from './types';
 
 /**
  * How a team-chat attachment renders. A voice note (migration 156's
@@ -63,4 +63,49 @@ export function claimVoicePlay(
   if (seen.has(messageId)) return false;
   seen.add(messageId);
   return true;
+}
+
+/**
+ * The composer's recording cap. A forgotten recording stops itself here,
+ * well inside migration 156's 1..1,200,000 ms duration and the 25 MB file
+ * cap (Opus speech runs about 2-3 MB for 15 minutes).
+ */
+export const CHAT_VOICE_MAX_SECONDS = 15 * 60;
+
+/** Migration 156's bounds on a voice note's duration_ms. */
+const VOICE_MIN_MS = 1;
+const VOICE_MAX_MS = 1_200_000;
+
+/**
+ * A take's length from two performance.now() readings, clamped to what
+ * the database accepts: a near-instant stop is still 1 ms, never 0.
+ */
+export function voiceDurationMs(startedAt: number, stoppedAt: number): number {
+  const ms = Math.round(stoppedAt - startedAt);
+  if (!Number.isFinite(ms) || ms < VOICE_MIN_MS) return VOICE_MIN_MS;
+  return Math.min(ms, VOICE_MAX_MS);
+}
+
+const pad = (n: number) => n.toString().padStart(2, '0');
+
+/** voice-<yyyyMMdd-HHmmss>.ogg in the recorder's local time. */
+export function voiceFileName(now: Date): string {
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `voice-${date}-${time}.ogg`;
+}
+
+/**
+ * The uploaded take as a voice-note attachment. 156 requires an audio/*
+ * mime, so one the browser left blank (uploadChatFile then stores
+ * application/octet-stream) is sent as the Ogg/Opus the recorder writes.
+ */
+export function voiceAttachment(
+  upload: AttachmentInput,
+  durationMs: number
+): AttachmentInput {
+  const mime = /^audio\//i.test(upload.mime.trim())
+    ? upload.mime.trim()
+    : 'audio/ogg';
+  return { ...upload, mime, kind: 'voice', duration_ms: durationMs };
 }
