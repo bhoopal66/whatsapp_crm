@@ -323,13 +323,18 @@ audited as `update_sensitive_guard` (old and new).
   become plain `@Name` and ping nobody; a shared card is **not**
   carried (the dialog says so). The source must be readable and live
   (deleted: `22023`; missing or unreadable: `P0002`) and in the same
-  workspace (`42501`). Needs _forward messages_; forwarded attachments
-  do not need _upload files_, so each one must match a distinct
-  attachment of the source on name, type, size, kind and duration (no
-  more of them than the source has; else `22023`, "copies of the source
-  message"). Every attachment, posted or forwarded, needs a storage
-  object no other attachment row has (`22023`, "already belongs to a
-  message"). The sensitive-data guard applies to the copy.
+  workspace (`42501`). Needs _forward messages_; `chat_forward_message`
+  itself asks for no upload right, so each attachment must match a
+  distinct attachment of the source on name, type, size, kind and
+  duration (no more of them than the source has; else `22023`, "copies
+  of the source message"). Copying the files is a storage upload,
+  though, which the storage policy allows only with _upload files_ or
+  _send voice_: a message **with files** is therefore forwardable only by
+  someone who also holds one of those, and the app offers Forward on it
+  only then (a text-only message needs _forward messages_ alone). Every
+  attachment, posted or forwarded, needs a storage object no other
+  attachment row has (`22023`, "already belongs to a message"). The
+  sensitive-data guard applies to the copy.
 - **Typing** (156). `chat_set_typing(p_channel, p_thread_root,
   p_typing)` marks the caller as typing, only where they could post
   (`chat_assert_can_write(p_channel, false)`), never joins anyone to a

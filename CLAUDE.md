@@ -943,6 +943,9 @@ only). `docs/internal-chat.md` is the contract.
     channel closed when its teams are all deleted.
   - *Forwarding.* Copies must match the source's files exactly and a
     storage path belongs to one message (`already belongs to a message`).
+    The RPC needs no upload right, but the client-side copy is a storage
+    upload (`chat_storage_can_write`: upload_files or send_voice), so
+    `messageActions` offers Forward on a message with files only then.
   - Verify files: `verify-chat-messaging-v2.sql`, `verify-chat-permissions.sql`,
     `verify-chat-sensitive-guard.sql`, `verify-chat-restricted-channels.sql`,
     `verify-chat-moderation.sql`.
