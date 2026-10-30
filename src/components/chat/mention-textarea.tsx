@@ -26,6 +26,7 @@ import {
 import {
   applyFormat,
   formatShortcut,
+  insertAtSelection,
   type FormatAction,
 } from '@/lib/chat/format';
 import { avatarTint, initialOf, roleLabelKey } from '@/lib/chat/view';
@@ -39,6 +40,8 @@ const MAX_HEIGHT_PX = 200;
 export interface MentionTextareaControl {
   /** Applies the action to the current selection and keeps focus. */
   format: (action: FormatAction) => void;
+  /** Puts `text` in place of the selection (kept after blur) and focuses. */
+  insertText: (text: string) => void;
 }
 
 export interface MentionTextareaProps {
@@ -137,7 +140,21 @@ export function MentionTextarea(p: MentionTextareaProps) {
     }
     el.focus();
   };
-  useImperativeHandle(p.controlRef, () => ({ format }));
+  const insertText = (insert: string) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = insertAtSelection(
+      p.draft,
+      el.selectionStart,
+      el.selectionEnd,
+      insert
+    );
+    pendingCaret.current = { start: r.caret, end: r.caret };
+    setCaret(r.caret);
+    p.onDraftChange(r.draft);
+    el.focus();
+  };
+  useImperativeHandle(p.controlRef, () => ({ format, insertText }));
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!e.nativeEvent.isComposing && e.keyCode !== 229) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import {
   Bookmark,
@@ -82,6 +82,7 @@ import { cn } from '@/lib/utils';
 import { useChatPermissions } from '@/hooks/use-chat-permissions';
 
 import { useChatWorkspaceContext } from './chat-context';
+import { EmojiPicker } from './emoji-picker';
 import { ForwardDialog } from './forward-dialog';
 import { useMessageMarks } from './message-marks';
 import { MentionTextarea } from './mention-textarea';
@@ -459,6 +460,11 @@ export function MessageActions({
   const [moderating, setModerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [forwarding, setForwarding] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const toolbar = useRef<HTMLDivElement>(null);
+  // "Add reaction…" in the menu: the closing menu must not take focus
+  // back, or the picker it just opened would close on focus-out.
+  const pickFromMenu = useRef(false);
   const { permissions } = useChatPermissions();
   // The edit/delete windows (157) are judged at the moment the toolbar
   // is reached (hover, focus, menu open) and right-click: no timer, and
@@ -649,10 +655,14 @@ export function MessageActions({
   return (
     <>
       <div
+        ref={toolbar}
         role="toolbar"
         aria-label={t('actions.toolbar')}
         onFocus={refreshNow}
-        className="bg-popover absolute -top-3 right-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 opacity-0 shadow-sm group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:top-1 pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:opacity-100 pointer-coarse:shadow-none"
+        className={cn(
+          'bg-popover absolute -top-3 right-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 opacity-0 shadow-sm group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:top-1 pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:opacity-100 pointer-coarse:shadow-none',
+          picking && 'opacity-100'
+        )}
       >
         {can.react &&
           QUICK_REACTIONS.map((emoji) => (
@@ -671,6 +681,28 @@ export function MessageActions({
               {emoji}
             </button>
           ))}
+        {can.react && (
+          <EmojiPicker
+            open={picking}
+            onOpenChange={(open) => {
+              pickFromMenu.current = false;
+              setPicking(open);
+            }}
+            onPick={(emoji) => onToggleReaction(m.id, emoji)}
+            anchor={toolbar}
+            side="bottom"
+            trigger={
+              <button
+                type="button"
+                aria-label={t('actions.addReaction')}
+                title={t('actions.addReaction')}
+                className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
+              >
+                <SmilePlus className="size-4" aria-hidden />
+              </button>
+            }
+          />
+        )}
         {quotes && (
           <button
             type="button"
@@ -701,7 +733,11 @@ export function MessageActions({
           >
             <MoreHorizontal className="size-4" aria-hidden />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-48">
+          <DropdownMenuContent
+            align="end"
+            className="min-w-48"
+            finalFocus={() => !pickFromMenu.current}
+          >
             {can.react && (
               <div className="flex gap-0.5 pb-1">
                 {QUICK_REACTIONS.map((emoji) => (
@@ -715,6 +751,17 @@ export function MessageActions({
                   </DropdownMenuItem>
                 ))}
               </div>
+            )}
+            {can.react && (
+              <DropdownMenuItem
+                onClick={() => {
+                  pickFromMenu.current = true;
+                  setPicking(true);
+                }}
+              >
+                <SmilePlus aria-hidden />
+                {t('actions.addReaction')}
+              </DropdownMenuItem>
             )}
             {quotes && (
               <DropdownMenuItem onClick={quote}>

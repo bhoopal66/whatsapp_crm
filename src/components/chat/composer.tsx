@@ -15,6 +15,7 @@ import {
   Mic,
   Paperclip,
   Quote,
+  Smile,
   Strikethrough,
   Trash2,
   X,
@@ -95,6 +96,7 @@ import { VoiceNotePlayer } from '@/components/inbox/voice-note-player';
 import { VoiceRecordingBar } from '@/components/inbox/voice-recording-bar';
 
 import { useChatWorkspaceContext } from './chat-context';
+import { EmojiPicker } from './emoji-picker';
 import {
   MentionTextarea,
   type MentionTextareaControl,
@@ -254,6 +256,7 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const input = useRef<MentionTextareaControl>(null);
   const inputWrap = useRef<HTMLDivElement>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const reply = useReplyTarget();
   const replyId = reply.target?.id ?? null;
   const [formatBar, setFormatBar] = useState(false);
@@ -849,6 +852,27 @@ export function Composer({
           >
             Aa
           </button>
+          <EmojiPicker
+            open={emojiOpen}
+            onOpenChange={setEmojiOpen}
+            onPick={(emoji) => input.current?.insertText(emoji)}
+            finalFocus={() =>
+              inputWrap.current?.querySelector('textarea') ?? true
+            }
+            trigger={
+              <button
+                type="button"
+                aria-label={t('composer.emoji')}
+                title={t('composer.emoji')}
+                className={cn(
+                  'hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border',
+                  emojiOpen && 'bg-muted'
+                )}
+              >
+                <Smile className="size-4" aria-hidden />
+              </button>
+            }
+          />
           {chips.length === 0 && controls.voice && (
             <button
               type="button"

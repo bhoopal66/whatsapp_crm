@@ -4769,7 +4769,8 @@
         "warnGuests": "Bank guests can read this channel.",
         "sendAnyway": "Send anyway",
         "edit": "Edit message"
-      }
+      },
+      "emoji": "Emoji"
     },
     "voice": {
       "record": "Record a voice message",
@@ -4808,7 +4809,8 @@
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete",
-      "forward": "Forward"
+      "forward": "Forward",
+      "addReaction": "Add reaction…"
     },
     "quote": {
       "loading": "Loading the quoted message…",
@@ -5376,6 +5378,21 @@
       "announcementsHint": "Only channel admins can post here",
       "restricted": "Restricted",
       "loading": "Loading…"
+    },
+    "emoji": {
+      "picker": "Emoji",
+      "search": "Search emoji",
+      "noResults": "No emoji found",
+      "recent": "Recent",
+      "categories": {
+        "smileys": "Smileys",
+        "gestures": "Gestures",
+        "hearts": "Hearts",
+        "objects": "Objects",
+        "nature": "Nature",
+        "travel": "Travel and places",
+        "flags": "Flags"
+      }
     }
   },
   "Workspaces": {
