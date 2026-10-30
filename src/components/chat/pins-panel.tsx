@@ -4,12 +4,8 @@ import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { PinOff, X } from 'lucide-react';
 
-import {
-  mentionSegments,
-  pinsFor,
-  type ChatMessage,
-  type Pin,
-} from '@/lib/chat';
+import { pinsFor, type ChatMessage, type Pin } from '@/lib/chat';
+import { previewSegments } from '@/lib/chat/format';
 import { avatarTint, boldSegments, initialOf } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 
@@ -98,7 +94,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
       return boldSegments(m.body)
         .map((s) => s.text)
         .join('');
-    return mentionSegments(m.body, people).map((s, i) =>
+    return previewSegments(m.body, people).map((s, i) =>
       s.type === 'text' ? (
         s.text
       ) : (

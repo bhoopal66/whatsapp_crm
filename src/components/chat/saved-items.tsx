@@ -15,7 +15,8 @@ import {
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { mentionSegments, setSaved, type ChannelKind } from '@/lib/chat';
+import { setSaved, type ChannelKind } from '@/lib/chat';
+import { previewSegments } from '@/lib/chat/format';
 import {
   countSaved,
   emitSavedChange,
@@ -115,7 +116,7 @@ function SavedRow({
       s.bold ? <strong key={i}>{s.text}</strong> : s.text
     );
   else
-    snippet = mentionSegments(m.body, people).map((s, i) =>
+    snippet = previewSegments(m.body, people).map((s, i) =>
       s.type === 'text' ? (
         s.text
       ) : (

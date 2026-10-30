@@ -5,7 +5,6 @@ import { useTranslations } from 'next-intl';
 import { FileText, Sparkles } from 'lucide-react';
 
 import {
-  mentionSegments,
   signedFileUrl,
   type ChatAttachment,
   type ChatMessage,
@@ -30,10 +29,9 @@ import {
   useMessageEdits,
   type RowActionContext,
 } from './message-actions';
+import { RichText } from './rich-text';
 import { SharedCallCardBox } from './shared-call-card';
 import { SharedConversationCard } from './shared-conversation-card';
-
-const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 
 export interface MessageRowProps {
   message: ChatMessage;
@@ -139,26 +137,18 @@ export function MessageRow({
     );
   else
     body = (
-      <p className="text-sm break-words whitespace-pre-wrap">
-        {mentionSegments(m.body, people).map((s, i) =>
-          s.type === 'text' ? (
-            s.text
-          ) : s.type === 'mention' ? (
-            <span key={i} className={CHIP}>
-              @{s.name ?? t('unknownPerson')}
-            </span>
-          ) : (
-            <span key={i} className={CHIP}>
-              @{s.kind}
+      <RichText
+        body={m.body}
+        people={people}
+        unknownName={t('unknownPerson')}
+        trailing={
+          m.editedAt && (
+            <span className="text-muted-foreground ml-1 text-xs">
+              {t('timeline.edited')}
             </span>
           )
-        )}
-        {m.editedAt && (
-          <span className="text-muted-foreground ml-1 text-xs">
-            {t('timeline.edited')}
-          </span>
-        )}
-      </p>
+        }
+      />
     );
 
   if (edits.editing && !m.deletedAt)

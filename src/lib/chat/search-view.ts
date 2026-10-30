@@ -4,7 +4,8 @@
  * shown for each hit and which parts of it to highlight, and the people
  * whose name matches. The node test environment covers them.
  */
-import { mentionSegments, type MentionSegment } from './mentions';
+import { previewSegments } from './format';
+import type { MentionSegment } from './mentions';
 import type { ChatPerson, SearchHit } from './types';
 
 const ARABIC_INDIC = /[٠-٩۰-۹]/g;
@@ -118,7 +119,7 @@ export function snippetParts(
   terms: readonly string[],
   people: ReadonlyArray<Pick<ChatPerson, 'userId' | 'fullName'>>
 ): SnippetPart[] {
-  return mentionSegments(text, people).flatMap((s): SnippetPart[] =>
+  return previewSegments(text, people).flatMap((s): SnippetPart[] =>
     s.type === 'text'
       ? highlightSegments(s.text, terms).map((h) => ({ type: 'text', ...h }))
       : [s]

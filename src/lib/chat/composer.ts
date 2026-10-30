@@ -88,6 +88,25 @@ export function serializeDraft(
 }
 
 /**
+ * Where each picked person's "@label" sits in `text`, as [start, end)
+ * ranges, matched exactly as serializeDraft matches them.
+ */
+export function pickedLabelRanges(
+  text: string,
+  picked: readonly PickedMention[]
+): [number, number][] {
+  const labels = [
+    ...new Set(picked.filter((p) => p.label).map((p) => p.label)),
+  ].sort((a, b) => b.length - a.length);
+  if (!labels.length) return [];
+  const re = new RegExp(
+    `(?<!${WORD})@(${labels.map(escapeRe).join('|')})(?!${WORD})`,
+    'gu'
+  );
+  return [...text.matchAll(re)].map((m) => [m.index, m.index + m[0].length]);
+}
+
+/**
  * A stored body back to editable text: known people's tokens become
  * "@Name" picks, an unknown person's token stays as it is. With
  * serializeDraft this round-trips the body.
