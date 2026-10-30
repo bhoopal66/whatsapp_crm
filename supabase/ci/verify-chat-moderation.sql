@@ -10,11 +10,12 @@
 -- 'moderate_delete' audit row and stamps deleted_by with the moderator.
 -- An author's own delete needs no reason, stamps the author and writes
 -- no audit row. System posts are the workspace owner / admin's alone.
--- chat_restrict_member puts a posting timeout (post_blocked_until) on a
+-- chat_restrict_member puts a posting timeout (a chat_channel_restrictions
+-- row, never a membership row) on a
 -- team or private channel member: reason required, future, at most 30
 -- days, never a workspace admin, yourself, or (for a channel admin)
 -- another channel admin, never by a plain member, never on an archived
--- channel or a DM; a team non-member gets a 'member' row to hold it, a
+-- channel or a DM; a team non-member is restricted without being joined, a
 -- private non-member is P0002; clearing needs no reason and clearing
 -- someone with no row is a no-op. A restricted member cannot post,
 -- reply, react, pin, type, upload or edit (42501), still reads and
@@ -280,14 +281,14 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('restrict on an archived channel', u_own,
     format(rs, arc, u_ag3, hour, 'cool down'), 'ERROR %');
   n := n + 1; failed := failed || pg_temp.tc_check('a refused restrict on an archived channel wrote the row', NULL,
-    format('SELECT (post_blocked_until IS NULL)::text FROM chat_channel_members WHERE channel_id = %L AND user_id = %L', arc, u_ag3), 'true');
+    format('SELECT (NOT EXISTS (SELECT 1 FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L))::text', arc, u_ag3), 'true');
   n := n + 1; failed := failed || pg_temp.tc_check('a private channel non-member was restricted', u_ag,
     format(rs, pv, u_ag4, hour, 'not here yet'), 'ERROR P0002:%not a member of this channel%');
   -- clearing someone with no row is a no-op
   n := n + 1; failed := failed || pg_temp.tc_check('clearing someone with no row failed', u_own,
     format(rs, ch, u_x, 'NULL', NULL), 'ok');
   n := n + 1; failed := failed || pg_temp.tc_check('clearing someone with no row wrote a row or an audit row', NULL,
-    format('SELECT (SELECT count(*) FROM chat_channel_members WHERE channel_id = %L AND user_id = %L) || ''|'' || (SELECT count(*) FROM chat_audit_log WHERE action = ''restrict_member'' AND detail->>''user_id'' = %L)', ch, u_x, u_x),
+    format('SELECT (SELECT count(*) FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L) || ''|'' || (SELECT count(*) FROM chat_audit_log WHERE action = ''restrict_member'' AND detail->>''user_id'' = %L)', ch, u_x, u_x),
     '0|0');
 
   -- ---------- B. a restricted member ----------
@@ -334,7 +335,7 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('unrestricted member could not upload', u_ag2,
     format(upl, vp, u_ag2), 'ins');
   -- the timeout ends by itself
-  UPDATE chat_channel_members SET post_blocked_until = now() - interval '1 second' WHERE channel_id = ch AND user_id = u_ag3;
+  UPDATE chat_channel_restrictions SET until = now() - interval '1 second' WHERE channel_id = ch AND user_id = u_ag3;
   r := pg_temp.tc_try('authenticated', u_ag3, format(post, ch, 'back'));
   n := n + 1; failed := failed || pg_temp.tc_ok(r ~ uuid_re, 'an expired restriction still blocks posting (' || r || ')');
   n := n + 1; failed := failed || pg_temp.tc_check('an expired restriction still blocks editing', u_ag3,
@@ -348,12 +349,12 @@ BEGIN
     format(rs, ch, u_ag3, 'NULL', NULL), 'ok');
   r := pg_temp.tc_try('authenticated', u_ag3, format(post, ch, 'hi again'));
   n := n + 1; failed := failed || pg_temp.tc_ok(r ~ uuid_re, 'a cleared member could not post (' || r || ')');
-  -- a team channel non-member gets a 'member' row to hold it
+  -- a team channel non-member is restricted without being joined
   n := n + 1; failed := failed || pg_temp.tc_check('restricting a team channel non-member failed', u_own,
     format(rs, ch, u_ag4, 'now() + interval ''1 day''', 'not here yet'), 'ok');
-  n := n + 1; failed := failed || pg_temp.tc_check('team non-member: no member row holds the restriction', NULL,
-    format('SELECT role || ''/'' || (post_blocked_until > now()) FROM chat_channel_members WHERE channel_id = %L AND user_id = %L', ch, u_ag4),
-    'member/true');
+  n := n + 1; failed := failed || pg_temp.tc_check('team non-member: joined, or no live restriction row', NULL,
+    format('SELECT (SELECT count(*) FROM chat_channel_members WHERE channel_id = %L AND user_id = %L) || ''/'' || (SELECT (until > now())::text FROM chat_channel_restrictions WHERE channel_id = %L AND user_id = %L)', ch, u_ag4, ch, u_ag4),
+    '0/true');
   n := n + 1; failed := failed || pg_temp.tc_check('restricted team non-member posted', u_ag4,
     format(post, ch, 'hi'), 'ERROR 42501:%restricted from posting%');
 

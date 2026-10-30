@@ -12,9 +12,14 @@
 --    folding (chat_user_role: viewer -> agent, team_leader ->
 --    supervisor) would make 'agent' admit viewers. Only a team channel
 --    may set it (CHECK).
---  * chat_channel_teams (channel, team): with rows, only a member of a
---    listed team or its leader may have the channel. No rows = no team
---    restriction.
+--  * chat_channel_teams (channel, team) and
+--    chat_channels.audience_team_restricted: with the flag on, only a
+--    member of a listed team or its leader may have the channel. The
+--    flag, not the rows, says whether there is a team restriction:
+--    deleting a team cascades its rows away, and with no team left the
+--    channel fails closed (workspace owners and admins only) instead of
+--    opening to all staff. chat_set_channel_audience sets the flag to
+--    whether the list it was given is non-empty.
 --  * The rule (chat_user_in_channel_audience): workspace owners and
 --    admins always; anyone else needs the minimum role (if set) AND one
 --    of the teams (if any). The defaults (NULL, no rows) admit every
@@ -36,6 +41,11 @@
 --    pins, saves, read marks, plays and mutes already require reading.
 --  * Written only by chat_set_channel_audience (the channel's managers,
 --    chat_assert_can_manage_channel); audited as 'set_audience'.
+--  * Managing a team channel needs its audience: 159 redefines 091's
+--    chat_assert_can_manage_channel (update, archive, remove member,
+--    policy, audience, restrict) and 087's chat_set_member_role so a
+--    channel admin the audience now excludes manages nothing; workspace
+--    owners and admins are always in the audience.
 --
 -- Re-runnable.
 -- ============================================================
@@ -64,8 +74,16 @@ ALTER TABLE public.chat_channels ADD COLUMN IF NOT EXISTS audience_min_role text
   CONSTRAINT chat_channels_audience_min_role_check
     CHECK (audience_min_role IS NULL OR audience_min_role IN ('viewer','agent','team_leader','admin'));
 
+ALTER TABLE public.chat_channels ADD COLUMN IF NOT EXISTS audience_team_restricted boolean NOT NULL DEFAULT false;
+
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.chat_channels'::regclass
+                    AND conname = 'chat_channels_audience_teams_team_only') THEN
+    ALTER TABLE public.chat_channels ADD CONSTRAINT chat_channels_audience_teams_team_only
+      CHECK (NOT audience_team_restricted OR kind = 'team');
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
                   WHERE conrelid = 'public.chat_channels'::regclass
                     AND conname = 'chat_channels_audience_team_only') THEN
@@ -137,13 +155,14 @@ CREATE OR REPLACE FUNCTION public.chat_user_in_channel_audience(p_channel uuid, 
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT coalesce((
     SELECT c.kind <> 'team'
-        OR (c.audience_min_role IS NULL
-            AND NOT EXISTS (SELECT 1 FROM public.chat_channel_teams ct WHERE ct.channel_id = c.id))
+        OR (c.audience_min_role IS NULL AND NOT c.audience_team_restricted)
         OR coalesce(p.account_role::text IN ('owner','admin'), false)
         OR (p.user_id IS NOT NULL
             AND (c.audience_min_role IS NULL
                  OR public.chat_audience_rank(p.account_role::text) >= public.chat_audience_rank(c.audience_min_role))
-            AND (NOT EXISTS (SELECT 1 FROM public.chat_channel_teams ct WHERE ct.channel_id = c.id)
+            -- the flag, not the rows: a deleted team's rows cascade away
+            -- and an empty list then admits nobody below admin
+            AND (NOT c.audience_team_restricted
                  OR EXISTS (SELECT 1 FROM public.chat_channel_teams ct
                               JOIN public.teams t ON t.id = ct.team_id AND t.account_id = c.account_id
                              WHERE ct.channel_id = c.id
@@ -222,6 +241,129 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, p
        AND (c.kind <> 'team' OR public.chat_user_in_channel_audience(c.id, p_user)))
 $$;
 
+-- ---------- 3b. Managing a team channel needs its audience ----------
+
+-- 091_chat_channel_admin.sql, plus the audience. Keeps 091's grants.
+CREATE OR REPLACE FUNCTION public.chat_assert_can_manage_channel(p_fn text, p_channel uuid, p_archived_ok boolean)
+RETURNS public.chat_channels LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_ch   public.chat_channels;
+  v_role text;
+  v_my   text;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION '%: no authenticated user', p_fn USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_ch FROM public.chat_channels WHERE id = p_channel FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '%: channel not found', p_fn USING ERRCODE = 'P0002';
+  END IF;
+  v_role := public.chat_ws_role(v_ch.account_id);
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION '%: not a member of this workspace', p_fn USING ERRCODE = '42501';
+  END IF;
+  IF v_ch.kind NOT IN ('team','private') THEN
+    RAISE EXCEPTION '%: only team and private channels (DMs are fixed sets; deal rooms are managed from the deal)', p_fn
+      USING ERRCODE = '22023';
+  END IF;
+  IF NOT (SELECT a.internal_chat_enabled FROM public.accounts a WHERE a.id = v_ch.account_id) THEN
+    RAISE EXCEPTION '%: internal chat is disabled for this workspace', p_fn USING ERRCODE = 'CH001';
+  END IF;
+  IF v_ch.archived_at IS NOT NULL AND NOT p_archived_ok THEN
+    RAISE EXCEPTION '%: channel is archived', p_fn USING ERRCODE = '42501';
+  END IF;
+  IF v_role = 'bank_guest' THEN
+    RAISE EXCEPTION '%: bank guests cannot manage channels', p_fn USING ERRCODE = '42501';
+  END IF;
+  SELECT cm.role INTO v_my FROM public.chat_channel_members cm WHERE cm.channel_id = p_channel AND cm.user_id = v_uid;
+  IF v_ch.kind = 'private' AND v_my IS NULL THEN
+    RAISE EXCEPTION '%: not a member of this channel (owner/admin: use chat_admin_read_private to read a private channel)', p_fn
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_my IS DISTINCT FROM 'admin' AND v_role NOT IN ('owner','admin') THEN
+    RAISE EXCEPTION '%: only channel admins or workspace owner/admin can manage a channel', p_fn USING ERRCODE = '42501';
+  END IF;
+  -- 159: a channel admin whom a team channel's audience now excludes
+  -- manages nothing (it could otherwise reopen the audience).
+  IF v_ch.kind = 'team' AND v_role NOT IN ('owner','admin')
+     AND NOT public.chat_user_in_channel_audience(p_channel, v_uid) THEN
+    RAISE EXCEPTION '%: outside this channel''s audience', p_fn USING ERRCODE = '42501';
+  END IF;
+  RETURN v_ch;
+END $$;
+
+-- 087_internal_chat.sql, plus the audience (it does not use the gate
+-- above). Keeps 087's grants.
+CREATE OR REPLACE FUNCTION public.chat_set_member_role(p_channel uuid, p_user_id uuid, p_role text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_uid    uuid := auth.uid();
+  v_ch     public.chat_channels;
+  v_role   text;
+  v_target public.chat_channel_members;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'chat_set_member_role: no authenticated user' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_ch FROM public.chat_channels WHERE id = p_channel FOR UPDATE;  -- serialise the last-admin check
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat_set_member_role: channel not found' USING ERRCODE = 'P0002';
+  END IF;
+  v_role := public.chat_ws_role(v_ch.account_id);
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION 'chat_set_member_role: not a member of this workspace' USING ERRCODE = '42501';
+  END IF;
+  IF p_role IS NULL OR p_role NOT IN ('admin','member') THEN
+    RAISE EXCEPTION 'chat_set_member_role: role must be admin or member' USING ERRCODE = '22023';
+  END IF;
+  IF v_ch.kind IN ('dm','deal_room') THEN
+    RAISE EXCEPTION 'chat_set_member_role: DM and deal room members have no settable roles' USING ERRCODE = '22023';
+  END IF;
+  IF NOT (SELECT a.internal_chat_enabled FROM public.accounts a WHERE a.id = v_ch.account_id) THEN
+    RAISE EXCEPTION 'chat_set_member_role: internal chat is disabled for this workspace' USING ERRCODE = 'CH001';
+  END IF;
+  IF v_ch.archived_at IS NOT NULL THEN
+    RAISE EXCEPTION 'chat_set_member_role: channel is archived' USING ERRCODE = '42501';
+  END IF;
+  IF v_role = 'bank_guest' THEN
+    RAISE EXCEPTION 'chat_set_member_role: bank guests cannot change roles' USING ERRCODE = '42501';
+  END IF;
+  IF v_ch.kind = 'private'
+     AND NOT EXISTS (SELECT 1 FROM public.chat_channel_members cm
+                      WHERE cm.channel_id = p_channel AND cm.user_id = v_uid AND cm.role = 'admin') THEN
+    RAISE EXCEPTION 'chat_set_member_role: only channel admins can change roles in a private channel' USING ERRCODE = '42501';
+  END IF;
+  IF v_role NOT IN ('owner','admin')
+     AND NOT EXISTS (SELECT 1 FROM public.chat_channel_members cm
+                      WHERE cm.channel_id = p_channel AND cm.user_id = v_uid AND cm.role = 'admin') THEN
+    RAISE EXCEPTION 'chat_set_member_role: only channel admins or workspace owner/admin can change roles' USING ERRCODE = '42501';
+  END IF;
+  -- 159: as chat_assert_can_manage_channel, a team channel's audience
+  IF v_ch.kind = 'team' AND v_role NOT IN ('owner','admin')
+     AND NOT public.chat_user_in_channel_audience(p_channel, v_uid) THEN
+    RAISE EXCEPTION 'chat_set_member_role: outside this channel''s audience' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_target FROM public.chat_channel_members WHERE channel_id = p_channel AND user_id = p_user_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat_set_member_role: user is not a member of this channel' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_target.role = 'guest' THEN
+    RAISE EXCEPTION 'chat_set_member_role: a guest''s role cannot be changed (guests are never admins)' USING ERRCODE = '22023';
+  END IF;
+  IF v_ch.kind = 'private' AND v_target.role = 'admin' AND p_role = 'member'
+     AND NOT EXISTS (SELECT 1 FROM public.chat_channel_members cm2
+                      WHERE cm2.channel_id = p_channel AND cm2.user_id <> p_user_id AND cm2.role = 'admin'
+                        AND coalesce(public.chat_user_role(v_ch.account_id, cm2.user_id), 'bank_guest') <> 'bank_guest') THEN
+    RAISE EXCEPTION 'chat_set_member_role: the last admin of a private channel cannot be demoted' USING ERRCODE = '22023';
+  END IF;
+
+  UPDATE public.chat_channel_members SET role = p_role WHERE channel_id = p_channel AND user_id = p_user_id;
+  INSERT INTO public.chat_audit_log (account_id, actor_id, action, channel_id, detail)
+  VALUES (v_ch.account_id, v_uid, 'set_member_role', p_channel,
+          jsonb_build_object('user_id', p_user_id, 'from', v_target.role, 'to', p_role));
+END $$;
+
 -- ---------- 4. RLS ----------
 
 DROP POLICY IF EXISTS chat_channel_teams_read ON public.chat_channel_teams;
@@ -257,7 +399,10 @@ BEGIN
   SELECT coalesce(array_agg(team_id ORDER BY team_id), '{}') INTO v_old
     FROM public.chat_channel_teams WHERE channel_id = p_channel;
 
-  UPDATE public.chat_channels SET audience_min_role = p_min_role WHERE id = p_channel;
+  UPDATE public.chat_channels
+     SET audience_min_role = p_min_role,
+         audience_team_restricted = cardinality(v_teams) > 0
+   WHERE id = p_channel;
   DELETE FROM public.chat_channel_teams WHERE channel_id = p_channel AND team_id <> ALL (v_teams);
   INSERT INTO public.chat_channel_teams (channel_id, team_id, account_id)
   SELECT p_channel, t, v_ch.account_id FROM unnest(v_teams) t

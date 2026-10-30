@@ -19,16 +19,26 @@
 --      Every delete stamps deleted_by = the caller. Behaviour change: an
 --      owner / admin deleting someone else's message without a reason is
 --      now refused (22023, 'a reason is required').
---   B. Posting timeouts. chat_channel_members.post_blocked_until; set by
+--   B. Posting timeouts. One row per (channel, person) in
+--      chat_channel_restrictions, NOT on the membership row: leaving a
+--      team channel (chat_leave_channel deletes the member row) and
+--      auto-joining again must not shed a timeout, and restricting a
+--      team channel non-member must not join them. Set by
 --      chat_restrict_member (team / private channels, behind 091's
 --      chat_assert_can_manage_channel, audited 'restrict_member'). A
 --      workspace owner / admin is never restricted, a channel admin who
---      is not a workspace owner / admin restricts only plain members, and
---      a timeout is at most 30 days. chat_assert_can_write refuses a
---      caller whose row is blocked (42501, 'restricted from posting'), so
---      posting, replies, edits, reactions, pins, forwards, call cards,
---      typing and uploads (chat_storage_can_write calls it) all stop.
---      Reading and marking read are untouched.
+--      is not a workspace owner / admin restricts only non-admin members,
+--      and a timeout is at most 30 days. A private channel's target must
+--      be a member; a team channel's any live staff member who can read
+--      it. Lifting is an UPDATE to until = now(), never a DELETE: Realtime
+--      does not RLS-filter DELETE events. chat_assert_can_write refuses a
+--      caller with a live row (42501, 'restricted from posting') unless
+--      they are now a live workspace owner / admin, so posting, replies,
+--      edits, reactions, pins, forwards, call cards, typing and uploads
+--      (chat_storage_can_write calls it) all stop. Reading and marking
+--      read are untouched. The restricted person and the channel's
+--      managers (chat_can_manage_channel, the gate's non-raising mirror)
+--      read the rows.
 --   C. chat_export_channel: a live workspace owner / admin exports any
 --      channel (members or not, every kind), reason required, at most
 --      10000 messages. The audit row 'export_channel' is written in the
@@ -83,7 +93,57 @@ END $$;
 -- ---------- Columns ----------
 
 ALTER TABLE public.internal_messages ADD COLUMN IF NOT EXISTS deleted_by uuid;
-ALTER TABLE public.chat_channel_members ADD COLUMN IF NOT EXISTS post_blocked_until timestamptz;
+
+CREATE TABLE IF NOT EXISTS public.chat_channel_restrictions (
+  channel_id uuid NOT NULL REFERENCES public.chat_channels(id),
+  user_id    uuid NOT NULL,
+  account_id uuid NOT NULL REFERENCES public.accounts(id),
+  until      timestamptz NOT NULL,
+  reason     text,
+  set_by     uuid NOT NULL,
+  set_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_id, user_id)
+);
+ALTER TABLE public.chat_channel_restrictions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_channel_restrictions FORCE ROW LEVEL SECURITY;
+REVOKE ALL ON public.chat_channel_restrictions FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.chat_channel_restrictions TO authenticated;
+
+-- ---------- B. Who could manage the channel (policy helper) ----------
+-- 091's chat_assert_can_manage_channel (as 159 redefines it) as a
+-- boolean that never raises, for the restrictions read policy. An
+-- archived channel still counts (reading its restrictions is harmless).
+CREATE OR REPLACE FUNCTION public.chat_can_manage_channel(p_channel uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT coalesce((
+    SELECT r.role <> 'bank_guest'
+       AND c.kind IN ('team','private')
+       AND a.internal_chat_enabled
+       AND (c.kind <> 'private' OR m.role IS NOT NULL)
+       AND (m.role IS NOT DISTINCT FROM 'admin' OR r.role IN ('owner','admin'))
+       AND (c.kind <> 'team' OR r.role IN ('owner','admin')
+            OR public.chat_user_in_channel_audience(c.id, auth.uid()))
+      FROM public.chat_channels c
+      JOIN public.accounts a ON a.id = c.account_id
+      JOIN LATERAL (SELECT public.chat_ws_role(c.account_id) AS role) r ON r.role IS NOT NULL
+      LEFT JOIN public.chat_channel_members m ON m.channel_id = c.id AND m.user_id = auth.uid()
+     WHERE c.id = p_channel AND auth.uid() IS NOT NULL), false)
+$$;
+
+DROP POLICY IF EXISTS chat_channel_restrictions_read ON public.chat_channel_restrictions;
+CREATE POLICY chat_channel_restrictions_read ON public.chat_channel_restrictions
+  FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR public.chat_can_manage_channel(channel_id));
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables
+                      WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
+                        AND tablename = 'chat_channel_restrictions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_channel_restrictions;
+  END IF;
+END $$;
 
 -- ---------- Reason helper (internal) ----------
 -- A moderation reason: 5..500 characters once trimmed, at least 5 of them
@@ -231,11 +291,13 @@ BEGIN
   IF v_ch.kind = 'dm' AND NOT public.chat_dm_user_allowed(p_channel, v_uid) THEN
     RAISE EXCEPTION 'chat: direct messages between these people are turned off' USING ERRCODE = '42501';
   END IF;
-  -- 160: a posting timeout (chat_restrict_member); the client keys on
-  -- 'restricted from posting'.
-  SELECT cm.post_blocked_until INTO v_until FROM public.chat_channel_members cm
-   WHERE cm.channel_id = p_channel AND cm.user_id = v_uid;
-  IF v_until IS NOT NULL AND v_until > now() THEN
+  -- 160: a posting timeout (chat_restrict_member), kept apart from the
+  -- membership row so leaving and re-joining does not shed it; a person
+  -- since made a workspace owner / admin is not held by it. The client
+  -- keys on 'restricted from posting'.
+  SELECT r.until INTO v_until FROM public.chat_channel_restrictions r
+   WHERE r.channel_id = p_channel AND r.user_id = v_uid;
+  IF v_until IS NOT NULL AND v_until > now() AND v_role NOT IN ('owner','admin') THEN
     RAISE EXCEPTION 'chat: you are restricted from posting in this channel until %', v_until USING ERRCODE = '42501';
   END IF;
   RETURN v_ch;
@@ -267,8 +329,14 @@ BEGIN
     RAISE EXCEPTION 'chat_restrict_member: a workspace owner or admin cannot be restricted' USING ERRCODE = '42501';
   END IF;
   SELECT cm.role INTO v_trole FROM public.chat_channel_members cm
-   WHERE cm.channel_id = p_channel AND cm.user_id = p_user FOR UPDATE;
-  IF v_trole IS NULL AND (v_ch.kind <> 'team' OR v_target = 'bank_guest') THEN
+   WHERE cm.channel_id = p_channel AND cm.user_id = p_user;
+  -- A private channel's target must be a member; a team channel's any
+  -- live staff member who can read it (to set; lifting needs only the
+  -- row). Nobody is joined by this.
+  IF (v_ch.kind = 'private' AND v_trole IS NULL)
+     OR (v_ch.kind = 'team' AND p_until IS NOT NULL
+         AND (v_target = 'bank_guest'
+              OR NOT public.chat_user_can_read_channel(p_channel, p_user, true))) THEN
     RAISE EXCEPTION 'chat_restrict_member: not a member of this channel' USING ERRCODE = 'P0002';
   END IF;
   IF v_trole = 'admin' AND v_my NOT IN ('owner','admin') THEN
@@ -279,20 +347,22 @@ BEGIN
       RAISE EXCEPTION 'chat_restrict_member: the end must be in the future and at most 30 days ahead' USING ERRCODE = '22023';
     END IF;
     v_reason := public.chat_assert_reason('chat_restrict_member', p_reason);
-  ELSIF p_reason IS NOT NULL AND p_reason !~ '^[[:space:]]*$' THEN
-    v_reason := left(btrim(p_reason, E' \t\r\n'), 500);
-  END IF;
-  IF v_trole IS NULL THEN
-    IF p_until IS NULL THEN
+    INSERT INTO public.chat_channel_restrictions (channel_id, user_id, account_id, until, reason, set_by, set_at)
+    VALUES (p_channel, p_user, v_ch.account_id, p_until, v_reason, v_uid, now())
+    ON CONFLICT (channel_id, user_id) DO UPDATE
+      SET until = EXCLUDED.until, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at;
+  ELSE
+    IF p_reason IS NOT NULL AND p_reason !~ '^[[:space:]]*$' THEN
+      v_reason := left(btrim(p_reason, E' \t\r\n'), 500);
+    END IF;
+    -- Lifting keeps the row (until = now()): Realtime does not RLS-filter
+    -- DELETE events, so a DELETE would broadcast the row to everyone.
+    UPDATE public.chat_channel_restrictions
+       SET until = now(), reason = v_reason, set_by = v_uid, set_at = now()
+     WHERE channel_id = p_channel AND user_id = p_user;
+    IF NOT FOUND THEN
       RETURN;  -- nothing to clear: no row means not restricted
     END IF;
-    -- a team channel: a row (role member) holds the restriction
-    INSERT INTO public.chat_channel_members (channel_id, user_id, role, post_blocked_until)
-    VALUES (p_channel, p_user, 'member', p_until)
-    ON CONFLICT (channel_id, user_id) DO UPDATE SET post_blocked_until = EXCLUDED.post_blocked_until;
-  ELSE
-    UPDATE public.chat_channel_members SET post_blocked_until = p_until
-     WHERE channel_id = p_channel AND user_id = p_user;
   END IF;
   INSERT INTO public.chat_audit_log (account_id, actor_id, action, channel_id, detail)
   VALUES (v_ch.account_id, v_uid, 'restrict_member', p_channel,
@@ -362,11 +432,13 @@ END $$;
 
 -- ---------- Grants ----------
 REVOKE ALL ON FUNCTION public.chat_assert_reason(text, text),
+  public.chat_can_manage_channel(uuid),
   public.chat_delete_message(uuid, text),
   public.chat_restrict_member(uuid, uuid, timestamptz, text),
   public.chat_export_channel(uuid, timestamptz, timestamptz, text)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.chat_delete_message(uuid, text),
+GRANT EXECUTE ON FUNCTION public.chat_can_manage_channel(uuid),
+  public.chat_delete_message(uuid, text),
   public.chat_restrict_member(uuid, uuid, timestamptz, text),
   public.chat_export_channel(uuid, timestamptz, timestamptz, text)
   TO authenticated;
