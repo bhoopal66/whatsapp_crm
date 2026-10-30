@@ -1670,7 +1670,11 @@ but aren't: on a tunnelled self-host the same query is ~20ms from the
 origin and ~700ms through Cloudflare. Hence `experimental.staleTimes` in
 `next.config.ts` (caching the *shell* of dynamic routes — safe because
 dashboard screens are client components that fetch their own data on
-mount) and `lib/client-cache.ts` (`cachedQuery`, a TTL cache for
+mount; the sidebar fully prefetches its role-guarded routes, so a
+guard's answer can be served from the router cache for up to 5 minutes
+(`staleTimes.static: 300`): a demoted admin can reopen an admin
+screen's shell for that long, but its data stays RLS- and API-gated)
+and `lib/client-cache.ts` (`cachedQuery`, a TTL cache for
 slow-moving reference data: chat tags, members, team rosters, channel
 status); its keys must name the *question* including any user/team
 parameter, or two users on one device read each other's data.
