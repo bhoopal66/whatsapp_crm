@@ -928,7 +928,21 @@ only). `docs/internal-chat.md` is the contract.
     reason and sets `deleted_by`; a restriction is enforced in
     `chat_assert_can_write`; `chat_export_channel` writes its audit row
     first. `chat_audit_log.action` has a 16-value CHECK: any later
-    migration must recreate it whole.
+    migration must recreate it whole; 157–160 each skip the recreation
+    when the constraint already lists their values, so re-running an
+    older file does not drop it (it still restores its function bodies:
+    apply in order, once). A timeout is a row of
+    `chat_channel_restrictions` (not a membership column): leaving and
+    rejoining does not clear it, restricting a team non-member does not
+    join them, lifting is an UPDATE (`until = now()`) never a DELETE
+    (realtime does not RLS-filter DELETE), owners/admins are never
+    blocked, and the rows are read by the restricted person and
+    `chat_can_manage_channel`. A typing stop is likewise `stopped = true`.
+  - *Restricted channels (159).* Managing a team channel needs the
+    audience unless owner/admin; `audience_team_restricted` keeps a
+    channel closed when its teams are all deleted.
+  - *Forwarding.* Copies must match the source's files exactly and a
+    storage path belongs to one message (`already belongs to a message`).
   - Verify files: `verify-chat-messaging-v2.sql`, `verify-chat-permissions.sql`,
     `verify-chat-sensitive-guard.sql`, `verify-chat-restricted-channels.sql`,
     `verify-chat-moderation.sql`.

@@ -86,6 +86,14 @@ Their defaults change nothing until an owner or admin saves rules.
   admin who is not an owner or admin cannot save a rule that hides the
   channel from themselves (`22023`, "would hide this channel from
   you"). Bells created before a restriction are kept.
+  **Managing** a team channel (rename, topic, archive, members, roles,
+  posting rules, audience, timeouts) also needs the manager to be
+  inside its audience unless they are a workspace owner or admin
+  (`42501`, "outside this channel's audience"). A channel with
+  `audience_team_restricted` stays closed when every listed team has
+  been deleted: only owners and admins see it, and the dialog and the
+  header say its teams were deleted. Saving it with no teams reopens it
+  to the minimum role.
 - **Managing a channel** (team and private only: DMs are fixed sets
   and deal rooms are managed from the deal). A channel admin, or a
   workspace owner or admin, can rename it, change or clear its topic,
@@ -245,8 +253,11 @@ audited as `update_sensitive_guard` (old and new).
   country with a valid checksum. `<@uuid>` mention tokens are removed
   before the scan, since a uuid's digits could read as a card.
   Attachment contents are not scanned.
-- **warn** is a client-side warning dialog before sending; the
-  database allows the message.
+- **warn** is a client-side warning dialog before sending (the
+  composer and the edit box); the database allows the message. When the
+  channel's bank-guest status cannot be learned, the warning is shown
+  anyway (it fails toward the warning). The client remembers a
+  channel's guest status for at most 60 seconds.
 - **block** is a trigger on `internal_messages` (before insert or an
   update of the body; user posts only, live rows). With scope _all_ the
   message is refused anywhere; with _guests_ it is refused in team and
@@ -255,7 +266,9 @@ audited as `update_sensitive_guard` (old and new).
   posts, forwards and edits, not system posts, deletes or erasures. The
   refusal is `42501`, "… contains sensitive data (card, …) and this
   workspace blocks it in channels with bank guests / in team chat"; the
-  UI shows a block message.
+  UI shows a block message. Under scope _guests_ the rule is judged
+  when a message is posted: a guest added to the channel later can read
+  the messages posted before.
 - **Two copies of the detector.** `chat_sensitive_kinds` (SQL) mirrors
   `src/lib/kb/sensitive.ts` and `redact.ts`. Change one, change both;
   the shared corpus in `verify-chat-sensitive-guard.sql` and
@@ -295,6 +308,10 @@ audited as `update_sensitive_guard` (old and new).
   be changed afterwards (`42501`, "structural columns are immutable").
   The quote block jumps to the original. A quote adds no notification
   of its own.
+  A quote, and the _Replying to_ bar, follow later edits, moderator
+  removals and erasures of the quoted message (from the workspace's
+  realtime message events). A quoted message that cannot be read is
+  retried after 1, 3 and 9 seconds, then shown as unavailable.
 - **Forwarding** (156). **Forward** copies a message you can read to up
   to **5** targets: team channels (posting joins you), and the private
   channels and DMs you are in. Deal rooms, and the channel the message
@@ -322,8 +339,9 @@ audited as `update_sensitive_guard` (old and new).
   `stopped = true` instead of deleting it, because realtime does not
   RLS-filter DELETE events; `activeTypers` ignores stopped rows. Rows
   are readable by the channel's readers and delivered by realtime. The
-  database and `src/lib/chat/typing.ts` implement it; this branch
-  shows no typing indicator in the UI yet.
+  database and `src/lib/chat/typing.ts` implement it. The UI shows
+  "Sara is typing…", "Sara and Ali are typing…" or "Several people are
+  typing…" above the channel composer and above the thread composer.
 - **Seen by** (156). Only in DMs and team or private channels of at
   most 20 members, never deal rooms. Under your last top-level
   message: _Seen_ or _Sent_ in a 1:1 DM, _Seen by N_ with a list in a
@@ -547,9 +565,11 @@ room can read it, but must give a reason first.
 - **Moderation** (160). A workspace owner or admin, or a channel admin
   of a team or private channel (never a DM), can delete another
   person's message with `chat_delete_message(p_message, p_reason)`. A
-  reason of 5 to 500 characters is required (`22023`, "a reason is
-  required") and the audit row `moderate_delete` records message,
-  author and reason. The UI asks for it (**Remove message…**). A
+  reason is required (`22023`, "a reason is required"): at least 5
+  characters that are not whitespace, and at most 500, after trimming
+  spaces, tabs, CR and LF. The audit row `moderate_delete` records message,
+  author and reason. The UI asks for it (**Remove message…**); a
+  refused removal keeps the dialog open with the reason typed. A
   system post can be removed only by a workspace owner or admin, also
   with a reason. Own deletes need no reason and set `deleted_by` to the
   author; `deleted_by` is set only together with `deleted_at` and is
@@ -559,19 +579,32 @@ room can read it, but must give a reason first.
   or private channel, not yourself, not a workspace owner or admin; a
   channel admin may restrict only non-admin members; the end is in the
   future and at most 30 days away (the dialog offers 1 hour to 30
-  days); a reason is required to set one, and `NULL` for `p_until`
-  clears it (**Lift restriction**). A non-member of a team channel gets
-  a member row to hold it. While it lasts every write is refused in
+  days; the 30-day option ends 5 minutes short of it); a reason is
+  required to set one, and `NULL` for `p_until` lifts it (**Lift
+  restriction**).
+  A timeout is a row of `chat_channel_restrictions (channel_id,
+  user_id, account_id, until, reason, set_by, set_at)`, not a column of
+  the membership: leaving and rejoining a channel does not clear it,
+  and restricting a non-member of a team channel does not join them.
+  Lifting is an UPDATE (`until = now()`), never a delete, because
+  realtime does not RLS-filter DELETE events. Workspace owners and
+  admins are never blocked by one. The rows are readable by the
+  restricted person and by those who can manage the channel
+  (`chat_can_manage_channel`). While it lasts every write is refused in
   that channel (`42501`, "restricted from posting": posts, replies,
   reactions, pins, typing, uploads, edits, call cards); reading is
-  unaffected. It is enforced in `chat_assert_can_write`.
+  unaffected. It is enforced in `chat_assert_can_write`. The composer
+  then reads "You can't post here until …" and the members panel shows
+  a "Restricted until" badge, both live.
 - **Export** (160). Settings → Team chat → **Export a channel** (owner
   or admin) downloads a CSV (UTF-8 BOM, so Excel reads Arabic). Any
   channel kind, including ones the admin is not in, and even with team
   chat switched off. It needs a reason and a date range, returns at
   most **10,000** messages ordered by time and id, with mentions
   rendered, deleted messages as an empty body plus `deleted_by`, erased
-  ones as `[erased]`. `chat_export_channel(p_channel, p_from, p_to,
+  ones as `[erased]`. A cell that starts with `=`, `+`, `-`, `@`, a tab
+  or CR is prefixed with `'` so a spreadsheet does not run it as a
+  formula. `chat_export_channel(p_channel, p_from, p_to,
   p_reason)` writes the audit row `export_channel` (range, reason,
   count, whether truncated) **first**, in the same call.
 - The log is Settings → Audit log (source Team chat), owners and admins
@@ -680,6 +713,11 @@ each rule above.
 | `chat_delete_message`         | `p_message, p_reason DEFAULT NULL`, returns `text[]`         | 160; reason (5 to 500) for someone else's message, else `22023`                                                  |
 | `chat_restrict_member`        | `p_channel, p_user, p_until, p_reason`                       | 160; at most 30 days; `NULL` clears; `42501` for a workspace owner or admin or a peer channel admin              |
 | `chat_export_channel`         | `p_channel, p_from, p_to, p_reason`                          | 160; owner or admin; audited first; at most 10,000 messages                                                      |
+
+**Re-running** an older file of 157 to 160 on a newer database no
+longer drops the `chat_audit_log.action` CHECK: each recreation is
+skipped when the constraint already lists its values. It still restores
+that file's function bodies, so apply the files in order, once.
 
 Verify files: `verify-chat-messaging-v2.sql` (156),
 `verify-chat-permissions.sql` (157), `verify-chat-sensitive-guard.sql`

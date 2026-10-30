@@ -45,6 +45,26 @@ chat: every default keeps today's behaviour.
   admins can export a channel to CSV (up to 10,000 messages, reason
   required). Everything is in the audit log. Messages are still never
   deleted automatically, and voice notes are not transcribed.
+- **Fixes after the first cut.** A posting timeout is now its own record,
+  so leaving and rejoining a channel does not clear it and restricting
+  someone in a team channel does not join them; the composer says
+  "You can't post here until …" and the members panel shows "Restricted
+  until". Managing a restricted team channel needs being inside its
+  audience (owners and admins excepted), and a channel whose teams were
+  all deleted stays closed to everyone but owners and admins until it is
+  saved without teams. A forward may carry only exact copies of the
+  source's files, and a stored file can belong to one message. The
+  typing indicator ("Sara is typing…") now shows in channels and
+  threads. Erasing a person also removes the bells and queued pushes of
+  forwarded copies. The sensitive-data warning appears when a channel's
+  guest status is unknown. A removal reason needs 5 non-blank
+  characters, a refused removal keeps the dialog, CSV cells starting
+  with `=`, `+`, `-`, `@`, tab or CR are neutralised, and the 30-day
+  timeout ends 5 minutes short of 30 days. Re-running an older 157 to
+  160 file no longer drops the audit-action CHECK (apply them in order,
+  once). Quotes and the "Replying to" bar follow later edits, removals
+  and erasures, and a quote that cannot be loaded shows as unavailable
+  after a few retries.
 
 ### Fixes: drafts stay with their chat, OpenWA menu answers, unsent attachments
 
