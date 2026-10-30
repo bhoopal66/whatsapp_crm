@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/hooks/use-auth';
+import { isChannelModerator } from '@/lib/chat/moderation';
 import { useChannelMembers } from '@/hooks/use-channel-members';
 import { useChannelTimeline } from '@/hooks/use-channel-timeline';
 import {
@@ -75,7 +76,7 @@ export function ChannelView({
   const members = useChannelMembers(ws, channelId);
   const memberCount = members?.length ?? null;
   const { sb, refreshUnread, userId } = ws;
-  const { canManageMembers } = useAuth();
+  const { canManageMembers, isBankGuest } = useAuth();
   const marks = useMessageMarks();
   const block = useWriteBlock(channel);
 
@@ -203,6 +204,11 @@ export function ChannelView({
   const actions: RowActionContext = {
     userId: ws.userId,
     workspaceAdmin: canManageMembers,
+    channelAdmin: isChannelModerator({
+      kind: channel.kind,
+      role: channel.membership?.role,
+      bankGuest: isBankGuest,
+    }),
     canWrite: block === null,
     threads: !!onOpenThread,
     broadcasts: offersBroadcasts(channel.kind),

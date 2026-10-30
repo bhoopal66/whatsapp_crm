@@ -219,6 +219,12 @@ describe('composerBlock', () => {
     expect(composerBlock({ ...base, kind: 'private' })).toBe('notMember');
     expect(composerBlock({ ...base, kind: 'dm', member: true })).toBeNull();
     expect(blockFromError('archived')).toBe('archived');
+    expect(blockFromError('restrictedPosting')).toBe('restricted');
+    expect(composerBlock({ ...base, restricted: true })).toBe('restricted');
+    // An earlier reason wins: an archived channel says so, not the timeout.
+    expect(composerBlock({ ...base, archived: true, restricted: true })).toBe(
+      'archived'
+    );
     expect(blockFromError('notChannelMember')).toBe('notMember');
     expect(blockFromError('bodyLength')).toBeNull();
   });

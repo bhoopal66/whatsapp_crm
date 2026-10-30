@@ -21,6 +21,7 @@ import {
   roleLabelKey,
 } from '@/lib/chat/view';
 import { attachmentDisplay, hidesVoiceBody } from '@/lib/chat/voice';
+import { removedByModerator } from '@/lib/chat/moderation';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
@@ -147,7 +148,7 @@ export function MessageRow({
   if (m.deletedAt)
     body = (
       <p className="text-muted-foreground text-sm italic">
-        {t('timeline.deleted')}
+        {removedByModerator(m) ? t('timeline.removed') : t('timeline.deleted')}
       </p>
     );
   else if (system)

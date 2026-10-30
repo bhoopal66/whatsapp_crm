@@ -4618,7 +4618,8 @@
       "system": "wacrm · automation",
       "react": "React with {emoji}",
       "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}",
-      "newMessages": "New messages"
+      "newMessages": "New messages",
+      "removed": "Removed by an admin."
     },
     "receipts": {
       "seen": "Seen",
@@ -4717,7 +4718,9 @@
         "archived": "This channel is archived. You can read it, but not post.",
         "guestNotes": "Team notes are for staff only. Bank guests can't post here.",
         "guestPrivateOnly": "Bank guests can post only in private channels they belong to.",
-        "notMember": "You're not a member of this channel, so you can't post here."
+        "notMember": "You're not a member of this channel, so you can't post here.",
+        "restricted": "You can't post here until {time}.",
+        "restrictedNoTime": "You've been restricted from posting here for now."
       }
     },
     "voice": {
@@ -5211,6 +5214,15 @@
       "submit": "Forward",
       "done": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
       "failed": "Could not forward to {name}: {reason}"
+    },
+    "moderation": {
+      "remove": "Remove message…",
+      "removeTitle": "Remove this message?",
+      "removeBody": "Everyone in the channel will see “Removed by an admin.” instead, and its attachments are removed. The removal and your reason are logged.",
+      "reasonLabel": "Reason",
+      "reasonPlaceholder": "Why is this message being removed?",
+      "reasonCount": "{count} / {max} characters (at least 5)",
+      "removeConfirm": "Remove"
     }
   },
   "Workspaces": {

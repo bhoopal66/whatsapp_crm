@@ -5,11 +5,37 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import type { ChannelWithMembership } from '@/lib/chat';
 import { composerBlock, type ComposerBlock } from '@/lib/chat/composer';
+import { activeRestriction } from '@/lib/chat/moderation';
 import { cachedQuery } from '@/lib/client-cache';
 
 import { useChatWorkspaceContext } from './chat-context';
 
 const ENABLED_TTL_MS = 60_000;
+/** setTimeout's ceiling; a longer block re-arms when it fires. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * The end of the viewer's posting timeout (160) while it is in force,
+ * else null; re-renders when it runs out so the block lifts by itself.
+ */
+export function useRestrictedUntil(
+  channel: ChannelWithMembership | null
+): string | null {
+  const until = channel?.membership?.postBlockedUntil ?? null;
+  const [now, setNow] = useState(() => Date.now());
+  const active = activeRestriction(until, now);
+  useEffect(() => {
+    if (!active) return;
+    const ms = Date.parse(active.replace(' ', 'T')) - Date.now();
+    const id = setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(ms, 0) + 250, MAX_TIMER_MS)
+    );
+    // A block already over (judged against an older now) fires at once.
+    return () => clearTimeout(id);
+  }, [active]);
+  return active;
+}
 
 /**
  * Why the viewer may not post in `channel` (null = may post), the gate
@@ -41,6 +67,7 @@ export function useWriteBlock(
       off = true;
     };
   }, [sb, accountId]);
+  const restrictedUntil = useRestrictedUntil(channel);
   if (!channel) return null;
   return composerBlock({
     kind: channel.kind,
@@ -48,5 +75,6 @@ export function useWriteBlock(
     member: !!channel.membership,
     bankGuest: isBankGuest,
     chatEnabled: enabled,
+    restricted: !!restrictedUntil,
   });
 }

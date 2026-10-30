@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import {
   AlertCircle,
   Bold,
@@ -74,7 +74,7 @@ import {
   type MentionTextareaControl,
 } from './mention-textarea';
 import { useReplyTarget } from './reply-target';
-import { useWriteBlock } from './use-write-block';
+import { useRestrictedUntil, useWriteBlock } from './use-write-block';
 
 export interface ComposerProps {
   channelId: string;
@@ -152,6 +152,21 @@ export function Composer({
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
   const block = useWriteBlock(channel);
   const [refused, setRefused] = useState<ComposerBlock | null>(null);
+  const format = useFormatter();
+  const restrictedUntil = useRestrictedUntil(channel);
+  // A timeout learnt from a refusal (160) lifts when it ends, or after a
+  // minute when the membership row has not told us the time yet.
+  useEffect(() => {
+    if (refused !== 'restricted') return;
+    const left = restrictedUntil
+      ? Date.parse(restrictedUntil.replace(' ', 'T')) - Date.now()
+      : 60_000;
+    const id = setTimeout(
+      () => setRefused((cur) => (cur === 'restricted' ? null : cur)),
+      Math.min(Math.max(left, 0) + 250, 2_147_483_647)
+    );
+    return () => clearTimeout(id);
+  }, [refused, restrictedUntil]);
   const storageKey = draftStorageKey(channelId, threadRootId);
   const [draft, setDraft] = useState<ComposerDraft>(() =>
     readDraft(storageKey)
@@ -479,7 +494,16 @@ export function Composer({
     return (
       <div className="border-t px-4 py-3 text-center">
         <p className="text-muted-foreground text-sm">
-          {t(`composer.blocked.${shown}`)}
+          {shown === 'restricted'
+            ? restrictedUntil
+              ? t('composer.blocked.restricted', {
+                  time: format.dateTime(
+                    new Date(restrictedUntil.replace(' ', 'T')),
+                    { dateStyle: 'medium', timeStyle: 'short' }
+                  ),
+                })
+              : t('composer.blocked.restrictedNoTime')
+            : t(`composer.blocked.${shown}`)}
         </p>
         {whatsapp}
       </div>

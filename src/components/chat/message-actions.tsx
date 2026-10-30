@@ -16,6 +16,7 @@ import {
   Pin,
   PinOff,
   Reply,
+  ShieldAlert,
   SmilePlus,
   Trash2,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -36,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import {
@@ -62,6 +65,11 @@ import {
   QUICK_REACTIONS,
   type LocalPatch,
 } from '@/lib/chat/message-actions';
+import {
+  MODERATION_REASON_MAX,
+  moderationReasonValid,
+  reasonLength,
+} from '@/lib/chat/moderation';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
@@ -73,8 +81,10 @@ import { useReplyTarget } from './reply-target';
 /** What every row of one view shares for messageActions(). */
 export interface RowActionContext {
   userId: string | null;
-  /** Workspace owner or admin (may delete anyone's message). */
+  /** Workspace owner or admin (may remove anyone's message, with a reason). */
   workspaceAdmin: boolean;
+  /** A channel admin of this team/private channel (isChannelModerator). */
+  channelAdmin: boolean;
   /** The viewer may write here (useWriteBlock() === null). */
   canWrite: boolean;
   /** The view can open a thread. */
@@ -112,9 +122,10 @@ export function useMessageEdits(message: ChatMessage) {
         editMessage(sb, { messageId: message.id, body })
       );
     },
-    remove: () =>
+    /** `reason` is required (160) when removing someone else's message. */
+    remove: (reason?: string) =>
       void run(localPatch(message, { deletedAt: now() }), () =>
-        deleteMessageAndFiles(message.id)
+        deleteMessageAndFiles(message.id, undefined, reason)
       ),
   };
 }
@@ -169,6 +180,82 @@ export function MessageEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Removing someone else's message (160): the database requires a
+ * reason of 5–500 characters and logs it, so Remove stays disabled
+ * until the reason fits.
+ */
+function RemoveMessageDialog({
+  open,
+  onOpenChange,
+  onRemove,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRemove: (reason: string) => void;
+}) {
+  const t = useTranslations('Chat');
+  const [reason, setReason] = useState('');
+  const valid = moderationReasonValid(reason);
+  const close = (next: boolean) => {
+    if (!next) setReason('');
+    onOpenChange(next);
+  };
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('moderation.removeTitle')}</DialogTitle>
+          <DialogDescription>{t('moderation.removeBody')}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1">
+          <label htmlFor="chat-remove-reason" className="text-sm font-medium">
+            {t('moderation.reasonLabel')}
+          </label>
+          <Textarea
+            id="chat-remove-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder={t('moderation.reasonPlaceholder')}
+            rows={3}
+            autoFocus
+          />
+          <p
+            className={cn(
+              'text-xs',
+              reasonLength(reason) > MODERATION_REASON_MAX
+                ? 'text-destructive'
+                : 'text-muted-foreground'
+            )}
+          >
+            {t('moderation.reasonCount', {
+              count: reasonLength(reason),
+              max: MODERATION_REASON_MAX,
+            })}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => close(false)}>
+            {t('actions.editCancel')}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!valid}
+            onClick={() => {
+              const r = reason.trim();
+              close(false);
+              onRemove(r);
+            }}
+          >
+            {t('moderation.removeConfirm')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -260,7 +347,8 @@ export function MessageActions({
   onToggleReaction: (messageId: string, emoji: string) => void;
   onOpenThread?: (rootId: string) => void;
   onEdit: () => void;
-  onDelete: () => void;
+  /** With a reason when it removes someone else's message (moderation). */
+  onDelete: (reason?: string) => void;
   /** The message row: right-click there offers the same actions. */
   rowRef?: RefObject<HTMLDivElement | null>;
   /** The message carries a shared customer or call card (not forwarded). */
@@ -271,6 +359,7 @@ export function MessageActions({
   const { people, channels, fail } = useChatWorkspaceContext();
   const marks = useMessageMarks();
   const [confirming, setConfirming] = useState(false);
+  const [moderating, setModerating] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [forwarding, setForwarding] = useState(false);
   const can = messageActions(m, ctx);
@@ -427,6 +516,17 @@ export function MessageActions({
                 },
               ]
             : []),
+          ...(can.moderate
+            ? [
+                {
+                  id: 'moderate',
+                  label: t('moderation.remove'),
+                  icon: ShieldAlert,
+                  destructive: true,
+                  onSelect: () => setModerating(true),
+                },
+              ]
+            : []),
         ]
   );
 
@@ -569,6 +669,18 @@ export function MessageActions({
                 </DropdownMenuItem>
               </>
             )}
+            {can.moderate && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setModerating(true)}
+                >
+                  <ShieldAlert aria-hidden />
+                  {t('moderation.remove')}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -601,6 +713,13 @@ export function MessageActions({
           onDelete();
         }}
       />
+      {can.moderate && (
+        <RemoveMessageDialog
+          open={moderating}
+          onOpenChange={setModerating}
+          onRemove={(reason) => onDelete(reason)}
+        />
+      )}
     </>
   );
 }

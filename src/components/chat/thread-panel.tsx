@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
+import { isChannelModerator } from '@/lib/chat/moderation';
 import {
   applyMessageEvent,
   applyReactionEvent,
@@ -57,7 +58,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
   const { sb, listen, fail } = ws;
-  const { canManageMembers } = useAuth();
+  const { canManageMembers, isBankGuest } = useAuth();
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
   const block = useWriteBlock(channel);
   const [root, setRoot] = useState<TimelineState>(() =>
@@ -207,6 +208,13 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   const actions: RowActionContext = {
     userId: ws.userId,
     workspaceAdmin: canManageMembers,
+    channelAdmin:
+      !!channel &&
+      isChannelModerator({
+        kind: channel.kind,
+        role: channel.membership?.role,
+        bankGuest: isBankGuest,
+      }),
     canWrite: block === null,
     threads: false,
     broadcasts: channel ? offersBroadcasts(channel.kind) : false,

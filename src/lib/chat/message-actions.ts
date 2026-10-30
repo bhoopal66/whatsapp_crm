@@ -3,8 +3,12 @@
  * small pure pieces behind them. The database decides (087): edit is
  * the author's, delete the author's or a workspace owner/admin's, and
  * reacting, pinning and editing need write access to the channel.
+ * Since 160 removing someone else's message is moderation (a workspace
+ * owner/admin, or a channel admin of a team/private channel) and needs
+ * a reason, so it is its own action.
  */
 import { mentionSegments } from './mentions';
+import { canModerate } from './moderation';
 import type { ChatMessage, ChatPerson, MessageEdit } from './types';
 
 export const QUICK_REACTIONS = ['👍', '✅', '👀', '🙏', '❤️', '😂'] as const;
@@ -15,7 +19,10 @@ export interface MessageActionSet {
   quote: boolean;
   thread: boolean;
   edit: boolean;
+  /** Delete one's own message (no reason). */
   delete: boolean;
+  /** Remove someone else's message, with a reason (160). */
+  moderate: boolean;
   pin: boolean;
   save: boolean;
   copy: boolean;
@@ -29,6 +36,7 @@ const NONE: MessageActionSet = {
   thread: false,
   edit: false,
   delete: false,
+  moderate: false,
   pin: false,
   save: false,
   copy: false,
@@ -48,13 +56,26 @@ export function messageActions(
   i: {
     userId: string | null;
     workspaceAdmin: boolean;
+    /** A channel admin of this team/private channel (isChannelModerator). */
+    channelAdmin?: boolean;
     canWrite: boolean;
     threads: boolean;
   }
 ): MessageActionSet {
   if (m.deletedAt || m.erasedAt) return NONE;
+  const moderate = canModerate(m, {
+    userId: i.userId,
+    workspaceAdmin: i.workspaceAdmin,
+    channelAdmin: !!i.channelAdmin,
+  });
   if (m.authorKind === 'system')
-    return { ...NONE, react: i.canWrite, quote: i.canWrite, forward: true };
+    return {
+      ...NONE,
+      react: i.canWrite,
+      quote: i.canWrite,
+      forward: true,
+      moderate,
+    };
   const own =
     !!i.userId && m.authorId?.toLowerCase() === i.userId.toLowerCase();
   return {
@@ -62,7 +83,8 @@ export function messageActions(
     quote: i.canWrite,
     thread: i.threads && !m.threadRootId,
     edit: i.canWrite && own,
-    delete: own || i.workspaceAdmin,
+    delete: own,
+    moderate,
     pin: i.canWrite,
     save: true,
     copy: true,

@@ -280,7 +280,13 @@ export function composeBody(
 // ---------- who may post ----------
 
 export type ComposerBlock =
-  'disabled' | 'archived' | 'guestNotes' | 'guestPrivateOnly' | 'notMember';
+  | 'disabled'
+  | 'archived'
+  | 'guestNotes'
+  | 'guestPrivateOnly'
+  | 'notMember'
+  /** 160: a timeout on the viewer's membership (postBlockedUntil). */
+  | 'restricted';
 
 /**
  * Why the composer is replaced by a notice, in chat_assert_can_write's
@@ -294,12 +300,15 @@ export function composerBlock(i: {
   member: boolean;
   bankGuest: boolean;
   chatEnabled: boolean;
+  /** The viewer's own postBlockedUntil is still in the future (160). */
+  restricted?: boolean;
 }): ComposerBlock | null {
   if (!i.chatEnabled) return 'disabled';
   if (i.archived) return 'archived';
   if (i.bankGuest && i.kind === 'deal_room') return 'guestNotes';
   if (i.bankGuest && i.kind !== 'private') return 'guestPrivateOnly';
   if (!i.member && i.kind !== 'team') return 'notMember';
+  if (i.restricted) return 'restricted';
   return null;
 }
 
@@ -312,6 +321,8 @@ export function blockFromError(key: ChatErrorKey): ComposerBlock | null {
       return 'archived';
     case 'notChannelMember':
       return 'notMember';
+    case 'restrictedPosting':
+      return 'restricted';
     default:
       return null;
   }

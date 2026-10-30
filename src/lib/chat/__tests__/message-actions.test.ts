@@ -49,21 +49,34 @@ describe('messageActions', () => {
       thread: true,
       edit: true,
       delete: true,
+      moderate: false,
       pin: true,
       save: true,
       copy: true,
       forward: true,
     });
   });
-  it('edit is the author’s, delete the author’s or an admin’s', () => {
+  it('edit and delete are the author’s; removing another’s is moderation', () => {
     const theirs = msg({ authorId: YOU });
     expect(messageActions(theirs, who)).toMatchObject({
       edit: false,
       delete: false,
+      moderate: false,
     });
     expect(
       messageActions(theirs, { ...who, workspaceAdmin: true })
-    ).toMatchObject({ edit: false, delete: true });
+    ).toMatchObject({ edit: false, delete: false, moderate: true });
+    expect(
+      messageActions(theirs, { ...who, channelAdmin: true })
+    ).toMatchObject({ edit: false, delete: false, moderate: true });
+    // One's own post stays a plain delete, even for an admin.
+    expect(
+      messageActions(msg(), {
+        ...who,
+        workspaceAdmin: true,
+        channelAdmin: true,
+      })
+    ).toMatchObject({ delete: true, moderate: false });
   });
   it('replies have no thread; write actions need write access', () => {
     expect(messageActions(msg({ threadRootId: 'r' }), who).thread).toBe(false);
@@ -80,16 +93,19 @@ describe('messageActions', () => {
       forward: true,
     });
   });
-  it('system posts only react, quote and forward; tombstones nothing', () => {
-    const sys = messageActions(msg({ authorKind: 'system', authorId: null }), {
-      ...who,
-      workspaceAdmin: true,
-    });
+  it('system posts only react, quote, forward and (admins) remove; tombstones nothing', () => {
+    const system = msg({ authorKind: 'system', authorId: null });
+    const sys = messageActions(system, { ...who, workspaceAdmin: true });
     expect(Object.entries(sys).filter(([, v]) => v)).toEqual([
       ['react', true],
       ['quote', true],
+      ['moderate', true],
       ['forward', true],
     ]);
+    // A channel admin may not remove a system post.
+    expect(
+      messageActions(system, { ...who, channelAdmin: true }).moderate
+    ).toBe(false);
     expect(
       messageActions(msg({ authorKind: 'system', authorId: null }), {
         ...who,
