@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
 import {
@@ -67,7 +74,15 @@ import {
   type SensitiveKind,
 } from '@/lib/chat/composer-gating';
 import type { ChatErrorKey } from '@/lib/chat/errors';
+import {
+  carriesFiles,
+  isPreviewableImage,
+  nextDragDepth,
+  pastePlan,
+  transferFiles,
+} from '@/lib/chat/file-intake';
 import { quotePreview } from '@/lib/chat/quotes';
+import { chatRecorderGuard } from '@/lib/chat/recorder-guard';
 import { sensitiveKinds } from '@/lib/kb/sensitive';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -299,6 +314,8 @@ export function Composer({
   const startedAtRef = useRef<number | null>(null);
   const durationRef = useRef(0);
   const takeUrlRef = useRef<string | null>(null);
+  // This composer's claim on the page-wide one-recording guard.
+  const recorderOwner = useRef({});
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -312,6 +329,7 @@ export function Composer({
     const recorder = recorderRef.current;
     recorderRef.current = null;
     void recorder?.stop().catch(() => {});
+    chatRecorderGuard.release(recorderOwner.current);
   }, []);
 
   const dropTake = useCallback(() => {
@@ -361,6 +379,11 @@ export function Composer({
       typeof AudioContext === 'undefined'
     ) {
       toast.error(t('voice.unsupported'));
+      return;
+    }
+    // Another composer (the channel's or the thread's) is listening.
+    if (!chatRecorderGuard.claim(recorderOwner.current)) {
+      toast.error(t('voice.busy'));
       return;
     }
     startingRef.current = true;
@@ -453,6 +476,155 @@ export function Composer({
   useEffect(() => {
     if (writeBlocked) cancelRecording();
   }, [writeBlocked, cancelRecording]);
+
+  // ---- Files: picked, pasted or dropped ------------------------------
+  // chip id → the object URL of its thumbnail, revoked once the chip is
+  // gone (removed, or sent: the chips are cleared) and on unmount.
+  const previewUrls = useRef(new Map<string, string>());
+  useEffect(() => {
+    const live = new Set(chips.map((c) => c.id));
+    for (const [id, url] of previewUrls.current) {
+      if (live.has(id)) continue;
+      URL.revokeObjectURL(url);
+      previewUrls.current.delete(id);
+    }
+  }, [chips]);
+  useEffect(() => {
+    const urls = previewUrls.current;
+    return () => {
+      for (const url of urls.values()) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
+
+  const uploadFiles = (files: readonly File[]) => {
+    const accountId = ws.accountId;
+    if (!files.length || !accountId) return;
+    const { accepted, rejected } = acceptFiles(chips.length, files);
+    if (rejected) toast.error(t(`errors.${rejected}`));
+    const added = accepted.map((f) => {
+      const id = crypto.randomUUID();
+      let preview: string | null = null;
+      if (isPreviewableImage(f.type)) {
+        preview = URL.createObjectURL(f);
+        previewUrls.current.set(id, preview);
+      }
+      return uploadingChip(id, f.name, preview);
+    });
+    setChips((c) => [...c, ...added]);
+    added.forEach((chip, i) => {
+      uploadChatFile(ws.sb, { accountId, channelId, file: accepted[i] })
+        .then((input) => setChips((c) => settleChip(c, chip.id, { input })))
+        .catch((err) =>
+          setChips((c) => settleChip(c, chip.id, { error: chatErrorKey(err) }))
+        );
+    });
+  };
+
+  /**
+   * Files that came by paste or drop. The picker is hidden without the
+   * upload permission; these routes are refused out loud instead.
+   */
+  const intakeFiles = (files: readonly File[]) => {
+    if (!files.length) return;
+    if (!permissions.can.upload_files) {
+      toast.error(t('errors.permissionDenied'));
+      return;
+    }
+    uploadFiles(files);
+  };
+
+  // A drop needs the input row: not while blocked, recording or holding
+  // a take.
+  const dropsOpen = !writeBlocked && !recording && !take;
+  // The channel composer takes files dropped anywhere on the page; the
+  // thread composer only on itself (its handlers are on its root below).
+  const pageDrops = dropsOpen && !threadRootId;
+  const [pageDrag, setPageDrag] = useState(false);
+  const [threadDrag, setThreadDrag] = useState(false);
+  const threadDepth = useRef(0);
+  const onPageDrop = useEffectEvent((files: File[]) => intakeFiles(files));
+  useEffect(() => {
+    if (!pageDrops) return;
+    let depth = 0;
+    const onEnter = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      depth = nextDragDepth(depth, 'enter');
+      setPageDrag(true);
+    };
+    const onOver = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      // The thread composer claimed this spot: its own highlight shows.
+      if (e.defaultPrevented) {
+        setPageDrag(false);
+        return;
+      }
+      // Without this the drop opens the file in the tab.
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setPageDrag(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      depth = nextDragDepth(depth, 'leave');
+      if (depth === 0) setPageDrag(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      depth = nextDragDepth(depth, 'drop');
+      setPageDrag(false);
+      if (e.defaultPrevented) return; // the thread composer took it
+      e.preventDefault();
+      onPageDrop(transferFiles(e.dataTransfer));
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+      setPageDrag(false);
+    };
+  }, [pageDrops]);
+
+  const threadDropOpen = dropsOpen && !!threadRootId;
+  const threadDropHandlers = threadDropOpen
+    ? {
+        onDragEnter: (e: React.DragEvent) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          threadDepth.current = nextDragDepth(threadDepth.current, 'enter');
+          setThreadDrag(true);
+        },
+        onDragOver: (e: React.DragEvent) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        },
+        onDragLeave: (e: React.DragEvent) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          threadDepth.current = nextDragDepth(threadDepth.current, 'leave');
+          if (threadDepth.current === 0) setThreadDrag(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          threadDepth.current = nextDragDepth(threadDepth.current, 'drop');
+          setThreadDrag(false);
+          intakeFiles(transferFiles(e.dataTransfer));
+        },
+      }
+    : {};
+
+  /** A screenshot on the clipboard attaches; text pastes as before. */
+  const onPaste = (e: React.ClipboardEvent) => {
+    const { files, preventDefault } = pastePlan(e.clipboardData);
+    if (!files.length) return;
+    if (preventDefault) e.preventDefault();
+    intakeFiles(files);
+  };
   useEffect(() => {
     try {
       setFormatBar(window.localStorage.getItem(FORMAT_BAR_KEY) === '1');
@@ -489,21 +661,7 @@ export function Composer({
   const addFiles = (list: FileList | null) => {
     const files = Array.from(list ?? []);
     if (fileInput.current) fileInput.current.value = '';
-    const accountId = ws.accountId;
-    if (!files.length || !accountId) return;
-    const { accepted, rejected } = acceptFiles(chips.length, files);
-    if (rejected) toast.error(t(`errors.${rejected}`));
-    const added = accepted.map((f) =>
-      uploadingChip(crypto.randomUUID(), f.name)
-    );
-    setChips((c) => [...c, ...added]);
-    added.forEach((chip, i) => {
-      uploadChatFile(ws.sb, { accountId, channelId, file: accepted[i] })
-        .then((input) => setChips((c) => settleChip(c, chip.id, { input })))
-        .catch((err) =>
-          setChips((c) => settleChip(c, chip.id, { error: chatErrorKey(err) }))
-        );
-    });
+    uploadFiles(files);
   };
 
   const composed = composeBody(
@@ -691,7 +849,32 @@ export function Composer({
         : '';
 
   return (
-    <div className="border-t px-4 pt-2 pb-3">
+    <div
+      className={cn(
+        'relative border-t px-4 pt-2 pb-3',
+        threadDropOpen && threadDrag && 'ring-primary ring-2 ring-inset'
+      )}
+      {...threadDropHandlers}
+    >
+      {threadDropOpen && threadDrag && (
+        <div className="bg-overlay pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <p className="bg-card rounded-lg border px-3 py-1.5 text-xs font-semibold">
+            {t('composer.dropHere')}
+          </p>
+        </div>
+      )}
+      {pageDrops &&
+        pageDrag &&
+        createPortal(
+          <div className="bg-overlay pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6">
+            <p className="border-primary bg-card rounded-xl border-2 border-dashed px-8 py-6 text-base font-semibold">
+              {t('composer.dropOverlay', {
+                name: helper.key === 'helperChannel' ? `#${name}` : name,
+              })}
+            </p>
+          </div>,
+          document.body
+        )}
       <p className="text-muted-foreground mb-1.5 truncate text-xs">
         {t(
           `composer.${helper.key}`,
@@ -714,6 +897,14 @@ export function Composer({
                   'border-destructive text-destructive'
               )}
             >
+              {chip.preview && (
+                // eslint-disable-next-line @next/next/no-img-element -- a local blob: preview
+                <img
+                  src={chip.preview}
+                  alt=""
+                  className="size-8 shrink-0 rounded object-cover"
+                />
+              )}
               {chip.status === 'uploading' ? (
                 <Loader2
                   className="size-3.5 shrink-0 animate-spin"
@@ -721,7 +912,7 @@ export function Composer({
                 />
               ) : chip.status === 'failed' ? (
                 <AlertCircle className="size-3.5 shrink-0" aria-hidden />
-              ) : (
+              ) : chip.preview ? null : (
                 <FileText
                   className="text-muted-foreground size-3.5 shrink-0"
                   aria-hidden
@@ -859,7 +1050,7 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div ref={inputWrap} className="flex items-end gap-2">
+        <div ref={inputWrap} className="flex items-end gap-2" onPaste={onPaste}>
           {controls.attach && (
             <button
               type="button"

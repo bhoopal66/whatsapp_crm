@@ -101,14 +101,21 @@ export interface FileChip {
   status: 'uploading' | 'done' | 'failed';
   input: AttachmentInput | null;
   error: ChatErrorKey | null;
+  /** An object URL of an image file, for the chip's thumbnail. */
+  preview?: string | null;
 }
 
-export const uploadingChip = (id: string, name: string): FileChip => ({
+export const uploadingChip = (
+  id: string,
+  name: string,
+  preview: string | null = null
+): FileChip => ({
   id,
   name,
   status: 'uploading',
   input: null,
   error: null,
+  preview,
 });
 
 /** The chip `id` once its upload finished (a removed chip stays removed). */

@@ -158,6 +158,18 @@ describe('file chips', () => {
   it('a chip removed while uploading stays removed', () => {
     expect(settleChip([], '1', { input })).toEqual([]);
   });
+
+  it("an image chip keeps its thumbnail through the upload's end", () => {
+    const chips = [
+      uploadingChip('1', 'a.png', 'blob:a'),
+      uploadingChip('2', 'b.pdf'),
+    ];
+    expect(chips[1].preview).toBeNull();
+    expect(settleChip(chips, '1', { input })[0].preview).toBe('blob:a');
+    expect(settleChip(chips, '1', { error: 'uploadFailed' })[0].preview).toBe(
+      'blob:a'
+    );
+  });
 });
 
 describe('editSubmission', () => {

@@ -4749,6 +4749,8 @@
       "fileUploading": "Uploading…",
       "fileUploaded": "Uploaded",
       "fileFailed": "Upload failed",
+      "dropOverlay": "Drop files to share in {name}",
+      "dropHere": "Drop files to attach to this reply",
       "whatsappInstead": "Message the customer on WhatsApp instead",
       "mentionList": "People to mention",
       "mentionChannel": "Notify everyone in this channel",
@@ -4788,6 +4790,7 @@
       "sending": "Sending…",
       "unsupported": "Voice recording isn't supported in this browser.",
       "micDenied": "Microphone access was denied or is unavailable.",
+      "busy": "Another voice message is being recorded. Stop or cancel it first.",
       "tooLarge": "The recording is too large to send (over 25 MB)."
     },
     "actions": {
