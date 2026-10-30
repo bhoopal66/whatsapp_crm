@@ -481,3 +481,47 @@ export function applyFormat(
     single ? e + m.length : s + wrapped.length
   );
 }
+
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+/**
+ * Replaces the selection [start, end) with `insert` (an emoji from the
+ * picker) and puts the caret after it. Picked mentions stay valid: a
+ * caret inside an "@label" moves to the label's end rather than
+ * splitting it, a selection edge inside one widens to the whole label
+ * (as applyFormat does), and a word character that would touch
+ * either end of a label is separated by a space, so serializeDraft
+ * still finds the label.
+ */
+export function insertAtSelection(
+  draft: ComposerDraft,
+  start: number,
+  end: number,
+  insert: string
+): { draft: ComposerDraft; caret: number } {
+  const text = draft.text;
+  let s = Math.max(0, Math.min(start, end, text.length));
+  let e = Math.min(text.length, Math.max(start, end, s));
+  const ranges = pickedLabelRanges(text, draft.picked);
+  for (const [a, b] of ranges) {
+    if (s === e && s > a && s < b) s = e = b;
+    if (s > a && s < b) s = a;
+    if (e > a && e < b) e = b;
+  }
+  let piece = insert;
+  if (piece && WORD_CHAR.test(piece[0]) && ranges.some(([, b]) => b === s))
+    piece = ` ${piece}`;
+  if (
+    piece &&
+    WORD_CHAR.test(piece[piece.length - 1]) &&
+    ranges.some(([a]) => a === e)
+  )
+    piece = `${piece} `;
+  return {
+    draft: {
+      text: text.slice(0, s) + piece + text.slice(e),
+      picked: draft.picked,
+    },
+    caret: s + piece.length,
+  };
+}

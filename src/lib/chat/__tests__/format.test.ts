@@ -4,6 +4,7 @@ import { serializeDraft } from '../composer';
 import {
   applyFormat,
   formatShortcut,
+  insertAtSelection,
   parseBody,
   parseInline,
   plainText,
@@ -379,5 +380,48 @@ describe('applyFormat', () => {
       type: 'bold',
       children: [{ type: 'mention', userId: SARA, name: 'Sara Ahmed' }],
     });
+  });
+});
+
+describe('insertAtSelection', () => {
+  const picked = [{ userId: SARA, label: 'Sara Ahmed' }];
+  const token = `<@${SARA}>`;
+
+  it('inserts at the caret and puts the caret after it', () => {
+    const r = insertAtSelection({ text: 'hi there', picked: [] }, 2, 2, '👋');
+    expect(r.draft.text).toBe('hi👋 there');
+    expect(r.caret).toBe(2 + '👋'.length);
+  });
+
+  it('replaces a selection, in either direction', () => {
+    const d = { text: 'good job', picked: [] };
+    expect(insertAtSelection(d, 5, 8, '👍').draft.text).toBe('good 👍');
+    expect(insertAtSelection(d, 8, 5, '👍').draft.text).toBe('good 👍');
+  });
+
+  it('moves a caret inside a picked label to its end', () => {
+    const draft = { text: 'ask @Sara Ahmed now', picked };
+    const r = insertAtSelection(draft, 8, 8, '🙏');
+    expect(r.draft.text).toBe('ask @Sara Ahmed🙏 now');
+    expect(r.caret).toBe(15 + '🙏'.length);
+    expect(r.draft.picked).toEqual(picked);
+    expect(serializeDraft(r.draft.text, r.draft.picked)).toBe(
+      `ask ${token}🙏 now`
+    );
+  });
+
+  it('widens a selection edge inside a label to the whole label', () => {
+    const draft = { text: 'ask @Sara Ahmed now', picked };
+    expect(insertAtSelection(draft, 10, 19, '✅').draft.text).toBe('ask ✅');
+  });
+
+  it('keeps a word character off either end of a label', () => {
+    const draft = { text: '@Sara Ahmed', picked };
+    const after = insertAtSelection(draft, 11, 11, 'x');
+    expect(after.draft.text).toBe('@Sara Ahmed x');
+    expect(serializeDraft(after.draft.text, picked)).toBe(`${token} x`);
+    const before = insertAtSelection(draft, 0, 0, 'x');
+    expect(before.draft.text).toBe('x @Sara Ahmed');
+    expect(serializeDraft(before.draft.text, picked)).toBe(`x ${token}`);
   });
 });
