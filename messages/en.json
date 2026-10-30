@@ -4603,6 +4603,7 @@
       "members": "{count, plural, =1 {# member} other {# members}}",
       "internal": "Internal — customers never see this",
       "membersButton": "Members",
+      "filesButton": "Files",
       "pinned": "Pinned ({count})",
       "dealRoomNote": "Open this deal room from Deal rooms in the sidebar.",
       "empty": "No messages yet.",
@@ -4859,6 +4860,48 @@
       "liftBody": "The restriction ends now. Lifting it is logged.",
       "liftConfirm": "Lift restriction",
       "lifted": "{name} can post again"
+    },
+    "files": {
+      "title": "Files",
+      "close": "Close files",
+      "loading": "Loading files…",
+      "loadMore": "Load more",
+      "tab": {
+        "all": "All",
+        "image": "Images",
+        "voice": "Voice",
+        "video": "Video",
+        "file": "Files"
+      },
+      "empty": {
+        "all": "No files have been shared here yet.",
+        "image": "No images have been shared here yet.",
+        "voice": "No voice notes have been sent here yet.",
+        "video": "No videos have been shared here yet.",
+        "file": "No documents have been shared here yet."
+      },
+      "jump": "Jump to message",
+      "inThread": "In a thread",
+      "download": "Download",
+      "downloadName": "Download {name}",
+      "open": "Open in a new tab",
+      "openImage": "Open {name}",
+      "unknownSender": "Someone",
+      "unavailable": "This file can't be shown.",
+      "viewer": "Image viewer",
+      "closeViewer": "Close image viewer",
+      "previous": "Previous image",
+      "next": "Next image",
+      "position": "{n} of {count}",
+      "kind": {
+        "pdf": "PDF",
+        "spreadsheet": "Spreadsheet",
+        "document": "Document",
+        "presentation": "Presentation",
+        "archive": "Archive",
+        "text": "Text",
+        "other": "File"
+      }
     },
     "pins": {
       "title": "Pinned messages",

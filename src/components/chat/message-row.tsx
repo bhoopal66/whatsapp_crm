@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
-import { FileText, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 import {
-  signedFileUrl,
   type ChatAttachment,
   type ChatMessage,
   type ChatPerson,
@@ -15,7 +14,6 @@ import {
 import {
   avatarTint,
   boldSegments,
-  formatBytes,
   formatClock,
   initialOf,
   roleLabelKey,
@@ -24,7 +22,9 @@ import { attachmentDisplay, hidesVoiceBody } from '@/lib/chat/voice';
 import { removedByModerator } from '@/lib/chat/moderation';
 import { cn } from '@/lib/utils';
 
+import { ChatFileChip, ChatImageThumb, ChatVideo } from './attachment-views';
 import { useChatWorkspaceContext } from './chat-context';
+import { ImageLightbox } from './image-lightbox';
 import {
   MessageActions,
   MessageEditor,
@@ -57,24 +57,13 @@ export interface MessageRowProps {
 function AttachmentView({
   a,
   authorId,
+  onOpenImage,
 }: {
   a: ChatAttachment;
   authorId: string | null;
+  onOpenImage: () => void;
 }) {
-  const { sb } = useChatWorkspaceContext();
-  const [url, setUrl] = useState<string | null>(null);
   const display = attachmentDisplay(a);
-  const image = display === 'image';
-  useEffect(() => {
-    if (!image) return;
-    let off = false;
-    signedFileUrl(sb, a.storagePath)
-      .then((u) => !off && setUrl(u))
-      .catch(() => {});
-    return () => {
-      off = true;
-    };
-  }, [sb, a.storagePath, image]);
   if (display === 'voice' || display === 'audio')
     return (
       <ChatVoiceNote
@@ -84,34 +73,9 @@ function AttachmentView({
         file={display === 'audio'}
       />
     );
-  if (image)
-    return url ? (
-      // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL
-      <img
-        src={url}
-        alt={a.name}
-        className="max-h-48 max-w-64 rounded-lg border object-cover"
-      />
-    ) : (
-      <div className="bg-muted size-32 animate-pulse rounded-lg" />
-    );
-  return (
-    <button
-      type="button"
-      onClick={() =>
-        signedFileUrl(sb, a.storagePath)
-          .then((u) => window.open(u, '_blank', 'noopener'))
-          .catch(() => {})
-      }
-      className="hover:bg-muted flex max-w-64 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-sm"
-    >
-      <FileText className="text-muted-foreground size-4 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1 truncate">{a.name}</span>
-      <span className="text-muted-foreground shrink-0 text-xs">
-        {formatBytes(a.bytes)}
-      </span>
-    </button>
-  );
+  if (display === 'image') return <ChatImageThumb a={a} onOpen={onOpenImage} />;
+  if (display === 'video') return <ChatVideo a={a} />;
+  return <ChatFileChip a={a} />;
 }
 
 export function MessageRow({
@@ -133,7 +97,18 @@ export function MessageRow({
   const quotes = useQuoteLookup();
   const edits = useMessageEdits(message);
   const rowRef = useRef<HTMLDivElement>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
   const m = edits.shown;
+  // The viewer steps across this message's images.
+  const images = m.attachments
+    .filter((a) => attachmentDisplay(a) === 'image')
+    .map((a) => ({
+      id: a.id,
+      storagePath: a.storagePath,
+      name: a.name,
+      authorId: m.authorId,
+      createdAt: m.createdAt,
+    }));
   const system = m.authorKind === 'system';
   const person: ChatPerson | undefined = m.authorId
     ? peopleById.get(m.authorId.toLowerCase())
@@ -275,9 +250,24 @@ export function MessageRow({
             )}
           >
             {m.attachments.map((a) => (
-              <AttachmentView key={a.id} a={a} authorId={m.authorId} />
+              <AttachmentView
+                key={a.id}
+                a={a}
+                authorId={m.authorId}
+                onOpenImage={() =>
+                  setViewing(images.findIndex((i) => i.id === a.id))
+                }
+              />
             ))}
           </div>
+        )}
+        {images.length > 0 && (
+          <ImageLightbox
+            images={images}
+            index={viewing}
+            onIndex={setViewing}
+            onClose={() => setViewing(null)}
+          />
         )}
         {card && !m.deletedAt && <SharedConversationCard card={card} />}
         {callCard && !m.deletedAt && <SharedCallCardBox card={callCard} />}

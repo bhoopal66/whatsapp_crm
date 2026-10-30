@@ -9,6 +9,7 @@ import {
   Lock,
   Megaphone,
   MessageCircle,
+  Paperclip,
   ShieldCheck,
   User,
 } from 'lucide-react';
@@ -38,6 +39,8 @@ export interface ChannelHeaderProps {
   onOpenMembers?: () => void;
   /** Pinned panel (a later job). */
   onOpenPins?: () => void;
+  /** Files panel. */
+  onOpenFiles?: () => void;
 }
 
 const BADGE =
@@ -53,6 +56,7 @@ export function ChannelHeader({
   pinCount,
   onOpenMembers,
   onOpenPins,
+  onOpenFiles,
 }: ChannelHeaderProps) {
   const t = useTranslations('Chat.channel');
   const tSettings = useTranslations('Chat.settings');
@@ -167,6 +171,15 @@ export function ChannelHeader({
             disabled={!onOpenPins}
           >
             {t('pinned', { count: pinCount ?? 0 })}
+          </button>
+          <button
+            type="button"
+            className={CHIP}
+            onClick={onOpenFiles}
+            disabled={!onOpenFiles}
+          >
+            <Paperclip className="size-3.5" aria-hidden />
+            {t('filesButton')}
           </button>
         </div>
       )}

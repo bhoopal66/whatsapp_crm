@@ -49,6 +49,7 @@ export interface ChannelViewProps {
   onOpenThread?: (rootId: string) => void;
   onOpenMembers?: () => void;
   onOpenPins?: () => void;
+  onOpenFiles?: () => void;
   /** ?message=: a top-level message the timeline brings into view. */
   focusMessageId?: string | null;
   onFocusDone?: (found: boolean) => void;
@@ -65,6 +66,7 @@ export function ChannelView({
   onOpenThread,
   onOpenMembers,
   onOpenPins,
+  onOpenFiles,
   focusMessageId,
   onFocusDone,
   embedded = false,
@@ -224,6 +226,7 @@ export function ChannelView({
           pinCount={marks.pinCount}
           onOpenMembers={onOpenMembers}
           onOpenPins={onOpenPins}
+          onOpenFiles={onOpenFiles}
         />
       )}
       {channel.kind === 'deal_room' && !embedded ? (

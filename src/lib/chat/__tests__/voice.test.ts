@@ -39,7 +39,7 @@ describe('attachmentDisplay', () => {
     );
   });
 
-  it('keeps images and other files as they were', () => {
+  it('keeps images and other files as they were, and plays video', () => {
     expect(attachmentDisplay(att({ kind: 'file', mime: 'image/png' }))).toBe(
       'image'
     );
@@ -47,7 +47,10 @@ describe('attachmentDisplay', () => {
       attachmentDisplay(att({ kind: 'file', mime: 'application/pdf' }))
     ).toBe('file');
     expect(attachmentDisplay(att({ kind: 'file', mime: 'video/mp4' }))).toBe(
-      'file'
+      'video'
+    );
+    expect(attachmentDisplay(att({ kind: 'file', mime: 'Video/WebM' }))).toBe(
+      'video'
     );
   });
 });

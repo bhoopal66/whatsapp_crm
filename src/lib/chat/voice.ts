@@ -4,9 +4,10 @@ import type { AttachmentInput, ChatAttachment, ChatMessage } from './types';
  * How a team-chat attachment renders. A voice note (migration 156's
  * `kind`) gets the player and a played receipt; any other audio file gets
  * the same player with its name and size and no receipt (it is just
- * audio); an image a thumbnail; everything else a download button.
+ * audio); an image a thumbnail; a video an inline player; everything
+ * else a file chip.
  */
-export type AttachmentDisplay = 'voice' | 'audio' | 'image' | 'file';
+export type AttachmentDisplay = 'voice' | 'audio' | 'image' | 'video' | 'file';
 
 export function attachmentDisplay(
   a: Pick<ChatAttachment, 'kind' | 'mime'>
@@ -15,6 +16,7 @@ export function attachmentDisplay(
   const mime = a.mime.toLowerCase();
   if (mime.startsWith('audio/')) return 'audio';
   if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
   return 'file';
 }
 

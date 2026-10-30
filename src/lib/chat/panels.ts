@@ -1,6 +1,6 @@
 /**
  * The /chat/<id> right column and jump-to-message URL state: ?thread=,
- * ?panel=members|pins and ?message=. One right column at a time, so
+ * ?panel=members|pins|files and ?message=. One right column at a time, so
  * opening one closes the other. Also the Add-people picker's rows. Pure,
  * so it tests without a DOM.
  */
@@ -14,7 +14,9 @@ import type {
   ChatPerson,
 } from './types';
 
-export type SidePanel = 'members' | 'pins';
+export type SidePanel = 'members' | 'pins' | 'files';
+
+const SIDE_PANELS: readonly string[] = ['members', 'pins', 'files'];
 
 export type RightColumn =
   { kind: 'thread'; rootId: string } | { kind: SidePanel } | null;
@@ -28,7 +30,9 @@ export function rightColumn(params: Params): RightColumn {
   const thread = params.get('thread');
   if (isUuid(thread)) return { kind: 'thread', rootId: thread };
   const panel = params.get('panel');
-  return panel === 'members' || panel === 'pins' ? { kind: panel } : null;
+  return panel && SIDE_PANELS.includes(panel)
+    ? { kind: panel as SidePanel }
+    : null;
 }
 
 /** The query string with `next` in the right column (null closes it); ?message= is kept. */

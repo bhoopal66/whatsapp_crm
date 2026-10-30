@@ -23,7 +23,8 @@ describe('right column', () => {
     });
     expect(rightColumn(q('panel=members'))).toEqual({ kind: 'members' });
     expect(rightColumn(q('panel=pins'))).toEqual({ kind: 'pins' });
-    expect(rightColumn(q('panel=files'))).toBeNull();
+    expect(rightColumn(q('panel=files'))).toEqual({ kind: 'files' });
+    expect(rightColumn(q('panel=other'))).toBeNull();
     expect(rightColumn(q('thread=nope'))).toBeNull();
     expect(rightColumn(q(''))).toBeNull();
   });

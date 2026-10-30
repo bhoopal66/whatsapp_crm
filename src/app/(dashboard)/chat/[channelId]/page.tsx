@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { ChannelView } from '@/components/chat/channel-view';
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { Composer } from '@/components/chat/composer';
+import { FilesPanel } from '@/components/chat/files-panel';
 import { MembersPanel } from '@/components/chat/members-panel';
 import { MessageMarksProvider } from '@/components/chat/message-marks';
 import { PinsPanel } from '@/components/chat/pins-panel';
@@ -32,7 +33,7 @@ import {
 const SIDE_BY_SIDE = '(min-width: 1024px)';
 
 /**
- * The right column (?thread=<root id> or ?panel=members|pins) and the
+ * The right column (?thread=<root id> or ?panel=members|pins|files) and the
  * message to bring into view (?message=, how search results and
  * notifications link) live in the URL, so they survive a reload.
  */
@@ -60,7 +61,7 @@ function ChannelScreen() {
   const toggle = (kind: SidePanel) =>
     show(right?.kind === kind ? null : { kind });
   // A phone's sheet covers the timeline, so the jump closes it there.
-  const jump = (m: ChatMessage) =>
+  const jump = (m: Pick<ChatMessage, 'id' | 'threadRootId'>) =>
     go(jumpQuery(query, m, window.matchMedia(SIDE_BY_SIDE).matches));
   const onFocusDone = useCallback(
     (found: boolean) => {
@@ -101,6 +102,7 @@ function ChannelScreen() {
             onOpenThread={openThread}
             onOpenMembers={() => toggle('members')}
             onOpenPins={() => toggle('pins')}
+            onOpenFiles={() => toggle('files')}
             focusMessageId={focusId}
             onFocusDone={onFocusDone}
           />
@@ -122,6 +124,14 @@ function ChannelScreen() {
         )}
         {right?.kind === 'pins' && (
           <PinsPanel channelId={channelId} onClose={close} onJump={jump} />
+        )}
+        {right?.kind === 'files' && (
+          <FilesPanel
+            key={channelId}
+            channelId={channelId}
+            onClose={close}
+            onJump={jump}
+          />
         )}
       </div>
     </MessageMarksProvider>

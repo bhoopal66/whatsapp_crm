@@ -4603,6 +4603,7 @@
       "members": "멤버 {count}명",
       "internal": "내부 전용 — 고객에게 표시되지 않음",
       "membersButton": "멤버",
+      "filesButton": "파일",
       "pinned": "고정됨 ({count})",
       "dealRoomNote": "사이드바의 딜룸에서 이 딜룸을 여세요.",
       "empty": "아직 메시지가 없습니다.",
@@ -4859,6 +4860,48 @@
       "liftBody": "제한이 지금 끝납니다. 해제도 기록됩니다.",
       "liftConfirm": "제한 해제",
       "lifted": "{name}님이 다시 게시할 수 있습니다"
+    },
+    "files": {
+      "title": "파일",
+      "close": "파일 닫기",
+      "loading": "파일을 불러오는 중…",
+      "loadMore": "더 보기",
+      "tab": {
+        "all": "전체",
+        "image": "이미지",
+        "voice": "음성",
+        "video": "동영상",
+        "file": "파일"
+      },
+      "empty": {
+        "all": "아직 공유된 파일이 없습니다.",
+        "image": "아직 공유된 이미지가 없습니다.",
+        "voice": "아직 보낸 음성 메시지가 없습니다.",
+        "video": "아직 공유된 동영상이 없습니다.",
+        "file": "아직 공유된 문서가 없습니다."
+      },
+      "jump": "메시지로 이동",
+      "inThread": "스레드 안",
+      "download": "다운로드",
+      "downloadName": "{name} 다운로드",
+      "open": "새 탭에서 열기",
+      "openImage": "{name} 열기",
+      "unknownSender": "알 수 없는 사용자",
+      "unavailable": "이 파일을 표시할 수 없습니다.",
+      "viewer": "이미지 뷰어",
+      "closeViewer": "이미지 뷰어 닫기",
+      "previous": "이전 이미지",
+      "next": "다음 이미지",
+      "position": "{count}개 중 {n}번째",
+      "kind": {
+        "pdf": "PDF",
+        "spreadsheet": "스프레드시트",
+        "document": "문서",
+        "presentation": "프레젠테이션",
+        "archive": "압축 파일",
+        "text": "텍스트",
+        "other": "파일"
+      }
     },
     "pins": {
       "title": "고정된 메시지",
