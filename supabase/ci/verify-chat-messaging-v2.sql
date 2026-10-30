@@ -68,6 +68,14 @@ DECLARE
   vpcc   TEXT;
   t1     TIMESTAMPTZ;
   copies UUID[] := '{}';  -- every forwarded copy of an ag message
+  rp     UUID;  -- own, one pdf in ch: the reuse / copy-matching source
+  tch    UUID;  -- A team: typing-stop fixture (own, ag)
+  tpv    UUID;  -- A private: ag types, then loses access
+  dmx    UUID;  -- A DM: own, x
+  fx     UUID;  -- own's forward of r1 (ag's) into dmx: x's bell and push
+  p1     TEXT;
+  p2     TEXT;
+  fwa    TEXT := 'SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text';
   r      TEXT;
   post   TEXT := 'SELECT public.chat_post_message(%L, %L, %L::uuid, NULL, %L::jsonb, %L::uuid)::text';
   att    TEXT := '[{"storage_path":%s,"name":"%s","mime":"%s","bytes":100%s}]';
@@ -126,6 +134,14 @@ BEGIN
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.tc_ok(p_cond boolean, p_name text)
     RETURNS text LANGUAGE sql AS $body$ SELECT CASE WHEN p_cond IS TRUE THEN NULL ELSE p_name END $body$
+  $fn$;
+  -- A one-item attachment list (a NULL kind or duration is left out).
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.tc_a1(p_path text, p_name text, p_mime text, p_bytes int, p_kind text, p_dur int)
+    RETURNS text LANGUAGE sql AS $body$
+      SELECT jsonb_build_array(jsonb_strip_nulls(jsonb_build_object('storage_path', p_path, 'name', p_name,
+               'mime', p_mime, 'bytes', p_bytes, 'kind', p_kind, 'duration_ms', p_dur)))::text
+    $body$
   $fn$;
   -- An uploaded chat-files object under the channel's prefix: its path.
   EXECUTE $fn$
@@ -263,6 +279,49 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('a bank guest forwarded out of the deal room', u_g,
     format('SELECT public.chat_forward_message(%L, %L)::text', m1, dr), 'ERROR %');
 
+  -- ---------- D2. one object, one attachment row; a forward copies its source ----------
+  p1 := pg_temp.tc_up(a, ch, 'reuse.pdf');
+  r := pg_temp.tc_try('authenticated', u_own, format(post, ch, 'reuse source', NULL, pg_temp.tc_a1(p1, 'reuse.pdf', 'application/pdf', 100, NULL, NULL), NULL));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r ~ uuid_re, 'the reuse fixture post failed (' || r || ')');
+  IF r ~ uuid_re THEN rp := r::uuid; END IF;
+  n := n + 1; failed := failed || pg_temp.tc_check('a post re-used another message''s attachment path', u_own,
+    format(post, ch, 'reuse', NULL, pg_temp.tc_a1(p1, 'reuse.pdf', 'application/pdf', 100, NULL, NULL), NULL),
+    'ERROR 22023:%already belongs to a message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward re-used the source''s own attachment path', u_own,
+    format(fwa, rp, ch, pg_temp.tc_a1(p1, 'reuse.pdf', 'application/pdf', 100, NULL, NULL)),
+    'ERROR 22023:%already belongs to a message%');
+  p2 := pg_temp.tc_up(a, ch, 'twice.pdf');
+  n := n + 1; failed := failed || pg_temp.tc_check('a post named one path twice', u_own,
+    format(post, ch, 'twice', NULL, format('[{"storage_path":%s,"name":"a.pdf","mime":"application/pdf","bytes":1},'
+      || '{"storage_path":%s,"name":"b.pdf","mime":"application/pdf","bytes":1}]', to_json(p2), to_json(p2)), NULL),
+    'ERROR 22023:%already belongs to a message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward with a correct copy of the source''s file failed', u_own,
+    format(fwa, rp, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'reuse.pdf'), 'reuse.pdf', 'application/pdf', 100, NULL, NULL)),
+    '________-____-____-____-____________');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward''s copy with another name was accepted', u_own,
+    format(fwa, rp, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'other.pdf'), 'other.pdf', 'application/pdf', 100, NULL, NULL)),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward''s copy with another mime was accepted', u_own,
+    format(fwa, rp, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'reuse.pdf'), 'reuse.pdf', 'application/zip', 100, NULL, NULL)),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward''s copy with another size was accepted', u_own,
+    format(fwa, rp, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'reuse.pdf'), 'reuse.pdf', 'application/pdf', 101, NULL, NULL)),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward carried more copies than the source has files', u_own,
+    format(fwa, rp, ch, format('[{"storage_path":%s,"name":"reuse.pdf","mime":"application/pdf","bytes":100},'
+      || '{"storage_path":%s,"name":"reuse.pdf","mime":"application/pdf","bytes":100}]',
+      to_json(pg_temp.tc_up(a, ch, 'reuse.pdf')), to_json(pg_temp.tc_up(a, ch, 'reuse.pdf')))),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a forward of a text message carried a file', u_own,
+    format(fwa, m1, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'reuse.pdf'), 'reuse.pdf', 'application/pdf', 100, NULL, NULL)),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a voice note''s copy as kind file was accepted', u_own,
+    format(fwa, v1, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'voice.ogg'), 'voice.ogg', 'audio/ogg', 100, NULL, NULL)),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('a voice note''s copy with another duration was accepted', u_own,
+    format(fwa, v1, ch, pg_temp.tc_a1(pg_temp.tc_up(a, ch, 'voice.ogg'), 'voice.ogg', 'audio/ogg', 100, 'voice', 4201)),
+    'ERROR 22023:%copies of the source message%');
+
   -- ---------- E. typing ----------
   r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', ch));
   n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'a member could not type (' || r || ')');
@@ -313,6 +372,37 @@ BEGIN
     format('SELECT count(*)::text FROM chat_typing WHERE channel_id = %L', dr), '0');
   n := n + 1; failed := failed || pg_temp.tc_check('a deal room member does not see its typing (RLS)', u_own,
     format('SELECT count(*)::text FROM chat_typing WHERE channel_id = %L', dr), '1');
+
+  -- ---------- E2. a stop keeps the row; stop + start cannot beat the 2 s cap ----------
+  tch := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'team', 'TC2 typing', ARRAY[u_ag]));
+  tpv := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'private', 'TC2 typing private', ARRAY[u_ag]));
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', tch));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'the typing-stop fixture could not type (' || r || ')');
+  UPDATE chat_typing SET at = now() - interval '1 second' WHERE channel_id = tch AND user_id = u_ag RETURNING at INTO t1;
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L, NULL, false)::text', tch));
+  n := n + 1; failed := failed || pg_temp.tc_check('a typing stop deleted the row or moved its time', NULL,
+    format('SELECT %L || ''|'' || count(*) FILTER (WHERE stopped AND at = %L::timestamptz) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', r, t1, tch, u_ag),
+    'ok|1/1');
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', tch));
+  n := n + 1; failed := failed || pg_temp.tc_check('a start within 2 s of a stop on the same thread changed the row', NULL,
+    format('SELECT %L || ''|'' || count(*) FILTER (WHERE stopped AND at = %L::timestamptz) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', r, t1, tch, u_ag),
+    'ok|1/1');
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L, NULL, false)::text', tch));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'a second typing stop was refused (' || r || ')');
+  UPDATE chat_typing SET at = now() - interval '3 seconds' WHERE channel_id = tch AND user_id = u_ag RETURNING at INTO t1;
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', tch));
+  n := n + 1; failed := failed || pg_temp.tc_check('a start over 2 s after a stop did not resume typing', NULL,
+    format('SELECT count(*) FILTER (WHERE NOT stopped AND at > %L::timestamptz) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', t1, tch, u_ag),
+    '1/1');
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L)::text', tpv));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', 'the lost-access fixture could not type (' || r || ')');
+  DELETE FROM chat_channel_members WHERE channel_id = tpv AND user_id = u_ag;
+  n := n + 1; failed := failed || pg_temp.tc_check('the lost-access fixture can still type', u_ag,
+    format('SELECT public.chat_set_typing(%L)::text', tpv), 'ERROR 42501:%');
+  r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_set_typing(%L, NULL, false)::text', tpv));
+  n := n + 1; failed := failed || pg_temp.tc_check('a member who lost access could not stop typing, or the row went', NULL,
+    format('SELECT %L || ''|'' || count(*) FILTER (WHERE stopped) || ''/'' || count(*) FROM chat_typing WHERE channel_id = %L AND user_id = %L', r, tpv, u_ag),
+    'ok|1/1');
 
   -- ---------- F. voice plays ----------
   r := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_mark_voice_played(%L)::text', v1));
@@ -411,6 +501,16 @@ BEGIN
     format('SELECT concat_ws(''|'', meta->''forwarded''->>''message_id'', meta->''forwarded''->>''author_id'') FROM internal_messages WHERE id = %L', ff),
     fv || '|' || u_own);
   copies := copies || fv || ff;
+  -- own forwards ag's thread reply into a DM with x: x's bell and a
+  -- queued push name the copy, and neither belongs to ag.
+  dmx := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_open_dm(%L, %L::uuid[])::text', a, ARRAY[u_x]));
+  r := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_forward_message(%L, %L)::text', r1, dmx));
+  IF r ~ uuid_re THEN fx := r::uuid; copies := copies || fx; END IF;
+  INSERT INTO push_outbox (user_id, account_id, kind, title, url, channel_id, source_user_id, message_id)
+  VALUES (u_x, a, 'chat_message', 'TC2', '/chat', dmx, u_own, fx);
+  n := n + 1; failed := failed || pg_temp.tc_check('the copy-bell fixture has no bell or push of the copy for x', NULL,
+    format('SELECT ((SELECT count(*) FROM chat_notifications WHERE message_id = %L AND user_id = %L) > 0'
+      || ' AND (SELECT count(*) FROM push_outbox WHERE message_id = %L AND user_id = %L) > 0)::text', fx, u_x, fx, u_x), 'true');
   ov := pg_temp.tc_try('authenticated', u_own, format(post, ch, 'own voice', NULL,
           format(att, to_json(pg_temp.tc_up(a, ch, 'own.ogg')), 'own.ogg', 'audio/ogg', ',"kind":"voice","duration_ms":800'), NULL));
   r := pg_temp.tc_try('authenticated', u_ag, format('SELECT public.chat_mark_voice_played(%L)::text', ov));
@@ -440,6 +540,10 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('the audit row does not count the forwarded copies', NULL,
     format('SELECT detail->>''forwarded_copies'' FROM chat_audit_log WHERE account_id = %L AND action = ''erase_person'' AND detail->>''user_id'' = %L', a, u_ag),
     cardinality(copies)::text);
+  n := n + 1; failed := failed || pg_temp.tc_check('a chat_notifications row of a forwarded copy survived the erasure', NULL,
+    format('SELECT count(*)::text FROM chat_notifications WHERE message_id = %L', fx), '0');
+  n := n + 1; failed := failed || pg_temp.tc_check('a push_outbox row of a forwarded copy survived the erasure', NULL,
+    format('SELECT count(*)::text FROM push_outbox WHERE message_id = %L', fx), '0');
 
   -- ---------- privileges ----------
   n := n + 1; failed := failed || pg_temp.tc_check('the new tables are writable or readable beyond authenticated SELECT', NULL,

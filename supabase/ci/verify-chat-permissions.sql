@@ -365,6 +365,14 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('agent storage write (send_voice only)', u_ag, format(upl, 'chat-files', pre || gen_random_uuid() || '-c.ogg', u_ag, 'ins'), 'ins');
   n := n + 1; failed := failed || pg_temp.tc_check('agent posts a file (upload_files denied)', u_ag, format(postf, ch, 'file', pg_temp.tc_att(pg_temp.tc_up(pre, 'c.pdf'), 'file')), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('agent posts a voice note (send_voice allowed)', u_ag, format(postf, ch, 'voice', pg_temp.tc_att(pg_temp.tc_up(pre, 'c.ogg'), 'voice')), uuidp);
+  -- a forward is no way round upload_files: it carries only copies of the source's files
+  n := n + 1; failed := failed || pg_temp.tc_check('agent forwards an arbitrary upload (upload_files denied)', u_ag,
+    format('SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text', m_pf, ch,
+      jsonb_build_array(jsonb_build_object('storage_path', pg_temp.tc_up(pre, 'e.pdf'), 'name', 'e.pdf',
+        'mime', 'application/pdf', 'bytes', 10))::text),
+    'ERROR 22023:%copies of the source message%');
+  n := n + 1; failed := failed || pg_temp.tc_check('agent forwards a copy of the source''s file (upload_files denied)', u_ag,
+    format('SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text', m_pf, ch, pg_temp.tc_att(pg_temp.tc_up(pre, 'd.pdf'), 'file')), uuidp);
   r := pg_temp.tc_try('authenticated', u_own, format(setp, a, '[]'));
   SELECT count(*) INTO cnt FROM chat_role_permissions WHERE account_id = a;
   n := n + 1; failed := failed || pg_temp.tc_ok(cnt = 0, 'matrix not cleared (' || r || ')');
