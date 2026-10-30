@@ -92,6 +92,26 @@ describe('inline formatting', () => {
     ]);
   });
 
+  it('never closes on a marker inside an atom right after the opener', () => {
+    // The closer scan starts at opener + 2, inside an atom at opener + 1.
+    expect(inl('*`a*`*')).toEqual([
+      { type: 'bold', children: [{ type: 'code', text: 'a*' }] },
+    ]);
+    expect(inl('_`a_`_')).toEqual([
+      { type: 'italic', children: [{ type: 'code', text: 'a_' }] },
+    ]);
+    expect(inl('*https://a.io/a*.b*')).toEqual([
+      { type: 'bold', children: [{ type: 'link', href: 'https://a.io/a*.b' }] },
+    ]);
+    // A mention holds no marker, so it only pins that the atom survives.
+    expect(inl(`*<@${SARA}>*`)).toEqual([
+      {
+        type: 'bold',
+        children: [{ type: 'mention', userId: SARA, name: 'Sara Ahmed' }],
+      },
+    ]);
+  });
+
   it('formats Arabic text', () => {
     expect(inl('*مرحبا* بك')).toEqual([
       { type: 'bold', children: [txt('مرحبا')] },

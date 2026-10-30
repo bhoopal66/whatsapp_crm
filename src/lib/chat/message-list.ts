@@ -104,7 +104,10 @@ const replaceAt = <T>(list: readonly T[], i: number, item: T): T[] => {
 };
 
 /** A fresh row merged over what the list holds: row fields from `next`, details kept unless `next` brings its own. */
-function mergeMessage(prev: ChatMessage, next: ChatMessage): ChatMessage {
+export function mergeMessage(
+  prev: ChatMessage,
+  next: ChatMessage
+): ChatMessage {
   if (next.deletedAt)
     return { ...next, attachments: [], reactions: [], thread: prev.thread };
   return {

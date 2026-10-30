@@ -6,6 +6,8 @@ import {
   QuoteStore,
   quoteIds,
   quotePreview,
+  quoteRetryDelay,
+  replyTargetAfterEvent,
 } from '../quotes';
 import type { ChatAttachment, ChatMessage } from '../types';
 import { AVATAR_TINTS, QUOTE_TINTS, avatarTint, quoteTint } from '../view';
@@ -173,6 +175,133 @@ describe('QuoteStore', () => {
     expect(store.get('a')).toBeUndefined();
     expect(await store.request(['a'])).toBe(true);
     expect(store.get('a')?.id).toBe('a');
+  });
+});
+
+describe('quote retries', () => {
+  it('waits 1 s, 3 s, 9 s, then gives up', () => {
+    expect([1, 2, 3, 4, 5].map(quoteRetryDelay)).toEqual([
+      1000,
+      3000,
+      9000,
+      null,
+      null,
+    ]);
+  });
+  it('a store retries a failing id three times, then shows it unavailable', async () => {
+    const fetch = vi
+      .fn<(ids: string[]) => Promise<ChatMessage[]>>()
+      .mockRejectedValue(new Error('offline'));
+    const store = new QuoteStore(fetch);
+    const waits: (number | null)[] = [];
+    for (let i = 0; i < 3; i++) {
+      expect(await store.request(['a'])).toBe(false);
+      expect(store.get('a')).toBeUndefined();
+      waits.push(store.retryDelay(['a']));
+    }
+    expect(waits).toEqual([1000, 3000, 9000]);
+    expect(await store.request(['a'])).toBe(true);
+    expect(store.get('a')).toBeNull();
+    expect(store.retryDelay(['a'])).toBeNull();
+    expect(await store.request(['a'])).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+  it('a success resets the count', async () => {
+    const fetch = vi
+      .fn<(ids: string[]) => Promise<ChatMessage[]>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([msg({ id: 'a' })]);
+    const store = new QuoteStore(fetch);
+    await store.request(['a']);
+    expect(store.retryDelay(['a'])).toBe(1000);
+    expect(await store.request(['a'])).toBe(true);
+    expect(store.retryDelay(['a'])).toBeNull();
+  });
+});
+
+describe('QuoteStore events', () => {
+  const read = async () => {
+    const fetch = vi.fn(async (ids: string[]) =>
+      ids.map((id) =>
+        msg({ id, body: 'original', attachments: [att({ messageId: id })] })
+      )
+    );
+    const store = new QuoteStore(fetch);
+    await store.request(['a']);
+    return { store, fetch };
+  };
+
+  it('patch: an edit shows, attachments kept from the read', async () => {
+    const { store } = await read();
+    expect(store.patch(msg({ id: 'a', body: 'edited', editedAt: 'x' }))).toBe(
+      true
+    );
+    expect(store.get('a')?.body).toBe('edited');
+    expect(store.get('a')?.attachments).toHaveLength(1);
+  });
+  it('patch: a removal and an erasure show', async () => {
+    const { store } = await read();
+    store.patch(msg({ id: 'a', deletedAt: 'x', deletedBy: ANA }));
+    expect(quotePreview(store.get('a') ?? null, people).kind).toBe('deleted');
+    store.patch(msg({ id: 'a', body: '[erased]', erasedAt: 'x' }));
+    expect(quotePreview(store.get('a') ?? null, people).kind).toBe('erased');
+  });
+  it('patch: a message never read is ignored', async () => {
+    const { store } = await read();
+    expect(store.patch(msg({ id: 'other' }))).toBe(false);
+    expect(store.get('other')).toBeUndefined();
+  });
+  it('invalidate: a deleted row is read again', async () => {
+    const { store, fetch } = await read();
+    expect(store.invalidate('a')).toBe(true);
+    expect(store.get('a')).toBeUndefined();
+    expect(store.unasked(['a'])).toEqual(['a']);
+    fetch.mockResolvedValueOnce([]);
+    expect(await store.request(['a'])).toBe(true);
+    expect(store.get('a')).toBeNull();
+    expect(store.invalidate('never-asked')).toBe(false);
+  });
+  it('a change while the read is in flight discards its stale answer', async () => {
+    let release: (rows: ChatMessage[]) => void = () => {};
+    const fetch = vi.fn(() => new Promise<ChatMessage[]>((r) => (release = r)));
+    const store = new QuoteStore(fetch);
+    const first = store.request(['a']);
+    expect(store.patch(msg({ id: 'a', deletedAt: 'x' }))).toBe(false);
+    release([msg({ id: 'a', body: 'original' })]);
+    expect(await first).toBe(true);
+    expect(store.get('a')).toBeUndefined();
+    expect(store.unasked(['a'])).toEqual(['a']);
+  });
+});
+
+describe('replyTargetAfterEvent', () => {
+  const held = msg({ id: 'a', attachments: [att({ messageId: 'a' })] });
+  it('takes an edit, a removal and an erasure of the held message', () => {
+    const edited = replyTargetAfterEvent(held, {
+      type: 'update',
+      message: msg({ id: 'a', body: 'edited', editedAt: 'x' }),
+    });
+    expect(edited?.body).toBe('edited');
+    expect(edited?.attachments).toHaveLength(1);
+    const removed = replyTargetAfterEvent(held, {
+      type: 'update',
+      message: msg({ id: 'a', deletedAt: 'x' }),
+    });
+    expect(quotePreview(removed, people).kind).toBe('deleted');
+    const erased = replyTargetAfterEvent(held, {
+      type: 'update',
+      message: msg({ id: 'a', erasedAt: 'x' }),
+    });
+    expect(quotePreview(erased, people).kind).toBe('erased');
+  });
+  it('drops a hard-deleted target', () => {
+    expect(replyTargetAfterEvent(held, { type: 'delete', id: 'a' })).toBeNull();
+  });
+  it('is the same object for other messages and no target', () => {
+    const other = { type: 'update', message: msg({ id: 'b' }) } as const;
+    expect(replyTargetAfterEvent(held, other)).toBe(held);
+    expect(replyTargetAfterEvent(held, { type: 'delete', id: 'b' })).toBe(held);
+    expect(replyTargetAfterEvent(null, other)).toBeNull();
   });
 });
 

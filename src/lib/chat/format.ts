@@ -163,6 +163,11 @@ export function parseInline(line: string, people: People): Inline[] {
     if (t < to) out.push({ type: 'text', text: line.slice(t, to) });
     return out;
   };
+  // The closer is looked for from the opener + 2, which is inside an atom
+  // that starts right after the opener (*`a*`*): a marker an atom covers
+  // is never a closer.
+  const covered = new Uint8Array(line.length);
+  for (const a of atoms) covered.fill(1, a.start, a.end);
   const findClose = (c: string, from: number, to: number): number => {
     for (let k = from; k < to;) {
       const a = atomAt.get(k);
@@ -170,7 +175,7 @@ export function parseInline(line: string, people: People): Inline[] {
         k = a.end;
         continue;
       }
-      if (line[k] === c && closeOk(line, k)) return k;
+      if (line[k] === c && !covered[k] && closeOk(line, k)) return k;
       k++;
     }
     return -1;

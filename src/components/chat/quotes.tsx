@@ -1,6 +1,13 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { messagesByIds, type ChatMessage } from '@/lib/chat';
 import { QuoteStore, quoteIds } from '@/lib/chat/quotes';
@@ -28,19 +35,38 @@ export function useQuoteLookup(): QuoteLookup {
 /**
  * Resolves a timeline's quotes: from its loaded messages first, else
  * one debounced batch read (messagesByIds) of the missing ids, cached
- * for the channel, each id asked at most once.
+ * for the channel and kept current from the workspace's message events.
+ * A failed read is retried after QUOTE_RETRY_DELAYS_MS, then shown as
+ * unavailable rather than loading for good.
  */
 export function useQuoteResolver(
   channelId: string,
   messages: readonly ChatMessage[]
 ): (id: string) => ChatMessage | null | undefined {
-  const { sb } = useChatWorkspaceContext();
+  const { sb, listen } = useChatWorkspaceContext();
   // A new store per channel: the cache is the channel's.
   const store = useMemo(
     () => (channelId ? new QuoteStore((ids) => messagesByIds(sb, ids)) : null),
     [sb, channelId]
   );
+  // Bumped when the store answers differently or a read is due again.
   const [version, setVersion] = useState(0);
+  const retry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(retry.current), [store]);
+
+  // The workspace's one subscription: an edit, removal or erasure of a
+  // quoted message shows in every quote of it.
+  useEffect(() => {
+    if (!store) return;
+    return listen((e) => {
+      if (e.kind !== 'message') return;
+      const changed =
+        e.event.type === 'delete'
+          ? store.invalidate(e.event.id)
+          : store.patch(e.event.message);
+      if (changed) setVersion((v) => v + 1);
+    });
+  }, [listen, store]);
 
   useEffect(() => {
     if (!store) return;
@@ -51,10 +77,14 @@ export function useQuoteResolver(
     const timer = setTimeout(() => {
       void store.request(missing).then((learned) => {
         if (learned) setVersion((v) => v + 1);
+        const wait = store.retryDelay(missing);
+        if (wait === null) return;
+        clearTimeout(retry.current);
+        retry.current = setTimeout(() => setVersion((v) => v + 1), wait);
       });
     }, QUOTE_FETCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [store, messages]);
+  }, [store, messages, version]);
 
   return useMemo(() => {
     const loaded = new Map(messages.map((m) => [m.id, m]));

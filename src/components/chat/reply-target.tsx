@@ -4,11 +4,15 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
 
 import type { ChatMessage } from '@/lib/chat';
+import { replyTargetAfterEvent } from '@/lib/chat/quotes';
+
+import { useChatWorkspaceContext } from './chat-context';
 
 /**
  * The message a composer is about to quote (156's `reply_to_id`). One
@@ -56,6 +60,20 @@ export function ReplyTargetProvider({
     [scope]
   );
   const clear = useCallback(() => setState({ scope, target: null }), [scope]);
+  // The held message follows the workspace's message events, so the bar
+  // shows it edited, removed or erased rather than as it was picked.
+  const { listen } = useChatWorkspaceContext();
+  useEffect(
+    () =>
+      listen((e) => {
+        if (e.kind !== 'message') return;
+        setState((s) => {
+          const target = replyTargetAfterEvent(s.target, e.event);
+          return target === s.target ? s : { ...s, target };
+        });
+      }),
+    [listen]
+  );
   const target = state.scope === scope ? state.target : null;
   const value = useMemo(
     () => ({ target, set, clear, available: true }),
