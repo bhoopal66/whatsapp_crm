@@ -191,3 +191,42 @@ export function canRestrictMember(i: {
   if (i.memberWorkspaceAdmin) return false;
   return i.viewerWorkspaceAdmin || i.memberRole !== 'admin';
 }
+
+/** The Remove-message dialog's own state: the typed reason, and a removal in flight. */
+export interface RemoveDialogState {
+  reason: string;
+  busy: boolean;
+}
+
+export type RemoveDialogEvent =
+  | { type: 'edit'; reason: string }
+  | { type: 'dismiss' }
+  | { type: 'submit' }
+  | { type: 'settled'; ok: boolean };
+
+/**
+ * One step of the Remove-message dialog. It closes, and forgets the
+ * reason, only when the removal succeeded or the person dismissed it;
+ * a refused removal keeps the dialog open with the reason as typed.
+ * While a removal is in flight nothing else is accepted, so its result
+ * always lands in an open dialog.
+ */
+export function removeDialogStep(
+  s: RemoveDialogState,
+  e: RemoveDialogEvent
+): RemoveDialogState & { close: boolean } {
+  const stay = { ...s, close: false };
+  const reset = { reason: '', busy: false, close: true };
+  switch (e.type) {
+    case 'edit':
+      return s.busy ? stay : { reason: e.reason, busy: false, close: false };
+    case 'dismiss':
+      return s.busy ? stay : reset;
+    case 'submit':
+      return s.busy || !moderationReasonValid(s.reason)
+        ? stay
+        : { reason: s.reason, busy: true, close: false };
+    case 'settled':
+      return e.ok ? reset : { reason: s.reason, busy: false, close: false };
+  }
+}

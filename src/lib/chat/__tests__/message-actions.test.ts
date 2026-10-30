@@ -149,6 +149,28 @@ describe('messageActions and chat permissions (157)', () => {
     const system = msg({ authorKind: 'system', authorId: null });
     expect(messageActions(system, { ...who, permissions }).forward).toBe(false);
   });
+  it('forwarding files also needs upload_files or send_voice; text does not', () => {
+    const withFile = msg({ attachments: [{ id: 'f' } as never] });
+    const noStorage = denied('upload_files', 'send_voice');
+    expect(
+      messageActions(withFile, { ...who, permissions: noStorage }).forward
+    ).toBe(false);
+    expect(
+      messageActions(msg(), { ...who, permissions: noStorage }).forward
+    ).toBe(true);
+    for (const permissions of [denied('upload_files'), denied('send_voice')])
+      expect(messageActions(withFile, { ...who, permissions }).forward).toBe(
+        true
+      );
+    const sysFile = msg({
+      authorKind: 'system',
+      authorId: null,
+      attachments: [{ id: 'f' } as never],
+    });
+    expect(
+      messageActions(sysFile, { ...who, permissions: noStorage }).forward
+    ).toBe(false);
+  });
   it('edit needs edit_own; own delete needs delete_own', () => {
     expect(
       messageActions(msg(), { ...who, permissions: denied('edit_own') })

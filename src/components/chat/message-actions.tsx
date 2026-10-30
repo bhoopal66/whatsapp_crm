@@ -77,6 +77,9 @@ import {
   MODERATION_REASON_MAX,
   moderationReasonValid,
   reasonLength,
+  removeDialogStep,
+  type RemoveDialogEvent,
+  type RemoveDialogState,
 } from '@/lib/chat/moderation';
 import { cn } from '@/lib/utils';
 import { useChatPermissions } from '@/hooks/use-chat-permissions';
@@ -132,11 +135,28 @@ export function useMessageEdits(message: ChatMessage) {
         editMessage(sb, { messageId: message.id, body })
       );
     },
-    /** `reason` is required (160) when removing someone else's message. */
-    remove: (reason?: string) =>
-      void run(localPatch(message, { deletedAt: now() }), () =>
-        deleteMessageAndFiles(message.id, undefined, reason)
-      ),
+    /**
+     * `reason` is required (160) when removing someone else's message.
+     * That removal is shown only once it succeeded: the dialog waits on
+     * the result (true = removed), and an optimistic tombstone would
+     * unmount it and lose the typed reason if the removal were refused.
+     */
+    remove: async (reason?: string): Promise<boolean> => {
+      if (reason === undefined) {
+        void run(localPatch(message, { deletedAt: now() }), () =>
+          deleteMessageAndFiles(message.id)
+        );
+        return true;
+      }
+      try {
+        await deleteMessageAndFiles(message.id, undefined, reason);
+      } catch (err) {
+        fail(err);
+        return false;
+      }
+      setPatch(localPatch(message, { deletedAt: now() }));
+      return true;
+    },
   };
 }
 
@@ -293,17 +313,42 @@ function RemoveMessageDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRemove: (reason: string) => void;
+  /** Resolves true once removed; false keeps the dialog and the reason. */
+  onRemove: (reason: string) => Promise<boolean>;
 }) {
   const t = useTranslations('Chat');
-  const [reason, setReason] = useState('');
+  const [state, setState] = useState<RemoveDialogState>({
+    reason: '',
+    busy: false,
+  });
+  // The latest state, so a result that lands later steps from it.
+  const current = useRef(state);
+  const step = (e: RemoveDialogEvent) => {
+    const { close, ...next } = removeDialogStep(current.current, e);
+    current.current = next;
+    setState(next);
+    if (close) onOpenChange(false);
+    return next;
+  };
+  const { reason, busy } = state;
   const valid = moderationReasonValid(reason);
-  const close = (next: boolean) => {
-    if (!next) setReason('');
-    onOpenChange(next);
+  const submit = async () => {
+    if (!step({ type: 'submit' }).busy) return;
+    let ok = false;
+    try {
+      ok = await onRemove(reason.trim());
+    } finally {
+      step({ type: 'settled', ok });
+    }
   };
   return (
-    <Dialog open={open} onOpenChange={close}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) step({ type: 'dismiss' });
+        else onOpenChange(true);
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('moderation.removeTitle')}</DialogTitle>
@@ -316,7 +361,8 @@ function RemoveMessageDialog({
           <Textarea
             id="chat-remove-reason"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e) => step({ type: 'edit', reason: e.target.value })}
+            disabled={busy}
             placeholder={t('moderation.reasonPlaceholder')}
             rows={3}
             autoFocus
@@ -336,19 +382,21 @@ function RemoveMessageDialog({
           </p>
         </div>
         <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => close(false)}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => step({ type: 'dismiss' })}
+          >
             {t('actions.editCancel')}
           </Button>
           <Button
             type="button"
             variant="destructive"
-            disabled={!valid}
-            onClick={() => {
-              const r = reason.trim();
-              close(false);
-              onRemove(r);
-            }}
+            disabled={!valid || busy}
+            onClick={() => void submit()}
           >
+            {busy && <Loader2 className="animate-spin" aria-hidden />}
             {t('moderation.removeConfirm')}
           </Button>
         </DialogFooter>
@@ -445,8 +493,11 @@ export function MessageActions({
   onToggleReaction: (messageId: string, emoji: string) => void;
   onOpenThread?: (rootId: string) => void;
   onEdit: () => void;
-  /** With a reason when it removes someone else's message (moderation). */
-  onDelete: (reason?: string) => void;
+  /**
+   * With a reason when it removes someone else's message (moderation);
+   * resolves true once that removal succeeded.
+   */
+  onDelete: (reason?: string) => Promise<boolean>;
   /** The message row: right-click there offers the same actions. */
   rowRef?: RefObject<HTMLDivElement | null>;
   /** The message carries a shared customer or call card (not forwarded). */
@@ -872,7 +923,7 @@ export function MessageActions({
         destructive
         onConfirm={() => {
           setConfirming(false);
-          onDelete();
+          void onDelete();
         }}
       />
       {can.moderate && (

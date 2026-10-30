@@ -60,6 +60,7 @@ export function messageActions(
     | 'erasedAt'
     | 'threadRootId'
     | 'createdAt'
+    | 'attachments'
   >,
   i: {
     userId: string | null;
@@ -69,7 +70,8 @@ export function messageActions(
     canWrite: boolean;
     threads: boolean;
     /**
-     * The viewer's chat permissions (157): pin_messages, forward_messages,
+     * The viewer's chat permissions (157): pin_messages, forward_messages
+     * (with upload_files or send_voice for a message with files),
      * edit_own, delete_own and the edit/delete windows. Moderation is
      * not affected.
      */
@@ -85,6 +87,13 @@ export function messageActions(
   const inWindow = (minutes: number | null) =>
     !p.windowsApply || windowOpen(m.createdAt, minutes, i.now);
   if (m.deletedAt || m.erasedAt) return NONE;
+  // A forward copies each file through storage first, and the storage
+  // INSERT policy (chat_storage_can_write) needs upload_files or
+  // send_voice: without either, a message with files cannot be
+  // forwarded, though text alone can.
+  const forward =
+    p.can.forward_messages &&
+    (m.attachments.length === 0 || p.can.upload_files || p.can.send_voice);
   const moderate = canModerate(m, {
     userId: i.userId,
     workspaceAdmin: i.workspaceAdmin,
@@ -95,7 +104,7 @@ export function messageActions(
       ...NONE,
       react: i.canWrite,
       quote: i.canWrite,
-      forward: p.can.forward_messages,
+      forward,
       moderate,
     };
   const own =
@@ -111,7 +120,7 @@ export function messageActions(
     save: true,
     copy: true,
     // Posts into the targets, not here: write access here is not needed.
-    forward: p.can.forward_messages,
+    forward,
   };
 }
 
