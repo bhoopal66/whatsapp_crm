@@ -86,16 +86,26 @@ import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
 import { recordReplace } from '@/lib/navigation/back-target';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import {
-  assigneesByContact,
   chatTagFilterChip,
-  chatTagsByContact,
   chunkIds,
   contactChatTagChip,
   mapWithConcurrency,
   pageOfContactIds,
   readAllPages,
-  type ChatTagIds,
 } from '@/lib/contacts/chat-tag-column';
+import {
+  buildContactListQuery,
+  CONTACT_LIST_CONVERSATION_ORDER,
+  CONTACT_LIST_QUESTION_PREFIX,
+  CONTACT_LIST_SELECT,
+  contactListQuestion,
+  contactSearchFilter,
+  toContactListRows,
+  type ContactListRow,
+  type ContactWithConversations,
+} from '@/lib/contacts/list-query';
+import { sessionCache, sessionKey } from '@/lib/session-cache';
+import { useSessionQuery } from '@/hooks/use-session-query';
 
 const PAGE_SIZE = 25;
 /** Typing pause before the search box re-queries. Every keystroke used
@@ -110,13 +120,12 @@ const FILTER_CHUNK_CONCURRENCY = 4;
 const FILTER_MATCHES_TTL_MS = 30_000;
 const NO_CHAT_TAGS: readonly string[] = [];
 
-interface ContactRow extends Contact {
-  /** The chat tag ids on the contact's conversation, kept raw so that
-   *  loading the tag DEFINITIONS (names/colours) does not re-run the
-   *  contact query — they are resolved against the tree at render. */
-  chatTags: ChatTagIds | null;
-  /** Auth user id the contact's chat is assigned to, if any. */
-  assignedTo: string | null;
+type ContactRow = ContactListRow;
+
+/** One view of the list as the session cache keeps it. */
+interface ContactListPage {
+  rows: ContactRow[];
+  total: number;
 }
 
 /**
@@ -134,7 +143,7 @@ export function ContactsPageInner({
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const locale = useLocale();
-  const { user, accountRole, profileLoading } = useAuth();
+  const { user, accountId, accountRole, profileLoading } = useAuth();
 
   // `null` = no extra narrowing, leaving RLS to decide — what the team
   // view wants, and what an admin's contact list has always done.
@@ -147,14 +156,11 @@ export function ContactsPageInner({
   // list the inbox and pipelines already cache (no extra round trip).
   const { nameOf } = useWorkspaceMembers();
 
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // What the query actually uses: `search` after the typing pause.
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [page, setPage] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
   // Chat-tag filter — contacts shown have a conversation carrying ANY
   // of these main or sub tags (OR), as in the inbox.
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
@@ -190,12 +196,6 @@ export function ContactsPageInner({
     [chatTagFilterKey]
   );
 
-  // Guards against out-of-order fetch responses: each fetchContacts run
-  // claims a sequence number and only the latest is allowed to commit its
-  // results. Without this, rapidly toggling tag filters could let a slower
-  // earlier request resolve last and render stale rows.
-  const fetchSeq = useRef(0);
-
   // The chat-tag filter's matches — every contact id (and created_at)
   // under the current search, tags and owner narrowing — so paging only
   // slices them. Keyed on those inputs; cleared after any change to the
@@ -209,173 +209,138 @@ export function ContactsPageInner({
     rows: { id: string; created_at: string }[];
   } | null>(null);
 
-  const fetchContacts = useCallback(async () => {
-    const seq = ++fetchSeq.current;
-    setLoading(true);
-    // The visible rows are about to change — drop any selection that
-    // referred to the old page/search results so the bulk bar can't
-    // act on rows the user can no longer see.
-    setSelected(new Set());
-
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const term = debouncedSearch.trim();
-    const like = term ? `%${term}%` : null;
-    const failed = () => {
-      toast.error(t('toastFailedLoad'));
-      setLoading(false);
-    };
-
-    let contactRows: Contact[];
-    let count: number;
-
-    const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
-    if (filterGroup) {
-      // Chat-tag filter active. The tags live on conversations, so:
-      // (1) the contact ids whose conversation carries a picked tag,
-      // read in pages; (2) those contacts under the same search and
-      // owner narrowing as the plain path, ≤200 ids per `.in()`;
-      // (3) the page, sorted like the plain path, read in full.
-      // (1) and (2) are cached per filter, so turning a page re-reads
-      // only (3) instead of every match (~700ms a round trip).
-      const filterKey = JSON.stringify([
-        term,
-        chatTagFilterKey,
-        personalOnlyUserId,
-      ]);
-      const cached = filterMatches.current;
-      let matchedRows =
-        cached?.key === filterKey &&
-        Date.now() - cached.at < FILTER_MATCHES_TTL_MS
-          ? cached.rows
-          : null;
-      if (!matchedRows) {
-        const conversations = await readAllPages<{ contact_id: string | null }>(
-          (rangeFrom, rangeTo) =>
-            supabase
-              .from('conversations')
-              .select('id, contact_id')
-              .or(filterGroup)
-              .order('id')
-              .range(rangeFrom, rangeTo),
-          FILTER_PAGE_SIZE
-        );
-        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-        if (conversations.error) return failed();
-        const matched = new Set<string>();
-        for (const row of conversations.data) {
-          if (row.contact_id) matched.add(row.contact_id);
-        }
-
-        const results = await mapWithConcurrency(
-          chunkIds([...matched]),
-          FILTER_CHUNK_CONCURRENCY,
-          (ids) => {
-            let query = supabase
-              .from('contacts')
-              .select('id, created_at')
-              .in('id', ids);
-            if (personalOnlyUserId)
-              query = query.eq('user_id', personalOnlyUserId);
-            if (like) {
-              query = query.or(
-                `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
-              );
-            }
-            return query;
-          }
-        );
-        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-        if (results.some((r) => r.error)) return failed();
-        matchedRows = results.flatMap(
-          (r) => (r.data ?? []) as { id: string; created_at: string }[]
-        );
-        filterMatches.current = {
-          key: filterKey,
-          at: Date.now(),
-          rows: matchedRows,
-        };
-      }
-      const { ids: pageIds, total } = pageOfContactIds(
-        matchedRows,
-        from,
-        PAGE_SIZE
+  // One cache entry per view: every filter, the search, the page and
+  // which screen (team or personal) is asking. Shown at once on a
+  // revisit and always revalidated (`lib/session-cache.ts`).
+  //
+  // Waits for the role to resolve before asking. `personalOnlyUserId`
+  // is derived from `accountRole`, which is null until the profile
+  // lands; asking before then asked the wrong question for a team
+  // leader — the unnarrowed, account-wide list, which is precisely
+  // what /team-contacts is for.
+  const listKey = profileLoading
+    ? null
+    : sessionKey(
+        accountId,
+        user?.id,
+        contactListQuestion({
+          teamView,
+          personalOnlyUserId,
+          search: debouncedSearch,
+          chatTagIds: chatTagFilterIds,
+          page,
+        })
       );
 
-      contactRows = [];
-      if (pageIds.length > 0) {
-        const { data, error } = await supabase
-          .from('contacts')
-          .select('*')
-          .in('id', pageIds);
-        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-        if (error) return failed();
-        const byId = new Map(((data ?? []) as Contact[]).map((c) => [c.id, c]));
-        contactRows = pageIds
-          .map((id) => byId.get(id))
-          .filter((c): c is Contact => !!c);
-      }
-      count = total;
-    } else {
-      // `count: 'exact'` stays: the subtitle and the pager show the
-      // precise total.
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(from, to);
+  const fetchList = useCallback(async (): Promise<ContactListPage> => {
+    const from = page * PAGE_SIZE;
+    const term = debouncedSearch.trim();
+    const searchFilter = contactSearchFilter(term);
 
-      if (personalOnlyUserId) {
-        query = query.eq('user_id', personalOnlyUserId);
-      }
-
-      if (like) {
-        query = query.or(
-          `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
-        );
-      }
-
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) return failed();
-      contactRows = (data ?? []) as Contact[];
-      count = exactCount ?? 0;
+    const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
+    if (!filterGroup) {
+      // One request: the page, its exact count (the subtitle and the
+      // pager show the precise total) and each contact's conversations
+      // for the Chat tag and Assigned to columns.
+      const { data, count, error } = await buildContactListQuery(
+        supabase.from('contacts'),
+        { personalOnlyUserId, search: term, page },
+        PAGE_SIZE
+      );
+      if (error) throw error;
+      return {
+        rows: toContactListRows((data ?? []) as ContactWithConversations[]),
+        total: count ?? 0,
+      };
     }
 
-    setTotalCount(count);
+    // Chat-tag filter active. The tags live on conversations, so:
+    // (1) the contact ids whose conversation carries a picked tag,
+    // read in pages; (2) those contacts under the same search and
+    // owner narrowing as the plain path, ≤200 ids per `.in()`;
+    // (3) the page, sorted like the plain path, read in full with its
+    // conversations embedded.
+    // (1) and (2) are cached per filter, so turning a page re-reads
+    // only (3) instead of every match (~700ms a round trip).
+    const filterKey = JSON.stringify([
+      term,
+      chatTagFilterKey,
+      personalOnlyUserId,
+    ]);
+    const cached = filterMatches.current;
+    let matchedRows =
+      cached?.key === filterKey &&
+      Date.now() - cached.at < FILTER_MATCHES_TTL_MS
+        ? cached.rows
+        : null;
+    if (!matchedRows) {
+      const conversations = await readAllPages<{ contact_id: string | null }>(
+        (rangeFrom, rangeTo) =>
+          supabase
+            .from('conversations')
+            .select('id, contact_id')
+            .or(filterGroup)
+            .order('id')
+            .range(rangeFrom, rangeTo),
+        FILTER_PAGE_SIZE
+      );
+      if (conversations.error) throw conversations.error;
+      const matched = new Set<string>();
+      for (const row of conversations.data) {
+        if (row.contact_id) matched.add(row.contact_id);
+      }
 
-    if (contactRows.length === 0) {
-      setContacts([]);
-      setLoading(false);
-      return;
+      const results = await mapWithConcurrency(
+        chunkIds([...matched]),
+        FILTER_CHUNK_CONCURRENCY,
+        (ids) => {
+          let query = supabase
+            .from('contacts')
+            .select('id, created_at')
+            .in('id', ids);
+          if (personalOnlyUserId)
+            query = query.eq('user_id', personalOnlyUserId);
+          if (searchFilter) query = query.or(searchFilter);
+          return query;
+        }
+      );
+      const chunkError = results.find((r) => r.error)?.error;
+      if (chunkError) throw chunkError;
+      matchedRows = results.flatMap(
+        (r) => (r.data ?? []) as { id: string; created_at: string }[]
+      );
+      filterMatches.current = {
+        key: filterKey,
+        at: Date.now(),
+        rows: matchedRows,
+      };
     }
-
-    // The chat tag and assignee on each contact's conversation, for the
-    // columns. A failed read leaves them blank rather than the page.
-    const { data: convRows } = await supabase
-      .from('conversations')
-      .select('contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id')
-      .in(
-        'contact_id',
-        contactRows.map((c) => c.id)
-      )
-      .order('created_at', { ascending: true });
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-    const convs = (convRows ?? []) as (ChatTagIds & {
-      contact_id: string;
-      assigned_agent_id: string | null;
-    })[];
-    const tagsByContact = chatTagsByContact(convs);
-    const assignees = assigneesByContact(convs);
-
-    setContacts(
-      contactRows.map((c) => ({
-        ...c,
-        chatTags: tagsByContact.get(c.id) ?? null,
-        assignedTo: assignees.get(c.id) ?? null,
-      }))
+    const { ids: pageIds, total } = pageOfContactIds(
+      matchedRows,
+      from,
+      PAGE_SIZE
     );
-    setLoading(false);
+    if (pageIds.length === 0) return { rows: [], total };
+
+    const { data, error } = await supabase
+      .from('contacts')
+      .select(CONTACT_LIST_SELECT)
+      .in('id', pageIds)
+      .order(
+        CONTACT_LIST_CONVERSATION_ORDER.column,
+        CONTACT_LIST_CONVERSATION_ORDER.options
+      );
+    if (error) throw error;
+    const byId = new Map(
+      ((data ?? []) as unknown as ContactWithConversations[]).map((c) => [
+        c.id,
+        c,
+      ])
+    );
+    const pageRows = pageIds
+      .map((id) => byId.get(id))
+      .filter((c): c is ContactWithConversations => !!c);
+    return { rows: toContactListRows(pageRows), total };
     // The tag tree is deliberately NOT a dependency (only the filter's
     // ids are): the rows keep raw ids and `chatTagTree` resolves them at
     // render, so loading or renaming a tag re-renders without another
@@ -387,16 +352,51 @@ export function ContactsPageInner({
     chatTagFilterIds,
     chatTagFilterKey,
     personalOnlyUserId,
-    t,
   ]);
 
-  // After a create, edit, delete or import the cached filter matches may
-  // be wrong (a new contact, a changed name the search matches, a
-  // deleted row), so read them again.
-  const refreshContacts = useCallback(() => {
+  const list = useSessionQuery(listKey, fetchList);
+  const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
+  const totalCount = list.data?.total ?? 0;
+  // A spinner only while nothing is cached for this view: a revisit
+  // shows the last answer while the fresh one loads.
+  const loading = list.loading;
+  const refreshList = list.refresh;
+
+  // A failed load keeps what the view showed before (or nothing).
+  useEffect(() => {
+    if (list.error) toast.error(t('toastFailedLoad'));
+  }, [list.error, t]);
+
+  // The visible rows change with the view: drop any selection that
+  // referred to the old page/search results so the bulk bar can't act
+  // on rows the user can no longer see. Reset while rendering, keyed
+  // on the view, rather than in an effect.
+  const [selectionKey, setSelectionKey] = useState(listKey);
+  if (selectionKey !== listKey) {
+    setSelectionKey(listKey);
+    setSelected(new Set());
+  }
+
+  // After a create, edit, delete or import every cached view of the
+  // list may be wrong (a new contact, a changed name the search
+  // matches, a deleted row), and so are the cached filter matches:
+  // drop the other views and re-read this one, keeping it on screen
+  // meanwhile so the list neither blanks nor shows an edit undone
+  // once the fresh answer lands.
+  const refreshContacts = useCallback(async () => {
     filterMatches.current = null;
-    return fetchContacts();
-  }, [fetchContacts]);
+    const prefix = sessionKey(
+      accountId,
+      user?.id,
+      CONTACT_LIST_QUESTION_PREFIX
+    );
+    if (prefix) {
+      const shown = listKey ? sessionCache.peek(listKey) : undefined;
+      sessionCache.deletePrefix(prefix);
+      if (listKey && shown) sessionCache.set(listKey, shown.value);
+    }
+    await refreshList();
+  }, [accountId, user?.id, listKey, refreshList]);
 
   // A pending search debounce must not fire into an unmounted page.
   useEffect(
@@ -405,24 +405,6 @@ export function ContactsPageInner({
     },
     []
   );
-
-  // Wait for the role to resolve before asking.
-  //
-  // `personalOnlyUserId` is derived from `accountRole`, which is null
-  // until the profile lands. Fetching before then asked the wrong
-  // question for a team leader — the unnarrowed, account-wide list —
-  // and, because the value was missing from the deps above, the answer
-  // was never corrected: /contacts showed a team leader everything RLS
-  // allows, which is precisely what /team-contacts is for.
-  //
-  // Deferring one tick fixes that AND keeps it to a single request:
-  // including the id in the deps without this guard would simply fetch
-  // twice, and through the tunnel a wasted round trip is ~700ms.
-  useEffect(() => {
-    if (profileLoading) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchContacts();
-  }, [fetchContacts, profileLoading]);
 
   function openAddForm() {
     setEditContact(null);
