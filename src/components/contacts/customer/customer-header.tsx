@@ -77,6 +77,7 @@ export function CustomerHeader({
   channels,
   prediction,
   onEdit,
+  canEdit = true,
   listPath = '/contacts',
   onDeleted,
 }: {
@@ -89,6 +90,8 @@ export function CustomerHeader({
   channels: readonly AccountNumber[] | null;
   prediction: SendChannelPrediction;
   onEdit: () => void;
+  /** False until this load's own basics landed: Edit shows, disabled. */
+  canEdit?: boolean;
   /** Where delete returns to: the list this customer was opened from. */
   listPath?: string;
   /** After a delete, before leaving: drop what caches this contact. */
@@ -203,7 +206,13 @@ export function CustomerHeader({
         );
       case 'edit':
         return (
-          <Button key={a} size="sm" variant="outline" onClick={onEdit}>
+          <Button
+            key={a}
+            size="sm"
+            variant="outline"
+            onClick={onEdit}
+            disabled={!canEdit}
+          >
             <Pencil className="size-4" />
             {t('actions.edit')}
           </Button>
@@ -228,7 +237,12 @@ export function CustomerHeader({
       );
     if (a === 'edit')
       return (
-        <DropdownMenuItem key={a} className={cls} onClick={onEdit}>
+        <DropdownMenuItem
+          key={a}
+          className={cls}
+          onClick={onEdit}
+          disabled={!canEdit}
+        >
           <Pencil className="size-4" />
           {t('actions.edit')}
         </DropdownMenuItem>

@@ -47,6 +47,12 @@ export interface CustomerView {
   names: Record<string, string>;
   /** A read failed with nothing held to show instead. Never cached. */
   failed: { basics: boolean; timeline: boolean };
+  /**
+   * This load's own basics have landed. False on a cached start (the
+   * held basics may be older than the contact's row) and when the
+   * refresh failed. Never cached as true: `startView` resets it.
+   */
+  basicsRefreshed: boolean;
 }
 
 export const EMPTY_CUSTOMER_VIEW: CustomerView = {
@@ -58,6 +64,7 @@ export const EMPTY_CUSTOMER_VIEW: CustomerView = {
   summary: null,
   names: {},
   failed: { basics: false, timeline: false },
+  basicsRefreshed: false,
 };
 
 /**
@@ -67,7 +74,11 @@ export const EMPTY_CUSTOMER_VIEW: CustomerView = {
  */
 export function startView(cached: CustomerView | undefined): CustomerView {
   if (!cached) return EMPTY_CUSTOMER_VIEW;
-  return { ...cached, failed: { basics: false, timeline: false } };
+  return {
+    ...cached,
+    failed: { basics: false, timeline: false },
+    basicsRefreshed: false,
+  };
 }
 
 /** Whether a view holds anything worth keeping for a revisit. */
@@ -106,6 +117,7 @@ export function applyPart(
         ...view,
         basics: part.value,
         missing: part.value === null,
+        basicsRefreshed: true,
         failed: { ...view.failed, basics: false },
       };
     case 'timeline':
@@ -135,6 +147,27 @@ export function applyPart(
         return view.tasks ? view : { ...view, tasks: [] };
       return view;
   }
+}
+
+/**
+ * Whether a page read from `startedFrom` (the timeline whose cursors
+ * it used) may land on the held view. A fresh timeline that landed in
+ * between ends at a newer row than the cursor, so the rows between
+ * would be in neither set and never fetched.
+ */
+export function mayLandPage(
+  view: CustomerView,
+  startedFrom: CustomerTimeline
+): boolean {
+  return view.timeline === startedFrom;
+}
+
+/**
+ * Edit re-seeds its form from the held contact and saves it whole, so
+ * it opens only on this load's own basics, never the cached ones.
+ */
+export function canEditContact(view: CustomerView): boolean {
+  return view.basicsRefreshed && view.basics !== null;
 }
 
 export type SectionState = 'loading' | 'failed' | 'ready';

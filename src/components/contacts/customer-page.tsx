@@ -84,6 +84,8 @@ import {
   customerSections,
   customerViewKey,
   startView,
+  mayLandPage,
+  canEditContact,
   viewOwner,
   type CustomerPart,
   type CustomerView,
@@ -354,7 +356,12 @@ export function CustomerPage({
       if (loadGen.current !== gen) return;
       setHeld((h) => {
         const prev = h.view.timeline;
-        if (h.contactId !== contactId || !prev) return h;
+        if (
+          h.contactId !== contactId ||
+          !prev ||
+          !mayLandPage(h.view, timeline)
+        )
+          return h;
         const rows = { ...prev.rows };
         const next = { ...prev.paging };
         toPage.forEach((s, i) => {
@@ -631,6 +638,7 @@ export function CustomerPage({
           channels={channels}
           prediction={prediction}
           onEdit={() => setEditing(true)}
+          canEdit={canEditContact(view)}
           listPath={contactsListPath(fromTeam)}
           onDeleted={forgetDeleted}
         />

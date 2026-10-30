@@ -7,6 +7,8 @@ import {
   EMPTY_CUSTOMER_VIEW,
   applyPart,
   cacheAction,
+  canEditContact,
+  mayLandPage,
   customerSections,
   customerViewKey,
   startView,
@@ -177,5 +179,41 @@ describe('viewOwner and cacheAction', () => {
     const gone = applyPart(held, { kind: 'basics', value: null });
     expect(cacheAction(gone, k1, o)).toBe('drop');
     expect(cacheAction(gone, k2, o)).toBe('none');
+  });
+});
+
+describe('mayLandPage', () => {
+  const fresh = { ...timeline } as CustomerTimeline;
+  it('lets a page land on the timeline its cursor came from', () => {
+    expect(
+      mayLandPage({ ...EMPTY_CUSTOMER_VIEW, basics, timeline }, timeline)
+    ).toBe(true);
+  });
+  it('refuses a page started from the cached timeline once a fresh one landed', () => {
+    const v = applyPart(
+      startView({ ...EMPTY_CUSTOMER_VIEW, basics, timeline }),
+      { kind: 'timeline', value: fresh }
+    );
+    expect(mayLandPage(v, timeline)).toBe(false);
+    expect(mayLandPage(v, fresh)).toBe(true);
+  });
+});
+
+describe('canEditContact', () => {
+  const cached = { ...EMPTY_CUSTOMER_VIEW, basics, basicsRefreshed: true };
+  it('is off on a cached start, even if the cache said refreshed', () => {
+    expect(canEditContact(startView(cached))).toBe(false);
+  });
+  it('turns on when this load basics land', () => {
+    const v = applyPart(startView(cached), { kind: 'basics', value: basics });
+    expect(canEditContact(v)).toBe(true);
+  });
+  it('stays off when the basics refresh fails', () => {
+    const v = applyPart(startView(cached), { kind: 'failed', part: 'basics' });
+    expect(canEditContact(v)).toBe(false);
+  });
+  it('is off for a missing contact', () => {
+    const v = applyPart(startView(cached), { kind: 'basics', value: null });
+    expect(canEditContact(v)).toBe(false);
   });
 });
