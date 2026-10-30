@@ -4835,7 +4835,28 @@
       "removeBodyPrivate": "이 비공개 채널과 메시지에 대한 접근 권한이 즉시 사라집니다. 다시 들어오려면 채널의 누군가가 다시 추가해야 합니다.",
       "removeBodyTeam": "이 채널의 메시지를 더 이상 받지 않습니다. 팀 채널은 직원이 계속 읽을 수 있으며, 메시지를 올리면 다시 참여하게 됩니다.",
       "removeConfirm": "제거",
-      "removed": "{name}님이 채널에서 제거되었습니다"
+      "removed": "{name}님이 채널에서 제거되었습니다",
+      "restrict": "게시 제한…",
+      "restrictTitle": "{name}님의 게시를 제한할까요?",
+      "restrictBody": "채널은 계속 읽을 수 있지만 시간이 끝날 때까지 게시, 답글, 반응, 업로드를 할 수 없습니다. 제한과 사유는 기록됩니다.",
+      "restrictDuration": "기간",
+      "restrictFor": {
+        "h1": "1시간",
+        "h8": "8시간",
+        "d1": "1일",
+        "d3": "3일",
+        "d7": "7일",
+        "d30": "30일"
+      },
+      "restrictReasonPlaceholder": "이 사람을 제한하는 이유는 무엇인가요?",
+      "restrictConfirm": "제한",
+      "restricted": "{name}님은 {time}까지 게시할 수 없습니다",
+      "restrictedUntil": "{time}까지 제한됨",
+      "lift": "제한 해제",
+      "liftTitle": "{name}님이 다시 게시할 수 있게 할까요?",
+      "liftBody": "제한이 지금 끝납니다. 해제도 기록됩니다.",
+      "liftConfirm": "제한 해제",
+      "lifted": "{name}님이 다시 게시할 수 있습니다"
     },
     "pins": {
       "title": "고정된 메시지",

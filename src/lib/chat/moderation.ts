@@ -81,17 +81,27 @@ export const RESTRICT_DURATION_KEYS = Object.keys(
 export const restrictUntil = (d: RestrictDuration, now: number): string =>
   new Date(now + RESTRICT_DURATIONS[d]).toISOString();
 
+/**
+ * A post_blocked_until as a Date, in Postgres's text form
+ * ("2026-10-30 10:00:01+00") as well as ISO; null when unreadable.
+ */
+export function restrictionEnd(
+  postBlockedUntil: string | null | undefined
+): Date | null {
+  if (!postBlockedUntil) return null;
+  const t = Date.parse(
+    postBlockedUntil.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')
+  );
+  return Number.isFinite(t) ? new Date(t) : null;
+}
+
 /** The time a block ends while it is still in force, else null. */
 export function activeRestriction(
   postBlockedUntil: string | null | undefined,
   now: number
 ): string | null {
-  if (!postBlockedUntil) return null;
-  // Postgres text form ("2026-10-30 10:00:01+00") as well as ISO.
-  const t = Date.parse(
-    postBlockedUntil.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')
-  );
-  return Number.isFinite(t) && t > now ? postBlockedUntil : null;
+  const end = restrictionEnd(postBlockedUntil);
+  return end && end.getTime() > now ? (postBlockedUntil as string) : null;
 }
 
 /**

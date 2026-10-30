@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import {
   ArrowLeft,
+  Ban,
   Check,
+  Clock,
   LogOut,
   MoreHorizontal,
   ShieldCheck,
@@ -25,11 +27,14 @@ import {
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
+import { canManageMembers, isAccountRole } from '@/lib/auth/roles';
 import {
   addMembers,
   channelMembers,
   leaveChannel,
   removeMember,
+  restrictMember,
   setMemberRole,
   type ChannelMember,
   type ChatPerson,
@@ -44,10 +49,19 @@ import {
   sortMembers,
   type ChannelCtx,
 } from '@/lib/chat/membership';
+import {
+  activeRestriction,
+  canRestrictMember,
+  isChannelModerator,
+  restrictionEnd,
+  restrictUntil,
+  type RestrictDuration,
+} from '@/lib/chat/moderation';
 import { addPickerRows, type PickRow } from '@/lib/chat/panels';
 import {
   avatarTint,
   channelAdminErrorKey,
+  chatErrorKey,
   initialOf,
   presenceDot,
   roleLabelKey,
@@ -57,7 +71,10 @@ import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { PresenceDot } from './presence-dot';
+import { RestrictMemberDialog } from './restrict-member-dialog';
 
+const RESTRICTED_CHIP =
+  'bg-warning-soft text-warning inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold';
 const GUEST_CHIP =
   'rounded-full bg-violet-100 px-1.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200';
 const ADMIN_BADGE =
@@ -105,15 +122,23 @@ export function MembersPanel({
   const t = useTranslations('Chat');
   const tRole = useTranslations('Sidebar');
   const tp = useTranslations('Presence');
+  const format = useFormatter();
   const ws = useChatWorkspaceContext();
   const { sb, fail, reloadChannels, people, peopleById, userId, channels } = ws;
   const { phonePresence } = ws;
-  const { accountRole } = useAuth();
+  const {
+    accountRole,
+    canManageMembers: viewerWorkspaceAdmin,
+    isBankGuest,
+  } = useAuth();
+  const { permissions } = useChatPermissions();
   const channel = channels?.find((c) => c.id === channelId) ?? null;
   const [members, setMembers] = useState<ChannelMember[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [removing, setRemoving] = useState<ChannelMember | null>(null);
+  const [restricting, setRestricting] = useState<ChannelMember | null>(null);
+  const [lifting, setLifting] = useState<ChannelMember | null>(null);
   // Presence dots go stale by time alone, so the clock ticks.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -182,6 +207,61 @@ export function MembersPanel({
     }
   };
 
+  const viewerChannelAdmin = channel
+    ? isChannelModerator({
+        kind: channel.kind,
+        role: myRole,
+        bankGuest: isBankGuest,
+      })
+    : false;
+  const restrictable = (m: ChannelMember) => {
+    const role = peopleById.get(m.userId.toLowerCase())?.role;
+    return (
+      !!channel &&
+      canRestrictMember({
+        kind: channel.kind,
+        viewerId: userId,
+        viewerWorkspaceAdmin,
+        viewerChannelAdmin,
+        memberId: m.userId,
+        memberRole: m.role,
+        memberWorkspaceAdmin: isAccountRole(role) && canManageMembers(role),
+      })
+    );
+  };
+  const timeOf = (until: string) => {
+    const end = restrictionEnd(until);
+    return end
+      ? format.dateTime(end, { dateStyle: 'medium', timeStyle: 'short' })
+      : until;
+  };
+
+  // 160: a posting timeout, or (until null) lifting one.
+  const restrict = async (
+    m: ChannelMember,
+    pick: { duration: RestrictDuration; reason: string } | null
+  ) => {
+    setLifting(null);
+    const name = nameOf(m.userId);
+    try {
+      const until = pick ? restrictUntil(pick.duration, Date.now()) : null;
+      await restrictMember(sb, {
+        channelId,
+        userId: m.userId,
+        until,
+        reason: pick?.reason,
+      });
+      toast.success(
+        until
+          ? t('members.restricted', { name, time: timeOf(until) })
+          : t('members.lifted', { name })
+      );
+      void reloadChannels();
+    } catch (err) {
+      toast.error(t(`errors.${chatErrorKey(err)}`));
+    }
+  };
+
   const remove = async (m: ChannelMember) => {
     setRemoving(null);
     try {
@@ -210,6 +290,8 @@ export function MembersPanel({
         : 'notMember';
     const removable =
       !!ctx && canRemoveMember(m, { ...ctx, ...roster, userId: me });
+    const canRestrict = restrictable(m);
+    const blockedUntil = activeRestriction(m.postBlockedUntil, now);
     const name = person?.fullName ?? t('unknownPerson');
     return (
       <li key={m.userId} className="flex items-center gap-3 px-4 py-2">
@@ -236,9 +318,15 @@ export function MembersPanel({
           <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
             {guest && <span className={GUEST_CHIP}>{t('members.guest')}</span>}
             {guest ? person?.bankCode : roleKey ? tRole(roleKey) : null}
+            {blockedUntil && (
+              <span className={RESTRICTED_CHIP}>
+                <Clock className="size-3" aria-hidden />
+                {t('members.restrictedUntil', { time: timeOf(blockedUntil) })}
+              </span>
+            )}
           </p>
         </div>
-        {(change || removable || leaveWhy !== 'notMember') && (
+        {(change || removable || canRestrict || leaveWhy !== 'notMember') && (
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label={t('members.menu', { name })}
@@ -270,6 +358,18 @@ export function MembersPanel({
                       </span>
                     )}
                   </span>
+                </DropdownMenuItem>
+              )}
+              {canRestrict && (
+                <DropdownMenuItem onClick={() => setRestricting(m)}>
+                  <Ban aria-hidden />
+                  <span>{t('members.restrict')}</span>
+                </DropdownMenuItem>
+              )}
+              {canRestrict && blockedUntil && (
+                <DropdownMenuItem onClick={() => setLifting(m)}>
+                  <Check aria-hidden />
+                  <span>{t('members.lift')}</span>
                 </DropdownMenuItem>
               )}
               {removable && (
@@ -340,7 +440,7 @@ export function MembersPanel({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto py-2">
-          {rules && !rules.block && (
+          {rules && !rules.block && permissions.can.add_members && (
             <button
               type="button"
               onClick={() => setAdding(true)}
@@ -386,6 +486,27 @@ export function MembersPanel({
         confirmLabel={t('members.removeConfirm')}
         onConfirm={() => removing && void remove(removing)}
         destructive
+      />
+      <RestrictMemberDialog
+        name={restricting ? nameOf(restricting.userId) : ''}
+        open={restricting !== null}
+        onOpenChange={(open) => !open && setRestricting(null)}
+        onRestrict={(duration, reason) => {
+          const m = restricting;
+          setRestricting(null);
+          if (m) void restrict(m, { duration, reason });
+        }}
+      />
+      <ConfirmDialog
+        open={lifting !== null}
+        onOpenChange={(open) => !open && setLifting(null)}
+        title={t('members.liftTitle', {
+          name: lifting ? nameOf(lifting.userId) : '',
+        })}
+        description={t('members.liftBody')}
+        cancelLabel={t('members.cancel')}
+        confirmLabel={t('members.liftConfirm')}
+        onConfirm={() => lifting && void restrict(lifting, null)}
       />
     </aside>
   );

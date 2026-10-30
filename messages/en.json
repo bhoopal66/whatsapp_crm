@@ -4835,7 +4835,28 @@
       "removeBodyPrivate": "They lose access to this private channel and its messages at once. To come back, someone in it has to add them again.",
       "removeBodyTeam": "They stop getting this channel's messages. Staff can still read a team channel, and they rejoin it by posting.",
       "removeConfirm": "Remove",
-      "removed": "{name} was removed from the channel"
+      "removed": "{name} was removed from the channel",
+      "restrict": "Restrict posting…",
+      "restrictTitle": "Restrict {name} from posting?",
+      "restrictBody": "They can still read the channel but cannot post, reply, react or upload until the time runs out. The restriction and your reason are logged.",
+      "restrictDuration": "For",
+      "restrictFor": {
+        "h1": "1 hour",
+        "h8": "8 hours",
+        "d1": "1 day",
+        "d3": "3 days",
+        "d7": "7 days",
+        "d30": "30 days"
+      },
+      "restrictReasonPlaceholder": "Why is this person being restricted?",
+      "restrictConfirm": "Restrict",
+      "restricted": "{name} can't post until {time}",
+      "restrictedUntil": "Restricted until {time}",
+      "lift": "Lift restriction",
+      "liftTitle": "Let {name} post again?",
+      "liftBody": "The restriction ends now. Lifting it is logged.",
+      "liftConfirm": "Lift restriction",
+      "lifted": "{name} can post again"
     },
     "pins": {
       "title": "Pinned messages",

@@ -8,8 +8,22 @@ import {
   moderationReasonValid,
   removedByModerator,
   RESTRICT_DURATION_KEYS,
+  restrictionEnd,
   restrictUntil,
 } from '../moderation';
+
+describe('restrictionEnd', () => {
+  it('reads the Postgres text form and ISO, else null', () => {
+    expect(restrictionEnd('2026-10-30 10:00:01+00')?.toISOString()).toBe(
+      '2026-10-30T10:00:01.000Z'
+    );
+    expect(restrictionEnd('2026-10-30T12:00:00+02:00')?.toISOString()).toBe(
+      '2026-10-30T10:00:00.000Z'
+    );
+    expect(restrictionEnd('garbage')).toBeNull();
+    expect(restrictionEnd(null)).toBeNull();
+  });
+});
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const YOU = '22222222-2222-4222-8222-222222222222';
