@@ -1,14 +1,20 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import {
   AlertCircle,
+  Bold,
+  Code,
   FileText,
+  Italic,
+  List,
   Loader2,
   MessageCircle,
   Paperclip,
+  Quote,
+  Strikethrough,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -40,10 +46,14 @@ import {
   chatErrorKey,
   inboxBasePath,
 } from '@/lib/chat/view';
+import type { FormatAction } from '@/lib/chat/format';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
-import { MentionTextarea } from './mention-textarea';
+import {
+  MentionTextarea,
+  type MentionTextareaControl,
+} from './mention-textarea';
 import { useWriteBlock } from './use-write-block';
 
 export interface ComposerProps {
@@ -54,6 +64,27 @@ export interface ComposerProps {
   sharedCard?: SharedCard | null;
   onPosted?: (messageId: string) => void;
 }
+
+const FORMAT_BAR_KEY = 'chat.formatBar';
+
+const FORMAT_BUTTONS: {
+  action: FormatAction;
+  Icon: typeof Bold;
+  label: 'bold' | 'italic' | 'strike' | 'code' | 'quote' | 'bulletList';
+  shortcut?: string;
+}[] = [
+  { action: 'bold', Icon: Bold, label: 'bold', shortcut: 'Ctrl+B' },
+  { action: 'italic', Icon: Italic, label: 'italic', shortcut: 'Ctrl+I' },
+  {
+    action: 'strike',
+    Icon: Strikethrough,
+    label: 'strike',
+    shortcut: 'Ctrl+Shift+X',
+  },
+  { action: 'code', Icon: Code, label: 'code', shortcut: 'Ctrl+E' },
+  { action: 'quote', Icon: Quote, label: 'quote' },
+  { action: 'bullets', Icon: List, label: 'bulletList' },
+];
 
 function readDraft(key: string): ComposerDraft {
   try {
@@ -93,6 +124,24 @@ export function Composer({
   const [chips, setChips] = useState<FileChip[]>([]);
   const [sending, setSending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const input = useRef<MentionTextareaControl>(null);
+  const [formatBar, setFormatBar] = useState(false);
+  useEffect(() => {
+    try {
+      setFormatBar(window.localStorage.getItem(FORMAT_BAR_KEY) === '1');
+    } catch {
+      // Storage blocked: the toolbar starts closed.
+    }
+  }, []);
+  const toggleFormatBar = () => {
+    const next = !formatBar;
+    setFormatBar(next);
+    try {
+      window.localStorage.setItem(FORMAT_BAR_KEY, next ? '1' : '0');
+    } catch {
+      // Not persisted.
+    }
+  };
 
   if (!channel) return null;
 
@@ -255,6 +304,32 @@ export function Composer({
           ))}
         </ul>
       )}
+      {formatBar && (
+        <div
+          role="toolbar"
+          aria-label={t('composer.formatting')}
+          className="flex items-center gap-1"
+        >
+          {FORMAT_BUTTONS.map(({ action, Icon, label, shortcut }) => {
+            const name = t(`composer.${label}`);
+            const full = shortcut ? `${name} (${shortcut})` : name;
+            return (
+              <button
+                key={action}
+                type="button"
+                aria-label={full}
+                title={full}
+                // mousedown, not click: the textarea keeps its selection.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => input.current?.format(action)}
+                className="hover:bg-muted flex size-7 items-center justify-center rounded-md border"
+              >
+                <Icon className="size-3.5" aria-hidden />
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <button
           type="button"
@@ -265,6 +340,19 @@ export function Composer({
         >
           <Paperclip className="size-4" aria-hidden />
         </button>
+        <button
+          type="button"
+          aria-label={t('composer.formatting')}
+          title={t('composer.formatting')}
+          aria-pressed={formatBar}
+          onClick={toggleFormatBar}
+          className={cn(
+            'hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border text-sm font-semibold',
+            formatBar && 'bg-muted'
+          )}
+        >
+          Aa
+        </button>
         <input
           ref={fileInput}
           type="file"
@@ -273,6 +361,7 @@ export function Composer({
           onChange={(e) => addFiles(e.target.files)}
         />
         <MentionTextarea
+          controlRef={input}
           className="min-w-0 flex-1"
           draft={draft}
           onDraftChange={changeDraft}

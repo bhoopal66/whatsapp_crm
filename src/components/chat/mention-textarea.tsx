@@ -1,6 +1,14 @@
 'use client';
 
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import { AtSign } from 'lucide-react';
 
@@ -15,12 +23,23 @@ import {
   pickCandidate,
   wrapIndex,
 } from '@/lib/chat/composer-input';
+import {
+  applyFormat,
+  formatShortcut,
+  type FormatAction,
+} from '@/lib/chat/format';
 import { avatarTint, initialOf, roleLabelKey } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
 
 const MAX_HEIGHT_PX = 200;
+
+/** What a toolbar can ask of the input. */
+export interface MentionTextareaControl {
+  /** Applies the action to the current selection and keeps focus. */
+  format: (action: FormatAction) => void;
+}
 
 export interface MentionTextareaProps {
   draft: ComposerDraft;
@@ -35,6 +54,8 @@ export interface MentionTextareaProps {
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
+  /** Filled with the imperative handle (React 19 ref-as-prop style). */
+  controlRef?: Ref<MentionTextareaControl>;
 }
 
 /**
@@ -47,7 +68,7 @@ export function MentionTextarea(p: MentionTextareaProps) {
   const tRole = useTranslations('Sidebar');
   const { people, userId } = useChatWorkspaceContext();
   const ref = useRef<HTMLTextAreaElement>(null);
-  const pendingCaret = useRef<number | null>(null);
+  const pendingCaret = useRef<{ start: number; end: number } | null>(null);
   const listId = useId();
   const [caret, setCaret] = useState<number | null>(null);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -79,7 +100,10 @@ export function MentionTextarea(p: MentionTextareaProps) {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`;
     if (pendingCaret.current !== null) {
-      el.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      el.setSelectionRange(
+        pendingCaret.current.start,
+        pendingCaret.current.end
+      );
       pendingCaret.current = null;
     }
   }, [text]);
@@ -94,12 +118,36 @@ export function MentionTextarea(p: MentionTextareaProps) {
 
   const pick = (c: MentionCandidate) => {
     const r = pickCandidate(p.draft, caret ?? text.length, c);
-    pendingCaret.current = r.caret;
+    pendingCaret.current = { start: r.caret, end: r.caret };
     setCaret(r.caret);
     p.onDraftChange(r.draft);
   };
 
+  const format = (action: FormatAction) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = applyFormat(p.draft, el.selectionStart, el.selectionEnd, action);
+    pendingCaret.current = { start: r.selStart, end: r.selEnd };
+    setCaret(r.selEnd);
+    p.onDraftChange(r.draft);
+    // A no-op result (same text) would not re-run the layout effect.
+    if (r.draft.text === p.draft.text) {
+      el.setSelectionRange(r.selStart, r.selEnd);
+      pendingCaret.current = null;
+    }
+    el.focus();
+  };
+  useImperativeHandle(p.controlRef, () => ({ format }));
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!e.nativeEvent.isComposing && e.keyCode !== 229) {
+      const fmt = formatShortcut(e);
+      if (fmt) {
+        e.preventDefault();
+        format(fmt);
+        return;
+      }
+    }
     const action = composerKeyAction(
       {
         key: e.key,
