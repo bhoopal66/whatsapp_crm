@@ -161,8 +161,9 @@ const ACTIVE_RUN = {
   reprompt_count: 2,
 };
 
-function sendText(text: string) {
+function sendText(text: string, inboundProvider?: 'whapi' | 'meta' | 'openwa') {
   return dispatchInboundToFlows({
+    inboundProvider,
     accountId: 'acct-1',
     userId: 'u-1',
     contactId: 'ct-1',
@@ -353,6 +354,58 @@ describe('typed answers to a waiting send_buttons node', () => {
     h.available = false;
     await sendText('2');
     expectFallback();
+    expect(h.replyOption).not.toHaveBeenCalled();
+  });
+});
+
+describe('a menu sent as numbered text (OpenWA) with the switch off', () => {
+  beforeEach(() => {
+    h.meaningOn = false;
+  });
+
+  it('advances on a typed number', async () => {
+    await sendText('2', 'openwa');
+    expectAdvancedTo('c_end');
+    expect(matchEvent()).toMatchObject({
+      payload: { reply_id: 'compare', matched_by: 'number' },
+    });
+    expect(h.replyOption).not.toHaveBeenCalled();
+  });
+
+  it('advances on an Arabic-Indic digit', async () => {
+    await sendText('\u0662', 'openwa');
+    expectAdvancedTo('c_end');
+  });
+
+  it('advances on the exact title', async () => {
+    await sendText('Get a quote', 'openwa');
+    expectAdvancedTo('q_end');
+    expect(matchEvent()).toMatchObject({
+      payload: { reply_id: 'quote', matched_by: 'label' },
+    });
+  });
+
+  it('still never asks Jev for a meaning', async () => {
+    await sendText('the second one please', 'openwa');
+    expectFallback();
+    expect(h.replyOption).not.toHaveBeenCalled();
+  });
+
+  it('is unchanged on Whapi and Meta, which send real buttons', async () => {
+    await sendText('2', 'whapi');
+    expectFallback();
+    engineSendInteractiveButtons.mockClear();
+    h.state.updates.length = 0;
+    h.state.inserted.length = 0;
+    await sendText('2', 'meta');
+    expectFallback();
+  });
+});
+
+describe('a menu sent as numbered text with the switch on', () => {
+  it('behaves as before on OpenWA: number, then meaning', async () => {
+    await sendText('2', 'openwa');
+    expectAdvancedTo('c_end');
     expect(h.replyOption).not.toHaveBeenCalled();
   });
 });

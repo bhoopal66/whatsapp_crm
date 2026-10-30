@@ -39,6 +39,7 @@ import {
   engineSendMedia,
   engineSendText,
 } from './channel-send';
+import { sendsMenusAsText } from '@/lib/whatsapp/channels';
 import { decideFallback, resolveFallbackPolicy } from './fallback';
 import {
   dispatchInboundToAiReply,
@@ -1236,6 +1237,11 @@ async function handleReplyForActiveRun(
       prompt:
         flowContextForNode(currentNode, run.vars, undefined)?.promptText ?? '',
       text: message.text,
+      // OpenWA prints the options as a numbered list, so "2" must work
+      // with the Smart insights switch off.
+      menuSentAsText: input.inboundProvider
+        ? sendsMenusAsText(input.inboundProvider)
+        : false,
     });
     if (typed) {
       matched = typed.option.next_node_key;

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { renderOptionsText } from '@/lib/whatsapp/openwa-api';
+import { sendsMenusAsText } from '@/lib/whatsapp/channels';
 import {
   matchTypedReply,
   normaliseReplyText,
@@ -200,5 +202,63 @@ describe('matchTypedReply', () => {
     expect(match(BUTTONS, 'yes the second one')).toBeNull();
     expect(match(BUTTONS, '   ')).toBeNull();
     expect(match([], '1')).toBeNull();
+  });
+});
+
+describe('numbered text menus (OpenWA)', () => {
+  it('sends menus as text on OpenWA only', () => {
+    expect(sendsMenusAsText('openwa')).toBe(true);
+    expect(sendsMenusAsText('whapi')).toBe(false);
+    expect(sendsMenusAsText('meta')).toBe(false);
+  });
+
+  it('resolves each printed number to the option on that line', () => {
+    const node = {
+      node_type: 'send_list',
+      config: {
+        text: 'Pick',
+        button_label: 'Pick',
+        sections: [
+          {
+            title: 'Loans',
+            rows: [
+              { reply_id: 'a', title: 'Personal', next_node_key: 'na' },
+              {
+                reply_id: 'b',
+                title: 'Auto',
+                description: 'Car finance',
+                next_node_key: 'nb',
+              },
+            ],
+          },
+          {
+            title: 'Cards',
+            rows: [
+              { reply_id: 'c', title: 'Credit', next_node_key: 'nc' },
+              { reply_id: 'd', title: 'Prepaid', next_node_key: 'nd' },
+            ],
+          },
+        ],
+      },
+    };
+    const options = replyOptionsForNode(node)!;
+    // The same flattening sendInteractiveList applies.
+    const rendered = renderOptionsText({
+      bodyText: 'Pick',
+      options: options.map((o, i) => ({
+        title: o.title,
+        description: o.description,
+        section: i < 2 ? 'Loans' : 'Cards',
+      })),
+    });
+    const printed = rendered
+      .split('\n')
+      .map((l) => /^(\d+)\. (.+?)(?: — .*)?$/.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null);
+    expect(printed).toHaveLength(4);
+    for (const [, n, title] of printed) {
+      const m = matchTypedReply(options, n);
+      expect(m?.option.title).toBe(title);
+    }
   });
 });

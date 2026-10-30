@@ -41,6 +41,26 @@ export function isLinkedDeviceProvider(provider: WhatsAppProvider): boolean {
   return provider === 'whapi' || provider === 'openwa';
 }
 
+/**
+ * Whether a menu (`send_buttons` / `send_list`) goes out as numbered
+ * text on this provider, so the customer answers by typing. Whapi is a
+ * linked device too but sends real buttons and lists, hence this is not
+ * `isLinkedDeviceProvider`.
+ */
+export function sendsMenusAsText(provider: WhatsAppProvider): boolean {
+  switch (provider) {
+    case 'openwa':
+      return true;
+    case 'whapi':
+    case 'meta':
+      return false;
+    default: {
+      const unreachable: never = provider;
+      return unreachable;
+    }
+  }
+}
+
 const PROVIDER_LABELS: Record<WhatsAppProvider, string> = {
   whapi: 'Whapi',
   meta: 'Cloud API',

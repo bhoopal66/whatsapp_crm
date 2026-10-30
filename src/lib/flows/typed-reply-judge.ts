@@ -4,10 +4,16 @@
 // The Flows engine calls this when a run waits on a `send_buttons` /
 // `send_list` node and the customer typed text instead of tapping.
 //
-//   * Gated like meaning triggers (lib/insights/meaning.ts): Jev must be
-//     available for the account and its Smart insights
-//     `meaningTriggersEnabled` switch on. Otherwise nothing is matched,
-//     not even a label, and the flow's fallback runs exactly as before.
+//   * Where the menu went out as numbered text (`menuSentAsText`, OpenWA:
+//     no buttons exist), the deterministic label/number match runs first
+//     and ungated: the number is the only way to answer there, so it must
+//     not depend on a Smart insights switch.
+//   * Everything else is gated like meaning triggers
+//     (lib/insights/meaning.ts): Jev must be available for the account and
+//     its Smart insights `meaningTriggersEnabled` switch on. Otherwise
+//     nothing is matched, not even a label, and the flow's fallback runs
+//     exactly as before. The meaning step stays behind the gate on OpenWA
+//     too.
 //   * Label, then number (typed-reply.ts, no Jev), then meaning: one Jev
 //     request accepted only when it picks an option, not `none`, with
 //     p >= TYPED_REPLY_MIN_P.
@@ -48,15 +54,23 @@ export async function resolveTypedReply(input: {
   /** The node's body text as the customer saw it (vars interpolated). */
   prompt: string;
   text: string;
+  /**
+   * The menu was sent as numbered text (see `sendsMenusAsText`), so a
+   * typed label or number is the answer itself, not a guess.
+   */
+  menuSentAsText?: boolean;
 }): Promise<TypedReplyResolution | null> {
   try {
     const options = replyOptionsForNode(input.node);
     if (!options?.length || !input.text.trim()) return null;
+    const quick = matchTypedReply(options, input.text);
+    if (input.menuSentAsText && quick) {
+      return { option: quick.option, by: quick.by };
+    }
     if (!insightsAvailable(input.accountId)) return null;
     const settings = await getInsightSettings(input.accountId);
     if (!settings.meaningTriggersEnabled) return null;
 
-    const quick = matchTypedReply(options, input.text);
     if (quick) return { option: quick.option, by: quick.by };
 
     if (input.text.trim().length > TYPED_REPLY_MAX_JUDGED_CHARS) return null;
