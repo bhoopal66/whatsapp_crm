@@ -20,12 +20,17 @@ const step = (o: Partial<Parameters<typeof typingStep>[0]>) =>
     ...o,
   });
 
-const row = (userId: string, at: number, o: Partial<TypingRow> = {}) => ({
+const row = (
+  userId: string,
+  at: number,
+  o: Partial<TypingRow> = {}
+): TypingRow => ({
   channelId: 'c1',
   accountId: 'a1',
   userId,
   threadRootId: null,
   at: new Date(at).toISOString(),
+  stopped: false,
   ...o,
 });
 
