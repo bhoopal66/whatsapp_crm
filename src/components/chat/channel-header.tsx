@@ -7,12 +7,24 @@ import {
   BellOff,
   Hash,
   Lock,
+  Megaphone,
   MessageCircle,
   ShieldCheck,
   User,
 } from 'lucide-react';
 
 import type { ChannelWithMembership } from '@/lib/chat';
+import {
+  audienceRoleOption,
+  audienceSummary,
+  isAnnouncementChannel,
+  isRestrictedAudience,
+} from '@/lib/chat/channel-rules';
+
+import {
+  audienceSummaryText,
+  useChannelAudience,
+} from './channel-rules-dialogs';
 
 import { ChannelSettingsMenu } from './channel-settings';
 import { DmCallButton } from './dm-call-button';
@@ -28,6 +40,9 @@ export interface ChannelHeaderProps {
   onOpenPins?: () => void;
 }
 
+const BADGE =
+  'flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold';
+
 const CHIP =
   'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50';
 
@@ -42,6 +57,25 @@ export function ChannelHeader({
   const t = useTranslations('Chat.channel');
   const tSettings = useTranslations('Chat.settings');
   const tMute = useTranslations('Chat.mute');
+  const tChat = useTranslations('Chat');
+  const audience = useChannelAudience(channel);
+  // A restricted audience shows once its teams are known (a role floor
+  // alone already restricts, so it shows at once).
+  const audienceForm = {
+    role: audienceRoleOption(channel.audienceMinRole),
+    teamIds: audience.teamIds ?? [],
+  };
+  const restricted =
+    channel.kind === 'team' && isRestrictedAudience(audienceForm);
+  const audienceText = restricted
+    ? audienceSummaryText(
+        tChat,
+        audienceSummary(audienceForm, audience.teams ?? [])
+      )
+    : null;
+  const announcements =
+    (channel.kind === 'team' || channel.kind === 'private') &&
+    isAnnouncementChannel(channel);
   const kind = channel.kind;
   const Icon =
     kind === 'private'
@@ -74,6 +108,25 @@ export function ChannelHeader({
         {channel.archivedAt && (
           <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold">
             {tSettings('archivedBadge')}
+          </span>
+        )}
+        {announcements && (
+          <span
+            className={`${BADGE} bg-warning-soft text-warning`}
+            title={tChat('rules.announcementsHint')}
+          >
+            <Megaphone className="size-3" aria-hidden />
+            {tChat('rules.announcements')}
+          </span>
+        )}
+        {audienceText && (
+          <span
+            className={`${BADGE} bg-info-soft text-info`}
+            title={audienceText}
+          >
+            <Lock className="size-3" aria-hidden />
+            {tChat('rules.restricted')}
+            <span className="sr-only">{audienceText}</span>
           </span>
         )}
         {channel.membership?.muted && (

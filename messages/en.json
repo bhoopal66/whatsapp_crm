@@ -5223,6 +5223,45 @@
       "reasonPlaceholder": "Why is this message being removed?",
       "reasonCount": "{count} / {max} characters (at least 5)",
       "removeConfirm": "Remove"
+    },
+    "rules": {
+      "policyMenu": "Posting permissions…",
+      "audienceMenu": "Who can see this channel…",
+      "policyTitle": "Posting permissions",
+      "policyBody": "Channel admins include the workspace’s owners and admins. Choosing “Only channel admins” for posting makes this an announcement channel.",
+      "field": {
+        "posting": "Who can post",
+        "threadReplies": "Who can reply in threads",
+        "mentionEveryone": "Who can use @channel and @here"
+      },
+      "everyone": "Everyone",
+      "admins": "Only channel admins",
+      "policySaved": "Posting permissions updated",
+      "audienceTitle": "Who can see this channel",
+      "audienceBody": "Owners and admins always see every team channel. Everyone else needs the minimum role and, if you pick teams, to be in one of them.",
+      "minRole": "Minimum role",
+      "role": {
+        "all": "All staff",
+        "agent": "Agents and up",
+        "team_leader": "Team leaders and up",
+        "admin": "Admins only"
+      },
+      "teams": "Teams",
+      "teamsHint": "Pick none to leave it open to every team.",
+      "teamsSearch": "Search teams",
+      "noTeams": "This workspace has no teams yet.",
+      "noTeamMatch": "No team matches.",
+      "teamsFailed": "Teams couldn’t be loaded.",
+      "summaryEveryone": "Visible to all staff",
+      "summaryAdminsOnly": "Visible only to owners and admins",
+      "summaryRole": "Visible to {role, select, agent {agents and up} other {team leaders and up}}, plus owners and admins",
+      "summaryRoleTeams": "Visible to {role, select, agent {agents and up} other {team leaders and up}} in {teams}, plus owners and admins",
+      "summaryTeams": "Visible to members of {teams}, plus owners and admins",
+      "audienceSaved": "Channel audience updated",
+      "announcements": "Announcements",
+      "announcementsHint": "Only channel admins can post here",
+      "restricted": "Restricted",
+      "loading": "Loading…"
     }
   },
   "Workspaces": {

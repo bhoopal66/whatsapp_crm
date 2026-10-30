@@ -7,6 +7,8 @@ import {
   ArchiveRestore,
   Bell,
   BellOff,
+  Eye,
+  Megaphone,
   Pencil,
   Settings,
 } from 'lucide-react';
@@ -43,6 +45,7 @@ import {
   CHANNEL_TOPIC_MAX,
   normalizeChannelName,
 } from '@/lib/chat/compose';
+import { channelRuleActions } from '@/lib/chat/channel-rules';
 import {
   channelAdminErrorKey,
   channelEditInput,
@@ -52,12 +55,17 @@ import {
 } from '@/lib/chat/view';
 
 import { useChatWorkspaceContext } from './chat-context';
+import {
+  ChannelAudienceForm,
+  ChannelPolicyForm,
+} from './channel-rules-dialogs';
 import { GREEN_BUTTON } from './dm-picker';
 
 /**
  * The channel header's settings (091): the viewer's own Mute / Unmute on
  * any channel or DM they belong to (muteAction), then rename and
- * re-topic, archive and unarchive, each offered only where
+ * re-topic, posting permissions and (team channels) who can see it,
+ * archive and unarchive, each offered only where
  * channelSettingsActions allows; the database decides. A write reloads
  * the channel list here, and realtime reloads everyone else's.
  */
@@ -72,13 +80,16 @@ export function ChannelSettingsMenu({
   const ws = useChatWorkspaceContext();
   const { accountRole } = useAuth();
   const [editing, setEditing] = useState(false);
+  const [rules, setRules] = useState<'policy' | 'audience' | null>(null);
   const [confirm, setConfirm] = useState<'archive' | 'unarchive' | null>(null);
-  const can = channelSettingsActions({
+  const ctx = {
     kind: channel.kind,
     archived: !!channel.archivedAt,
     myRole: channel.membership?.role ?? null,
     accountRole,
-  });
+  };
+  const can = channelSettingsActions(ctx);
+  const canRules = channelRuleActions(ctx);
   const mute = muteAction(channel.membership);
   const manages = can.edit || can.archive || can.unarchive;
   if (!manages && !mute) return null;
@@ -131,6 +142,18 @@ export function ChannelSettingsMenu({
               {t('settings.edit')}
             </DropdownMenuItem>
           )}
+          {canRules.policy && (
+            <DropdownMenuItem onClick={() => setRules('policy')}>
+              <Megaphone aria-hidden />
+              {t('rules.policyMenu')}
+            </DropdownMenuItem>
+          )}
+          {canRules.audience && (
+            <DropdownMenuItem onClick={() => setRules('audience')}>
+              <Eye aria-hidden />
+              {t('rules.audienceMenu')}
+            </DropdownMenuItem>
+          )}
           {can.archive && (
             <DropdownMenuItem
               variant="destructive"
@@ -154,6 +177,25 @@ export function ChannelSettingsMenu({
             <EditChannelForm
               channel={channel}
               onDone={() => setEditing(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={rules !== null}
+        onOpenChange={(open) => !open && setRules(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          {rules === 'policy' && (
+            <ChannelPolicyForm
+              channel={channel}
+              onDone={() => setRules(null)}
+            />
+          )}
+          {rules === 'audience' && (
+            <ChannelAudienceForm
+              channel={channel}
+              onDone={() => setRules(null)}
             />
           )}
         </DialogContent>

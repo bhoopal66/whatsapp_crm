@@ -5223,6 +5223,45 @@
       "reasonPlaceholder": "이 메시지를 삭제하는 이유는 무엇인가요?",
       "reasonCount": "{count} / {max}자 (최소 5자)",
       "removeConfirm": "삭제"
+    },
+    "rules": {
+      "policyMenu": "게시 권한…",
+      "audienceMenu": "이 채널을 볼 수 있는 사람…",
+      "policyTitle": "게시 권한",
+      "policyBody": "채널 관리자에는 워크스페이스 소유자와 관리자가 포함됩니다. 게시를 “채널 관리자만”으로 설정하면 공지 채널이 됩니다.",
+      "field": {
+        "posting": "게시할 수 있는 사람",
+        "threadReplies": "스레드에 답글을 달 수 있는 사람",
+        "mentionEveryone": "@channel 및 @here를 사용할 수 있는 사람"
+      },
+      "everyone": "모든 사람",
+      "admins": "채널 관리자만",
+      "policySaved": "게시 권한이 업데이트되었습니다",
+      "audienceTitle": "이 채널을 볼 수 있는 사람",
+      "audienceBody": "소유자와 관리자는 항상 모든 팀 채널을 볼 수 있습니다. 그 외의 사람은 최소 역할 이상이어야 하며, 팀을 선택한 경우 그중 한 팀에 속해야 합니다.",
+      "minRole": "최소 역할",
+      "role": {
+        "all": "모든 직원",
+        "agent": "상담원 이상",
+        "team_leader": "팀 리더 이상",
+        "admin": "관리자만"
+      },
+      "teams": "팀",
+      "teamsHint": "모든 팀에 공개하려면 아무 팀도 선택하지 마세요.",
+      "teamsSearch": "팀 검색",
+      "noTeams": "이 워크스페이스에는 아직 팀이 없습니다.",
+      "noTeamMatch": "일치하는 팀이 없습니다.",
+      "teamsFailed": "팀을 불러오지 못했습니다.",
+      "summaryEveryone": "모든 직원에게 표시",
+      "summaryAdminsOnly": "소유자와 관리자에게만 표시",
+      "summaryRole": "{role, select, agent {상담원 이상} other {팀 리더 이상}}과 소유자 및 관리자에게 표시",
+      "summaryRoleTeams": "{teams} 팀의 {role, select, agent {상담원 이상} other {팀 리더 이상}}과 소유자 및 관리자에게 표시",
+      "summaryTeams": "{teams} 팀 멤버와 소유자 및 관리자에게 표시",
+      "audienceSaved": "채널 공개 범위가 업데이트되었습니다",
+      "announcements": "공지",
+      "announcementsHint": "채널 관리자만 여기에 게시할 수 있습니다",
+      "restricted": "제한됨",
+      "loading": "불러오는 중…"
     }
   },
   "Workspaces": {
