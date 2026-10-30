@@ -59,6 +59,7 @@ function ch(
     posting: 'everyone',
     threadReplies: 'everyone',
     mentionEveryone: 'everyone',
+    audienceMinRole: null,
     membership: {
       channelId: id,
       userId: ME,
@@ -66,6 +67,7 @@ function ch(
       joinedAt: '2026-10-01T00:00:00Z',
       lastReadAt: null,
       muted: false,
+      postBlockedUntil: null,
     },
     ...extra,
   };

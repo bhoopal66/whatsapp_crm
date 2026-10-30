@@ -149,6 +149,7 @@ export function applyMemberEvent(
       joinedAt: e.member.joinedAt,
       lastReadAt: e.member.lastReadAt ?? null,
       muted: e.member.muted ?? false,
+      postBlockedUntil: e.member.postBlockedUntil ?? null,
     },
   ];
 }

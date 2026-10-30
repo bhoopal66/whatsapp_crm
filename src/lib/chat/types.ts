@@ -32,6 +32,11 @@ export interface Channel {
   threadReplies: ChannelRule;
   /** 157: who may notify everyone (@channel / @here); 'everyone' when absent. */
   mentionEveryone: ChannelRule;
+  /**
+   * 159: the lowest account role a team channel is open to
+   * ('viewer' | 'agent' | 'team_leader' | 'admin'); null = all staff.
+   */
+  audienceMinRole: string | null;
 }
 
 export interface ChannelMember {
@@ -41,6 +46,8 @@ export interface ChannelMember {
   joinedAt: string;
   lastReadAt: string | null;
   muted: boolean;
+  /** 160: posting is blocked until this time (a timeout); null = not blocked. */
+  postBlockedUntil: string | null;
 }
 
 export interface ChannelWithMembership extends Channel {
@@ -118,6 +125,8 @@ export interface ChatMessage {
   editedAt: string | null;
   deletedAt: string | null;
   erasedAt: string | null;
+  /** 160: who deleted it; null when not deleted (or deleted before 160). */
+  deletedBy: string | null;
   /** 156: the message this one quotes; null when it quotes none. */
   replyToId: string | null;
   /** 156: set on a forwarded copy; null otherwise. */
@@ -289,6 +298,7 @@ export function toChannel(r: Row): Channel {
     posting: channelRule(r.posting),
     threadReplies: channelRule(r.thread_replies),
     mentionEveryone: channelRule(r.mention_everyone),
+    audienceMinRole: opt(r.audience_min_role),
   };
 }
 
@@ -300,6 +310,7 @@ export function toChannelMember(r: Row): ChannelMember {
     joinedAt: str(r.joined_at),
     lastReadAt: opt(r.last_read_at),
     muted: r.muted === true,
+    postBlockedUntil: opt(r.post_blocked_until),
   };
 }
 
@@ -330,6 +341,7 @@ export function toChatMessage(r: Row): ChatMessage {
     editedAt: opt(r.edited_at),
     deletedAt: opt(r.deleted_at),
     erasedAt: opt(r.erased_at),
+    deletedBy: opt(r.deleted_by),
     replyToId: opt(r.reply_to_id),
     forwarded: toForwarded(meta),
     attachments: [],

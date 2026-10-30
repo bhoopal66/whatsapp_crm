@@ -37,6 +37,7 @@ function msg(id: string, p: Partial<ChatMessage> = {}): ChatMessage {
     editedAt: null,
     deletedAt: null,
     erasedAt: null,
+    deletedBy: null,
     replyToId: null,
     forwarded: null,
     attachments: [],

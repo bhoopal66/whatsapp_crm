@@ -41,10 +41,16 @@ vi.mock('@/lib/supabase/urls', () => ({
 
 import { POST } from './route';
 
-const del = (id = MSG) =>
-  POST(new Request('http://localhost/x', { method: 'POST' }), {
-    params: Promise.resolve({ id }),
-  });
+const del = (id = MSG, body?: string) =>
+  POST(
+    new Request('http://localhost/x', {
+      method: 'POST',
+      ...(body === undefined
+        ? {}
+        : { headers: { 'Content-Type': 'application/json' }, body }),
+    }),
+    { params: Promise.resolve({ id }) }
+  );
 const path = (i: number) => `account-${WS}/channel-c/${i}-f.png`;
 
 beforeEach(() => {
@@ -147,5 +153,39 @@ describe('POST /api/chat/messages/[id]/delete', () => {
       filesFailed: 0,
     });
     expect(mocks.remove).not.toHaveBeenCalled();
+  });
+
+  it('passes a reason from the JSON body to the RPC', async () => {
+    const res = await del(MSG, JSON.stringify({ reason: '  spam links  ' }));
+    expect(res.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith('chat_delete_message', {
+      p_message: MSG,
+      p_reason: 'spam links',
+    });
+  });
+
+  it('works with no body and with an empty reason (own delete)', async () => {
+    await del();
+    await del(MSG, JSON.stringify({ reason: '' }));
+    await del(MSG, '{not json');
+    expect(mocks.rpc).toHaveBeenCalledTimes(3);
+    for (const call of mocks.rpc.mock.calls)
+      expect(call[1]).toEqual({ p_message: MSG });
+  });
+
+  it('answers 400 for a non-string reason, before the RPC', async () => {
+    const res = await del(MSG, JSON.stringify({ reason: 42 }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ key: 'invalid' });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('maps the database refusal for a missing reason to 400', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22023', message: 'a reason is required' },
+    });
+    const res = await del();
+    expect(res.status).toBe(400);
   });
 });

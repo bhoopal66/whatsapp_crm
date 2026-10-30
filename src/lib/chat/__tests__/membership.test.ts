@@ -32,6 +32,7 @@ const member = (userId: string, role: ChannelRole): ChannelMember => ({
   joinedAt: '2026-10-01T00:00:00Z',
   lastReadAt: null,
   muted: false,
+  postBlockedUntil: null,
 });
 
 const people = [

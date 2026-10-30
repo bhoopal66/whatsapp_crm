@@ -166,6 +166,7 @@ describe('applyMemberEvent', () => {
     joinedAt: since,
     lastReadAt,
     muted: false,
+    postBlockedUntil: null,
   });
   const list = [row('a', null), row('b', since)];
 

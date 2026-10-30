@@ -32,6 +32,9 @@ import {
   toUnreadCount,
   toWorkspaceBadge,
   type AttachmentInput,
+  type AttachmentKind,
+  type AuthorKind,
+  type ChannelKind,
   type ChannelFile,
   type ChannelMember,
   type ChannelWithMembership,
@@ -67,7 +70,7 @@ type Row = Record<string, unknown>;
 
 /** internal_messages without the generated `search` tsvector. */
 export const MESSAGE_COLUMNS =
-  'id,channel_id,account_id,thread_root_id,author_kind,author_id,body,meta,created_at,edited_at,deleted_at,erased_at,reply_to_id';
+  'id,channel_id,account_id,thread_root_id,author_kind,author_id,body,meta,created_at,edited_at,deleted_at,deleted_by,erased_at,reply_to_id';
 
 async function rpc<T>(sb: SupabaseClient, fn: string, args?: Row): Promise<T> {
   const { data, error } = await sb.rpc(fn, args);
@@ -293,10 +296,12 @@ export const editMessage = (
  */
 export const deleteMessage = async (
   sb: SupabaseClient,
-  messageId: string
+  messageId: string,
+  reason?: string
 ): Promise<string[]> =>
   (await rpc<string[] | null>(sb, 'chat_delete_message', {
     p_message: messageId,
+    ...(reason ? { p_reason: reason } : {}),
   })) ?? [];
 
 const DELETE_ERROR_BY_STATUS: Record<number, [ChatErrorCode, ChatErrorKey]> = {
@@ -309,13 +314,20 @@ const DELETE_ERROR_BY_STATUS: Record<number, [ChatErrorCode, ChatErrorKey]> = {
 /** Deletes a message and its files through the server route; throws a ChatError. */
 export async function deleteMessageAndFiles(
   messageId: string,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  reason?: string
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetchImpl(
       `/api/chat/messages/${encodeURIComponent(messageId)}/delete`,
-      { method: 'POST' }
+      reason
+        ? {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+          }
+        : { method: 'POST' }
     );
   } catch (err) {
     throw toChatError(err);
@@ -927,3 +939,149 @@ export const setSensitiveGuard = (
     p_mode: i.mode,
     p_scope: i.scope,
   });
+
+// ---------- 159 audience and 160 moderation ----------
+
+/** 159: who a team channel is open to; replaces the previous settings. */
+export const setChannelAudience = (
+  sb: SupabaseClient,
+  channelId: string,
+  i: { minRole: string | null; teamIds: string[] | null }
+): Promise<void> =>
+  rpc(sb, 'chat_set_channel_audience', {
+    p_channel: channelId,
+    p_min_role: i.minRole,
+    p_team_ids: i.teamIds && i.teamIds.length > 0 ? i.teamIds : null,
+  });
+
+/** 159: the teams a team channel is restricted to ([] = no team restriction). */
+export async function channelTeams(
+  sb: SupabaseClient,
+  channelId: string
+): Promise<string[]> {
+  return (
+    await rows(
+      sb
+        .from('chat_channel_teams')
+        .select('team_id')
+        .eq('channel_id', channelId)
+    )
+  ).map((r) => String(r.team_id));
+}
+
+/** 160: block a member from posting until `until`; null clears the block. */
+export const restrictMember = (
+  sb: SupabaseClient,
+  i: {
+    channelId: string;
+    userId: string;
+    until: string | null;
+    reason?: string;
+  }
+): Promise<void> =>
+  rpc(sb, 'chat_restrict_member', {
+    p_channel: i.channelId,
+    p_user: i.userId,
+    p_until: i.until,
+    p_reason: i.reason ?? null,
+  });
+
+export interface ChannelExportAttachment {
+  name: string;
+  mime: string;
+  bytes: number;
+  kind: AttachmentKind;
+  durationMs: number | null;
+}
+
+export interface ChannelExportMessage {
+  id: string;
+  threadRootId: string | null;
+  replyToId: string | null;
+  authorKind: AuthorKind;
+  authorId: string | null;
+  authorName: string | null;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  deletedBy: string | null;
+  erasedAt: string | null;
+  attachments: ChannelExportAttachment[];
+}
+
+export interface ChannelExport {
+  channel: {
+    id: string;
+    kind: ChannelKind;
+    name: string | null;
+    topic: string | null;
+  };
+  messages: ChannelExportMessage[];
+  /** The database stopped at its row cap; narrow the range for the rest. */
+  truncated: boolean;
+}
+
+/** Tolerant parse of chat_export_channel's jsonb. */
+export function parseChannelExport(raw: unknown): ChannelExport {
+  const o = (v: unknown): Row =>
+    v && typeof v === 'object' && !Array.isArray(v) ? (v as Row) : {};
+  const s = (v: unknown): string | null => (v == null ? null : String(v));
+  const top = o(raw);
+  const ch = o(top.channel);
+  const list = Array.isArray(top.messages) ? (top.messages as unknown[]) : [];
+  return {
+    channel: {
+      id: s(ch.id) ?? '',
+      kind: (s(ch.kind) ?? 'team') as ChannelKind,
+      name: s(ch.name),
+      topic: s(ch.topic),
+    },
+    messages: list.map((m) => {
+      const r = o(m);
+      const atts = Array.isArray(r.attachments)
+        ? (r.attachments as unknown[])
+        : [];
+      return {
+        id: s(r.id) ?? '',
+        threadRootId: s(r.thread_root_id),
+        replyToId: s(r.reply_to_id),
+        authorKind: r.author_kind === 'system' ? 'system' : 'user',
+        authorId: s(r.author_id),
+        authorName: s(r.author_name),
+        body: s(r.body) ?? '',
+        createdAt: s(r.created_at) ?? '',
+        editedAt: s(r.edited_at),
+        deletedAt: s(r.deleted_at),
+        deletedBy: s(r.deleted_by),
+        erasedAt: s(r.erased_at),
+        attachments: atts.map((a) => {
+          const x = o(a);
+          return {
+            name: s(x.name) ?? '',
+            mime: s(x.mime) ?? '',
+            bytes: Number(x.bytes ?? 0) || 0,
+            kind: x.kind === 'voice' ? 'voice' : 'file',
+            durationMs: x.duration_ms == null ? null : Number(x.duration_ms),
+          };
+        }),
+      };
+    }),
+    truncated: top.truncated === true,
+  };
+}
+
+/** 160: an owner/admin's audited export of a channel (the reason is logged). */
+export async function exportChannel(
+  sb: SupabaseClient,
+  i: { channelId: string; from?: string; to?: string; reason: string }
+): Promise<ChannelExport> {
+  return parseChannelExport(
+    await rpc<unknown>(sb, 'chat_export_channel', {
+      p_channel: i.channelId,
+      p_from: i.from ?? null,
+      p_to: i.to ?? null,
+      p_reason: i.reason,
+    })
+  );
+}

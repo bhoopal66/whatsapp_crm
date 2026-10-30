@@ -40,7 +40,7 @@ const STATUS_BY_CODE: Record<string, number> = {
 };
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -53,9 +53,23 @@ export async function POST(
     }
     const ctx = await getCurrentAccount();
 
+    // Optional JSON body { reason }: required by the database only when
+    // removing someone else's message (160). No body is fine.
+    const body = (await request.json().catch(() => null)) as {
+      reason?: unknown;
+    } | null;
+    const rawReason = body?.reason;
+    if (rawReason != null && typeof rawReason !== 'string') {
+      return NextResponse.json(
+        { error: 'reason must be text', key: 'invalid' },
+        { status: 400 }
+      );
+    }
+    const reason = rawReason?.trim() || undefined;
+
     let paths: string[];
     try {
-      paths = await deleteMessage(ctx.supabase, id);
+      paths = await deleteMessage(ctx.supabase, id, reason);
     } catch (err) {
       if (!(err instanceof ChatError)) throw err;
       const status = STATUS_BY_CODE[err.code] ?? 500;
