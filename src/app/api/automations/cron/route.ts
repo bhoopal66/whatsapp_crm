@@ -18,6 +18,7 @@ import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
+import { runStagedMediaSweep } from '@/lib/storage/staged-media-sweep'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
 import { ConfirmationGate } from '@/lib/assist/confirm'
@@ -120,6 +121,45 @@ function scheduleChatFileSweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the chat file sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Composer attachments that were uploaded to chat-media but never sent
+ * (migration 155's chat_media_staged_orphans: staged objects older than
+ * 7 days that no message, template or broadcast header references) are
+ * removed with the service role. At most once per hour per process,
+ * inside after(), at most 500 per run; failures are only logged: the
+ * next run retries whatever is left.
+ */
+const stagedMediaSweepDue = everyInterval(60 * 60_000)
+
+function scheduleStagedMediaSweep() {
+  try {
+    if (!stagedMediaSweepDue()) return
+    after(async () => {
+      try {
+        const summary = await runStagedMediaSweep(supabaseAdmin())
+        if (summary.failed.length > 0) {
+          console.error(
+            `[automations-cron] staged media sweep left ${summary.failed.length} of ${summary.found} file(s):`,
+            summary.failed,
+          )
+        } else if (summary.found > 0) {
+          console.log('[automations-cron] staged media sweep removed', summary.deleted)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] staged media sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the staged media sweep:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -604,6 +644,7 @@ export async function GET(request: Request) {
     scheduleTeamActivitySweep()
     scheduleEdgePurge()
     scheduleChatFileSweep()
+    scheduleStagedMediaSweep()
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
     scheduleSubmissionGroups()
