@@ -351,7 +351,7 @@ BEGIN
     pg_temp.tc_try('authenticated', u_tl, format(post, ch, 'tl text')), 'tl edited'), 'ok');
   n := n + 1; failed := failed || pg_temp.tc_check('agent deletes own', u_ag, format(del, m_ag), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('admin deletes own (delete_own denied)', u_adm, format(del, m_adm), 'ERROR 42501: chat: your role may not%');
-  n := n + 1; failed := failed || pg_temp.tc_check('admin deletes the agent''s message (delete_own denied)', u_adm, format(del, m_ag), '{}');
+  n := n + 1; failed := failed || pg_temp.tc_check('admin deletes the agent''s message (delete_own denied)', u_adm, format('SELECT public.chat_delete_message(%L, %L)::text', m_ag, 'moderation test'), '{}');
   -- owners are exempt
   n := n + 1; failed := failed || pg_temp.tc_check('owner @channel', u_own, format(post, ch, '@channel owner'), uuidp);
   n := n + 1; failed := failed || pg_temp.tc_check('owner creates a team channel', u_own, format(mk, a, 'team', 'TC157 own 2', '{}'), uuidp);

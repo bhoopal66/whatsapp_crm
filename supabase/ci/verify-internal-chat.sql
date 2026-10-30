@@ -267,7 +267,7 @@ BEGIN
   FOREACH uu IN ARRAY ARRAY[u_sup, u_rm, u_ag] LOOP
     PERFORM pg_temp.ck('off: others read history ' || uu, pg_temp.cnt(uu, format('public.internal_messages WHERE channel_id = %L', t)), '0');
   END LOOP;
-  PERFORM pg_temp.ck('off: admin delete', pg_temp.ic(u_adm, format('SELECT public.chat_delete_message(%L)', m1)), '{}');
+  PERFORM pg_temp.ck('off: admin delete', pg_temp.ic(u_adm, format('SELECT public.chat_delete_message(%L, %L)', m1, 'moderation test')), '{}');
   PERFORM pg_temp.ck('off: delete tombstoned', (SELECT (deleted_at IS NOT NULL)::text FROM internal_messages WHERE id = m1), 'true');
   UPDATE accounts SET internal_chat_enabled = true WHERE id = a;
 
@@ -375,7 +375,7 @@ BEGIN
   PERFORM pg_temp.ck('deleted body kept in history', (SELECT string_agg(previous_body, ',') FROM internal_message_edits WHERE message_id = m), 'quokkaplan details');
   PERFORM pg_temp.ck('edit a deleted message', pg_temp.ic(u_rm, format('SELECT public.chat_edit_message(%L, %L)', m, 'resurrect')), 'ERROR 42501:%was deleted%');
   m := pg_temp.must(pg_temp.post(u_rm, t, 'admin removes this'));
-  PERFORM pg_temp.ck('delete by admin', pg_temp.ic(u_adm, format('SELECT public.chat_delete_message(%L)', m)), '{}');
+  PERFORM pg_temp.ck('delete by admin', pg_temp.ic(u_adm, format('SELECT public.chat_delete_message(%L, %L)', m, 'moderation test')), '{}');
 
   -- ================= unread counts =================
   t := pg_temp.must(pg_temp.mk(u_own, a, 'team', 'unread', ARRAY[u_rm]));
