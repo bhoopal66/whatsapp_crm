@@ -389,6 +389,38 @@ export function mergeLatestMessages(
   return { messages: indexed.map((x) => x.m), gap: false };
 }
 
+/**
+ * Before folding in the latest page read on an opening, drop the held
+ * rows that page has the last word on and no longer contains: the chat
+ * was reassigned, a share revoked or the agent demoted (RLS answers
+ * with no rows), or a message was deleted (a realtime DELETE carries
+ * no `conversation_id`, so the cached page never hears of it).
+ *
+ * Only rows in `shownBefore` (what the opening showed from the cache)
+ * are candidates, so a realtime arrival during the read and the
+ * viewer's own `temp-` bubbles stay. A full page has the last word on
+ * rows newer than its oldest (ties at that boundary are kept); a
+ * shorter page, the empty one included, on every row.
+ */
+export function dropUnconfirmed(
+  existing: Message[],
+  latestChrono: Message[],
+  shownBefore: ReadonlySet<string>,
+  pageSize: number = MESSAGE_PAGE_SIZE
+): Message[] {
+  const fetchedIds = new Set(latestChrono.map((m) => m.id));
+  const wholeHistory = latestChrono.length < pageSize;
+  const oldestFetched = time(latestChrono[0]?.created_at);
+  const kept = existing.filter((m) => {
+    if (m.id.startsWith('temp-') || fetchedIds.has(m.id)) return true;
+    if (!shownBefore.has(m.id)) return true;
+    if (wholeHistory) return false;
+    const t = time(m.created_at);
+    return oldestFetched === null || t === null || t <= oldestFetched;
+  });
+  return kept.length === existing.length ? existing : kept;
+}
+
 /** A message row as read with its reactions embedded. */
 export type MessageWithReactions = Message & {
   reactions?: MessageReaction[] | null;

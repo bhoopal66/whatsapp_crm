@@ -729,9 +729,13 @@ export function MessageThread({
 
       if (cached) {
         // Folded into what is shown, which realtime and the composer may
-        // have added to since the cached page went up.
+        // have added to since the cached page went up. The fresh page has
+        // the last word on the cached rows it covers: one it no longer
+        // holds was deleted or is no longer ours to see (RLS answers
+        // with no rows), so it goes (lib/inbox/pagination.ts).
+        const shownBefore = new Set(cached.messages.map((m) => m.id));
         const merged = mergeFreshPage(
-          { messages: messagesRef.current, reactions: [] },
+          { messages: messagesRef.current, reactions: [], shownBefore },
           fresh
         );
         setOlderState({ conversationId, hasOlder: merged.hasOlder });
@@ -744,7 +748,11 @@ export function MessageThread({
         );
         markUnread(merged.messages);
         onMessagesLoadedRef.current(
-          (prev) => mergeLatestMessages(prev, fresh.messages).messages
+          (prev) =>
+            mergeFreshPage(
+              { messages: prev, reactions: [], shownBefore },
+              fresh
+            ).messages
         );
       } else {
         setOlderState({ conversationId, hasOlder: fresh.hasOlder });

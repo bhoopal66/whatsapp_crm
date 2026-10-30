@@ -66,6 +66,7 @@ import {
 } from '@/lib/inbox/message-cache';
 import { sessionCache } from '@/lib/session-cache';
 import {
+  forgetFailedChat,
   panelPartKey,
   panelRowKey,
   panelSource,
@@ -847,6 +848,14 @@ export function InboxPageInner({
     const key = panelRowKey(accountId, user?.id, fullConversation?.id);
     if (key && fullConversation) sessionCache.set(key, fullConversation);
   }, [fullConversation, accountId, user?.id]);
+  // An open that failed may be RLS saying no: drop the chat's cached
+  // full row and messages so no later visit shows them again.
+  const failedChatId = fullRowFailed ? activeConversation?.id : undefined;
+  useEffect(() => {
+    if (failedChatId) {
+      forgetFailedChat(sessionCache, accountId, user?.id, failedChatId);
+    }
+  }, [failedChatId, accountId, user?.id]);
   const panelKey = panelRowKey(accountId, user?.id, activeConversation?.id);
   const subscribePanel = useCallback(
     (onChange: () => void) =>
@@ -863,6 +872,7 @@ export function InboxPageInner({
     open: activeConversation,
     full: fullConversation,
     cached: cachedPanelRow,
+    fullRowFailed,
   });
 
   // The AI banner's account status, read now rather than on the first

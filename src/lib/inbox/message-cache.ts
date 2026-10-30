@@ -13,6 +13,7 @@ import type { Message, MessageReaction } from '@/types';
 import { sessionKey, type SessionKey } from '@/lib/session-cache';
 import {
   MESSAGE_PAGE_SIZE,
+  dropUnconfirmed,
   mergeLatestMessages,
   replaceReactionsFor,
   splitEmbeddedReactions,
@@ -142,14 +143,26 @@ export function applyReactionEventToPage(
  * new rows appended, a `sending` bubble kept), the fetched page's
  * reactions replacing the held ones of those messages. A gap (more
  * arrived than one page) leaves history above the page.
+ *
+ * `held.shownBefore` names the rows the opening showed from the cache:
+ * those the fresh page no longer contains are dropped first
+ * (`dropUnconfirmed`), so a chat that became invisible, or a deleted
+ * message, does not stay on screen.
  */
 export function mergeFreshPage(
-  held: { messages: Message[]; reactions: MessageReaction[] },
+  held: {
+    messages: Message[];
+    reactions: MessageReaction[];
+    shownBefore?: ReadonlySet<string>;
+  },
   fresh: CachedMessagePage,
   pageSize: number = MESSAGE_PAGE_SIZE
 ): CachedMessagePage {
+  const confirmed = held.shownBefore
+    ? dropUnconfirmed(held.messages, fresh.messages, held.shownBefore, pageSize)
+    : held.messages;
   const { messages, gap } = mergeLatestMessages(
-    held.messages,
+    confirmed,
     fresh.messages,
     pageSize
   );

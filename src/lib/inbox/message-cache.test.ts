@@ -198,6 +198,54 @@ describe('mergeFreshPage', () => {
     expect(merged.messages.map((m) => m.id)).toEqual(['m1', 'temp-1']);
   });
 
+  describe('on an opening (shownBefore)', () => {
+    const shown = (...ids: string[]) => new Set(ids);
+
+    it('drops every cached row when the fresh page is empty', () => {
+      // Reassigned away, share revoked or demoted: RLS answers [].
+      const held = page([msg('m1', 1), msg('m2', 2)]);
+      const merged = mergeFreshPage(
+        { ...held, shownBefore: shown('m1', 'm2') },
+        page([])
+      );
+      expect(merged.messages).toEqual([]);
+    });
+
+    it('drops a cached row a short fresh page no longer holds', () => {
+      // A deleted message the cached page never heard about.
+      const held = page([msg('m1', 1), msg('m2', 2), msg('m3', 3)]);
+      const merged = mergeFreshPage(
+        { ...held, shownBefore: shown('m1', 'm2', 'm3') },
+        page([msg('m1', 1), msg('m3', 3)]),
+        5
+      );
+      expect(merged.messages.map((m) => m.id)).toEqual(['m1', 'm3']);
+    });
+
+    it('keeps cached rows older than a full page, drops newer ones', () => {
+      const held = page([msg('m1', 1), msg('m2', 2), msg('m4', 4)]);
+      const merged = mergeFreshPage(
+        { ...held, shownBefore: shown('m1', 'm2', 'm4') },
+        page([msg('m2', 2), msg('m3', 3)]),
+        2
+      );
+      expect(merged.messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+    });
+
+    it('keeps a sending bubble and a realtime arrival during the read', () => {
+      const held = page([
+        msg('m1', 1),
+        msg('m2', 2),
+        msg('temp-1', 3, { status: 'sending' }),
+      ]);
+      const merged = mergeFreshPage(
+        { ...held, shownBefore: shown('m1') },
+        page([])
+      );
+      expect(merged.messages.map((m) => m.id)).toEqual(['m2', 'temp-1']);
+    });
+  });
+
   it('replaces the page and leaves history above it across a gap', () => {
     const held = page([msg('m1', 1)]);
     const fresh = page([msg('m5', 5), msg('m6', 6)]);

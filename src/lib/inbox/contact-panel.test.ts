@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  forgetFailedChat,
   panelPartKey,
   panelRowKey,
   panelSource,
   prependNote,
 } from '@/lib/inbox/contact-panel';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
+import { messagesCacheKey } from '@/lib/inbox/message-cache';
+import {
+  resetSessionCacheForTests,
+  sessionCache,
+  type SessionKey,
+} from '@/lib/session-cache';
 import type { ContactNote, Conversation } from '@/types';
 
 const listContact = {
@@ -64,6 +71,19 @@ describe('panelSource', () => {
     expect(s.conversation).toBe(fullRow);
   });
 
+  it('drops the cached row once every full-row read has missed', () => {
+    // RLS answered no row: the contact may no longer be ours to see.
+    const s = panelSource({
+      open: listRow,
+      full: null,
+      cached: fullRow,
+      fullRowFailed: true,
+    });
+    expect(s.complete).toBe(false);
+    expect(s.contact).toBe(listContact);
+    expect(s.conversation).toBeNull();
+  });
+
   it('never shows another chat cached under a stale read', () => {
     const other = { ...fullRow, id: 'c2' } as Conversation;
     const s = panelSource({ open: listRow, full: null, cached: other });
@@ -79,6 +99,25 @@ describe('panelSource', () => {
     const s = panelSource({ open: fullRow, full: fullRow, cached });
     expect(s.contact?.email).toBe('s@acme.ae');
     expect(s.conversation).toBe(fullRow);
+  });
+});
+
+describe('forgetFailedChat', () => {
+  it("deletes the chat's cached full row and messages, nothing else", () => {
+    resetSessionCacheForTests();
+    const row = panelRowKey('a', 'u', 'c1') as SessionKey;
+    const messages = messagesCacheKey('a', 'u', 'c1') as SessionKey;
+    const notes = panelPartKey('a', 'u', 'c1', 'notes', 'k1') as SessionKey;
+    const other = panelRowKey('a', 'u', 'c2') as SessionKey;
+    for (const key of [row, messages, notes, other]) sessionCache.set(key, 1);
+
+    forgetFailedChat(sessionCache, 'a', 'u', 'c1');
+
+    expect(sessionCache.peek(row)).toBeUndefined();
+    expect(sessionCache.peek(messages)).toBeUndefined();
+    expect(sessionCache.peek(notes)?.value).toBe(1);
+    expect(sessionCache.peek(other)?.value).toBe(1);
+    resetSessionCacheForTests();
   });
 });
 

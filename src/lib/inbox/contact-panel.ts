@@ -16,7 +16,12 @@
 // round trip (~0.5 s behind the tunnel).
 // ============================================================
 
-import { sessionKey, type SessionKey } from '@/lib/session-cache';
+import {
+  sessionKey,
+  type SessionCache,
+  type SessionKey,
+} from '@/lib/session-cache';
+import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import type {
   ConversationListContact,
   ConversationListItem,
@@ -67,21 +72,26 @@ export interface PanelSource {
 
 /**
  * What the panel shows for the open chat: the live full row once it has
- * landed; before that the cached full row of the same chat (a revisit,
- * revalidated by the open's read); before that the list row's contact,
- * so the panel is never an empty box while the full row is in flight.
+ * landed; before that, while its read is still pending, the cached full
+ * row of the same chat (a revisit, revalidated by the open's read);
+ * otherwise the list row's contact, so the panel is never an empty box
+ * while the full row is in flight. Once every read has missed
+ * (`fullRowFailed`) the cached row is no longer shown: RLS answering
+ * with no row means the contact may no longer be the viewer's to see,
+ * and the panel offers its Retry instead.
  */
 export function panelSource(state: {
   open: ConversationListItem | Conversation | null;
   full: Conversation | null;
   cached: Conversation | undefined;
+  fullRowFailed?: boolean;
 }): PanelSource {
-  const { open, full, cached } = state;
+  const { open, full, cached, fullRowFailed } = state;
   if (!open) return { complete: false, contact: null, conversation: null };
   if (full && full.id === open.id && full.contact) {
     return { complete: true, contact: full.contact, conversation: full };
   }
-  if (cached && cached.id === open.id && cached.contact) {
+  if (!fullRowFailed && cached && cached.id === open.id && cached.contact) {
     return { complete: true, contact: cached.contact, conversation: cached };
   }
   return {
@@ -100,4 +110,24 @@ export function prependNote(
   note: ContactNote
 ): ContactNote[] {
   return [note, ...notes.filter((n) => n.id !== note.id)];
+}
+
+/**
+ * Forget what this tab cached for a chat whose open failed (every
+ * full-row read missed): its full row and its latest message page. The
+ * miss may be RLS saying the chat is no longer the viewer's (reassigned,
+ * share revoked, demoted), so the next visit must not show them again.
+ * Deals and notes need nothing: their own reads already stored the
+ * empty answer.
+ */
+export function forgetFailedChat(
+  cache: Pick<SessionCache, 'delete'>,
+  accountId: string | null | undefined,
+  userId: string | null | undefined,
+  conversationId: string | null | undefined
+): void {
+  const row = panelRowKey(accountId, userId, conversationId);
+  const messages = messagesCacheKey(accountId, userId, conversationId);
+  if (row) cache.delete(row);
+  if (messages) cache.delete(messages);
 }
