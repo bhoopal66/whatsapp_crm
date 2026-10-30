@@ -56,6 +56,9 @@ function ch(
     createdBy: ME,
     archivedAt: null,
     createdAt: '2026-10-01T00:00:00Z',
+    posting: 'everyone',
+    threadReplies: 'everyone',
+    mentionEveryone: 'everyone',
     membership: {
       channelId: id,
       userId: ME,

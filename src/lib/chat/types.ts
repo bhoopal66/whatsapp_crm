@@ -4,6 +4,9 @@
  * file knows the column names. Timestamps stay ISO strings, as elsewhere.
  */
 
+import type { ChannelRule } from './permissions';
+
+export type { ChannelRule };
 export type ChannelKind = 'team' | 'private' | 'dm' | 'deal_room';
 export type ChannelRole = 'admin' | 'member' | 'guest';
 export type AuthorKind = 'user' | 'system';
@@ -23,6 +26,12 @@ export interface Channel {
   createdBy: string;
   archivedAt: string | null;
   createdAt: string;
+  /** 157: who may post top-level messages; 'everyone' when absent. */
+  posting: ChannelRule;
+  /** 157: who may reply in threads; 'everyone' when absent. */
+  threadReplies: ChannelRule;
+  /** 157: who may notify everyone (@channel / @here); 'everyone' when absent. */
+  mentionEveryone: ChannelRule;
 }
 
 export interface ChannelMember {
@@ -261,6 +270,10 @@ const num = (v: unknown): number =>
 const obj = (v: unknown): Row =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Row) : {};
 
+/** A 157 channel rule; anything but 'admins' (an older database) is 'everyone'. */
+const channelRule = (v: unknown): ChannelRule =>
+  v === 'admins' ? 'admins' : 'everyone';
+
 export function toChannel(r: Row): Channel {
   const dmKey = opt(r.dm_key);
   return {
@@ -273,6 +286,9 @@ export function toChannel(r: Row): Channel {
     createdBy: str(r.created_by),
     archivedAt: opt(r.archived_at),
     createdAt: str(r.created_at),
+    posting: channelRule(r.posting),
+    threadReplies: channelRule(r.thread_replies),
+    mentionEveryone: channelRule(r.mention_everyone),
   };
 }
 

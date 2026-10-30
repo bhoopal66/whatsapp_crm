@@ -546,6 +546,15 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   removeSelf: true,
   notManageable: true,
   dmNotAllowed: true,
+  permissionDenied: true,
+  postingRestricted: true,
+  repliesRestricted: true,
+  mentionEveryoneRestricted: true,
+  editWindowClosed: true,
+  deleteWindowClosed: true,
+  sensitiveData: true,
+  restrictedPosting: true,
+  audienceHidesYou: true,
 };
 
 /** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */

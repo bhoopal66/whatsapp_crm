@@ -28,6 +28,9 @@ const ch = (
   createdBy: 'u',
   archivedAt: o.archived ? '2026-10-01T00:00:00Z' : null,
   createdAt: '2026-01-01T00:00:00Z',
+  posting: 'everyone',
+  threadReplies: 'everyone',
+  mentionEveryone: 'everyone',
   membership: o.member
     ? {
         channelId: id,

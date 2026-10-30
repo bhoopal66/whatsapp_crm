@@ -53,7 +53,18 @@ export type ChatErrorKey =
   | 'removeSelf'
   | 'notManageable'
   // 143's DM rules
-  | 'dmNotAllowed';
+  | 'dmNotAllowed'
+  // 157's role permissions and posting rules, 158's sensitive-data guard
+  | 'permissionDenied'
+  | 'postingRestricted'
+  | 'repliesRestricted'
+  | 'mentionEveryoneRestricted'
+  | 'editWindowClosed'
+  | 'deleteWindowClosed'
+  | 'sensitiveData'
+  // posting restrictions and channel audiences (migrations in progress)
+  | 'restrictedPosting'
+  | 'audienceHidesYou';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -95,6 +106,16 @@ const COARSE_KEY: Record<ChatErrorCode, ChatErrorKey> = {
 /** Message wording → finer key, checked in order within the code. */
 const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
   FORBIDDEN: [
+    // 157/158 first: "only channel admins can post here" would otherwise
+    // read as adminRequired below.
+    [/your role may not/i, 'permissionDenied'],
+    [/only channel admins can post here/i, 'postingRestricted'],
+    [/only channel admins can reply in threads here/i, 'repliesRestricted'],
+    [/you may not notify everyone/i, 'mentionEveryoneRestricted'],
+    [/the edit window has passed/i, 'editWindowClosed'],
+    [/the delete window has passed/i, 'deleteWindowClosed'],
+    [/contains sensitive data/i, 'sensitiveData'],
+    [/restricted from posting/i, 'restrictedPosting'],
     [/direct messages between these people are turned off/i, 'dmNotAllowed'],
     [/channel is archived/i, 'archived'],
     [/not a member of this channel/i, 'notChannelMember'],
@@ -118,7 +139,8 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     [/last member/i, 'lastMember'],
     [/at most 100 pins/i, 'pinLimit'],
     [/attachment/i, 'attachmentInvalid'],
-    [/reason of at least 5 characters/i, 'reasonRequired'],
+    [/reason of at least 5 characters|a reason is required/i, 'reasonRequired'],
+    [/would hide this channel from you/i, 'audienceHidesYou'],
     [/one level of threading|same channel as its root/i, 'threadInvalid'],
     [/internal_messages_body_len/i, 'bodyLength'],
     [/chat_channels_name_check/i, 'nameLength'],

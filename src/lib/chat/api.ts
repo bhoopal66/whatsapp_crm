@@ -53,6 +53,15 @@ import {
 } from './types';
 import { summarizeReplies } from './message-list';
 import { rulesFromRows, rowsToSave, type DmMatrix } from './dm-rules';
+import {
+  deniedFromMatrix,
+  matrixFromRows,
+  parseMyPermissions,
+  type ChannelRule,
+  type ChatPermissions,
+  type DeniedPair,
+  type SensitiveGuard,
+} from './permissions';
 
 type Row = Record<string, unknown>;
 
@@ -799,3 +808,122 @@ export async function getDmRules(
     }))
   );
 }
+
+// ---------- 157 role permissions and posting rules, 158 sensitive guard ----------
+
+let myPermissionsErrorLogged = false;
+
+/**
+ * The caller's chat permissions in a workspace (chat_my_permissions).
+ * Never throws: an error (an older database, a blip) answers ALL_ALLOWED
+ * and is logged once, since the database re-checks every action anyway.
+ */
+export async function myPermissions(
+  sb: SupabaseClient,
+  accountId: string
+): Promise<ChatPermissions> {
+  try {
+    return parseMyPermissions(
+      await rpc<unknown>(sb, 'chat_my_permissions', { p_ws: accountId })
+    );
+  } catch (err) {
+    if (!myPermissionsErrorLogged) {
+      myPermissionsErrorLogged = true;
+      console.error('[chat] chat_my_permissions failed', err);
+    }
+    return parseMyPermissions(null);
+  }
+}
+
+/** Replaces the workspace's whole denied set (owner/admin). */
+export const setPermissions = (
+  sb: SupabaseClient,
+  accountId: string,
+  denied: readonly DeniedPair[]
+): Promise<void> =>
+  rpc(sb, 'chat_set_permissions', { p_ws: accountId, p_denied: denied });
+
+/** The workspace's chat_role_permissions rows (each one a denial). */
+export async function rolePermissionRows(
+  sb: SupabaseClient,
+  accountId: string
+): Promise<DeniedPair[]> {
+  const list = await rows(
+    sb
+      .from('chat_role_permissions')
+      .select('role_class,capability')
+      .eq('account_id', accountId)
+  );
+  return deniedFromMatrix(matrixFromRows(list));
+}
+
+export interface WorkspaceChatSettings {
+  editWindowMinutes: number | null;
+  deleteWindowMinutes: number | null;
+  sensitive: SensitiveGuard;
+}
+
+/** The workspace's chat_workspace_settings row; defaults when there is none. */
+export async function workspaceChatSettings(
+  sb: SupabaseClient,
+  accountId: string
+): Promise<WorkspaceChatSettings> {
+  const [r] = await rows(
+    sb
+      .from('chat_workspace_settings')
+      .select('*')
+      .eq('account_id', accountId)
+      .limit(1)
+  );
+  const p = parseMyPermissions({
+    edit_window_minutes: r?.edit_window_minutes,
+    delete_window_minutes: r?.delete_window_minutes,
+    sensitive: { mode: r?.sensitive_mode, scope: r?.sensitive_scope },
+  });
+  return {
+    editWindowMinutes: p.editWindowMinutes,
+    deleteWindowMinutes: p.deleteWindowMinutes,
+    sensitive: p.sensitive,
+  };
+}
+
+/** Edit / delete windows, 1..10080 minutes or null for no limit (owner/admin). */
+export const setWorkspaceChatSettings = (
+  sb: SupabaseClient,
+  accountId: string,
+  i: { editWindowMinutes: number | null; deleteWindowMinutes: number | null }
+): Promise<void> =>
+  rpc(sb, 'chat_set_workspace_settings', {
+    p_ws: accountId,
+    p_edit_window_minutes: i.editWindowMinutes,
+    p_delete_window_minutes: i.deleteWindowMinutes,
+  });
+
+/** A team or private channel's rules; an omitted rule is kept. */
+export const setChannelPolicy = (
+  sb: SupabaseClient,
+  channelId: string,
+  i: {
+    posting?: ChannelRule;
+    threadReplies?: ChannelRule;
+    mentionEveryone?: ChannelRule;
+  }
+): Promise<void> =>
+  rpc(sb, 'chat_set_channel_policy', {
+    p_channel: channelId,
+    p_posting: i.posting ?? null,
+    p_thread_replies: i.threadReplies ?? null,
+    p_mention_everyone: i.mentionEveryone ?? null,
+  });
+
+/** 158's guard: off / warn / block, for channels with guests or all chat. */
+export const setSensitiveGuard = (
+  sb: SupabaseClient,
+  accountId: string,
+  i: SensitiveGuard
+): Promise<void> =>
+  rpc(sb, 'chat_set_sensitive_guard', {
+    p_ws: accountId,
+    p_mode: i.mode,
+    p_scope: i.scope,
+  });

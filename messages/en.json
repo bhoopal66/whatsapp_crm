@@ -4532,7 +4532,16 @@
       "topicLength": "A topic can be at most 250 characters.",
       "removeSelf": "To leave a channel yourself, use Leave channel.",
       "notManageable": "Direct messages and deal rooms can't be managed here.",
-      "dmNotAllowed": "Direct messages between these people are turned off in this workspace."
+      "dmNotAllowed": "Direct messages between these people are turned off in this workspace.",
+      "permissionDenied": "Your role can't do that in this workspace's team chat.",
+      "postingRestricted": "Only channel admins can post in this channel.",
+      "repliesRestricted": "Only channel admins can reply in threads in this channel.",
+      "mentionEveryoneRestricted": "You can't notify everyone in this channel.",
+      "editWindowClosed": "The time to edit this message has passed.",
+      "deleteWindowClosed": "The time to delete this message has passed.",
+      "sensitiveData": "This message contains sensitive data (a card number, Emirates ID or IBAN), which this workspace blocks here.",
+      "restrictedPosting": "You've been restricted from posting here.",
+      "audienceHidesYou": "That change would hide this channel from you."
     },
     "composer": {
       "replyingTo": "Replying to {name}",
