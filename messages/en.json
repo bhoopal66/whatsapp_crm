@@ -3856,7 +3856,15 @@
           "update_channel": "Edited a channel's name or topic",
           "archive_channel": "Archived a channel",
           "unarchive_channel": "Unarchived a channel",
-          "remove_member": "Removed a channel member"
+          "remove_member": "Removed a channel member",
+          "set_permissions": "Changed team chat permissions",
+          "update_settings": "Changed the message edit and delete windows",
+          "update_policy": "Changed a channel's posting rules",
+          "update_sensitive_guard": "Changed the sensitive-data guard",
+          "set_audience": "Changed who can see a channel",
+          "moderate_delete": "Removed someone else's message",
+          "restrict_member": "Changed a posting restriction",
+          "export_channel": "Exported a channel"
         },
         "recordings": {
           "play": "Played a recording",

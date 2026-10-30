@@ -3856,7 +3856,15 @@
           "update_channel": "채널 이름 또는 주제 수정",
           "archive_channel": "채널 보관",
           "unarchive_channel": "채널 보관 해제",
-          "remove_member": "채널 멤버 제거"
+          "remove_member": "채널 멤버 제거",
+          "set_permissions": "팀 채팅 권한 변경",
+          "update_settings": "메시지 수정·삭제 기한 변경",
+          "update_policy": "채널 게시 규칙 변경",
+          "update_sensitive_guard": "민감 정보 보호 설정 변경",
+          "set_audience": "채널 공개 범위 변경",
+          "moderate_delete": "다른 사람의 메시지 삭제",
+          "restrict_member": "게시 제한 변경",
+          "export_channel": "채널 내보내기"
         },
         "recordings": {
           "play": "녹음 재생",
