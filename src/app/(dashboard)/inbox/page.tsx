@@ -1067,6 +1067,7 @@ export function InboxPageInner({
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
             deltaSync={deltaSync}
+            teamView={teamView}
             // Wait for the role before asking: `personalOnlyUserId` is
             // null until the profile lands, so a team leader's list used
             // to be fetched twice — once account-wide, then again

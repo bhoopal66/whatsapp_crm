@@ -1,0 +1,88 @@
+// ============================================================
+// The Inbox list in the session cache (lib/session-cache.ts): one
+// entry per list view, shown at once on a revisit and always
+// revalidated by the list.
+//
+// The key names every input of the server query (the view, the scope,
+// every pushed-down filter). Search, the company filter, the
+// Important / Pinned chips and the sort are applied client-side on
+// top of whatever rows are held, so they are not part of the question:
+// the same rows answer every one of them.
+// ============================================================
+
+import { sessionCache, sessionKey, type SessionKey } from '@/lib/session-cache';
+import type { AssigneeFilter } from '@/lib/inbox/conversations';
+import type { ConversationCursor } from '@/lib/inbox/pagination';
+
+/** Everything the list's server query depends on, plus its view. */
+export interface InboxListQuestion {
+  /** /team-inbox (true) or /inbox (false). */
+  teamView: boolean;
+  campaignOnly: boolean;
+  aiLive: boolean;
+  /** The personal inbox's narrowing to one person, or null. */
+  restrictToUserId: string | null;
+  restrictToChannelIds: readonly string[];
+  restrictToConversationIds: readonly string[];
+  status: 'all' | 'unread';
+  chatTagIds: readonly string[];
+  assignee: AssigneeFilter;
+  campaignId: string | null;
+  insightFilters: readonly string[];
+}
+
+/** What a list view holds: every loaded row and where the next page starts. */
+export interface InboxListSnapshot<Row> {
+  rows: Row[];
+  cursor: ConversationCursor | null;
+}
+
+const sorted = (ids: readonly string[]) => [...ids].sort();
+
+/**
+ * The question part of the key. Id lists are order-free (sorted), and
+ * the whole thing is JSON so no value can run into the next one.
+ */
+export function inboxListQuestion(q: InboxListQuestion): string {
+  return (
+    'inbox:list:' +
+    JSON.stringify([
+      q.teamView ? 'team' : 'personal',
+      q.campaignOnly ? 'campaign' : 'inbox',
+      q.aiLive,
+      q.restrictToUserId,
+      sorted(q.restrictToChannelIds),
+      sorted(q.restrictToConversationIds),
+      q.status,
+      sorted(q.chatTagIds),
+      q.assignee,
+      q.campaignId,
+      sorted(q.insightFilters),
+    ])
+  );
+}
+
+export function inboxListCacheKey(
+  accountId: string | null | undefined,
+  userId: string | null | undefined,
+  q: InboxListQuestion
+): SessionKey | null {
+  return sessionKey(accountId, userId, inboxListQuestion(q));
+}
+
+/**
+ * Write-through: the rows on screen (with every realtime patch, page
+ * and delta the Inbox applied) replace the view's entry, but only when
+ * they are that view's rows. Right after a filter change the screen
+ * still shows the previous view's rows, which must not be stored under
+ * the new key. `update` leaves a missing entry alone (cleared on
+ * sign-out or switch), so nothing is put back. Returns whether it wrote.
+ */
+export function writeThroughInboxList<Row>(
+  key: SessionKey | null,
+  rowsKey: SessionKey | null,
+  snapshot: InboxListSnapshot<Row>
+): boolean {
+  if (!key || rowsKey !== key) return false;
+  return sessionCache.update<InboxListSnapshot<Row>>(key, () => snapshot);
+}

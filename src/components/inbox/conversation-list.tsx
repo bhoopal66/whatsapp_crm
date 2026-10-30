@@ -10,7 +10,16 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
-import { prefetchSession } from '@/lib/session-cache';
+import {
+  prefetchSession,
+  sessionCache,
+  type SessionKey,
+} from '@/lib/session-cache';
+import {
+  inboxListCacheKey,
+  writeThroughInboxList,
+  type InboxListSnapshot,
+} from '@/lib/inbox/list-cache';
 import { useCan } from '@/hooks/use-can';
 import { isBankGuest } from '@/lib/auth/roles';
 import {
@@ -51,7 +60,6 @@ import {
   applyHandled,
   hasAttentionPin,
   insightFilterBounds,
-  insightListQuery,
   isPinned,
   matchesInsightFilters,
   pinnedSummary,
@@ -154,6 +162,11 @@ interface ConversationListProps {
    */
   enabled?: boolean;
   /**
+   * /team-inbox rather than /inbox: part of the list's session-cache
+   * key, so the two views never show each other's rows.
+   */
+  teamView?: boolean;
+  /**
    * When set, show only conversations this user owns or is assigned.
    *
    * RLS already limits what comes back; this narrows it further for a
@@ -253,13 +266,10 @@ interface ListQueryParams {
   campaignId: string | null;
   /** Smart insights filters; always empty while signals are off. */
   insightFilters: readonly InsightFilter[];
-  /**
-   * Read the attention pins (migration 153) beside the first page.
-   * False while signals are off, so such a workspace fetches exactly as
-   * before.
-   */
-  attentionPins: boolean;
 }
+
+/** Whether the workspace has Smart insights signals on, once known. */
+type SignalsMode = 'unknown' | 'on' | 'off';
 
 /**
  * Build the conversations query for a page (`cursor` null → first
@@ -401,6 +411,7 @@ export function ConversationList({
   resyncToken = 0,
   deltaSync,
   enabled = true,
+  teamView = false,
   restrictToUserId = null,
   restrictToChannelIds = NO_CHANNELS,
   restrictToConversationIds = NO_CHANNELS,
@@ -487,12 +498,16 @@ export function ConversationList({
     InsightFilter[]
   >(() => [...(initialInsightFilters ?? [])]);
   // Keyed on the joined names (in INSIGHT_FILTERS order) so toggling
-  // back to the same set does not refetch.
-  const insightFilterKey = signalsOn
-    ? INSIGHT_FILTERS.filter((f) => selectedInsightFilters.includes(f)).join(
-        ','
-      )
-    : '';
+  // back to the same set does not refetch. While the settings are still
+  // loading the picked filters (a `?insight=hot` deep link) are taken
+  // at their word, so the first page need not wait for the settings;
+  // a workspace that turns out to have signals off drops them then.
+  const insightFilterKey =
+    signalsOn || insightLoading
+      ? INSIGHT_FILTERS.filter((f) => selectedInsightFilters.includes(f)).join(
+          ','
+        )
+      : '';
   const insightFilters = useMemo<readonly InsightFilter[]>(
     () =>
       insightFilterKey
@@ -573,14 +588,38 @@ export function ConversationList({
     onConversationsLoadedRef.current = onConversationsLoaded;
   });
 
-  // The first page waits for the insight settings (they read "off"
-  // until loaded, which would fetch once without pins/filters and again
-  // with them; a `?insight=hot` deep link would paint unfiltered first).
-  const insightQuery = insightListQuery({
-    signalsEnabled: signalsOn,
-    settingsLoading: insightLoading,
-    insightFilters,
-  });
+  // The first page no longer waits for the insight settings (a round
+  // trip of its own on a first or stale visit). Only the attention pins
+  // need them: the fetch reads them beside the page when the settings
+  // are already known, and otherwise appends them once they arrive.
+  // Chips, colours and the pin sort follow `signalsOn` on their own.
+  const signalsMode: SignalsMode = insightLoading
+    ? 'unknown'
+    : signalsOn
+      ? 'on'
+      : 'off';
+  const signalsRef = useRef<{
+    mode: SignalsMode;
+    waiters: Set<(on: boolean) => void>;
+  }>({ mode: signalsMode, waiters: new Set() });
+  useEffect(() => {
+    const s = signalsRef.current;
+    s.mode = signalsMode;
+    if (signalsMode === 'unknown') return;
+    for (const resolve of s.waiters) resolve(signalsMode === 'on');
+    s.waiters.clear();
+  }, [signalsMode]);
+  // Signals switched on or off once known (Settings saved meanwhile):
+  // reload the first page with or without the pins, as before. The
+  // first answer after loading is not a switch.
+  const [lastKnownSignals, setLastKnownSignals] = useState<'on' | 'off' | null>(
+    null
+  );
+  const [signalsEpoch, setSignalsEpoch] = useState(0);
+  if (signalsMode !== 'unknown' && signalsMode !== lastKnownSignals) {
+    setLastKnownSignals(signalsMode);
+    if (lastKnownSignals !== null) setSignalsEpoch((n) => n + 1);
+  }
 
   // What the server-side query asks. Memoised so the fetch effect
   // refires only when one of these actually changes.
@@ -596,7 +635,6 @@ export function ConversationList({
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
       insightFilters,
-      attentionPins: insightQuery.attentionPins,
     }),
     [
       restrictToUserId,
@@ -609,7 +647,6 @@ export function ConversationList({
       assigneeFilter,
       selectedCampaignId,
       insightFilters,
-      insightQuery.attentionPins,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -634,31 +671,57 @@ export function ConversationList({
   // Forces a first-page reload when a delta turns out too big.
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  const insightReady = insightQuery.ready;
+  // The list view's session-cache entry (lib/inbox/list-cache.ts):
+  // shown at once on a revisit, always revalidated below.
+  const { accountId, user } = useAuth();
+  const viewerId = user?.id ?? null;
+  const cacheKey = useMemo(
+    () => inboxListCacheKey(accountId, viewerId, { ...listParams, teamView }),
+    [accountId, viewerId, listParams, teamView]
+  );
+  // The key whose rows the parent now holds (set where they are handed
+  // over, in the same task), so the write-through below never files
+  // the previous view's rows under a new key.
+  const rowsKeyRef = useRef<SessionKey | null>(null);
+
   useEffect(() => {
-    if (!enabled || !insightReady) return;
+    if (!enabled) return;
     let cancelled = false;
     const generation = ++generationRef.current;
+    const params = listParams;
+    const key = cacheKey;
+    // Known now: read the pins beside the page. Unknown: append them
+    // once the settings arrive, so they never hold the page up.
+    const startMode = signalsRef.current.mode;
 
-    (async () => {
+    const deliver = (snap: InboxListSnapshot<ConversationListItem>) => {
+      cursorRef.current = snap.cursor;
+      setHasMore(snap.cursor !== null);
+      setPageCount((n) => n + 1);
+      rowsKeyRef.current = key;
+      onConversationsLoadedRef.current(snap.rows, {
+        mode: 'replace',
+        cursor: snap.cursor,
+      });
+      setLoading(false);
+    };
+
+    const fetchFirstPage = async (): Promise<
+      InboxListSnapshot<ConversationListItem>
+    > => {
       const [{ data, error }, attention, pinned] = await Promise.all([
-        conversationsQuery(listParams, {}),
-        conversationsQuery(listParams, { attention: true }),
+        conversationsQuery(params, {}),
+        conversationsQuery(params, { attention: true }),
         // Only with signals on: off, the first page is the two reads
         // it always was.
-        listParams.attentionPins
-          ? conversationsQuery(listParams, { pinned: true })
+        startMode === 'on'
+          ? conversationsQuery(params, { pinned: true })
           : null,
       ]);
-
-      if (cancelled || generation !== generationRef.current) return;
-
       if (error) {
         logFetchError('Failed to fetch conversations:', error);
-        setLoading(false);
-        return;
+        throw new Error('conversations fetch failed');
       }
-
       const page = normalizeConversations(data ?? []);
       // The cursor is the page's alone; the pinned rows ride along.
       const cursor = nextConversationCursor(page);
@@ -681,11 +744,51 @@ export function ConversationList({
           normalizeConversations(pinned.data ?? [])
         );
       }
-      cursorRef.current = cursor;
-      setHasMore(cursor !== null);
-      setPageCount((n) => n + 1);
-      onConversationsLoadedRef.current(rows, { mode: 'replace', cursor });
-      setLoading(false);
+      return { rows, cursor };
+    };
+
+    (async () => {
+      // A revisit: what this view showed last time, at once. The
+      // parent already holding this view's rows (a resync) keeps them.
+      const cached = key
+        ? sessionCache.get<InboxListSnapshot<ConversationListItem>>(key)
+        : undefined;
+      if (cached && rowsKeyRef.current !== key) deliver(cached.value);
+
+      let snap: InboxListSnapshot<ConversationListItem>;
+      try {
+        // Stored under its own key even if the view moved on meanwhile.
+        snap = key
+          ? await prefetchSession(key, fetchFirstPage, { force: true })
+          : await fetchFirstPage();
+      } catch {
+        if (!cancelled && generation === generationRef.current) {
+          setLoading(false);
+        }
+        return;
+      }
+      if (cancelled || generation !== generationRef.current) return;
+      deliver(snap);
+
+      if (startMode !== 'unknown') return;
+      const on = await new Promise<boolean>((resolve) => {
+        const s = signalsRef.current;
+        if (s.mode === 'unknown') s.waiters.add(resolve);
+        else resolve(s.mode === 'on');
+      });
+      if (!on || cancelled || generation !== generationRef.current) return;
+      const pinned = await conversationsQuery(params, { pinned: true });
+      if (cancelled || generation !== generationRef.current) return;
+      if (pinned.error) {
+        logFetchError('Failed to fetch pinned chats:', pinned.error);
+        return;
+      }
+      // Folded in like a further page (de-duplicated, cursor kept);
+      // the write-through below stores them with the rest.
+      onConversationsLoadedRef.current(
+        normalizeConversations(pinned.data ?? []),
+        { mode: 'append', cursor: cursorRef.current }
+      );
     })();
 
     return () => {
@@ -693,7 +796,18 @@ export function ConversationList({
     };
     // `resyncToken` is included so the parent can force a full refetch
     // (manual refresh, or a resync with no watermark to delta from).
-  }, [enabled, insightReady, resyncToken, reloadNonce, listParams]);
+    // `cacheKey` follows `listParams` (and the view).
+  }, [enabled, resyncToken, reloadNonce, signalsEpoch, listParams, cacheKey]);
+
+  // Write-through: every change the Inbox applies to these rows
+  // (realtime, unread marks, further pages, deltas, the pins) lands in
+  // the view's entry, so a revisit starts from what was last on screen.
+  useEffect(() => {
+    writeThroughInboxList(cacheKey, rowsKeyRef.current, {
+      rows: conversations,
+      cursor: cursorRef.current,
+    });
+  }, [conversations, cacheKey]);
 
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
@@ -785,8 +899,6 @@ export function ConversationList({
   // people's chats; nobody else renders either affordance.
   // Scoped to the active workspace (RLS also returns the caller's own row
   // in every other one), and a bank guest is never listed.
-  const { accountId, user } = useAuth();
-  const viewerId = user?.id ?? null;
   useEffect(() => {
     if (!showAssignee || !accountId) return;
     let cancelled = false;
