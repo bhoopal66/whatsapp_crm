@@ -71,6 +71,7 @@ import {
   clearParkedDrafts,
   composeFlow,
   initialComposeFlow,
+  lateUploadLanding,
   parkDraft,
   takeParkedDraft,
   type ComposeFlowEffect,
@@ -925,10 +926,22 @@ export function MessageComposer({
   // An upload finishes after its chat may have been left: staged then,
   // it would go out to the next customer, and its "replace" would delete
   // that chat's attachment. It is parked, silently, for the chat it was
-  // picked (or recorded) in, and comes back there.
+  // picked (or recorded) in, and comes back there. `owner` is whose the
+  // stash was when the upload started: if another login took it since,
+  // the file is deleted rather than parked in that login's stash.
   const landUpload = useCallback(
-    (startedIn: string | null, staged: MediaDraft) => {
-      if (startedIn !== null && openChatRef.current !== startedIn) {
+    (startedIn: string | null, owner: string | null, staged: MediaDraft) => {
+      const landing = lateUploadLanding({
+        startedIn,
+        openChat: openChatRef.current,
+        ownerAtStart: owner,
+        ownerNow: parkedFor,
+      });
+      if (landing === 'discard') {
+        removeStaged(staged.path);
+        return;
+      }
+      if (landing === 'park' && startedIn !== null) {
         const displaced = parkDraft(parkedDrafts, startedIn, {
           text: '',
           origin: null,
@@ -961,6 +974,7 @@ export function MessageComposer({
         return;
       }
       const startedIn = openChatRef.current;
+      const owner = parkedFor;
       setBusy(true);
       try {
         const { publicUrl, path } = await uploadAccountMedia(
@@ -968,7 +982,7 @@ export function MessageComposer({
           file,
           { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
-        landUpload(startedIn, {
+        landUpload(startedIn, owner, {
           kind,
           mediaUrl: publicUrl,
           path,
@@ -996,7 +1010,11 @@ export function MessageComposer({
   // The encoded Ogg/Opus file from opus-recorder → upload as an audio
   // draft. WhatsApp renders Ogg/Opus as a playable voice note.
   const finalizeRecording = useCallback(
-    async (bytes: Uint8Array, startedIn: string | null) => {
+    async (
+      bytes: Uint8Array,
+      startedIn: string | null,
+      owner: string | null
+    ) => {
       // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
       // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
       const file = new File(
@@ -1018,7 +1036,7 @@ export function MessageComposer({
           file,
           { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
-        landUpload(startedIn, {
+        landUpload(startedIn, owner, {
           kind: 'audio',
           mediaUrl: publicUrl,
           path,
@@ -1057,9 +1075,10 @@ export function MessageComposer({
       cancelledRef.current = false;
       // The voice note is the chat's it was started in, wherever it stops.
       const startedIn = openChatRef.current;
+      const owner = parkedFor;
       recorder.ondataavailable = (bytes) => {
         if (cancelledRef.current) return;
-        void finalizeRecording(bytes, startedIn);
+        void finalizeRecording(bytes, startedIn, owner);
       };
       recorderRef.current = recorder;
       await recorder.start();

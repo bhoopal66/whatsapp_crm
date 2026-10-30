@@ -3,6 +3,7 @@ import {
   clearParkedDrafts,
   composeFlow,
   initialComposeFlow,
+  lateUploadLanding,
   parkDraft,
   takeParkedDraft,
   type ComposeFlowEffect,
@@ -555,5 +556,30 @@ describe('clearParkedDrafts', () => {
   it('returns nothing from an empty stash', () => {
     const stash: ParkedDrafts<Reply, Att> = new Map();
     expect(clearParkedDrafts(stash)).toEqual([]);
+  });
+});
+
+describe('lateUploadLanding', () => {
+  const at = (
+    startedIn: string | null,
+    openChat: string | null,
+    ownerAtStart: string | null,
+    ownerNow: string | null
+  ) => lateUploadLanding({ startedIn, openChat, ownerAtStart, ownerNow });
+
+  it('stages an upload that lands in the chat it was started in', () => {
+    expect(at('a', 'a', 'u1', 'u1')).toBe('stage');
+    expect(at(null, 'b', 'u1', 'u1')).toBe('stage');
+  });
+
+  it('parks it for its chat when the agent moved on', () => {
+    expect(at('a', 'b', 'u1', 'u1')).toBe('park');
+    expect(at('a', null, 'u1', 'u1')).toBe('park');
+  });
+
+  it('discards it when another login took the stash meanwhile', () => {
+    expect(at('a', 'b', 'u1', 'u2')).toBe('discard');
+    expect(at('a', null, 'u1', 'u2')).toBe('discard');
+    expect(at('a', null, null, 'u2')).toBe('discard');
   });
 });

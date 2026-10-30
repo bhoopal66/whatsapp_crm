@@ -403,3 +403,21 @@ export function takeParkedDraft<R, A>(
     attachment: takeAttachment ? parked.attachment : null,
   };
 }
+
+/**
+ * Where an upload that finishes now goes: staged in the open composer,
+ * parked for the chat it was started in (the agent moved on), or deleted
+ * because the stash changed owner meanwhile (another login in this tab).
+ * Parked after that change, the old login's file would sit in the new
+ * login's stash, put back into its composer if it opens that chat.
+ */
+export function lateUploadLanding(upload: {
+  startedIn: string | null;
+  openChat: string | null;
+  ownerAtStart: string | null;
+  ownerNow: string | null;
+}): 'stage' | 'park' | 'discard' {
+  if (upload.startedIn === null || upload.openChat === upload.startedIn)
+    return 'stage';
+  return upload.ownerNow === upload.ownerAtStart ? 'park' : 'discard';
+}
