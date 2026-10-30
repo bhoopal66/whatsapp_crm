@@ -3406,6 +3406,34 @@
         "loadFailed": "Couldn't load the sensitive data guard.",
         "retry": "Try again"
       },
+      "export": {
+        "title": "Export a channel",
+        "description": "Download any channel's messages as a CSV file, including private channels, DMs and deal rooms you are not in.",
+        "channelLabel": "Channel",
+        "filterPlaceholder": "Search channels",
+        "loading": "Loading channels…",
+        "loadFailed": "Couldn't load the channels.",
+        "none": "There are no channels to export.",
+        "noMatch": "Nothing matches that search.",
+        "unnamedDm": "Direct message",
+        "kind": {
+          "team": "Team channel",
+          "private": "Private channel",
+          "dm": "Direct message",
+          "deal_room": "Deal room"
+        },
+        "fromLabel": "From (optional)",
+        "toLabel": "To (optional)",
+        "rangeHint": "Days are in your time zone, and the To day is included. Leave both empty for everything.",
+        "rangeOrder": "From must be on or before To.",
+        "reasonLabel": "Reason",
+        "reasonPlaceholder": "Why you need this export",
+        "reasonHint": "Required, at least {min} characters.",
+        "auditWarning": "Every export is logged with your reason (Settings → Audit log).",
+        "submit": "Export CSV",
+        "done": "{count, plural, one {Exported # message} other {Exported # messages}}.",
+        "truncated": "Only the first {max, number} messages were exported — narrow the dates."
+      },
       "read": {
         "title": "Read a private channel (audited)",
         "description": "Private channels, DMs and deal rooms you are not in are hidden from you. An owner or admin can read one with a reason.",

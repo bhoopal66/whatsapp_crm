@@ -3406,6 +3406,34 @@
         "loadFailed": "민감 정보 보호 설정을 불러오지 못했습니다.",
         "retry": "다시 시도"
       },
+      "export": {
+        "title": "채널 내보내기",
+        "description": "참여하지 않은 비공개 채널, DM, 딜룸을 포함해 모든 채널의 메시지를 CSV 파일로 다운로드합니다.",
+        "channelLabel": "채널",
+        "filterPlaceholder": "채널 검색",
+        "loading": "채널을 불러오는 중…",
+        "loadFailed": "채널을 불러올 수 없습니다.",
+        "none": "내보낼 채널이 없습니다.",
+        "noMatch": "검색 결과가 없습니다.",
+        "unnamedDm": "다이렉트 메시지",
+        "kind": {
+          "team": "팀 채널",
+          "private": "비공개 채널",
+          "dm": "다이렉트 메시지",
+          "deal_room": "딜룸"
+        },
+        "fromLabel": "시작일(선택)",
+        "toLabel": "종료일(선택)",
+        "rangeHint": "날짜는 현재 시간대 기준이며 종료일도 포함됩니다. 둘 다 비우면 전체를 내보냅니다.",
+        "rangeOrder": "시작일은 종료일과 같거나 그 이전이어야 합니다.",
+        "reasonLabel": "사유",
+        "reasonPlaceholder": "이 내보내기가 필요한 이유",
+        "reasonHint": "필수, {min}자 이상.",
+        "auditWarning": "모든 내보내기는 사유와 함께 기록됩니다(설정 → 감사 로그).",
+        "submit": "CSV 내보내기",
+        "done": "메시지 {count}개를 내보냈습니다.",
+        "truncated": "처음 {max, number}개의 메시지만 내보냈습니다. 날짜 범위를 좁히세요."
+      },
       "read": {
         "title": "비공개 채널 열람(감사 기록)",
         "description": "내가 속하지 않은 비공개 채널, DM, 딜 룸은 보이지 않습니다. 소유자나 관리자는 사유를 남기고 열람할 수 있습니다.",

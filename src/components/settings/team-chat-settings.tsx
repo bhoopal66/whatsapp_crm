@@ -37,6 +37,7 @@ import {
   type AdminChannelSummary,
 } from '@/lib/chat/admin-tools';
 import type { AccountMember } from '@/types';
+import { TeamChatExportCard } from '@/components/settings/team-chat-export-card';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -123,6 +124,7 @@ export function TeamChatSettings() {
       <PermissionsCard supabase={supabase} accountId={accountId} />
       <MessageRulesCard supabase={supabase} accountId={accountId} />
       <SensitiveDataCard supabase={supabase} accountId={accountId} />
+      <TeamChatExportCard supabase={supabase} people={people ?? []} />
       <PrivateReadCard supabase={supabase} people={people ?? []} />
       {isOwner && <EraseCard people={people} peopleFailed={peopleFailed} />}
       <div className="border-border bg-muted/40 text-muted-foreground flex gap-2 rounded-xl border p-4 text-sm">
