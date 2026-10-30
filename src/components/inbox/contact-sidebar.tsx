@@ -1,9 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
-import type { Contact, Deal, ContactNote } from '@/types';
+import type { ContactNote } from '@/types';
+import { sessionCache } from '@/lib/session-cache';
+import { useSessionQuery } from '@/hooks/use-session-query';
+import {
+  panelPartKey,
+  prependNote,
+  type PanelContact,
+} from '@/lib/inbox/contact-panel';
+import {
+  fetchPanelDeals,
+  fetchPanelNotes,
+} from '@/lib/inbox/contact-panel-fetch';
 import {
   Phone,
   Mail,
@@ -26,54 +37,59 @@ import { CustomerInsightsCard } from '@/components/insights/customer-insights-ca
 import type { CustomerInsightFigures } from '@/lib/insights/customer-view';
 
 interface ContactSidebarProps {
-  contact: Contact | null;
+  /**
+   * The contact as far as it is known: the list row's columns at first,
+   * the whole contact once the full row (or its cached copy) is there.
+   */
+  contact: PanelContact | null;
+  /** The open chat's id: names the cached deals and notes. */
+  conversationId?: string | null;
   /** The open chat's full row: its Smart insights figures, kept live. */
   conversation?: CustomerInsightFigures | null;
+  /** Shown at the top (the full row's Retry once every read missed). */
+  notice?: React.ReactNode;
 }
 
 export function ContactSidebar({
   contact,
+  conversationId = null,
   conversation = null,
+  notice = null,
 }: ContactSidebarProps) {
   const tSidebar = useTranslations('Inbox.sidebar');
   const tThread = useTranslations('Inbox.messageThread');
 
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [deals, setDeals] = useState<Deal[]>([]);
-  const [notes, setNotes] = useState<ContactNote[]>([]);
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
 
-  const fetchContactData = useCallback(async () => {
-    if (!contact) return;
-
-    const supabase = createClient();
-
-    // Fetch deals and notes in parallel
-    const [dealsRes, notesRes] = await Promise.all([
-      supabase
-        .from('deals')
-        .select('*, stage:pipeline_stages(*)')
-        .eq('contact_id', contact.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('contact_notes')
-        .select('*')
-        .eq('contact_id', contact.id)
-        .order('created_at', { ascending: false }),
-    ]);
-
-    if (dealsRes.data) setDeals(dealsRes.data);
-    if (notesRes.data) setNotes(notesRes.data);
-  }, [contact]);
-
-  // Load on contact change. setDeals/setNotes run inside async
-  // Supabase callbacks, not synchronously in the effect body.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchContactData();
-  }, [fetchContactData]);
+  // Deals and notes are in the session cache per chat and contact
+  // (lib/inbox/contact-panel.ts): a revisit shows them at once, and
+  // every showing revalidates. The Inbox starts both on the click, so
+  // these join that read rather than waiting for the full row.
+  const contactId = contact?.id ?? null;
+  const dealsKey = panelPartKey(
+    accountId,
+    user?.id,
+    conversationId,
+    'deals',
+    contactId
+  );
+  const notesKey = panelPartKey(
+    accountId,
+    user?.id,
+    conversationId,
+    'notes',
+    contactId
+  );
+  const { data: deals = [] } = useSessionQuery(dealsKey, () =>
+    fetchPanelDeals(contactId as string)
+  );
+  const { data: notes = [], refresh: refreshNotes } = useSessionQuery(
+    notesKey,
+    () => fetchPanelNotes(contactId as string)
+  );
 
   const handleCopyPhone = useCallback(async () => {
     if (!contact?.phone) return;
@@ -108,11 +124,21 @@ export function ContactSidebar({
       .single();
 
     if (!error && data) {
-      setNotes((prev) => [data, ...prev]);
+      // Into the cached notes, so a revisit never shows the note gone. A
+      // read already in flight may predate the insert: read again, and
+      // its answer supersedes the older one's.
+      const patched =
+        notesKey &&
+        sessionCache.update<ContactNote[]>(notesKey, (prev) =>
+          prependNote(prev, data as ContactNote)
+        );
+      if (!patched || (notesKey && sessionCache.isFetching(notesKey))) {
+        void refreshNotes();
+      }
       setNewNote('');
     }
     setAddingNote(false);
-  }, [contact, newNote, accountId]);
+  }, [contact, newNote, accountId, notesKey, refreshNotes]);
 
   if (!contact) {
     return (
@@ -132,6 +158,7 @@ export function ContactSidebar({
     <div className="border-wa-divider bg-wa-section-gap flex h-full w-70 flex-col border-l">
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-2 pb-4">
+          {notice}
           {/* Contact Info */}
           <section className="bg-wa-panel flex flex-col items-center px-5 pt-6 pb-4 text-center">
             <ContactAvatar contact={contact} name={displayName} size={88} />

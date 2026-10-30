@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
 } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -64,6 +65,13 @@ import {
   type CachedMessagePage,
 } from '@/lib/inbox/message-cache';
 import { sessionCache } from '@/lib/session-cache';
+import {
+  panelPartKey,
+  panelRowKey,
+  panelSource,
+} from '@/lib/inbox/contact-panel';
+import { prefetchContactPanel } from '@/lib/inbox/contact-panel-fetch';
+import { warmAiAccountStatus } from '@/lib/inbox/ai-account-status';
 import { viewsOthersConversations } from '@/lib/auth/conversation-visibility';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import {
@@ -792,9 +800,35 @@ export function InboxPageInner({
     []
   );
   const openConversationById = useCallback(
-    (convId: string, listRow?: ConversationListItem) =>
-      openConversation(convId, listRow, openDeps),
-    [openDeps]
+    (convId: string, listRow?: ConversationListItem) => {
+      // The contact panel's deals and notes go out in the same wave as
+      // the full row, from the list row's contact id, instead of a
+      // round trip after it (lib/inbox/contact-panel.ts).
+      const contactId = listRow?.contact?.id;
+      if (contactId) {
+        prefetchContactPanel(
+          {
+            deals: panelPartKey(
+              accountId,
+              user?.id,
+              convId,
+              'deals',
+              contactId
+            ),
+            notes: panelPartKey(
+              accountId,
+              user?.id,
+              convId,
+              'notes',
+              contactId
+            ),
+          },
+          contactId
+        );
+      }
+      return openConversation(convId, listRow, openDeps);
+    },
+    [openDeps, accountId, user?.id]
   );
   // A re-click of a chat still on its list row, or the Retry the waiting
   // sections offer once the retries have given up: read it again now.
@@ -805,6 +839,38 @@ export function InboxPageInner({
     },
     [openDeps]
   );
+  // The open chat's full row as it is on screen, cached for the contact
+  // panel: a revisit shows it at once (revalidated by the open's own
+  // read), and a tag, AI or realtime change made here is never shown
+  // undone. The cached copy is only ever what this screen showed.
+  useEffect(() => {
+    const key = panelRowKey(accountId, user?.id, fullConversation?.id);
+    if (key && fullConversation) sessionCache.set(key, fullConversation);
+  }, [fullConversation, accountId, user?.id]);
+  const panelKey = panelRowKey(accountId, user?.id, activeConversation?.id);
+  const subscribePanel = useCallback(
+    (onChange: () => void) =>
+      panelKey ? sessionCache.subscribe(panelKey, onChange) : () => {},
+    [panelKey]
+  );
+  const cachedPanelRow = useSyncExternalStore(
+    subscribePanel,
+    () =>
+      panelKey ? sessionCache.peek<Conversation>(panelKey)?.value : undefined,
+    () => undefined
+  );
+  const panel = panelSource({
+    open: activeConversation,
+    full: fullConversation,
+    cached: cachedPanelRow,
+  });
+
+  // The AI banner's account status, read now rather than on the first
+  // chat opened (it is cached per account; lib/inbox/ai-account-status.ts).
+  useEffect(() => {
+    warmAiAccountStatus(accountId);
+  }, [accountId]);
+
   // Leaving the Inbox stops any retry still waiting.
   useEffect(
     () => () => {
@@ -1147,10 +1213,11 @@ export function InboxPageInner({
             toggle — which is itself desktop-only — never affects it. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            {/* The panel reads the whole contact: it waits for the full
-                row rather than show "select a conversation" or a
-                half-empty card for an open chat. */}
-            {activeConversation && !fullConversation ? (
+            {/* The panel shows what it has: the cached full row on a
+                revisit, else the list row's contact while the full row
+                is in flight; only a chat with no contact at all waits
+                (rather than show "select a conversation"). */}
+            {activeConversation && !panel.contact ? (
               <div
                 aria-busy={!fullRowFailed}
                 className="border-wa-divider bg-wa-panel h-full w-70 border-l"
@@ -1165,8 +1232,18 @@ export function InboxPageInner({
               </div>
             ) : (
               <ContactSidebar
-                contact={fullConversation?.contact ?? null}
-                conversation={fullConversation}
+                contact={panel.contact}
+                conversationId={activeConversation?.id ?? null}
+                conversation={panel.conversation}
+                notice={
+                  fullRowFailed && !panel.complete ? (
+                    <FullRowRetry
+                      onRetry={handleRetryFullRow}
+                      className="bg-wa-panel p-4"
+                      announce={false}
+                    />
+                  ) : null
+                }
               />
             )}
           </div>

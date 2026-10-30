@@ -24,54 +24,14 @@ import {
   type BannerOverride,
 } from '@/lib/ai/banner-state';
 import type { Conversation } from '@/types';
+import {
+  fetchAiAccountStatus,
+  type AiAccountStatus,
+} from '@/lib/inbox/ai-account-status';
 import { ImportantBadge } from './important-badge';
 
-// ------------------------------------------------------------
-// Account AI status is the same for every conversation, so cache it per
-// account and reuse it across thread switches instead of hitting
-// /api/ai/config every time the agent opens a chat.
-//
-// Keyed by accountId (a multi-account user switching workspaces must not
-// see the previous account's status), and only *successful* fetches are
-// cached — a transient failure returns a default without poisoning the
-// cache, so it retries on the next thread open rather than hiding the
-// banner for the whole session.
-// ------------------------------------------------------------
-interface AiAccountStatus {
-  autoReplyOn: boolean;
-  /** `ai_configs.auto_resume_minutes`; null = never. */
-  autoResumeMinutes: number | null;
-}
-const statusCache = new Map<string, AiAccountStatus>();
-const STATUS_OFF: AiAccountStatus = {
-  autoReplyOn: false,
-  autoResumeMinutes: null,
-};
-
-async function fetchAiAccountStatus(
-  accountId: string
-): Promise<AiAccountStatus> {
-  const cached = statusCache.get(accountId);
-  if (cached) return cached;
-  try {
-    const res = await fetch('/api/ai/config', { cache: 'no-store' });
-    if (!res.ok) return STATUS_OFF; // don't cache a transient failure
-    const j = await res.json();
-    const status: AiAccountStatus = {
-      // AI auto-reply is "live" only when configured, the master switch
-      // is on, and the inbound bot is enabled.
-      autoReplyOn: !!(j?.configured && j?.is_active && j?.auto_reply_enabled),
-      autoResumeMinutes:
-        typeof j?.auto_resume_minutes === 'number'
-          ? j.auto_resume_minutes
-          : null,
-    };
-    statusCache.set(accountId, status);
-    return status;
-  } catch {
-    return STATUS_OFF; // don't cache
-  }
-}
+// Account AI status: cached per account, warmed by the Inbox on mount
+// (lib/inbox/ai-account-status.ts).
 
 /** The conversation fields the banner reads. */
 export type AiBannerConversation = Pick<
