@@ -62,8 +62,10 @@ export function claimVoicePlay(
   if (!viewerId) return false;
   if (authorId && authorId.toLowerCase() === viewerId.toLowerCase())
     return false;
-  if (seen.has(messageId)) return false;
-  seen.add(messageId);
+  // Keyed by viewer too: another login in the same tab is another listener.
+  const key = `${viewerId.toLowerCase()}:${messageId}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
   return true;
 }
 

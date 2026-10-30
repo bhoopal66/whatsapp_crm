@@ -106,6 +106,13 @@ describe('claimVoicePlay', () => {
     expect(claimVoicePlay(seen, 'm2', 'u-me', 'u-them')).toBe(true);
   });
 
+  it('claims per viewer, so another login in the same tab still counts', () => {
+    const seen = new Set<string>();
+    expect(claimVoicePlay(seen, 'm1', 'u-me', 'u-them')).toBe(true);
+    expect(claimVoicePlay(seen, 'm1', 'u-other', 'u-them')).toBe(true);
+    expect(claimVoicePlay(seen, 'm1', 'U-ME', 'u-them')).toBe(false);
+  });
+
   it("never claims the author's own play, whatever the case", () => {
     const seen = new Set<string>();
     expect(claimVoicePlay(seen, 'm1', 'ABC', 'abc')).toBe(false);
