@@ -4,13 +4,23 @@
 // Why the plan is shaped this way: behind the Cloudflare tunnel a
 // browser round trip is ~700 ms, so what the user waits for is the
 // number of *sequential* trips. Everything that needs only the contact
-// id starts at once; only the messages and the internal-chat shares
-// wait, and only for the conversation id (shared_conversations.conversation_id has no FK,
-// so it cannot be reached through an embed). Every read is the viewer's
-// own (RLS, or the viewer's API routes).
+// id starts at once; only the messages, the internal-chat shares and
+// the thread's last message wait, and only for the conversation id
+// (shared_conversations.conversation_id has no FK, so it cannot be
+// reached through an embed). Each part is handed back as it lands
+// (`startCustomerLoad`), so the screen never waits for its slowest
+// read. Every read is the viewer's own (RLS, or the viewer's API
+// routes).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import {
+  contactThreadFrom,
+  readLastMessage,
+  THREAD_COLUMNS,
+  type ContactThread,
+  type ThreadRow,
+} from '@/lib/contacts/contact-thread';
 import {
   CUSTOMER_INSIGHT_COLUMNS,
   type CustomerInsightFigures,
@@ -179,30 +189,54 @@ export const paged = (source: TimelineSource, rows: unknown[]) => ({
   more: rows.length === PAGE,
 });
 
+export interface CustomerTimeline {
+  rows: Rows;
+  paging: TimelinePaging;
+}
+
+/** The page's first load, one promise per part of the screen. */
+export interface CustomerParts {
+  /** Wave 1. Null: no such contact (or not one the viewer may see). */
+  basics: Promise<Basics | null>;
+  /** Wave 2: the messages wait for the conversation id. */
+  timeline: Promise<CustomerTimeline>;
+  /** Wave 2: the last message waits for the conversation id. */
+  thread: Promise<ContactThread>;
+}
+
+type ConvRow = {
+  id: string;
+  assigned_agent_id: string | null;
+} & ThreadRow &
+  CustomerInsightFigures;
+
 /**
- * The page's first load. Throws on any failed read but the shares
- * (best-effort: an empty list). A missing contact wins over every
- * timeline failure, as when the timeline was read only after it.
+ * Starts every read of the page's first load and hands back each part
+ * as its own promise, so the screen shows each one as it lands rather
+ * than waiting for the slowest. The conversations are read once, for
+ * the header, the insights, the messages and the thread alike.
+ *
+ * Every part rejects on its own failed reads, except the shares
+ * (best-effort: an empty list) and the thread's last message (none).
+ * Each promise already has a handler, so a part nobody awaits (the
+ * timeline of a missing contact) is never an unhandled rejection.
  */
-export async function loadCustomer(
+export function startCustomerLoad(
   sb: SupabaseClient,
   contactId: string
-): Promise<CustomerLoad> {
-  const conv = Promise.resolve(
+): CustomerParts {
+  // Oldest first: the thread's send-number fields come from the oldest
+  // (contact-thread.ts), and the page shows that one conversation.
+  const convRows = Promise.resolve(
     sb
       .from('conversations')
-      .select(`id, assigned_agent_id, ${CUSTOMER_INSIGHT_COLUMNS}`)
+      .select(
+        `id, assigned_agent_id, ${THREAD_COLUMNS}, ${CUSTOMER_INSIGHT_COLUMNS}`
+      )
       .eq('contact_id', contactId)
-      .limit(1)
-  ).then(
-    (r) =>
-      (
-        must(r) as ({
-          id: string;
-          assigned_agent_id: string | null;
-        } & CustomerInsightFigures)[]
-      )[0] ?? null
-  );
+      .order('created_at', { ascending: true })
+  ).then((r) => (must(r) as ConvRow[] | null) ?? []);
+  const conv = convRows.then((rows) => rows[0] ?? null);
   const basics = Promise.all([
     sb
       .from('contacts')
@@ -220,28 +254,53 @@ export async function loadCustomer(
       .limit(1),
     // The active workspace's row (RLS); none or unreadable: no draft.
     sb.from('pbx_settings').select('missed_call_whatsapp_draft').maybeSingle(),
-  ]);
-  // Second round, once the conversation id is known: the messages and
-  // the shares are issued together. A messages failure rejects (the
-  // shares never do); no conversation: no messages and no shares.
+  ]).then(([c, cv, deal, pbx]) => toBasics(c, cv, deal, pbx));
+  // Second round, once the conversation id is known: the messages, the
+  // shares and the last message are issued together. A messages
+  // failure rejects (the shares never do); no conversation: no
+  // messages and no shares.
   const second = conv.then((cv) =>
     Promise.all([
       readPage(sb, 'messages', contactId, null, cv?.id ?? null),
       cv ? readShares(sb, cv.id).catch((): RawPost[] => []) : ([] as RawPost[]),
     ])
   );
+  const last = conv.then((cv) =>
+    cv ? readLastMessage(sb, cv.id).catch(() => null) : null
+  );
   const timeline = Promise.all([
     readPage(sb, 'calls', contactId, null),
     readPage(sb, 'notes', contactId, null),
     second,
-  ]);
-  // Awaited only after the basics: until then a rejection is not
-  // unhandled, and it is ignored if the contact turns out missing.
-  timeline.catch(() => {});
+  ]).then(([calls, notes, [msgs, internal]]) => ({
+    rows: {
+      calls: calls as TimelineCall[],
+      messages: msgs as RawMessage[],
+      notes: notes as RawNote[],
+      internal,
+    },
+    paging: {
+      calls: paged('calls', calls),
+      messages: paged('messages', msgs),
+      notes: paged('notes', notes),
+      internal: { oldest: null, more: false },
+    },
+  }));
+  const thread = Promise.all([convRows, last]).then(([rows, lm]) =>
+    contactThreadFrom(rows, contactId, lm)
+  );
+  for (const p of [basics, timeline, thread]) p.catch(() => {});
+  return { basics, timeline, thread };
+}
 
-  const [c, cv, deal, pbx] = await basics;
+function toBasics(
+  c: { data: unknown; error: { message: string } | null },
+  cv: ConvRow | null,
+  deal: { data: unknown; error: { message: string } | null },
+  pbx: { data: unknown; error: unknown }
+): Basics | null {
   const contact = must(c) as Customer | null;
-  if (!contact) return { state: 'missing' };
+  if (!contact) return null;
   const d = (
     must(deal) as unknown as {
       id: string;
@@ -249,9 +308,7 @@ export async function loadCustomer(
       stage: { name: string } | null;
     }[]
   )[0];
-  const [calls, notes, [msgs, internal]] = await timeline;
   return {
-    state: 'ready',
     contact,
     conversation: cv ? { id: cv.id, assignedTo: cv.assigned_agent_id } : null,
     insights: cv
@@ -278,17 +335,20 @@ export async function loadCustomer(
       !pbx.error &&
       (pbx.data as { missed_call_whatsapp_draft?: unknown } | null)
         ?.missed_call_whatsapp_draft === true,
-    rows: {
-      calls: calls as TimelineCall[],
-      messages: msgs as RawMessage[],
-      notes: notes as RawNote[],
-      internal,
-    },
-    paging: {
-      calls: paged('calls', calls),
-      messages: paged('messages', msgs),
-      notes: paged('notes', notes),
-      internal: { oldest: null, more: false },
-    },
   };
+}
+
+/**
+ * The page's first load as one answer. Throws on any failed read but
+ * the shares (best-effort: an empty list). A missing contact wins over
+ * every timeline failure, as when the timeline was read only after it.
+ */
+export async function loadCustomer(
+  sb: SupabaseClient,
+  contactId: string
+): Promise<CustomerLoad> {
+  const parts = startCustomerLoad(sb, contactId);
+  const basics = await parts.basics;
+  if (!basics) return { state: 'missing' };
+  return { state: 'ready', ...basics, ...(await parts.timeline) };
 }

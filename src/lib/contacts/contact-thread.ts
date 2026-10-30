@@ -2,6 +2,10 @@
 // number it is pinned to or lives on, the last message that reached
 // WhatsApp, and its chat tag. Mirrors `describeChannel` server-side,
 // minus the encryption import.
+//
+// The conversation rows come from the customer page's own conversations
+// read (`startCustomerLoad` in customer-load.ts), so the page reads the
+// table once; only the last message is a read of its own.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -26,48 +30,60 @@ export const NO_THREAD: ContactThread = {
   chatTags: null,
 };
 
-/** Reads a contact's thread through the caller's (RLS) client. */
-export async function loadContactThread(
-  supabase: SupabaseClient,
-  contactId: string
-): Promise<ContactThread> {
-  // Oldest first. The send-number fields come from the oldest
-  // thread, as before; the chat tag from the first thread that
-  // carries one, which is what the contacts list shows and filters on.
-  const { data: rows } = await supabase
-    .from('conversations')
-    .select(
-      'id, contact_id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id'
-    )
-    .eq('contact_id', contactId)
-    .order('created_at', { ascending: true });
-  const data = rows?.[0] ?? null;
-  // Whether a message from here would start a chat (Team activity,
-  // migration 068) turns on the last message that went out or came
-  // in, and on who sent it.
-  const { data: lastRow } = data?.id
-    ? await supabase
-        .from('messages')
-        .select('sender_type, created_at')
-        .eq('conversation_id', data.id as string)
-        .neq('status', 'failed')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : { data: null };
+/** The columns `contactThreadFrom` needs from each conversation row. */
+export const THREAD_COLUMNS =
+  'contact_id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id';
+
+export interface ThreadRow extends ChatTagIds {
+  contact_id: string;
+  channel_id: string | null;
+  send_channel_id: string | null;
+}
+
+export interface LastMessage {
+  sender_type: string;
+  created_at: string;
+}
+
+/**
+ * The thread from the contact's conversation rows, **oldest first**:
+ * the send-number fields come from the oldest thread, the chat tag
+ * from the first thread that carries one (what the contacts list shows
+ * and filters on).
+ */
+export function contactThreadFrom(
+  rows: readonly ThreadRow[],
+  contactId: string,
+  last: LastMessage | null
+): ContactThread {
+  const first = rows[0] ?? null;
   return {
-    pin: (data?.send_channel_id as string | null) ?? null,
-    home: (data?.channel_id as string | null) ?? null,
-    last: lastRow?.created_at
-      ? {
-          at: lastRow.created_at as string,
-          byCustomer: lastRow.sender_type === 'customer',
-        }
+    pin: first?.send_channel_id ?? null,
+    home: first?.channel_id ?? null,
+    last: last?.created_at
+      ? { at: last.created_at, byCustomer: last.sender_type === 'customer' }
       : null,
-    chatTags: data
-      ? (chatTagsByContact(rows as (ChatTagIds & { contact_id: string })[]).get(
-          contactId
-        ) ?? null)
-      : null,
+    chatTags: first ? (chatTagsByContact(rows).get(contactId) ?? null) : null,
   };
+}
+
+/**
+ * The last message that went out or came in (failed sends aside):
+ * whether a message from here would start a chat (Team activity,
+ * migration 068) turns on it and on who sent it. Best-effort: null on
+ * a failed read.
+ */
+export async function readLastMessage(
+  supabase: SupabaseClient,
+  conversationId: string
+): Promise<LastMessage | null> {
+  const { data } = await supabase
+    .from('messages')
+    .select('sender_type, created_at')
+    .eq('conversation_id', conversationId)
+    .neq('status', 'failed')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as LastMessage | null) ?? null;
 }

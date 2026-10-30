@@ -1,0 +1,182 @@
+// What the customer page (/contacts/[id]) holds and shows, part by
+// part, kept pure so the rules are tested here rather than found in
+// the browser.
+//
+// Why parts: every browser round trip costs ~0.4–0.7 s through the
+// tunnel, and the page used to show one grey bar until its slowest
+// read answered. Now each part (the contact basics, the timeline, the
+// thread, the tasks, this month's calls) is shown as it lands.
+//
+// Why a cache entry: the whole view is kept in the session cache
+// (`lib/session-cache.ts`: memory only, per user and workspace, wiped
+// on sign-out or switch) under `customerViewKey`, so a revisit shows
+// what the user last saw at once. It is a starting point only: the
+// page always reads every part again, and each fresh part replaces the
+// held one as it lands.
+
+import { sessionKey, type SessionKey } from '@/lib/session-cache';
+import type { MonthTotals, TimelineTask } from '@/lib/pbx/timeline';
+
+import type { ContactThread } from './contact-thread';
+import type { Basics, CustomerTimeline } from './customer-load';
+
+/** The cache question of one customer page: `contact:<id>`. */
+export const CUSTOMER_VIEW_QUESTION_PREFIX = 'contact:';
+
+export function customerViewKey(
+  accountId: string | null | undefined,
+  userId: string | null | undefined,
+  contactId: string
+): SessionKey | null {
+  return sessionKey(
+    accountId,
+    userId,
+    `${CUSTOMER_VIEW_QUESTION_PREFIX}${contactId}`
+  );
+}
+
+export interface CustomerView {
+  /** Null until the basics land, and when the contact is missing. */
+  basics: Basics | null;
+  missing: boolean;
+  timeline: CustomerTimeline | null;
+  thread: ContactThread | null;
+  tasks: TimelineTask[] | null;
+  summary: MonthTotals | null;
+  /** Display names by auth user id, as the profiles read found them. */
+  names: Record<string, string>;
+  /** A read failed with nothing held to show instead. Never cached. */
+  failed: { basics: boolean; timeline: boolean };
+}
+
+export const EMPTY_CUSTOMER_VIEW: CustomerView = {
+  basics: null,
+  missing: false,
+  timeline: null,
+  thread: null,
+  tasks: null,
+  summary: null,
+  names: {},
+  failed: { basics: false, timeline: false },
+};
+
+/**
+ * The view a visit starts from: the cached one, if any, minus its
+ * failures — the page reads every part again, so a part that failed
+ * last time shows as loading, not as failed.
+ */
+export function startView(cached: CustomerView | undefined): CustomerView {
+  if (!cached) return EMPTY_CUSTOMER_VIEW;
+  return { ...cached, failed: { basics: false, timeline: false } };
+}
+
+/** Whether a view holds anything worth keeping for a revisit. */
+export function worthCaching(view: CustomerView): boolean {
+  return view.basics !== null || view.missing;
+}
+
+export type CustomerPart =
+  | { kind: 'basics'; value: Basics | null }
+  | { kind: 'timeline'; value: CustomerTimeline }
+  | { kind: 'thread'; value: ContactThread }
+  | { kind: 'tasks'; value: TimelineTask[] }
+  | { kind: 'summary'; value: MonthTotals }
+  | { kind: 'names'; value: Record<string, string> }
+  | {
+      kind: 'failed';
+      part: 'basics' | 'timeline' | 'thread' | 'tasks' | 'summary';
+    };
+
+/**
+ * One fresh part landing on the view. A fresh answer replaces the held
+ * one whole (a revisit's older pages are dropped, not kept
+ * unrefreshed). A failure changes nothing that is on screen: the held
+ * value stays, as the session cache keeps a value whose refresh failed;
+ * only a part with nothing held is marked failed (basics, timeline) or
+ * settles empty (tasks: none listed). The thread and this month's
+ * calls keep waiting, as they always have.
+ */
+export function applyPart(
+  view: CustomerView,
+  part: CustomerPart
+): CustomerView {
+  switch (part.kind) {
+    case 'basics':
+      return {
+        ...view,
+        basics: part.value,
+        missing: part.value === null,
+        failed: { ...view.failed, basics: false },
+      };
+    case 'timeline':
+      return {
+        ...view,
+        timeline: part.value,
+        failed: { ...view.failed, timeline: false },
+      };
+    case 'thread':
+      return { ...view, thread: part.value };
+    case 'tasks':
+      return { ...view, tasks: part.value };
+    case 'summary':
+      return { ...view, summary: part.value };
+    case 'names':
+      return { ...view, names: { ...view.names, ...part.value } };
+    case 'failed':
+      if (part.part === 'basics')
+        return view.basics || view.missing
+          ? view
+          : { ...view, failed: { ...view.failed, basics: true } };
+      if (part.part === 'timeline')
+        return view.timeline
+          ? view
+          : { ...view, failed: { ...view.failed, timeline: true } };
+      if (part.part === 'tasks')
+        return view.tasks ? view : { ...view, tasks: [] };
+      return view;
+  }
+}
+
+export type SectionState = 'loading' | 'failed' | 'ready';
+
+export interface CustomerSections {
+  /** The whole screen: missing and failed replace it with one line. */
+  page: 'loading' | 'missing' | 'failed' | 'ready';
+  /** Header, details, insights, deal rooms and team: the basics. */
+  header: 'loading' | 'ready';
+  /** The timeline needs the basics too (names, call actions). */
+  timeline: SectionState;
+  tasks: 'loading' | 'ready';
+  month: 'loading' | 'ready';
+  /**
+   * The cards that read for themselves by contact id alone (deals,
+   * cases, memory, journey and consent). They mount with the page, so
+   * their reads start beside the page's own instead of after them.
+   */
+  selfLoading: boolean;
+}
+
+/** Which parts of the page can render from what the view holds. */
+export function customerSections(view: CustomerView): CustomerSections {
+  const page = view.missing
+    ? 'missing'
+    : view.basics
+      ? 'ready'
+      : view.failed.basics
+        ? 'failed'
+        : 'loading';
+  const shown = page === 'loading' || page === 'ready';
+  return {
+    page,
+    header: page === 'ready' ? 'ready' : 'loading',
+    timeline:
+      page === 'ready' && view.timeline
+        ? 'ready'
+        : view.failed.timeline
+          ? 'failed'
+          : 'loading',
+    tasks: view.tasks ? 'ready' : 'loading',
+    month: view.summary ? 'ready' : 'loading',
+    selfLoading: shown,
+  };
+}

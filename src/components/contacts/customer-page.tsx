@@ -69,16 +69,12 @@ import {
   useMyNumberIds,
 } from '@/hooks/use-whatsapp-numbers';
 import { contactChatTagChip } from '@/lib/contacts/chat-tag-column';
-import {
-  loadContactThread,
-  NO_THREAD,
-  type ContactThread,
-} from '@/lib/contacts/contact-thread';
+import { NO_THREAD, type ContactThread } from '@/lib/contacts/contact-thread';
 import { customerAccess } from '@/lib/contacts/customer-access';
 import {
   getJson,
-  loadCustomer,
   paged,
+  startCustomerLoad,
   readPage,
   type CustomerLoad,
 } from '@/lib/contacts/customer-load';
@@ -146,15 +142,6 @@ export function CustomerPage({
   const channels = useAccountNumbers(access.send);
   const myNumberIds = useMyNumberIds();
   const [thread, setThread] = useState<ContactThread>(NO_THREAD);
-  useEffect(() => {
-    let live = true;
-    void loadContactThread(createClient(), contactId).then(
-      (t) => live && setThread(t)
-    );
-    return () => {
-      live = false;
-    };
-  }, [contactId, reloadKey]);
   const prediction = useMemo(
     () => predictSendChannels(channels ?? [], thread, myNumberIds),
     [channels, myNumberIds, thread]
@@ -173,7 +160,14 @@ export function CustomerPage({
 
   useEffect(() => {
     let live = true;
-    void loadCustomer(createClient(), contactId).then(
+    // One load: the thread comes from the same conversations read.
+    const parts = startCustomerLoad(createClient(), contactId);
+    void parts.thread.then((t) => live && setThread(t));
+    void (async (): Promise<CustomerLoad> => {
+      const basics = await parts.basics;
+      if (!basics) return { state: 'missing' };
+      return { state: 'ready', ...basics, ...(await parts.timeline) };
+    })().then(
       (l) => live && setLoad(l),
       () => live && setLoad({ state: 'failed' })
     );

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { PAGE, loadCustomer, readPage, readShares } from './customer-load';
+import {
+  PAGE,
+  loadCustomer,
+  readPage,
+  readShares,
+  startCustomerLoad,
+} from './customer-load';
 
 // A fake client: each query records its chain and, once executed
 // (awaited), waits on a deferred the test settles by table name.
@@ -23,6 +29,7 @@ function fakeClient() {
         'is',
         'in',
         'lt',
+        'neq',
         'order',
         'limit',
         'maybeSingle',
@@ -245,6 +252,75 @@ describe('loadCustomer', () => {
     settle('deals', { data: [] });
     settle('pbx_settings', { data: null });
     await expect(out).resolves.toEqual({ state: 'missing' });
+  });
+});
+
+describe('startCustomerLoad', () => {
+  it('reads the conversations once, oldest first, for the basics and the thread', async () => {
+    const { sb, issued, settle } = fakeClient();
+    const parts = startCustomerLoad(sb, 'c1');
+    await flush();
+    const convs = issued.filter((q) => q.table === 'conversations');
+    expect(convs).toHaveLength(1);
+    expect(convs[0].ops).toContainEqual([
+      'order',
+      ['created_at', { ascending: true }],
+    ]);
+    const select = String(convs[0].ops[0][1][0]);
+    for (const col of ['channel_id', 'send_channel_id', 'chat_tag_id'])
+      expect(select).toContain(col);
+    settle('conversations', {
+      data: [
+        {
+          id: 'v1',
+          contact_id: 'c1',
+          assigned_agent_id: 'a1',
+          channel_id: 'n1',
+          send_channel_id: 'n2',
+          chat_tag_id: 't1',
+          chat_sub_tag_id: null,
+        },
+      ],
+    });
+    await flush();
+    // Wave 2: the page of messages, then the last message (no failures).
+    const msgs = issued.filter((q) => q.table === 'messages');
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].ops).toContainEqual(['neq', ['status', 'failed']]);
+    msgs[1].settle({
+      data: { sender_type: 'customer', created_at: '2026-10-29T10:00:00Z' },
+    });
+    await expect(parts.thread).resolves.toEqual({
+      pin: 'n2',
+      home: 'n1',
+      last: { at: '2026-10-29T10:00:00Z', byCustomer: true },
+      chatTags: { chat_tag_id: 't1', chat_sub_tag_id: null },
+    });
+  });
+
+  it('shows the basics before the timeline answers', async () => {
+    const { sb, settle } = fakeClient();
+    const parts = startCustomerLoad(sb, 'c1');
+    await flush();
+    settle('contacts', { data: contact });
+    settle('conversations', { data: [] });
+    settle('deals', { data: [] });
+    settle('pbx_settings', { data: null });
+    // contact_notes and the calls are still unanswered.
+    const basics = await parts.basics;
+    expect(basics?.contact).toEqual(contact);
+    expect(basics?.conversation).toBeNull();
+  });
+
+  it('answers null basics for a missing contact', async () => {
+    const { sb, settle } = fakeClient();
+    const parts = startCustomerLoad(sb, 'c1');
+    await flush();
+    settle('contacts', { data: null });
+    settle('conversations', { data: [] });
+    settle('deals', { data: [] });
+    settle('pbx_settings', { data: null });
+    await expect(parts.basics).resolves.toBeNull();
   });
 });
 
