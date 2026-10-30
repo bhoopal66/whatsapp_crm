@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
   applyMessageEvent,
@@ -14,159 +21,236 @@ import {
   sharedCards,
   threadSummaries,
   toggleReaction,
-  withDetails,
-  type ChatMessage,
   type SharedCallCard,
   type SharedCard,
-  type TimelineState,
 } from '@/lib/chat';
+import {
+  applyTimelineDetails,
+  placeholderTimeline,
+  revalidateTimeline,
+  shouldPrefetchTimeline,
+  timelineCacheKey,
+  type CachedTimeline,
+} from '@/lib/chat/timeline-cache';
+import {
+  prefetchSession,
+  sessionCache,
+  type SessionKey,
+} from '@/lib/session-cache';
 import type { ChatWorkspace } from '@/hooks/use-chat-workspace';
 
 const PAGE_SIZE = 50;
 
 /**
+ * Fetch a channel's newest page (rows only) into its cache entry. The
+ * merge reads the entry when the page lands, not when it was asked
+ * for, so realtime events applied meanwhile survive. Shared by the
+ * sidebar's hover prefetch and the timeline itself (prefetchSession
+ * joins a fetch already in flight, so a hover is not repeated).
+ */
+export function fetchTimelineFirstPage(
+  sb: SupabaseClient,
+  key: SessionKey,
+  channelId: string
+): Promise<CachedTimeline> {
+  return prefetchSession(key, async () => {
+    const page = await listMessages(sb, channelId, { limit: PAGE_SIZE });
+    return revalidateTimeline(
+      sessionCache.peek<CachedTimeline>(key)?.value,
+      channelId,
+      page,
+      Date.now()
+    );
+  });
+}
+
+/** The sidebar's hover: fetch unless the entry was fetched moments ago. */
+export function prefetchChannelTimeline(
+  sb: SupabaseClient,
+  accountId: string | null | undefined,
+  userId: string | null | undefined,
+  channelId: string
+): void {
+  const key = timelineCacheKey(accountId, userId, channelId);
+  if (!key) return;
+  const entry = sessionCache.peek<CachedTimeline>(key)?.value;
+  if (!shouldPrefetchTimeline(entry, Date.now())) return;
+  fetchTimelineFirstPage(sb, key, channelId).catch(() => {});
+}
+
+async function fetchDetails(sb: SupabaseClient, ids: string[]) {
+  const [attachments, reactions, threads, cards, callCards] = await Promise.all(
+    [
+      attachmentsFor(sb, ids),
+      reactionsFor(sb, ids),
+      threadSummaries(sb, ids),
+      sharedCards(sb, ids),
+      sharedCallCards(sb, ids),
+    ]
+  );
+  return { attachments, reactions, threads, cards, callCards };
+}
+
+const noopUnsubscribe = () => {};
+const NO_CARDS: Record<string, SharedCard> = {};
+const NO_CALL_CARDS: Record<string, SharedCallCard> = {};
+
+/**
  * One channel's top-level timeline: pages from listMessages with their
  * details (attachments, reactions, thread summaries, shared cards) and
  * the workspace's realtime events applied through the pure reducers.
+ *
+ * The timeline lives in the session cache (`lib/chat/timeline-cache.ts`)
+ * and every change is written there: a channel opened before shows at
+ * once and is always revalidated, and the messages show as soon as the
+ * rows land, their details merged in when they arrive.
  */
 export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
-  const { sb, listen, fail, userId } = ws;
-  const [state, setState] = useState<TimelineState>(() =>
-    createTimeline(channelId)
+  const { sb, listen, fail, userId, accountId } = ws;
+  const key = timelineCacheKey(accountId, userId, channelId);
+  const subscribe = useCallback(
+    (onChange: () => void) =>
+      key ? sessionCache.subscribe(key, onChange) : noopUnsubscribe,
+    [key]
   );
-  const [cards, setCards] = useState<Record<string, SharedCard>>({});
-  const [callCards, setCallCards] = useState<Record<string, SharedCallCard>>(
-    {}
+  const entry = useSyncExternalStore(
+    subscribe,
+    () => (key ? sessionCache.peek<CachedTimeline>(key)?.value : undefined),
+    () => undefined
   );
-  const [loading, setLoading] = useState(true);
+  // Which key's first fetch failed, so the skeleton does not stay up.
+  const [failedKey, setFailedKey] = useState<SessionKey | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  });
 
-  const withAllDetails = useCallback(
-    async (messages: ChatMessage[]) => {
-      const ids = messages.map((m) => m.id);
-      const [attachments, reactions, threads, shared, calls] =
-        await Promise.all([
-          attachmentsFor(sb, ids),
-          reactionsFor(sb, ids),
-          threadSummaries(sb, ids),
-          sharedCards(sb, ids),
-          sharedCallCards(sb, ids),
-        ]);
-      setCallCards((prev) => {
-        const next = { ...prev };
-        for (const c of calls) next[c.messageId] = c;
-        return next;
-      });
-      setCards((prev) => {
-        const next = { ...prev };
-        for (const c of shared) next[c.messageId] = c;
-        return next;
-      });
-      return withDetails(messages, { attachments, reactions, threads });
+  const patch = useCallback(
+    (fn: (e: CachedTimeline) => CachedTimeline) => {
+      if (key) sessionCache.update<CachedTimeline>(key, fn);
     },
-    [sb]
+    [key]
   );
 
-  const loadPage = useCallback(
-    async (before?: ChatMessage) => {
-      const page = await listMessages(sb, channelId, {
-        limit: PAGE_SIZE,
-        before: before
-          ? { createdAt: before.createdAt, id: before.id }
-          : undefined,
-      });
-      const messages = await withAllDetails(page.messages);
-      setState((s) =>
-        s.channelId === channelId ? mergePage(s, { ...page, messages }) : s
-      );
+  const loadDetails = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const details = await fetchDetails(sb, ids);
+      patch((e) => applyTimelineDetails(e, ids, details));
     },
-    [sb, channelId, withAllDetails]
+    [sb, patch]
   );
 
   useEffect(() => {
+    if (!key) return;
     let cancelled = false;
-    loadPage()
-      .catch((err) => !cancelled && fail(err))
-      .finally(() => !cancelled && setLoading(false));
+    // Realtime events land in the placeholder while the page is out.
+    if (!sessionCache.peek(key)) {
+      sessionCache.set(key, placeholderTimeline(channelId));
+    }
+    // Cached or not, always revalidate: rows first, details after.
+    fetchTimelineFirstPage(sb, key, channelId)
+      .then((fresh) => loadDetails(fresh.timeline.messages.map((m) => m.id)))
+      .catch((err) => {
+        if (cancelled) return;
+        setFailedKey(key);
+        fail(err);
+      });
     return () => {
       cancelled = true;
     };
-  }, [channelId, loadPage, fail]);
+  }, [key, sb, channelId, loadDetails, fail]);
 
   const loadOlder = useCallback(async () => {
-    const s = stateRef.current;
-    if (loadingOlder || !s.hasMoreOlder || s.messages.length === 0) return;
+    const s = key ? sessionCache.peek<CachedTimeline>(key)?.value : undefined;
+    const oldest = s?.timeline.messages[0];
+    if (!s || !oldest || loadingOlder || !s.timeline.hasMoreOlder) return;
     setLoadingOlder(true);
     try {
-      await loadPage(s.messages[0]);
+      const page = await listMessages(sb, channelId, {
+        limit: PAGE_SIZE,
+        before: { createdAt: oldest.createdAt, id: oldest.id },
+      });
+      patch((e) => ({ ...e, timeline: mergePage(e.timeline, page) }));
+      await loadDetails(page.messages.map((m) => m.id));
     } catch (err) {
       fail(err);
     } finally {
       setLoadingOlder(false);
     }
-  }, [loadingOlder, loadPage, fail]);
+  }, [key, sb, channelId, loadingOlder, patch, loadDetails, fail]);
 
   useEffect(
     () =>
       listen((e) => {
         if (e.kind === 'reaction') {
-          setState((s) => applyReactionEvent(s, e.event));
+          patch((s) => ({
+            ...s,
+            timeline: applyReactionEvent(s.timeline, e.event),
+          }));
           return;
         }
         if (e.kind !== 'message') return;
         const ev = e.event;
-        setState((s) => applyMessageEvent(s, ev));
+        patch((s) => ({ ...s, timeline: applyMessageEvent(s.timeline, ev) }));
+        if (ev.type === 'delete') return;
+        if (ev.message.channelId !== channelId) {
+          // Keep a channel opened earlier current for its revisit (a
+          // no-op when it has no entry); its revalidation brings the
+          // deletes, reactions and details this event cannot.
+          const other = timelineCacheKey(
+            accountId,
+            userId,
+            ev.message.channelId
+          );
+          if (other)
+            sessionCache.update<CachedTimeline>(other, (s) => ({
+              ...s,
+              timeline: applyMessageEvent(s.timeline, ev),
+            }));
+          return;
+        }
         // A new top-level post: fetch what the row event does not carry.
-        if (
-          ev.type === 'insert' &&
-          ev.message.channelId === channelId &&
-          !ev.message.threadRootId
-        ) {
-          withAllDetails([ev.message])
-            .then(([m]) =>
-              setState((s) =>
-                applyMessageEvent(s, { type: 'update', message: m })
-              )
-            )
-            .catch(() => {});
+        if (ev.type === 'insert' && !ev.message.threadRootId) {
+          loadDetails([ev.message.id]).catch(() => {});
         }
       }),
-    [listen, channelId, withAllDetails]
+    [listen, channelId, accountId, userId, patch, loadDetails]
   );
 
   /** Optimistic; the realtime echo is a no-op in the reducer. */
   const toggle = useCallback(
     async (messageId: string, emoji: string) => {
-      if (!userId) return;
-      const msg = stateRef.current.messages.find((m) => m.id === messageId);
+      if (!userId || !key) return;
+      const msg = sessionCache
+        .peek<CachedTimeline>(key)
+        ?.value.timeline.messages.find((m) => m.id === messageId);
       const mine = msg?.reactions
         .find((r) => r.emoji === emoji)
         ?.userIds.includes(userId);
       const event = { messageId, userId, emoji };
-      setState((s) =>
-        applyReactionEvent(s, { ...event, type: mine ? 'remove' : 'add' })
-      );
+      const apply = (type: 'add' | 'remove') =>
+        patch((s) => ({
+          ...s,
+          timeline: applyReactionEvent(s.timeline, { ...event, type }),
+        }));
+      apply(mine ? 'remove' : 'add');
       try {
         await toggleReaction(sb, messageId, emoji);
       } catch (err) {
-        setState((s) =>
-          applyReactionEvent(s, { ...event, type: mine ? 'add' : 'remove' })
-        );
+        apply(mine ? 'add' : 'remove');
         fail(err);
       }
     },
-    [sb, userId, fail]
+    [sb, userId, key, patch, fail]
   );
 
+  const shown =
+    entry && entry.timeline.channelId === channelId ? entry : undefined;
+  const empty = useMemo(() => createTimeline(channelId), [channelId]);
+  const timeline = shown?.loaded ? shown.timeline : empty;
   return {
-    ...state,
-    cards,
-    callCards,
-    loading,
+    ...timeline,
+    cards: shown?.cards ?? NO_CARDS,
+    callCards: shown?.callCards ?? NO_CALL_CARDS,
+    loading: !shown?.loaded && failedKey !== key,
     loadingOlder,
     loadOlder,
     toggle,

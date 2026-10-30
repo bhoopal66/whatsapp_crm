@@ -42,6 +42,12 @@ import {
   type SidebarChannelRow,
 } from '@/lib/chat/view';
 import { markRead, setMuted } from '@/lib/chat';
+import {
+  isNavSettled,
+  optimisticActiveId,
+  type PendingChannelNav,
+} from '@/lib/chat/sidebar-nav';
+import { prefetchChannelTimeline } from '@/hooks/use-channel-timeline';
 import { isSavedPath, SAVED_PATH } from '@/lib/chat/saved';
 import { PERSON_PRESENCE_KEY } from '@/lib/person-presence';
 import { channelDisplayName as numberName } from '@/lib/whatsapp/channel-management';
@@ -54,6 +60,8 @@ import { useSavedCount } from './saved-items';
 
 const SECTION_LABEL =
   'px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground';
+/** A hover this long warms the route and the timeline (not a pass-over). */
+const HOVER_PREFETCH_MS = 100;
 const ROW =
   'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring';
 
@@ -93,11 +101,35 @@ export function ChatSidebar({
   const tp = useTranslations('Presence');
   const tMenu = useTranslations('ContextMenu');
   const router = useRouter();
-  const savedActive = isSavedPath(usePathname());
+  // The clicked row is the open one until the route lands.
+  const [pendingNav, setPendingNav] = useState<PendingChannelNav | null>(null);
+  if (isNavSettled(pendingNav, activeChannelId)) setPendingNav(null);
+  const activeId = optimisticActiveId(pendingNav, activeChannelId);
+  const savedActive = isSavedPath(usePathname()) && !pendingNav;
   const savedCount = useSavedCount();
   const { account, workspaces, activeWorkspaceId, isBankGuest, accountRole } =
     useAuth();
   const ws = useChatWorkspaceContext();
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    },
+    []
+  );
+  const cancelWarm = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = null;
+  };
+  const warm = (channelId: string) => {
+    cancelWarm();
+    router.prefetch(`/chat/${channelId}`);
+    prefetchChannelTimeline(ws.sb, ws.accountId, ws.userId, channelId);
+  };
+  const warmSoon = (channelId: string) => {
+    cancelWarm();
+    hoverTimer.current = setTimeout(() => warm(channelId), HOVER_PREFETCH_MS);
+  };
   const numbers = useAccountNumbers(!isBankGuest);
   const inbox = useInboxCounts(!isBankGuest);
   const [q, setQ] = useState('');
@@ -131,8 +163,7 @@ export function ChatSidebar({
   const rows = isBankGuest ? [] : inboxRows({ role: accountRole, ...inbox });
   // Collapsed until asked for, or while one of them is open.
   const archivedOpen =
-    showArchived ||
-    sections.archived.some((r) => r.channel.id === activeChannelId);
+    showArchived || sections.archived.some((r) => r.channel.id === activeId);
 
   // The same write and feedback as the channel header's settings menu.
   const toggleMute = async (channelId: string, muted: boolean) => {
@@ -146,7 +177,7 @@ export function ChatSidebar({
   };
 
   const channelRow = (r: SidebarChannelRow) => {
-    const active = r.channel.id === activeChannelId;
+    const active = r.channel.id === activeId;
     const e = sidebarRowEmphasis(r, active);
     let icon: React.ReactNode;
     if (r.channel.kind === 'dm') {
@@ -204,6 +235,22 @@ export function ChatSidebar({
         <Link
           href={`/chat/${r.channel.id}`}
           aria-current={active ? 'page' : undefined}
+          onPointerEnter={() => warmSoon(r.channel.id)}
+          onPointerLeave={cancelWarm}
+          onFocus={() => warmSoon(r.channel.id)}
+          onBlur={cancelWarm}
+          onClick={(ev) => {
+            // A new-tab click leaves this tab where it is.
+            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+            if (ev.button !== 0) return;
+            // The data fetch runs beside the route's round trip.
+            warm(r.channel.id);
+            if (r.channel.id === activeChannelId) return;
+            setPendingNav({
+              channelId: r.channel.id,
+              routeAtClick: activeChannelId,
+            });
+          }}
           className={cn(
             ROW,
             active &&
