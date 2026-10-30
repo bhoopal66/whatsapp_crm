@@ -24,6 +24,7 @@ import {
   type VoicePlay,
 } from '@/lib/chat';
 import type { TypingChange } from '@/lib/chat/typing-flow';
+import { droppedChannelIds, timelineCacheKey } from '@/lib/chat/timeline-cache';
 import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
@@ -99,6 +100,24 @@ export function useChatWorkspace() {
     channelsQuery.data ?? (channelsError ? [] : null);
   const unread: UnreadCount[] = unreadQuery.data ?? EMPTY_UNREAD;
   const loadChannels = channelsQuery.refresh;
+  // A channel that leaves the list (removed, a 159 audience, a guest's
+  // bank switched off) loses its cached timeline: RLS answers it with no
+  // rows now, and the copy held must not show again.
+  const channelList = channelsQuery.data;
+  const listed = useRef<{
+    key: typeof channelsKey;
+    list: ChannelWithMembership[];
+  } | null>(null);
+  useEffect(() => {
+    if (!channelList) return;
+    const prev =
+      listed.current?.key === channelsKey ? listed.current.list : null;
+    listed.current = { key: channelsKey, list: channelList };
+    for (const id of droppedChannelIds(prev, channelList)) {
+      const key = timelineCacheKey(accountId, userId, id);
+      if (key) sessionCache.delete(key);
+    }
+  }, [channelList, channelsKey, accountId, userId]);
   // Counts catch up on the next event when a refresh fails.
   const refreshUnread = unreadQuery.refresh;
   const loadPeople = useCallback(async () => {
