@@ -68,7 +68,11 @@ export function TeamChatExportCard({
   const userId = user?.id ?? null;
 
   const [options, setOptions] = useState<ExportChannelOption[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  // Each list's failure is cleared when a load settles (and a retry
+  // reloads both), so a stale failure never outlives its list.
+  const [ownFailed, setOwnFailed] = useState(false);
+  const [hiddenFailed, setHiddenFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fromDay, setFromDay] = useState('');
@@ -110,20 +114,22 @@ export function TeamChatExportCard({
         );
       }
     );
-    Promise.all([own, hidden])
-      .then(([a, b]) => {
-        if (!off) setOptions(mergeExportChannels(a, b));
-      })
-      .catch(() => {
-        if (!off) {
-          setOptions([]);
-          setLoadFailed(true);
-        }
-      });
+    // One list failing must not hide the other.
+    void Promise.allSettled([own, hidden]).then(([a, b]) => {
+      if (off) return;
+      setOwnFailed(a.status === 'rejected');
+      setHiddenFailed(b.status === 'rejected');
+      setOptions(
+        mergeExportChannels(
+          a.status === 'fulfilled' ? a.value : [],
+          b.status === 'fulfilled' ? b.value : []
+        )
+      );
+    });
     return () => {
       off = true;
     };
-  }, [supabase, accountId, userId, names]);
+  }, [supabase, accountId, userId, names, attempt]);
 
   const label = (c: ExportChannelOption) =>
     c.name ?? (c.memberNames.join(', ') || t('unnamedDm'));
@@ -151,6 +157,10 @@ export function TeamChatExportCard({
       const csv = exportToCsv(exp, { timeZone });
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
+      // Revoked later: some browsers start the download after click()
+      // returns, and a revoked URL would save an empty file.
+      const revokeLater = () =>
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
       try {
         const a = document.createElement('a');
         a.href = url;
@@ -164,7 +174,7 @@ export function TeamChatExportCard({
         a.click();
         a.remove();
       } finally {
-        URL.revokeObjectURL(url);
+        revokeLater();
       }
       toast.success(t('done', { count: exp.messages.length }));
       setTruncated(exp.truncated);
@@ -203,7 +213,7 @@ export function TeamChatExportCard({
               <p className="text-muted-foreground flex items-center gap-2 p-3 text-sm">
                 <Loader2 className="size-4 animate-spin" /> {t('loading')}
               </p>
-            ) : loadFailed ? (
+            ) : ownFailed && options.length === 0 ? (
               <p className="text-destructive p-3 text-sm">{t('loadFailed')}</p>
             ) : visible.length === 0 ? (
               <p className="text-muted-foreground p-3 text-sm">
@@ -240,6 +250,29 @@ export function TeamChatExportCard({
               </ul>
             )}
           </div>
+          {options !== null && (ownFailed || hiddenFailed) && (
+            <p
+              role="alert"
+              className="text-destructive flex flex-wrap items-center gap-2 text-xs"
+            >
+              {ownFailed && options.length > 0
+                ? t('loadFailed')
+                : hiddenFailed
+                  ? t('loadFailedHidden')
+                  : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setOptions(null);
+                  setAttempt((n) => n + 1);
+                }}
+              >
+                {t('retry')}
+              </Button>
+            </p>
+          )}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

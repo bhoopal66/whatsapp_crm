@@ -209,6 +209,36 @@ describe('export csv', () => {
     expect(csv).toContain('2026-10-01 21:30:00,root,q,Sara,');
   });
 
+  it('defuses spreadsheet formulas in body, author and attachment names', () => {
+    const msg = (over: Record<string, unknown>) => ({
+      id: 'm',
+      createdAt: '2026-10-01T00:00:00Z',
+      threadRootId: null,
+      replyToId: null,
+      authorId: US,
+      authorName: 'Sara',
+      authorKind: 'user',
+      body: 'hi',
+      attachments: [],
+      editedAt: null,
+      deletedAt: null,
+      erasedAt: null,
+      ...over,
+    });
+    const csv = exportToCsv({
+      messages: [
+        msg({ body: '=HYPERLINK("http://x")', authorName: '+1 555' }),
+        msg({ body: '@SUM(1)', attachments: [{ name: '-cmd.xls' }] }),
+        msg({ body: '\tTabbed' }),
+        msg({ body: 'safe = fine' }),
+      ],
+    } as unknown as Parameters<typeof exportToCsv>[0]);
+    expect(csv).toContain(`'+1 555,"'=HYPERLINK(""http://x"")"`);
+    expect(csv).toContain("'@SUM(1),'-cmd.xls");
+    expect(csv).toContain("'\tTabbed");
+    expect(csv).toContain(',safe = fine,');
+  });
+
   it('marks deleted, erased and system rows; honours the time zone', () => {
     const csv = exportToCsv(base, { timeZone: 'Asia/Dubai' });
     expect(csv).toContain('2026-10-02 01:30:00,root,q,Sara,'); // 21:30Z + 4h

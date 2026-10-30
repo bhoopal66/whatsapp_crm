@@ -240,7 +240,7 @@ export function MembersPanel({
   const restrict = async (
     m: ChannelMember,
     pick: { duration: RestrictDuration; reason: string } | null
-  ) => {
+  ): Promise<boolean> => {
     setLifting(null);
     const name = nameOf(m.userId);
     try {
@@ -257,8 +257,10 @@ export function MembersPanel({
           : t('members.lifted', { name })
       );
       void reloadChannels();
+      return true;
     } catch (err) {
       toast.error(t(`errors.${chatErrorKey(err)}`));
+      return false;
     }
   };
 
@@ -491,10 +493,11 @@ export function MembersPanel({
         name={restricting ? nameOf(restricting.userId) : ''}
         open={restricting !== null}
         onOpenChange={(open) => !open && setRestricting(null)}
-        onRestrict={(duration, reason) => {
-          const m = restricting;
-          setRestricting(null);
-          if (m) void restrict(m, { duration, reason });
+        onRestrict={async (duration, reason) => {
+          if (!restricting) return false;
+          const ok = await restrict(restricting, { duration, reason });
+          if (ok) setRestricting(null);
+          return ok;
         }}
       />
       <ConfirmDialog

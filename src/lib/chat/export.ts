@@ -7,7 +7,10 @@ import type { ChannelExport } from './api';
 const BOM = '﻿';
 
 /** RFC 4180: quote a field with a comma, quote or line break; double quotes. */
-function field(v: string): string {
+function field(raw: string): string {
+  // Spreadsheet formula injection: a leading = + - @ tab or CR is read as
+  // a formula, so it gets a leading apostrophe.
+  const v = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 

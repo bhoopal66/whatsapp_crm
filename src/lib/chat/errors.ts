@@ -66,7 +66,9 @@ export type ChatErrorKey =
   | 'restrictedPosting'
   | 'audienceHidesYou'
   // 159's restricted channels
-  | 'outsideAudience';
+  | 'outsideAudience'
+  // 160's posting timeout: the end time was refused
+  | 'restrictEndInvalid';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -144,6 +146,10 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     [/attachment/i, 'attachmentInvalid'],
     [/reason of at least 5 characters|a reason is required/i, 'reasonRequired'],
     [/would hide this channel from you/i, 'audienceHidesYou'],
+    [
+      /the end must be in the future and at most 30 days/i,
+      'restrictEndInvalid',
+    ],
     [/one level of threading|same channel as its root/i, 'threadInvalid'],
     [/internal_messages_body_len/i, 'bodyLength'],
     [/chat_channels_name_check/i, 'nameLength'],

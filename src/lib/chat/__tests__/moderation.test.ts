@@ -6,6 +6,7 @@ import {
   canRestrictMember,
   isChannelModerator,
   moderationReasonValid,
+  reasonLength,
   removedByModerator,
   RESTRICT_DURATION_KEYS,
   restrictionEnd,
@@ -94,6 +95,34 @@ describe('moderationReasonValid', () => {
   });
 });
 
+describe('moderationReasonValid matches chat_assert_reason', () => {
+  it('needs 5 non-whitespace characters, not 5 characters', () => {
+    expect(moderationReasonValid('a b c')).toBe(false);
+    expect(moderationReasonValid('a b c d e')).toBe(true);
+    expect(moderationReasonValid('ab\tcd\nef')).toBe(true);
+    expect(moderationReasonValid('ab cd')).toBe(false);
+  });
+  it('trims only space, tab, CR and LF; NBSP counts as whitespace', () => {
+    expect(reasonLength(' \t\r\nabcde \t\r\n')).toBe(5);
+    expect(reasonLength('\u00a0abcde')).toBe(6);
+    expect(moderationReasonValid('\u00a0\u00a0abc')).toBe(false);
+    expect(moderationReasonValid('abcde\u00a0')).toBe(true);
+  });
+  it('allows 500 after the trim, refuses 501', () => {
+    expect(moderationReasonValid(`  ${'x'.repeat(500)}\n`)).toBe(true);
+    expect(moderationReasonValid('x'.repeat(501))).toBe(false);
+    expect(reasonLength(` ${'x'.repeat(501)} `)).toBe(501);
+  });
+});
+
+describe('30-day timeout', () => {
+  it('ends short of 30 days so clock skew cannot trip the database', () => {
+    const now = Date.parse('2026-10-30T10:00:00Z');
+    const end = Date.parse(restrictUntil('30d', now));
+    expect(30 * 86_400_000 - (end - now)).toBe(5 * 60_000);
+  });
+});
+
 describe('removedByModerator', () => {
   const base = { deletedAt: 'x', authorId: YOU };
   it('is a deletion by someone other than the author', () => {
@@ -127,7 +156,7 @@ describe('timeouts', () => {
     expect(restrictUntil('1d', now)).toBe('2026-10-31T10:00:00.000Z');
     expect(restrictUntil('3d', now)).toBe('2026-11-02T10:00:00.000Z');
     expect(restrictUntil('7d', now)).toBe('2026-11-06T10:00:00.000Z');
-    expect(restrictUntil('30d', now)).toBe('2026-11-29T10:00:00.000Z');
+    expect(restrictUntil('30d', now)).toBe('2026-11-29T09:55:00.000Z');
   });
   it('a restriction counts only while its time is in the future', () => {
     expect(activeRestriction(null, now)).toBeNull();

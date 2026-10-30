@@ -100,7 +100,18 @@ export function PermissionsCard({
       setSaved(draft);
       setConfirming(false);
       toast.success(t('saved'));
-      void reload();
+      await reload().catch(() => undefined);
+      // Show what the database holds, not what was sent (a rule it
+      // normalised or a concurrent admin's change shows up here).
+      try {
+        const m = matrixFromDenied(
+          await rolePermissionRows(supabase, accountId)
+        );
+        setSaved(m);
+        setDraft(m);
+      } catch {
+        // Keep the saved draft; the next load corrects it.
+      }
     } catch (err) {
       toast.error(
         err instanceof ChatError && err.key !== 'unknown'

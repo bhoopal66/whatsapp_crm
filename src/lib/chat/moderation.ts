@@ -10,12 +10,23 @@ import type { ChannelKind, ChannelRole, ChatMessage } from './types';
 export const MODERATION_REASON_MIN = 5;
 export const MODERATION_REASON_MAX = 500;
 
-/** Character count as Postgres's char_length sees it (code points). */
-export const reasonLength = (s: string): number => [...s.trim()].length;
+/** chat_assert_reason trims exactly these: btrim(p, E' \t\r\n'). */
+const trimReason = (s: string): string =>
+  s.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
 
+/** Length after that trim, as Postgres's char_length sees it (code points). */
+export const reasonLength = (s: string): number => [...trimReason(s)].length;
+
+/**
+ * chat_assert_reason: at least 5 non-whitespace characters and at most
+ * 500 after the trim. `\s` also covers NBSP, which Postgres's
+ * [[:space:]] may not: the client errs on the strict side.
+ */
 export function moderationReasonValid(s: string): boolean {
-  const n = reasonLength(s);
-  return n >= MODERATION_REASON_MIN && n <= MODERATION_REASON_MAX;
+  const solid = [...s.replace(/\s/g, '')].length;
+  return (
+    solid >= MODERATION_REASON_MIN && reasonLength(s) <= MODERATION_REASON_MAX
+  );
 }
 
 /** Channel admins moderate only team and private channels. */
@@ -70,7 +81,9 @@ export const RESTRICT_DURATIONS = {
   '1d': 24 * HOUR,
   '3d': 72 * HOUR,
   '7d': 168 * HOUR,
-  '30d': 720 * HOUR,
+  // 5 minutes short: the database refuses an end more than 30 days ahead
+  // by its own clock, so a fast device clock must not trip it.
+  '30d': 720 * HOUR - 5 * 60_000,
 } as const;
 export type RestrictDuration = keyof typeof RESTRICT_DURATIONS;
 export const RESTRICT_DURATION_KEYS = Object.keys(

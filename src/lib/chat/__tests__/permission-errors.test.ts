@@ -45,6 +45,11 @@ const CASES: [string, string, ChatErrorKey][] = [
     'audienceHidesYou',
   ],
   ['42501', "chat: outside this channel's audience", 'outsideAudience'],
+  [
+    '22023',
+    'chat_restrict_member: the end must be in the future and at most 30 days ahead',
+    'restrictEndInvalid',
+  ],
 ];
 
 describe('157/158 refusals → ChatError keys', () => {

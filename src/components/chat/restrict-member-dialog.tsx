@@ -46,11 +46,13 @@ export function RestrictMemberDialog({
   name: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRestrict: (duration: RestrictDuration, reason: string) => void;
+  /** Resolves true when the timeout was set; false keeps the dialog open. */
+  onRestrict: (duration: RestrictDuration, reason: string) => Promise<boolean>;
 }) {
   const t = useTranslations('Chat');
   const [duration, setDuration] = useState<RestrictDuration>('1d');
   const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
   const valid = moderationReasonValid(reason);
   const close = (next: boolean) => {
     if (!next) {
@@ -126,12 +128,15 @@ export function RestrictMemberDialog({
           <Button
             type="button"
             variant="destructive"
-            disabled={!valid}
-            onClick={() => {
-              const r = reason.trim();
-              const d = duration;
-              close(false);
-              onRestrict(d, r);
+            disabled={!valid || busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                // Closed only on success: a failure keeps the typed reason.
+                if (await onRestrict(duration, reason.trim())) close(false);
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             {t('members.restrictConfirm')}

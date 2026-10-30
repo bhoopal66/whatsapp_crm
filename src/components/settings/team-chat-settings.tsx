@@ -78,6 +78,8 @@ const ERASE_ERROR_KEYS = new Set([
   'reasonRequired',
 ]);
 
+const NO_PEOPLE: AccountMember[] = [];
+
 const SELECT =
   'h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60';
 
@@ -116,16 +118,50 @@ export function TeamChatSettings() {
     };
   }, [accountId]);
 
+  // A stable list: a fresh [] each render would re-run the export card's
+  // channel load on every render.
+  const peopleList = useMemo(() => people ?? NO_PEOPLE, [people]);
+
   return (
     <section className="animate-in fade-in-50 max-w-3xl space-y-6 duration-200">
       <SettingsPanelHead title={t('title')} description={t('description')} />
-      <ChatSwitchCard supabase={supabase} accountId={accountId} />
-      <DmRulesCard supabase={supabase} accountId={accountId} />
-      <PermissionsCard supabase={supabase} accountId={accountId} />
-      <MessageRulesCard supabase={supabase} accountId={accountId} />
-      <SensitiveDataCard supabase={supabase} accountId={accountId} />
-      <TeamChatExportCard supabase={supabase} people={people ?? []} />
-      <PrivateReadCard supabase={supabase} people={people ?? []} />
+      {/* Keyed by workspace: a switch remounts each card, so none keeps
+          (or saves) the previous workspace's state. */}
+      <ChatSwitchCard
+        key={`switch:${accountId}`}
+        supabase={supabase}
+        accountId={accountId}
+      />
+      <DmRulesCard
+        key={`dm:${accountId}`}
+        supabase={supabase}
+        accountId={accountId}
+      />
+      <PermissionsCard
+        key={`perm:${accountId}`}
+        supabase={supabase}
+        accountId={accountId}
+      />
+      <MessageRulesCard
+        key={`rules:${accountId}`}
+        supabase={supabase}
+        accountId={accountId}
+      />
+      <SensitiveDataCard
+        key={`sens:${accountId}`}
+        supabase={supabase}
+        accountId={accountId}
+      />
+      <TeamChatExportCard
+        key={`export:${accountId}`}
+        supabase={supabase}
+        people={peopleList}
+      />
+      <PrivateReadCard
+        key={`read:${accountId}`}
+        supabase={supabase}
+        people={peopleList}
+      />
       {isOwner && <EraseCard people={people} peopleFailed={peopleFailed} />}
       <div className="border-border bg-muted/40 text-muted-foreground flex gap-2 rounded-xl border p-4 text-sm">
         <Info className="mt-0.5 size-4 shrink-0" />
