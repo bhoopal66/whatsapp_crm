@@ -69,6 +69,14 @@ export interface NavItem {
    * row is hidden, as a gated row is while the role loads.
    */
   needsPbx?: boolean;
+  /**
+   * The route's own layout guards it on the server (one of the
+   * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
+   * the session there makes the route dynamic, so the default `auto`
+   * prefetch stops at the dashboard's loading boundary and the click
+   * waits out a round trip; see {@link navPrefetch}.
+   */
+  guarded?: boolean;
 }
 
 /** What the sidebar knows beyond the role. */
@@ -116,8 +124,13 @@ export const NAV_GROUPS: NavGroup[] = [
       // Video meetings (migration 106): every staff role, never a bank
       // guest; the route's layout turns a guest away on the server, and
       // which meetings come back is RLS's call (`meeting_can_view`).
-      { href: '/meetings', labelKey: 'meetings', icon: Video },
-      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
+      { href: '/meetings', labelKey: 'meetings', icon: Video, guarded: true },
+      {
+        href: '/calendar',
+        labelKey: 'calendar',
+        icon: CalendarDays,
+        guarded: true,
+      },
     ],
   },
   {
@@ -128,12 +141,23 @@ export const NAV_GROUPS: NavGroup[] = [
       // Missed calls and the call log (module 015). Staff only: the
       // route's layout turns a bank guest away; which calls come back is
       // RLS's call (`pbx_can_view_call`).
-      { href: '/calls', labelKey: 'calls', icon: Phone, needsPbx: true },
+      {
+        href: '/calls',
+        labelKey: 'calls',
+        icon: Phone,
+        needsPbx: true,
+        guarded: true,
+      },
       // WhatsApp groups on the Whapi numbers (migration 114): every staff
       // role, never a bank guest; the route's layout turns a guest away,
       // and which groups come back is RLS's call
       // (whatsapp_group_visible_ids).
-      { href: '/groups', labelKey: 'whatsappGroups', icon: UsersRound },
+      {
+        href: '/groups',
+        labelKey: 'whatsappGroups',
+        icon: UsersRound,
+        guarded: true,
+      },
     ],
   },
   {
@@ -152,6 +176,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'journeys',
         icon: Route,
         minRole: 'agent',
+        guarded: true,
       },
     ],
   },
@@ -167,6 +192,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'cases',
         icon: Briefcase,
         minRole: 'agent',
+        guarded: true,
       },
       // Submission groups (module 018a): one WhatsApp group per submitted
       // case. Agent and up (the route's AgentOnlyLayout); which groups
@@ -176,6 +202,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'submissionGroups',
         icon: FolderKanban,
         minRole: 'agent',
+        guarded: true,
       },
       // Partner banks (module 019): agent and up, like Cases.
       {
@@ -183,6 +210,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'banks',
         icon: Landmark,
         minRole: 'agent',
+        guarded: true,
       },
     ],
   },
@@ -198,12 +226,14 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamInbox',
         icon: Inbox,
         minRole: 'team_leader',
+        guarded: true,
       },
       {
         href: '/team-contacts',
         labelKey: 'teamContacts',
         icon: ContactRound,
         minRole: 'team_leader',
+        guarded: true,
       },
       // Who starts chats and how many get an answer, against the limits
       // that keep a Whapi number from being restricted (migration 068).
@@ -213,6 +243,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamActivity',
         icon: Activity,
         minRole: 'team_leader',
+        guarded: true,
       },
     ],
   },
@@ -227,12 +258,14 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'broadcasts',
         icon: Radio,
         minRole: 'admin',
+        guarded: true,
       },
       {
         href: '/automations',
         labelKey: 'automations',
         icon: Zap,
         minRole: 'admin',
+        guarded: true,
       },
       {
         href: '/flows',
@@ -240,6 +273,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Workflow,
         beta: true,
         minRole: 'admin',
+        guarded: true,
       },
     ],
   },
@@ -254,6 +288,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'compass',
         icon: Building2,
         minRole: 'admin',
+        guarded: true,
       },
       // Contacts the OpenDesk sales app marked Interested (migration
       // 139) — sales-app PII, admin+ like its RLS.
@@ -262,6 +297,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'opendesk',
         icon: Headset,
         minRole: 'admin',
+        guarded: true,
       },
     ],
   },
@@ -320,4 +356,18 @@ export function isNavItemVisible(
 export function isNavItemActive(href: string, pathname: string): boolean {
   if (pathname === href) return true;
   return href !== '/dashboard' && pathname.startsWith(`${href}/`);
+}
+
+/**
+ * The sidebar row's `<Link prefetch>`. A {@link NavItem.guarded} route is
+ * dynamic, so `auto` prefetches only down to the dashboard's loading
+ * boundary and the click still waits out the RSC round trip (~0.4–0.7 s
+ * through the tunnel). `true` prefetches it fully and the router holds
+ * it for `staleTimes.static` (next.config.ts), guard answer included;
+ * the rows are rendered only for a role that may open them, and RLS is
+ * what keeps the data from a demoted user. Every other row is a static
+ * route that `auto` already prefetches fully: null keeps the default.
+ */
+export function navPrefetch(item: NavItem): true | null {
+  return item.guarded ? true : null;
 }

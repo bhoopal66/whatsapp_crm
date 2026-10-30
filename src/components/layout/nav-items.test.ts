@@ -8,6 +8,7 @@ import {
   NAV_GROUPS,
   isNavItemActive,
   isNavItemVisible,
+  navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
   type NavGroup,
@@ -187,6 +188,21 @@ describe('nav model', () => {
     }
   });
 
+  // A guarded route is dynamic, so only a full prefetch saves the click
+  // its round trip. A row marked guarded with no guard (or a guard the
+  // row does not know about) drifts the prefetch away from the route.
+  it("marks a row guarded exactly when its route's layout guards it", () => {
+    const appDir = join(process.cwd(), 'src', 'app', '(dashboard)');
+    for (const item of ALL_ITEMS) {
+      const file = join(appDir, item.href.slice(1), 'layout.tsx');
+      const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const guarded = /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(
+        source
+      );
+      expect(!!item.guarded, item.href).toBe(guarded);
+    }
+  });
+
   // /calls had no guard: a bank guest who typed the URL got the screen
   // (its API answered 403, but the page was theirs to open).
   it.each(['calls', 'groups', 'meetings', 'calendar'])(
@@ -199,6 +215,37 @@ describe('nav model', () => {
       expect(source).toContain('StaffOnlyLayout');
     }
   );
+});
+
+describe('navPrefetch', () => {
+  it('fully prefetches the guarded routes and leaves the rest on auto', () => {
+    const full = ALL_ITEMS.filter((item) => navPrefetch(item) === true).map(
+      (item) => item.href
+    );
+    expect(full.sort()).toEqual(
+      [
+        '/automations',
+        '/banks',
+        '/broadcasts',
+        '/calendar',
+        '/calls',
+        '/cases',
+        '/compass',
+        '/flows',
+        '/groups',
+        '/journeys',
+        '/meetings',
+        '/opendesk',
+        '/submission-groups',
+        '/team-activity',
+        '/team-contacts',
+        '/team-inbox',
+      ].sort()
+    );
+    for (const item of ALL_ITEMS) {
+      if (!item.guarded) expect(navPrefetch(item), item.href).toBeNull();
+    }
+  });
 });
 
 describe('isNavItemActive', () => {

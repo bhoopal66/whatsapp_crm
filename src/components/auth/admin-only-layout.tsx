@@ -12,7 +12,8 @@ import {
 
 /**
  * Server-side gate for the workspace-configuration screens —
- * Pipelines, Broadcasts, Automations, Flows and AI Agents.
+ * Broadcasts, Automations, Flows, AI Agents, Compass and OpenDesk.
+ * (Pipelines is everyone's since migration 080 and has no guard.)
  *
  * Those screens shape how the whole account operates, so they are
  * admin+ only. The sidebar already hides them from agents and viewers,
@@ -20,7 +21,10 @@ import {
  * still bookmarkable, and still in the browser history of anyone who
  * was an admin yesterday. This runs on the server, before the page
  * renders, so the answer does not depend on what the client believes
- * its role to be.
+ * its role to be. The browser's router may hold the answer for up to
+ * five minutes (the sidebar fully prefetches these rows; see
+ * `staleTimes` in next.config.ts), which is why RLS, not this, is what
+ * keeps the data from a demoted user.
  *
  * `canEditSettings` rather than a bare role comparison, so this moves
  * in lockstep with the rest of the admin surface if the policy ever
@@ -61,7 +65,11 @@ export async function AdminOnlyLayout({ children }: { children: ReactNode }) {
  * Same shape as {@link AdminOnlyLayout}, including keeping the
  * redirects outside the try — `redirect()` throws to do its job.
  */
-export async function TeamLeaderOnlyLayout({ children }: { children: ReactNode }) {
+export async function TeamLeaderOnlyLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
   let signedIn = true;
   let allowed = false;
 

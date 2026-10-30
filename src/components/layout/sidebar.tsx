@@ -27,6 +27,7 @@ import type { AccountRole } from '@/lib/auth/roles';
 import { workspaceHomePath } from '@/lib/auth/my-workspaces';
 import {
   isNavItemActive,
+  navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
   type NavItem,
@@ -217,6 +218,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <li key={item.href}>
         <Link
           href={item.href}
+          prefetch={navPrefetch(item)}
           aria-current={isActive ? 'page' : undefined}
           className={cn(
             // Taller on mobile so fingers can hit the row reliably (≥44px);
