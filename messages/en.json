@@ -4585,6 +4585,7 @@
     "actions": {
       "toolbar": "Message actions",
       "more": "More actions",
+      "quoteReply": "Reply",
       "replyInThread": "Reply in thread",
       "edit": "Edit",
       "delete": "Delete",
@@ -4606,6 +4607,16 @@
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete"
+    },
+    "quote": {
+      "loading": "Loading the quoted message…",
+      "deleted": "This message was deleted.",
+      "erased": "This message was erased.",
+      "unavailable": "This message isn’t available.",
+      "voice": "Voice message · {length}",
+      "forwarded": "Forwarded · {date}",
+      "forwardedFrom": "Forwarded from {name} · {date}",
+      "jumpLabel": "Go to the message from {name}"
     },
     "history": {
       "title": "Edit history",

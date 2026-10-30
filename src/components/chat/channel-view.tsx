@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useChannelMembers } from '@/hooks/use-channel-members';
@@ -21,6 +22,8 @@ import { useChatWorkspaceContext } from './chat-context';
 import type { RowActionContext } from './message-actions';
 import { useMessageMarks } from './message-marks';
 import { MessageTimeline } from './message-timeline';
+import { QuoteProvider, useQuoteResolver } from './quotes';
+import { ReplyTargetProvider } from './reply-target';
 import { SeenBy } from './seen-by';
 import { useWriteBlock } from './use-write-block';
 
@@ -75,6 +78,42 @@ export function ChannelView({
   const { canManageMembers } = useAuth();
   const marks = useMessageMarks();
   const block = useWriteBlock(channel);
+
+  // A quote's jump is local state fed to the timeline's own paging and
+  // highlight, not ?message=: with ?thread= open that would focus the
+  // thread root, and jumpQuery may close the thread. A ?message= jump
+  // takes precedence and drops a pending quote jump.
+  const [quoteFocus, setQuoteFocus] = useState<string | null>(null);
+  const [urlFocus, setUrlFocus] = useState(focusMessageId ?? null);
+  if ((focusMessageId ?? null) !== urlFocus) {
+    setUrlFocus(focusMessageId ?? null);
+    if (focusMessageId) setQuoteFocus(null);
+  }
+  const timelineFocusId = focusMessageId || quoteFocus;
+  const jumpToQuote = useCallback(
+    (id: string) => {
+      // Already on its way there (the timeline keys its jump by id).
+      if (id === focusMessageId) return;
+      setQuoteFocus(id);
+    },
+    [focusMessageId]
+  );
+  const onTimelineFocusDone = useCallback(
+    (found: boolean) => {
+      if (focusMessageId) {
+        onFocusDone?.(found);
+        return;
+      }
+      setQuoteFocus(null);
+      if (!found) toast.error(t('channel.jumpFailed'));
+    },
+    [focusMessageId, onFocusDone, t]
+  );
+  const getQuote = useQuoteResolver(channelId, tl.messages);
+  const quoteLookup = useMemo(
+    () => ({ get: getQuote, jump: jumpToQuote }),
+    [getQuote, jumpToQuote]
+  );
 
   // Frozen per visit (derived state, set during render): captured from
   // the channel list's own membership row the moment the channel is
@@ -186,41 +225,43 @@ export function ChannelView({
           {t('channel.dealRoomNote')}
         </p>
       ) : (
-        <>
-          <MessageTimeline
-            messages={tl.messages}
-            cards={tl.cards}
-            callCards={tl.callCards}
-            hasMoreOlder={tl.hasMoreOlder}
-            loading={tl.loading}
-            loadingOlder={tl.loadingOlder}
-            onLoadOlder={tl.loadOlder}
-            onToggleReaction={tl.toggle}
-            onOpenThread={onOpenThread}
-            actions={actions}
-            focusId={focusMessageId}
-            onFocusDone={onFocusDone}
-            unreadId={unreadId}
-            after={
-              seenMessage &&
-              members &&
-              showsReceipts(channel.kind, members.length)
-                ? {
-                    id: seenMessage.id,
-                    node: (
-                      <SeenBy
-                        message={seenMessage}
-                        kind={channel.kind}
-                        members={members}
-                        peopleById={ws.peopleById}
-                      />
-                    ),
-                  }
-                : null
-            }
-          />
-          {footer}
-        </>
+        <ReplyTargetProvider scope={channelId}>
+          <QuoteProvider value={quoteLookup}>
+            <MessageTimeline
+              messages={tl.messages}
+              cards={tl.cards}
+              callCards={tl.callCards}
+              hasMoreOlder={tl.hasMoreOlder}
+              loading={tl.loading}
+              loadingOlder={tl.loadingOlder}
+              onLoadOlder={tl.loadOlder}
+              onToggleReaction={tl.toggle}
+              onOpenThread={onOpenThread}
+              actions={actions}
+              focusId={timelineFocusId}
+              onFocusDone={onTimelineFocusDone}
+              unreadId={unreadId}
+              after={
+                seenMessage &&
+                members &&
+                showsReceipts(channel.kind, members.length)
+                  ? {
+                      id: seenMessage.id,
+                      node: (
+                        <SeenBy
+                          message={seenMessage}
+                          kind={channel.kind}
+                          members={members}
+                          peopleById={ws.peopleById}
+                        />
+                      ),
+                    }
+                  : null
+              }
+            />
+            {footer}
+          </QuoteProvider>
+        </ReplyTargetProvider>
       )}
     </div>
   );

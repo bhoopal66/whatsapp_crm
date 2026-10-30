@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { FileText, Sparkles } from 'lucide-react';
 
 import {
@@ -30,6 +30,8 @@ import {
   useMessageEdits,
   type RowActionContext,
 } from './message-actions';
+import { ForwardedLine, forwardedText, QuoteBlock } from './quote-block';
+import { useQuoteLookup } from './quotes';
 import { RichText } from './rich-text';
 import { SharedCallCardBox } from './shared-call-card';
 import { SharedConversationCard } from './shared-conversation-card';
@@ -124,7 +126,10 @@ export function MessageRow({
 }: MessageRowProps) {
   const t = useTranslations('Chat');
   const tRole = useTranslations('Sidebar');
+  const tQuote = useTranslations('Chat.quote');
+  const format = useFormatter();
   const { peopleById, people, userId } = useChatWorkspaceContext();
+  const quotes = useQuoteLookup();
   const edits = useMessageEdits(message);
   const rowRef = useRef<HTMLDivElement>(null);
   const m = edits.shown;
@@ -169,6 +174,34 @@ export function MessageRow({
         }
       />
     );
+
+  // A tombstone shows nothing of what it was: no quote, no origin.
+  const live = !m.deletedAt && !m.erasedAt;
+  const replyToId = live ? m.replyToId : null;
+  const quoted = replyToId ? quotes.get(replyToId) : null;
+  const jump = quotes.jump;
+  const quote = replyToId && (
+    <QuoteBlock
+      target={quoted}
+      people={people}
+      unknownName={t('unknownPerson')}
+      systemName={t('timeline.system')}
+      label={(key, values) => tQuote(key, values)}
+      onJump={quoted && jump ? () => jump(replyToId) : undefined}
+    />
+  );
+  const forwarded = live && m.forwarded && (
+    <ForwardedLine
+      text={forwardedText(
+        m.forwarded,
+        people,
+        format.dateTime(new Date(m.forwarded.createdAt.replace(' ', 'T')), {
+          dateStyle: 'medium',
+        }),
+        (key, values) => tQuote(key, values)
+      )}
+    />
+  );
 
   if (edits.editing && !m.deletedAt)
     body = (
@@ -229,6 +262,8 @@ export function MessageRow({
             <span className="text-muted-foreground"> · {time}</span>
           </p>
         )}
+        {forwarded}
+        {quote}
         {body}
         {m.attachments.length > 0 && (
           <div

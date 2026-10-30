@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 
@@ -32,10 +32,14 @@ import { useChatWorkspaceContext } from './chat-context';
 import { Composer } from './composer';
 import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
+import { QuoteProvider, useQuoteResolver } from './quotes';
+import { ReplyTargetProvider } from './reply-target';
 import { useWriteBlock } from './use-write-block';
 
 /** Replies read at once; a longer thread shows its latest ones. */
 const REPLY_LIMIT = 200;
+/** How long a quote's jump target stays tinted (as in the main timeline). */
+const HIGHLIGHT_MS = 2000;
 
 export interface ThreadPanelProps {
   channelId: string;
@@ -162,6 +166,35 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   );
 
   const rootMsg = root.messages.find((m) => m.id === rootId) ?? null;
+
+  // A quote in the thread names the root or another reply (156), so its
+  // jump stays inside this panel; one not shown here does nothing.
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
+  const shown = useMemo(
+    () => (rootMsg ? [rootMsg, ...replies.messages] : replies.messages),
+    [rootMsg, replies.messages]
+  );
+  const getQuote = useQuoteResolver(channelId, shown);
+  const quoteLookup = useMemo(
+    () => ({
+      get: getQuote,
+      jump: (id: string) => {
+        const row = scrollerRef.current?.querySelector(
+          `[data-message-id="${CSS.escape(id)}"]`
+        );
+        if (!row) return;
+        row.scrollIntoView({ block: 'center' });
+        setHighlightId(id);
+      },
+    }),
+    [getQuote]
+  );
   const label = channel
     ? `${channel.kind === 'dm' ? '' : '#'}${channelDisplayName(
         channel,
@@ -200,57 +233,64 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
           <X className="size-4" />
         </button>
       </header>
-      {/* useNearViewport's root: voice notes load a screen ahead. */}
-      <div
-        data-inbox-scroll-root=""
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
-      >
-        {loading ? (
-          <p className="text-muted-foreground p-6 text-center text-sm">
-            {t('thread.loading')}
-          </p>
-        ) : rootMsg ? (
-          <>
-            <MessageRow
-              message={rootMsg}
-              grouped={false}
-              card={card ?? undefined}
-              callCard={callCard ?? undefined}
-              actions={actions}
-              onToggleReaction={toggle}
+      <ReplyTargetProvider scope={`${channelId}:${rootId}`}>
+        <QuoteProvider value={quoteLookup}>
+          {/* useNearViewport's root: voice notes load a screen ahead. */}
+          <div
+            ref={scrollerRef}
+            data-inbox-scroll-root=""
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
+          >
+            {loading ? (
+              <p className="text-muted-foreground p-6 text-center text-sm">
+                {t('thread.loading')}
+              </p>
+            ) : rootMsg ? (
+              <>
+                <MessageRow
+                  message={rootMsg}
+                  grouped={false}
+                  card={card ?? undefined}
+                  callCard={callCard ?? undefined}
+                  actions={actions}
+                  onToggleReaction={toggle}
+                  highlighted={rootMsg.id === highlightId}
+                />
+                <div className="flex items-center gap-3 px-4 pt-3 pb-1">
+                  <span className="text-muted-foreground text-xs font-medium">
+                    {t('thread.replies', {
+                      count: rootMsg.thread?.replyCount ?? 0,
+                    })}
+                  </span>
+                  <span className="bg-border h-px flex-1" />
+                </div>
+                {replies.messages.map((m, i) => (
+                  <MessageRow
+                    key={m.id}
+                    message={m}
+                    grouped={isGroupedWithPrevious(replies.messages[i - 1], m)}
+                    actions={actions}
+                    onToggleReaction={toggle}
+                    highlighted={m.id === highlightId}
+                  />
+                ))}
+              </>
+            ) : (
+              <p className="text-muted-foreground p-6 text-center text-sm">
+                {t('thread.gone')}
+              </p>
+            )}
+          </div>
+          {rootMsg && !rootMsg.deletedAt && (
+            <Composer
+              key={rootId}
+              channelId={channelId}
+              threadRootId={rootId}
+              sharedCard={card}
             />
-            <div className="flex items-center gap-3 px-4 pt-3 pb-1">
-              <span className="text-muted-foreground text-xs font-medium">
-                {t('thread.replies', {
-                  count: rootMsg.thread?.replyCount ?? 0,
-                })}
-              </span>
-              <span className="bg-border h-px flex-1" />
-            </div>
-            {replies.messages.map((m, i) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                grouped={isGroupedWithPrevious(replies.messages[i - 1], m)}
-                actions={actions}
-                onToggleReaction={toggle}
-              />
-            ))}
-          </>
-        ) : (
-          <p className="text-muted-foreground p-6 text-center text-sm">
-            {t('thread.gone')}
-          </p>
-        )}
-      </div>
-      {rootMsg && !rootMsg.deletedAt && (
-        <Composer
-          key={rootId}
-          channelId={channelId}
-          threadRootId={rootId}
-          sharedCard={card}
-        />
-      )}
+          )}
+        </QuoteProvider>
+      </ReplyTargetProvider>
     </aside>
   );
 }

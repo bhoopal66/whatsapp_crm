@@ -4585,6 +4585,7 @@
     "actions": {
       "toolbar": "메시지 작업",
       "more": "작업 더 보기",
+      "quoteReply": "답장",
       "replyInThread": "스레드에 답글",
       "edit": "수정",
       "delete": "삭제",
@@ -4606,6 +4607,16 @@
       "deleteTitle": "이 메시지를 삭제할까요?",
       "deleteBody": "채널의 모든 사람에게 “삭제된 메시지입니다.”로 표시됩니다. 첨부 파일도 함께 삭제됩니다.",
       "deleteConfirm": "삭제"
+    },
+    "quote": {
+      "loading": "인용한 메시지를 불러오는 중…",
+      "deleted": "삭제된 메시지입니다.",
+      "erased": "지워진 메시지입니다.",
+      "unavailable": "볼 수 없는 메시지입니다.",
+      "voice": "음성 메시지 · {length}",
+      "forwarded": "전달됨 · {date}",
+      "forwardedFrom": "{name}님의 메시지 전달 · {date}",
+      "jumpLabel": "{name}님의 메시지로 이동"
     },
     "history": {
       "title": "수정 기록",

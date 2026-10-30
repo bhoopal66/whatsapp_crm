@@ -14,6 +14,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Reply,
   SmilePlus,
   Trash2,
 } from 'lucide-react';
@@ -65,6 +66,7 @@ import { cn } from '@/lib/utils';
 import { useChatWorkspaceContext } from './chat-context';
 import { useMessageMarks } from './message-marks';
 import { MentionTextarea } from './mention-textarea';
+import { useReplyTarget } from './reply-target';
 
 /** What every row of one view shares for messageActions(). */
 export interface RowActionContext {
@@ -236,7 +238,8 @@ function EditHistoryList({ messageId }: { messageId: string }) {
 
 /**
  * The hover toolbar of a message row (the row needs `group relative`):
- * quick reactions, Reply in thread and a "⋯" menu with the rest. On a
+ * quick reactions, Reply (a quote, where the view has a composer to
+ * quote into), Reply in thread and a "⋯" menu with the rest. On a
  * touch screen only the "⋯" shows, always, and its menu has everything.
  * Exactly the actions messageActions() allows.
  */
@@ -265,6 +268,10 @@ export function MessageActions({
   const [confirming, setConfirming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const can = messageActions(m, ctx);
+  const replyTarget = useReplyTarget();
+  // Only inside a composer's ReplyTargetProvider (channel view, thread panel).
+  const quotes = can.quote && replyTarget.available;
+  const quote = () => replyTarget.set(m);
   const history = canViewEditHistory(m, ctx.workspaceAdmin);
   const pinned = marks.pinned.has(m.id);
   const saved = marks.saved.has(m.id);
@@ -288,6 +295,16 @@ export function MessageActions({
     !Object.values(can).some(Boolean)
       ? []
       : [
+          ...(quotes
+            ? [
+                {
+                  id: 'quote',
+                  label: t('actions.quoteReply'),
+                  icon: Reply,
+                  onSelect: quote,
+                },
+              ]
+            : []),
           ...(can.thread
             ? [
                 {
@@ -423,6 +440,17 @@ export function MessageActions({
               {emoji}
             </button>
           ))}
+        {quotes && (
+          <button
+            type="button"
+            aria-label={t('actions.quoteReply')}
+            title={t('actions.quoteReply')}
+            onClick={quote}
+            className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
+          >
+            <Reply className="size-4" aria-hidden />
+          </button>
+        )}
         {can.thread && (
           <button
             type="button"
@@ -456,6 +484,12 @@ export function MessageActions({
                   </DropdownMenuItem>
                 ))}
               </div>
+            )}
+            {quotes && (
+              <DropdownMenuItem onClick={quote}>
+                <Reply aria-hidden />
+                {t('actions.quoteReply')}
+              </DropdownMenuItem>
             )}
             {can.thread && (
               <DropdownMenuItem onClick={thread}>
