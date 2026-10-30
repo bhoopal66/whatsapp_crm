@@ -12,6 +12,29 @@ and polish.
 
 ## [Unreleased]
 
+### Fixes: drafts stay with their chat, OpenWA menu answers, unsent attachments
+
+**Migration required: 155_chat_media_staged_sweep.sql**. Additive and
+re-runnable. Without it the hourly clean-up of unsent attachments logs
+an error and deletes nothing; everything else works.
+- **Each chat keeps its own draft.** Switching chats no longer carries
+  what you typed, an attached file or a reply quote into the next chat,
+  where it could go to the wrong customer. The draft waits with its own
+  chat and comes back when you return (while the tab stays open). A file
+  still uploading, a voice note or an AI draft that finishes after you
+  switch goes to the chat it was started in.
+- **Unsent attachments are cleaned up.** A file attached in the inbox
+  but never sent is deleted after 7 days. Sent attachments and template
+  and broadcast headers are never touched.
+- **OpenWA menus understand typed answers.** On an OpenWA number, where
+  buttons and lists arrive as a numbered list, a customer who types the
+  number (Arabic digits and "option 2" too) or the option's exact name
+  moves the flow on, with or without Smart insights. Menus sent by
+  automations or the journey bot are not matched yet.
+- **A team leader's Inbox stays theirs.** A teammate's brand-new chat no
+  longer pops into a team leader's personal Inbox; it is in the Team
+  inbox, as before.
+
 ### Translate Arabic messages in the inbox
 
 **Migration required: 154_message_translations.sql**, applied with 153,

@@ -1356,6 +1356,14 @@ knowledge-gap topics. `docs/jev-insights.md` is the contract.
 - **The message check never blocks.** Errors and a 2.5 s timeout send at
   once; a chat switch mid-check parks the text/attachment for its own chat
   (`compose-check-flow.ts`). Only warning codes are logged.
+- **Drafts are per chat.** Every chat switch (and leaving the inbox)
+  parks the composer's text, staged attachment and reply quote for the
+  chat left and restores the opened chat's own, silently; only a switch
+  during a check shows the "wasn't sent" notice. The stash is per tab and
+  per login (emptied, its files deleted, when another user signs in). An
+  upload, voice note or AI draft that finishes after a switch is parked
+  for, or dropped from, the chat it started in, never put in the open
+  one. A parked attachment is never deleted while it can come back.
 - **Precedence.** Active run › campaign follow-up flow › keyword / first
   inbound › meaning triggers; at most one `intent_match` automation per
   message, none when a `keyword_match` automation ran; `intent_match` is
