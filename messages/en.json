@@ -4725,6 +4725,7 @@
       "outsideAudience": "You're outside this channel's audience, so you can't post or join here."
     },
     "composer": {
+      "dropsPaused": "Finish or discard the voice note before adding files.",
       "replyingTo": "Replying to {name}",
       "cancelReply": "Cancel reply",
       "replyVoice": "Voice message ({length})",

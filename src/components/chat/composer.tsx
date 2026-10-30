@@ -44,8 +44,10 @@ import { typingStep } from '@/lib/chat/typing-flow';
 import {
   acceptFiles,
   blockFromError,
+  chipsAfterSend,
   composeBody,
   decodeDraft,
+  draftAfterSend,
   draftStorageKey,
   encodeDraft,
   type ComposerBlock,
@@ -167,28 +169,36 @@ const FORMAT_BUTTONS: {
 ];
 
 /**
- * Whether a channel has a bank guest in it, asked once per channel for
- * the page session (the sensitive-data guard's 'guests' scope, 158).
- * A failed lookup answers null and is asked again next time.
+ * Whether a channel has a bank guest in it (the sensitive-data guard's
+ * 'guests' scope, 158), remembered for at most a minute so a guest
+ * added later is noticed. A failed lookup answers null and is asked
+ * again next time.
  */
-const guestStatus = new Map<string, Promise<boolean | null>>();
+const GUEST_STATUS_TTL_MS = 60_000;
+const guestStatus = new Map<
+  string,
+  { at: number; answer: Promise<boolean | null> }
+>();
 function channelHasGuest(
   sb: SupabaseClient,
   channelId: string
 ): Promise<boolean | null> {
   const key = channelId.toLowerCase();
-  let p = guestStatus.get(key);
-  if (!p) {
-    p = channelsWithGuests(sb, [channelId]).then(
+  const now = Date.now();
+  const hit = guestStatus.get(key);
+  if (hit && now - hit.at < GUEST_STATUS_TTL_MS) return hit.answer;
+  const entry = {
+    at: now,
+    answer: channelsWithGuests(sb, [channelId]).then(
       (set) => set.has(channelId) || set.has(key),
       () => {
-        guestStatus.delete(key);
+        if (guestStatus.get(key) === entry) guestStatus.delete(key);
         return null;
       }
-    );
-    guestStatus.set(key, p);
-  }
-  return p;
+    ),
+  };
+  guestStatus.set(key, entry);
+  return entry.answer;
 }
 
 type Notice =
@@ -276,6 +286,13 @@ export function Composer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const reply = useReplyTarget();
   const replyId = reply.target?.id ?? null;
+  // The draft and reply target as they are now, for a send that settles
+  // after the person typed on or picked another message to quote.
+  const draftRef = useRef(draft);
+  const replyIdRef = useRef(replyId);
+  useEffect(() => {
+    replyIdRef.current = replyId;
+  }, [replyId]);
   const [formatBar, setFormatBar] = useState(false);
 
   // Typing indicator (156): when the last "typing" went out, null when
@@ -304,8 +321,14 @@ export function Composer({
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [take, setTake] = useState<VoiceTake | null>(null);
   const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  // Set before any stop that must not stage a take (cancel, unmount).
-  const cancelledRef = useRef(false);
+  // The live recording's own token, captured by its ondataavailable: a
+  // take is staged only while its token is still this one and was not
+  // cancelled (cancel, unmount), so a late callback from an earlier
+  // recorder can never bring a discarded take back.
+  const takeTokenRef = useRef<{ cancelled: boolean } | null>(null);
+  // Recorders whose stop() has not settled yet; the mic stays disabled
+  // until then.
+  const [stopsPending, setStopsPending] = useState(0);
   const startingRef = useRef(false);
   const aliveRef = useRef(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -328,8 +351,18 @@ export function Composer({
   const stopRecorder = useCallback(() => {
     const recorder = recorderRef.current;
     recorderRef.current = null;
-    void recorder?.stop().catch(() => {});
+    if (recorder) {
+      setStopsPending((n) => n + 1);
+      void recorder
+        .stop()
+        .catch(() => {})
+        .finally(() => setStopsPending((n) => n - 1));
+    }
     chatRecorderGuard.release(recorderOwner.current);
+  }, []);
+
+  const cancelTake = useCallback(() => {
+    if (takeTokenRef.current) takeTokenRef.current.cancelled = true;
   }, []);
 
   const dropTake = useCallback(() => {
@@ -344,16 +377,17 @@ export function Composer({
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
-      cancelledRef.current = true;
+      cancelTake();
       clearTimer();
       stopRecorder();
       if (takeUrlRef.current) URL.revokeObjectURL(takeUrlRef.current);
       takeUrlRef.current = null;
     };
-  }, [clearTimer, stopRecorder]);
+  }, [clearTimer, stopRecorder, cancelTake]);
 
-  const stageTake = (bytes: Uint8Array) => {
-    if (cancelledRef.current || !aliveRef.current) return;
+  const stageTake = (bytes: Uint8Array, token: { cancelled: boolean }) => {
+    if (token.cancelled || token !== takeTokenRef.current || !aliveRef.current)
+      return;
     // Uint8Array is a BlobPart at runtime; the cast sidesteps lib.dom's
     // ArrayBufferLike-vs-ArrayBuffer generic mismatch.
     const file = new File(
@@ -373,7 +407,8 @@ export function Composer({
   };
 
   const startRecording = async () => {
-    if (recording || startingRef.current || sending || take) return;
+    if (recording || startingRef.current || sending || take || stopsPending)
+      return;
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof AudioContext === 'undefined'
@@ -398,13 +433,14 @@ export function Composer({
         encoderSampleRate: 48000,
         streamPages: false, // one callback with the whole file on stop
       });
-      cancelledRef.current = false;
-      recorder.ondataavailable = stageTake;
+      const token = { cancelled: false };
+      takeTokenRef.current = token;
+      recorder.ondataavailable = (bytes) => stageTake(bytes, token);
       recorderRef.current = recorder;
       await recorder.start();
       // Unmounted (or cancelled) while the permission prompt was open.
       if (!aliveRef.current || recorderRef.current !== recorder) {
-        cancelledRef.current = true;
+        token.cancelled = true;
         void recorder.stop().catch(() => {});
         return;
       }
@@ -418,7 +454,7 @@ export function Composer({
         1000
       );
     } catch {
-      cancelledRef.current = true;
+      cancelTake();
       stopRecorder();
       if (aliveRef.current) toast.error(t('voice.micDenied'));
     } finally {
@@ -437,12 +473,12 @@ export function Composer({
   }, [clearTimer, stopRecorder]);
 
   const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
+    cancelTake();
     startedAtRef.current = null;
     clearTimer();
     setRecording(false);
     stopRecorder();
-  }, [clearTimer, stopRecorder]);
+  }, [clearTimer, stopRecorder, cancelTake]);
 
   // The meter taps the recorder's own graph.
   const getLevelSource = useCallback(() => recorderRef.current, []);
@@ -590,6 +626,54 @@ export function Composer({
     };
   }, [pageDrops]);
 
+  // While drops are closed the page still swallows a dropped file, or
+  // the browser would open it in the tab over a recording or a take. A
+  // drag the voice note paused is told so, once per drag.
+  const pageDropsPaused = !dropsOpen && !threadRootId;
+  const voicePaused = recording || !!take;
+  const onPausedDrag = useEffectEvent(() => {
+    if (voicePaused) toast.info(t('composer.dropsPaused'));
+  });
+  useEffect(() => {
+    if (!pageDropsPaused) return;
+    let depth = 0;
+    let told = false;
+    const onEnter = (e: DragEvent) => {
+      if (carriesFiles(e.dataTransfer)) depth = nextDragDepth(depth, 'enter');
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      depth = nextDragDepth(depth, 'leave');
+      if (depth === 0) told = false;
+    };
+    const onOver = (e: DragEvent) => {
+      // The thread composer took this spot (its drops may be open).
+      if (!carriesFiles(e.dataTransfer) || e.defaultPrevented) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      if (!told) {
+        told = true;
+        onPausedDrag();
+      }
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      depth = nextDragDepth(depth, 'drop');
+      told = false;
+      if (!e.defaultPrevented) e.preventDefault();
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [pageDropsPaused]);
+
   const threadDropOpen = dropsOpen && !!threadRootId;
   const threadDropHandlers = threadDropOpen
     ? {
@@ -646,7 +730,7 @@ export function Composer({
 
   const changeDraft = (d: ComposerDraft) => {
     const step = typingStep({
-      prevText: draft.text,
+      prevText: draftRef.current.text,
       nextText: d.text,
       lastSentAt: typingSentAt.current,
       now: Date.now(),
@@ -654,6 +738,7 @@ export function Composer({
     });
     if (step) tellTyping(step === 'start');
     setNotice(null);
+    draftRef.current = d;
     setDraft(d);
     writeDraft(storageKey, d);
   };
@@ -719,16 +804,22 @@ export function Composer({
           return;
         }
       }
+      // What this send carries: input added while it is in flight
+      // (typing, a new file, another Reply) stays for the next one.
+      const sentDraft = draft;
+      const sentChips = new Set(chips.map((c) => c.id));
+      const sentReplyId = replyId;
       const id = await postMessage(ws.sb, {
         channelId,
         body: composed.body,
         threadRootId,
-        replyToId: reply.target?.id,
+        replyToId: sentReplyId ?? undefined,
         attachments: chipInputs(chips),
       });
-      changeDraft(EMPTY_DRAFT);
-      setChips([]);
-      reply.clear();
+      const left = draftAfterSend(draftRef.current, sentDraft);
+      if (left !== draftRef.current) changeDraft(left);
+      setChips((c) => chipsAfterSend(c, sentChips));
+      if (replyIdRef.current === sentReplyId) reply.clear();
       onPosted?.(id);
     } catch (err) {
       const b = blockFromError(chatErrorKey(err));
@@ -1102,7 +1193,7 @@ export function Composer({
               aria-label={t('voice.record')}
               title={t('voice.record')}
               onClick={() => void startRecording()}
-              disabled={sending}
+              disabled={sending || stopsPending > 0}
               className="hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50"
             >
               <Mic className="size-4" aria-hidden />

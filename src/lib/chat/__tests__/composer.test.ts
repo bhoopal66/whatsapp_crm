@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptFiles,
   blockFromError,
+  chipsAfterSend,
   composeBody,
   composerBlock,
   decodeDraft,
   deserializeBody,
+  draftAfterSend,
   draftStorageKey,
   encodeDraft,
   filesOnlyBody,
@@ -227,5 +229,31 @@ describe('composerBlock', () => {
     );
     expect(blockFromError('notChannelMember')).toBe('notMember');
     expect(blockFromError('bodyLength')).toBeNull();
+  });
+});
+
+describe('after a send', () => {
+  const sent = {
+    text: 'hi @Sara Ahmed',
+    picked: [{ userId: SARA, label: 'Sara Ahmed' }],
+  };
+  it('empties an unchanged draft', () => {
+    expect(draftAfterSend(sent, sent)).toEqual({ text: '', picked: [] });
+  });
+  it('keeps only what was typed on, its leading break trimmed', () => {
+    expect(
+      draftAfterSend({ ...sent, text: 'hi @Sara Ahmed\n and more' }, sent)
+    ).toEqual({ text: 'and more', picked: sent.picked });
+    expect(
+      draftAfterSend({ ...sent, text: 'hi @Sara Ahmed \n' }, sent)
+    ).toEqual({ text: '', picked: [] });
+  });
+  it('leaves a replaced draft untouched', () => {
+    const now = { text: 'something else', picked: [] };
+    expect(draftAfterSend(now, sent)).toBe(now);
+  });
+  it('removes only the chips that were sent', () => {
+    const chips = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(chipsAfterSend(chips, new Set(['a', 'c']))).toEqual([{ id: 'b' }]);
   });
 });

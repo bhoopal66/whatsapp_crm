@@ -19,10 +19,24 @@ export interface PickedMention {
   label: string;
 }
 
-const WORD = '[\\p{L}\\p{N}_]';
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * A label's boundaries: no letter or digit right before the '@' or
+ * right after the label, past a run of format markers ('*', '_', '~',
+ * '`', what applyFormat wraps with) that may sit there. Italic's '_' is
+ * a word character, so "_hi @Sara Ahmed_" needs the run allowed, while
+ * "mail@Sara", "a_@Sara" and "@Sara_x" (the run touches a letter) stay
+ * plain text, as do "@Sara Ahmedi" and "x@Sara".
+ */
+const LABEL_BEFORE = '(?<![\\p{L}\\p{N}][*_~`]*)';
+const LABEL_AFTER = '(?![*_~`]*[\\p{L}\\p{N}])';
+const labelPattern = (labels: readonly string[]): RegExp =>
+  new RegExp(
+    `${LABEL_BEFORE}@(${labels.map(escapeRe).join('|')})${LABEL_AFTER}`,
+    'gu'
+  );
 const USER_TOKEN =
   /<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Character count as Postgres's char_length sees it. */
 export const bodyLength = (s: string): number => [...s].length;
@@ -63,8 +77,9 @@ export function withPick(
 
 /**
  * The text as it is sent: every exact "@<label>" of a picked person
- * becomes their <@uuid> token. A match needs no letter, digit or '_'
- * right before the '@' or right after the label, and the longest label
+ * becomes their <@uuid> token. A match needs no letter or digit right
+ * before the '@' or right after the label (format markers between are
+ * allowed, see LABEL_BEFORE), and the longest label
  * wins ("@Sara Ahmed" over "@Sara"). A label the user edited ("@Sara
  * Ahme") or whose '@' they deleted is left as plain text.
  */
@@ -78,11 +93,7 @@ export function serializeDraft(
       byLabel.set(p.label, p.userId);
   if (byLabel.size === 0) return text;
   const labels = [...byLabel.keys()].sort((a, b) => b.length - a.length);
-  const re = new RegExp(
-    `(?<!${WORD})@(${labels.map(escapeRe).join('|')})(?!${WORD})`,
-    'gu'
-  );
-  return text.replace(re, (_, label: string) =>
+  return text.replace(labelPattern(labels), (_, label: string) =>
     formatMention(byLabel.get(label) as string)
   );
 }
@@ -99,11 +110,10 @@ export function pickedLabelRanges(
     ...new Set(picked.filter((p) => p.label).map((p) => p.label)),
   ].sort((a, b) => b.length - a.length);
   if (!labels.length) return [];
-  const re = new RegExp(
-    `(?<!${WORD})@(${labels.map(escapeRe).join('|')})(?!${WORD})`,
-    'gu'
-  );
-  return [...text.matchAll(re)].map((m) => [m.index, m.index + m[0].length]);
+  return [...text.matchAll(labelPattern(labels))].map((m) => [
+    m.index,
+    m.index + m[0].length,
+  ]);
 }
 
 /**
@@ -228,6 +238,32 @@ export function decodeDraft(raw: string | null | undefined): ComposerDraft {
   } catch {
     return empty;
   }
+}
+
+/**
+ * The draft left once a send of `sent` succeeded, given the draft as it
+ * is NOW (the input stays live while the post is in flight). Unchanged:
+ * empty. Typed on after the sent text: only the addition, its leading
+ * newline/space trimmed. Anything else (edited, replaced): untouched,
+ * since what is there was never sent.
+ */
+export function draftAfterSend(
+  current: ComposerDraft,
+  sent: ComposerDraft
+): ComposerDraft {
+  if (!current.text.startsWith(sent.text)) return current;
+  const rest = current.text.slice(sent.text.length).replace(/^\s+/, '');
+  return rest.trim()
+    ? { text: rest, picked: current.picked }
+    : { text: '', picked: [] };
+}
+
+/** The chips left once a send succeeded: only those that were sent go. */
+export function chipsAfterSend<T extends { id: string }>(
+  current: readonly T[],
+  sentIds: ReadonlySet<string>
+): T[] {
+  return current.filter((c) => !sentIds.has(c.id));
 }
 
 // ---------- body and files ----------

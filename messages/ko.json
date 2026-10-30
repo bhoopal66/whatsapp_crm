@@ -4725,6 +4725,7 @@
       "outsideAudience": "이 채널의 대상이 아니므로 게시하거나 참여할 수 없습니다."
     },
     "composer": {
+      "dropsPaused": "파일을 추가하기 전에 음성 메시지를 보내거나 삭제하세요.",
       "replyingTo": "{name}님에게 답장 중",
       "cancelReply": "답장 취소",
       "replyVoice": "음성 메시지 ({length})",

@@ -425,3 +425,26 @@ describe('insertAtSelection', () => {
     expect(serializeDraft(before.draft.text, picked)).toBe(`x ${token}`);
   });
 });
+
+describe('applyFormat over a picked mention', () => {
+  const picked = [{ userId: SARA, label: 'Sara Ahmed' }];
+  it.each([
+    ['italic', '_'],
+    ['bold', '*'],
+    ['strike', '~'],
+    ['code', '`'],
+  ] as const)('%s keeps the label a mention', (action, m) => {
+    const draft = { text: 'hi @Sara Ahmed', picked };
+    const r = applyFormat(draft, 0, draft.text.length, action);
+    expect(r.draft.text).toBe(`${m}hi @Sara Ahmed${m}`);
+    expect(serializeDraft(r.draft.text, r.draft.picked)).toBe(
+      `${m}hi <@${SARA}>${m}`
+    );
+    const only = applyFormat({ text: '@Sara Ahmed', picked }, 0, 11, action);
+    expect(serializeDraft(only.draft.text, picked)).toBe(`${m}<@${SARA}>${m}`);
+  });
+  it('leaves a label touching a letter past the markers as text', () => {
+    expect(serializeDraft('a_@Sara Ahmed', picked)).toBe('a_@Sara Ahmed');
+    expect(serializeDraft('@Sara Ahmed_x', picked)).toBe('@Sara Ahmed_x');
+  });
+});

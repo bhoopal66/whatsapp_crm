@@ -393,8 +393,8 @@ export interface FormatResult {
  * Applies a toolbar/shortcut action to the selection [start, end).
  * Picked mentions live in the text as "@label", so a selection edge
  * inside a label is first moved to the label's edge: markers then never
- * split a label and serializeDraft still finds it ('*' etc. are not
- * word characters). Wrapping trims the selection's outer whitespace,
+ * split a label and serializeDraft still finds it (it lets a run of
+ * markers sit at a label's edges, '_' included). Wrapping trims the selection's outer whitespace,
  * wraps each selected line on its own (markers never span lines),
  * unwraps when the selection is already wrapped, and inserts the pair
  * with the caret between when nothing is selected. Quote and bullets

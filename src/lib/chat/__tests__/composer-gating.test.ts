@@ -253,3 +253,24 @@ describe('sensitive data', () => {
     ).toEqual({ action: 'send' });
   });
 });
+
+describe('sensitive check with an unknown guest status', () => {
+  const at = (mode: 'warn' | 'block', hasGuest: boolean | null) =>
+    sensitiveDecision({
+      kinds: ['card'],
+      guard: { mode, scope: 'guests' },
+      kind: 'private',
+      hasGuest,
+    });
+  it('warns in warn mode, without claiming a guest is there', () => {
+    expect(at('warn', null)).toEqual({
+      action: 'warn',
+      kinds: ['card'],
+      guests: false,
+    });
+  });
+  it('leaves block mode to the database', () => {
+    expect(at('block', null)).toEqual({ action: 'send' });
+    expect(at('warn', false)).toEqual({ action: 'send' });
+  });
+});

@@ -120,7 +120,8 @@ export const guestScopedKind = (kind: ChannelKind): boolean =>
 /**
  * Does the guard's scope cover this channel: 'all' everywhere, 'guests'
  * only a team/private channel with a bank guest in it. `hasGuest` null
- * (not known, the lookup failed) does not apply: the database decides.
+ * (not known, the lookup failed) does not apply here; sensitiveDecision
+ * counts it as a guest in warn mode, where the database decides nothing.
  */
 export function sensitiveScopeApplies(i: {
   scope: SensitiveGuard['scope'];
@@ -149,7 +150,13 @@ export type SensitiveDecision =
   | { action: 'warn'; kinds: SensitiveKind[]; guests: boolean }
   | { action: 'block'; kinds: SensitiveKind[] };
 
-/** What Send does with a text message carrying `kinds`. */
+/**
+ * What Send does with a text message carrying `kinds`. A guest status
+ * that could not be learnt (`hasGuest` null) warns in warn mode: only
+ * the composer ever warns, so skipping it would send unchecked, while a
+ * needless warning costs one click. Block mode leaves it to the
+ * database, which refuses the post anyway.
+ */
 export function sensitiveDecision(i: {
   kinds: readonly SensitiveKind[];
   guard: SensitiveGuard;
@@ -157,11 +164,13 @@ export function sensitiveDecision(i: {
   hasGuest: boolean | null;
 }): SensitiveDecision {
   if (!i.kinds.length || i.guard.mode === 'off') return { action: 'send' };
+  const hasGuest =
+    i.hasGuest === null && i.guard.mode === 'warn' ? true : i.hasGuest;
   if (
     !sensitiveScopeApplies({
       scope: i.guard.scope,
       kind: i.kind,
-      hasGuest: i.hasGuest,
+      hasGuest,
     })
   )
     return { action: 'send' };
@@ -170,6 +179,7 @@ export function sensitiveDecision(i: {
     : {
         action: 'warn',
         kinds: [...i.kinds],
-        guests: i.guard.scope === 'guests',
+        // Say bank guests can read it only when that is known.
+        guests: i.guard.scope === 'guests' && i.hasGuest === true,
       };
 }
