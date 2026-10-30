@@ -24,8 +24,10 @@ an error and deletes nothing; everything else works.
   still uploading, a voice note or an AI draft that finishes after you
   switch goes to the chat it was started in.
 - **Unsent attachments are cleaned up.** A file attached in the inbox
-  but never sent is deleted after 7 days. Sent attachments and template
-  and broadcast headers are never touched.
+  but never sent is deleted after 30 days. Sent attachments and template
+  and broadcast headers are never touched. A draft attachment kept that
+  long in an open tab is not sent: the inbox says so, and you attach it
+  again.
 - **OpenWA menus understand typed answers.** On an OpenWA number, where
   buttons and lists arrive as a numbered list, a customer who types the
   number (Arabic digits and "option 2" too) or the option's exact name

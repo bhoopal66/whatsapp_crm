@@ -129,12 +129,14 @@ function scheduleChatFileSweep() {
 /**
  * Composer attachments that were uploaded to chat-media but never sent
  * (migration 155's chat_media_staged_orphans: staged objects older than
- * 7 days that no message, template or broadcast header references) are
- * removed with the service role. At most once per hour per process,
- * inside after(), at most 500 per run; failures are only logged: the
- * next run retries whatever is left.
+ * 30 days that no message, template or broadcast header references) are
+ * removed with the service role. At most once a day per process, inside
+ * after(), at most 500 per run; failures are only logged: the next run
+ * retries whatever is left. Daily, not hourly: the listing reads every
+ * message's media_url (no index serves that LIKE), and at a 30-day age
+ * a daily pass loses nothing.
  */
-const stagedMediaSweepDue = everyInterval(60 * 60_000)
+const stagedMediaSweepDue = everyInterval(24 * 60 * 60_000)
 
 function scheduleStagedMediaSweep() {
   try {

@@ -52,7 +52,7 @@
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION public.chat_media_staged_orphans(
-  p_min_age interval DEFAULT interval '7 days',
+  p_min_age interval DEFAULT interval '30 days',
   p_limit   integer  DEFAULT 500)
 RETURNS text[]
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$

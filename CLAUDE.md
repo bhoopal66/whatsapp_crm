@@ -311,13 +311,17 @@ and re-run the entire fan-out. Per-account opt-out: `mirror_inbound_media`
 Outbound, the composer uploads an attachment when it is attached, into
 `staged/` beneath `account-<id>` (`buildMediaPath(…, 'staged')`); the
 message then stores that public URL as its `media_url`. One never sent
-(tab closed, draft abandoned) is deleted after 7 days by the automations
-cron (`runStagedMediaSweep`), which lists through migration 155's
+(tab closed, draft abandoned) is deleted after 30 days by the daily
+automations-cron sweep (`runStagedMediaSweep`), which lists through migration 155's
 `chat_media_staged_orphans` (service role): staged names that no
 `messages.media_url` or template/broadcast `header_media_url` points at,
 compared on the URL's path because the public origin changes with the
 tunnel. Only `[A-Za-z0-9._-]` names are candidates, so a name that could
 be percent-encoded in a stored URL is leaked, never deleted while sent.
+A parked, staged or retried attachment lives only in the browser, so the
+composer stops using one past 29 days (`isExpiredStagedMedia`,
+`lib/storage/staged-media.ts`, one day under the sweep's age): it is
+deleted and the agent told, never sent as a dead link.
 `verify-chat-media-staged.sql`.
 
 One `message_templates` row drives both providers, differently: Whapi has
@@ -1425,8 +1429,8 @@ Cron / GitHub Actions / any pinger):
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders and the assist pending sweep (1 min),
-  assist rate prune and the unsent-attachment sweep (1 h), memory
-  expiry and knowledge-gap topics (24 h). An install that pings
+  assist rate prune (1 h), memory expiry, knowledge-gap topics and
+  the unsent-attachment sweep (24 h). An install that pings
   only this one is covered. A new background job joins this list.
 - `GET /api/flows/cron` — sweeps abandoned runs.
 - `GET /api/whatsapp/broadcast/cron` (migration 053) — delivers
