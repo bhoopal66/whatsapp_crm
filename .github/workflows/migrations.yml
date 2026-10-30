@@ -547,6 +547,19 @@ jobs:
       - name: Verify chat messaging v2
         run: supabase db query --local --file supabase/ci/verify-chat-messaging-v2.sql
 
+      # Migration 157's team-chat role permissions: a chat_role_permissions
+      # row denies one of 12 capabilities to a role class (owners exempt,
+      # bank guests only for what a guest can do), enforced with 42501 in
+      # every chat RPC and the chat-files upload policy; edit and delete
+      # windows bind everyone below admin; a channel's posting, thread
+      # and @channel rules bind all but its admins (never a bank guest);
+      # only live owners/admins set the matrix and windows, only channel
+      # admins the policy (team and private channels, no audit row on a
+      # no-op); the four API functions run for authenticated only and the
+      # six helpers for nobody.
+      - name: Verify chat permissions
+        run: supabase db query --local --file supabase/ci/verify-chat-permissions.sql
+
       # Migration 147's Smart insights foundation: members read the
       # per-account settings and admins write them (bank guests and other
       # workspaces see nothing); the interested-reply tag is a main tag
