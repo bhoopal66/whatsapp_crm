@@ -219,6 +219,76 @@ const AiAgentsArea = dynamic(
   { loading: PanelLoading }
 );
 
+// Warms a panel's chunk before it is opened. Each `import()` is written
+// out here rather than shared with `dynamic()` above: Next only treats
+// a literal inside the `dynamic()` call as preloadable, and the bundler
+// resolves both to the same chunk. Keyed by section, so the test can
+// check that every panel has one.
+const PRELOADERS: Record<
+  Exclude<SettingsSection, 'overview'>,
+  Array<() => Promise<unknown>>
+> = {
+  profile: [() => import('@/components/settings/profile-form')],
+  workspaces: [() => import('@/components/settings/workspaces-panel')],
+  security: [() => import('@/components/settings/security-panel')],
+  appearance: [() => import('@/components/settings/appearance-panel')],
+  notifications: [() => import('@/components/settings/notifications-settings')],
+  whatsapp: [
+    () => import('@/components/settings/whapi-number-panels'),
+    () => import('@/components/settings/meta-channel-config'),
+  ],
+  numbers: [() => import('@/components/settings/whatsapp-numbers')],
+  routing: [() => import('@/components/settings/whatsapp-routing')],
+  costs: [() => import('@/components/settings/whatsapp-costs')],
+  templates: [() => import('@/components/settings/template-manager')],
+  'deal-rooms': [() => import('@/components/settings/deal-rooms-panel')],
+  'quick-replies': [
+    () => import('@/components/settings/quick-replies-manager'),
+  ],
+  'chat-tags': [() => import('@/components/settings/chat-tags-panel')],
+  fields: [() => import('@/components/settings/custom-fields-panel')],
+  'journey-bot': [() => import('@/components/settings/journey-bot-settings')],
+  insights: [() => import('@/components/settings/insights-panel')],
+  deals: [() => import('@/components/settings/deals-settings')],
+  workspace: [() => import('@/components/settings/workspace-panel')],
+  members: [() => import('@/components/settings/members-tab')],
+  teams: [() => import('@/components/settings/teams-tab')],
+  'team-chat': [() => import('@/components/settings/team-chat-settings')],
+  cases: [() => import('@/components/settings/cases-settings-panel')],
+  vault: [() => import('@/components/settings/vault-panel')],
+  'consent-retention': [
+    () => import('@/components/settings/consent-retention-panel'),
+  ],
+  'audit-log': [() => import('@/components/settings/audit-log-panel')],
+  api: [() => import('@/components/settings/api-keys-settings')],
+  'phone-system': [
+    () => import('@/components/settings/phone-system/phone-system-panel'),
+  ],
+  ai: [() => import('@/components/agents/ai-agents-area')],
+};
+
+function preloadSection(section: SettingsSection) {
+  if (section === 'overview') return;
+  for (const load of PRELOADERS[section]) load().catch(() => {});
+}
+
+// The first few sections of the viewer's menu are warmed once per page
+// load when the browser is idle.
+const IDLE_PRELOAD_COUNT = 4;
+let idlePreloaded = false;
+
+function preloadOnIdle(sections: SettingsSection[]) {
+  if (idlePreloaded) return () => {};
+  idlePreloaded = true;
+  const run = () => sections.forEach(preloadSection);
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(run, { timeout: 4000 });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(run, 1500);
+  return () => window.clearTimeout(id);
+}
+
 // `useSearchParams` opts this page out of static prerendering unless it
 // sits under a Suspense boundary. Without one, the production build hits
 // the "missing Suspense with CSR bailout" error and the whole page bails
@@ -252,6 +322,17 @@ function SettingsPageInner() {
   // and an admin's menu would grow under their pointer.
   const showMenu =
     !profileLoading && groups.flatMap((g) => g.sections).length > 1;
+
+  // Warm the likely panels once the role is known.
+  const idleSections = groups
+    .flatMap((g) => g.sections)
+    .filter((s) => s !== 'overview' && s !== section)
+    .slice(0, IDLE_PRELOAD_COUNT);
+  const idleKey = idleSections.join(',');
+  useEffect(() => {
+    if (profileLoading || !idleKey) return;
+    return preloadOnIdle(idleKey.split(',') as SettingsSection[]);
+  }, [profileLoading, idleKey]);
 
   // Switch tabs with the native History API, not `router.replace`.
   // Every panel is a client component that fetches its own data, so a
@@ -423,6 +504,7 @@ function SettingsPageInner() {
               section={section}
               searchClassName="bg-background"
               onSelect={go}
+              onPreload={preloadSection}
             />
           </aside>
         ) : null}
@@ -432,6 +514,7 @@ function SettingsPageInner() {
               groups={groups}
               section={section}
               onSelect={go}
+              onPreload={preloadSection}
               className="mb-5 xl:hidden"
             />
           ) : null}

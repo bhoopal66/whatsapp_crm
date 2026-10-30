@@ -58,11 +58,14 @@ export function SettingsNav({
   groups,
   section,
   onSelect,
+  onPreload,
   searchClassName,
 }: {
   groups: SettingsNavGroup[];
   section: SettingsSection;
   onSelect: (section: SettingsSection) => void;
+  /** Hover or focus on an entry: warm its code before the click. */
+  onPreload?: (section: SettingsSection) => void;
   /** Classes for the pinned search bar: the menu's own background, so
    *  entries scrolling under it are hidden, and any padding. */
   searchClassName: string;
@@ -196,6 +199,7 @@ export function SettingsNav({
                     group === 'overview' ? null : t(`categories.${group}`)
                   }
                   onSelect={(next) => pick(next, true)}
+                  onPreload={onPreload}
                 />
               );
             })}
@@ -221,6 +225,7 @@ export function SettingsNav({
                     section={s}
                     active={s === section}
                     onSelect={pick}
+                    onPreload={onPreload}
                   />
                 ))}
               </ul>
@@ -243,12 +248,14 @@ function NavEntry({
   active,
   detail,
   onSelect,
+  onPreload,
 }: {
   section: SettingsSection;
   active: boolean;
   /** The group, under a search result's label. */
   detail?: string | null;
   onSelect: (section: SettingsSection) => void;
+  onPreload?: (section: SettingsSection) => void;
 }) {
   const t = useTranslations('Settings');
   const Icon = SECTION_META[section].icon;
@@ -258,6 +265,8 @@ function NavEntry({
         href={settingsHref(section)}
         data-settings-nav=""
         aria-current={active ? 'page' : undefined}
+        onPointerEnter={() => onPreload?.(section)}
+        onFocus={() => onPreload?.(section)}
         onClick={(e) => {
           if (!isPlainClick(e)) return;
           e.preventDefault();
@@ -301,11 +310,13 @@ export function SettingsMenuButton({
   groups,
   section,
   onSelect,
+  onPreload,
   className,
 }: {
   groups: SettingsNavGroup[];
   section: SettingsSection;
   onSelect: (section: SettingsSection) => void;
+  onPreload?: (section: SettingsSection) => void;
   className?: string;
 }) {
   const t = useTranslations('Settings');
@@ -356,6 +367,7 @@ export function SettingsMenuButton({
             groups={groups}
             section={section}
             searchClassName="bg-popover pt-3"
+            onPreload={onPreload}
             onSelect={(next) => {
               setOpen(false);
               onSelect(next);
