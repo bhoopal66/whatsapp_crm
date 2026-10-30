@@ -44,6 +44,7 @@ describe('messageActions', () => {
   it('gives the author everything', () => {
     expect(messageActions(msg(), who)).toEqual({
       react: true,
+      quote: true,
       thread: true,
       edit: true,
       delete: true,
@@ -69,18 +70,28 @@ describe('messageActions', () => {
     );
     expect(messageActions(msg(), { ...who, canWrite: false })).toMatchObject({
       react: false,
+      quote: false,
       edit: false,
       pin: false,
       delete: true,
       save: true,
     });
   });
-  it('system posts only react; tombstones nothing', () => {
+  it('system posts only react and quote; tombstones nothing', () => {
     const sys = messageActions(msg({ authorKind: 'system', authorId: null }), {
       ...who,
       workspaceAdmin: true,
     });
-    expect(Object.entries(sys).filter(([, v]) => v)).toEqual([['react', true]]);
+    expect(Object.entries(sys).filter(([, v]) => v)).toEqual([
+      ['react', true],
+      ['quote', true],
+    ]);
+    expect(
+      messageActions(msg({ authorKind: 'system', authorId: null }), {
+        ...who,
+        canWrite: false,
+      }).quote
+    ).toBe(false);
     for (const m of [msg({ deletedAt: 'x' }), msg({ erasedAt: 'x' })])
       expect(Object.values(messageActions(m, who)).some(Boolean)).toBe(false);
   });

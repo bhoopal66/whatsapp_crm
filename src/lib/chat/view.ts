@@ -115,14 +115,39 @@ export const AVATAR_TINTS = [
   'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/25 dark:text-fuchsia-100',
 ] as const;
 
-/** A stable tint per user id (FNV-1a over the lower-cased id). */
-export function avatarTint(userId: string | null | undefined): string {
+/**
+ * The same hues as AVATAR_TINTS, in the same order, for a quote block:
+ * its left border and the quoted author's name.
+ */
+export const QUOTE_TINTS = [
+  'border-rose-500 text-rose-700 dark:border-rose-400 dark:text-rose-300',
+  'border-amber-500 text-amber-800 dark:border-amber-400 dark:text-amber-300',
+  'border-lime-600 text-lime-800 dark:border-lime-400 dark:text-lime-300',
+  'border-emerald-500 text-emerald-800 dark:border-emerald-400 dark:text-emerald-300',
+  'border-sky-500 text-sky-800 dark:border-sky-400 dark:text-sky-300',
+  'border-indigo-500 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300',
+  'border-violet-500 text-violet-700 dark:border-violet-400 dark:text-violet-300',
+  'border-fuchsia-500 text-fuchsia-700 dark:border-fuchsia-400 dark:text-fuchsia-300',
+] as const;
+
+/** FNV-1a over the lower-cased id: the index of a person's tint. */
+function tintIndex(userId: string | null | undefined, n: number): number {
   let h = 0x811c9dc5;
   for (const ch of (userId ?? '').toLowerCase()) {
     h ^= ch.charCodeAt(0);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return AVATAR_TINTS[h % AVATAR_TINTS.length];
+  return h % n;
+}
+
+/** A stable tint per user id. */
+export function avatarTint(userId: string | null | undefined): string {
+  return AVATAR_TINTS[tintIndex(userId, AVATAR_TINTS.length)];
+}
+
+/** The quote-block tint matching avatarTint(userId). */
+export function quoteTint(userId: string | null | undefined): string {
+  return QUOTE_TINTS[tintIndex(userId, QUOTE_TINTS.length)];
 }
 
 export function initialOf(name: string | null | undefined): string {

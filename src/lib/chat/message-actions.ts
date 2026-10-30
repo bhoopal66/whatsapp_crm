@@ -11,6 +11,8 @@ export const QUICK_REACTIONS = ['👍', '✅', '👀', '🙏', '❤️', '😂']
 
 export interface MessageActionSet {
   react: boolean;
+  /** Quote this message in a reply (156). */
+  quote: boolean;
   thread: boolean;
   edit: boolean;
   delete: boolean;
@@ -21,6 +23,7 @@ export interface MessageActionSet {
 
 const NONE: MessageActionSet = {
   react: false,
+  quote: false,
   thread: false,
   edit: false,
   delete: false,
@@ -30,8 +33,8 @@ const NONE: MessageActionSet = {
 };
 
 /**
- * A tombstone has no actions; a system post only reactions; a person's
- * post the rest, by the rules above. `threads` = the view can open a
+ * A tombstone has no actions; a system post only reactions and a quote
+ * reply; a person's post the rest, by the rules above. `threads` = the view can open a
  * thread (replies themselves cannot have one).
  */
 export function messageActions(
@@ -47,11 +50,13 @@ export function messageActions(
   }
 ): MessageActionSet {
   if (m.deletedAt || m.erasedAt) return NONE;
-  if (m.authorKind === 'system') return { ...NONE, react: i.canWrite };
+  if (m.authorKind === 'system')
+    return { ...NONE, react: i.canWrite, quote: i.canWrite };
   const own =
     !!i.userId && m.authorId?.toLowerCase() === i.userId.toLowerCase();
   return {
     react: i.canWrite,
+    quote: i.canWrite,
     thread: i.threads && !m.threadRootId,
     edit: i.canWrite && own,
     delete: own || i.workspaceAdmin,
