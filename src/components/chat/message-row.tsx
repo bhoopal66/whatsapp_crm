@@ -233,6 +233,7 @@ export function MessageRow({
           onEdit={() => edits.setEditing(true)}
           onDelete={edits.remove}
           rowRef={rowRef}
+          hasCard={!!card || !!callCard}
         />
       )}
       <div className="w-9 shrink-0">

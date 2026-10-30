@@ -6,6 +6,7 @@ import {
   Bookmark,
   BookmarkMinus,
   Copy,
+  Forward,
   History,
   Link as LinkIcon,
   Loader2,
@@ -64,6 +65,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
+import { ForwardDialog } from './forward-dialog';
 import { useMessageMarks } from './message-marks';
 import { MentionTextarea } from './mention-textarea';
 import { useReplyTarget } from './reply-target';
@@ -251,6 +253,7 @@ export function MessageActions({
   onEdit,
   onDelete,
   rowRef,
+  hasCard = false,
 }: {
   message: ChatMessage;
   ctx: RowActionContext;
@@ -260,6 +263,8 @@ export function MessageActions({
   onDelete: () => void;
   /** The message row: right-click there offers the same actions. */
   rowRef?: RefObject<HTMLDivElement | null>;
+  /** The message carries a shared customer or call card (not forwarded). */
+  hasCard?: boolean;
 }) {
   const t = useTranslations('Chat');
   const tMenu = useTranslations('ContextMenu');
@@ -267,6 +272,7 @@ export function MessageActions({
   const marks = useMessageMarks();
   const [confirming, setConfirming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [forwarding, setForwarding] = useState(false);
   const can = messageActions(m, ctx);
   const replyTarget = useReplyTarget();
   // Only inside a composer's ReplyTargetProvider (channel view, thread panel).
@@ -355,6 +361,16 @@ export function MessageActions({
                         }),
                       { copied: tMenu('copied'), failed: tMenu('copyFailed') }
                     ),
+                },
+              ]
+            : []),
+          ...(can.forward
+            ? [
+                {
+                  id: 'forward',
+                  label: t('actions.forward'),
+                  icon: Forward,
+                  onSelect: () => setForwarding(true),
                 },
               ]
             : []),
@@ -529,6 +545,12 @@ export function MessageActions({
                 {t('actions.copy')}
               </DropdownMenuItem>
             )}
+            {can.forward && (
+              <DropdownMenuItem onClick={() => setForwarding(true)}>
+                <Forward aria-hidden />
+                {t('actions.forward')}
+              </DropdownMenuItem>
+            )}
             {history && (
               <DropdownMenuItem onClick={() => setShowHistory(true)}>
                 <History aria-hidden />
@@ -550,6 +572,13 @@ export function MessageActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {forwarding && (
+        <ForwardDialog
+          message={m}
+          hasCard={hasCard}
+          onClose={() => setForwarding(false)}
+        />
+      )}
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

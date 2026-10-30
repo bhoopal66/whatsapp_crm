@@ -19,6 +19,8 @@ export interface MessageActionSet {
   pin: boolean;
   save: boolean;
   copy: boolean;
+  /** Forward a copy to other channels or DMs (156). */
+  forward: boolean;
 }
 
 const NONE: MessageActionSet = {
@@ -30,11 +32,12 @@ const NONE: MessageActionSet = {
   pin: false,
   save: false,
   copy: false,
+  forward: false,
 };
 
 /**
- * A tombstone has no actions; a system post only reactions and a quote
- * reply; a person's post the rest, by the rules above. `threads` = the view can open a
+ * A tombstone has no actions; a system post only reactions, a quote
+ * reply and Forward; a person's post the rest, by the rules above. `threads` = the view can open a
  * thread (replies themselves cannot have one).
  */
 export function messageActions(
@@ -51,7 +54,7 @@ export function messageActions(
 ): MessageActionSet {
   if (m.deletedAt || m.erasedAt) return NONE;
   if (m.authorKind === 'system')
-    return { ...NONE, react: i.canWrite, quote: i.canWrite };
+    return { ...NONE, react: i.canWrite, quote: i.canWrite, forward: true };
   const own =
     !!i.userId && m.authorId?.toLowerCase() === i.userId.toLowerCase();
   return {
@@ -63,6 +66,8 @@ export function messageActions(
     pin: i.canWrite,
     save: true,
     copy: true,
+    // Posts into the targets, not here: write access here is not needed.
+    forward: true,
   };
 }
 

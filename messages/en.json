@@ -4606,7 +4606,8 @@
       "editHint": "Enter to save · Esc to cancel",
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
-      "deleteConfirm": "Delete"
+      "deleteConfirm": "Delete",
+      "forward": "Forward"
     },
     "quote": {
       "loading": "Loading the quoted message…",
@@ -5042,6 +5043,26 @@
       "unknownCaller": "Unknown caller",
       "agent": "Agent: {name}",
       "openCustomer": "Open customer page"
+    },
+    "forward": {
+      "title": "Forward message",
+      "description": "Send a copy to up to {max} other channels or direct messages. Mentions arrive as plain names.",
+      "preview": "Forwarding",
+      "previewVoice": "Voice message",
+      "previewEmpty": "Empty message",
+      "moreFiles": "{count, plural, one {+ # file} other {+ # files}}",
+      "cardNote": "The shared customer or call card is not forwarded, only the message.",
+      "searchPlaceholder": "Find a channel or person",
+      "targets": "Channels and direct messages",
+      "loading": "Loading channels…",
+      "none": "No channel or direct message matches.",
+      "joins": "You will join",
+      "guests": "Bank guests can read this",
+      "selected": "{count} of {max} selected",
+      "cancel": "Cancel",
+      "submit": "Forward",
+      "done": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
+      "failed": "Could not forward to {name}: {reason}"
     }
   },
   "Workspaces": {

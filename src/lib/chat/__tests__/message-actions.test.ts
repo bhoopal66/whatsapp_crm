@@ -51,6 +51,7 @@ describe('messageActions', () => {
       pin: true,
       save: true,
       copy: true,
+      forward: true,
     });
   });
   it('edit is the author’s, delete the author’s or an admin’s', () => {
@@ -75,9 +76,10 @@ describe('messageActions', () => {
       pin: false,
       delete: true,
       save: true,
+      forward: true,
     });
   });
-  it('system posts only react and quote; tombstones nothing', () => {
+  it('system posts only react, quote and forward; tombstones nothing', () => {
     const sys = messageActions(msg({ authorKind: 'system', authorId: null }), {
       ...who,
       workspaceAdmin: true,
@@ -85,6 +87,7 @@ describe('messageActions', () => {
     expect(Object.entries(sys).filter(([, v]) => v)).toEqual([
       ['react', true],
       ['quote', true],
+      ['forward', true],
     ]);
     expect(
       messageActions(msg({ authorKind: 'system', authorId: null }), {
