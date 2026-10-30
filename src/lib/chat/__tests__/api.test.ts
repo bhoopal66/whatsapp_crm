@@ -358,6 +358,12 @@ describe('table reads', () => {
       ['team', [], null],
     ]);
     expect(calls[0]).toContainEqual({ op: 'eq', args: ['me.user_id', 'u1'] });
+    // One round trip: the membership is embedded, not fetched after.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContainEqual({
+      op: 'select',
+      args: ['*, me:chat_channel_members(*)'],
+    });
     expect(calls[0]).toContainEqual({ op: 'is', args: ['archived_at', null] });
   });
 

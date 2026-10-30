@@ -28,6 +28,13 @@ import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
 import { createClient } from '@/lib/supabase/client';
+import { sessionCache, sessionKey } from '@/lib/session-cache';
+import { useSessionQuery } from '@/hooks/use-session-query';
+import {
+  CHAT_CHANNELS_QUESTION,
+  CHAT_UNREAD_QUESTION,
+  patchOwnReadMark,
+} from '@/lib/chat/channel-list-cache';
 
 export type ChatEvent =
   | { kind: 'message'; event: MessageEvent }
@@ -47,6 +54,7 @@ export type ChatEvent =
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
+const EMPTY_UNREAD: UnreadCount[] = [];
 
 /**
  * Everything the /chat screen shares: channels, people (presence, with
@@ -59,11 +67,7 @@ export function useChatWorkspace() {
   const { user, accountId } = useAuth();
   const userId = user?.id ?? null;
   const sb = useMemo<SupabaseClient>(() => createClient(), []);
-  const [channels, setChannels] = useState<ChannelWithMembership[] | null>(
-    null
-  );
   const [people, setPeople] = useState<ChatPerson[]>([]);
-  const [unread, setUnread] = useState<UnreadCount[]>([]);
   const listeners = useRef(new Set<(e: ChatEvent) => void>());
   const phonePresence = usePhonePresence();
 
@@ -71,29 +75,31 @@ export function useChatWorkspace() {
     (err: unknown) => toast.error(t(`errors.${chatErrorKey(err)}`)),
     [t]
   );
-  const loadChannels = useCallback(async () => {
-    if (!accountId || !userId) return;
-    try {
-      // Archived ones too: the sidebar lists them apart (sidebarSections)
-      // and they open read-only, so an admin can unarchive one (091).
-      const list = await listChannels(sb, accountId, userId, {
-        includeArchived: true,
-      });
-      setChannels(list);
-    } catch (err) {
-      setChannels((prev) => prev ?? []);
-      fail(err);
-    }
-  }, [sb, accountId, userId, fail]);
-  const refreshUnread = useCallback(async () => {
-    if (!accountId) return;
-    try {
-      const counts = await unreadCounts(sb, accountId);
-      setUnread(counts);
-    } catch {
-      // Counts catch up on the next event.
-    }
-  }, [sb, accountId]);
+
+  // The channel list and unread counts come from the session cache
+  // (lib/session-cache.ts): entering /chat again shows the last list at
+  // once while a fresh one loads, and realtime keeps the entry current.
+  const channelsKey = sessionKey(accountId, userId, CHAT_CHANNELS_QUESTION);
+  const unreadKey = sessionKey(accountId, userId, CHAT_UNREAD_QUESTION);
+  const channelsQuery = useSessionQuery(channelsKey, () =>
+    // Archived ones too: the sidebar lists them apart (sidebarSections)
+    // and they open read-only, so an admin can unarchive one (091).
+    listChannels(sb, accountId!, userId!, { includeArchived: true })
+  );
+  const unreadQuery = useSessionQuery(unreadKey, () =>
+    unreadCounts(sb, accountId!)
+  );
+  const channelsError = channelsQuery.error;
+  useEffect(() => {
+    if (channelsError) fail(channelsError);
+  }, [channelsError, fail]);
+  // A failed first load shows an empty list rather than loading forever.
+  const channels: ChannelWithMembership[] | null =
+    channelsQuery.data ?? (channelsError ? [] : null);
+  const unread: UnreadCount[] = unreadQuery.data ?? EMPTY_UNREAD;
+  const loadChannels = channelsQuery.refresh;
+  // Counts catch up on the next event when a refresh fails.
+  const refreshUnread = unreadQuery.refresh;
   const loadPeople = useCallback(async () => {
     if (!accountId) return;
     try {
@@ -105,19 +111,18 @@ export function useChatWorkspace() {
   }, [sb, accountId]);
 
   useEffect(() => {
-    // Every setState in these lands after an await; started from a
-    // callback so the effect body itself sets nothing.
-    void Promise.resolve().then(() =>
-      Promise.all([loadChannels(), loadPeople(), refreshUnread()])
-    );
+    // Every setState in it lands after an await; started from a
+    // callback so the effect body itself sets nothing. Channels and
+    // unread load through useSessionQuery above.
+    void Promise.resolve().then(() => loadPeople());
     const id = setInterval(() => void loadPeople(), PEOPLE_REFRESH_MS);
     return () => clearInterval(id);
-  }, [loadChannels, loadPeople, refreshUnread]);
+  }, [loadPeople]);
 
   // Handlers through a ref: the subscription is made once per account.
-  const handlers = useRef({ loadChannels, refreshUnread });
+  const handlers = useRef({ loadChannels, refreshUnread, channelsKey });
   useEffect(() => {
-    handlers.current = { loadChannels, refreshUnread };
+    handlers.current = { loadChannels, refreshUnread, channelsKey };
   });
   useEffect(() => {
     if (!accountId || !userId) return;
@@ -139,7 +144,17 @@ export function useChatWorkspace() {
       onChannel: () => later('loadChannels'),
       onMember: (event) => {
         emit({ kind: 'member', event });
-        later('loadChannels');
+        // The echo of our own mark-read only moves last_read_at: patch it
+        // in place rather than reload the list. While a fetch is in
+        // flight its older answer would overwrite the patch, so reload.
+        const key = handlers.current.channelsKey;
+        const held =
+          key && !sessionCache.isFetching(key)
+            ? sessionCache.peek<ChannelWithMembership[]>(key)?.value
+            : undefined;
+        const patched = held ? patchOwnReadMark(held, event, userId) : null;
+        if (!key || !patched) later('loadChannels');
+        else if (patched !== held) sessionCache.update(key, () => patched);
         later('refreshUnread');
       },
       onVoicePlay: (play) => emit({ kind: 'voicePlay', play }),
