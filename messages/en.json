@@ -3268,6 +3268,144 @@
         "loadFailed": "Couldn't load the direct message rules.",
         "retry": "Try again"
       },
+      "permissions": {
+        "title": "Role permissions",
+        "description": "Choose what each role may do in team chat. A ticked box means allowed.",
+        "capabilityColumn": "Permission",
+        "classes": {
+          "admin": "Admins",
+          "team_leader": "Team leaders",
+          "agent": "Agents",
+          "viewer": "Viewers",
+          "bank_guest": "Bank guests"
+        },
+        "capabilities": {
+          "create_team_channel": {
+            "label": "Create team channels",
+            "description": "Start a new channel the whole workspace can join."
+          },
+          "create_private_channel": {
+            "label": "Create private channels",
+            "description": "Start an invite-only channel."
+          },
+          "open_group_dm": {
+            "label": "Start group messages",
+            "description": "Open a direct message with more than one other person."
+          },
+          "mention_everyone": {
+            "label": "Mention @channel / @here",
+            "description": "Notify everyone in a channel at once."
+          },
+          "upload_files": {
+            "label": "Upload files",
+            "description": "Attach files and images to messages."
+          },
+          "send_voice": {
+            "label": "Send voice notes",
+            "description": "Record and send voice messages."
+          },
+          "pin_messages": {
+            "label": "Pin messages",
+            "description": "Pin a message to the top of a channel."
+          },
+          "forward_messages": {
+            "label": "Forward messages",
+            "description": "Forward a message to another channel or person."
+          },
+          "share_cards": {
+            "label": "Share chats and calls",
+            "description": "Share a customer conversation or call card into team chat."
+          },
+          "add_members": {
+            "label": "Add people to channels",
+            "description": "Add members to a channel they belong to."
+          },
+          "edit_own": {
+            "label": "Edit own messages",
+            "description": "Change a message after sending it."
+          },
+          "delete_own": {
+            "label": "Delete own messages",
+            "description": "Remove a message they sent."
+          }
+        },
+        "cellLabel": "{role}: {capability}",
+        "notApplicable": "Not applicable: bank guests never have this",
+        "ownerNote": "Owners can always do everything; they are not in this table.",
+        "guestNote": "Bank guests can only be restricted in uploading files, voice notes, pinning, forwarding, @channel / @here and editing or deleting their own messages. A dash (—) means they never have that permission.",
+        "savedNote": "Nothing is restricted until you save.",
+        "recommended": "Use recommended",
+        "recommendedHint": "Recommended: agents can't mention @channel / @here; viewers can't create channels, start group messages, mention everyone, pin or add people; bank guests can't mention everyone or forward.",
+        "allowAll": "Allow everything",
+        "save": "Save",
+        "confirmTitle": "Save role permissions?",
+        "confirmBoth": "This restricts {denied, plural, one {# permission} other {# permissions}} and allows {allowed, plural, one {# permission} other {# permissions}} again.",
+        "confirmDeny": "This restricts {count, plural, one {# permission} other {# permissions}}.",
+        "confirmAllow": "This allows {count, plural, one {# permission} other {# permissions}} again.",
+        "confirmSave": "Save",
+        "cancel": "Cancel",
+        "saved": "Role permissions saved.",
+        "saveFailed": "Couldn't save the role permissions.",
+        "unsaved": "Unsaved changes",
+        "loading": "Loading permissions…",
+        "loadFailed": "Couldn't load the role permissions.",
+        "retry": "Try again"
+      },
+      "rules": {
+        "title": "Message time windows",
+        "description": "Limit how long after posting people may edit or delete their own messages.",
+        "editLabel": "Edit window",
+        "editHelp": "How long after sending a person may edit their own message.",
+        "deleteLabel": "Delete window",
+        "deleteHelp": "How long after sending a person may delete their own message.",
+        "noLimit": "No limit",
+        "presets": {
+          "m15": "15 min",
+          "h1": "1 h",
+          "h24": "24 h",
+          "d7": "7 days"
+        },
+        "minutes": "minutes",
+        "invalid": "Enter whole minutes from {min} to {max}, or leave blank for no limit.",
+        "exemptNote": "Admins are exempt from these windows, and owners are never time-limited. The windows apply only to editing or deleting one's own messages.",
+        "save": "Save",
+        "saved": "Message time windows saved.",
+        "saveFailed": "Couldn't save the message time windows.",
+        "unsaved": "Unsaved changes",
+        "loading": "Loading rules…",
+        "loadFailed": "Couldn't load the message time windows.",
+        "retry": "Try again"
+      },
+      "sensitive": {
+        "title": "Sensitive data guard",
+        "description": "Catch Emirates ID numbers, card numbers and IBANs in team-chat messages before they are posted.",
+        "modeTitle": "When a message contains sensitive data",
+        "modes": {
+          "off": "Off",
+          "offDesc": "Messages are posted as written.",
+          "warn": "Warn before sending",
+          "warnDesc": "The sender is asked to confirm before the message is posted.",
+          "block": "Block",
+          "blockDesc": "The message is refused and not posted."
+        },
+        "scopeTitle": "Where it applies",
+        "scopes": {
+          "guests": "Only where bank guests can read",
+          "guestsDesc": "Channels and deal rooms a bank guest can read. Deal-room Team notes are excluded.",
+          "all": "Everywhere in team chat",
+          "allDesc": "Every channel, deal room and direct message."
+        },
+        "scopeWhenOff": "The guard is off, so this setting has no effect until you turn it on.",
+        "detectsNote": "It checks the text of messages only, not the contents of attached files.",
+        "ownersNote": "It applies to everyone, owners included.",
+        "save": "Save",
+        "saved": "Sensitive data guard saved.",
+        "saveFailed": "Couldn't save the sensitive data guard.",
+        "unsaved": "Unsaved changes",
+        "loading": "Loading settings…",
+        "loadFailed": "Couldn't load the sensitive data guard.",
+        "retry": "Try again"
+      },
       "read": {
         "title": "Read a private channel (audited)",
         "description": "Private channels, DMs and deal rooms you are not in are hidden from you. An owner or admin can read one with a reason.",

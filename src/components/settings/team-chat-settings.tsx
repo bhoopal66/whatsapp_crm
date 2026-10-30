@@ -59,6 +59,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 import { SettingsPanelHead } from './settings-panel-head';
+import { PermissionsCard } from './team-chat-permissions-card';
+import { MessageRulesCard } from './team-chat-rules-card';
+import { SensitiveDataCard } from './team-chat-sensitive-card';
 
 /** Same chip as a message row's mention (components/chat/message-row.tsx). */
 const CHIP =
@@ -117,6 +120,9 @@ export function TeamChatSettings() {
       <SettingsPanelHead title={t('title')} description={t('description')} />
       <ChatSwitchCard supabase={supabase} accountId={accountId} />
       <DmRulesCard supabase={supabase} accountId={accountId} />
+      <PermissionsCard supabase={supabase} accountId={accountId} />
+      <MessageRulesCard supabase={supabase} accountId={accountId} />
+      <SensitiveDataCard supabase={supabase} accountId={accountId} />
       <PrivateReadCard supabase={supabase} people={people ?? []} />
       {isOwner && <EraseCard people={people} peopleFailed={peopleFailed} />}
       <div className="border-border bg-muted/40 text-muted-foreground flex gap-2 rounded-xl border p-4 text-sm">
