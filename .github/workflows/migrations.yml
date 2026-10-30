@@ -560,6 +560,18 @@ jobs:
       - name: Verify chat permissions
         run: supabase db query --local --file supabase/ci/verify-chat-permissions.sql
 
+      # Migration 158's team-chat sensitive-data guard: chat_sensitive_kinds
+      # finds cards (Luhn), Emirates IDs and IBANs (mod-97) over the corpus
+      # that sensitive-corpus.test.ts also holds the TypeScript detector
+      # to; only live owners/admins set the mode and scope (22023 on bad
+      # values, one audit row each); 'block' refuses user posts, edits and
+      # forwards with sensitive data (42501) everywhere for scope 'all'
+      # and in team/private channels with a guest for 'guests', owners
+      # included, while 'warn'/'off', system posts, deletes and erasures
+      # pass; the detector and trigger function run for nobody.
+      - name: Verify chat sensitive guard
+        run: supabase db query --local --file supabase/ci/verify-chat-sensitive-guard.sql
+
       # Migration 147's Smart insights foundation: members read the
       # per-account settings and admins write them (bank guests and other
       # workspaces see nothing); the interested-reply tag is a main tag
