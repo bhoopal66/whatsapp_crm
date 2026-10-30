@@ -26,6 +26,13 @@ lose, warm it up, and don't cold-message strangers in bulk.
 | WhatsApp groups (`/groups`) and submission groups                         | no (Whapi only)                                                                                                              |
 | Team activity limits and the composer warning                             | yes, counted like Whapi numbers (migration 145)                                                                              |
 
+A flow waiting on a menu maps the typed answer back to its option: the
+number (Arabic-Indic digits and "option 2" included) or the option's
+exact title, whether or not Smart insights is on. Looser answers ("the
+second one") still need the meaning switch in Settings → Smart
+insights. A menu sent by an automation or the journey bot is not mapped
+back: its replies arrive as plain text.
+
 ## Running OpenWA
 
 Run it as its own service beside the app, never inside it, so a WhatsApp

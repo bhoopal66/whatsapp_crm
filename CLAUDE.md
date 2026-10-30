@@ -451,7 +451,10 @@ with a `never` default, because `=== 'meta'` else-Whapi silently sent
 openwa through the Whapi client and typecheck did not notice. Its webhook
 authenticates like Meta's: `sessionId` selects the row, the
 `X-OpenWA-Signature` HMAC over the raw body proves it, fail closed. No
-buttons or lists (numbered text instead). Team activity counts it as a
+buttons or lists (numbered text instead): a flow maps a typed number or
+exact title back to its option whatever the meaning switch
+(`sendsMenusAsText`, `resolveTypedReply`'s `menuSentAsText`);
+automations and the journey bot do not. Team activity counts it as a
 phone number, like Whapi (migration 145); the Safety Meter stays
 Whapi-only.
 
