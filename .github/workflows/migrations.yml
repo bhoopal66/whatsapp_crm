@@ -533,6 +533,20 @@ jobs:
       - name: Verify chat DM rules
         run: supabase db query --local --file supabase/ci/verify-chat-dm-rules.sql
 
+      # Migration 156's team chat messaging v2: a voice note is one audio/*
+      # attachment with a bounded duration; a quote stays in its channel
+      # and thread scope and is immutable; a forward copies a readable live
+      # message within its workspace with mentions rendered and no pings
+      # (a DM rings 'dm' only); typing is allowed only where the caller
+      # could post, never joins a team channel, is throttled and is seen
+      # by readers only (a deal room's bank guest neither types nor sees
+      # it); voice plays likewise; the files list is SECURITY INVOKER;
+      # erasure reaches typing, plays and forwarded copies (forwards of
+      # forwards included); no new function is open to anon, PUBLIC or
+      # service_role.
+      - name: Verify chat messaging v2
+        run: supabase db query --local --file supabase/ci/verify-chat-messaging-v2.sql
+
       # Migration 147's Smart insights foundation: members read the
       # per-account settings and admins write them (bank guests and other
       # workspaces see nothing); the interested-reply tag is a main tag
