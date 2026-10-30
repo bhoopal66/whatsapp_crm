@@ -75,6 +75,16 @@ import { ThreadPinNote } from './thread-pin-note';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
+  applyReactionEventToPage,
+  mergeFreshPage,
+  messagesCacheKey,
+  type CacheEvent,
+  type CachedMessagePage,
+} from '@/lib/inbox/message-cache';
+import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
+import { prefetchSession, sessionCache } from '@/lib/session-cache';
+import { MessageSkeleton } from './message-skeleton';
+import {
   forgetKeptUpload,
   hasExpiredUpload,
   isRetryableSendFailure,
@@ -285,6 +295,8 @@ export function MessageThread({
   const tFailedSend = useTranslations('Inbox.failedSend');
 
   const { user, profile, profileLoading, accountRole, accountId } = useAuth();
+  // The session cache's key half (lib/inbox/message-cache.ts).
+  const viewerId = user?.id ?? null;
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Older-page state. The thread opens on its latest page; scrolling to
@@ -668,40 +680,79 @@ export function MessageThread({
     const unreadAtOpen = unreadCountRef.current;
     const opened = lastFetchedConversationRef.current !== conversationId;
     lastFetchedConversationRef.current = conversationId;
+    // The latest page as last seen this session (lib/inbox/message-cache.ts):
+    // an opening shows it at once and still reads the page again. A
+    // manual refresh (same chat) reloads from scratch, as before.
+    const key = messagesCacheKey(accountId, viewerId, conversationId);
+    const cached =
+      opened && key
+        ? sessionCache.get<CachedMessagePage>(key)?.value
+        : undefined;
+    // Once per chat opened: a manual refresh of the same chat keeps
+    // the divider where the agent first saw it.
+    const markUnread = (page: Message[]) =>
+      setUnreadMarker((prev) =>
+        !opened && prev?.conversationId === conversationId
+          ? prev
+          : {
+              conversationId,
+              count: unreadAtOpen,
+              messageId: firstUnreadMessageId(page, unreadAtOpen),
+            }
+      );
 
     (async () => {
-      setLoading(true);
-
-      const { data, error } = await messagesPageQuery(conversationId);
-
-      if (cancelled) return;
-
-      if (error) {
-        console.error('Failed to fetch messages:', error);
+      if (cached) {
+        setOlderState({ conversationId, hasOlder: cached.hasOlder });
+        setReactions(cached.reactions);
+        markUnread(cached.messages);
+        onMessagesLoadedRef.current(cached.messages);
+        setLoading(false);
       } else {
-        const { messages: pageDesc, reactions: pageReactions } =
-          splitEmbeddedReactions((data ?? []) as MessageWithReactions[]);
-        const page = toChronological(pageDesc);
-        setOlderState({
-          conversationId,
-          hasOlder: pageDesc.length >= MESSAGE_PAGE_SIZE,
-        });
-        setReactions(pageReactions);
-        // Once per chat opened: a manual refresh of the same chat keeps
-        // the divider where the agent first saw it.
-        setUnreadMarker((prev) =>
-          !opened && prev?.conversationId === conversationId
-            ? prev
-            : {
-                conversationId,
-                count: unreadAtOpen,
-                messageId: firstUnreadMessageId(page, unreadAtOpen),
-              }
-        );
-        onMessagesLoadedRef.current(page);
+        setLoading(true);
       }
 
-      if (!cancelled) setLoading(false);
+      const fetcher = () => fetchLatestMessagePage(conversationId);
+      let fresh: CachedMessagePage;
+      try {
+        // Joins a hover prefetch still in flight; a refresh starts anew.
+        fresh = key
+          ? await prefetchSession(key, fetcher, { force: !opened })
+          : await fetcher();
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to fetch messages:', error);
+        setLoading(false);
+        return;
+      }
+      if (cancelled) return;
+
+      if (cached) {
+        // Folded into what is shown, which realtime and the composer may
+        // have added to since the cached page went up.
+        const merged = mergeFreshPage(
+          { messages: messagesRef.current, reactions: [] },
+          fresh
+        );
+        setOlderState({ conversationId, hasOlder: merged.hasOlder });
+        setReactions((prev) =>
+          replaceReactionsFor(
+            prev,
+            fresh.messages.map((m) => m.id),
+            fresh.reactions
+          )
+        );
+        markUnread(merged.messages);
+        onMessagesLoadedRef.current(
+          (prev) => mergeLatestMessages(prev, fresh.messages).messages
+        );
+      } else {
+        setOlderState({ conversationId, hasOlder: fresh.hasOlder });
+        setReactions(fresh.reactions);
+        markUnread(fresh.messages);
+        onMessagesLoadedRef.current(fresh.messages);
+        setLoading(false);
+      }
     })();
 
     return () => {
@@ -709,7 +760,7 @@ export function MessageThread({
     };
     // `resyncToken` is included so the parent can force a full reload
     // (the manual refresh button).
-  }, [conversationId, resyncToken]);
+  }, [conversationId, resyncToken, accountId, viewerId]);
 
   // Delta resync: re-read the latest page and merge it in, keeping the
   // older pages the user scrolled back through and not flashing the
@@ -808,6 +859,15 @@ export function MessageThread({
   useEffect(() => {
     if (!conversationId) return;
     const supabase = createClient();
+    // Keeps the cached page current, so a revisit shows these too.
+    const key = messagesCacheKey(accountId, viewerId, conversationId);
+    const patchCache = (event: CacheEvent<MessageReaction>) => {
+      if (key) {
+        sessionCache.update<CachedMessagePage>(key, (p) =>
+          applyReactionEventToPage(p, event)
+        );
+      }
+    };
 
     const channel = supabase
       .channel(`reactions:${conversationId}`)
@@ -821,6 +881,7 @@ export function MessageThread({
         },
         (payload) => {
           const row = payload.new as MessageReaction;
+          patchCache({ eventType: 'INSERT', new: row, old: {} });
           setReactions((prev) => {
             if (prev.some((r) => r.id === row.id)) return prev;
             // Swap any matching optimistic temp row for the real one so
@@ -851,6 +912,7 @@ export function MessageThread({
         },
         (payload) => {
           const row = payload.new as MessageReaction;
+          patchCache({ eventType: 'UPDATE', new: row, old: {} });
           setReactions((prev) => prev.map((r) => (r.id === row.id ? row : r)));
         }
       )
@@ -865,6 +927,11 @@ export function MessageThread({
         (payload) => {
           const old = payload.old as Partial<MessageReaction>;
           if (!old?.id) return;
+          patchCache({
+            eventType: 'DELETE',
+            new: {} as MessageReaction,
+            old,
+          });
           setReactions((prev) => prev.filter((r) => r.id !== old.id));
         }
       )
@@ -873,7 +940,7 @@ export function MessageThread({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId]);
+  }, [conversationId, accountId, viewerId]);
 
   // Clear any in-progress reply draft when the active conversation changes —
   // a quote pulled from conversation A shouldn't bleed into conversation B.
@@ -1674,9 +1741,7 @@ export function MessageThread({
           className={cn('flex-1 overflow-y-auto pt-1 pb-3', THREAD_GUTTER)}
         >
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
-            </div>
+            <MessageSkeleton label={t('loadingMessages')} />
           ) : visibleMessages.length === 0 &&
             threadEvents.length === 0 &&
             failedHere.length === 0 ? (

@@ -399,6 +399,7 @@
       "sharedWithMe": "공유됨 · {bank}"
     },
     "messageThread": {
+      "loadingMessages": "메시지 불러오는 중",
       "backToConversations": "대화 목록으로 돌아가기",
       "hideContactPanel": "연락처 패널 숨기기",
       "showContactPanel": "연락처 패널 표시",

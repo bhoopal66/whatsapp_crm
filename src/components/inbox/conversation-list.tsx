@@ -8,6 +8,9 @@ import {
   membersCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
+import { messagesCacheKey } from '@/lib/inbox/message-cache';
+import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
+import { prefetchSession } from '@/lib/session-cache';
 import { useCan } from '@/hooks/use-can';
 import { isBankGuest } from '@/lib/auth/roles';
 import {
@@ -782,7 +785,8 @@ export function ConversationList({
   // people's chats; nobody else renders either affordance.
   // Scoped to the active workspace (RLS also returns the caller's own row
   // in every other one), and a bank guest is never listed.
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
+  const viewerId = user?.id ?? null;
   useEffect(() => {
     if (!showAssignee || !accountId) return;
     let cancelled = false;
@@ -1008,6 +1012,22 @@ export function ConversationList({
   const handleSelect = useCallback((conv: ConversationListItem) => {
     onSelectRef.current(conv);
   }, []);
+
+  // Hover/focus prefetch of a chat's latest page into the session cache
+  // (lib/inbox/message-cache.ts), so the click usually finds it ready.
+  // The thread's own read joins one still in flight.
+  const prefetchMessages = useCallback(
+    (conversationId: string) => {
+      const key = messagesCacheKey(accountId, viewerId, conversationId);
+      if (!key) return;
+      prefetchSession(key, () => fetchLatestMessagePage(conversationId)).catch(
+        () => {
+          // Best effort: the open reads the page again and reports.
+        }
+      );
+    },
+    [accountId, viewerId]
+  );
 
   // Infinite scroll: load the next page as the bottom sentinel nears
   // the viewport. Re-created after every page (see `pageCount`) so a
@@ -1435,6 +1455,7 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                onPrefetch={prefetchMessages}
                 t={t}
                 today={today}
                 locale={locale}
@@ -1596,7 +1617,12 @@ interface ConversationItemProps {
   /** Handled on an attention pin (stable: a useCallback). */
   /** Resolves true once the pin is cleared (the row then takes focus). */
   onHandled?: (conversation: ConversationListItem) => Promise<boolean>;
+  /** Warm the chat's messages on hover/focus (stable: a useCallback). */
+  onPrefetch?: (conversationId: string) => void;
 }
+
+/** Hover or focus this long before a row's messages are prefetched. */
+export const ROW_PREFETCH_DELAY_MS = 100;
 
 // Memoised: a realtime patch to one conversation re-renders that row,
 // not all of them. Every prop is stable across unrelated renders
@@ -1617,6 +1643,7 @@ const ConversationItem = memo(function ConversationItem({
   sharedBank = null,
   insights = false,
   onHandled,
+  onPrefetch,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -1655,6 +1682,26 @@ const ConversationItem = memo(function ConversationItem({
   const handleClick = useCallback(() => {
     onSelect(conversation);
   }, [onSelect, conversation]);
+
+  // Debounced so sweeping the pointer down the list fetches nothing;
+  // leaving (or blurring) before the delay cancels it.
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (prefetchTimerRef.current !== null) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+  }, []);
+  const schedulePrefetch = useCallback(() => {
+    if (!onPrefetch || isActive) return;
+    cancelPrefetch();
+    const id = conversation.id;
+    prefetchTimerRef.current = setTimeout(() => {
+      prefetchTimerRef.current = null;
+      onPrefetch(id);
+    }, ROW_PREFETCH_DELAY_MS);
+  }, [onPrefetch, isActive, conversation.id, cancelPrefetch]);
+  useEffect(() => cancelPrefetch, [cancelPrefetch]);
 
   // Right-click actions (the app-wide menu). Only what the row already
   // knows and what already exists: selecting, the `?c=` deep link the
@@ -1742,6 +1789,10 @@ const ConversationItem = memo(function ConversationItem({
     <button
       ref={rowRef}
       onClick={handleClick}
+      onPointerEnter={schedulePrefetch}
+      onPointerLeave={cancelPrefetch}
+      onFocus={schedulePrefetch}
+      onBlur={cancelPrefetch}
       aria-current={isActive ? 'true' : undefined}
       className={cn(
         // @container: the insight chips size themselves to the row.

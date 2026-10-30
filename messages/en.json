@@ -399,6 +399,7 @@
       "sharedWithMe": "Shared · {bank}"
     },
     "messageThread": {
+      "loadingMessages": "Loading messages",
       "backToConversations": "Back to conversations",
       "hideContactPanel": "Hide contact panel",
       "showContactPanel": "Show contact panel",

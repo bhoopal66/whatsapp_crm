@@ -58,6 +58,12 @@ import { toast } from 'sonner';
 import { WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  applyMessageEventToPage,
+  messagesCacheKey,
+  type CachedMessagePage,
+} from '@/lib/inbox/message-cache';
+import { sessionCache } from '@/lib/session-cache';
 import { viewsOthersConversations } from '@/lib/auth/conversation-visibility';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import {
@@ -466,6 +472,22 @@ export function InboxPageInner({
     (event: { eventType: string; new: Message; old: Partial<Message> }) => {
       const newMsg = event.new;
 
+      // Every chat's cached latest page, open or not, so a revisit shows
+      // what arrived meanwhile (lib/inbox/message-cache.ts). A chat with
+      // nothing cached is left alone: its next open reads the page.
+      const cacheKey = messagesCacheKey(
+        accountId,
+        user?.id,
+        event.eventType === 'DELETE'
+          ? event.old?.conversation_id
+          : newMsg?.conversation_id
+      );
+      if (cacheKey) {
+        sessionCache.update<CachedMessagePage>(cacheKey, (p) =>
+          applyMessageEventToPage(p, event)
+        );
+      }
+
       if (event.eventType === 'INSERT') {
         // Add to messages if it belongs to active conversation
         if (
@@ -521,7 +543,7 @@ export function InboxPageInner({
         );
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, accountId, user?.id]
   );
 
   // Smart insights on (docs/jev-insights.md): a chat a signal just
