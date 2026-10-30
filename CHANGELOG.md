@@ -12,6 +12,40 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: voice notes, forwarding, permissions, moderation and export
+
+**Migration required: 156, 157, 158, 159 and 160** (`156_chat_messaging_v2.sql`
+onward), applied in order, as a superuser or BYPASSRLS role (157 to 160
+refuse otherwise), **before** you deploy this build. Re-runnable. Nothing
+changes for anyone until an owner or admin saves rules in Settings → Team
+chat: every default keeps today's behaviour.
+
+- **Voice notes.** Record in the composer (and in threads) with a live
+  level meter, up to 15 minutes, and review before sending. A
+  WhatsApp-style player (1×, 1.5×, 2×, waveform, download) plays voice
+  notes and any audio file, and the author sees who played theirs.
+- **Messaging.** Quote replies, forwarding to up to 5 channels or DMs
+  (a forwarded message pings only the members of a DM), a formatting
+  toolbar and shortcuts (bold, italic, strike, code, quotes, lists),
+  an emoji picker and any emoji as a reaction, "Seen by" in DMs and
+  channels of up to 20 people, and a "New messages" divider.
+- **Files.** A Files panel per channel (All, Images, Voice, Video,
+  Files, jumping to the message), a full-screen image viewer, inline
+  video and file-type icons.
+- **Access control.** Settings → Team chat → Permissions: a role matrix
+  of twelve capabilities ("Use recommended", "Allow everything"), edit
+  and delete windows, and per-channel posting rules (announcement
+  channels, thread replies, @channel). Team channels can be limited to
+  a minimum role and to teams. A sensitive-data guard (card number,
+  Emirates ID, IBAN) can warn, or block in channels with bank guests or
+  everywhere.
+- **Moderation and compliance.** Removing someone else's message asks
+  for a reason and reads "Removed by an admin"; channel admins can
+  restrict a member from posting for 1 hour to 30 days; owners and
+  admins can export a channel to CSV (up to 10,000 messages, reason
+  required). Everything is in the audit log. Messages are still never
+  deleted automatically, and voice notes are not transcribed.
+
 ### Fixes: drafts stay with their chat, OpenWA menu answers, unsent attachments
 
 **Migration required: 155_chat_media_staged_sweep.sql**. Additive and

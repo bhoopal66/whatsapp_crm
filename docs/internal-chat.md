@@ -6,7 +6,12 @@ shared customer cards. Migration `087_internal_chat.sql`; the rules
 below are enforced in Postgres (RLS and the `chat_*` functions) and
 asserted by `supabase/ci/verify-internal-chat.sql` and
 `verify-internal-chat-admin.sql`. Deal-room channels are created by
-`088_deal_rooms.sql`.
+`088_deal_rooms.sql`. Migrations 156 to 160 (voice notes, quote
+replies, forwarding, permissions, the sensitive-data guard, restricted
+team channels, moderation and export) are described in the sections
+that follow; apply them in order, as a superuser or BYPASSRLS role
+(157 to 160 refuse otherwise), before the app build that uses them.
+Their defaults change nothing until an owner or admin saves rules.
 
 ## What it is
 
@@ -53,7 +58,34 @@ asserted by `supabase/ci/verify-internal-chat.sql` and
   share a name, ignoring case. The database enforces the length and the
   uniqueness; the lowercase and hyphen shaping is the dialog's.
 - **Who creates.** Owners, admins, team leaders, agents and viewers can
-  create team and private channels. Bank guests cannot.
+  create team and private channels. Bank guests cannot. Since 157 an
+  owner or admin can take that away per role (see _Permissions_).
+- **Posting rules** (157; team and private channels only, DMs and deal
+  rooms are fixed to _everyone_). Three switches per channel, each
+  _everyone_ or _admins_: **posting** (top-level messages),
+  **thread replies** and **@channel / @here**. "Admins" means the
+  channel's admins and the workspace's owners and admins; a bank guest
+  never counts. A channel with posting set to admins is an
+  **announcement channel**: everyone can read and react, and can reply
+  in threads unless thread replies are limited too. A channel admin,
+  or a workspace owner or admin, changes them from the gear menu
+  (**Posting permissions…**, `chat_set_channel_policy`); the header
+  shows an _Announcements_ or _Restricted_ badge. Typing and uploads
+  follow the rules: an upload is allowed if you may post top-level or
+  reply. A save that changes nothing writes no audit row.
+- **Restricted team channels** (159). A team channel can be limited to
+  a minimum role (viewer, agent, team leader, admin) and, optionally,
+  to the members and leaders of chosen teams (**Who can see this
+  channel…**, `chat_set_channel_audience`). Owners and admins always
+  see it; anyone else needs a raw role at or above the minimum (viewer
+  < agent < team leader < admin < owner) **and**, when teams are
+  listed, to belong to one of them (member or leader). Membership is
+  no override: a member who no longer qualifies loses the channel, the
+  rows stay, and it returns when the rule is widened. The default is
+  all staff, so nothing changes until someone saves a rule. A channel
+  admin who is not an owner or admin cannot save a rule that hides the
+  channel from themselves (`22023`, "would hide this channel from
+  you"). Bells created before a restriction are kept.
 - **Managing a channel** (team and private only: DMs are fixed sets
   and deal rooms are managed from the deal). A channel admin, or a
   workspace owner or admin, can rename it, change or clear its topic,
@@ -78,7 +110,19 @@ asserted by `supabase/ci/verify-internal-chat.sql` and
 ## Who sees what, by role
 
 Chat uses the account role, with one mapping: a **viewer has an agent's
-chat rights**, and a team leader is the chat's "supervisor".
+chat rights**, and a team leader is the chat's "supervisor". Since 157
+an owner or admin can narrow what each role may do (see _Permissions_);
+the rights below are the defaults.
+
+**Audience (159).** A team channel with an audience rule (see
+_Channels_) is read only by the people who pass it. One clause in
+`chat_user_can_read_channel` applies it to every read path: RLS,
+storage, unread counts and badges, search, cards, mentions and bells,
+push, the guest check, and reactions, pins, saves, plays and mute.
+Writes are refused by triggers on member inserts, user messages and
+typing (`42501`, "chat: outside this channel's audience").
+**Announcement channels** (posting limited to admins) are read by their
+usual audience; only posting is limited.
 
 - **Owner and admin.** Every team channel, and the private channels,
   DMs and deal rooms they are a member of. Any other private channel,
@@ -138,21 +182,161 @@ someone saves rules: a workspace with no rules keeps every DM open.
   the restricting pairs. Changes are stamped with `updated_by` /
   `updated_at`, not written to the chat audit log.
 
+## Permissions (migration 157)
+
+An owner or admin decides, per workspace, what each role may do in
+chat (Settings → Team chat → Permissions). Nothing is restricted until
+someone saves: a workspace with no rows keeps today's rights.
+
+- **A row means denied.** `chat_role_permissions` lists the denied
+  (role class, capability) pairs. The classes are admin, team leader,
+  agent, viewer and bank guest, taken from the raw account role (a
+  viewer and a team leader are separate here, unlike the default
+  mapping above). **Owners are exempt.**
+- **Twelve capabilities:** create team channel, create private channel,
+  open group DM (3 or more people including the opener, also when
+  reopening one), mention everyone (@channel and @here), upload files,
+  send voice, pin messages (pin and unpin), forward messages, share
+  cards (conversation and call cards), add members (not the initial
+  members of a new channel), edit own, delete own. A bank guest can be
+  denied only upload files, send voice, pin messages, forward messages,
+  mention everyone, edit own and delete own.
+- **Presets.** The page has **Use recommended** (viewer: create
+  channels, group DMs, @channel, pin, add members; agent: @channel;
+  guest: forward, @channel) and **Allow everything**. The list lives in
+  `src/lib/chat/permissions.ts` (`CHAT_CAPABILITIES`,
+  `RECOMMENDED_DENIED`); a test pins the capability list to the CHECK
+  on the table.
+- **Message rules.** `chat_workspace_settings` holds the edit and
+  delete windows, 1 to 10,080 minutes or none, for an author's own
+  edit and delete. Owners and admins are exempt from the windows
+  (admins still need _edit own_ / _delete own_ if their class is
+  denied). The buttons are hidden after the window; the database
+  refuses (`42501`, "the edit/delete window has passed (N minutes)").
+- **Channel rules** are per channel (see _Channels_).
+- **Refusals** are `42501`: "chat: your role may not …", "only channel
+  admins can post here", "only channel admins can reply in threads
+  here", "you may not notify everyone".
+- **The UI applies the same rules**: buttons are hidden,
+  announcement-channel and thread-reply blocks explain themselves,
+  @channel is offered only when allowed, and the edit and delete
+  actions vanish after the windows. The database decides; the UI only
+  informs.
+- **Reads.** The matrix is readable by live non-guest members, the
+  settings by any live member including guests.
+  `chat_my_permissions(p_ws)` returns the caller's class, the twelve
+  capabilities, both windows, whether the windows apply and the
+  sensitive-data setting.
+- **Writes.** `chat_set_permissions(p_ws, p_denied)` replaces the whole
+  set; `chat_set_workspace_settings(p_ws, p_edit, p_delete)`;
+  `chat_set_channel_policy`. Owner or admin (a channel admin for the
+  channel policy). Audited as `set_permissions`, `update_settings` and
+  `update_policy`.
+
+## Sensitive-data guard (migration 158)
+
+Settings → Team chat → Sensitive data. An owner or admin picks a mode
+(`off`, `warn`, `block`; default off) and a scope (`guests`, `all`;
+default guests) with `chat_set_sensitive_guard(p_ws, p_mode, p_scope)`,
+audited as `update_sensitive_guard` (old and new).
+
+- **What it detects:** an Emirates ID, a card number (13 to 19 digits,
+  Luhn-valid, after phone numbers are masked) and an IBAN of a known
+  country with a valid checksum. `<@uuid>` mention tokens are removed
+  before the scan, since a uuid's digits could read as a card.
+  Attachment contents are not scanned.
+- **warn** is a client-side warning dialog before sending; the
+  database allows the message.
+- **block** is a trigger on `internal_messages` (before insert or an
+  update of the body; user posts only, live rows). With scope _all_ the
+  message is refused anywhere; with _guests_ it is refused in team and
+  private channels that have a bank guest as a member. Deal rooms are
+  exempt (Team notes are staff-only). Owners are not exempt. It covers
+  posts, forwards and edits, not system posts, deletes or erasures. The
+  refusal is `42501`, "… contains sensitive data (card, …) and this
+  workspace blocks it in channels with bank guests / in team chat"; the
+  UI shows a block message.
+- **Two copies of the detector.** `chat_sensitive_kinds` (SQL) mirrors
+  `src/lib/kb/sensitive.ts` and `redact.ts`. Change one, change both;
+  the shared corpus in `verify-chat-sensitive-guard.sql` and
+  `src/lib/kb/sensitive-corpus.test.ts` pins their agreement.
+
 ## Messages
 
 - **Size.** 1 to 8,000 characters. A message with files and no text
   carries the file names as its text.
+- **Formatting.** `*bold*`, `_italic_`, `~strike~`, `` `code` ``,
+  fenced code blocks, `>` quotes, lists and `http(s)` links (opened
+  with `rel="noopener noreferrer nofollow"`). The **Aa** toolbar and
+  Ctrl/Cmd+B, I, Shift+X and E apply it; previews strip the markers.
+  The emoji picker is in the composer, and **Add reaction…** accepts
+  any emoji.
+- **Voice notes** (156). The mic button in the composer (and in
+  threads) records Ogg/Opus with a live level meter, up to **15
+  minutes** (`CHAT_VOICE_MAX_SECONDS`); the take is reviewed before
+  sending, and uploaded only on Send, so a discarded take uploads
+  nothing. A voice note is an attachment of kind `voice` (1 to
+  1,200,000 ms, `audio/*`) and the message's **only** attachment. Its
+  text is "🎤 Voice message (m:ss)", kept for search and bells and
+  hidden in the row unless the message is edited. Voice notes and any
+  audio file play in the same WhatsApp-style player (1×, 1.5×, 2×,
+  waveform, download). Sending one needs the _send voice_ capability.
+  There is no transcription.
+- **Played by** (156). Opening a voice note records a play
+  (`chat_mark_voice_played`, table `chat_voice_plays`, readable by
+  whoever can read the message). The author sees who played it, under
+  the same receipts rule as _Seen by_; the author's own plays are not
+  recorded.
+- **Quote replies** (156). **Reply** (hover, menu or right-click) shows
+  a _Replying to_ bar (Esc or X cancels) and posts with
+  `reply_to_id`. The target must be a live message of the same channel
+  and the same thread scope: a top-level message quotes a top-level
+  one; a reply in thread R quotes R or another reply of R. It cannot
+  be changed afterwards (`42501`, "structural columns are immutable").
+  The quote block jumps to the original. A quote adds no notification
+  of its own.
+- **Forwarding** (156). **Forward** copies a message you can read to up
+  to **5** targets: team channels (posting joins you), and the private
+  channels and DMs you are in. Deal rooms, and the channel the message
+  is in, are not offered; a bank-guest badge marks channels with one.
+  The browser first copies the attachments into the target's storage
+  prefix, then calls `chat_forward_message(p_message, p_channel,
+  p_attachments)`. The copy is a top-level message with
+  `meta.forwarded` (source message, author, kind, time); mentions
+  become plain `@Name` and ping nobody; a shared card is **not**
+  carried (the dialog says so). The source must be readable and live
+  (deleted: `22023`; missing or unreadable: `P0002`) and in the same
+  workspace (`42501`). Needs _forward messages_; forwarded attachments
+  do not need _upload files_. The sensitive-data guard applies to the
+  copy.
+- **Typing** (156). `chat_set_typing(p_channel, p_thread_root,
+  p_typing)` marks the caller as typing, only where they could post
+  (`chat_assert_can_write(p_channel, false)`), never joins anyone to a
+  channel, and is throttled in the database (a row under 2 seconds old
+  in the same thread is left alone). Stopping is never refused. Rows
+  are readable by the channel's readers and delivered by realtime. The
+  database and `src/lib/chat/typing.ts` implement it; this branch
+  shows no typing indicator in the UI yet.
+- **Seen by** (156). Only in DMs and team or private channels of at
+  most 20 members, never deal rooms. Under your last top-level
+  message: _Seen_ or _Sent_ in a 1:1 DM, _Seen by N_ with a list in a
+  group, from each member's `last_read_at` once they could read it. A
+  **New messages** divider is frozen per visit; marking read also
+  happens when the tab becomes visible.
 - **Threads** have one level. A reply goes in its root's channel, and a
   reply to a reply is refused.
 - **Mentions.** `@name` is stored as the person's id. Someone who
   cannot read the channel's messages is dropped silently. `@channel`
   and `@here` notify every member of the channel; `@here` does not
   check who is online. The composer offers them in team and private
-  channels.
+  channels, and only to someone allowed to: the _mention everyone_
+  capability and the channel's @channel rule (`42501`, "you may not
+  notify everyone").
 - **Reactions** toggle: the same emoji again removes it. The quick bar
   offers 👍 ✅ 👀 🙏 ❤️ 😂; the database accepts any emoji of 1 to 32
   characters.
-- **Pins.** Anyone who can post in the channel can pin and unpin. A
+- **Pins.** Anyone who can post in the channel (and holds _pin
+  messages_) can pin and unpin. A
   channel holds at most 100 pins; the 101st is refused.
 - **Saved messages** are yours alone (`/chat/saved`). You can save any
   message you can read.
@@ -165,12 +349,20 @@ someone saves rules: a workspace with no rules keeps every DM open.
 - **Edits** are the author's alone. The message shows as edited and the
   previous text goes to an append-only history that only owners and
   admins can read, for messages in channels they can read directly. The
-  author and team leaders cannot read it.
-- **Deletes** are the author's, or any workspace owner or admin's. The
-  message stays as a deleted placeholder; its files, mentions, shared
-  card and bell notifications are removed. The text it had stays in the
-  edit history, readable by owners and admins, until the author is
-  erased (see _Retention and erasure_).
+  author and team leaders cannot read it. Needs _edit own_ and the
+  workspace's edit window (see _Permissions_): after it the button is
+  hidden and the database refuses (`42501`, "the edit window has passed
+  (N minutes)"). Owners and admins are exempt from the window.
+- **Deletes** are the author's, or any workspace owner or admin's
+  (since 160 also a channel admin's, in team and private channels).
+  The message stays as a deleted placeholder; its files, mentions,
+  shared card and bell notifications are removed. The text it had stays
+  in the edit history, readable by owners and admins, until the author
+  is erased (see _Retention and erasure_). Deleting your own needs
+  _delete own_ and the delete window. Deleting someone else's message is
+  **moderation**: it needs a reason (see _Admin oversight_), and the
+  placeholder reads "Removed by an admin" when `deleted_by` is not the
+  author.
 - **Search** covers the messages you can read in the workspace. It
   matches whole words with no stemming, the same way for Arabic and
   English text, and Arabic-Indic digits (٠١٢٣) match ASCII digits.
@@ -220,7 +412,17 @@ Files are stored in the private `chat-files` bucket, at
 `account-<workspace>/channel-<channel>/<uuid>-<name>`. At most 10 files
 per message, 25 MB each.
 
-- **Upload** needs the right to post in that channel. The composer
+- **Voice notes** are attachments of kind `voice`. The player mints a
+  signed URL near the viewport and mints a new one if an old URL fails.
+- **Files panel** (156). Per channel, with tabs All, Images, Voice,
+  Video and Files, newest first, live messages only; a click jumps to
+  the message (`chat_channel_files(p_channel, p_kind, p_before,
+  p_limit)`, kind `voice`, `image`, `video` or `file`, limit 1 to 200;
+  it runs with the caller's rights, so RLS decides what is listed).
+- **Viewing.** Images open in a full-screen viewer (arrows, download),
+  video plays inline, and other files show a type icon.
+- **Upload** needs the right to post in that channel (and, since 157,
+  _upload files_; a restricted member, below, cannot). The composer
   uploads first and shows no preview, then posts the message; the post
   fails if an object was not uploaded.
 - **Download** needs the right to read the channel's messages **and** a
@@ -301,6 +503,10 @@ characters of the message and mentions shown as `@Name`.
 | `chat_thread_reply` | a reply in a thread you started or replied in          |
 | `chat_broadcast`    | `@channel` or `@here` in a channel you are a member of |
 
+- A **forwarded** message rings only the members of a DM it is
+  forwarded into (`chat_dm`); forwarding into a channel pings nobody,
+  and mentions in it are plain text. A **quote reply** adds no bell of
+  its own.
 - One notification per person per message, by that order of
   precedence. Never to the author, and never to someone who cannot read
   the channel's messages. Automation posts notify nobody.
@@ -331,17 +537,52 @@ room can read it, but must give a reason first.
   Each read needs its own reason.
 - The transcript shows deleted and erased messages as such, thread
   replies indented. It does not include the edit history.
+- **Moderation** (160). A workspace owner or admin, or a channel admin
+  of a team or private channel (never a DM), can delete another
+  person's message with `chat_delete_message(p_message, p_reason)`. A
+  reason of 5 to 500 characters is required (`22023`, "a reason is
+  required") and the audit row `moderate_delete` records message,
+  author and reason. The UI asks for it (**Remove message…**). A
+  system post can be removed only by a workspace owner or admin, also
+  with a reason. Own deletes need no reason and set `deleted_by` to the
+  author; `deleted_by` is set only together with `deleted_at` and is
+  immutable.
+- **Timeouts** (160). **Restrict posting…** in the members panel calls
+  `chat_restrict_member(p_channel, p_user, p_until, p_reason)`: a team
+  or private channel, not yourself, not a workspace owner or admin; a
+  channel admin may restrict only non-admin members; the end is in the
+  future and at most 30 days away (the dialog offers 1 hour to 30
+  days); a reason is required to set one, and `NULL` for `p_until`
+  clears it (**Lift restriction**). A non-member of a team channel gets
+  a member row to hold it. While it lasts every write is refused in
+  that channel (`42501`, "restricted from posting": posts, replies,
+  reactions, pins, typing, uploads, edits, call cards); reading is
+  unaffected. It is enforced in `chat_assert_can_write`.
+- **Export** (160). Settings → Team chat → **Export a channel** (owner
+  or admin) downloads a CSV (UTF-8 BOM, so Excel reads Arabic). Any
+  channel kind, including ones the admin is not in, and even with team
+  chat switched off. It needs a reason and a date range, returns at
+  most **10,000** messages ordered by time and id, with mentions
+  rendered, deleted messages as an empty body plus `deleted_by`, erased
+  ones as `[erased]`. `chat_export_channel(p_channel, p_from, p_to,
+  p_reason)` writes the audit row `export_channel` (range, reason,
+  count, whether truncated) **first**, in the same call.
 - The log is Settings → Audit log (source Team chat), owners and admins
   only, and append-only. It also records `erase_person`, `add_members`
   and `set_member_role` (who added or promoted whom, and where), and
   since 091 `update_channel` (old and new name and topic),
   `archive_channel`, `unarchive_channel` and `remove_member` (whom, and
-  their channel role).
+  their channel role). Since 157 to 160 it also records
+  `set_permissions`, `update_settings`, `update_policy`,
+  `update_sensitive_guard` (old and new), `set_audience`,
+  `moderate_delete`, `restrict_member` and `export_channel`: sixteen
+  actions in all, named by one CHECK on `chat_audit_log.action`.
 
 ## Retention and erasure
 
-Nothing in chat is deleted automatically (decision D-4); no job removes
-messages by age. The only automatic removal is the file sweep above.
+Nothing in chat is deleted automatically (decision D-4, which stands);
+no job removes messages by age. The only automatic removal is the file
+sweep above.
 
 An **owner** can erase one person's chat data in one workspace
 (Settings → Team chat → erasure; the person may already be
@@ -353,8 +594,12 @@ deactivated).
   and they show as erased. Their files, shared cards and edit history
   (the only path that deletes it) are deleted, and the files are
   removed from storage.
-- **Also deleted:** their reactions, saved messages and chat
-  notifications; mentions in their messages and mentions of them;
+- **Forwarded copies** of their messages (and forwards of forwards) are
+  erased too: text `[erased]`, attachments deleted and removed from
+  storage. The audit detail gains `forwarded_copies`. A push already
+  queued for a copy is not deleted; it is skipped when claimed.
+- **Also deleted:** their typing rows and voice plays, their
+  reactions, saved messages and chat notifications; mentions in their messages and mentions of them;
   and the bell rows that are theirs or that quote them.
 - **Untouched:** other people's messages, channel memberships, pins.
 - **Audit:** one `erase_person` row with the person, the reason, the
@@ -375,7 +620,8 @@ forbidden (or chat off), 404 not found, 409 conflict, 500 otherwise.
 - `POST /api/chat/admin/erase-person` (owner): body `{ userId, reason }`
   → `{ messages, files, filesDeleted, filesFailed }`.
 - `POST /api/chat/messages/[id]/delete` (any member; the database
-  decides who may) → `{ files, filesDeleted, filesFailed }`.
+  decides who may; body `{ reason }`, required when removing someone
+  else's message) → `{ files, filesDeleted, filesFailed }`.
 - `GET /api/automations/cron` runs the file sweep, and
   `GET /api/audit?source=team_chat` backs the audit log.
 
@@ -405,3 +651,31 @@ found, `22023` invalid (`lastAdmin`; removing yourself; a DM or deal
 room; a `NULL` switch), `23514` a name or topic of the wrong length,
 `23505` the name is taken (`duplicateName`, on unarchive too), `CH001`
 internal chat is off.
+
+### Messaging, permissions, moderation (156 to 160)
+
+Called directly like the rest. Errors are the SQLSTATEs listed with
+each rule above.
+
+| Function                      | Arguments                                                    | Notes                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `chat_post_message`           | `…, p_reply_to uuid DEFAULT NULL`                            | 156; the old 5-argument form is dropped, positional calls still work; attachments carry `kind` and `duration_ms` |
+| `chat_forward_message`        | `p_message, p_channel, p_attachments`                        | 156; `22023` deleted source, `P0002` missing or unreadable, `42501` other workspace                              |
+| `chat_mark_voice_played`      | `p_message`                                                  | 156; the author's own plays are not recorded                                                                     |
+| `chat_set_typing`             | `p_channel, p_thread_root, p_typing`                         | 156; never joins; throttled to one write per 2 s                                                                 |
+| `chat_channel_files`          | `p_channel, p_kind, p_before, p_limit`                       | 156; kind `voice`, `image`, `video`, `file` or `NULL`; limit 1 to 200; invoker rights                            |
+| `chat_set_permissions`        | `p_ws, p_denied jsonb`                                       | 157; replaces the denied set; owner or admin                                                                     |
+| `chat_set_workspace_settings` | `p_ws, p_edit, p_delete`                                     | 157; windows 1 to 10,080 minutes, `NULL` = none                                                                  |
+| `chat_set_channel_policy`     | `p_channel, p_posting, p_thread_replies, p_mention_everyone` | 157; `NULL` keeps; team and private only; channel admins too                                                     |
+| `chat_my_permissions`         | `p_ws`                                                       | 157; class, 12 capabilities, windows, `windows_apply`, `sensitive`                                               |
+| `chat_set_sensitive_guard`    | `p_ws, p_mode, p_scope`                                      | 158; owner or admin                                                                                              |
+| `chat_set_channel_audience`   | `p_channel, p_min_role, p_team_ids`                          | 159; team channels; `22023` if it would hide the channel from you                                                |
+| `chat_delete_message`         | `p_message, p_reason DEFAULT NULL`, returns `text[]`         | 160; reason (5 to 500) for someone else's message, else `22023`                                                  |
+| `chat_restrict_member`        | `p_channel, p_user, p_until, p_reason`                       | 160; at most 30 days; `NULL` clears; `42501` for a workspace owner or admin or a peer channel admin              |
+| `chat_export_channel`         | `p_channel, p_from, p_to, p_reason`                          | 160; owner or admin; audited first; at most 10,000 messages                                                      |
+
+Verify files: `verify-chat-messaging-v2.sql` (156),
+`verify-chat-permissions.sql` (157), `verify-chat-sensitive-guard.sql`
+(158), `verify-chat-restricted-channels.sql` (159) and
+`verify-chat-moderation.sql` (160); each is a step in
+`.github/workflows/migrations.yml`.

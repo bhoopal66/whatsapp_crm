@@ -575,6 +575,8 @@ the same expression reads the snapshot taken before the call.
 Migrations 120–129 add nine more (134 adds `verify-compass-sync.sql`, 136 `verify-submission-no-whatsapp.sql`): assistant safety, vault, cases, case
 tools, case SLA, case inbox, bank workspaces, bank dashboard and CRM
 memory (`verify-assistant-safety.sql` … `verify-crm-memory.sql`).
+Team chat 156–160 add five more (`verify-chat-messaging-v2.sql` …
+`verify-chat-moderation.sql`).
 
 ### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
@@ -904,6 +906,32 @@ only). `docs/internal-chat.md` is the contract.
   `chat_broadcast`; `CHAT_NOTIFICATION_TYPES` (`notification-link.ts`), 085's
   CHECK and the type lists in edit, delete and erase change together.
   `verify-internal-chat.sql`, `verify-internal-chat-admin.sql`.
+- **Team chat v2 (156–160, `docs/internal-chat.md`).** Apply in order,
+  as superuser/BYPASSRLS (157–160 refuse otherwise), before the build.
+  `chat_post_message` has `p_reply_to` (the old signature is dropped) and
+  attachments carry `kind` / `duration_ms` (voice is a message's only
+  attachment). A forward copies storage objects client-side, then
+  `chat_forward_message`. Typing never joins a channel; a play by the
+  author is not recorded.
+  - *Permissions (157).* A `chat_role_permissions` row is a denial; owners
+    exempt; the 12 capabilities in `lib/chat/permissions.ts` are pinned to
+    the table's CHECK by a test in `src/lib/chat/__tests__`. Edit/delete
+    windows exempt owners and admins. Posting rules (`posting`,
+    `thread_replies`, `mention_everyone`) exist on team/private only; DMs
+    and deal rooms are CHECK-locked to everyone.
+  - *Sensitive guard (158).* A trigger, not app code. `chat_sensitive_kinds`
+    mirrors `lib/kb/sensitive.ts` + `redact.ts`: change both; the corpus in
+    `verify-chat-sensitive-guard.sql` and `sensitive-corpus.test.ts` pins them.
+  - *Audience (159).* One clause in `chat_user_can_read_channel` covers every
+    read; BEFORE triggers guard writes. Membership is no override.
+  - *Moderation (160).* Deleting another's message needs a 5–500 character
+    reason and sets `deleted_by`; a restriction is enforced in
+    `chat_assert_can_write`; `chat_export_channel` writes its audit row
+    first. `chat_audit_log.action` has a 16-value CHECK: any later
+    migration must recreate it whole.
+  - Verify files: `verify-chat-messaging-v2.sql`, `verify-chat-permissions.sql`,
+    `verify-chat-sensitive-guard.sql`, `verify-chat-restricted-channels.sql`,
+    `verify-chat-moderation.sql`.
 
 ### Deal rooms (`lib/deal-rooms/*`, migration 088)
 
