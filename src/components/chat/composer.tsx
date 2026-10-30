@@ -28,10 +28,12 @@ import {
   CHAT_FILE_MAX_BYTES,
   channelsWithGuests,
   postMessage,
+  setTyping,
   uploadChatFile,
   type AttachmentInput,
   type SharedCard,
 } from '@/lib/chat';
+import { typingStep } from '@/lib/chat/typing-flow';
 import {
   acceptFiles,
   blockFromError,
@@ -261,6 +263,27 @@ export function Composer({
   const replyId = reply.target?.id ?? null;
   const [formatBar, setFormatBar] = useState(false);
 
+  // Typing indicator (156): when the last "typing" went out, null when
+  // none is live, so a stop is only ever sent after a start.
+  const typingSentAt = useRef<number | null>(null);
+  const tellTyping = useCallback(
+    (typing: boolean) => {
+      typingSentAt.current = typing ? Date.now() : null;
+      // Refusals (not allowed to post here) and throttling are expected.
+      setTyping(ws.sb, { channelId, threadRootId, typing }).catch(
+        () => undefined
+      );
+    },
+    [ws.sb, channelId, threadRootId]
+  );
+  // Leaving the channel or thread stops it.
+  useEffect(
+    () => () => {
+      if (typingSentAt.current !== null) tellTyping(false);
+    },
+    [tellTyping]
+  );
+
   // ---- Voice notes: record, review, then upload on Send -------------
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -450,6 +473,14 @@ export function Composer({
   if (!channel) return null;
 
   const changeDraft = (d: ComposerDraft) => {
+    const step = typingStep({
+      prevText: draft.text,
+      nextText: d.text,
+      lastSentAt: typingSentAt.current,
+      now: Date.now(),
+      blocked: writeBlocked,
+    });
+    if (step) tellTyping(step === 'start');
     setNotice(null);
     setDraft(d);
     writeDraft(storageKey, d);
@@ -581,6 +612,7 @@ export function Composer({
       });
       dropTake();
       reply.clear();
+      if (typingSentAt.current !== null) tellTyping(false);
       onPosted?.(id);
     } catch (err) {
       const key = chatErrorKey(err);

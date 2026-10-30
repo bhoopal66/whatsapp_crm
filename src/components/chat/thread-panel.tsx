@@ -37,6 +37,7 @@ import { MessageRow } from './message-row';
 import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
 import { QuoteProvider, useQuoteResolver } from './quotes';
 import { ReplyTargetProvider } from './reply-target';
+import { TypingIndicator } from './typing-indicator';
 import { useWriteBlock } from './use-write-block';
 
 /** Replies read at once; a longer thread shows its latest ones. */
@@ -299,12 +300,15 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
             </div>
           </VoicePlaysProvider>
           {rootMsg && !rootMsg.deletedAt && (
-            <Composer
-              key={rootId}
-              channelId={channelId}
-              threadRootId={rootId}
-              sharedCard={card}
-            />
+            <>
+              <TypingIndicator channelId={channelId} threadRootId={rootId} />
+              <Composer
+                key={rootId}
+                channelId={channelId}
+                threadRootId={rootId}
+                sharedCard={card}
+              />
+            </>
           )}
         </QuoteProvider>
       </ReplyTargetProvider>

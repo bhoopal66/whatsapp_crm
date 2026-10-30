@@ -27,6 +27,7 @@ import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
 import { QuoteProvider, useQuoteResolver } from './quotes';
 import { ReplyTargetProvider } from './reply-target';
 import { SeenBy } from './seen-by';
+import { TypingIndicator } from './typing-indicator';
 import { useWriteBlock } from './use-write-block';
 
 const MARK_READ_DEBOUNCE_MS = 800;
@@ -276,6 +277,7 @@ export function ChannelView({
                 }
               />
             </VoicePlaysProvider>
+            {footer && <TypingIndicator channelId={channelId} />}
             {footer}
           </QuoteProvider>
         </ReplyTargetProvider>

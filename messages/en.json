@@ -4569,6 +4569,11 @@
     }
   },
   "Chat": {
+    "typing": {
+      "one": "{name} is typing…",
+      "two": "{first} and {second} are typing…",
+      "many": "Several people are typing…"
+    },
     "settingUpTitle": "Team chat is being set up",
     "settingUpBody": "Your workspace's team chat will appear here.",
     "title": "Team chat",

@@ -22,6 +22,7 @@ import {
   type UnreadCount,
   type VoicePlay,
 } from '@/lib/chat';
+import type { TypingChange } from '@/lib/chat/typing-flow';
 import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
@@ -37,7 +38,9 @@ export type ChatEvent =
   /** A chat_channel_members row changed: read marks for receipts (156). */
   | { kind: 'member'; event: MemberEvent }
   /** A chat_voice_plays row was inserted: someone played a voice note (156). */
-  | { kind: 'voicePlay'; play: VoicePlay };
+  | { kind: 'voicePlay'; play: VoicePlay }
+  /** A chat_typing row changed: someone typing, or stopped (156). */
+  | { kind: 'typing'; change: TypingChange };
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
@@ -137,6 +140,7 @@ export function useChatWorkspace() {
         later('refreshUnread');
       },
       onVoicePlay: (play) => emit({ kind: 'voicePlay', play }),
+      onTyping: (change) => emit({ kind: 'typing', change }),
     });
     return () => {
       Object.values(timers).forEach(clearTimeout);

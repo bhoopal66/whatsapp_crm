@@ -4569,6 +4569,11 @@
     }
   },
   "Chat": {
+    "typing": {
+      "one": "{name} 님이 입력 중…",
+      "two": "{first} 님과 {second} 님이 입력 중…",
+      "many": "여러 명이 입력 중…"
+    },
     "settingUpTitle": "팀 채팅을 준비하고 있습니다",
     "settingUpBody": "워크스페이스의 팀 채팅이 여기에 표시됩니다.",
     "title": "팀 채팅",
