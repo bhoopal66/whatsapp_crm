@@ -168,36 +168,6 @@ export function supersededBy<
   );
 }
 
-/** A failed text put back into the composer, and the chat it was written for. */
-export interface RestoredDraft {
-  conversationId: string;
-  text: string;
-}
-
-/**
- * Split the restored drafts into those to take back out of the composer
- * now that `openConversationId` is open, and those to keep.
- *
- * One composer serves every chat, and its text carries over when the
- * agent switches. A draft the thread restored after a failure belongs
- * to its own chat only: left in the box, one Enter sends one customer's
- * words to the next. The failed row keeps the words and its Retry, so
- * taking the draft back loses nothing. The caller empties the box only
- * if it still holds exactly that text, so anything the agent typed
- * stays.
- */
-export function partitionRestoredDrafts(
-  drafts: readonly RestoredDraft[],
-  openConversationId: string | null
-): { withdraw: RestoredDraft[]; keep: RestoredDraft[] } {
-  const withdraw: RestoredDraft[] = [];
-  const keep: RestoredDraft[] = [];
-  for (const d of drafts) {
-    (d.conversationId === openConversationId ? keep : withdraw).push(d);
-  }
-  return { withdraw, keep };
-}
-
 /**
  * Uploads kept for a Retry, listed in the tab's sessionStorage so a
  * reload does not orphan them.

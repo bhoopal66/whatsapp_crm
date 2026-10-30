@@ -78,7 +78,6 @@ import {
   forgetKeptUpload,
   hasExpiredUpload,
   isRetryableSendFailure,
-  partitionRestoredDrafts,
   consentRefusalOf,
   rememberKeptUpload,
   retryAttempt,
@@ -87,7 +86,6 @@ import {
   supersededBy,
   takeKeptUploads,
   type FailedSend,
-  type RestoredDraft,
   type SendAttempt,
 } from '@/lib/inbox/failed-send';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
@@ -369,9 +367,6 @@ export function MessageThread({
   // before the re-render removes the button.
   const retriedRef = useRef(new WeakSet<FailedSend>());
   const composerDraftRef = useRef<ComposerDraftHandle>(null);
-  // Failed texts this thread put back into the composer, so a chat
-  // switch can take them back out (see the layout effect below).
-  const restoredDraftsRef = useRef<RestoredDraft[]>([]);
 
   // A media send that failed for certain keeps its upload for a Retry.
   // Once nobody can send it, it is deleted: on Discard, when the inbox
@@ -559,25 +554,18 @@ export function MessageThread({
   // (again) apart from a refresh of the one already open.
   const lastFetchedConversationRef = useRef<string | null>(null);
 
-  // The composer is shared by every chat and keeps its text across a
-  // switch. A draft restored after a failure belongs to its own chat:
-  // left there, one Enter sends one customer's words to the next. Take
-  // it back when another chat opens, before the frame is painted. The
-  // failed row still holds the words, and anything the agent typed
-  // since stays.
+  // A draft restored after a failure belongs to its own chat. The
+  // composer parks it with that chat on a switch, like anything typed
+  // (per-chat drafts), so the thread no longer takes it back out by
+  // text: that ran after the composer's switch (a child's layout
+  // effects run first) and could erase the next chat's own parked
+  // draft when the two texts matched.
   useLayoutEffect(() => {
     // Here too, not only in the passive effect above: when the switch
     // does not come from a click (a deep link, a notification), passive
     // effects run a task later, and a failure landing in that gap would
-    // restore the old chat's text after this withdrawal already ran.
+    // restore the old chat's text into the next one.
     conversationIdRef.current = conversationId;
-    const { withdraw, keep } = partitionRestoredDrafts(
-      restoredDraftsRef.current,
-      conversationId ?? null
-    );
-    if (withdraw.length === 0) return;
-    restoredDraftsRef.current = keep;
-    for (const d of withdraw) composerDraftRef.current?.clearIf(d.text);
   }, [conversationId]);
 
   // The number a reply here goes out on, and whether it has dropped.
@@ -1118,10 +1106,6 @@ export function MessageThread({
           attempt.restoreText,
           isSendOrigin(origin) ? origin : null
         );
-        restoredDraftsRef.current.push({
-          conversationId,
-          text: attempt.restoreText,
-        });
       }
     },
     [onNewMessage, onUpdateMessage, tFailedSend]

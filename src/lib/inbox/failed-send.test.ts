@@ -7,7 +7,6 @@ import {
   hasExpiredUpload,
   isRetryableSendFailure,
   KEPT_UPLOADS_KEY,
-  partitionRestoredDrafts,
   rememberKeptUpload,
   retryAttempt,
   sendFailureReason,
@@ -239,38 +238,6 @@ describe('supersededBy', () => {
 
   it('finds nothing for new words', () => {
     expect(supersededBy([failedText()], 'conv-1', 'hello again')).toEqual([]);
-  });
-});
-
-describe('partitionRestoredDrafts', () => {
-  const a1 = {
-    conversationId: 'conv-a',
-    text: 'Your refund of AED 500 is approved',
-  };
-  const a2 = { conversationId: 'conv-a', text: 'second try' };
-  const b = { conversationId: 'conv-b', text: 'hello B' };
-
-  it("withdraws every other chat's restored draft when a chat opens", () => {
-    // The agent failed a reply in A, then opened B: A's words must not
-    // sit in B's composer one Enter away from the wrong customer.
-    expect(partitionRestoredDrafts([a1, a2, b], 'conv-b')).toEqual({
-      withdraw: [a1, a2],
-      keep: [b],
-    });
-  });
-
-  it("keeps the open chat's own drafts", () => {
-    expect(partitionRestoredDrafts([a1], 'conv-a')).toEqual({
-      withdraw: [],
-      keep: [a1],
-    });
-  });
-
-  it('withdraws everything when no chat is open', () => {
-    expect(partitionRestoredDrafts([a1, b], null)).toEqual({
-      withdraw: [a1, b],
-      keep: [],
-    });
   });
 });
 

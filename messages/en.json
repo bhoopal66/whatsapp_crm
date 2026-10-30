@@ -492,7 +492,7 @@
       "quickReplySaveError": "Couldn't save the quick reply.",
       "draftDroppedDoNotContact": "Missed-call draft removed: this customer is now marked do-not-contact.",
       "draftDroppedOptedOut": "Missed-call draft removed: this customer has opted out of messages.",
-      "attachmentExpired": "This attachment was staged too long ago and has been removed. Attach the file again."
+      "attachmentExpired": "This attachment was added too long ago to send and has been removed. Attach the file again."
     },
     "bubble": {
       "photo": "Photo",
