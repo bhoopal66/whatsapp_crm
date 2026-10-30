@@ -44,7 +44,11 @@ import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
-import { inPersonalInbox, shouldFetchUnloadedPin } from '@/lib/inbox/insights';
+import {
+  admitsInsertedConversation,
+  inPersonalInbox,
+  shouldFetchUnloadedPin,
+} from '@/lib/inbox/insights';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
@@ -543,8 +547,17 @@ export function InboxPageInner({
         // list right away, then hydrate to fill in the `contact` join
         // (realtime payloads never include joins). Skip both if we
         // already have the row — that shouldn't happen normally, but
-        // out-of-order delivery would have us prepending a duplicate.
-        if (!knownConvIdsRef.current.has(conv.id)) {
+        // out-of-order delivery would have us prepending a duplicate —
+        // or if the row is outside this list's personal narrowing: a
+        // team leader's Inbox is their own threads, while RLS streams
+        // them every new chat of their team.
+        if (
+          admitsInsertedConversation(
+            conv,
+            knownConvIdsRef.current,
+            narrowingRef.current
+          )
+        ) {
           setConversations((prev) => {
             if (prev.some((c) => c.id === conv.id)) return prev;
             return [conv, ...prev];

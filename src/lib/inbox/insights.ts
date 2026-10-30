@@ -548,6 +548,23 @@ export function inPersonalInbox(
   );
 }
 
+/**
+ * Whether a conversation a realtime INSERT announced goes into the list
+ * now: not one the list already holds, and inside the personal
+ * narrowing. RLS streams a team leader every new chat of their team, so
+ * without the narrowing a teammate's new chat appeared in the leader's
+ * personal Inbox, and stayed there: the hydrate that follows keeps a row
+ * already in the list. The INSERT payload carries every column
+ * `inRestrictedInbox` reads.
+ */
+export function admitsInsertedConversation(
+  row: RestrictableRow,
+  knownIds: ReadonlySet<string>,
+  narrowing: InboxNarrowing | null
+): boolean {
+  return !knownIds.has(row.id) && inPersonalInbox(row, narrowing);
+}
+
 /** The columns the Pinned chats tile reads. */
 export const PIN_TILE_COLUMNS =
   'id, last_message_at, ai_attention_at, insight_attention_at, insight_attention_reason, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id';

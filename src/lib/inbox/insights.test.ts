@@ -519,6 +519,7 @@ describe('Handled and the Pinned chip', () => {
 });
 
 import {
+  admitsInsertedConversation,
   countPinnedTile,
   inPersonalInbox,
   rowHasMetaLine,
@@ -608,6 +609,50 @@ describe('inPersonalInbox', () => {
       inPersonalInbox({ id: 'c', send_channel_id: 'ch-mine' }, narrowing)
     ).toBe(true);
     expect(inPersonalInbox({ id: 'shared-1' }, narrowing)).toBe(true);
+  });
+});
+
+describe('admitsInsertedConversation', () => {
+  const narrowing = {
+    userId: 'me',
+    channelIds: ['ch-mine'],
+    sharedConversationIds: [],
+  };
+  const none = new Set<string>();
+  it("keeps a teammate's new chat out of a leader's personal inbox", () => {
+    expect(
+      admitsInsertedConversation(
+        { id: 'c', user_id: 'mate', assigned_agent_id: 'mate' },
+        none,
+        narrowing
+      )
+    ).toBe(false);
+  });
+  it("admits the leader's own and my-number new chats", () => {
+    expect(
+      admitsInsertedConversation({ id: 'c', user_id: 'me' }, none, narrowing)
+    ).toBe(true);
+    expect(
+      admitsInsertedConversation(
+        { id: 'c', user_id: 'mate', channel_id: 'ch-mine' },
+        none,
+        narrowing
+      )
+    ).toBe(true);
+  });
+  it('admits every new chat without a narrowing', () => {
+    expect(
+      admitsInsertedConversation({ id: 'c', user_id: 'mate' }, none, null)
+    ).toBe(true);
+  });
+  it('never admits a chat the list already holds', () => {
+    expect(
+      admitsInsertedConversation(
+        { id: 'c', user_id: 'me' },
+        new Set(['c']),
+        narrowing
+      )
+    ).toBe(false);
   });
 });
 
