@@ -196,8 +196,8 @@ interface HeldSend {
 }
 
 /**
- * Drafts (typed text, or a staged attachment and its caption) parked by
- * a chat switch during a check, by conversation id. Module-level so they
+ * Drafts (typed text, a staged attachment and its caption, the reply
+ * quote) parked by a chat switch, by conversation id. Module-level so they
  * survive the composer re-rendering or remounting (leaving the inbox and
  * coming back) for the life of the tab, but never across logins:
  * `parkedFor` is whose they are, and another signed-in user empties it.
@@ -320,9 +320,7 @@ export function MessageComposer({
   const [translatingFor, setTranslatingFor] = useState<string | null>(null);
   const translating = translatingFor === conversationId;
   const showTranslate = translating || canTranslateDraft(text);
-  const [translation, setTranslation] = useState<DraftTranslation | null>(
-    null
-  );
+  const [translation, setTranslation] = useState<DraftTranslation | null>(null);
   const [translationFor, setTranslationFor] = useState(conversationId);
   if (translationFor !== conversationId) {
     setTranslationFor(conversationId);
@@ -407,9 +405,19 @@ export function MessageComposer({
         case 'report':
           reportComposeCheckOutcome(effect.eventId, effect.outcome);
           break;
-        case 'park':
-          parkDraft(parkedDrafts, effect.conversationId, effect.draft);
+        case 'park': {
+          // An attachment parked over another orphans the older object.
+          const displaced = parkDraft(
+            parkedDrafts,
+            effect.conversationId,
+            effect.draft
+          );
+          if (displaced?.path)
+            void deleteAccountMedia(CHAT_MEDIA_BUCKET, displaced.path).catch(
+              () => {}
+            );
           break;
+        }
         case 'clearBox':
           setBox(EMPTY_COMPOSER_BOX);
           break;
@@ -418,6 +426,9 @@ export function MessageComposer({
           // so the unmount cleanup must not see it either.
           draftRef.current = null;
           setDraft(null);
+          break;
+        case 'clearReply':
+          clearReplyRef.current?.();
           break;
         case 'notifyParked': {
           const attachment = effect.what === 'attachment';
@@ -437,15 +448,25 @@ export function MessageComposer({
     return step.effects;
   }, []);
 
-  // The box's text as of the last render, for the switch below.
-  const boxTextRef = useRef(box.text);
+  // The box as of the last render, for the switch below.
+  const boxRef = useRef(box);
   useEffect(() => {
-    boxTextRef.current = box.text;
-  }, [box.text]);
+    boxRef.current = box;
+  }, [box]);
   const restoreReplyRef = useRef(onRestoreReply);
+  const clearReplyRef = useRef(onClearReply);
   useEffect(() => {
     restoreReplyRef.current = onRestoreReply;
-  }, [onRestoreReply]);
+    clearReplyRef.current = onClearReply;
+  }, [onRestoreReply, onClearReply]);
+  // The chat the composer shows, as of its last switch: idle state does
+  // not record which chat a switch leaves.
+  const shownRef = useRef<string | null>(null);
+  // The reply quote as of the last render of the chat being left. The
+  // thread drops it while rendering the next chat, so by the switch the
+  // prop is already null; this is updated in an effect declared after
+  // the switch, so the switch still reads the left chat's quote.
+  const replyRef = useRef<ReplyDraft | null>(replyTo ?? null);
 
   // Parked drafts belong to the login that wrote them: another user
   // signed in to this tab finds the stash empty. Declared before the
@@ -457,22 +478,27 @@ export function MessageComposer({
     parkedFor = userId;
   }, [userId]);
 
-  // On a chat switch: settle a check or dialog of the chat just left
-  // (park, empty the box or unstage the attachment), then put back what
-  // is parked for this one.
+  // On a chat switch: park what the composer holds for the chat just
+  // left (settling a check or dialog of it), empty the box, unstage the
+  // attachment and drop the quote, then put back what is parked for
+  // this one.
   useEffect(() => {
     const effects = dispatchCheck({
       type: 'switch',
+      from: shownRef.current,
       to: conversationId,
-      boxText: boxTextRef.current,
+      boxText: boxRef.current.text,
+      boxOrigin: boxRef.current.origin,
       staged: draftRef.current,
+      reply: replyRef.current,
     });
+    shownRef.current = conversationId;
     const boxCleared = effects.some((e) => e.type === 'clearBox');
     const unstaged = effects.some((e) => e.type === 'clearAttachment');
     const parked = takeParkedDraft(
       parkedDrafts,
       conversationId,
-      boxCleared ? '' : boxTextRef.current,
+      boxCleared ? '' : boxRef.current.text,
       !unstaged && draftRef.current !== null
     );
     if (!parked) return;
@@ -486,18 +512,28 @@ export function MessageComposer({
     }
     if (parked.reply) restoreReplyRef.current?.(parked.reply);
   }, [conversationId, dispatchCheck]);
-  // Leaving the inbox mid-check parks the draft the same way.
+  // Leaving the inbox parks the draft the same way, so coming back to
+  // the chat (the stash lives as long as the tab) puts it back. Declared
+  // before the unmount cleanup below: a parked attachment is unstaged
+  // first, so that cleanup never deletes it.
   useEffect(
     () => () => {
       dispatchCheck({
         type: 'switch',
+        from: shownRef.current,
         to: null,
-        boxText: boxTextRef.current,
+        boxText: boxRef.current.text,
+        boxOrigin: boxRef.current.origin,
         staged: draftRef.current,
+        reply: replyRef.current,
       });
+      shownRef.current = null;
     },
     [dispatchCheck]
   );
+  useEffect(() => {
+    replyRef.current = replyTo ?? null;
+  }, [replyTo]);
 
   const reviewSendAnyway = useCallback(
     () => dispatchCheck({ type: 'sendAnyway' }),
@@ -657,14 +693,19 @@ export function MessageComposer({
   // nothing is sent until the agent hits Send.
   const handleDraft = useCallback(async () => {
     if (drafting) return;
+    const requestedChat = conversationId;
     setDrafting(true);
     try {
       const res = await fetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversation_id: conversationId }),
+        body: JSON.stringify({ conversation_id: requestedChat }),
       });
       const data = await res.json().catch(() => ({}));
+      // A reply drafted for one customer, landing after a switch, would
+      // sit in the next chat's box one Enter from going out: dropped,
+      // like a moved translation.
+      if (openChatRef.current !== requestedChat) return;
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
           toast.error(
@@ -840,6 +881,29 @@ export function MessageComposer({
     [openInteractiveBuilder, adjustHeight, setText]
   );
 
+  // An upload finishes after its chat may have been left: staged then,
+  // it would go out to the next customer, and its "replace" would delete
+  // that chat's attachment. It is parked, silently, for the chat it was
+  // picked (or recorded) in, and comes back there.
+  const landUpload = useCallback(
+    (startedIn: string | null, staged: MediaDraft) => {
+      if (startedIn !== null && openChatRef.current !== startedIn) {
+        const displaced = parkDraft(parkedDrafts, startedIn, {
+          text: '',
+          origin: null,
+          reply: null,
+          attachment: staged,
+        });
+        removeStaged(displaced?.path);
+        return;
+      }
+      // Replacing an existing draft? GC the previous object first.
+      removeStaged(draftRef.current?.path);
+      setDraft(staged);
+    },
+    [removeStaged]
+  );
+
   // Upload a captured file to chat-media and stage it as a draft.
   const stageUpload = useCallback(
     async (kind: ComposerMediaKind, file: File) => {
@@ -855,15 +919,14 @@ export function MessageComposer({
         );
         return;
       }
+      const startedIn = openChatRef.current;
       setBusy(true);
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
           file
         );
-        // Replacing an existing draft? GC the previous object first.
-        removeStaged(draftRef.current?.path);
-        setDraft({
+        landUpload(startedIn, {
           kind,
           mediaUrl: publicUrl,
           path,
@@ -876,7 +939,7 @@ export function MessageComposer({
         setBusy(false);
       }
     },
-    [removeStaged]
+    [landUpload]
   );
 
   const handlePicked = useCallback(
@@ -891,7 +954,7 @@ export function MessageComposer({
   // The encoded Ogg/Opus file from opus-recorder → upload as an audio
   // draft. WhatsApp renders Ogg/Opus as a playable voice note.
   const finalizeRecording = useCallback(
-    async (bytes: Uint8Array) => {
+    async (bytes: Uint8Array, startedIn: string | null) => {
       // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
       // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
       const file = new File(
@@ -912,8 +975,7 @@ export function MessageComposer({
           CHAT_MEDIA_BUCKET,
           file
         );
-        removeStaged(draftRef.current?.path);
-        setDraft({
+        landUpload(startedIn, {
           kind: 'audio',
           mediaUrl: publicUrl,
           path,
@@ -926,7 +988,7 @@ export function MessageComposer({
         setBusy(false);
       }
     },
-    [removeStaged]
+    [landUpload]
   );
 
   const startRecording = useCallback(async () => {
@@ -950,9 +1012,11 @@ export function MessageComposer({
         streamPages: false, // one callback with the complete file on stop
       });
       cancelledRef.current = false;
+      // The voice note is the chat's it was started in, wherever it stops.
+      const startedIn = openChatRef.current;
       recorder.ondataavailable = (bytes) => {
         if (cancelledRef.current) return;
-        void finalizeRecording(bytes);
+        void finalizeRecording(bytes, startedIn);
       };
       recorderRef.current = recorder;
       await recorder.start();

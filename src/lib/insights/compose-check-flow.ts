@@ -11,6 +11,14 @@
 // it, so one click can never send it into the next chat; it comes back
 // when that chat is shown again with nothing staged.
 //
+// With no check running (the default) a switch used to change nothing,
+// so the typed text, a staged attachment and the reply quote stayed in
+// the composer for the next chat: one Enter sent customer A's words to
+// customer B. Every switch now parks what the composer holds for the
+// chat being left, silently, and the chat being opened gets back its
+// own: per-chat drafts, like WhatsApp Web. Only a switch that abandons
+// a check says where the message is waiting.
+//
 // Dependency-free like compose-check-view.ts (client code only). The
 // reducer returns effects; the composer runs them. `P` is the opaque
 // send the composer hands in (a closure); `R` is its reply quote; `A`
@@ -73,10 +81,20 @@ export type ComposeFlowEvent<P, R = unknown, A = unknown> =
   /** The staged attachment was discarded: its caption check is moot. */
   | { type: 'discardAttachment' }
   /**
-   * The composer now shows `to` (null: it is going away). `boxText` and
-   * `staged` are the box and the staged attachment as they are now.
+   * The composer now shows `to` (null: it is going away) instead of
+   * `from` (null: it was showing nothing yet). `boxText` / `boxOrigin`,
+   * `staged` and `reply` are the box, the staged attachment and the
+   * reply quote as they were in `from`.
    */
-  | { type: 'switch'; to: string | null; boxText: string; staged: A | null };
+  | {
+      type: 'switch';
+      from: string | null;
+      to: string | null;
+      boxText: string;
+      boxOrigin: string | null;
+      staged: A | null;
+      reply: R | null;
+    };
 
 export type ComposeFlowEffect<P, R = unknown, A = unknown> =
   | { type: 'send'; payload: P }
@@ -87,6 +105,8 @@ export type ComposeFlowEffect<P, R = unknown, A = unknown> =
   | { type: 'clearBox' }
   /** Unstage the attachment without deleting it: the stash owns it now. */
   | { type: 'clearAttachment' }
+  /** Drop the reply quote: the stash holds it for its own chat. */
+  | { type: 'clearReply' }
   | {
       type: 'notifyParked';
       contactName: string | null;
@@ -119,6 +139,40 @@ function abandon<P, R, A>(
   return state.eventId
     ? [{ type: 'report', eventId: state.eventId, outcome: 'edited' }]
     : [];
+}
+
+/**
+ * Park, silently, what the composer still holds of `chat` after a
+ * switch, among the parts `take` names: the box (when not blank), the
+ * staged attachment and the reply quote. A composer going away keeps
+ * its box and quote (nothing would show them), but still unstages the
+ * attachment, so the unmount cleanup does not delete what is parked.
+ */
+function parkLeftBehind<P, R, A>(
+  chat: string,
+  event: Extract<ComposeFlowEvent<P, R, A>, { type: 'switch' }>,
+  take: { text: boolean; attachment: boolean; reply: boolean }
+): ComposeFlowEffect<P, R, A>[] {
+  const text = take.text && event.boxText.trim() ? event.boxText : '';
+  const attachment = take.attachment ? event.staged : null;
+  const reply = take.reply ? event.reply : null;
+  if (!text && attachment === null && reply === null) return [];
+  const effects: ComposeFlowEffect<P, R, A>[] = [
+    {
+      type: 'park',
+      conversationId: chat,
+      draft: {
+        text,
+        origin: text ? event.boxOrigin : null,
+        reply,
+        attachment,
+      },
+    },
+  ];
+  if (text && event.to !== null) effects.push({ type: 'clearBox' });
+  if (attachment !== null) effects.push({ type: 'clearAttachment' });
+  if (reply !== null && event.to !== null) effects.push({ type: 'clearReply' });
+  return effects;
 }
 
 export function composeFlow<P, R = unknown, A = unknown>(
@@ -200,8 +254,18 @@ export function composeFlow<P, R = unknown, A = unknown>(
       return { state: idle(state.nextToken), effects: abandon(state) };
     }
     case 'switch': {
-      if (state.phase === 'idle' || state.conversationId === event.to)
-        return same;
+      if (state.phase === 'idle') {
+        if (event.from === null || event.from === event.to) return same;
+        return {
+          state,
+          effects: parkLeftBehind<P, R, A>(event.from, event, {
+            text: true,
+            attachment: true,
+            reply: true,
+          }),
+        };
+      }
+      if (state.conversationId === event.to) return same;
       const effects = abandon(state);
       if (state.park && state.focus === 'caption') {
         // The attachment as it is now (its caption may have been edited
@@ -236,6 +300,16 @@ export function composeFlow<P, R = unknown, A = unknown>(
           what: 'text',
         });
       }
+      // What the check did not hold is parked too, silently: the box
+      // typed under a caption check, an attachment staged during a text
+      // check.
+      effects.push(
+        ...parkLeftBehind<P, R, A>(state.conversationId, event, {
+          text: !state.park || state.focus === 'caption',
+          attachment: !state.park || state.focus === 'text',
+          reply: !state.park,
+        })
+      );
       return { state: idle(state.nextToken), effects };
     }
   }
@@ -252,17 +326,19 @@ const hasText = (d: ParkedDraft<unknown, unknown>) => d.text.trim() !== '';
 /**
  * Park `draft` for `conversationId`, keeping what is already parked
  * there that it does not replace: parking an attachment keeps a parked
- * text, and the other way round.
+ * text, and the other way round. Returns a parked attachment that
+ * `draft`'s replaced, which nothing owns any more (the caller deletes
+ * it), else null.
  */
 export function parkDraft<R, A>(
   stash: ParkedDrafts<R, A>,
   conversationId: string,
   draft: ParkedDraft<R, A>
-): void {
+): A | null {
   const prev = stash.get(conversationId);
   if (!prev) {
     stash.set(conversationId, draft);
-    return;
+    return null;
   }
   const textFrom = hasText(draft) ? draft : prev;
   stash.set(conversationId, {
@@ -271,12 +347,18 @@ export function parkDraft<R, A>(
     reply: draft.reply ?? prev.reply,
     attachment: draft.attachment ?? prev.attachment,
   });
+  return draft.attachment !== null &&
+    prev.attachment !== null &&
+    prev.attachment !== draft.attachment
+    ? prev.attachment
+    : null;
 }
 
 /**
  * What is parked for `conversationId` and can go back now, taken out of
  * the stash: the text when the box is empty, the attachment when
- * nothing is staged. What cannot go back stays parked: nothing is
+ * nothing is staged, and the reply quote with either (or alone, when it
+ * is all that was parked). What cannot go back stays parked: nothing is
  * overwritten and nothing is dropped. Null when nothing goes back.
  */
 export function takeParkedDraft<R, A>(
@@ -289,7 +371,9 @@ export function takeParkedDraft<R, A>(
   if (!parked) return null;
   const takeText = hasText(parked) && !boxText.trim();
   const takeAttachment = parked.attachment !== null && !hasStaged;
-  if (!takeText && !takeAttachment) return null;
+  const replyOnly = !hasText(parked) && parked.attachment === null;
+  if (!takeText && !takeAttachment && !(replyOnly && parked.reply !== null))
+    return null;
   const rest: ParkedDraft<R, A> = {
     text: takeText ? '' : parked.text,
     origin: takeText ? null : parked.origin,

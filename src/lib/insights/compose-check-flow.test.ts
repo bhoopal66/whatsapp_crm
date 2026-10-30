@@ -23,8 +23,15 @@ function harness() {
   const sent: string[] = [];
   const effects: ComposeFlowEffect<P, Reply, Att>[] = [];
   const stash: ParkedDrafts<Reply, Att> = new Map();
-  const box = { text: '' };
-  const composer: { staged: Att | null } = { staged: null };
+  const box: { text: string; origin: string | null } = {
+    text: '',
+    origin: null,
+  };
+  const composer: {
+    shown: string | null;
+    staged: Att | null;
+    reply: Reply | null;
+  } = { shown: 'chat-a', staged: null, reply: null };
   const dispatch = (event: ComposeFlowEvent<P, Reply, Att>) => {
     const step = composeFlow(state, event);
     state = step.state;
@@ -32,18 +39,35 @@ function harness() {
     for (const e of step.effects) {
       if (e.type === 'send') sent.push(e.payload.label);
       if (e.type === 'park') parkDraft(stash, e.conversationId, e.draft);
-      if (e.type === 'clearBox') box.text = '';
+      if (e.type === 'clearBox') Object.assign(box, { text: '', origin: null });
       if (e.type === 'clearAttachment') composer.staged = null;
+      if (e.type === 'clearReply') composer.reply = null;
     }
     return step;
   };
-  const switchTo = (to: string | null) =>
-    dispatch({
+  // As the composer does: park for the chat left, then take back what
+  // is parked for the chat opened.
+  const switchTo = (to: string | null) => {
+    const step = dispatch({
       type: 'switch',
+      from: composer.shown,
       to,
       boxText: box.text,
+      boxOrigin: box.origin,
       staged: composer.staged,
+      reply: composer.reply,
     });
+    composer.shown = to;
+    return step;
+  };
+  const open = (to: string) => {
+    switchTo(to);
+    const back = takeParkedDraft(stash, to, box.text, composer.staged !== null);
+    if (!back) return;
+    if (back.text) Object.assign(box, { text: back.text, origin: back.origin });
+    if (back.attachment) composer.staged = back.attachment;
+    if (back.reply) composer.reply = back.reply;
+  };
   const submit = (
     text: string,
     opts: {
@@ -86,6 +110,7 @@ function harness() {
     sent,
     effects,
     switchTo,
+    open,
     stash,
     box,
     composer,
@@ -239,14 +264,11 @@ describe('compose check flow: switching chats', () => {
     expect(h.sent).toEqual([]);
   });
 
-  it('does nothing on a switch with no check open, or to the same chat', () => {
+  it('does nothing on a switch to the same chat, mid-check or not', () => {
     const h = harness();
-    h.dispatch({
-      type: 'switch',
-      to: 'chat-b',
-      boxText: 'typed',
-      staged: null,
-    });
+    h.box.text = 'typed';
+    h.switchTo('chat-a');
+    expect(h.box.text).toBe('typed');
     h.submit(LONG);
     h.switchTo('chat-a');
     expect(h.state().phase).toBe('checking');
@@ -353,5 +375,160 @@ describe('compose check flow: switching chats', () => {
     const second = takeParkedDraft(stash, 'chat-a', '', true);
     expect(second).toMatchObject({ text: LONG, attachment: null });
     expect(stash.has('chat-a')).toBe(false);
+  });
+});
+
+describe('compose check flow: per-chat drafts with no check running', () => {
+  const att = { filename: 'offer.pdf', caption: 'For Aisha only' };
+
+  it('parks the typed text for the chat left and empties the box, silently', () => {
+    const h = harness();
+    Object.assign(h.box, { text: 'Hi Aisha', origin: 'missed_call_draft' });
+    h.switchTo('chat-b');
+    expect(h.box.text).toBe('');
+    expect(h.stash.get('chat-a')).toEqual({
+      text: 'Hi Aisha',
+      origin: 'missed_call_draft',
+      reply: null,
+      attachment: null,
+    });
+    expect(h.effects.some((e) => e.type === 'notifyParked')).toBe(false);
+    expect(h.state().phase).toBe('idle');
+  });
+
+  it('parks and unstages the staged attachment', () => {
+    const h = harness();
+    h.composer.staged = att;
+    h.switchTo('chat-b');
+    expect(h.composer.staged).toBeNull();
+    expect(h.stash.get('chat-a')?.attachment).toBe(att);
+    // The box was blank: it is not the attachment's to clear.
+    expect(h.effects.some((e) => e.type === 'clearBox')).toBe(false);
+  });
+
+  it('parks the reply quote and drops it from the composer', () => {
+    const h = harness();
+    h.composer.reply = { id: 'msg-7' };
+    h.switchTo('chat-b');
+    expect(h.composer.reply).toBeNull();
+    expect(h.stash.get('chat-a')).toEqual({
+      text: '',
+      origin: null,
+      reply: { id: 'msg-7' },
+      attachment: null,
+    });
+  });
+
+  it('parks nothing when the box is blank and nothing is staged or quoted', () => {
+    const h = harness();
+    h.box.text = '   ';
+    h.switchTo('chat-b');
+    expect(h.effects).toEqual([]);
+    expect(h.stash.size).toBe(0);
+  });
+
+  it('parks nothing on the first show', () => {
+    const h = harness();
+    h.composer.shown = null;
+    h.box.text = 'typed';
+    h.switchTo('chat-a');
+    expect(h.effects).toEqual([]);
+  });
+
+  it('puts the whole draft back on return, and only there', () => {
+    const h = harness();
+    h.box.text = 'Hi Aisha';
+    h.composer.staged = att;
+    h.composer.reply = { id: 'msg-7' };
+    h.open('chat-b');
+    // Chat B shows nothing of chat A's.
+    expect(h.box.text).toBe('');
+    expect(h.composer.staged).toBeNull();
+    expect(h.composer.reply).toBeNull();
+    h.open('chat-a');
+    expect(h.box.text).toBe('Hi Aisha');
+    expect(h.composer.staged).toBe(att);
+    expect(h.composer.reply).toEqual({ id: 'msg-7' });
+    expect(h.stash.size).toBe(0);
+  });
+
+  it("never restores another chat's draft into this one", () => {
+    const h = harness();
+    h.box.text = 'For Aisha';
+    h.open('chat-b');
+    h.box.text = 'For Omar';
+    h.open('chat-c');
+    expect(h.box.text).toBe('');
+    h.open('chat-b');
+    expect(h.box.text).toBe('For Omar');
+    h.open('chat-a');
+    expect(h.box.text).toBe('For Aisha');
+    expect(h.stash.get('chat-b')?.text).toBe('For Omar');
+  });
+
+  it('a quote parked alone comes back alone', () => {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    parkDraft(stash, 'chat-a', {
+      text: '',
+      origin: null,
+      reply: { id: 'msg-7' },
+      attachment: null,
+    });
+    expect(takeParkedDraft(stash, 'chat-a', '')).toEqual({
+      text: '',
+      origin: null,
+      reply: { id: 'msg-7' },
+      attachment: null,
+    });
+    expect(stash.has('chat-a')).toBe(false);
+  });
+
+  it('leaving the inbox parks the draft and unstages, keeping the box', () => {
+    const h = harness();
+    h.box.text = 'Hi Aisha';
+    h.composer.staged = att;
+    h.composer.reply = { id: 'msg-7' };
+    h.switchTo(null);
+    // Unstaged, so the unmount cleanup does not delete it.
+    expect(h.composer.staged).toBeNull();
+    expect(h.effects.some((e) => e.type === 'clearBox')).toBe(false);
+    expect(h.effects.some((e) => e.type === 'clearReply')).toBe(false);
+    expect(h.stash.get('chat-a')).toEqual({
+      text: 'Hi Aisha',
+      origin: null,
+      reply: { id: 'msg-7' },
+      attachment: att,
+    });
+  });
+
+  it('a switch mid-check also parks what the check does not hold', () => {
+    const h = harness();
+    // Typed before the attachment hid the box, then a caption check.
+    h.box.text = 'typed earlier';
+    h.submit('Here is the form you need', { focus: 'caption' });
+    h.switchTo('chat-b');
+    expect(h.box.text).toBe('');
+    expect(h.stash.get('chat-a')).toMatchObject({
+      text: 'typed earlier',
+      attachment: { filename: 'offer.pdf' },
+    });
+    // The check's own notice, once.
+    expect(h.effects.filter((e) => e.type === 'notifyParked')).toHaveLength(1);
+  });
+
+  it('parking an attachment over a parked one hands back the older', () => {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    const older = { filename: 'old.pdf', caption: '' };
+    const draft = (attachment: Att | null) => ({
+      text: '',
+      origin: null,
+      reply: null,
+      attachment,
+    });
+    expect(parkDraft(stash, 'chat-a', draft(older))).toBeNull();
+    expect(parkDraft(stash, 'chat-a', draft(null))).toBeNull();
+    expect(parkDraft(stash, 'chat-a', draft(att))).toBe(older);
+    expect(stash.get('chat-a')?.attachment).toBe(att);
+    expect(parkDraft(stash, 'chat-a', draft(att))).toBeNull();
   });
 });
