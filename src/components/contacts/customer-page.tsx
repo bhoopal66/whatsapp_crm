@@ -69,17 +69,29 @@ import {
   useMyNumberIds,
 } from '@/hooks/use-whatsapp-numbers';
 import { contactChatTagChip } from '@/lib/contacts/chat-tag-column';
-import { NO_THREAD, type ContactThread } from '@/lib/contacts/contact-thread';
+import { NO_THREAD } from '@/lib/contacts/contact-thread';
 import { customerAccess } from '@/lib/contacts/customer-access';
 import {
   getJson,
   paged,
   startCustomerLoad,
   readPage,
-  type CustomerLoad,
 } from '@/lib/contacts/customer-load';
 import { contactsListPath } from '@/lib/contacts/customer-links';
+import {
+  applyPart,
+  cacheAction,
+  customerSections,
+  customerViewKey,
+  startView,
+  viewOwner,
+  type CustomerPart,
+  type CustomerView,
+  type ViewOwner,
+} from '@/lib/contacts/customer-view';
+import { CONTACT_LIST_QUESTION_PREFIX } from '@/lib/contacts/list-query';
 import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
+import { sessionCache, sessionKey } from '@/lib/session-cache';
 import type { Contact } from '@/types';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -95,11 +107,17 @@ import { CasesCard } from './customer/cases-card';
 import { CustomerHeader } from './customer/customer-header';
 import { RecordingPlayer } from './recording-player';
 
-type Load = { state: 'loading' | 'failed' } | CustomerLoad;
-interface Side {
-  tasks: TimelineTask[];
-  summary: MonthTotals | null;
+/** The view on screen, tagged with the contact it belongs to. */
+interface Held {
+  contactId: string;
+  view: CustomerView;
 }
+type FailedPart = Extract<CustomerPart, { kind: 'failed' }>['part'];
+/** Parts of one load: basics, timeline, thread, tasks, this month. */
+const LOAD_PARTS = 5;
+
+const cachedView = (key: ReturnType<typeof customerViewKey>) =>
+  startView(key ? sessionCache.get<CustomerView>(key)?.value : undefined);
 
 export function CustomerPage({
   contactId,
@@ -113,23 +131,41 @@ export function CustomerPage({
   const td = useTranslations('Contacts.detailView');
   const locale = useLocale();
   const router = useRouter();
-  const { accountRole } = useAuth();
+  const { accountRole, accountId, user } = useAuth();
   const access = customerAccess(accountRole);
   const tm = useTranslations('Memory');
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
   );
-  const [load, setLoad] = useState<Load>({ state: 'loading' });
-  const [side, setSide] = useState<Side>({
-    tasks: [],
-    summary: null,
-  });
+  // One view, shown part by part as each read lands, started from what
+  // this tab last showed for the contact (lib/contacts/customer-view.ts).
+  const viewKey = customerViewKey(accountId, user?.id, contactId);
+  const [held, setHeld] = useState<Held>(() => ({
+    contactId,
+    view: cachedView(viewKey),
+  }));
+  if (held.contactId !== contactId)
+    setHeld({ contactId, view: cachedView(viewKey) });
+  const view = held.contactId === contactId ? held.view : cachedView(viewKey);
+  const sections = customerSections(view);
+  // Lands a part on the contact's own view; a part for any other
+  // contact is dropped, even mid-transition.
+  const landOn = (id: string, part: CustomerPart) =>
+    setHeld((h) =>
+      h.contactId === id ? { ...h, view: applyPart(h.view, part) } : h
+    );
+  // Bumped by every load and every restart, so a part from an older
+  // load never lands; `inflight` counts this load's unsettled parts.
+  const loadGen = useRef(0);
+  const inflight = useRef(0);
+  const deleted = useRef(false);
+  const owner = useRef<ViewOwner | null>(null);
   // Live, shared with any other dot on the page: the phone's call or
   // chosen status over the app's (lib/person-presence.ts).
   const phone = usePhonePresence();
   const { getPresence } = usePresence();
-  const [names, setNames] = useState<Record<string, string>>({});
+  const names = view.names;
   const [filter, setFilter] = useState<TimelineFilter>('all');
   const [paging, setPaging] = useState(false);
   const [ticking, setTicking] = useState<string | null>(null);
@@ -141,62 +177,92 @@ export function CustomerPage({
   const { tree: chatTagTree } = useChatTags();
   const channels = useAccountNumbers(access.send);
   const myNumberIds = useMyNumberIds();
-  const [thread, setThread] = useState<ContactThread>(NO_THREAD);
+  const thread = view.thread ?? NO_THREAD;
   const prediction = useMemo(
     () => predictSendChannels(channels ?? [], thread, myNumberIds),
     [channels, myNumberIds, thread]
   );
+  // A fresh load; parts of the running one are dropped from here on.
+  const restart = () => {
+    loadGen.current += 1;
+    setReloadKey((k) => k + 1);
+  };
   const outreach = useContactOutreach({
-    contact:
-      load.state === 'ready'
-        ? { id: contactId, phone: load.contact.phone }
-        : null,
+    contact: view.basics
+      ? { id: contactId, phone: view.basics.contact.phone }
+      : null,
     thread,
     prediction,
-    onSent: () => setReloadKey((k) => k + 1),
+    onSent: restart,
   });
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
 
   useEffect(() => {
-    let live = true;
-    // One load: the thread comes from the same conversations read.
+    const gen = ++loadGen.current;
+    inflight.current = LOAD_PARTS;
+    // One load: the thread comes from the same conversations read; the
+    // tasks and this month's calls are asked for beside it.
     const parts = startCustomerLoad(createClient(), contactId);
-    void parts.thread.then((t) => live && setThread(t));
-    void (async (): Promise<CustomerLoad> => {
-      const basics = await parts.basics;
-      if (!basics) return { state: 'missing' };
-      return { state: 'ready', ...basics, ...(await parts.timeline) };
-    })().then(
-      (l) => live && setLoad(l),
-      () => live && setLoad({ state: 'failed' })
+    const land = <T,>(
+      p: Promise<T>,
+      ok: (v: T) => CustomerPart,
+      part: FailedPart
+    ) =>
+      void p
+        .then(ok, (): CustomerPart => ({ kind: 'failed', part }))
+        .then((cp) => {
+          if (loadGen.current !== gen) return;
+          inflight.current -= 1;
+          landOn(contactId, cp);
+        });
+    land(parts.basics, (value) => ({ kind: 'basics', value }), 'basics');
+    land(parts.timeline, (value) => ({ kind: 'timeline', value }), 'timeline');
+    land(parts.thread, (value) => ({ kind: 'thread', value }), 'thread');
+    land(
+      getJson(
+        `/api/tasks?scope=contact&contactId=${contactId}&status=open`
+      ).then((b) => (b.tasks ?? []) as TimelineTask[]),
+      (value) => ({ kind: 'tasks', value }),
+      'tasks'
     );
-    return () => {
-      live = false;
-    };
-  }, [contactId, reloadKey]);
-
-  useEffect(() => {
-    let live = true;
-    void Promise.all([
-      getJson(`/api/tasks?scope=contact&contactId=${contactId}&status=open`)
-        .then((b) => (b.tasks ?? []) as TimelineTask[])
-        .catch(() => []),
+    land(
       getJson(
         `/api/pbx/calls/summary?contactId=${contactId}&tz=${encodeURIComponent(timeZone)}`
-      ).catch(() => null),
-    ]).then(([tasks, summary]) => {
-      if (live) setSide({ tasks, summary });
-    });
+      ) as Promise<MonthTotals>,
+      (value) => ({ kind: 'summary', value }),
+      'summary'
+    );
     return () => {
-      live = false;
+      loadGen.current += 1;
     };
-  }, [contactId, timeZone]);
+  }, [contactId, reloadKey, timeZone]);
 
-  const ready = load.state === 'ready' ? load : null;
+  // Keeps the view for a revisit, under the key this page first saw
+  // (customer-view.ts `cacheAction`); a missing contact's entry goes.
+  useEffect(() => {
+    owner.current = viewOwner(owner.current, contactId, viewKey);
+    if (deleted.current || held.contactId !== contactId) return;
+    const act = cacheAction(held.view, viewKey, owner.current);
+    if (act === 'store' && viewKey) sessionCache.set(viewKey, held.view);
+    if (act === 'drop' && viewKey) sessionCache.delete(viewKey);
+  }, [held, contactId, viewKey]);
+
+  // A local edit (note, task) while a load runs: the running load may
+  // have read before the edit, so it is replaced by one that reads
+  // after it, and the edit is never undone on screen.
+  const edit = (fn: (v: CustomerView) => CustomerView) => {
+    setHeld((h) =>
+      h.contactId === contactId ? { ...h, view: fn(h.view) } : h
+    );
+    if (inflight.current > 0) restart();
+  };
+
+  const ready = view.basics;
+  const timeline = view.timeline;
   const all = useMemo(() => {
-    if (!ready) return [];
-    const r = ready.rows;
+    if (!timeline) return [];
+    const r = timeline.rows;
     return mergeTimeline({
       calls: r.calls,
       messages: r.messages.map((m) => ({
@@ -223,7 +289,7 @@ export function CustomerPage({
         createdAt: p.createdAt,
       })),
     });
-  }, [ready, names]);
+  }, [timeline, names]);
   const team = ready
     ? teamOnCustomer({
         ownerId: ready.contact.user_id,
@@ -232,20 +298,20 @@ export function CustomerPage({
       })
     : [];
 
-  // Names of everyone the page mentions, each asked for once.
-  const wanted = ready
-    ? [
-        ...team.map((p) => p.userId),
-        ...ready.rows.notes.map((n) => n.user_id),
-        ...ready.rows.internal.map((p) => p.authorId),
-        ...side.tasks.map((t) => t.assigned_to),
-      ].filter((id): id is string => !!id && !asked.current.has(id))
-    : [];
+  // Names of everyone the page mentions, asked for as each part lands,
+  // each once per contact (the view keeps the names it found).
+  const askedKey = (id: string) => `${contactId}:${id}`;
+  const wanted = [
+    ...team.map((p) => p.userId),
+    ...(timeline?.rows.notes.map((n) => n.user_id) ?? []),
+    ...(timeline?.rows.internal.map((p) => p.authorId) ?? []),
+    ...(view.tasks?.map((t) => t.assigned_to) ?? []),
+  ].filter((id): id is string => !!id && !asked.current.has(askedKey(id)));
   const wantedKey = [...new Set(wanted)].sort().join(',');
   useEffect(() => {
     if (!wantedKey) return;
     const ids = wantedKey.split(',');
-    ids.forEach((id) => asked.current.add(id));
+    ids.forEach((id) => asked.current.add(`${contactId}:${id}`));
     void createClient()
       .from('profiles')
       .select('user_id, full_name')
@@ -253,19 +319,24 @@ export function CustomerPage({
       .then(({ data }) => {
         const found = (data ?? []) as { user_id: string; full_name: string }[];
         if (found.length)
-          setNames((prev) => ({
-            ...prev,
-            ...Object.fromEntries(found.map((p) => [p.user_id, p.full_name])),
-          }));
+          landOn(contactId, {
+            kind: 'names',
+            value: Object.fromEntries(
+              found.map((p) => [p.user_id, p.full_name])
+            ),
+          });
       });
-  }, [wantedKey]);
+  }, [wantedKey, contactId]);
 
-  const horizon = ready ? timelineHorizon(ready.paging, filter) : null;
-  const toPage = ready ? sourcesToPage(ready.paging, filter) : [];
+  const horizon = timeline ? timelineHorizon(timeline.paging, filter) : null;
+  const toPage = timeline ? sourcesToPage(timeline.paging, filter) : [];
   const visible = withinHorizon(filterTimeline(all, filter), horizon);
 
   const loadMore = async () => {
-    if (!ready || paging || !toPage.length) return;
+    if (!ready || !timeline || paging || !toPage.length) return;
+    // A page read against a timeline a newer load has replaced is
+    // dropped: its cursor belongs to the older rows.
+    const gen = loadGen.current;
     setPaging(true);
     try {
       const sb = createClient();
@@ -275,13 +346,15 @@ export function CustomerPage({
             sb,
             s as Exclude<TimelineSource, 'internal'>,
             contactId,
-            ready.paging[s]?.oldest ?? null,
+            timeline.paging[s]?.oldest ?? null,
             ready.conversation?.id ?? null
           )
         )
       );
-      setLoad((prev) => {
-        if (prev.state !== 'ready') return prev;
+      if (loadGen.current !== gen) return;
+      setHeld((h) => {
+        const prev = h.view.timeline;
+        if (h.contactId !== contactId || !prev) return h;
         const rows = { ...prev.rows };
         const next = { ...prev.paging };
         toPage.forEach((s, i) => {
@@ -294,7 +367,10 @@ export function CustomerPage({
             ? paged(s, pages[i])
             : { oldest: prev.paging[s]?.oldest ?? null, more: false };
         });
-        return { ...prev, rows, paging: next };
+        return {
+          ...h,
+          view: { ...h.view, timeline: { rows, paging: next } },
+        };
       });
     } catch {
       toast.error(tl('loadFailed'));
@@ -320,28 +396,36 @@ export function CustomerPage({
     return () => io.disconnect();
   }, [canPage, visible.length]);
 
-  if (load.state !== 'ready')
+  if (sections.page === 'missing' || sections.page === 'failed')
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
         <BackLink fallbackHref={contactsListPath(fromTeam)} />
-        {load.state === 'loading' ? (
-          <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
-        ) : (
-          <p className="text-muted-foreground text-sm">
-            {load.state === 'missing' ? tl('notFound') : tl('loadFailed')}
-          </p>
-        )}
+        <p className="text-muted-foreground text-sm">
+          {sections.page === 'missing' ? tl('notFound') : tl('loadFailed')}
+        </p>
       </div>
     );
 
-  const { contact, conversation, deal } = load;
-  const draft = missedDraftOffer(load.draftOn, contact);
-  const ownerName = contact.user_id ? names[contact.user_id] : null;
+  const contact = ready?.contact ?? null;
+  const conversation = ready?.conversation ?? null;
+  const deal = ready?.deal ?? null;
+  const draft = ready ? missedDraftOffer(ready.draftOn, ready.contact) : null;
+  const tasks = view.tasks ?? [];
+  const ownerName = contact?.user_id ? names[contact.user_id] : null;
   const addNote = (n: SavedNote) =>
-    setLoad((prev) =>
-      prev.state === 'ready'
-        ? { ...prev, rows: { ...prev.rows, notes: [n, ...prev.rows.notes] } }
-        : prev
+    edit((v) =>
+      v.timeline
+        ? {
+            ...v,
+            timeline: {
+              ...v.timeline,
+              rows: {
+                ...v.timeline.rows,
+                notes: [n, ...v.timeline.rows.notes],
+              },
+            },
+          }
+        : v
     );
 
   const deleteNote = async (id: string) => {
@@ -351,23 +435,36 @@ export function CustomerPage({
       .delete()
       .eq('id', id);
     if (error) return void toast.error(td('toastNoteDeleteFailed'));
-    setLoad((prev) =>
-      prev.state === 'ready'
+    edit((v) =>
+      v.timeline
         ? {
-            ...prev,
-            rows: {
-              ...prev.rows,
-              notes: prev.rows.notes.filter((n) => n.id !== id),
+            ...v,
+            timeline: {
+              ...v.timeline,
+              rows: {
+                ...v.timeline.rows,
+                notes: v.timeline.rows.notes.filter((n) => n.id !== id),
+              },
             },
           }
-        : prev
+        : v
     );
     toast.success(td('toastNoteDeleted'));
   };
 
+  // Before leaving for the list: neither this page nor the list may
+  // show the deleted contact from the cache.
+  const forgetDeleted = () => {
+    deleted.current = true;
+    loadGen.current += 1;
+    if (viewKey) sessionCache.delete(viewKey);
+    const lists = sessionKey(accountId, user?.id, CONTACT_LIST_QUESTION_PREFIX);
+    if (lists) sessionCache.deletePrefix(lists);
+  };
+
   const draftWhatsApp = () => {
     if (!conversation) return void toast.error(tl('noConversation'));
-    const text = say(missedDraftText(contact.name));
+    const text = say(missedDraftText(contact?.name ?? null));
     if (putComposerPrefill(sessionStore(), conversation.id, text))
       window.dispatchEvent(
         new CustomEvent(COMPOSER_PREFILL_EVENT, { detail: conversation.id })
@@ -384,10 +481,9 @@ export function CustomerPage({
     setTicking(null);
     if (!res?.ok) return void toast.error(tl('taskFailed'));
     toast.success(tl('taskDone'));
-    setSide((prev) => ({
-      ...prev,
-      tasks: prev.tasks.filter((t) => t.id !== task.id),
-    }));
+    edit((v) =>
+      v.tasks ? { ...v, tasks: v.tasks.filter((t) => t.id !== task.id) } : v
+    );
   };
   const dateLabel = (key: string) =>
     new Intl.DateTimeFormat(locale, {
@@ -399,6 +495,7 @@ export function CustomerPage({
     }).format(new Date(`${key}T12:00:00Z`));
 
   const entry = (e: TimelineEntry) => {
+    if (!contact || !draft) return null;
     const h = entryHeading(e, {
       timeZone,
       locale,
@@ -417,7 +514,7 @@ export function CustomerPage({
             ? [StickyNote, 'bg-warning-soft text-warning']
             : [Hash, 'bg-primary-soft text-primary'];
     const task =
-      missed && e.kind === 'call' ? missedTaskFor(e.call.id, side.tasks) : null;
+      missed && e.kind === 'call' ? missedTaskFor(e.call.id, tasks) : null;
     const text =
       e.kind === 'whatsapp'
         ? e.message.text
@@ -517,24 +614,29 @@ export function CustomerPage({
     );
   };
 
-  const month = side.summary ? monthSummaryParts(side.summary) : null;
+  const month = view.summary ? monthSummaryParts(view.summary) : null;
   // The contact's cases (read-only): agent and up, as GET /api/cases/leads.
   const canSeeCases = !!accountRole && canSendMessages(accountRole);
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <BackLink fallbackHref={contactsListPath(fromTeam)} />
-      <CustomerHeader
-        contact={contact}
-        ownerName={ownerName}
-        conversationId={conversation?.id ?? null}
-        chip={contactChatTagChip(thread.chatTags, chatTagTree)}
-        access={access}
-        outreach={outreach}
-        channels={channels}
-        prediction={prediction}
-        onEdit={() => setEditing(true)}
-        listPath={contactsListPath(fromTeam)}
-      />
+      {contact ? (
+        <CustomerHeader
+          contact={contact}
+          ownerName={ownerName}
+          conversationId={conversation?.id ?? null}
+          chip={contactChatTagChip(thread.chatTags, chatTagTree)}
+          access={access}
+          outreach={outreach}
+          channels={channels}
+          prediction={prediction}
+          onEdit={() => setEditing(true)}
+          listPath={contactsListPath(fromTeam)}
+          onDeleted={forgetDeleted}
+        />
+      ) : (
+        <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
+      )}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <section className="order-2 min-w-0 space-y-4 lg:order-1">
           {access.addNote && (
@@ -558,7 +660,14 @@ export function CustomerPage({
               </button>
             ))}
           </nav>
-          {visible.length === 0 && !canPage ? (
+          {sections.timeline === 'failed' ? (
+            <p className="text-muted-foreground text-sm">{tl('loadFailed')}</p>
+          ) : sections.timeline === 'loading' ? (
+            <div
+              className="bg-muted h-40 animate-pulse rounded-xl"
+              aria-hidden
+            />
+          ) : visible.length === 0 && !canPage ? (
             <p className="border-border text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">
               {tl(`emptyFor.${filter}`)}
             </p>
@@ -587,21 +696,31 @@ export function CustomerPage({
         </section>
 
         <aside className="order-1 min-w-0 space-y-4 lg:order-2">
-          <DetailsCard contact={contact} canEdit={access.edit} />
-          <CustomerInsightsCard
-            conversation={load.insights}
-            frame={(title, body) => <Card title={title}>{body}</Card>}
-          />
+          {/* The cards that read by contact id alone mount at once (their
+              reads stay silent for a missing contact); the rest wait for
+              the basics. */}
+          {contact && <DetailsCard contact={contact} canEdit={access.edit} />}
+          {ready && (
+            <CustomerInsightsCard
+              conversation={ready.insights}
+              frame={(title, body) => <Card title={title}>{body}</Card>}
+            />
+          )}
           <DealsCard contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
           <Card title={tl('openTasks')}>
-            {side.tasks.length === 0 ? (
+            {sections.tasks === 'loading' ? (
+              <div
+                className="bg-muted h-10 animate-pulse rounded"
+                aria-hidden
+              />
+            ) : tasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">
                 {tl('noOpenTasks')}
               </p>
             ) : (
               <ul className="space-y-2">
-                {side.tasks.map((task) => (
+                {tasks.map((task) => (
                   <li key={task.id} className="flex items-start gap-2 text-sm">
                     <Checkbox
                       checked={false}
@@ -624,36 +743,40 @@ export function CustomerPage({
               compact
             />
           </Card>
-          <DealRoomLinks
-            contact={contact}
-            frame={(title, body) => <Card title={title}>{body}</Card>}
-          />
-          <Card title={tl('team')}>
-            {team.length === 0 ? (
-              <p className="text-muted-foreground text-sm">{tl('noTeam')}</p>
-            ) : (
-              <ul className="space-y-2">
-                {team.map((p) => {
-                  const state = presenceOf(p.userId, phone, getPresence);
-                  return (
-                    <li
-                      key={p.userId}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <PresenceDot status={state} className="size-2.5" />
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {names[p.userId] ?? '—'}
-                      </span>
-                      <span className="text-muted-foreground text-xs">
-                        {tl(`roles.${p.role}`)} ·{' '}
-                        {tl(`presence.${PERSON_PRESENCE_KEY[state]}`)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Card>
+          {contact && (
+            <DealRoomLinks
+              contact={contact}
+              frame={(title, body) => <Card title={title}>{body}</Card>}
+            />
+          )}
+          {ready && (
+            <Card title={tl('team')}>
+              {team.length === 0 ? (
+                <p className="text-muted-foreground text-sm">{tl('noTeam')}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {team.map((p) => {
+                    const state = presenceOf(p.userId, phone, getPresence);
+                    return (
+                      <li
+                        key={p.userId}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <PresenceDot status={state} className="size-2.5" />
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {names[p.userId] ?? '—'}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {tl(`roles.${p.role}`)} ·{' '}
+                          {tl(`presence.${PERSON_PRESENCE_KEY[state]}`)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+          )}
           <Card title={tl('thisMonth')}>
             {month ? (
               <div className="space-y-1 text-sm">
@@ -669,22 +792,26 @@ export function CustomerPage({
           </Card>
           {/* Journey + consent (module 016); it gates its own actions on
               the same role rules (set: agent and up, clear: admin). */}
-          <div className="border-border divide-border divide-y overflow-hidden rounded-xl border">
-            <ContactJourneySections
-              key={contact.id}
-              contactId={contact.id}
-              SectionTitle={ConsentTitle}
-            />
-          </div>
+          {/* After the basics: its reads toast on an error, and a
+              malformed id is one. */}
+          {ready && (
+            <div className="border-border divide-border divide-y overflow-hidden rounded-xl border">
+              <ContactJourneySections
+                key={contactId}
+                contactId={contactId}
+                SectionTitle={ConsentTitle}
+              />
+            </div>
+          )}
         </aside>
       </div>
       {outreach.dialogs}
-      {access.edit && (
+      {access.edit && contact && (
         <ContactForm
           open={editing}
           onOpenChange={setEditing}
           contact={contact as unknown as Contact}
-          onSaved={() => setReloadKey((k) => k + 1)}
+          onSaved={restart}
         />
       )}
     </div>

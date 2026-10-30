@@ -78,6 +78,7 @@ export function CustomerHeader({
   prediction,
   onEdit,
   listPath = '/contacts',
+  onDeleted,
 }: {
   contact: HeaderContact;
   ownerName: string | null;
@@ -90,6 +91,8 @@ export function CustomerHeader({
   onEdit: () => void;
   /** Where delete returns to: the list this customer was opened from. */
   listPath?: string;
+  /** After a delete, before leaving: drop what caches this contact. */
+  onDeleted?: () => void;
 }) {
   const tl = useTranslations('CustomerTimeline');
   const t = useTranslations('Contacts.detailView');
@@ -129,6 +132,7 @@ export function CustomerHeader({
     if (error) return void toast.error(tp('toastFailedDelete'));
     toast.success(tp('toastDeleted'));
     setConfirm(false);
+    onDeleted?.();
     router.push(listPath);
   };
 

@@ -6,9 +6,11 @@ import type { Basics, CustomerTimeline } from './customer-load';
 import {
   EMPTY_CUSTOMER_VIEW,
   applyPart,
+  cacheAction,
   customerSections,
   customerViewKey,
   startView,
+  viewOwner,
   worthCaching,
   type CustomerView,
 } from './customer-view';
@@ -141,5 +143,39 @@ describe('startView and worthCaching', () => {
     expect(worthCaching(EMPTY_CUSTOMER_VIEW)).toBe(false);
     expect(worthCaching({ ...EMPTY_CUSTOMER_VIEW, basics })).toBe(true);
     expect(worthCaching({ ...EMPTY_CUSTOMER_VIEW, missing: true })).toBe(true);
+  });
+});
+
+describe('viewOwner and cacheAction', () => {
+  const k1 = customerViewKey('a1', 'u1', 'c1')!;
+  const k2 = customerViewKey('a1', 'u2', 'c1')!;
+  const kc2 = customerViewKey('a1', 'u1', 'c2')!;
+  const held: CustomerView = { ...EMPTY_CUSTOMER_VIEW, basics };
+
+  it('owns the first non-null key seen for the contact', () => {
+    expect(viewOwner(null, 'c1', null)).toBeNull();
+    const o = viewOwner(null, 'c1', k1);
+    expect(o).toEqual({ contactId: 'c1', key: k1 });
+    expect(viewOwner(o, 'c1', k2)).toBe(o);
+    expect(viewOwner(o, 'c1', null)).toBe(o);
+  });
+  it('starts over for another contact', () => {
+    const o = viewOwner(null, 'c1', k1);
+    expect(viewOwner(o, 'c2', kc2)).toEqual({ contactId: 'c2', key: kc2 });
+    expect(viewOwner(o, 'c2', null)).toBeNull();
+  });
+  it('stores a view worth keeping under the owner key only', () => {
+    const o = viewOwner(null, 'c1', k1);
+    expect(cacheAction(held, k1, o)).toBe('store');
+    expect(cacheAction(held, k2, o)).toBe('none');
+    expect(cacheAction(held, null, o)).toBe('none');
+    expect(cacheAction(held, k1, null)).toBe('none');
+    expect(cacheAction(EMPTY_CUSTOMER_VIEW, k1, o)).toBe('none');
+  });
+  it('drops the entry of a missing contact, never stores it', () => {
+    const o = viewOwner(null, 'c1', k1);
+    const gone = applyPart(held, { kind: 'basics', value: null });
+    expect(cacheAction(gone, k1, o)).toBe('drop');
+    expect(cacheAction(gone, k2, o)).toBe('none');
   });
 });

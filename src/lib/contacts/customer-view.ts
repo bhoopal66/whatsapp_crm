@@ -180,3 +180,39 @@ export function customerSections(view: CustomerView): CustomerSections {
     selfLoading: shown,
   };
 }
+
+/**
+ * The key a page may write its view under: the first non-null key it
+ * saw for this contact. `useAuth` has no user yet on a hard reload, so
+ * the key appears late; a key that changes after that (another user in
+ * this tab) is not the owner, so the view on screen is never stored
+ * under it.
+ */
+export interface ViewOwner {
+  contactId: string;
+  key: SessionKey;
+}
+
+export function viewOwner(
+  prev: ViewOwner | null,
+  contactId: string,
+  key: SessionKey | null
+): ViewOwner | null {
+  if (prev && prev.contactId === contactId) return prev;
+  return key ? { contactId, key } : null;
+}
+
+/**
+ * What the page does with the cache for the view it holds: store it,
+ * drop the entry (the contact is missing: a revisit must not show it),
+ * or nothing (no key yet, not the owner, nothing worth keeping).
+ */
+export function cacheAction(
+  view: CustomerView,
+  key: SessionKey | null,
+  owner: ViewOwner | null
+): 'store' | 'drop' | 'none' {
+  if (!key || owner?.key !== key) return 'none';
+  if (view.missing) return 'drop';
+  return worthCaching(view) ? 'store' : 'none';
+}
