@@ -22,8 +22,10 @@ import {
 import { toast } from 'sonner';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useChatPermissions } from '@/hooks/use-chat-permissions';
 import {
   CHAT_FILE_MAX_BYTES,
+  channelsWithGuests,
   postMessage,
   uploadChatFile,
   type AttachmentInput,
@@ -49,7 +51,22 @@ import {
   uploadingChip,
   type FileChip,
 } from '@/lib/chat/composer-input';
+import {
+  composerControls,
+  countsAsChannelAdmin,
+  everyoneRefusal,
+  needsGuestLookup,
+  offersEveryone,
+  postingBlock,
+  postingBlockMessage,
+  sensitiveDecision,
+  stripMentionTokens,
+  type SensitiveKind,
+} from '@/lib/chat/composer-gating';
+import type { ChatErrorKey } from '@/lib/chat/errors';
 import { quotePreview } from '@/lib/chat/quotes';
+import { sensitiveKinds } from '@/lib/kb/sensitive';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   channelDisplayName,
   chatErrorKey,
@@ -65,6 +82,15 @@ import {
 } from '@/lib/chat/voice';
 import { formatClock } from '@/lib/media/voice-waveform';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { VoiceNotePlayer } from '@/components/inbox/voice-note-player';
 import { VoiceRecordingBar } from '@/components/inbox/voice-recording-bar';
 
@@ -121,6 +147,35 @@ const FORMAT_BUTTONS: {
   { action: 'bullets', Icon: List, label: 'bulletList' },
 ];
 
+/**
+ * Whether a channel has a bank guest in it, asked once per channel for
+ * the page session (the sensitive-data guard's 'guests' scope, 158).
+ * A failed lookup answers null and is asked again next time.
+ */
+const guestStatus = new Map<string, Promise<boolean | null>>();
+function channelHasGuest(
+  sb: SupabaseClient,
+  channelId: string
+): Promise<boolean | null> {
+  const key = channelId.toLowerCase();
+  let p = guestStatus.get(key);
+  if (!p) {
+    p = channelsWithGuests(sb, [channelId]).then(
+      (set) => set.has(channelId) || set.has(key),
+      () => {
+        guestStatus.delete(key);
+        return null;
+      }
+    );
+    guestStatus.set(key, p);
+  }
+  return p;
+}
+
+type Notice =
+  | { type: 'error'; key: ChatErrorKey }
+  | { type: 'sensitive'; kinds: SensitiveKind[] };
+
 function readDraft(key: string): ComposerDraft {
   try {
     return decodeDraft(window.localStorage.getItem(key));
@@ -148,9 +203,32 @@ export function Composer({
 }: ComposerProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
-  const { accountRole } = useAuth();
+  const { accountRole, canManageMembers, isBankGuest } = useAuth();
+  const { permissions } = useChatPermissions();
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
-  const block = useWriteBlock(channel);
+  const channelAdmin = countsAsChannelAdmin({
+    workspaceAdmin: canManageMembers,
+    role: channel?.membership?.role,
+    bankGuest: isBankGuest,
+  });
+  // The posting rules (157) block only this composer; reactions, pins
+  // and the other users of useWriteBlock are unaffected.
+  const writeBlock = useWriteBlock(channel);
+  const block =
+    writeBlock ??
+    (channel
+      ? postingBlock({
+          threadRootId,
+          posting: channel.posting,
+          threadReplies: channel.threadReplies,
+          channelAdmin,
+        })
+      : null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [confirm, setConfirm] = useState<{
+    kinds: SensitiveKind[];
+    guests: boolean;
+  } | null>(null);
   const [refused, setRefused] = useState<ComposerBlock | null>(null);
   const format = useFormatter();
   const restrictedUntil = useRestrictedUntil(channel);
@@ -369,6 +447,7 @@ export function Composer({
   if (!channel) return null;
 
   const changeDraft = (d: ComposerDraft) => {
+    setNotice(null);
     setDraft(d);
     writeDraft(storageKey, d);
   };
@@ -403,14 +482,51 @@ export function Composer({
     chipsReady(chips) &&
     (composed.ok || composed.reason === 'bodyLength');
 
-  const send = async () => {
+  const kindNames = (kinds: readonly SensitiveKind[]) =>
+    kinds.map((k) => t(`composer.sensitive.kind_${k}`)).join(', ');
+
+  /** `confirmed`: the person chose Send anyway on the sensitive-data warning. */
+  const send = async (confirmed = false) => {
     if (!canSend) return;
     if (!composed.ok) {
       toast.error(t('errors.bodyLength'));
       return;
     }
+    const everyone = everyoneRefusal(composed.body, {
+      can: permissions.can,
+      rule: channel.mentionEveryone,
+      channelAdmin,
+    });
+    if (everyone) {
+      setNotice({ type: 'error', key: everyone });
+      return;
+    }
     setSending(true);
     try {
+      if (!confirmed) {
+        const kinds = sensitiveKinds(stripMentionTokens(composed.body));
+        const hasGuest = needsGuestLookup(
+          permissions.sensitive,
+          channel.kind,
+          kinds
+        )
+          ? await channelHasGuest(ws.sb, channelId)
+          : null;
+        const d = sensitiveDecision({
+          kinds,
+          guard: permissions.sensitive,
+          kind: channel.kind,
+          hasGuest,
+        });
+        if (d.action === 'block') {
+          setNotice({ type: 'sensitive', kinds: d.kinds });
+          return;
+        }
+        if (d.action === 'warn') {
+          setConfirm({ kinds: d.kinds, guests: d.guests });
+          return;
+        }
+      }
       const id = await postMessage(ws.sb, {
         channelId,
         body: composed.body,
@@ -494,16 +610,20 @@ export function Composer({
     return (
       <div className="border-t px-4 py-3 text-center">
         <p className="text-muted-foreground text-sm">
-          {shown === 'restricted'
-            ? restrictedUntil
-              ? t('composer.blocked.restricted', {
-                  time: format.dateTime(
-                    new Date(restrictedUntil.replace(' ', 'T')),
-                    { dateStyle: 'medium', timeStyle: 'short' }
-                  ),
-                })
-              : t('composer.blocked.restrictedNoTime')
-            : t(`composer.blocked.${shown}`)}
+          {shown === 'postingRestricted' || shown === 'repliesRestricted'
+            ? t(
+                `composer.blocked.${postingBlockMessage(shown, channel.threadReplies)}`
+              )
+            : shown === 'restricted'
+              ? restrictedUntil
+                ? t('composer.blocked.restricted', {
+                    time: format.dateTime(
+                      new Date(restrictedUntil.replace(' ', 'T')),
+                      { dateStyle: 'medium', timeStyle: 'short' }
+                    ),
+                  })
+                : t('composer.blocked.restrictedNoTime')
+              : t(`composer.blocked.${shown}`)}
         </p>
         {whatsapp}
       </div>
@@ -516,6 +636,7 @@ export function Composer({
     t('unknownPerson')
   );
   const helper = helperLine(channel.kind, name, !!threadRootId);
+  const controls = composerControls(permissions.can);
   const quote = reply.target
     ? quotePreview(reply.target, ws.people, t('unknownPerson'))
     : null;
@@ -652,6 +773,15 @@ export function Composer({
           })}
         </div>
       )}
+      {notice && !recording && !take && (
+        <p role="alert" className="text-destructive mb-1.5 text-xs">
+          {notice.type === 'sensitive'
+            ? t('composer.sensitive.blocked', {
+                kinds: kindNames(notice.kinds),
+              })
+            : t(`errors.${notice.key}`)}
+        </p>
+      )}
       {recording ? (
         <VoiceRecordingBar
           seconds={recordSeconds}
@@ -695,15 +825,17 @@ export function Composer({
         </div>
       ) : (
         <div ref={inputWrap} className="flex items-end gap-2">
-          <button
-            type="button"
-            aria-label={t('composer.attach')}
-            title={t('composer.attach')}
-            onClick={() => fileInput.current?.click()}
-            className="hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border"
-          >
-            <Paperclip className="size-4" aria-hidden />
-          </button>
+          {controls.attach && (
+            <button
+              type="button"
+              aria-label={t('composer.attach')}
+              title={t('composer.attach')}
+              onClick={() => fileInput.current?.click()}
+              className="hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border"
+            >
+              <Paperclip className="size-4" aria-hidden />
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('composer.formatting')}
@@ -717,7 +849,7 @@ export function Composer({
           >
             Aa
           </button>
-          {chips.length === 0 && (
+          {chips.length === 0 && controls.voice && (
             <button
               type="button"
               aria-label={t('voice.record')}
@@ -743,7 +875,12 @@ export function Composer({
             draft={draft}
             onDraftChange={changeDraft}
             onSubmit={() => void send()}
-            broadcasts={offersBroadcasts(channel.kind)}
+            broadcasts={offersEveryone({
+              broadcastKind: offersBroadcasts(channel.kind),
+              can: permissions.can,
+              rule: channel.mentionEveryone,
+              channelAdmin,
+            })}
             ariaLabel={t('composer.placeholder')}
             placeholder={t('composer.placeholder')}
           />
@@ -758,6 +895,40 @@ export function Composer({
         </div>
       )}
       {whatsapp}
+      {confirm && (
+        <Dialog open onOpenChange={(next) => !next && setConfirm(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('composer.sensitive.warnTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('composer.sensitive.warnBody', {
+                  kinds: kindNames(confirm.kinds),
+                })}
+                {confirm.guests && ` ${t('composer.sensitive.warnGuests')}`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setConfirm(null);
+                  inputWrap.current?.querySelector('textarea')?.focus();
+                }}
+              >
+                {t('composer.sensitive.edit')}
+              </Button>
+              <Button
+                onClick={() => {
+                  setConfirm(null);
+                  void send(true);
+                }}
+              >
+                {t('composer.sensitive.sendAnyway')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

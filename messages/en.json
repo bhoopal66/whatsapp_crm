@@ -4720,7 +4720,22 @@
         "guestPrivateOnly": "Bank guests can post only in private channels they belong to.",
         "notMember": "You're not a member of this channel, so you can't post here.",
         "restricted": "You can't post here until {time}.",
-        "restrictedNoTime": "You've been restricted from posting here for now."
+        "restrictedNoTime": "You've been restricted from posting here for now.",
+        "postingRestricted": "Only channel admins can post here — you can still react and reply in threads.",
+        "postingRestrictedNoReplies": "Only channel admins can post here.",
+        "repliesRestricted": "Only channel admins can reply in threads here.",
+        "outsideAudience": "You're outside this channel's audience, so you can't post here."
+      },
+      "sensitive": {
+        "kind_card": "a card number",
+        "kind_emirates_id": "an Emirates ID",
+        "kind_iban": "an IBAN",
+        "blocked": "This message contains {kinds}, which this workspace doesn't allow here. Remove it to send.",
+        "warnTitle": "Send sensitive data?",
+        "warnBody": "This message contains {kinds}.",
+        "warnGuests": "Bank guests can read this channel.",
+        "sendAnyway": "Send anyway",
+        "edit": "Edit message"
       }
     },
     "voice": {

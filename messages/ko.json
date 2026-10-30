@@ -4720,7 +4720,22 @@
         "guestPrivateOnly": "은행 게스트는 자신이 속한 비공개 채널에만 메시지를 올릴 수 있습니다.",
         "notMember": "이 채널의 멤버가 아니므로 메시지를 올릴 수 없습니다.",
         "restricted": "{time}까지 여기에 메시지를 올릴 수 없습니다.",
-        "restrictedNoTime": "지금은 여기에 메시지를 올리는 것이 제한되어 있습니다."
+        "restrictedNoTime": "지금은 여기에 메시지를 올리는 것이 제한되어 있습니다.",
+        "postingRestricted": "채널 관리자만 여기에 게시할 수 있습니다 — 반응을 남기거나 스레드에 답글을 달 수는 있습니다.",
+        "postingRestrictedNoReplies": "채널 관리자만 여기에 게시할 수 있습니다.",
+        "repliesRestricted": "채널 관리자만 이 채널의 스레드에 답글을 달 수 있습니다.",
+        "outsideAudience": "이 채널의 대상 범위에 포함되지 않아 여기에 게시할 수 없습니다."
+      },
+      "sensitive": {
+        "kind_card": "카드 번호",
+        "kind_emirates_id": "에미리트 ID",
+        "kind_iban": "IBAN",
+        "blocked": "이 메시지에 {kinds}이(가) 포함되어 있으며, 이 워크스페이스에서는 여기에 허용되지 않습니다. 제거한 후 보내세요.",
+        "warnTitle": "민감한 정보를 보낼까요?",
+        "warnBody": "이 메시지에 {kinds}이(가) 포함되어 있습니다.",
+        "warnGuests": "은행 게스트가 이 채널을 읽을 수 있습니다.",
+        "sendAnyway": "그래도 보내기",
+        "edit": "메시지 수정"
       }
     },
     "voice": {

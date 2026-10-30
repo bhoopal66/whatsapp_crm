@@ -286,7 +286,13 @@ export type ComposerBlock =
   | 'guestPrivateOnly'
   | 'notMember'
   /** 160: a timeout on the viewer's membership (postBlockedUntil). */
-  | 'restricted';
+  | 'restricted'
+  /** 157: the channel's posting rule is admins-only (top-level posts). */
+  | 'postingRestricted'
+  /** 157: the channel's thread-reply rule is admins-only (thread composer). */
+  | 'repliesRestricted'
+  /** 159: the viewer is outside the team channel's audience. */
+  | 'outsideAudience';
 
 /**
  * Why the composer is replaced by a notice, in chat_assert_can_write's
@@ -312,7 +318,11 @@ export function composerBlock(i: {
   return null;
 }
 
-/** A refused post whose reason holds for every later post too. */
+/**
+ * A refused post whose reason holds for every later post too. (The
+ * posting rules, 157's postingRestricted / repliesRestricted, are judged
+ * ahead of a send by postingBlock in composer-gating.ts.)
+ */
 export function blockFromError(key: ChatErrorKey): ComposerBlock | null {
   switch (key) {
     case 'disabled':
@@ -323,6 +333,12 @@ export function blockFromError(key: ChatErrorKey): ComposerBlock | null {
       return 'notMember';
     case 'restrictedPosting':
       return 'restricted';
+    case 'postingRestricted':
+      return 'postingRestricted';
+    case 'repliesRestricted':
+      return 'repliesRestricted';
+    case 'outsideAudience':
+      return 'outsideAudience';
     default:
       return null;
   }
