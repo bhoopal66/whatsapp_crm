@@ -4535,6 +4535,12 @@
       "dmNotAllowed": "이 워크스페이스에서는 이 사람들 사이의 다이렉트 메시지가 꺼져 있습니다."
     },
     "composer": {
+      "replyingTo": "{name}님에게 답장 중",
+      "cancelReply": "답장 취소",
+      "replyVoice": "음성 메시지 ({length})",
+      "reply_deleted": "삭제된 메시지입니다.",
+      "reply_erased": "지워진 메시지입니다.",
+      "reply_unavailable": "더 이상 볼 수 없는 메시지입니다.",
       "helperChannel": "#{name}에 메시지 — 내부 전용입니다. @를 입력해 멘션하세요.",
       "helperDm": "{names}에게 메시지 — 내부 전용입니다.",
       "helperNotes": "팀 노트 — 직원 전용입니다. @를 입력해 멘션하세요.",

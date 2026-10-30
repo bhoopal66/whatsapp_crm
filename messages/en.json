@@ -4535,6 +4535,12 @@
       "dmNotAllowed": "Direct messages between these people are turned off in this workspace."
     },
     "composer": {
+      "replyingTo": "Replying to {name}",
+      "cancelReply": "Cancel reply",
+      "replyVoice": "Voice message ({length})",
+      "reply_deleted": "This message was deleted.",
+      "reply_erased": "This message was erased.",
+      "reply_unavailable": "This message is no longer available.",
       "helperChannel": "Message #{name} — internal only. Type @ to mention someone.",
       "helperDm": "Message {names} — internal only.",
       "helperNotes": "Team notes — staff only. Type @ to mention someone.",

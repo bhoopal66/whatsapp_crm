@@ -49,10 +49,12 @@ import {
   uploadingChip,
   type FileChip,
 } from '@/lib/chat/composer-input';
+import { quotePreview } from '@/lib/chat/quotes';
 import {
   channelDisplayName,
   chatErrorKey,
   inboxBasePath,
+  quoteTint,
 } from '@/lib/chat/view';
 import type { FormatAction } from '@/lib/chat/format';
 import {
@@ -71,6 +73,7 @@ import {
   MentionTextarea,
   type MentionTextareaControl,
 } from './mention-textarea';
+import { useReplyTarget } from './reply-target';
 import { useWriteBlock } from './use-write-block';
 
 export interface ComposerProps {
@@ -157,6 +160,9 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const input = useRef<MentionTextareaControl>(null);
+  const inputWrap = useRef<HTMLDivElement>(null);
+  const reply = useReplyTarget();
+  const replyId = reply.target?.id ?? null;
   const [formatBar, setFormatBar] = useState(false);
 
   // ---- Voice notes: record, review, then upload on Send -------------
@@ -317,6 +323,11 @@ export function Composer({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [recording, cancelRecording]);
 
+  // Choosing Reply on a message puts the caret in the input.
+  useEffect(() => {
+    if (replyId) inputWrap.current?.querySelector('textarea')?.focus();
+  }, [replyId]);
+
   // A composer that becomes blocked (archived, removed from the channel)
   // stops listening at once.
   const writeBlocked = !channel || !!(refused ?? block);
@@ -389,10 +400,12 @@ export function Composer({
         channelId,
         body: composed.body,
         threadRootId,
+        replyToId: reply.target?.id,
         attachments: chipInputs(chips),
       });
       changeDraft(EMPTY_DRAFT);
       setChips([]);
+      reply.clear();
       onPosted?.(id);
     } catch (err) {
       const b = blockFromError(chatErrorKey(err));
@@ -429,9 +442,11 @@ export function Composer({
           ),
         }),
         threadRootId,
+        replyToId: reply.target?.id,
         attachments: [voiceAttachment(uploaded, staged.durationMs)],
       });
       dropTake();
+      reply.clear();
       onPosted?.(id);
     } catch (err) {
       const key = chatErrorKey(err);
@@ -477,6 +492,23 @@ export function Composer({
     t('unknownPerson')
   );
   const helper = helperLine(channel.kind, name, !!threadRootId);
+  const quote = reply.target
+    ? quotePreview(reply.target, ws.people, t('unknownPerson'))
+    : null;
+  const quoteAuthor = quote?.authorId
+    ? (ws.peopleById.get(quote.authorId)?.fullName ?? t('unknownPerson'))
+    : t('unknownPerson');
+  const quoteText =
+    quote?.kind === 'text' || quote?.kind === 'file'
+      ? quote.text
+      : quote
+        ? t(
+            quote.kind === 'voice'
+              ? 'composer.replyVoice'
+              : `composer.reply_${quote.kind}`,
+            { length: quote.text }
+          )
+        : '';
 
   return (
     <div className="border-t px-4 pt-2 pb-3">
@@ -546,6 +578,30 @@ export function Composer({
           ))}
         </ul>
       )}
+      {quote && (
+        <div
+          className={cn(
+            'bg-muted/50 mb-2 flex items-start gap-2 rounded-md border-l-4 py-1 pr-1 pl-2',
+            quoteTint(quote.authorId)
+          )}
+        >
+          <div className="min-w-0 flex-1 text-xs">
+            <p className="truncate font-semibold">
+              {t('composer.replyingTo', { name: quoteAuthor })}
+            </p>
+            <p className="text-muted-foreground truncate">{quoteText}</p>
+          </div>
+          <button
+            type="button"
+            aria-label={t('composer.cancelReply')}
+            title={t('composer.cancelReply')}
+            onClick={reply.clear}
+            className="hover:bg-muted shrink-0 rounded p-1"
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
       {formatBar && !recording && !take && (
         <div
           role="toolbar"
@@ -614,7 +670,7 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
+        <div ref={inputWrap} className="flex items-end gap-2">
           <button
             type="button"
             aria-label={t('composer.attach')}
@@ -659,6 +715,7 @@ export function Composer({
           <MentionTextarea
             controlRef={input}
             className="min-w-0 flex-1"
+            onCancel={reply.target ? reply.clear : undefined}
             draft={draft}
             onDraftChange={changeDraft}
             onSubmit={() => void send()}
