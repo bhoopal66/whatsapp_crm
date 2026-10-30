@@ -67,6 +67,7 @@ import {
   requestComposeCheck,
 } from '@/lib/insights/compose-check-view';
 import {
+  clearParkedDrafts,
   composeFlow,
   initialComposeFlow,
   parkDraft,
@@ -81,6 +82,7 @@ import { toast } from 'sonner';
 import {
   uploadAccountMedia,
   deleteAccountMedia,
+  STAGED_MEDIA_SUBFOLDER,
   MEDIA_MAX_BYTES_BY_KIND,
 } from '@/lib/storage/upload-media';
 import { ReplyQuote } from './reply-quote';
@@ -471,12 +473,24 @@ export function MessageComposer({
   // Parked drafts belong to the login that wrote them: another user
   // signed in to this tab finds the stash empty. Declared before the
   // switch below, so it runs first.
+  // Best-effort GC of a staged object the user never sent. Fire-and-forget.
+  const removeStaged = useCallback((path: string | undefined) => {
+    if (!path) return;
+    void deleteAccountMedia(CHAT_MEDIA_BUCKET, path).catch(() => {});
+  }, []);
+
   const userId = useAuth().user?.id ?? null;
   useEffect(() => {
     if (!userId || parkedFor === userId) return;
-    parkedDrafts.clear();
+    // Nothing can restore a parked attachment after the clear, so delete
+    // its object first. The delete runs as the newly signed-in user and
+    // storage RLS only allows deletes inside that user's own
+    // account-<id> folder: another account's leftovers stay, and the
+    // 7-day staged sweep removes them. The first sign-in on a tab finds
+    // an empty stash.
+    for (const a of clearParkedDrafts(parkedDrafts)) removeStaged(a.path);
     parkedFor = userId;
-  }, [userId]);
+  }, [userId, removeStaged]);
 
   // On a chat switch: park what the composer holds for the chat just
   // left (settling a check or dialog of it), empty the box, unstage the
@@ -555,12 +569,6 @@ export function MessageComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
-
-  // Best-effort GC of a staged object the user never sent. Fire-and-forget.
-  const removeStaged = useCallback((path: string | undefined) => {
-    if (!path) return;
-    void deleteAccountMedia(CHAT_MEDIA_BUCKET, path).catch(() => {});
-  }, []);
 
   // Voice recording state. The recorder encodes Ogg/Opus in-browser
   // (opus-recorder) so there's no server-side transcode.
@@ -924,7 +932,8 @@ export function MessageComposer({
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
-          file
+          file,
+          { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
         landUpload(startedIn, {
           kind,
@@ -973,7 +982,8 @@ export function MessageComposer({
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
-          file
+          file,
+          { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
         landUpload(startedIn, {
           kind: 'audio',

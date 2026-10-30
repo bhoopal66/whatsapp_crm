@@ -355,6 +355,19 @@ export function parkDraft<R, A>(
 }
 
 /**
+ * Empty the stash and return the attachments it held, which nothing owns
+ * any more (the caller deletes their objects).
+ */
+export function clearParkedDrafts<R, A>(stash: ParkedDrafts<R, A>): A[] {
+  const dropped: A[] = [];
+  for (const parked of stash.values()) {
+    if (parked.attachment !== null) dropped.push(parked.attachment);
+  }
+  stash.clear();
+  return dropped;
+}
+
+/**
  * What is parked for `conversationId` and can go back now, taken out of
  * the stash: the text when the box is empty, the attachment when
  * nothing is staged, and the reply quote with either (or alone, when it

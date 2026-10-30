@@ -1,5 +1,37 @@
-import { describe, expect, it } from "vitest";
-import { buildMediaPath, MEDIA_MAX_BYTES_BY_KIND } from "./upload-media";
+import { describe, expect, it, vi } from "vitest";
+
+const upload = vi.fn();
+
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    auth: {
+      getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }),
+    },
+    from: () => ({
+      select: () => ({
+        eq: async () => ({
+          data: [{ account_id: ACCOUNT, is_active: true }],
+          error: null,
+        }),
+      }),
+    }),
+    storage: {
+      from: () => ({
+        upload,
+        getPublicUrl: (path: string) => ({
+          data: { publicUrl: `https://x/${path}` },
+        }),
+      }),
+    },
+  }),
+}));
+
+import {
+  buildMediaPath,
+  MEDIA_MAX_BYTES_BY_KIND,
+  STAGED_MEDIA_SUBFOLDER,
+  uploadAccountMedia,
+} from "./upload-media";
 
 const ACCOUNT = "11111111-2222-3333-4444-555555555555";
 
@@ -53,5 +85,29 @@ describe("MEDIA_MAX_BYTES_BY_KIND", () => {
     expect(MEDIA_MAX_BYTES_BY_KIND.video).toBe(16 * 1024 * 1024);
     expect(MEDIA_MAX_BYTES_BY_KIND.audio).toBe(16 * 1024 * 1024);
     expect(MEDIA_MAX_BYTES_BY_KIND.document).toBe(16 * 1024 * 1024);
+  });
+});
+
+describe("uploadAccountMedia", () => {
+  const file = new File(["x"], "photo.png", { type: "image/png" });
+
+  it("uploads under account-<id>/staged/ when asked for the staged subfolder", async () => {
+    upload.mockReset().mockResolvedValue({ error: null });
+    const { path } = await uploadAccountMedia("chat-media", file, {
+      subfolder: STAGED_MEDIA_SUBFOLDER,
+    });
+    expect(path).toMatch(
+      new RegExp(`^account-${ACCOUNT}/staged/\\d+-photo\\.png$`),
+    );
+    expect(upload.mock.calls[0][0]).toBe(path);
+  });
+
+  it("keeps the plain account-<id>/ path without options", async () => {
+    upload.mockReset().mockResolvedValue({ error: null });
+    const { path } = await uploadAccountMedia("chat-media", file);
+    expect(path).toMatch(
+      new RegExp(`^account-${ACCOUNT}/\\d+-photo\\.png$`),
+    );
+    expect(upload.mock.calls[0][0]).toBe(path);
   });
 });

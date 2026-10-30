@@ -77,6 +77,16 @@ export function buildMediaPath(
   return `${dir}/${stamp}${safeBase}.${ext}`;
 }
 
+/**
+ * Subfolder of `account-<id>` that holds inbox-composer attachments, so
+ * migration 155's `chat_media_staged_orphans` can find the ones never
+ * sent. The hourly sweep deletes any object here that no message,
+ * template or broadcast header references once it is 7 days old, so
+ * nothing that keeps a file without a message (a template or broadcast
+ * header, a flow) may upload here.
+ */
+export const STAGED_MEDIA_SUBFOLDER = "staged";
+
 export interface UploadAccountMediaResult {
   /** Public URL Meta can fetch at send time. */
   publicUrl: string;
@@ -95,6 +105,7 @@ export interface UploadAccountMediaResult {
 export async function uploadAccountMedia(
   bucket: string,
   file: File,
+  options?: { subfolder?: string },
 ): Promise<UploadAccountMediaResult> {
   const supabase = createClient();
 
@@ -120,7 +131,12 @@ export async function uploadAccountMedia(
     throw new Error("Could not resolve your account.");
   }
 
-  const path = buildMediaPath(profile.account_id as string, file.name);
+  const path = buildMediaPath(
+    profile.account_id as string,
+    file.name,
+    Date.now(),
+    options?.subfolder,
+  );
   const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: "3600",
     upsert: false,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clearParkedDrafts,
   composeFlow,
   initialComposeFlow,
   parkDraft,
@@ -530,5 +531,29 @@ describe('compose check flow: per-chat drafts with no check running', () => {
     expect(parkDraft(stash, 'chat-a', draft(att))).toBe(older);
     expect(stash.get('chat-a')?.attachment).toBe(att);
     expect(parkDraft(stash, 'chat-a', draft(att))).toBeNull();
+  });
+});
+
+describe('clearParkedDrafts', () => {
+  it('empties the stash and returns every parked attachment', () => {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    const a = { filename: 'a.pdf', caption: '' };
+    const b = { filename: 'b.png', caption: '' };
+    const draft = (attachment: Att | null, text = '') => ({
+      text,
+      origin: null,
+      reply: null,
+      attachment,
+    });
+    stash.set('chat-a', draft(a));
+    stash.set('chat-b', draft(null, 'just text'));
+    stash.set('chat-c', draft(b));
+    expect(clearParkedDrafts(stash)).toEqual([a, b]);
+    expect(stash.size).toBe(0);
+  });
+
+  it('returns nothing from an empty stash', () => {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    expect(clearParkedDrafts(stash)).toEqual([]);
   });
 });
