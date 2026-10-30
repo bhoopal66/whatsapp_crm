@@ -307,7 +307,10 @@ BEGIN
           AND (cm.role = 'guest' OR public.chat_user_role(c.account_id, cm.user_id) = 'bank_guest')) THEN
     RETURN NEW;
   END IF;
-  v_kinds := public.chat_sensitive_kinds(NEW.body);
+  -- A mention is stored as <@uuid>; a uuid's digit groups can read as a
+  -- Luhn-valid card, so mention tokens are taken out before the scan.
+  v_kinds := public.chat_sensitive_kinds(regexp_replace(NEW.body,
+    '<@[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>', ' ', 'g'));
   IF v_kinds <> '{}' THEN
     RAISE EXCEPTION 'chat: this message contains sensitive data (%) and this workspace blocks it %',
       array_to_string(v_kinds, ', '),

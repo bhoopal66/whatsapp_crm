@@ -352,6 +352,14 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_ok((SELECT body = '[erased]' AND erased_at IS NOT NULL FROM internal_messages WHERE id = m_cg),
     'all: the erased card message was not erased');
 
+  -- A mention token whose uuid digits read as a card (4111-111111111111)
+  -- is not sensitive: the raw detector flags it, the guard strips tokens.
+  n := n + 1; failed := failed || pg_temp.tc_ok(
+    public.chat_sensitive_kinds('hi <@aaaaaaaa-bbbb-4ccc-4111-111111111111>') = '{card}',
+    'all: the sample mention token no longer reads as a card, so the next check proves nothing');
+  failed := failed || pg_temp.tc_check('all: a mention token that looks like a card', u_ag,
+    format(post, dm, 'hi <@aaaaaaaa-bbbb-4ccc-4111-111111111111>'), '________-____-____-____-____________'); n := n + 1;
+
   -- ---------- H. warn and off again ----------
   r := pg_temp.tc_try('authenticated', u_adm, format(setg, a, 'warn', 'guests'));
   failed := failed || pg_temp.tc_check('warn again: card in a bank-guest channel', u_ag, format(post, pv, card), '________-____-____-____-____________'); n := n + 1;
