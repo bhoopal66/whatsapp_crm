@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   KeyboardEvent,
   type Ref,
   type SetStateAction,
@@ -275,9 +276,22 @@ export function MessageComposer({
   // words stay. The consent register is read again first: a draft left
   // for a customer since marked do-not-contact or opted out is dropped
   // with a notice. A failed read places it; the send is re-checked.
+  //
+  // openChatRef is what every async answer (an AI draft, an upload, a
+  // translation, this prefill) checks before it lands, so it moves in a
+  // layout effect. When a switch does not come from a click (a deep link,
+  // a notification), passive effects run a task later, and an answer for
+  // the chat left that landed in that gap still passed the check: an AI
+  // reply for A went into B's box, and an upload's replace deleted A's
+  // staged file before the switch parked it for A (a dead link).
   const openChatRef = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     openChatRef.current = conversationId;
+    return () => {
+      openChatRef.current = null;
+    };
+  }, [conversationId]);
+  useEffect(() => {
     const take = () => {
       const prefill = takeComposerPrefill(sessionStore(), conversationId);
       if (!prefill) return;
@@ -306,7 +320,6 @@ export function MessageComposer({
     };
     window.addEventListener(COMPOSER_PREFILL_EVENT, onPut);
     return () => {
-      openChatRef.current = null;
       window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
     };
   }, [conversationId, t]);
@@ -352,9 +365,11 @@ export function MessageComposer({
   const [draft, setDraft] = useState<MediaDraft | null>(null);
   // Mirror of `draft` for the unmount cleanup, which can't read render
   // state. Kept in sync below so navigating away with a staged-but-unsent
-  // attachment GCs the orphaned object.
+  // attachment GCs the orphaned object. A layout effect, declared before
+  // the chat switch, so the switch sees an upload that landed in the
+  // same render as the switch and parks it for the chat it was for.
   const draftRef = useRef<MediaDraft | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     draftRef.current = draft;
   }, [draft]);
 
@@ -450,9 +465,11 @@ export function MessageComposer({
     return step.effects;
   }, []);
 
-  // The box as of the last render, for the switch below.
+  // The box as of the last render, for the switch below. A layout
+  // effect declared before it, like draftRef: an AI draft that landed
+  // in the render that switched chats is parked for its own chat.
   const boxRef = useRef(box);
-  useEffect(() => {
+  useLayoutEffect(() => {
     boxRef.current = box;
   }, [box]);
   const restoreReplyRef = useRef(onRestoreReply);
@@ -466,13 +483,14 @@ export function MessageComposer({
   const shownRef = useRef<string | null>(null);
   // The reply quote as of the last render of the chat being left. The
   // thread drops it while rendering the next chat, so by the switch the
-  // prop is already null; this is updated in an effect declared after
-  // the switch, so the switch still reads the left chat's quote.
+  // prop is already null; this is updated in a passive effect, which
+  // runs after the switch's layout effect, so the switch still reads the
+  // left chat's quote. Keep it passive.
   const replyRef = useRef<ReplyDraft | null>(replyTo ?? null);
 
   // Parked drafts belong to the login that wrote them: another user
-  // signed in to this tab finds the stash empty. Declared before the
-  // switch below, so it runs first.
+  // signed in to this tab finds the stash empty. A layout effect declared
+  // before the switch below, so it runs first.
   // Best-effort GC of a staged object the user never sent. Fire-and-forget.
   const removeStaged = useCallback((path: string | undefined) => {
     if (!path) return;
@@ -480,7 +498,7 @@ export function MessageComposer({
   }, []);
 
   const userId = useAuth().user?.id ?? null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!userId || parkedFor === userId) return;
     // Nothing can restore a parked attachment after the clear, so delete
     // its object first. The delete runs as the newly signed-in user and
@@ -495,8 +513,10 @@ export function MessageComposer({
   // On a chat switch: park what the composer holds for the chat just
   // left (settling a check or dialog of it), empty the box, unstage the
   // attachment and drop the quote, then put back what is parked for
-  // this one.
-  useEffect(() => {
+  // this one. A layout effect: as a passive one it left a frame in which
+  // the next chat showed the left chat's text, and a task-long gap in
+  // which an answer for the left chat could still land in the box.
+  useLayoutEffect(() => {
     const effects = dispatchCheck({
       type: 'switch',
       from: shownRef.current,
