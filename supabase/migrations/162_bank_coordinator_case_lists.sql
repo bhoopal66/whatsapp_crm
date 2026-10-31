@@ -599,7 +599,8 @@ $$;
 -- ---------- Summary (131) ----------
 
 -- 131's body; a bank holder joins the member candidates and, after the
--- named coordinator and agent (case_role's order), reads 'coordinator'.
+-- named coordinator, the named agent and a leader of an open case's
+-- agent, reads 'coordinator'.
 CREATE OR REPLACE FUNCTION public.bank_ws_summary(p_bank_ws uuid, p_actor uuid)
 RETURNS jsonb
 LANGUAGE sql
@@ -633,6 +634,10 @@ AS $$
     SELECT p.user_id,
            CASE WHEN EXISTS (SELECT 1 FROM oc WHERE oc.coordinator_id = p.user_id) THEN 'coordinator'
                 WHEN EXISTS (SELECT 1 FROM oc WHERE oc.agent_id = p.user_id) THEN 'agent'
+                WHEN EXISTS (SELECT 1 FROM oc JOIN ws ON true
+                               JOIN public.team_members m ON m.user_id = oc.agent_id AND m.account_id = ws.account_id
+                               JOIN public.teams t ON t.id = m.team_id AND t.account_id = ws.account_id
+                              WHERE t.leader_user_id = p.user_id) THEN 'team_lead'
                 WHEN EXISTS (SELECT 1 FROM ws WHERE public.case_holds_bank(ws.account_id, p.user_id, ws.bank_code))
                   THEN 'coordinator'
                 ELSE 'team_lead' END AS role
