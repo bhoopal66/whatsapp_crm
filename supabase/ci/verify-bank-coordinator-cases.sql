@@ -130,6 +130,12 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.bc_ok(
     (SELECT count(*) FROM bank_ws_list(u_hold, a_acct) x WHERE x.bank_ws_id = ws_fab AND x.access = 'member') = 1,
     'bank_ws_list does not list the FAB space to the FAB holder');
+  v := bank_ws_summary(ws_fab, u_hold) ->> 'my_role';
+  n := n + 1; failed := failed || pg_temp.bc_ok(v = 'coordinator',
+    format('the FAB holder''s summary role is %s, not coordinator', coalesce(v, 'NULL')));
+  n := n + 1; failed := failed || pg_temp.bc_ok(
+    (bank_ws_summary(ws_fab, u_hold) -> 'members' ->> 'coordinators')::int >= 1,
+    'bank_ws_summary does not count the FAB holder among its coordinators');
 
   -- (g) the named agent keeps 'agent'.
   v := case_role(k_adcb, u_agent);

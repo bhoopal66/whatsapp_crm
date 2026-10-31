@@ -20,13 +20,14 @@
 --    (reads and acts, as the named coordinator; never reassigns). The
 --    named roles and the team lead keep their precedence.
 --
--- The case lists, bank spaces (162) and submission groups (163) read
--- the same helper. TS mirror: lib/cases/access.ts.
+-- The case lists and bank spaces (162) and submission groups (163)
+-- read the same helper. lib/cases/access.ts mirrors only the rules
+-- over a role, which are unchanged.
 --
 -- As 122, this must be applied by a superuser or BYPASSRLS role:
 -- coordinator_banks is RLS-forced.
 -- Re-runnable: CREATE OR REPLACE only. Asserted by
--- supabase/ci/verify-bank-coordinators.sql.
+-- supabase/ci/verify-bank-coordinator-cases.sql.
 -- ============================================================
 
 SET lock_timeout = '5s';

@@ -22,9 +22,9 @@
 --  * bank_ws_pin_set (126): a holder edits pins, as the named
 --    coordinator of an open case of the bank does.
 --
--- bank_ws_summary (131) is left as it is: it counts people by their
--- named role on open cases and does not decide what the caller reads
--- (its open_cases count goes through bank_ws_cases).
+--  * bank_ws_summary (131): a holder counts among the space's members
+--    as a coordinator, and their own role reads 'coordinator' (it fell
+--    through to 'team_lead' before).
 --
 -- Apply 161 first (case_holds_bank). As 161, this must be applied by
 -- a superuser or BYPASSRLS role. Same signatures and return types, so
@@ -594,6 +594,68 @@ BEGIN
             OR public.case_holds_bank(c.account_id, p_actor, c.bank_code))
      ORDER BY t.due_at, t.id;
 END;
+$$;
+
+-- ---------- Summary (131) ----------
+
+-- 131's body; a bank holder joins the member candidates and, after the
+-- named coordinator and agent (case_role's order), reads 'coordinator'.
+CREATE OR REPLACE FUNCTION public.bank_ws_summary(p_bank_ws uuid, p_actor uuid)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  WITH ws AS (
+    SELECT w.id, w.account_id, w.bank_code, public.bank_ws_access(w.id, p_actor) AS access
+      FROM public.bank_workspaces w
+     WHERE w.id = p_bank_ws AND p_actor IS NOT NULL
+  ), oc AS (
+    SELECT c.id, c.agent_id, c.coordinator_id
+      FROM ws JOIN public.cases c ON c.account_id = ws.account_id AND c.bank_code = ws.bank_code
+     WHERE c.closed_at IS NULL
+  ), cand AS (
+    -- Who may hold 'member' access: an open case's agent, its
+    -- coordinator, the leaders of the agent's teams (126), and the
+    -- bank's coordinators (162; bank_ws_access checks they are live).
+    SELECT oc.coordinator_id AS user_id FROM oc WHERE oc.coordinator_id IS NOT NULL
+    UNION SELECT oc.agent_id FROM oc WHERE oc.agent_id IS NOT NULL
+    UNION SELECT t.leader_user_id
+            FROM oc JOIN ws ON true
+            JOIN public.team_members m ON m.user_id = oc.agent_id AND m.account_id = ws.account_id
+            JOIN public.teams t ON t.id = m.team_id AND t.account_id = ws.account_id
+           WHERE t.leader_user_id IS NOT NULL
+    UNION SELECT b.user_id
+            FROM ws JOIN public.coordinator_banks b
+              ON b.account_id = ws.account_id AND b.bank_code = ws.bank_code
+  ), roles AS (
+    SELECT p.user_id,
+           CASE WHEN EXISTS (SELECT 1 FROM oc WHERE oc.coordinator_id = p.user_id) THEN 'coordinator'
+                WHEN EXISTS (SELECT 1 FROM oc WHERE oc.agent_id = p.user_id) THEN 'agent'
+                WHEN EXISTS (SELECT 1 FROM ws WHERE public.case_holds_bank(ws.account_id, p.user_id, ws.bank_code))
+                  THEN 'coordinator'
+                ELSE 'team_lead' END AS role
+      FROM (SELECT cand.user_id FROM cand UNION SELECT p_actor) p
+  ), mem AS (
+    SELECT r.role FROM roles r JOIN ws ON true
+     WHERE r.user_id IN (SELECT cand.user_id FROM cand)
+       AND public.bank_ws_access(ws.id, r.user_id) = 'member'
+  )
+  SELECT jsonb_build_object(
+    'open_cases', (SELECT count(*) FROM public.bank_ws_cases(ws.id, p_actor) x WHERE x.closed_at IS NULL),
+    'members', (SELECT jsonb_build_object(
+        'agents', count(*) FILTER (WHERE mem.role = 'agent'),
+        'coordinators', count(*) FILTER (WHERE mem.role = 'coordinator'),
+        'team_leads', count(*) FILTER (WHERE mem.role = 'team_lead'),
+        'total', count(*)) FROM mem),
+    'open_actions', (SELECT count(*) FROM public.bank_ws_actions a
+                      LEFT JOIN public.case_tasks k ON k.id = a.task_id AND k.account_id = a.account_id
+                     WHERE a.bank_ws_id = ws.id AND (a.task_id IS NULL OR k.status IS DISTINCT FROM 'done')),
+    'my_role', CASE WHEN ws.access = 'admin' THEN 'admin'
+                    ELSE (SELECT r.role FROM roles r WHERE r.user_id = p_actor) END)
+    FROM ws
+   WHERE ws.access IS NOT NULL
 $$;
 
 RESET lock_timeout;
