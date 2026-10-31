@@ -362,9 +362,10 @@ export interface SendMediaMessageArgs extends Credentials {
  *
  * Known gap: this vets the name now, and the gateway resolves it again
  * when it fetches, so a TTL-0 record (DNS rebinding) or a public URL that
- * redirects inward is not stopped here. OpenWA's own SSRF guard
- * (`WEBHOOK_SSRF_PROTECT`, on by default; it pins the address and refuses
- * redirects) is the layer that covers those; closing them on our side
+ * redirects inward is not stopped here. OpenWA's own media guard (always
+ * on; it pins the address and refuses redirects, and skips only the hosts
+ * in its `SSRF_ALLOWED_HOSTS`) is the layer that covers those; closing
+ * them on our side
  * would mean downloading the bytes and sending them as base64.
  */
 export async function assertGatewayFetchableUrl(
@@ -392,7 +393,10 @@ export async function assertGatewayFetchableUrl(
   if (
     base &&
     (url.protocol === 'https:' || url.protocol === 'http:') &&
-    url.href.startsWith(`${base}/storage/v1/object/public/`)
+    url.href.startsWith(`${base}/storage/v1/object/public/`) &&
+    // An encoded slash, backslash or dot survives URL normalisation, and
+    // a proxy that decodes it could walk out of the storage prefix.
+    !/%(2f|5c|2e)/i.test(url.pathname)
   ) {
     return;
   }

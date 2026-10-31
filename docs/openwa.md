@@ -36,9 +36,10 @@ back: its replies arrive as plain text.
 The gateway fetches a media link from this server, so the app refuses
 to hand it one that is not https or resolves to a loopback, private,
 link-local or CGNAT address (our own public storage links excepted);
-the send fails like any rejected attachment, and OpenWA's own SSRF guard
-(`WEBHOOK_SSRF_PROTECT`, on by default) remains the layer against DNS
-rebinding and redirects.
+the send fails like any rejected attachment. OpenWA's own media guard
+(always on) remains the layer against DNS rebinding and redirects; it
+skips the hosts listed in its `SSRF_ALLOWED_HOSTS`, so never add an
+internal host there beyond what the gateway itself needs.
 
 ## Running OpenWA
 

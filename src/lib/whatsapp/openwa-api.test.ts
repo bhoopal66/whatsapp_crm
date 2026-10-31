@@ -279,6 +279,26 @@ describe('media link guard', () => {
     // The exemption is that path only, not the whole storage host.
     fetchMock.mockClear();
     await refused(`${STORAGE}/rest/v1/contacts`, resolve);
+    // Encoded traversal a proxy could decode is not the storage path.
+    await refused(
+      `${STORAGE}/storage/v1/object/public/..%2f..%2f..%2frest/v1/contacts`,
+      resolve
+    );
+    await refused(
+      `${STORAGE}/storage/v1/object/public/%2E%2E/%2E%2E/rest/v1`,
+      resolve
+    );
+  });
+
+  it('refuses when the lookup fails, and mapped-IPv6 loopback', async () => {
+    await refused(
+      'https://cdn.example.com/x.png',
+      vi.fn(async () => {
+        throw new Error('ENOTFOUND');
+      })
+    );
+    await refused('https://[::ffff:127.0.0.1]/x.png');
+    await refused('https://host.docker.internal/x.png');
   });
 
   it('leaves a data: link alone (bytes, no fetch)', async () => {
