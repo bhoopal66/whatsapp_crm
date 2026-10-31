@@ -22,6 +22,33 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const refuse = (status: number, error: string) =>
   Response.json({ error }, { status });
 
+async function readCapped(
+  request: Request,
+  max: number
+): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
 export async function POST(request: Request) {
   const secret = process.env.TAAMUL_WEBHOOK_SECRET?.trim();
   if (!secret) {
@@ -31,10 +58,11 @@ export async function POST(request: Request) {
 
   const declared = Number(request.headers.get('content-length') ?? 0);
   if (declared > MAX_BODY_BYTES) return refuse(413, 'Payload too large');
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (rawBody.byteLength > MAX_BODY_BYTES) {
-    return refuse(413, 'Payload too large');
-  }
+  // Content-Length is absent on a chunked body, so the cap is also
+  // enforced while reading: an unsigned caller must not make us buffer
+  // up to the proxy's limit before the signature is even checked.
+  const rawBody = await readCapped(request, MAX_BODY_BYTES);
+  if (!rawBody) return refuse(413, 'Payload too large');
 
   const verdict = verifyTaamulSignature({
     rawBody,

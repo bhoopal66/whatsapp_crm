@@ -164,6 +164,29 @@ describe('POST /api/taamul-sales/webhook', () => {
     expect(fake.log.some((l) => l.table === 'contacts')).toBe(false);
   });
 
+  it('stops reading an oversized chunked body (no Content-Length): 413', async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ < 64) controller.enqueue(chunk);
+        else controller.close();
+      },
+    });
+    const res = await POST(
+      new Request('https://crm.example.com/api/taamul-sales/webhook', {
+        method: 'POST',
+        body,
+        // @ts-expect-error -- undici needs `duplex` for a stream body
+        duplex: 'half',
+      })
+    );
+    expect(res.status).toBe(413);
+    // 4 MB offered; reading stops just past the 256 KB cap.
+    expect(sent).toBeLessThan(10);
+    expect(fake.log).toEqual([]);
+  });
+
   it('refuses a bad signature with 401 and touches nothing', async () => {
     const res = await post(event(), { secret: 'not-the-secret' });
     expect(res.status).toBe(401);

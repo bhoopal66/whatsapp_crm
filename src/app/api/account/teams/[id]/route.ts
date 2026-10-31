@@ -34,7 +34,12 @@ export async function PATCH(
     const ctx = await requireRole('admin');
     const { id } = await context.params;
 
-    const body = await request.json().catch(() => ({}));
+    // `null` or a bare string would make the `in` checks below throw.
+    const raw: unknown = await request.json().catch(() => null);
+    const body: Record<string, unknown> =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
 
     // Shape-checked before anything is written. Whether each person and
     // number is in this account is update_team's call (22023).
