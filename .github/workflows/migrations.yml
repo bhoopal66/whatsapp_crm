@@ -321,6 +321,13 @@ jobs:
       - name: Verify submission groups
         run: supabase db query --local --file supabase/ci/verify-submission-groups.sql
 
+      # Bank coordinators in submission groups (163): on an ACTIVE group
+      # a live agent / team leader holding the case's bank reads, lists
+      # and sends as an open 'coordinator' row; a real open row keeps its
+      # label; ENDED groups stay with the list at the end.
+      - name: Verify bank coordinator submissions
+        run: supabase db query --local --file supabase/ci/verify-bank-coordinator-submissions.sql
+
       # Submissions without a WhatsApp group (136): a 'none' row has no
       # hosting number, its mode is frozen, it is never claimed for a
       # create or sent into, sg_end still ends it; the per-account
