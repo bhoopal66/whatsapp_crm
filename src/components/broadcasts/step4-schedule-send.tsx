@@ -130,14 +130,18 @@ export function Step4ScheduleSend({
     (async () => {
       const supabase = createClient();
       const [flowRows, ai] = await Promise.all([
-        cachedQuery('flows:active', REFERENCE_CACHE_TTL_MS, async () => {
-          const { data } = await supabase
-            .from('flows')
-            .select('id, name, trigger_type')
-            .eq('status', 'active')
-            .order('name');
-          return (data ?? []) as FlowOption[];
-        }),
+        cachedQuery(
+          `flows:active:${accountId}`,
+          REFERENCE_CACHE_TTL_MS,
+          async () => {
+            const { data } = await supabase
+              .from('flows')
+              .select('id, name, trigger_type')
+              .eq('status', 'active')
+              .order('name');
+            return (data ?? []) as FlowOption[];
+          }
+        ),
         cachedQuery(
           'ai:auto-reply-enabled',
           REFERENCE_CACHE_TTL_MS,
@@ -158,7 +162,7 @@ export function Step4ScheduleSend({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accountId]);
 
   // Quiet-hours editing state. The window is only handed up when it
   // parses, so the parent never holds a half-typed value.

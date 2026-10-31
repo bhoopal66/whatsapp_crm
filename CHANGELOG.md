@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Shared PC: no leftovers between logins
+
+No migration. Team-chat unsent drafts and the Calls keypad's recent
+dials are now kept per person (and workspace) in the browser and removed
+on sign-out or when another user signs in, so the next login no longer
+sees the last person's note or customer numbers. The broadcast wizard's
+flow list cache is per workspace, and the shared reference-data cache is
+emptied when another tab signs in as someone else.
+
 ### Remind me, from any WhatsApp chat
 
 No migration. A bell button in the header of every Inbox and Team inbox

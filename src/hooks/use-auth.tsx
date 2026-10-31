@@ -30,6 +30,7 @@ import {
   type Workspace,
 } from "@/lib/auth/my-workspaces";
 import { clearClientCache } from "@/lib/client-cache";
+import { sweepPerUserBrowserStorage } from "@/lib/browser-storage-sweep";
 import {
   isLeavingSession,
   leaveSession,
@@ -205,6 +206,16 @@ interface ProfileRow {
 
 /** Other tabs of this browser follow a workspace switch (see below). */
 const WORKSPACE_CHANNEL = "taamul-connect:workspace";
+
+// Per-user localStorage (team-chat drafts, recent dials) is shared by every
+// login on a browser: sign-out and a user change remove it.
+function sweepBrowserStorage(): void {
+  try {
+    sweepPerUserBrowserStorage(window.localStorage);
+  } catch {
+    // storage blocked: nothing was written either
+  }
+}
 
 /**
  * Ask the server to move the caller's active workspace. Null on
@@ -400,6 +411,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ).catch((err: unknown) => ({ error: err }));
         if (signOutError) await supabase.auth.signOut({ scope: "local" });
         leaveSession();
+        sweepBrowserStorage();
         window.location.href = "/login?deactivated=1";
         return;
       }
@@ -608,7 +620,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = session?.user ?? null;
       // Screen data is per user: a sign-out (here or in another tab) or
       // a different user signing in to this tab empties it.
-      noteSessionUser(currentUser?.id ?? null);
+      if (noteSessionUser(currentUser?.id ?? null)) {
+        clearClientCache();
+        sweepBrowserStorage();
+      }
       setUser(currentUser);
 
       if (currentUser) {
@@ -637,6 +652,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     await signOutReleasingPush(() => supabase.auth.signOut());
     leaveSession();
+    sweepBrowserStorage();
     setUser(null);
     setProfile(null);
     setAccount(null);

@@ -274,7 +274,11 @@ export function Composer({
     );
     return () => clearTimeout(id);
   }, [refused, restrictedUntil]);
-  const storageKey = draftStorageKey(channelId, threadRootId);
+  const storageKey = draftStorageKey(
+    ws.userId ?? 'anon',
+    channelId,
+    threadRootId
+  );
   const [draft, setDraft] = useState<ComposerDraft>(() =>
     readDraft(storageKey)
   );
