@@ -10,12 +10,9 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
-  applyMessageEvent,
-  applyReactionEvent,
   attachmentsFor,
   createTimeline,
   listMessages,
-  mergePage,
   reactionsFor,
   sharedCallCards,
   sharedCards,
@@ -25,12 +22,18 @@ import {
   type SharedCard,
 } from '@/lib/chat';
 import {
+  applyOlderPage,
   applyTimelineDetails,
+  beginTimelineFetch,
+  endTimelineFetch,
   placeholderTimeline,
+  recordTimelineEvent,
   revalidateTimeline,
   shouldPrefetchTimeline,
   timelineCacheKey,
+  timelineMark,
   type CachedTimeline,
+  type TimelineEvent,
 } from '@/lib/chat/timeline-cache';
 import {
   prefetchSession,
@@ -43,10 +46,12 @@ const PAGE_SIZE = 50;
 
 /**
  * Fetch a channel's newest page (rows only) into its cache entry. The
- * merge reads the entry when the page lands, not when it was asked
- * for, so realtime events applied meanwhile survive. Shared by the
- * sidebar's hover prefetch and the timeline itself (prefetchSession
- * joins a fetch already in flight, so a hover is not repeated).
+ * fetch is opened on the entry (a placeholder when there is none, so
+ * realtime events land in it meanwhile) and the page is merged into the
+ * entry as it is when the page lands, with the events recorded during
+ * the flight replayed over it. Shared by the sidebar's hover prefetch
+ * and the timeline itself (prefetchSession joins a fetch already in
+ * flight, so a hover is not repeated).
  */
 export function fetchTimelineFirstPage(
   sb: SupabaseClient,
@@ -54,13 +59,24 @@ export function fetchTimelineFirstPage(
   channelId: string
 ): Promise<CachedTimeline> {
   return prefetchSession(key, async () => {
-    const page = await listMessages(sb, channelId, { limit: PAGE_SIZE });
-    return revalidateTimeline(
-      sessionCache.peek<CachedTimeline>(key)?.value,
-      channelId,
-      page,
-      Date.now()
-    );
+    const mark = timelineMark();
+    const open = (e: CachedTimeline) => beginTimelineFetch(e, mark);
+    if (!sessionCache.update<CachedTimeline>(key, open))
+      sessionCache.set(key, open(placeholderTimeline(channelId)));
+    let page;
+    try {
+      page = await listMessages(sb, channelId, { limit: PAGE_SIZE });
+    } catch (err) {
+      sessionCache.update<CachedTimeline>(key, (e) =>
+        endTimelineFetch(e, mark)
+      );
+      throw err;
+    }
+    const prev = sessionCache.peek<CachedTimeline>(key)?.value;
+    // Dropped meanwhile (the channel left the list, the cache was
+    // evicted): an empty placeholder, so the answer is not stored.
+    if (!prev) return placeholderTimeline(channelId);
+    return revalidateTimeline(prev, channelId, page, Date.now(), mark);
   });
 }
 
@@ -129,11 +145,24 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     [key]
   );
 
+  /** Apply a realtime event or a toggle, journaled for open fetches. */
+  const record = useCallback(
+    (event: TimelineEvent) => patch((s) => recordTimelineEvent(s, event)),
+    [patch]
+  );
+
   const loadDetails = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const details = await fetchDetails(sb, ids);
-      patch((e) => applyTimelineDetails(e, ids, details));
+      const mark = timelineMark();
+      patch((e) => beginTimelineFetch(e, mark));
+      try {
+        const details = await fetchDetails(sb, ids);
+        patch((e) => applyTimelineDetails(e, ids, details, mark));
+      } catch (err) {
+        patch((e) => endTimelineFetch(e, mark));
+        throw err;
+      }
     },
     [sb, patch]
   );
@@ -141,10 +170,6 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    // Realtime events land in the placeholder while the page is out.
-    if (!sessionCache.peek(key)) {
-      sessionCache.set(key, placeholderTimeline(channelId));
-    }
     // Cached or not, always revalidate: rows first, details after.
     fetchTimelineFirstPage(sb, key, channelId)
       .then((fresh) => loadDetails(fresh.timeline.messages.map((m) => m.id)))
@@ -163,12 +188,20 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     const oldest = s?.timeline.messages[0];
     if (!s || !oldest || loadingOlder || !s.timeline.hasMoreOlder) return;
     setLoadingOlder(true);
+    const mark = timelineMark();
+    patch((e) => beginTimelineFetch(e, mark));
     try {
-      const page = await listMessages(sb, channelId, {
-        limit: PAGE_SIZE,
-        before: { createdAt: oldest.createdAt, id: oldest.id },
-      });
-      patch((e) => ({ ...e, timeline: mergePage(e.timeline, page) }));
+      let page;
+      try {
+        page = await listMessages(sb, channelId, {
+          limit: PAGE_SIZE,
+          before: { createdAt: oldest.createdAt, id: oldest.id },
+        });
+      } catch (err) {
+        patch((e) => endTimelineFetch(e, mark));
+        throw err;
+      }
+      patch((e) => applyOlderPage(e, page, mark));
       await loadDetails(page.messages.map((m) => m.id));
     } catch (err) {
       fail(err);
@@ -181,15 +214,15 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     () =>
       listen((e) => {
         if (e.kind === 'reaction') {
-          patch((s) => ({
-            ...s,
-            timeline: applyReactionEvent(s.timeline, e.event),
-          }));
+          record({ kind: 'reaction', event: e.event });
           return;
         }
         if (e.kind !== 'message') return;
         const ev = e.event;
-        patch((s) => ({ ...s, timeline: applyMessageEvent(s.timeline, ev) }));
+        // A delete carries no channel (and realtime does not RLS-filter
+        // it): it is applied here, a no-op for an id this list lacks.
+        if (ev.type === 'delete' || ev.message.channelId === channelId)
+          record({ kind: 'message', event: ev });
         if (ev.type === 'delete') return;
         if (ev.message.channelId !== channelId) {
           // Keep a channel opened earlier current for its revisit (a
@@ -201,10 +234,9 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
             ev.message.channelId
           );
           if (other)
-            sessionCache.update<CachedTimeline>(other, (s) => ({
-              ...s,
-              timeline: applyMessageEvent(s.timeline, ev),
-            }));
+            sessionCache.update<CachedTimeline>(other, (s) =>
+              recordTimelineEvent(s, { kind: 'message', event: ev })
+            );
           return;
         }
         // A new top-level post: fetch what the row event does not carry.
@@ -212,7 +244,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           loadDetails([ev.message.id]).catch(() => {});
         }
       }),
-    [listen, channelId, accountId, userId, patch, loadDetails]
+    [listen, channelId, accountId, userId, record, loadDetails]
   );
 
   /** Optimistic; the realtime echo is a no-op in the reducer. */
@@ -227,10 +259,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         ?.userIds.includes(userId);
       const event = { messageId, userId, emoji };
       const apply = (type: 'add' | 'remove') =>
-        patch((s) => ({
-          ...s,
-          timeline: applyReactionEvent(s.timeline, { ...event, type }),
-        }));
+        record({ kind: 'reaction', event: { ...event, type } });
       apply(mine ? 'remove' : 'add');
       try {
         await toggleReaction(sb, messageId, emoji);
@@ -239,7 +268,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         fail(err);
       }
     },
-    [sb, userId, key, patch, fail]
+    [sb, userId, key, record, fail]
   );
 
   const shown =
