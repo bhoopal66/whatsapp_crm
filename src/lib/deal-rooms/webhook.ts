@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { markOptedOut } from '@/lib/ai/opt-out';
+import { safeStoredMime } from '@/lib/storage/safe-mime';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import { findExistingContact } from '@/lib/contacts/dedupe';
@@ -593,7 +594,7 @@ export async function handleGroupWebhook(
     try {
       const mediaId = str(raw.id);
       if (!mediaId) throw new Error('no media id');
-      const { url, mimeType } = await getMediaUrl({
+      const { url, mimeType: reported } = await getMediaUrl({
         mediaId,
         accessToken: args.accessToken,
       });
@@ -601,6 +602,8 @@ export async function handleGroupWebhook(
         downloadUrl: url,
         accessToken: args.accessToken,
       });
+      // The participant chose this type: never store it as such (164).
+      const mimeType = safeStoredMime(reported);
       const safe = (s: string) =>
         s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
       const name = str(raw.filename) ?? `${type}-${messageId.slice(-12)}`;

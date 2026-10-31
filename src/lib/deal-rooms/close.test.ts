@@ -135,6 +135,10 @@ describe('saveTranscript', () => {
     expect(html).toContain('Ahmed (customer)');
     expect(html).toContain('Hi &lt;all&gt;');
     expect(html).not.toContain('971501234512');
+    // 164: never served as a page on the app's origin.
+    expect(up.options).toMatchObject({
+      contentType: 'application/octet-stream',
+    });
     expect(mem.tables.deal_files).toEqual([
       expect.objectContaining({
         id: saved.id,

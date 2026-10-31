@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { safeStoredMime } from '@/lib/storage/safe-mime';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
 import { ChatError } from './errors';
@@ -84,7 +85,9 @@ export async function uploadChatFile(
 ): Promise<AttachmentInput> {
   validateChatFiles([i.file]);
   const path = chatFilePath(i.accountId, i.channelId, i.file.name);
-  const mime = i.file.type.trim() || 'application/octet-stream';
+  // Never the declared type as such: a text/html upload would run as the
+  // app when its link is opened (164, safe-mime.ts).
+  const mime = safeStoredMime(i.file.type);
   const { error } = await sb.storage
     .from(CHAT_FILES_BUCKET)
     .upload(path, i.file, {

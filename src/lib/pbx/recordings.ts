@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { safeStoredMime } from '@/lib/storage/safe-mime';
+
 import { pbxApiFor, PbxConnectionError, type PbxHandle } from './connection';
 import { YeastarError } from './yeastar/errors';
 
@@ -261,7 +263,7 @@ export async function fetchPendingRecordings(
       const up = await db.storage
         .from(RECORDING_BUCKET)
         .upload(storagePath, bytes, {
-          contentType: CONTENT_TYPES[format],
+          contentType: safeStoredMime(CONTENT_TYPES[format]),
           upsert: true,
         });
       if (up.error) throw new Error(`upload failed: ${up.error.message}`);
