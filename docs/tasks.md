@@ -28,6 +28,21 @@ and a deal of the same account.
   task (see `docs/yeastar.md`). `closeSystemTasks` marks the
   module's open task done once the event is dealt with.
 
+From a chat: the header's **Remind me** button (Inbox and Team inbox,
+agents and up) files a follow-up task (`kind` `follow_up`, `source`
+`chat`) linked to the chat and its customer, through the same
+`POST /api/tasks`. The agent writes what to do and picks when: Tomorrow,
+In 1 week, In 1 month or In 3 months (09:00 local; a month past the end
+of the target month lands on its last day), or any future date and
+time. It is for the agent unless they pick someone they may already
+assign the chat to. The task's due date puts it on the calendar and
+rings the `task_due` bell 15 minutes before; the save toast offers Undo
+(the task is cancelled). The same dialog lists the customer's open,
+dated tasks (`scope=contact`), soonest first, with a Done action. It is
+hidden from viewers and from a coordinator who sees the chat only
+through a share, because a share does not let them link a task to it.
+Presets live in `src/lib/tasks/reminder.ts`.
+
 ## Dedupe by source reference
 
 A module passes its own id for the event as `source_ref` (a call id,

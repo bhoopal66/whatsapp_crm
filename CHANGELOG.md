@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Remind me, from any WhatsApp chat
+
+No migration. A bell button in the header of every Inbox and Team inbox
+chat saves a reminder about that customer and chat: write what to do
+("Ask for the renewed trade license"), pick Tomorrow, In 1 week, In 1
+month, In 3 months (each at 09:00) or any date and time, and add a note
+if you like. It is saved as a follow-up task for you (or for a
+colleague you may assign the chat to), so it shows on the calendar, on
+the customer page and in the home Tasks panel, and the bell rings 15
+minutes before it is due. The confirmation offers Undo, and the same
+window lists the customer's upcoming reminders with a Done button.
+Agents and above; viewers don't see it.
+
 ### Faster switching between screens and chats
 
 No migration. Screens you have already opened in this tab — the Inbox
