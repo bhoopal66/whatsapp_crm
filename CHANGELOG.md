@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Security: small hardening (2026-10-31 audit)
+
+No migration. The OpenDesk (Taamul sales) webhook now stops reading a
+body past its 256 KB cap even when the sender omits Content-Length,
+instead of buffering it before the signature check. The AI playground
+clips each test turn to 4,000 characters, so one request can no longer
+spend a multi-megabyte prompt on the account's provider key. Editing a
+team with a `null` or non-object JSON body is treated as an empty edit
+instead of a 500.
+
 ### Remind me, from any WhatsApp chat
 
 No migration. A bell button in the header of every Inbox and Team inbox

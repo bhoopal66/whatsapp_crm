@@ -14,6 +14,9 @@ import { AiError, type ChatMessage } from '@/lib/ai/types'
 
 // Keep the tested transcript bounded, mirroring the live context window.
 const MAX_TURNS = 20
+// Each turn is clipped too: the turn cap alone let one request spend a
+// prompt of many megabytes on the account's own provider key.
+const MAX_TURN_CHARS = 4000
 
 /**
  * POST /api/ai/playground  (agent+)
@@ -66,6 +69,10 @@ export async function POST(request: Request) {
           (m as ChatMessage).content.trim().length > 0,
       )
       .slice(-MAX_TURNS)
+      .map((m: ChatMessage) => ({
+        role: m.role,
+        content: m.content.slice(0, MAX_TURN_CHARS),
+      }))
 
     if (messages.length === 0) {
       return NextResponse.json(
