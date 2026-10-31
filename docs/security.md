@@ -88,6 +88,23 @@ Unset (or the header missing), the webhooks share one `unknown`
 bucket, sign-in keys on the email, and the API-key lockout is off.
 IPv6 addresses are bucketed by their /64.
 
+## Stored file types
+
+Storage is served on the app's own origin and returns each object with
+the type it was uploaded with, so a file stored as HTML or SVG would
+run as the app when its link is opened. The private buckets
+`chat-files`, `deal-files` and `call-recordings` therefore store only
+the types in `src/lib/storage/safe-mime.ts` (`safeStoredMime`:
+lower-cased, parameters dropped, anything else stored as
+`application/octet-stream`, which browsers download), and migration
+164 sets the same list as each bucket's `allowed_mime_types`, so
+Storage refuses an upload that bypasses the app. Storage checks the
+list on upload only: objects stored before 164 keep their old type
+until the operator adds response headers on the `/supabase/storage/`
+location in nginx (`X-Content-Type-Options: nosniff` and a restrictive
+`Content-Security-Policy` or `Content-Disposition: attachment`).
+`verify-storage-safe-mime.sql` asserts the bucket lists.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.
