@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { Profile } from '@/types';
 
 import {
+  canMarkReminderDone,
+  parseCustomReminderDue,
+  savedToastKey,
   REMINDER_HOUR,
   REMINDER_PRESETS,
   reminderAssignees,
@@ -103,7 +106,14 @@ describe('upcomingReminders', () => {
     id: string,
     due_at: string | null,
     status: UpcomingReminder['status'] = 'open'
-  ): UpcomingReminder => ({ id, title: id, due_at, assigned_to: null, status });
+  ): UpcomingReminder => ({
+    id,
+    title: id,
+    due_at,
+    assigned_to: null,
+    created_by: null,
+    status,
+  });
 
   it('keeps open dated tasks, soonest first', () => {
     const out = upcomingReminders([
@@ -114,5 +124,64 @@ describe('upcomingReminders', () => {
       r('bad', 'not a date'),
     ]);
     expect(out.map((x) => x.id)).toEqual(['soon', 'late']);
+  });
+});
+
+describe('parseCustomReminderDue', () => {
+  const now = at(2026, 10, 31, 14, 0);
+  const local = (x: Date) =>
+    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`;
+
+  it('refuses a time under 15 minutes away', () => {
+    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 5)), now);
+    expect(r).toEqual({ ok: false, reason: 'tooSoon' });
+  });
+
+  it('accepts 20 minutes ahead', () => {
+    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 20)), now);
+    expect(r.ok).toBe(true);
+  });
+
+  it('keeps the past and invalid reasons', () => {
+    expect(parseCustomReminderDue(local(at(2026, 10, 31, 13, 0)), now)).toEqual(
+      { ok: false, reason: 'past' }
+    );
+    expect(parseCustomReminderDue('nope', now)).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+  });
+});
+
+describe('savedToastKey', () => {
+  it('names a colleague only when the reminder is for someone else', () => {
+    expect(savedToastKey('me', 'me')).toBe('saved');
+    expect(savedToastKey('', 'me')).toBe('saved');
+    expect(savedToastKey(null, 'me')).toBe('saved');
+    expect(savedToastKey('ann', 'me')).toBe('savedFor');
+  });
+});
+
+describe('canMarkReminderDone', () => {
+  const task = { assigned_to: 'ann', created_by: 'bob' };
+  it('allows the assignee and the creator', () => {
+    expect(canMarkReminderDone(task, 'ann', 'agent')).toBe(true);
+    expect(canMarkReminderDone(task, 'bob', 'agent')).toBe(true);
+  });
+  it('allows an admin or owner', () => {
+    expect(canMarkReminderDone(task, 'cat', 'admin')).toBe(true);
+    expect(canMarkReminderDone(task, 'cat', 'owner')).toBe(true);
+  });
+  it('refuses anyone else, and a system task for an agent', () => {
+    expect(canMarkReminderDone(task, 'cat', 'agent')).toBe(false);
+    expect(canMarkReminderDone(task, 'cat', 'team_leader')).toBe(false);
+    expect(
+      canMarkReminderDone(
+        { assigned_to: null, created_by: null },
+        'cat',
+        'agent'
+      )
+    ).toBe(false);
+    expect(canMarkReminderDone(task, null, null)).toBe(false);
   });
 });

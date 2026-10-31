@@ -5,7 +5,9 @@
 // their own zone. A picked time is parsed by the call window's
 // `parseCustomDueAt` (`lib/pbx/follow-up.ts`), which refuses the past.
 
-import { canSendMessages } from '@/lib/auth/roles';
+import { canManageMembers, canSendMessages } from '@/lib/auth/roles';
+import type { AccountRole } from '@/lib/auth/roles';
+import { parseCustomDueAt } from '@/lib/pbx/follow-up';
 import type { Task } from '@/lib/tasks/types';
 import type { Profile } from '@/types';
 
@@ -72,10 +74,54 @@ export function reminderAssignees(
   ];
 }
 
+/**
+ * The `task_due` bell only rings for a task due 10 to 15 minutes after
+ * a sweep, so a reminder set closer than this to now never rings.
+ */
+export const MIN_CUSTOM_LEAD_MS = 15 * 60 * 1000;
+
+export type CustomReminderDue =
+  | { ok: true; at: Date }
+  | { ok: false; reason: 'invalid' | 'past' | 'tooSoon' };
+
+/** A picked time as an instant, at least 15 minutes after `now`. */
+export function parseCustomReminderDue(
+  value: string,
+  now: Date
+): CustomReminderDue {
+  const r = parseCustomDueAt(value, now);
+  if (!r.ok) return r;
+  if (r.at.getTime() - now.getTime() < MIN_CUSTOM_LEAD_MS)
+    return { ok: false, reason: 'tooSoon' };
+  return r;
+}
+
+/** Which "saved" message to show: the caller's own, or a colleague's. */
+export function savedToastKey(
+  forId: string | null,
+  me: string | null
+): 'saved' | 'savedFor' {
+  return forId && forId !== me ? 'savedFor' : 'saved';
+}
+
 export type UpcomingReminder = Pick<
   Task,
-  'id' | 'title' | 'due_at' | 'assigned_to' | 'status'
+  'id' | 'title' | 'due_at' | 'assigned_to' | 'status' | 'created_by'
 >;
+
+/**
+ * Whether the caller may mark a task done: its assignee, its creator,
+ * or an owner/admin (the tasks update policy also lets the assignee's
+ * leader, which the list cannot see).
+ */
+export function canMarkReminderDone(
+  task: Pick<UpcomingReminder, 'assigned_to' | 'created_by'>,
+  me: string | null,
+  role: AccountRole | null
+): boolean {
+  if (me && (task.assigned_to === me || task.created_by === me)) return true;
+  return !!role && canManageMembers(role);
+}
 
 /** The open, dated tasks of a list, soonest first. */
 export function upcomingReminders<T extends UpcomingReminder>(

@@ -5,8 +5,8 @@
 // chat), due on a preset day at 09:00 or at a picked time. A task with
 // a due date is on the calendar and rings its holder 15 minutes before
 // (`task_due`). The dialog also lists the customer's upcoming
-// reminders (GET /api/tasks scope=contact, read when it opens, never
-// on chat open) with a Done action. Agent and up only, as the route
+// open reminders (GET /api/tasks scope=contact, read when it opens,
+// never on chat open) with a Done action where the caller may edit. Agent and up only, as the route
 // is; the call window's `FollowUpReminder` is the same idea for calls.
 
 import { useCallback, useEffect, useState } from 'react';
@@ -25,11 +25,14 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { canSendMessages } from '@/lib/auth/roles';
-import { parseCustomDueAt, toDateTimeLocal } from '@/lib/pbx/follow-up';
+import { toDateTimeLocal } from '@/lib/pbx/follow-up';
 import {
   REMINDER_PRESETS,
+  canMarkReminderDone,
+  parseCustomReminderDue,
   reminderAssignees,
   reminderDueAt,
+  savedToastKey,
   upcomingReminders,
   type ReminderPreset,
   type UpcomingReminder,
@@ -86,6 +89,7 @@ function ReminderDialog({
 }: ChatReminderButtonProps & { onClose: () => void }) {
   const t = useTranslations('Inbox.reminder');
   const locale = useLocale();
+  const { accountRole } = useAuth();
   const [what, setWhat] = useState('');
   const [when, setWhen] = useState<When>({
     kind: 'preset',
@@ -95,7 +99,9 @@ function ReminderDialog({
   const [note, setNote] = useState('');
   const [forId, setForId] = useState<string>(currentUserId ?? '');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<'pickInvalid' | 'pickPast' | null>(null);
+  const [error, setError] = useState<
+    'pickInvalid' | 'pickPast' | 'pickTooSoon' | null
+  >(null);
   const [upcoming, setUpcoming] = useState<UpcomingReminder[] | null>(null);
   const [ticking, setTicking] = useState<string | null>(null);
 
@@ -152,9 +158,15 @@ function ReminderDialog({
 
   const dueAt = (): Date | null => {
     if (when.kind === 'preset') return reminderDueAt(when.preset, new Date());
-    const r = parseCustomDueAt(custom, new Date());
+    const r = parseCustomReminderDue(custom, new Date());
     if (!r.ok) {
-      setError(r.reason === 'past' ? 'pickPast' : 'pickInvalid');
+      setError(
+        r.reason === 'past'
+          ? 'pickPast'
+          : r.reason === 'tooSoon'
+            ? 'pickTooSoon'
+            : 'pickInvalid'
+      );
       return null;
     }
     return r.at;
@@ -197,7 +209,9 @@ function ReminderDialog({
     setSaving(false);
     const id = body?.task?.id;
     if (!id) return void toast.error(t('failed'));
-    toast.success(t('saved', { when: formatWhen(due) }), {
+    const key = savedToastKey(forId, currentUserId);
+    const forName = people.find((p) => p.user_id === forId)?.full_name ?? '';
+    toast.success(t(key, { when: formatWhen(due), name: forName }), {
       action: { label: t('undo'), onClick: () => void cancelTask(id) },
     });
     onClose();
@@ -217,7 +231,7 @@ function ReminderDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
+    <Dialog open onOpenChange={(next) => !next && !saving && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('title', { name: customerName })}</DialogTitle>
@@ -278,6 +292,8 @@ function ReminderDialog({
                 type="datetime-local"
                 value={custom}
                 aria-label={t('pickLabel')}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'reminder-pick-error' : undefined}
                 onChange={(e) => {
                   setCustom(e.target.value);
                   setError(null);
@@ -290,7 +306,15 @@ function ReminderDialog({
                 {formatWhen(reminderDueAt(when.preset, new Date()))}
               </p>
             )}
-            {error && <p className="text-destructive text-xs">{t(error)}</p>}
+            {error && (
+              <p
+                id="reminder-pick-error"
+                role="alert"
+                className="text-destructive text-xs"
+              >
+                {t(error)}
+              </p>
+            )}
           </div>
 
           <label className="block space-y-1">
@@ -352,15 +376,17 @@ function ReminderDialog({
                         {who ? ` · ${who}` : ''}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={ticking === task.id}
-                      onClick={() => void markDone(task)}
-                      aria-label={t('markDone', { title: task.title })}
-                    >
-                      {t('done')}
-                    </Button>
+                    {canMarkReminderDone(task, currentUserId, accountRole) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={ticking === task.id}
+                        onClick={() => void markDone(task)}
+                        aria-label={t('markDone', { title: task.title })}
+                      >
+                        {t('done')}
+                      </Button>
+                    )}
                   </li>
                 );
               })}
@@ -369,7 +395,7 @@ function ReminderDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" disabled={saving} onClick={onClose}>
             {t('cancel')}
           </Button>
           <Button disabled={!title || saving} onClick={() => void save()}>
