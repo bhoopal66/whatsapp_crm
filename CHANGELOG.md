@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Three permission gaps closed (team chat, Smart insights)
+
+**Migration required:** apply `supabase/migrations/165_security_lows.sql`
+(after 160, as a superuser or BYPASSRLS role like 156–160). No app
+change. Forwarding a message with files now checks the copied files
+themselves in storage (size and type must match the original), so a
+person who may send voice notes but not upload files can no longer slip
+an arbitrary file through as a "forward". In team and private channels
+only a workspace owner or admin can change the role of a channel admin
+(anyone may still step down themselves), and a bank guest can never be
+made a channel admin. Smart insights settings refuse an interested-reply
+tag from another workspace with a clear message and record who saved
+them.
+
 ### Remind me, from any WhatsApp chat
 
 No migration. A bell button in the header of every Inbox and Team inbox
