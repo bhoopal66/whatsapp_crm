@@ -35,7 +35,7 @@ import { BlockList, isIP } from 'node:net';
 
 import { guardedRequest, UnsafeUrlError, type Resolver } from './safe-fetch';
 
-export { UnsafeUrlError };
+export { UnsafeUrlError, type Resolver };
 
 const BLOCKED_V4: Array<[string, number]> = [
   ['0.0.0.0', 8], // "this" network
@@ -161,9 +161,12 @@ export function isPrivateOrReservedIp(rawIp: string): boolean {
  * routable address(es). Returns false for a malformed URL, a non-http
  * scheme, an obvious internal name (`localhost`, `*.local`,
  * `*.internal`), a literal private IP, or a hostname that resolves to
- * any private/reserved address.
+ * any private/reserved address. `resolve` exists for tests.
  */
-export async function isDeliverableUrl(rawUrl: string): Promise<boolean> {
+export async function isDeliverableUrl(
+  rawUrl: string,
+  opts: { resolve?: Resolver } = {}
+): Promise<boolean> {
   let host: string;
   try {
     const url = new URL(rawUrl);
@@ -187,7 +190,9 @@ export async function isDeliverableUrl(rawUrl: string): Promise<boolean> {
   }
 
   try {
-    const results = await lookup(host, { all: true, verbatim: true });
+    const results = opts.resolve
+      ? await opts.resolve(host)
+      : await lookup(host, { all: true, verbatim: true });
     if (results.length === 0) return false;
     return results.every((r) => !isPrivateOrReservedIp(r.address));
   } catch {

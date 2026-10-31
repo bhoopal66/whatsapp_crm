@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### OpenWA numbers refuse internal media links
+
+No migration. The OpenWA gateway runs on the same server as the app
+and fetches a message's media link itself, so a link pointing at the
+server or the private network (`https://127.0.0.1/…`, `10.x`, a name
+that resolves inward, the cloud metadata address) could have been read
+by the server and sent on WhatsApp. Media sends from an OpenWA number
+— Inbox, broadcasts, automations, flows and template headers — now
+need an https link to a public address, or one of the app's own
+storage links; any other fails as an ordinary send failure. Whapi and
+Meta numbers are unchanged: their clouds fetch the link.
+
 ### Remind me, from any WhatsApp chat
 
 No migration. A bell button in the header of every Inbox and Team inbox

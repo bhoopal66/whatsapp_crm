@@ -24,7 +24,13 @@
 import type { MessageTemplate } from '@/types';
 
 import { renderTemplateBody } from './template-body';
-import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf';
+import { publicSupabaseUrl } from '@/lib/supabase/urls';
+import {
+  fetchPublicUrl,
+  isDeliverableUrl,
+  UnsafeUrlError,
+  type Resolver,
+} from '@/lib/webhooks/ssrf';
 
 // ============================================================
 // Configuration (read at call time, never at module load, so a test or
@@ -334,6 +340,66 @@ export interface SendMediaMessageArgs extends Credentials {
   filename?: string;
   mimeType?: string;
   quotedMessageId?: string | null;
+  /** Name resolution for the link check; tests only, as in `safeFetch`. */
+  resolve?: Resolver;
+}
+
+/**
+ * Throws a 400 `OpenWAError` unless the OpenWA gateway may fetch `link`.
+ *
+ * Whapi and Meta fetch a media link from their own clouds; OpenWA runs
+ * beside the app and fetches it from THIS host, then delivers the bytes
+ * on WhatsApp. An agent's `media_url` (and a broadcast's, automation's,
+ * flow's or template header's link) would otherwise make our server read
+ * `https://127.0.0.1:…`, an RFC 1918 host or the cloud metadata address
+ * and send the answer to a number the sender controls.
+ *
+ * So the link must be https and resolve only to public addresses
+ * (`isDeliverableUrl`). Our own public storage URL passes unchecked, as
+ * `isAcceptableMediaUrl` lets it: on a self-hosted install that host may
+ * well resolve to a private address, and every attachment lives there.
+ * A `data:` link is bytes, not a fetch, and never reaches this check.
+ *
+ * Known gap: this vets the name now, and the gateway resolves it again
+ * when it fetches, so a TTL-0 record (DNS rebinding) or a public URL that
+ * redirects inward is not stopped here. OpenWA's own SSRF guard
+ * (`WEBHOOK_SSRF_PROTECT`, on by default; it pins the address and refuses
+ * redirects) is the layer that covers those; closing them on our side
+ * would mean downloading the bytes and sending them as base64.
+ */
+export async function assertGatewayFetchableUrl(
+  link: string,
+  opts: { resolve?: Resolver; publicStorageBase?: string } = {}
+): Promise<void> {
+  const refuse = (): never => {
+    throw new OpenWAError(
+      'Media link refused: it must be a public https address.',
+      400,
+      { route: 'message' }
+    );
+  };
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return refuse();
+  }
+  if (url.username || url.password) return refuse();
+  const base = (opts.publicStorageBase ?? publicSupabaseUrl() ?? '').replace(
+    /\/+$/,
+    ''
+  );
+  if (
+    base &&
+    (url.protocol === 'https:' || url.protocol === 'http:') &&
+    url.href.startsWith(`${base}/storage/v1/object/public/`)
+  ) {
+    return;
+  }
+  if (url.protocol !== 'https:') return refuse();
+  if (!(await isDeliverableUrl(url.href, { resolve: opts.resolve }))) {
+    return refuse();
+  }
 }
 
 /**
@@ -356,6 +422,7 @@ export async function sendMediaMessage(
     filename,
     mimeType,
     quotedMessageId,
+    resolve,
   } = args;
   if (!link) throw new OpenWAError('sendMediaMessage requires a link.', 400);
 
@@ -365,6 +432,7 @@ export async function sendMediaMessage(
     body.base64 = dataUrl[2];
     if (dataUrl[1]) body.mimetype = dataUrl[1];
   } else {
+    await assertGatewayFetchableUrl(link, { resolve });
     body.url = link;
   }
   if (mimeType) body.mimetype = mimeType;

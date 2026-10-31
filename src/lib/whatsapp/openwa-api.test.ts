@@ -26,6 +26,8 @@ import {
 } from './openwa-api';
 
 const creds = { apiKey: 'key-1', sessionId: 'sess-1' };
+/** A resolver that answers every name with one public address. */
+const publicDns = async () => [{ address: '93.184.216.34', family: 4 }];
 const fetchMock = vi.fn();
 
 function json(status: number, body: unknown, headers: HeadersInit = {}) {
@@ -103,6 +105,7 @@ describe('request shape', () => {
       to: '971500000001',
       kind: 'document',
       link: 'https://x.test/a.pdf',
+      resolve: publicDns,
       caption: 'c',
       filename: 'a.pdf',
     });
@@ -119,6 +122,7 @@ describe('request shape', () => {
       to: '971500000001',
       kind: 'voice',
       link: 'https://x.test/v.ogg',
+      resolve: publicDns,
       caption: 'dropped',
     });
     expect(lastCall().url).toMatch(/\/messages\/send-audio$/);
@@ -206,6 +210,82 @@ describe('request shape', () => {
         downloadUrl: 'http://openwa.test:2785/api/sessions/sess-1/config',
       })
     ).rejects.toBeInstanceOf(OpenWAError);
+  });
+});
+
+describe('media link guard', () => {
+  const STORAGE = 'http://supabase.internal:8000';
+  const send = (link: string, resolve = publicDns) =>
+    sendMediaMessage({
+      ...creds,
+      to: '971500000001',
+      kind: 'image',
+      link,
+      resolve,
+    });
+  async function refused(link: string, resolve = publicDns) {
+    const err = asOpenWAError(
+      await send(link, resolve).then(unexpected, (e) => e)
+    );
+    expect(err.status).toBe(400);
+    expect(err.route).toBe('message');
+    expect(err.isAuthError).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', STORAGE);
+    fetchMock.mockImplementation(async () => json(201, { messageId: 'm9' }));
+  });
+
+  it('refuses a loopback IP literal before the gateway is called', async () => {
+    await refused('https://127.0.0.1:8000/rest/v1/');
+    await refused('https://[::1]/x.png');
+  });
+
+  it('refuses a private or metadata IP literal', async () => {
+    await refused('https://10.1.2.3/x.png');
+    await refused('https://169.254.169.254/latest/meta-data');
+    await refused('https://100.64.0.1/x.png');
+  });
+
+  it('refuses a hostname that resolves to a private address', async () => {
+    const resolve = vi.fn(async () => [{ address: '10.0.0.5', family: 4 }]);
+    await refused('https://intranet.example.com/x.png', resolve);
+    expect(resolve).toHaveBeenCalledWith('intranet.example.com');
+  });
+
+  it('refuses plain http, credentials and internal names', async () => {
+    await refused('http://cdn.example.com/x.png');
+    await refused('https://u:p@cdn.example.com/x.png');
+    await refused('https://localhost/x.png');
+    await refused('https://db.internal/x.png');
+  });
+
+  it('passes a public https host through as the url', async () => {
+    await send('https://cdn.example.com/x.png');
+    expect(lastCall().body).toEqual({
+      chatId: '971500000001@c.us',
+      url: 'https://cdn.example.com/x.png',
+    });
+  });
+
+  it('passes our own public storage URL even though it resolves inward', async () => {
+    const resolve = vi.fn(async () => [{ address: '127.0.0.1', family: 4 }]);
+    const link = `${STORAGE}/storage/v1/object/public/chat-media/account-1/a.png`;
+    await send(link, resolve);
+    expect(lastCall().body.url).toBe(link);
+    expect(resolve).not.toHaveBeenCalled();
+    // The exemption is that path only, not the whole storage host.
+    fetchMock.mockClear();
+    await refused(`${STORAGE}/rest/v1/contacts`, resolve);
+  });
+
+  it('leaves a data: link alone (bytes, no fetch)', async () => {
+    const resolve = vi.fn(publicDns);
+    await send('data:image/png;base64,AAAA', resolve);
+    expect(lastCall().body.base64).toBe('AAAA');
+    expect(resolve).not.toHaveBeenCalled();
   });
 });
 
