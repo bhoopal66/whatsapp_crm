@@ -53,6 +53,7 @@ interface PipelineSettingsProps {
   onOpenChange: (open: boolean) => void;
   pipeline: Pipeline;
   stages: PipelineStage[];
+  /** Re-read the pipeline list; it carries the stages, so this covers both. */
   onPipelinesChanged: () => void;
   onStagesChanged: () => void;
   onCreateNewPipeline: () => void;
@@ -157,8 +158,9 @@ export function PipelineSettings({
     setSaving(false);
 
     onOpenChange(false);
+    // One re-read: the list carries the stages, and a second forced
+    // read would only supersede the first.
     onPipelinesChanged();
-    onStagesChanged();
     toast.success(t('toastSaved'));
   }
 
@@ -235,7 +237,7 @@ export function PipelineSettings({
 
         {showDeleteConfirm ? (
           <div className="py-4">
-            <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive-soft p-4">
+            <div className="border-destructive/30 bg-destructive-soft flex items-center gap-3 rounded-lg border p-4">
               <AlertTriangle className="text-destructive h-5 w-5 shrink-0" />
               <div>
                 <p className="text-destructive text-sm font-medium">

@@ -338,7 +338,11 @@ export default function PipelinesPage() {
   const unknownRefreshAttempt = useRef<string | null>(null);
   const pipelinesFetching = pipelinesQuery.loading || pipelinesQuery.refreshing;
   useEffect(() => {
+    // Ask the cache, not the render: on a revisit the mount revalidate
+    // has started in an earlier effect of this same commit, so
+    // `refreshing` is still false here and a refresh would race it.
     if (pipelinesFetching) return;
+    if (pipelinesKey && sessionCache.isFetching(pipelinesKey)) return;
     const key = unknownStagesRefreshKey(
       board.unknownStageIds,
       unknownRefreshAttempt.current
@@ -346,7 +350,12 @@ export default function PipelinesPage() {
     if (!key) return;
     unknownRefreshAttempt.current = key;
     void refreshPipelinesQuery();
-  }, [board.unknownStageIds, pipelinesFetching, refreshPipelinesQuery]);
+  }, [
+    board.unknownStageIds,
+    pipelinesFetching,
+    pipelinesKey,
+    refreshPipelinesQuery,
+  ]);
 
   // Lead scores (docs/jev-insights.md): only while Customer insights
   // are on, from one batched read of the deals' conversations.
