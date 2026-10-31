@@ -17,8 +17,9 @@
 //   `sessionKey(accountId, userId, question)`, which refuses to build
 //   one without both.
 // - Wiped on sign-out, workspace switch, or a different user signing
-//   in to this tab (`hooks/use-auth.tsx` calls `sessionCache.clear()`
-//   and `noteSessionUser()`).
+//   in to this tab (`hooks/use-auth.tsx` calls `leaveSession()` before
+//   it navigates, and `noteSessionUser()`). After either, a key of the
+//   old session is never fetched again (`sessionFetchAllowed`).
 // - Always refreshed the moment it is shown: there is no TTL and no
 //   entry is ever "fresh". A cached value is only a starting point;
 //   `useSessionQuery` revalidates on every mount and key change.
@@ -309,6 +310,12 @@ function startFetch<T>(
   opts: PrefetchOptions,
   retries: number
 ): Promise<T> {
+  // After a wipe the tab may no longer be sure whose key this is: a
+  // read now would be answered by RLS for the new session and stored
+  // under the old key.
+  if (!mayFetchSessionKey(key)) {
+    return Promise.reject(new SessionScopeError(key));
+  }
   const running = inflight.get(key);
   if (running && !opts.force) return running.promise as Promise<T>;
 
@@ -368,23 +375,91 @@ function scheduleReread<T>(
 // User change without a reload
 // ------------------------------------------------------------
 
-let boundUserId: string | null = null;
+/** Undefined until the tab learns who is signed in; null = nobody. */
+let boundUserId: string | null | undefined = undefined;
+/** Set by `leaveSession()` until the page unloads. */
+let leaving = false;
 
 /**
  * Tell the cache who is signed in to this tab. A change of user —
  * including to nobody — empties it. Keys carry the user id anyway, so
  * this is what makes "wiped on sign-out or user change" hold even when
- * the session ends in another tab and no `signOut()` runs here.
- * Returns whether the cache was cleared.
+ * the session ends in another tab and no `signOut()` runs here. From
+ * then on a key naming anyone else is never fetched
+ * (`sessionFetchAllowed`). Returns whether the cache was cleared.
  */
 export function noteSessionUser(userId: string | null): boolean {
   if (userId === boundUserId) return false;
   // From nobody to someone: nothing of theirs can be cached yet.
-  const changed = boundUserId !== null;
+  const changed = boundUserId != null;
   boundUserId = userId;
   if (!changed) return false;
   sessionCache.clear();
   return true;
+}
+
+/**
+ * Wipe the cache for a page that is about to navigate away (sign-out,
+ * workspace switch). The session or the active workspace has already
+ * changed server-side while every mounted screen still holds the old
+ * keys, so no fetch starts again in this page: a restored page
+ * (bfcache) reloads instead (`shouldReloadOnPageShow`).
+ */
+export function leaveSession(): void {
+  leaving = true;
+  sessionCache.clear();
+}
+
+/** Whether `leaveSession()` ran in this page. */
+export function isLeavingSession(): boolean {
+  return leaving;
+}
+
+/** Raised by `prefetchSession` for a key it may not fetch. */
+export class SessionScopeError extends Error {
+  constructor(key: SessionKey) {
+    super(`session cache: not fetching ${key} for this session`);
+    this.name = 'SessionScopeError';
+  }
+}
+
+/** The user id a `sessionKey` names (ids carry no `:`). */
+export function sessionKeyUser(key: SessionKey): string | null {
+  return key.split(':')[2] ?? null;
+}
+
+/**
+ * Whether a key may be fetched: never while the page is leaving, and
+ * never for a user other than the one signed in to this tab, once the
+ * tab knows who that is. A key of the current user stays fetchable
+ * after a wipe, so its screen is not left on its skeleton.
+ */
+export function sessionFetchAllowed(state: {
+  leaving: boolean;
+  boundUserId: string | null | undefined;
+  keyUserId: string | null;
+}): boolean {
+  if (state.leaving) return false;
+  return (
+    state.boundUserId === undefined || state.keyUserId === state.boundUserId
+  );
+}
+
+/** `sessionFetchAllowed` for `key` in this tab's current state. */
+export function mayFetchSessionKey(key: SessionKey): boolean {
+  return sessionFetchAllowed({
+    leaving,
+    boundUserId,
+    keyUserId: sessionKeyUser(key),
+  });
+}
+
+/** A page restored from bfcache after `leaveSession()` reloads. */
+export function shouldReloadOnPageShow(state: {
+  persisted: boolean;
+  leaving: boolean;
+}): boolean {
+  return state.persisted && state.leaving;
 }
 
 // ------------------------------------------------------------
@@ -443,15 +518,25 @@ export function planSessionMount<T>(state: {
 /**
  * After a wipe: whether the shown key is stuck loading, its entry (or
  * its first fetch, dropped by `clear()`) gone with nothing fetching and
- * no error to show, so the hook must read it again.
+ * no error to show, so the hook must read it again — but only a key
+ * this tab may still fetch (`sessionFetchAllowed`). After a sign-out,
+ * switch or user change the shown key is the old session's, and a read
+ * under it would store the new session's rows there.
  */
 export function shouldRevalidateAfterWipe<T>(state: {
   active: boolean;
   entry: SessionEntry<T> | undefined;
   fetching: boolean;
   hasError: boolean;
+  fetchAllowed: boolean;
 }): boolean {
-  return state.active && !state.entry && !state.fetching && !state.hasError;
+  return (
+    state.active &&
+    state.fetchAllowed &&
+    !state.entry &&
+    !state.fetching &&
+    !state.hasError
+  );
 }
 
 /**
@@ -471,5 +556,6 @@ export function isCurrentRequest(
 export function resetSessionCacheForTests(): void {
   sessionCache.clear();
   listeners.clear();
-  boundUserId = null;
+  boundUserId = undefined;
+  leaving = false;
 }

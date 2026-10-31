@@ -9,9 +9,11 @@ import {
 } from 'react';
 import {
   isCurrentRequest,
+  mayFetchSessionKey,
   planSessionMount,
   prefetchSession,
   sessionCache,
+  SessionScopeError,
   sessionQueryView,
   shouldRevalidateAfterWipe,
   type PrefetchOptions,
@@ -99,6 +101,9 @@ export function useSessionQuery<T>(
         if (isCurrentRequest(requestKey, keyRef.current)) setFailure(null);
       },
       (err: unknown) => {
+        // A key of a session this tab has left is not an error to show:
+        // the page is navigating away, or about to get its new key.
+        if (err instanceof SessionScopeError) return;
         if (isCurrentRequest(requestKey, keyRef.current)) {
           setFailure({ key: requestKey, error: err });
         }
@@ -120,9 +125,11 @@ export function useSessionQuery<T>(
 
   // A wipe (`delete`, `deletePrefix`, or a `clear()` that dropped the
   // first fetch) can leave the shown key with nothing cached and nothing
-  // fetching: read it again rather than leave the skeleton up. A failed
-  // fetch is no wipe and leaves an error, so it is never retried in a
-  // loop.
+  // fetching: read it again rather than leave the skeleton up — unless
+  // the wipe ended the key's session (sign-out, switch, user change),
+  // when a read would store the new session's rows under the old key.
+  // A failed fetch is no wipe and leaves an error, so it is never
+  // retried in a loop.
   const hasError = error !== null;
   useEffect(() => {
     if (!activeKey) return;
@@ -132,6 +139,7 @@ export function useSessionQuery<T>(
         entry: sessionCache.peek(activeKey),
         fetching: sessionCache.isFetching(activeKey),
         hasError,
+        fetchAllowed: mayFetchSessionKey(activeKey),
       })
     ) {
       void run(activeKey, { keepLocalWrites });

@@ -5,14 +5,19 @@ import {
   SESSION_LOCAL_WRITE_RETRIES,
   SESSION_LOCAL_WRITE_RETRY_MS,
   type SessionKey,
+  SessionScopeError,
   isCurrentRequest,
+  leaveSession,
   noteSessionUser,
   planSessionMount,
   prefetchSession,
   resetSessionCacheForTests,
   sessionCache,
+  sessionFetchAllowed,
   sessionKey,
+  sessionKeyUser,
   sessionQueryView,
+  shouldReloadOnPageShow,
   shouldRevalidateAfterWipe,
   shouldStoreFetchResult,
 } from './session-cache';
@@ -327,7 +332,12 @@ describe('keepLocalWrites', () => {
 describe('shouldRevalidateAfterWipe', () => {
   it('re-reads only a shown key left with nothing at all', () => {
     const entry = { value: 1, storedAt: 0 };
-    const base = { active: true, fetching: false, hasError: false };
+    const base = {
+      active: true,
+      fetching: false,
+      hasError: false,
+      fetchAllowed: true,
+    };
     expect(shouldRevalidateAfterWipe({ ...base, entry: undefined })).toBe(true);
     expect(shouldRevalidateAfterWipe({ ...base, entry })).toBe(false);
     expect(
@@ -339,6 +349,78 @@ describe('shouldRevalidateAfterWipe', () => {
     expect(
       shouldRevalidateAfterWipe({ ...base, entry: undefined, active: false })
     ).toBe(false);
+  });
+
+  it('never re-reads a key of a session the tab has left', () => {
+    expect(
+      shouldRevalidateAfterWipe({
+        active: true,
+        entry: undefined,
+        fetching: false,
+        hasError: false,
+        fetchAllowed: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe('sessionFetchAllowed', () => {
+  it('refuses while leaving and for anyone but the signed-in user', () => {
+    const base = { leaving: false, boundUserId: 'user-1', keyUserId: 'user-1' };
+    expect(sessionFetchAllowed(base)).toBe(true);
+    expect(sessionFetchAllowed({ ...base, leaving: true })).toBe(false);
+    expect(sessionFetchAllowed({ ...base, keyUserId: 'user-2' })).toBe(false);
+    // signed out
+    expect(sessionFetchAllowed({ ...base, boundUserId: null })).toBe(false);
+    // the tab has not learned who is signed in yet
+    expect(sessionFetchAllowed({ ...base, boundUserId: undefined })).toBe(true);
+  });
+
+  it('reads the user out of a key', () => {
+    expect(sessionKeyUser(key('messages:c-1', 'acct-9', 'user-7'))).toBe(
+      'user-7'
+    );
+  });
+
+  it('reloads only a page restored after it started leaving', () => {
+    expect(shouldReloadOnPageShow({ persisted: true, leaving: true })).toBe(
+      true
+    );
+    expect(shouldReloadOnPageShow({ persisted: false, leaving: true })).toBe(
+      false
+    );
+    expect(shouldReloadOnPageShow({ persisted: true, leaving: false })).toBe(
+      false
+    );
+  });
+});
+
+describe('fetches after a session-ending wipe', () => {
+  it('starts no fetch once the page is leaving', async () => {
+    const fetcher = vi.fn(async () => 'new workspace rows');
+    leaveSession();
+
+    await expect(prefetchSession(key('a'), fetcher)).rejects.toBeInstanceOf(
+      SessionScopeError
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(sessionCache.peek(key('a'))).toBeUndefined();
+  });
+
+  it("starts no fetch under the previous user's key", async () => {
+    noteSessionUser('user-1');
+    noteSessionUser('user-2');
+    const fetcher = vi.fn(async () => 'user-2 rows');
+
+    await expect(
+      prefetchSession(key('a', 'acct-1', 'user-1'), fetcher)
+    ).rejects.toBeInstanceOf(SessionScopeError);
+    expect(fetcher).not.toHaveBeenCalled();
+
+    await prefetchSession(key('a', 'acct-1', 'user-2'), fetcher);
+    expect(sessionCache.peek(key('a', 'acct-1', 'user-2'))?.value).toBe(
+      'user-2 rows'
+    );
   });
 });
 
