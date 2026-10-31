@@ -2,17 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   canUseSpeculativeDeals,
   dealsQuestion,
-  pipelinesCacheKey,
+  PIPELINES_QUESTION,
   planFirstWave,
-  stagesCacheKey,
 } from './load-plan';
 import { sessionKey } from '@/lib/session-cache';
 
 describe('cache keys', () => {
-  it('name the account and the pipeline', () => {
-    expect(pipelinesCacheKey('a1')).toBe('pipelines:a1');
-    expect(pipelinesCacheKey('a1')).not.toBe(pipelinesCacheKey('a2'));
-    expect(stagesCacheKey('p1')).not.toBe(stagesCacheKey('p2'));
+  it('keeps the pipeline list apart per account and user', () => {
+    const key = sessionKey('a1', 'u1', PIPELINES_QUESTION);
+    expect(key).not.toBe(sessionKey('a2', 'u1', PIPELINES_QUESTION));
+    expect(key).not.toBe(sessionKey('a1', 'u2', PIPELINES_QUESTION));
+    expect(key).not.toBe(sessionKey('a1', 'u1', dealsQuestion('p1', null)));
   });
 
   it('keeps deals apart per pipeline and per owner filter', () => {

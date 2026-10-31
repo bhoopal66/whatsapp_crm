@@ -891,6 +891,7 @@
   },
   "Pipelines": {
     "page": {
+      "unknownStage": "New stage",
       "selectPipeline": "Select Pipeline",
       "noPipelinesYet": "No pipelines yet",
       "managePipelines": "Manage Pipelines",

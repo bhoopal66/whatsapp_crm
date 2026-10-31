@@ -891,6 +891,7 @@
   },
   "Pipelines": {
     "page": {
+      "unknownStage": "새 단계",
       "selectPipeline": "파이프라인 선택",
       "noPipelinesYet": "아직 파이프라인이 없습니다",
       "managePipelines": "파이프라인 관리",
