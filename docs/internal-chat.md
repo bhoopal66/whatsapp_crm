@@ -112,7 +112,10 @@ Their defaults change nothing until an owner or admin saves rules.
   private channel) needs a workspace owner or admin, unless it is your
   own role (`42501`), so one channel admin cannot demote the others and
   keep the channel; promoting members still works for any channel
-  admin, and a bank guest is never made a channel admin (`22023`). Someone
+  admin, and a bank guest is never made a channel admin (`22023`). In
+  private channels too, an agent channel admin can no longer demote or
+  remove a co-admin; a workspace owner or admin can (`chat_remove_member`
+  refuses with `42501`). Someone
   removed from a private channel loses it at once, with their bell rows
   for it. Removed from a team channel, a staff member can still read it
   and rejoins by posting.

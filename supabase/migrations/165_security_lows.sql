@@ -3,8 +3,8 @@
 -- Three low-severity authorisation gaps from the 2026-10-31 audit. No
 -- table or constraint changes, so no refusal scan; every statement is
 -- re-runnable. Apply after 160, as a superuser or BYPASSRLS role like
--- 156-160 (the chat functions below are 157's and 159's latest bodies
--- with the 165 lines added).
+-- 156-160 (the chat functions below are 091's, 157's and 159's latest
+-- bodies with the 165 lines added).
 --
 -- 1. chat_forward_message: a forwarded copy's storage object must have
 --    the source file's size and the source object's stored mimetype.
@@ -18,7 +18,8 @@
 --    signed-in writer is stamped as updated_by.
 -- 3. chat_set_member_role: changing a channel admin's role needs a
 --    workspace owner or admin (unless it is your own), and a bank guest
---    is never promoted to channel admin.
+--    is never promoted to channel admin. chat_remove_member (091) gets
+--    the same rule, or removing a co-admin would sidestep it.
 --
 -- supabase/ci/verify-security-lows.sql asserts all three.
 
@@ -102,7 +103,7 @@ BEGIN
             AND CASE WHEN fo.metadata->>'size' ~ '^[0-9]{1,18}$'
                      THEN (fo.metadata->>'size')::bigint END = s.bytes
             AND fo.metadata->>'mimetype' = so.metadata->>'mimetype')) THEN
-    RAISE EXCEPTION 'chat_forward_message: attachments must be copies of the source message''s attachments'
+    RAISE EXCEPTION 'chat_forward_message: a forwarded file''s stored object does not match the source file it copies'
       USING ERRCODE = '22023';
   END IF;
 
@@ -243,3 +244,60 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.chat_set_member_role(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.chat_set_member_role(uuid, uuid, text) TO authenticated;
+
+-- ---------- 3b. chat_remove_member (091_chat_channel_admin.sql) ----------
+
+-- Remove another member (leaving is chat_leave_channel).
+CREATE OR REPLACE FUNCTION public.chat_remove_member(p_channel uuid, p_user uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_ch     public.chat_channels;
+  v_target public.chat_channel_members;
+BEGIN
+  v_ch := public.chat_assert_can_manage_channel('chat_remove_member', p_channel, false);
+  IF p_user IS NULL THEN
+    RAISE EXCEPTION 'chat_remove_member: a user is required' USING ERRCODE = '22023';
+  END IF;
+  IF p_user = auth.uid() THEN
+    RAISE EXCEPTION 'chat_remove_member: to leave a channel yourself use chat_leave_channel' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_target FROM public.chat_channel_members WHERE channel_id = p_channel AND user_id = p_user;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat_remove_member: user is not a member of this channel' USING ERRCODE = 'P0002';
+  END IF;
+  -- 165: as chat_set_member_role, another channel admin is removed only
+  -- by a workspace owner or admin; otherwise an agent channel admin
+  -- could remove every co-admin and keep the channel.
+  IF v_target.role = 'admin' AND p_user IS DISTINCT FROM auth.uid()
+     AND public.chat_ws_role(v_ch.account_id) NOT IN ('owner','admin') THEN
+    RAISE EXCEPTION 'chat_remove_member: only a workspace owner or admin can remove a channel admin' USING ERRCODE = '42501';
+  END IF;
+  -- As chat_leave_channel: only a live non-guest admin counts as another.
+  IF v_target.role = 'admin'
+     AND NOT EXISTS (SELECT 1 FROM public.chat_channel_members cm2
+                      WHERE cm2.channel_id = p_channel AND cm2.user_id <> p_user AND cm2.role = 'admin'
+                        AND coalesce(public.chat_user_role(v_ch.account_id, cm2.user_id), 'bank_guest') <> 'bank_guest') THEN
+    RAISE EXCEPTION 'chat_remove_member: the last admin of a channel cannot be removed' USING ERRCODE = '22023';
+  END IF;
+
+  DELETE FROM public.chat_channel_members WHERE channel_id = p_channel AND user_id = p_user;
+  -- Read access ends with the row (chat_user_can_read_channel). Out of a
+  -- private channel the person's bell rows for it go too: they quote
+  -- messages the person may no longer read. A team channel stays
+  -- readable to every staff member (and is rejoined by posting), so its
+  -- bells stay.
+  IF v_ch.kind = 'private' THEN
+    DELETE FROM public.chat_notifications n USING public.internal_messages m
+     WHERE n.message_id = m.id AND m.channel_id = p_channel AND n.user_id = p_user;
+    DELETE FROM public.notifications
+     WHERE account_id = v_ch.account_id AND user_id = p_user
+       AND type IN ('chat_mention','chat_dm','chat_thread_reply','chat_broadcast')
+       AND meta->>'channel_id' = p_channel::text;
+  END IF;
+  INSERT INTO public.chat_audit_log (account_id, actor_id, action, channel_id, detail)
+  VALUES (v_ch.account_id, auth.uid(), 'remove_member', p_channel,
+          jsonb_build_object('user_id', p_user, 'role', v_target.role));
+END $$;
+
+REVOKE ALL ON FUNCTION public.chat_remove_member(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.chat_remove_member(uuid, uuid) TO authenticated;

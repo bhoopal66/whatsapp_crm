@@ -13,6 +13,10 @@
 --    channel admin of a team channel), a non-admin member may still be
 --    promoted by a channel admin, and a bank guest is never promoted to
 --    channel admin (22023).
+-- 4. chat_remove_member: another channel admin is removed only by a
+--    workspace owner / admin (42501 for an agent channel admin); a plain
+--    member is still removed by a channel admin, and removing yourself
+--    is still refused (22023, use chat_leave_channel).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Fixtures are
@@ -28,9 +32,10 @@ DECLARE
   u_tl   UUID := '00000000-0000-4000-8000-000000165104';  -- team leader, plain member of tm
   u_g    UUID := '00000000-0000-4000-8000-000000165105';  -- bank guest, member row in pv
   u_b    UUID := '00000000-0000-4000-8000-000000165106';  -- owner of workspace b
+  u_adm  UUID := '00000000-0000-4000-8000-000000165107';  -- workspace admin of a, member of tm
   a      UUID;
   b      UUID;
-  tm     UUID;  -- team channel: own ag ag2 tl
+  tm     UUID;  -- team channel: own ag ag2 tl adm
   pv     UUID;  -- private channel: own g
   src    UUID;  -- owner's message in tm with one PDF
   t_a    UUID;  -- main tag of a
@@ -42,6 +47,7 @@ DECLARE
   uuidp  TEXT := '________-____-____-____-____________';
   fwd    TEXT := 'SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text';
   smr    TEXT := 'SELECT public.chat_set_member_role(%L, %L, %L)::text';
+  rmm    TEXT := 'SELECT public.chat_remove_member(%L, %L)::text';
   pdf    JSONB := jsonb_build_object('size', 10, 'mimetype', 'application/pdf');
   f      TEXT;
   n      INT := 0;
@@ -109,7 +115,8 @@ BEGIN
   INSERT INTO auth.users (id, email) VALUES
     (u_own, 'ci-lows-own@example.invalid'), (u_ag, 'ci-lows-ag@example.invalid'),
     (u_ag2, 'ci-lows-ag2@example.invalid'), (u_tl, 'ci-lows-tl@example.invalid'),
-    (u_g, 'ci-lows-g@example.invalid'), (u_b, 'ci-lows-b@example.invalid')
+    (u_g, 'ci-lows-g@example.invalid'), (u_b, 'ci-lows-b@example.invalid'),
+    (u_adm, 'ci-lows-adm@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a FROM profiles WHERE user_id = u_own;
   SELECT account_id INTO b FROM profiles WHERE user_id = u_b;
@@ -119,10 +126,11 @@ BEGIN
   UPDATE accounts SET internal_chat_enabled = true WHERE id = a;
   UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_ag, u_ag2);
   UPDATE profiles SET account_id = a, account_role = 'team_leader' WHERE user_id = u_tl;
+  UPDATE profiles SET account_id = a, account_role = 'admin' WHERE user_id = u_adm;
   INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
 
-  tm := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'team', 'Lows team', ARRAY[u_ag, u_ag2, u_tl]));
+  tm := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'team', 'Lows team', ARRAY[u_ag, u_ag2, u_tl, u_adm]));
   pv := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'private', 'Lows private', ARRAY[]::uuid[]));
   r := pg_temp.tc_try('authenticated', u_own, format(smr, tm, u_ag, 'admin'))
     || pg_temp.tc_try('authenticated', u_own, format(smr, tm, u_ag2, 'admin'));
@@ -141,18 +149,18 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('1b copy whose object has another mimetype was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf',
       jsonb_build_object('size', 10, 'mimetype', 'application/x-msdownload')))),
-    'ERROR 22023:%copies of the source message%');
+    'ERROR 22023:%stored object does not match the source file%');
   n := n + 1; failed := failed || pg_temp.tc_check('1c copy whose object has another size was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf',
       jsonb_build_object('size', 5000000, 'mimetype', 'application/pdf')))),
-    'ERROR 22023:%copies of the source message%');
+    'ERROR 22023:%stored object does not match the source file%');
   n := n + 1; failed := failed || pg_temp.tc_check('1d copy whose object has no metadata was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf', NULL))),
-    'ERROR 22023:%copies of the source message%');
+    'ERROR 22023:%stored object does not match the source file%');
   n := n + 1; failed := failed || pg_temp.tc_check('1e copy whose object has a non-numeric size was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf',
       jsonb_build_object('size', 'ten', 'mimetype', 'application/pdf')))),
-    'ERROR 22023:%copies of the source message%');
+    'ERROR 22023:%stored object does not match the source file%');
 
   -- ---------- 2. the interested-reply tag ----------
   INSERT INTO chat_tags (account_id, name) VALUES (a, 'Interested') RETURNING id INTO t_a;
@@ -194,8 +202,25 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.tc_check('3g a bank guest was promoted to channel admin', u_own,
     format(smr, pv, u_g, 'admin'), 'ERROR 22023:%bank guest cannot be a channel admin%');
 
+  -- ---------- 4. removing a channel admin ----------
+  -- tm now: own admin, tl admin, ag and ag2 members. Make ag a channel admin again.
+  r := pg_temp.tc_try('authenticated', u_own, format(smr, tm, u_ag, 'admin'));
+  IF r LIKE '%ERROR%' THEN RAISE EXCEPTION 'fixture: re-promote ag (%)', r; END IF;
+  n := n + 1; failed := failed || pg_temp.tc_check('4a agent channel admin removed another channel admin', u_ag,
+    format(rmm, tm, u_tl), 'ERROR 42501:%workspace owner or admin can remove a channel admin%');
+  r := pg_temp.tc_try('authenticated', u_ag, format(rmm, tm, u_ag2));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', '4b agent channel admin could not remove a plain member (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('4c removing yourself was not refused as before', u_ag,
+    format(rmm, tm, u_ag), 'ERROR 22023:%chat_leave_channel%');
+  r := pg_temp.tc_try('authenticated', u_adm, format(rmm, tm, u_tl));
+  n := n + 1; failed := failed || pg_temp.tc_ok(r = 'ok', '4d the workspace admin could not remove a channel admin (' || r || ')');
+  SELECT string_agg(user_id::text, ',' ORDER BY user_id) INTO sp
+    FROM chat_channel_members WHERE channel_id = tm AND user_id IN (u_ag, u_ag2, u_tl);
+  n := n + 1; failed := failed || pg_temp.tc_ok(sp = u_ag::text, '4e members after the removals (' || coalesce(sp, 'none') || ')');
+
   -- grants as before
-  FOREACH f IN ARRAY ARRAY['public.chat_forward_message(uuid,uuid,jsonb)', 'public.chat_set_member_role(uuid,uuid,text)'] LOOP
+  FOREACH f IN ARRAY ARRAY['public.chat_forward_message(uuid,uuid,jsonb)', 'public.chat_set_member_role(uuid,uuid,text)',
+                           'public.chat_remove_member(uuid,uuid)'] LOOP
     n := n + 1; failed := failed || pg_temp.tc_ok(has_function_privilege('authenticated', f, 'EXECUTE')
                                                  AND NOT has_function_privilege('anon', f, 'EXECUTE')
                                                  AND NOT has_function_privilege('service_role', f, 'EXECUTE'),

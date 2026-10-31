@@ -111,13 +111,26 @@ export interface RoleChange {
   block: 'lastAdmin' | null;
 }
 
-/** The one role change the menu offers for `target`; null = no menu. Guests never change. */
+/**
+ * The one role change the menu offers for `target`; null = no menu.
+ * Guests never change. As chat_set_member_role (165): another channel
+ * admin's role is changed only by a workspace owner or admin (the
+ * viewer may always step down), and a bank guest is never made admin.
+ */
 export function roleChange(
   target: ChannelMember,
-  c: ChannelCtx & Roster
+  c: ChannelCtx & Roster & { userId: string }
 ): RoleChange | null {
   if (!canSetRoles(c) || target.role === 'guest') return null;
-  if (target.role === 'member') return { to: 'admin', block: null };
+  if (target.role === 'member')
+    return isGuestPerson(c.peopleById.get(target.userId.toLowerCase()))
+      ? null
+      : { to: 'admin', block: null };
+  if (
+    target.userId.toLowerCase() !== c.userId.toLowerCase() &&
+    !WORKSPACE_ADMINS.has(c.accountRole ?? '')
+  )
+    return null;
   const last = c.kind === 'private' && otherAdmins(c, target.userId) === 0;
   return { to: 'member', block: last ? 'lastAdmin' : null };
 }
@@ -127,8 +140,9 @@ export function roleChange(
  * someone else (the viewer leaves instead), from a live channel the
  * viewer may manage (canManageChannel), and never the last admin who
  * still counts (in the workspace, not a guest, as in SQL) — on a team
- * channel too, unlike a role change. Hidden rather than offered
- * disabled; the database decides.
+ * channel too, unlike a role change. Another channel admin only by a
+ * workspace owner or admin (165). Hidden rather than offered disabled;
+ * the database decides.
  */
 export function canRemoveMember(
   target: Pick<ChannelMember, 'userId' | 'role'>,
@@ -136,7 +150,11 @@ export function canRemoveMember(
 ): boolean {
   if (c.archived || !canManageChannel(c)) return false;
   if (target.userId.toLowerCase() === c.userId.toLowerCase()) return false;
-  return target.role !== 'admin' || otherAdmins(c, target.userId) > 0;
+  if (target.role !== 'admin') return true;
+  return (
+    WORKSPACE_ADMINS.has(c.accountRole ?? '') &&
+    otherAdmins(c, target.userId) > 0
+  );
 }
 
 export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';

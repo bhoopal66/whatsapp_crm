@@ -425,11 +425,13 @@ BEGIN
     format('SELECT public.chat_update_channel(%L, %L, NULL)::text', ch3, 'TC159 manage 3'), 'ok');
   n := n + 1; failed := failed || pg_temp.tc_check('manage: an in-audience channel admin could not set the channel policy', u_ag,
     format('SELECT public.chat_set_channel_policy(%L, %L, %L, %L)::text', ch3, 'admins', 'everyone', 'admins'), 'ok');
+  -- (165: a co-admin's role needs a workspace owner/admin, so the
+  -- channel admin promotes a plain member here)
   n := n + 1; failed := failed || pg_temp.tc_check('manage: an in-audience channel admin could not set a member role', u_ag,
-    format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag2, 'member'), 'ok');
+    format('SELECT public.chat_set_member_role(%L, %L, %L)::text', ch3, u_ag3, 'admin'), 'ok');
   n := n + 1; failed := failed || pg_temp.tc_check('manage: the controls did not take effect', NULL,
-    format('SELECT c.name || ''/'' || (SELECT string_agg(user_id::text || '':'' || role, '','' ORDER BY role, user_id) FROM chat_channel_members WHERE channel_id = c.id AND user_id IN (%L, %L)) FROM chat_channels c WHERE c.id = %L', u_ag, u_ag2, ch3),
-    'TC159 manage 3/' || u_ag || ':admin,' || u_ag2 || ':member');
+    format('SELECT c.name || ''/'' || (SELECT string_agg(user_id::text || '':'' || role, '','' ORDER BY role, user_id) FROM chat_channel_members WHERE channel_id = c.id AND user_id IN (%L, %L, %L)) FROM chat_channels c WHERE c.id = %L', u_ag, u_ag2, u_ag3, ch3),
+    'TC159 manage 3/' || u_ag || ':admin,' || u_ag2 || ':admin,' || u_ag3 || ':admin');
 
   -- ---------- J. a deleted team leaves the channel closed, not open ----------
   INSERT INTO teams (account_id, name) VALUES (a, 'TC159 T3') RETURNING id INTO t3;

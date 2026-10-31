@@ -293,7 +293,9 @@ export function MembersPanel({
     const mine = m.userId.toLowerCase() === me;
     const guest = m.role === 'guest' || isGuestPerson(person);
     const roleKey = roleLabelKey(person?.role);
-    const change = ctx ? roleChange(m, { ...ctx, ...roster }) : null;
+    const change = ctx
+      ? roleChange(m, { ...ctx, ...roster, userId: me })
+      : null;
     const leaveWhy =
       mine && ctx
         ? leaveBlock({ kind: ctx.kind, myRole, userId: me, ...roster })
