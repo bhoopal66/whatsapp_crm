@@ -118,6 +118,13 @@ coordinator of that bank is added to the list as a Coordinator too
 (142), whether or not they have a saved number; someone the request
 already names keeps the label the request gave them.
 
+A coordinator of the case's bank (Settings → Members) also reads and sends
+in that bank's **ACTIVE** groups as Coordinator without being on the list,
+including groups opened before they were given the bank (163). Someone with
+an open list row keeps their own label. Taking the bank away removes the
+access at once. An ENDED group is unchanged: its archive is read only by
+those who were on the list at the end.
+
 ## The prefix
 
 Every staff message goes out from the hosting number as

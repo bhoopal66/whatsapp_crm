@@ -321,6 +321,13 @@ jobs:
       - name: Verify submission groups
         run: supabase db query --local --file supabase/ci/verify-submission-groups.sql
 
+      # Bank coordinators in submission groups (163): on an ACTIVE group
+      # a live agent / team leader holding the case's bank reads, lists
+      # and sends as an open 'coordinator' row; a real open row keeps its
+      # label; ENDED groups stay with the list at the end.
+      - name: Verify bank coordinator submissions
+        run: supabase db query --local --file supabase/ci/verify-bank-coordinator-submissions.sql
+
       # Submissions without a WhatsApp group (136): a 'none' row has no
       # hosting number, its mode is frozen, it is never claimed for a
       # create or sent into, sg_end still ends it; the per-account
@@ -486,6 +493,14 @@ jobs:
       # unrelated agent), on losing the bank and on deactivation.
       - name: Verify coordinators
         run: supabase db query --local --file supabase/ci/verify-coordinators.sql
+      # Migrations 161-162's bank coordinators: a live agent / team leader
+      # holding a bank is 'coordinator' on every case of it (named agent
+      # keeps 'agent'), and case_inbox, bank_ws_cases and the bank
+      # dashboard show it; a bank not held stays hidden; it ends on
+      # losing the bank and on deactivation; a viewer gets nothing; a
+      # holder is a member of the bank's space with no open case there.
+      - name: Verify bank coordinator cases
+        run: supabase db query --local --file supabase/ci/verify-bank-coordinator-cases.sql
       # Migration 142's coordinator WhatsApp numbers: only an owner / admin
       # sets one, only for a live agent / team leader of their active
       # account, only 5-25 digits (RPC and CHECK); blank or NULL clears;

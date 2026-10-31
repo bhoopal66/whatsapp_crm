@@ -8,6 +8,7 @@ import {
   cursorFilter,
   decodeCursor,
   encodeCursor,
+  bankHolderLabel,
   myLabelOf,
   nextCursor,
   parseListQuery,
@@ -304,5 +305,29 @@ describe('toListItem', () => {
       ended_at: '2026-10-12T00:00:00.000Z',
       end_reason: 'idle',
     });
+  });
+});
+
+describe('bankHolderLabel (163)', () => {
+  const held = new Set(['ADCB']);
+  const banks = new Map([['g1', 'ADCB']]);
+  it('makes a holder of the case bank a coordinator of an ACTIVE group', () => {
+    expect(bankHolderLabel(group(), 'agent', held, banks)).toBe('coordinator');
+    expect(bankHolderLabel(group(), 'team_leader', held, banks)).toBe(
+      'coordinator'
+    );
+  });
+  it('gives nothing for another bank, no case, an ENDED group or the wrong role', () => {
+    expect(
+      bankHolderLabel(group(), 'agent', new Set(['FAB']), banks)
+    ).toBeNull();
+    expect(
+      bankHolderLabel(group({ id: 'g2' }), 'agent', held, banks)
+    ).toBeNull();
+    expect(
+      bankHolderLabel(group({ status: 'ENDED' }), 'agent', held, banks)
+    ).toBeNull();
+    for (const role of ['admin', 'owner', 'viewer', 'bank_guest'] as const)
+      expect(bankHolderLabel(group(), role, held, banks)).toBeNull();
   });
 });

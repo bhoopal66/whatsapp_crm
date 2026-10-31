@@ -84,6 +84,7 @@ const accessRow = (user: string, label: string, removed: string | null) => ({
 let admin: FakeDb;
 let rls: FakeDb;
 let readable: boolean;
+let resolved: string | null;
 
 const get = (id = G) =>
   GET(new Request(`http://x/api/submission-groups/${id}`), {
@@ -114,6 +115,7 @@ const messages = [
 beforeEach(() => {
   vi.clearAllMocks();
   readable = false;
+  resolved = null;
   admin = {
     tables: {
       submission_groups: [groupRow()],
@@ -130,7 +132,10 @@ beforeEach(() => {
         { id: 'w1', account_id: 'acct-1', label: 'Sales', waba_id: '971500' },
       ],
     },
-    rpc: { sg_can_read: () => readable },
+    rpc: {
+      sg_can_read: () => readable,
+      sg_resolve_role: () => resolved,
+    },
   };
   rls = {
     tables: {
@@ -235,6 +240,15 @@ describe('GET /api/submission-groups/[id]', () => {
     as('agent', 'u-other');
     rls.tables = {};
     expect((await get()).status).toBe(404);
+  });
+
+  it('lets a bank holder with no open row send as coordinator (163)', async () => {
+    admin.tables.submission_group_access = [];
+    rls.tables.submission_group_access = [];
+    resolved = 'coordinator';
+    const body = await (await get()).json();
+    expect(body).toMatchObject({ can_send: true });
+    expect(body.group.my_label).toBe('coordinator');
   });
 
   it('lets an admin off the list read but not send', async () => {

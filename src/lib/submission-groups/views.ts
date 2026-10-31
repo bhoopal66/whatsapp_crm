@@ -5,7 +5,11 @@
  * No I/O; who may see what is decided in SQL (RLS for ACTIVE groups,
  * `sg_can_read` for ENDED ones) before anything reaches these functions.
  */
-import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import {
+  canReceiveCoordinatorShare,
+  hasMinRole,
+  type AccountRole,
+} from '@/lib/auth/roles';
 
 import { SgHttpError } from './http';
 import type { StaffLabel } from './rules';
@@ -184,6 +188,24 @@ export function myLabelOf(
     );
   });
   return hit ? (hit.label as StaffLabel) : null;
+}
+
+/**
+ * 163: an ACTIVE group the caller has no open access row on still reads and
+ * sends as 'coordinator' when the group's case is of a bank they hold
+ * (`coordinator_banks`) and they are an agent or team leader. Admins and
+ * owners never need the fallback. An ENDED group is unchanged.
+ */
+export function bankHolderLabel(
+  group: Pick<SubmissionGroup, 'id' | 'status'>,
+  role: AccountRole,
+  heldBanks: ReadonlySet<string>,
+  bankByGroup: ReadonlyMap<string, string>
+): StaffLabel | null {
+  if (group.status !== 'ACTIVE' || !canReceiveCoordinatorShare(role))
+    return null;
+  const bank = bankByGroup.get(group.id);
+  return bank !== undefined && heldBanks.has(bank) ? 'coordinator' : null;
 }
 
 export interface ContactRef {

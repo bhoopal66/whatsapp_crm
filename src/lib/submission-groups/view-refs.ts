@@ -98,3 +98,37 @@ export async function matchingContactIds(
   if (error) throw new Error(`contacts: ${error.message}`);
   return ((data ?? []) as Record<string, unknown>[]).map((r) => String(r.id));
 }
+
+/**
+ * The banks the caller holds (`coordinator_banks`) and, for the given
+ * groups, each one's case bank. Service role, pinned to the account. The
+ * case query is skipped without a held bank.
+ */
+export async function loadBankHolding(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string,
+  groupIds: readonly string[]
+): Promise<{ held: Set<string>; bankByGroup: Map<string, string> }> {
+  const held = new Set<string>();
+  const bankByGroup = new Map<string, string>();
+  const mine = await admin
+    .from('coordinator_banks')
+    .select('bank_code')
+    .eq('account_id', accountId)
+    .eq('user_id', userId);
+  if (mine.error) throw new Error(`coordinator_banks: ${mine.error.message}`);
+  for (const r of (mine.data ?? []) as Record<string, unknown>[])
+    held.add(String(r.bank_code));
+  if (!held.size || !groupIds.length) return { held, bankByGroup };
+  const cases = await admin
+    .from('cases')
+    .select('group_id, bank_code')
+    .eq('account_id', accountId)
+    .in('group_id', [...groupIds]);
+  if (cases.error) throw new Error(`cases: ${cases.error.message}`);
+  for (const r of (cases.data ?? []) as Record<string, unknown>[])
+    if (r.group_id && r.bank_code)
+      bankByGroup.set(String(r.group_id), String(r.bank_code));
+  return { held, bankByGroup };
+}

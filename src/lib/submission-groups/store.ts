@@ -320,7 +320,11 @@ export class SubmissionGroupStore {
       }));
   }
 
-  /** The caller's open access label (the prefix label), or null when not on the list. */
+  /**
+   * The caller's open access label (the prefix label), or null when not on
+   * the list. With no open row, a holder of the case's bank on an ACTIVE
+   * group is 'coordinator' (163); sg_resolve_role decides that.
+   */
   async openAccessLabel(
     groupId: string,
     userId: string
@@ -333,7 +337,11 @@ export class SubmissionGroupStore {
       .is('removed_at', null)
       .maybeSingle();
     if (error) throw new Error(`submission_group_access: ${error.message}`);
-    return ((data as Row | null)?.label as StaffLabel | undefined) ?? null;
+    const label = (data as Row | null)?.label as StaffLabel | undefined;
+    if (label) return label;
+    return (await this.resolveRole(groupId, userId)) === 'coordinator'
+      ? 'coordinator'
+      : null;
   }
 
   async resolveRole(groupId: string, userId: string): Promise<string | null> {

@@ -23,10 +23,12 @@ import {
 } from '@/lib/submission-groups/server';
 import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
 import {
+  loadBankHolding,
   loadRefs,
   matchingContactIds,
 } from '@/lib/submission-groups/view-refs';
 import {
+  bankHolderLabel,
   canManageSubmissionGroups,
   cursorFilter,
   myLabelOf,
@@ -108,9 +110,25 @@ export async function GET(request: Request) {
     }
 
     const refs = await loadRefs(admin, ctx.accountId, groups);
+    // 163: a holder of the case's bank reads an ACTIVE group as coordinator.
+    const holding = ended
+      ? null
+      : await loadBankHolding(
+          admin,
+          ctx.accountId,
+          ctx.userId,
+          groups.filter((g) => myLabelOf(g, mine) === null).map((g) => g.id)
+        );
     return NextResponse.json({
       groups: groups.map((g) =>
-        toListItem(g, { ...refs, myLabel: myLabelOf(g, mine) })
+        toListItem(g, {
+          ...refs,
+          myLabel:
+            myLabelOf(g, mine) ??
+            (holding
+              ? bankHolderLabel(g, ctx.role, holding.held, holding.bankByGroup)
+              : null),
+        })
       ),
       next_cursor: nextCursor(rows, query.limit, query.status),
     });
