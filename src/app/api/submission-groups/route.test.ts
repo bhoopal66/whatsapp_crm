@@ -141,6 +141,35 @@ beforeEach(() => {
 });
 
 describe('GET /api/submission-groups', () => {
+  it('labels an ACTIVE group coordinator when the caller holds its case bank (163)', async () => {
+    admin.tables.coordinator_banks = [
+      { account_id: 'acct-1', user_id: 'u-me', bank_code: 'ADCB' },
+      { account_id: 'acct-1', user_id: 'u-other', bank_code: 'FAB' },
+    ];
+    admin.tables.cases = [
+      { account_id: 'acct-1', group_id: A, bank_code: 'FAB' },
+      { account_id: 'acct-1', group_id: A2, bank_code: 'ADCB' },
+    ];
+    const body = await (await get()).json();
+    // A keeps its real row label; A2 (no row) is a bank fallback.
+    expect(body.groups.map((g: { my_label: string }) => g.my_label)).toEqual([
+      'agent',
+      'coordinator',
+    ]);
+  });
+
+  it('gives no bank fallback to an admin', async () => {
+    as('admin');
+    admin.tables.coordinator_banks = [
+      { account_id: 'acct-1', user_id: 'u-me', bank_code: 'ADCB' },
+    ];
+    admin.tables.cases = [
+      { account_id: 'acct-1', group_id: A2, bank_code: 'ADCB' },
+    ];
+    const body = await (await get()).json();
+    expect(body.groups[1].my_label).toBeNull();
+  });
+
   it('lists the ACTIVE groups RLS hands the caller, newest activity first', async () => {
     const res = await get();
     expect(res.status).toBe(200);

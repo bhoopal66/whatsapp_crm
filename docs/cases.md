@@ -43,6 +43,7 @@ on the case. There is no IT role.
 | **Admin**                                               | every case  | yes  | yes                                                                 |
 | **Team leader** of the team the case's agent is in      | those cases | yes  | yes: the agent only to someone in a team they lead; any coordinator |
 | the case's named **coordinator** (agent or team leader) | that case   | yes  | no                                                                  |
+| a **coordinator of the case's bank** (Settings → Members) | that bank's cases | yes | no                                                              |
 | the case's named **agent** (agent or team leader)       | that case   | yes  | no                                                                  |
 | viewers, bank guests, deactivated people, anyone else   | nothing     | no   | no                                                                  |
 
@@ -255,6 +256,8 @@ owner or admin. Nothing in it is ever sent to a customer or a bank.
 role on at least one **open** case of that bank (its agent, its
 coordinator, or the team leader of its agent). Membership lapses as soon as
 their last such case closes; their earlier posts stay visible to others.
+A bank's own coordinators (Settings → Members) are members of its space
+whether or not they have an open case there; taking the bank away ends it.
 Members and admins have the same discussion rights.
 
 - **Threads and posts.** A thread has a title (up to 200) and posts (up to

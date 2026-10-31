@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Bank coordinators work their banks' cases and submissions
+
+**Migration required: 161, 162 and 163** (`161_bank_coordinator_access.sql`,
+`162_*.sql`, `163_bank_coordinator_submission_groups.sql`), applied in
+order, as a superuser or BYPASSRLS role, **before** you deploy this build.
+Re-runnable.
+
+- **Cases.** A coordinator of a bank (Settings → Members) reads and works
+  every case of that bank. They cannot reassign it. The case lists and the
+  bank's space in Banks include these cases for them.
+- **Submission groups.** The same people read and send in the bank's
+  active submission groups as Coordinator, even when they are not on the
+  group's list. Ended groups are unchanged.
+- Taking the bank away removes the access at once.
+
 ### Team chat: voice notes, forwarding, permissions, moderation and export
 
 **Migration required: 156, 157, 158, 159 and 160** (`156_chat_messaging_v2.sql`

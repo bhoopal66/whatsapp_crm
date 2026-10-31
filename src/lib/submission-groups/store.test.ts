@@ -325,3 +325,41 @@ describe('wa_mode (136)', () => {
     expect(filters).toContainEqual(['eq', 'wa_mode', 'group']);
   });
 });
+
+describe('openAccessLabel (163 bank fallback)', () => {
+  const store = (role: string | null, rows: Record<string, unknown>[]) => {
+    const calls: string[] = [];
+    const db = fakeSupabase({
+      tables: { submission_group_access: rows },
+      rpc: {
+        sg_resolve_role: () => {
+          calls.push('sg_resolve_role');
+          return role;
+        },
+      },
+    });
+    return { s: new SubmissionGroupStore(db as never), calls };
+  };
+  const open = {
+    group_id: 'g1',
+    user_id: 'u1',
+    label: 'agent',
+    removed_at: null,
+  };
+
+  it('keeps the open row label and asks nothing more', async () => {
+    const { s, calls } = store('coordinator', [open]);
+    expect(await s.openAccessLabel('g1', 'u1')).toBe('agent');
+    expect(calls).toEqual([]);
+  });
+
+  it('falls back to coordinator when sg_resolve_role says so', async () => {
+    const { s } = store('coordinator', []);
+    expect(await s.openAccessLabel('g1', 'u1')).toBe('coordinator');
+  });
+
+  it('stays null for any other answer', async () => {
+    expect(await store('agent', []).s.openAccessLabel('g1', 'u1')).toBeNull();
+    expect(await store(null, []).s.openAccessLabel('g1', 'u1')).toBeNull();
+  });
+});

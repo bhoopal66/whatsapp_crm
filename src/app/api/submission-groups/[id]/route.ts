@@ -4,7 +4,7 @@
 // ACTIVE: read through the caller's own RLS client, so a group they are
 // not allowed to see answers 404; the open access list with names, the
 // latest live messages (RLS hides post_end rows), `can_send` from the
-// caller's open access row. ENDED: never readable through RLS, so the
+// caller's open access row, else a held bank (163). ENDED: never readable through RLS, so the
 // service role answers it, pinned to the caller's account and only when
 // `sg_can_read` allows; never its messages (the archive is POST
 // /archive, which audits every view), and the list as it stood at the end.
@@ -27,6 +27,7 @@ import {
   submissionGroupStore,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
+import type { StaffLabel } from '@/lib/submission-groups/rules';
 import { toMessage } from '@/lib/submission-groups/store';
 import { loadNames, loadRefs } from '@/lib/submission-groups/view-refs';
 import {
@@ -90,8 +91,17 @@ export async function GET(_request: Request, { params }: Params) {
       ]),
       loadCaseId(admin, ctx.accountId, group.id),
     ]);
-    const myLabel = access.find((a) => a.userId === ctx.userId)?.label ?? null;
     const active = group.status === 'ACTIVE';
+    // 163: no open row, but a held bank can still make the caller a
+    // coordinator of an ACTIVE group (sg_resolve_role decides).
+    const myLabel: StaffLabel | null =
+      access.find((a) => a.userId === ctx.userId)?.label ??
+      (active
+        ? await submissionGroupStore(admin).openAccessLabel(
+            group.id,
+            ctx.userId
+          )
+        : null);
     return NextResponse.json({
       group: toDetailGroup(group, { ...refs, myLabel }),
       access: access.map((a) => toAccessView(a, names)),

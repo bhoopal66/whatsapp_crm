@@ -16,13 +16,29 @@ bank can have several coordinators, and one coordinator can work several
 banks. Clearing every bank makes the person an ordinary agent or team
 leader again. Viewers and bank guests cannot be coordinators.
 
-Apart from what is shared with them, a coordinator works exactly like an
-agent or team leader of their role: their own chats, tasks, calls, team
+Apart from what is shared with them and the cases of their banks (next
+section), a coordinator works exactly like an agent or team leader of
+their role: their own chats, tasks, calls, team
 chat, calendar and meetings (attend only; creating meetings stays team
 leader and up). The submission group's **Coordinator** label
 ([submission-groups.md](submission-groups.md)) and a case's named
 coordinator ([cases.md](cases.md)) are unchanged and independent of the
 bank list.
+
+## Cases and submissions of their banks
+
+Holding a bank is a live rule, not a copy. A coordinator reads and works
+every case of that bank (stages, tasks, documents, notes, replies) but
+cannot reassign it, and sees the cases in their list and the bank's space
+in Banks. The case's named agent, named coordinator and team leader keep
+their own role. Removing the bank, deactivating the person or changing
+them to a viewer takes the access away at once.
+
+The same holds for the bank's **active** submission groups: the coordinator
+reads and sends in them as **Coordinator**, even if they are not on the
+group's access list. Someone who is on the list keeps their own label. An
+**ended** group is unchanged: its archive is for the people who were on the
+list when it ended. Owners and admins already see everything.
 
 ## WhatsApp number
 
