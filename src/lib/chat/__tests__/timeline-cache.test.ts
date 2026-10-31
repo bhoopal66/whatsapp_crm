@@ -18,6 +18,7 @@ import {
   revalidateTimeline,
   shouldPrefetchTimeline,
   timelineCacheKey,
+  timelineEventTargets,
   timelineMark,
   TIMELINE_JOURNAL_MAX,
   TIMELINE_PREFETCH_FRESH_MS,
@@ -360,6 +361,45 @@ describe('the journal', () => {
     const b = inFlight(a.entry, [inserted(msg('m2', 2))]);
     expect(endTimelineFetch(b.entry, b.mark).journal).toHaveLength(2);
     expect(endTimelineFetch(b.entry, a.mark).journal).toHaveLength(1);
+  });
+});
+
+describe('timelineEventTargets', () => {
+  const THIRD = 'c0000000-0000-4000-8000-000000000003';
+  const listed = [CH, OTHER, THIRD];
+
+  it('writes an insert or edit into its own channel only', () => {
+    const ev = { type: 'insert' as const, message: msg('m1', 1) };
+    expect(timelineEventTargets(ev, CH, listed)).toEqual({
+      open: true,
+      others: [],
+    });
+    expect(timelineEventTargets(ev, OTHER, listed)).toEqual({
+      open: false,
+      others: [CH],
+    });
+  });
+
+  it('writes a delete, which names no channel, into every listed one', () => {
+    expect(
+      timelineEventTargets({ type: 'delete', id: 'm1' }, CH, listed)
+    ).toEqual({ open: true, others: [OTHER, THIRD] });
+  });
+
+  it('keeps a row deleted during a prefetch of another channel away', () => {
+    // Viewing OTHER while CH's hover prefetch is in flight; its page
+    // was read before m1 was hard-deleted.
+    const flight = inFlight(cached([msg('m1', 1), msg('m2', 2)]));
+    let entry = flight.entry;
+    const ev = { type: 'delete' as const, id: 'm1' };
+    for (const id of timelineEventTargets(ev, OTHER, [CH, OTHER]).others) {
+      if (id === CH)
+        entry = recordTimelineEvent(entry, { kind: 'message', event: ev });
+    }
+    const stale = { messages: [msg('m1', 1), msg('m2', 2)], hasMore: false };
+    expect(ids(revalidateTimeline(entry, CH, stale, 2, flight.mark))).toEqual([
+      'm2',
+    ]);
   });
 });
 

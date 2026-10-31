@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -31,6 +32,7 @@ import {
   revalidateTimeline,
   shouldPrefetchTimeline,
   timelineCacheKey,
+  timelineEventTargets,
   timelineMark,
   type CachedTimeline,
   type TimelineEvent,
@@ -74,7 +76,10 @@ export function fetchTimelineFirstPage(
     }
     const prev = sessionCache.peek<CachedTimeline>(key)?.value;
     // Dropped meanwhile (the channel left the list, the cache was
-    // evicted): an empty placeholder, so the answer is not stored.
+    // evicted): the page is not merged, but prefetchSession still stores
+    // what this returns (delete() does not cancel a fetch in flight), so
+    // an empty, not-loaded placeholder entry comes back. Harmless: it
+    // shows the skeleton and the next show revalidates.
     if (!prev) return placeholderTimeline(channelId);
     return revalidateTimeline(prev, channelId, page, Date.now(), mark);
   });
@@ -124,6 +129,12 @@ const NO_CALL_CARDS: Record<string, SharedCallCard> = {};
 export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   const { sb, listen, fail, userId, accountId } = ws;
   const key = timelineCacheKey(accountId, userId, channelId);
+  // Read by the realtime handler, which should not resubscribe each
+  // time the channel list refreshes.
+  const channelsRef = useRef(ws.channels);
+  useEffect(() => {
+    channelsRef.current = ws.channels;
+  });
   const subscribe = useCallback(
     (onChange: () => void) =>
       key ? sessionCache.subscribe(key, onChange) : noopUnsubscribe,
@@ -219,26 +230,24 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         }
         if (e.kind !== 'message') return;
         const ev = e.event;
-        // A delete carries no channel (and realtime does not RLS-filter
-        // it): it is applied here, a no-op for an id this list lacks.
-        if (ev.type === 'delete' || ev.message.channelId === channelId)
-          record({ kind: 'message', event: ev });
-        if (ev.type === 'delete') return;
-        if (ev.message.channelId !== channelId) {
-          // Keep a channel opened earlier current for its revisit (a
-          // no-op when it has no entry); its revalidation brings the
-          // deletes, reactions and details this event cannot.
-          const other = timelineCacheKey(
-            accountId,
-            userId,
-            ev.message.channelId
-          );
+        const targets = timelineEventTargets(
+          ev,
+          channelId,
+          (channelsRef.current ?? []).map((c) => c.id)
+        );
+        if (targets.open) record({ kind: 'message', event: ev });
+        // Keep a channel opened earlier current for its revisit (a no-op
+        // when it has no entry), and journal a delete for a prefetch of
+        // it in flight (timelineEventTargets); its revalidation brings
+        // the reactions and details this event cannot.
+        for (const id of targets.others) {
+          const other = timelineCacheKey(accountId, userId, id);
           if (other)
             sessionCache.update<CachedTimeline>(other, (s) =>
               recordTimelineEvent(s, { kind: 'message', event: ev })
             );
-          return;
         }
+        if (ev.type === 'delete' || !targets.open) return;
         // A new top-level post: fetch what the row event does not carry.
         if (ev.type === 'insert' && !ev.message.threadRootId) {
           loadDetails([ev.message.id]).catch(() => {});

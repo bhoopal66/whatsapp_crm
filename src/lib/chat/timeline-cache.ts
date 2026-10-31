@@ -183,6 +183,34 @@ export function recordTimelineEvent(
 }
 
 /**
+ * Which cached timelines a realtime message event is written into: the
+ * open channel's (`open`) and the other channels' entries (`others`,
+ * each a no-op when the channel has no entry). An insert or edit names
+ * its channel. A delete names none, so it goes to the open channel and
+ * to every other listed one: a hover prefetch of another channel may
+ * be in flight with a snapshot taken before the delete, and only the
+ * journal keeps that row from coming back. A delete only removes a row
+ * (realtime does not RLS-filter it), so writing it everywhere can never
+ * reveal anything.
+ */
+export function timelineEventTargets(
+  event: MessageEvent,
+  openChannelId: string,
+  listedChannelIds: readonly string[]
+): { open: boolean; others: string[] } {
+  if (event.type === 'delete') {
+    return {
+      open: true,
+      others: listedChannelIds.filter((id) => id !== openChannelId),
+    };
+  }
+  const channelId = event.message.channelId;
+  return channelId === openChannelId
+    ? { open: true, others: [] }
+    : { open: false, others: [channelId] };
+}
+
+/**
  * The events since `mark`, in order, over an answer. An edit never adds
  * a row: a row the answer does not hold is one it cannot vouch for (or
  * one outside the window), and an insert in the journal brings the rows
