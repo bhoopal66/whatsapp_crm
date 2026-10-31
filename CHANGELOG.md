@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Faster switching between screens and chats
+
+No migration. Screens you have already opened in this tab — the Inbox
+and its chats, Team inbox, team chat channels, Contacts, the customer
+page and Pipelines — now show their last view at once and refresh it in
+the background, instead of starting from a blank screen every time.
+Hovering a chat or channel starts loading it, the first load of a
+screen asks for its data in fewer round trips, and admin pages are
+prefetched with the rest of the menu.
+
+- The copy is kept only in the open tab's memory, separately for each
+  person and workspace. It is never written to disk, is wiped on
+  sign-out or workspace switch, and every screen is refreshed the moment
+  it is shown, so edits, deletions and lost access still show.
+- An unsaved change on a page that asks before you leave (the flow
+  editor, AI agents) holds a workspace switch: if you choose to stay,
+  reload the page before carrying on.
+
 ### Team chat: voice notes, forwarding, permissions, moderation and export
 
 **Migration required: 156, 157, 158, 159 and 160** (`156_chat_messaging_v2.sql`
