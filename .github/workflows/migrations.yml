@@ -486,6 +486,14 @@ jobs:
       # unrelated agent), on losing the bank and on deactivation.
       - name: Verify coordinators
         run: supabase db query --local --file supabase/ci/verify-coordinators.sql
+      # Migrations 161-162's bank coordinators: a live agent / team leader
+      # holding a bank is 'coordinator' on every case of it (named agent
+      # keeps 'agent'), and case_inbox, bank_ws_cases and the bank
+      # dashboard show it; a bank not held stays hidden; it ends on
+      # losing the bank and on deactivation; a viewer gets nothing; a
+      # holder is a member of the bank's space with no open case there.
+      - name: Verify bank coordinator cases
+        run: supabase db query --local --file supabase/ci/verify-bank-coordinator-cases.sql
       # Migration 142's coordinator WhatsApp numbers: only an owner / admin
       # sets one, only for a live agent / team leader of their active
       # account, only 5-25 digits (RPC and CHECK); blank or NULL clears;
