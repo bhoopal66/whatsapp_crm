@@ -30,7 +30,12 @@ import {
   type Workspace,
 } from "@/lib/auth/my-workspaces";
 import { clearClientCache } from "@/lib/client-cache";
-import { noteSessionUser, sessionCache } from "@/lib/session-cache";
+import {
+  isLeavingSession,
+  leaveSession,
+  noteSessionUser,
+  shouldReloadOnPageShow,
+} from "@/lib/session-cache";
 import { signOutReleasingPush } from "@/lib/push/sign-out";
 
 interface Profile {
@@ -262,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const enterWorkspace = useCallback(
     (role: AccountRole | null, next?: string) => {
       clearClientCache();
-      sessionCache.clear();
+      leaveSession();
       try {
         workspaceChannelRef.current?.postMessage({ type: "switched", role });
       } catch {
@@ -394,7 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           supabase.auth.signOut()
         ).catch((err: unknown) => ({ error: err }));
         if (signOutError) await supabase.auth.signOut({ scope: "local" });
-        sessionCache.clear();
+        leaveSession();
         window.location.href = "/login?deactivated=1";
         return;
       }
@@ -508,6 +513,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [enterWorkspace]);
 
+  // `leaveSession()` stops every fetch in a page that is navigating away
+  // because the session or workspace changed under it. A Back that
+  // restores that page from bfcache would show the old workspace with
+  // nothing able to load, so it loads again instead.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (
+        shouldReloadOnPageShow({
+          persisted: event.persisted,
+          leaving: isLeavingSession(),
+        })
+      ) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   // Another tab of this browser switched workspace: the database's
   // active workspace is now that one for this tab too, so follow it
   // rather than keep showing the old workspace over the new one's data.
@@ -518,7 +542,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     channel.onmessage = (event: MessageEvent) => {
       const role: unknown = (event.data as { role?: unknown } | null)?.role;
       clearClientCache();
-      sessionCache.clear();
+      leaveSession();
       window.location.assign(
         workspaceHomePath(isAccountRole(role) ? role : null),
       );
@@ -612,7 +636,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = createClient();
     await signOutReleasingPush(() => supabase.auth.signOut());
-    sessionCache.clear();
+    leaveSession();
     setUser(null);
     setProfile(null);
     setAccount(null);

@@ -60,6 +60,8 @@ function render<T>(hook: () => T): T {
 
 import {
   type SessionKey,
+  leaveSession,
+  noteSessionUser,
   prefetchSession,
   resetSessionCacheForTests,
   sessionCache,
@@ -158,6 +160,38 @@ describe('useSessionQuery', () => {
     await vi.waitFor(() =>
       expect(sessionCache.peek(KEY)?.value).toEqual(['fresh'])
     );
+  });
+
+  it('does not re-read the shown key after the page starts leaving', async () => {
+    const fetcher = vi
+      .fn<() => Promise<string[]>>()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce(['new workspace rows']);
+    render(() => useSessionQuery(KEY, fetcher));
+
+    leaveSession();
+    const shown = render(() => useSessionQuery(KEY, fetcher));
+    await new Promise((settled) => setTimeout(settled, 0));
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sessionCache.peek(KEY)).toBeUndefined();
+    expect(shown.error).toBeNull();
+  });
+
+  it('does not re-read a key of the previous user after a user change', async () => {
+    noteSessionUser('user-1');
+    const fetcher = vi
+      .fn<() => Promise<string[]>>()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce(['user-2 rows']);
+    render(() => useSessionQuery(KEY, fetcher));
+
+    noteSessionUser('user-2');
+    render(() => useSessionQuery(KEY, fetcher));
+    await new Promise((settled) => setTimeout(settled, 0));
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(sessionCache.peek(KEY)).toBeUndefined();
   });
 
   it('does not retry a failed first load on re-render', async () => {
