@@ -14,9 +14,12 @@
  * JavaScript.
  *
  * Migration 164 sets the same list as each bucket's `allowed_mime_types`
- * (with `audio/*` and `video/*` as wildcards), so a client that skips this
- * function is refused by Storage itself. `safe-mime.test.ts` reads the
- * migration and keeps the two lists equal: change one, change both.
+ * (with `audio/*` and `video/*` as wildcards) and refuses any other type
+ * in a `storage.objects` row of those buckets with a trigger, which also
+ * covers the copy route and comma-joined types that Storage's own check
+ * lets through. So a client that skips this function is refused.
+ * `safe-mime.test.ts` reads the migration and keeps the lists equal:
+ * change one, change both.
  *
  * Parameters are dropped because Storage compares the whole subtype,
  * parameters included: `audio/webm;codecs=opus` does not match an
@@ -66,9 +69,16 @@ const WILDCARD_RE = new RegExp(
   `^(?:${SAFE_STORED_MIME_WILDCARDS.join('|')})/[a-z0-9.+-]+$`
 );
 
+/** A comma or a control character anywhere makes the whole type unsafe. */
+const UNSAFE_CHAR_RE = /[,\p{Cc}]/u;
+
 /** The type to store a file with: allowlisted and bare, else octet-stream. */
 export function safeStoredMime(mime: string | null | undefined): string {
-  const bare = (mime ?? '').split(';')[0].trim().toLowerCase();
+  const raw = mime ?? '';
+  // A browser takes the last of comma-separated types ('audio/x, text/html'
+  // is served as HTML), and Storage's own check stops at the first '/'.
+  if (UNSAFE_CHAR_RE.test(raw)) return FALLBACK_STORED_MIME;
+  const bare = raw.split(';')[0].trim().toLowerCase();
   if (EXACT.has(bare) || WILDCARD_RE.test(bare)) return bare;
   return FALLBACK_STORED_MIME;
 }

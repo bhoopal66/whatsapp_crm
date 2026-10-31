@@ -91,19 +91,40 @@ IPv6 addresses are bucketed by their /64.
 ## Stored file types
 
 Storage is served on the app's own origin and returns each object with
-the type it was uploaded with, so a file stored as HTML or SVG would
-run as the app when its link is opened. The private buckets
-`chat-files`, `deal-files` and `call-recordings` therefore store only
-the types in `src/lib/storage/safe-mime.ts` (`safeStoredMime`:
-lower-cased, parameters dropped, anything else stored as
-`application/octet-stream`, which browsers download), and migration
-164 sets the same list as each bucket's `allowed_mime_types`, so
-Storage refuses an upload that bypasses the app. Storage checks the
-list on upload only: objects stored before 164 keep their old type
-until the operator adds response headers on the `/supabase/storage/`
-location in nginx (`X-Content-Type-Options: nosniff` and a restrictive
+the type it was stored with, so a file stored as HTML or SVG would run
+as the app when its link is opened. The private buckets `chat-files`,
+`deal-files` and `call-recordings` therefore store only the types in
+`src/lib/storage/safe-mime.ts` (`safeStoredMime`: lower-cased,
+parameters dropped; a comma, a control character or anything off the
+list is stored as `application/octet-stream`, which browsers download).
+
+Migration 164 enforces the same list in the database, for a client
+that bypasses the app:
+
+- Each bucket's `allowed_mime_types` is set to it (with `audio/*` and
+  `video/*`). Storage checks that on upload only, and only up to the
+  first `/`, so `audio/x, text/html` passes as `audio/*` and a browser
+  then renders it as HTML (it takes the last of comma-separated types).
+- The `storage_objects_safe_mime` trigger closes both gaps. Every
+  Storage route writes the `storage.objects` row, whose metadata holds
+  the stored type, and an object with no row is never served. For the
+  three buckets the trigger refuses a row whose `metadata.mimetype` (the
+  type the S3 backend serves) or `metadata.contentType` (the type the
+  file backend's copy writes) has a comma or a control character, or
+  whose type before any `;` is not on the list, `audio/<x>` or
+  `video/<x>`. That covers the copy route (`POST
+  /storage/v1/object/copy`), which never checks `allowed_mime_types` and
+  merges the caller's `metadata` into the copy, and it also refuses a
+  copy of an object stored as HTML before 164. An update that keeps the
+  bucket, version and type (Storage touching the owner or
+  `last_accessed_at`) is not re-checked, so old objects stay readable.
+
+Objects stored before 164 keep their old type until the operator adds
+response headers on the `/supabase/storage/` location in nginx
+(`X-Content-Type-Options: nosniff` and a restrictive
 `Content-Security-Policy` or `Content-Disposition: attachment`).
-`verify-storage-safe-mime.sql` asserts the bucket lists.
+`verify-storage-safe-mime.sql` asserts the bucket lists and the
+trigger's refusals.
 
 ## Housekeeping
 

@@ -24,6 +24,15 @@ describe('safeStoredMime', () => {
     'application/x-msdownload',
     'audio/',
     'audio/x webm',
+    'audio/x, text/html',
+    'AUDIO/WEBM, TEXT/HTML',
+    'audio/webm,text/html',
+    'application/pdf;x=a,text/html',
+    'application/pdf\n',
+    'audio/webm\u0000',
+    '\tapplication/pdf',
+    'image/png\u007f',
+    'video/mp4\u0085',
     'nonsense',
     '',
     '   ',
@@ -64,10 +73,13 @@ describe('migration 164', () => {
     'utf8'
   );
 
+  const arrays = [...sql.matchAll(/ARRAY\[\n([\s\S]*?)\]::text\[\]/g)].map(
+    (m) => [...m[1].matchAll(/'([^']+)'/g)].map((q) => q[1])
+  );
+
   it('sets exactly the TS allowlist on the three private buckets', () => {
-    const body = sql.match(/ARRAY\[([\s\S]*?)\]::text\[\]/);
-    expect(body).not.toBeNull();
-    const listed = [...body![1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(arrays).toHaveLength(2);
+    const listed = [...arrays[0]];
     expect(listed.sort()).toEqual(
       [
         ...SAFE_STORED_MIME_WILDCARDS.map((w) => `${w}/*`),
@@ -76,6 +88,18 @@ describe('migration 164', () => {
     );
     expect(sql).toMatch(
       /WHERE id IN \('chat-files', 'deal-files', 'call-recordings'\)/
+    );
+  });
+
+  it('refuses in its trigger exactly what safeStoredMime would rewrite', () => {
+    expect([...arrays[1]].sort()).toEqual([...SAFE_STORED_MIME_TYPES].sort());
+    expect(sql).toContain(
+      `v_bare ~ '^(${SAFE_STORED_MIME_WILDCARDS.join('|')})/[a-z0-9.+-]+$'`
+    );
+    expect(sql).toContain("strpos(v_type, ',') > 0");
+    expect(sql).toContain("v_type ~ '[[:cntrl:]]'");
+    expect(sql).toMatch(
+      /BEFORE INSERT OR UPDATE ON storage\.objects\s+FOR EACH ROW\s+WHEN \(NEW\.bucket_id IN \('chat-files', 'deal-files', 'call-recordings'\)\)/
     );
   });
 });

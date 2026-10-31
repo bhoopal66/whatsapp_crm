@@ -20,10 +20,14 @@ in a deal room and call recordings are now stored only with a safe file
 type: an HTML, SVG, XML or script file is kept as a plain download
 (`application/octet-stream`) instead of opening as a page on the app's
 own address, where it could have taken over the session of whoever
-opened its link. The migration also makes Storage refuse those types
-for the three buckets. Deal-room transcripts now download rather than
-open in the browser. Files stored before the update keep their old
-type; see `docs/security.md`.
+opened its link. The migration also makes the database refuse those
+types for the three buckets, however the file arrives: a direct
+upload, a type list such as `audio/x, text/html`, or Storage's copy
+route re-typing an existing file (a trigger on `storage.objects`;
+apply as `supabase_admin` or `postgres`). Deal-room transcripts now
+download rather than open in the browser. Files stored before the
+update keep their old type, and copying one of those that is HTML is
+now refused; see `docs/security.md`.
 
 ### Remind me, from any WhatsApp chat
 
