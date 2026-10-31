@@ -137,8 +137,8 @@ describe('mention input', () => {
 
 describe('drafts, files and body', () => {
   it('keys drafts per channel and thread, and decodes tolerantly', () => {
-    expect(draftStorageKey('AB')).toBe('wacrm.chat.draft.ab');
-    expect(draftStorageKey('ab', 'CD')).toBe('wacrm.chat.draft.ab.cd');
+    expect(draftStorageKey('U1', 'AB')).toBe('wacrm.chat.draft.u1.ab');
+    expect(draftStorageKey('U1', 'ab', 'CD')).toBe('wacrm.chat.draft.u1.ab.cd');
     expect(encodeDraft({ text: '  ', picked: [] })).toBeNull();
     const raw = encodeDraft({
       text: 'hi @Sara Ahmed',

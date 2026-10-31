@@ -19,15 +19,18 @@ import {
   readRecentDials,
 } from '@/lib/pbx/call-ui';
 import { callsSidebar } from '@/lib/pbx/timeline';
+import { useAuth } from '@/hooks/use-auth';
+import { recentDialsKey } from '@/lib/browser-storage-sweep';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
-const RECENT_KEY = 'pbx:recent-dials';
 
 export function Keypad() {
   const t = useTranslations('CallsPage.keypad');
   const tc = useTranslations('PbxCall');
   const tl = useTranslations('ChatCalls');
   const calls = useCalls();
+  const { user, accountId } = useAuth();
+  const recentKey = recentDialsKey(accountId, user?.id);
   const { busy, dial } = useDial();
   const [value, setValue] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
@@ -35,13 +38,13 @@ export function Keypad() {
   useEffect(() => {
     let live = true;
     void Promise.resolve()
-      .then(() => readRecentDials(localStorage.getItem(RECENT_KEY)))
+      .then(() => readRecentDials(localStorage.getItem(recentKey)))
       .catch(() => [] as string[]) // storage off (private mode)
       .then((list) => live && setRecent(list));
     return () => {
       live = false;
     };
-  }, []);
+  }, [recentKey]);
 
   if (!calls?.me)
     return <p className="text-muted-foreground text-sm">{tc('noExtension')}</p>;
@@ -60,7 +63,7 @@ export function Keypad() {
     const next = pushRecentDial(recent, number);
     setRecent(next);
     try {
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      localStorage.setItem(recentKey, JSON.stringify(next));
     } catch {
       // storage full or off: the list just isn't kept
     }

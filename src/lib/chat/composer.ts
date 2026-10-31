@@ -5,6 +5,7 @@
  * per-channel drafts, attachment chips, the body the RPC accepts and
  * the gate that mirrors chat_assert_can_write.
  */
+import { DRAFT_KEY_PREFIX } from '@/lib/browser-storage-sweep';
 import type { ChatErrorKey } from './errors';
 import { formatMention, isUuid, mentionQueryAt } from './mentions';
 import type { BroadcastKind, ChannelKind, ChatPerson } from './types';
@@ -204,11 +205,16 @@ export interface ComposerDraft {
   picked: PickedMention[];
 }
 
+/**
+ * Per user as well as per channel: localStorage is shared by every login
+ * on a browser. `sweepPerUserBrowserStorage` removes these on sign-out.
+ */
 export const draftStorageKey = (
+  userId: string,
   channelId: string,
   threadRootId?: string | null
 ): string =>
-  `wacrm.chat.draft.${channelId.toLowerCase()}${
+  `${DRAFT_KEY_PREFIX}${userId.toLowerCase()}.${channelId.toLowerCase()}${
     threadRootId ? `.${threadRootId.toLowerCase()}` : ''
   }`;
 
