@@ -15,7 +15,7 @@ and polish.
 ### Bank coordinators work their banks' cases and submissions
 
 **Migration required: 161, 162 and 163** (`161_bank_coordinator_access.sql`,
-`162_*.sql`, `163_bank_coordinator_submission_groups.sql`), applied in
+`162_bank_coordinator_case_lists.sql`, `163_bank_coordinator_submission_groups.sql`), applied in
 order, as a superuser or BYPASSRLS role, **before** you deploy this build.
 Re-runnable.
 
