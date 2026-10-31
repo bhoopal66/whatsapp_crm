@@ -8,26 +8,16 @@
 // had open last time (the "guess"); a guess that turns out wrong
 // falls back to loading the right pipeline's stages and deals.
 //
-// Two caches, two rules (see client-cache.ts and session-cache.ts):
-// - pipelines and stages are reference data: `cachedQuery`, keys that
-//   name the account / the pipeline, invalidated by this screen's
-//   own edits.
-// - deals are screen data: session cache, shown at once and always
-//   revalidated. The key names the pipeline and the owner filter.
+// Both are screen data in the session cache (session-cache.ts): shown
+// at once from the last visit and always revalidated, so a stage or
+// pipeline another admin added is on the board the next time it is
+// shown. The pipeline list carries every stage, so stage and pipeline
+// edits refresh that one entry. Deals are keyed by pipeline and owner
+// filter.
 // ============================================================
 
-/** Prefix of every cached pipeline list, for blanket invalidation. */
-export const PIPELINES_CACHE_PREFIX = 'pipelines:';
-
-/** The pipeline list (stages embedded) of an account. */
-export function pipelinesCacheKey(accountId: string): string {
-  return `${PIPELINES_CACHE_PREFIX}${accountId}`;
-}
-
-/** The stages of one pipeline. */
-export function stagesCacheKey(pipelineId: string): string {
-  return `stages:${pipelineId}`;
-}
+/** The session-cache question for the pipeline list (stages embedded). */
+export const PIPELINES_QUESTION = 'pipelines:list';
 
 /**
  * The session-cache question for a board's deals. `ownerFilter` is the

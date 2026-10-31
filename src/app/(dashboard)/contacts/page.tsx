@@ -104,6 +104,7 @@ import {
   type ContactListRow,
   type ContactWithConversations,
 } from '@/lib/contacts/list-query';
+import { pruneSelection } from '@/lib/contacts/selection';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
 
@@ -375,6 +376,18 @@ export function ContactsPageInner({
   if (selectionKey !== listKey) {
     setSelectionKey(listKey);
     setSelected(new Set());
+  }
+  // The same view read again (a rename that drops a row out of the
+  // search, a row deleted elsewhere) keeps only ticks still shown.
+  const [selectionRows, setSelectionRows] = useState(contacts);
+  if (selectionRows !== contacts) {
+    setSelectionRows(contacts);
+    setSelected((prev) =>
+      pruneSelection(
+        prev,
+        contacts.map((c) => c.id)
+      )
+    );
   }
 
   // After a create, edit, delete or import every cached view of the

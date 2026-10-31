@@ -19,6 +19,8 @@ import {
  * neither filters contacts nor changes `count: 'exact'`, and RLS
  * decides which conversations each caller gets, as the separate read
  * did.
+ * Accepted trade-off: an error on the embed now fails the whole read,
+ * where the separate request only left those two columns blank.
  */
 export const CONTACT_LIST_SELECT =
   '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)';
