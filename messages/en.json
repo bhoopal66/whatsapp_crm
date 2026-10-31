@@ -691,6 +691,43 @@
       "someone": "Someone",
       "noteTo": "{who} switched this chat to {name}. New messages go out from this number.",
       "noteAuto": "{who} switched this chat back to automatic. Replies go out on the number the customer last wrote to."
+    },
+    "reminder": {
+      "action": "Remind me",
+      "tooltip": "Add a reminder to your calendar",
+      "title": "Remind me about {name}",
+      "description": "Saved as a follow-up task on this customer and chat. It shows on the calendar and rings 15 minutes before.",
+      "whatLabel": "What",
+      "whatPlaceholder": "Ask for the renewed trade license",
+      "whenLabel": "When",
+      "presets": {
+        "tomorrow": "Tomorrow",
+        "in1week": "In 1 week",
+        "in1month": "In 1 month",
+        "in3months": "In 3 months"
+      },
+      "pick": "Pick date & time",
+      "pickLabel": "Reminder date and time",
+      "pickInvalid": "Pick a date and time",
+      "pickPast": "Pick a time in the future",
+      "noteLabel": "Note (optional)",
+      "notePlaceholder": "Anything to remember when it comes up",
+      "forLabel": "For",
+      "me": "Me",
+      "save": "Save reminder",
+      "cancel": "Cancel",
+      "saved": "Reminder set for {when}. It's on your calendar.",
+      "failed": "Couldn't set the reminder",
+      "undo": "Undo",
+      "undone": "Reminder cancelled",
+      "undoFailed": "Couldn't cancel the reminder",
+      "upcomingTitle": "Upcoming for this customer",
+      "upcomingEmpty": "No upcoming reminders",
+      "unassigned": "Unassigned",
+      "done": "Done",
+      "markDone": "Mark \"{title}\" done",
+      "doneSaved": "Marked done",
+      "doneFailed": "Couldn't mark it done"
     }
   },
   "Contacts": {

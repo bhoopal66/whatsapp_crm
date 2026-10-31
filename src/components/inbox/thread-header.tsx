@@ -45,6 +45,7 @@ import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
 import { isShareOnlyViewer } from '@/lib/coordinators/ui';
+import { ChatReminderButton } from './chat-reminder-button';
 import { CoordinatorShareButton } from './coordinator-share-button';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
@@ -297,6 +298,20 @@ export function ThreadHeader({
             />
           )}
           <ShareToChatButton conversationId={conversation.id} />
+          {/* A follow-up task about this customer and chat. Not for a
+            share-only coordinator: the task's links must be visible to
+            the writer (can_link_task), and a share does not extend
+            can_view_contact / can_view_conversation. */}
+          {!shareOnly && (
+            <ChatReminderButton
+              key={`remind-${conversation.id}`}
+              conversationId={conversation.id}
+              contactId={contact.id}
+              customerName={displayName}
+              assignableProfiles={assignableProfiles}
+              currentUserId={currentUserId}
+            />
+          )}
           {!shareOnly && (
             <CoordinatorShareButton
               key={`coord-${conversation.id}`}
