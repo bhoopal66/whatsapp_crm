@@ -6636,13 +6636,6 @@
     "miniPrev": "Previous month",
     "miniNext": "Next month",
     "layersTitle": "Calendars",
-    "layers": {
-      "mine": "My events",
-      "invitations": "Invitations",
-      "meetings": "Meetings",
-      "workspaceMeetings": "Workspace meetings",
-      "tasks": "Tasks"
-    },
     "upcomingTitle": "Upcoming",
     "upcomingEmpty": "Nothing in the next 7 days",
     "allDay": "All day",

@@ -89,17 +89,6 @@ import {
 } from '@/lib/calendar/ui/feed-cache';
 import { itemKey, itemStartMs } from '@/lib/calendar/ui/item-time';
 import { isEditableTarget, keyAction } from '@/lib/calendar/ui/keyboard';
-import {
-  DEFAULT_LAYERS,
-  LAYER_COLORS,
-  LAYER_KEYS,
-  filterByLayers,
-  layersStorageKey,
-  parseLayers,
-  serialiseLayers,
-  type LayerKey,
-  type Layers,
-} from '@/lib/calendar/ui/layers';
 import { addMonths, markedDays, monthGrid } from '@/lib/calendar/ui/mini-month';
 import {
   itemMatches,
@@ -289,8 +278,6 @@ export function CalendarView({
   const [title, setTitle] = useState('');
   const [view, setView] = useState<ViewKey>(initialView);
   const [cursor, setCursor] = useState<string | null>(initialDate);
-  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
-  const layersRef = useRef(layers);
   const [query, setQuery] = useState('');
   const [currentMatch, setCurrentMatch] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
@@ -308,32 +295,15 @@ export function CalendarView({
     [api]
   );
 
-  // Per-viewer layers and the rail's state, read once the viewer is known.
+  // The rail's state, read once the viewer is known.
   useEffect(() => {
     if (!userId) return;
     try {
-      const saved = parseLayers(localStorage.getItem(layersStorageKey(userId)));
-      layersRef.current = saved;
-      setLayers(saved);
       setRailOpen(localStorage.getItem(RAIL_KEY) !== 'closed');
     } catch {
-      // Storage unavailable: defaults stand.
+      // Storage unavailable: the default stands.
     }
-    api()?.refetchEvents();
-  }, [userId, api]);
-
-  const toggleLayer = (key: LayerKey) => {
-    const next = { ...layersRef.current, [key]: !layersRef.current[key] };
-    layersRef.current = next;
-    setLayers(next);
-    try {
-      if (userId)
-        localStorage.setItem(layersStorageKey(userId), serialiseLayers(next));
-    } catch {
-      // Not persisted; the toggle still applies.
-    }
-    refetch(false);
-  };
+  }, [userId]);
 
   const toggleRail = () => {
     setRailOpen((open) => {
@@ -352,16 +322,16 @@ export function CalendarView({
       success: (events: EventInput[]) => void,
       failure: (error: Error) => void
     ) => {
+      // Every kind always shows (no per-type toggles), workspace-open
+      // meetings included.
       const url = feedUrl(
         info.start.toISOString(),
         info.end.toISOString(),
-        layersRef.current.workspaceMeetings
+        true
       );
       const deliver = (loaded: FeedItem[]) => {
         setItems(loaded);
-        success(
-          feedItemsToEventInputs(filterByLayers(loaded, layersRef.current))
-        );
+        success(feedItemsToEventInputs(loaded));
       };
       const hit = cacheRef.current.get(url);
       if (hit) {
@@ -446,8 +416,8 @@ export function CalendarView({
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const visibleItems = useMemo(
-    () => filterByLayers(items, layers).filter((i) => !isItemHidden(i)),
-    [items, layers]
+    () => items.filter((i) => !isItemHidden(i)),
+    [items]
   );
   const matches = useMemo(
     () => searchMatches(visibleItems, query, zone),
@@ -695,40 +665,6 @@ export function CalendarView({
         prevLabel={t('miniPrev')}
         nextLabel={t('miniNext')}
       />
-      <section>
-        <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
-          {t('layersTitle')}
-        </h3>
-        <ul className="space-y-1">
-          {LAYER_KEYS.map((key) => {
-            const disabled = key === 'workspaceMeetings' && !layers.meetings;
-            return (
-              <li key={key}>
-                <label
-                  className={cn(
-                    'hover:bg-muted flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm',
-                    disabled && 'cursor-not-allowed opacity-50'
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-primary size-3.5"
-                    checked={layers[key]}
-                    disabled={disabled}
-                    onChange={() => toggleLayer(key)}
-                  />
-                  <span
-                    aria-hidden
-                    className="size-2.5 rounded-full"
-                    style={{ background: colorVar(LAYER_COLORS[key], 'solid') }}
-                  />
-                  {t(`layers.${key}`)}
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
       <section>
         <h3 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
           {t('upcomingTitle')}

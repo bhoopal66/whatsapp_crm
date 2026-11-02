@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar: every event type always shows
+
+No migration. The Calendar's left rail no longer has the "Calendars"
+checkboxes (My events, Invitations, Meetings, Workspace meetings,
+Tasks) that hid a type of item. Everything is always shown, including
+meetings open to the whole workspace. A choice saved in a browser
+before this change is ignored.
+
 ### Broadcasts: templates with named variables
 
 No migration. A template synced from Meta in its named format (`Hello
