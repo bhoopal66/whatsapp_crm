@@ -109,9 +109,11 @@ whose group end has not completed (a claim older than 15 minutes counts as
 free).
 
 **Status from the submission app.** A `PATCH` with a final status
-(`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) moves a case that is not
-yet final to Approved, Declined, Withdrawn or Closed, also when the group
-had already ended. A case already at a final stage is left alone. Since
+(`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`, and since migration 166
+Compass's `Customer Withdrawn` and `Agency Withdrawn`, which close as
+Withdrawn; case, spaces and `_` ignored) moves a case that is not yet
+final to Approved, Declined, Withdrawn or Closed, also when the group had
+already ended. A case already at a final stage is left alone. Since
 migration 137 any other status moves an open case to the stage of the
 bank's list with the same name, reading `_` as a space and ignoring case
 (`UNDER_REVIEW` -> Under review, `DOCUMENTS_REQUESTED` -> Documents

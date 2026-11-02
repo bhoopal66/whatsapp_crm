@@ -451,7 +451,7 @@ least one sync key.
 | Key              | Rules                                                                                                                                                                                    |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `changed_at`     | ISO 8601 date-time of the change **in Compass**. Always send it (see below).                                                                                                             |
-| `status`         | 1 to 64 characters, stored as the group's `submission_status`. A final value (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) ends the group. Any other value that names a stage of the case's bank list (`_` read as a space, case ignored: `UNDER_REVIEW` -> Under review) moves the case there, unless the same body sends `stage` (migration 137). Case screens show this value exactly as sent. |
+| `status`         | 1 to 64 characters, stored as the group's `submission_status`. A final value (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`, and since migration 166 `Customer Withdrawn` and `Agency Withdrawn`, which close the case as Withdrawn; case, spaces and `_` ignored) ends the group. Any other value that names a stage of the case's bank list (`_` read as a space, case ignored: `UNDER_REVIEW` -> Under review) moves the case there, unless the same body sends `stage` (migration 137). Case screens show this value exactly as sent. |
 | `stage`          | 1 to 64 characters; must be in the case's bank list (below).                                                                                                                             |
 | `outcome_reason` | `{ code, text? }`. `code` is one of `INCOMPLETE_DOCS`, `CREDIT_POLICY`, `INCOME_INSUFFICIENT`, `KYC_AML`, `CUSTOMER_WITHDREW`, `OTHER`, `NO_RESPONSE`; `text` is at most 500 characters. |
 | `bank`           | Bank code, `A-Z`, `0-9`, `_`, 2 to 32 characters. An unknown code is added to the account's banks.                                                                                       |
@@ -548,7 +548,9 @@ map that its admins edit: a status Compass sends (for example `Bank
 Review`) can be mapped to a stage of the bank list. On a `PATCH`, the map
 is consulted before the name rule, so a mapping also overrides an
 exact-name match; a mapped stage that is in the case's bank list moves the
-case there under the same rules. The four final statuses cannot be mapped.
+case there under the same rules. The final statuses (the four, plus `Customer
+Withdrawn` and `Agency Withdrawn` since 166) are never mapped: a mapping
+saved for one of them is ignored.
 A `PATCH` stays authoritative: its status moves the case whichever way it
 points. Only the admin's **Move N open cases now**, which re-applies a
 stored status to the cases already holding it, is forward-only (a case

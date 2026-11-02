@@ -554,8 +554,10 @@ curl -X PATCH https://your-crm.example.com/api/v1/submission-groups/SUB-10482 \
 ```
 
 `status` is 1 to 64 characters and is stored as `submission_status`. A
-final status (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) ends the
-group and closes its WhatsApp group. Any other status that names a stage
+final status (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`, and since
+migration 166 `Customer Withdrawn` and `Agency Withdrawn`, which close the
+case as Withdrawn; case, spaces and `_` ignored) ends the group and closes
+its WhatsApp group. Any other status that names a stage
 of the case's bank list (`_` read as a space, case ignored:
 `UNDER_REVIEW` -> Under review) moves the case to that stage, unless the
 same body sends `stage`. Response (200): the group, plus

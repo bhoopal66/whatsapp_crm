@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Compass's withdrawn statuses close the case
+
+**Migration required: 166** (`166_compass_finished_statuses.sql`). Apply
+after 165 as `supabase_admin` (it refuses a role without superuser or
+BYPASSRLS); re-runnable. Compass sends its own labels "Customer
+Withdrawn" and "Agency Withdrawn", which only the exact word `WITHDRAWN`
+used to close, so those cases stayed open at Submitted. They now count as
+finished: the case closes as Withdrawn and its submission ends. The
+migration also closes the open cases already holding either label; their
+submissions end within about 5 minutes through the automations cron.
+Both labels show as grey chips. Other Compass statuses are unchanged and
+still shown word for word.
+
 ### Uploaded files can no longer run as a page (security)
 
 **Migration required: 164** (`164_storage_safe_mime.sql`). Re-runnable;
