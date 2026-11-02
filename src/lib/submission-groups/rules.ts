@@ -58,9 +58,18 @@ export const DEFAULT_FINAL_STATUSES: readonly string[] = [
 ];
 
 const DAY_MS = 86_400_000;
-/** SQL's case_status_key (151): `_` read as a space, blanks collapsed, case ignored. */
+/**
+ * SQL's case_status_key (151): `_` read as a space, blanks collapsed, case
+ * ignored. Only ASCII blanks, as Postgres's `[[:space:]]` and btrim: JS's
+ * `\s` and trim() also take NBSP and U+FEFF, and a status final here but
+ * not in SQL would end the group yet leave its case open.
+ */
 const norm = (s: string) =>
-  s.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+  s
+    .replace(/_/g, ' ')
+    .replace(/[\t\n\v\f\r ]+/g, ' ')
+    .replace(/^ | $/g, '')
+    .toUpperCase();
 
 export function isStaffLabel(value: unknown): value is StaffLabel {
   return (STAFF_LABELS as readonly unknown[]).includes(value);

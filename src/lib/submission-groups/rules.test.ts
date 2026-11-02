@@ -133,6 +133,11 @@ describe('isFinalStatus (migration 166)', () => {
     expect(isFinalStatus('Awaiting Fulfillment')).toBe(false);
     expect(isFinalStatus('Withdrawn by bank')).toBe(false);
   });
+  it('reads only ASCII blanks, as SQL does', () => {
+    expect(isFinalStatus('Customer\tWithdrawn\n')).toBe(true);
+    expect(isFinalStatus('Customer\u00a0Withdrawn')).toBe(false);
+    expect(isFinalStatus('\ufeffApproved')).toBe(false);
+  });
   it('equals the WHEN keys of case_final_stage_for_status', () => {
     const sql = readFileSync(
       join(
