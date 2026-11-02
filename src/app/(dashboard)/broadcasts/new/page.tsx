@@ -15,6 +15,7 @@ import {
   type AudienceConfig,
   type VariableMapping,
 } from '@/hooks/use-broadcast-sending';
+import { pickTemplateVariables } from '@/lib/broadcasts/variables';
 import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -64,7 +65,9 @@ export default function NewBroadcastPage() {
           excludeChatTagIds: audience.excludeChatTagIds,
           skipRecentDays: audience.skipRecentDays,
         },
-        variables,
+        // Only this template's variables: mappings made for another
+        // template earlier in the wizard would shift the values.
+        variables: pickTemplateVariables(variables, template.body_text),
         headerMediaUrl,
         scheduledAt,
         quietHours,
@@ -119,7 +122,7 @@ export default function NewBroadcastPage() {
       name: name.trim(),
       template_name: template.name,
       template_language: template.language ?? 'en_US',
-      template_variables: variables,
+      template_variables: pickTemplateVariables(variables, template.body_text),
       audience_filter: {
         type: audience.type,
         chatTagIds: audience.chatTagIds,

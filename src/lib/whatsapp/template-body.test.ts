@@ -44,6 +44,21 @@ function dbReturning(
 }
 
 describe('renderTemplateBody', () => {
+  it('substitutes named placeholders in extractVariableKeys order', () => {
+    expect(
+      renderTemplateBody('Hello {{customer_name}}, the {{plan}} plan', [
+        'Sara',
+        'Grow',
+      ])
+    ).toBe('Hello Sara, the Grow plan');
+  });
+
+  it('leaves an unsupplied named placeholder visible and never re-substitutes', () => {
+    expect(
+      renderTemplateBody('{{customer_name}} on {{plan}}', ['{{plan}}'])
+    ).toBe('{{plan}} on {{plan}}');
+  });
+
   it('substitutes positional placeholders', () => {
     expect(
       renderTemplateBody('Your order {{1}} ships on {{2}}', ['A123', 'Friday'])

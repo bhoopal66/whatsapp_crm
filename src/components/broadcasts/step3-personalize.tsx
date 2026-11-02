@@ -10,6 +10,7 @@ import {
   toMb,
   validateHeaderMediaFile,
 } from '@/lib/whatsapp/header-media';
+import { extractVariableKeys } from '@/lib/whatsapp/template-validators';
 import { Contact, CustomField, MessageTemplate } from '@/types';
 import {
   countBlankVariables,
@@ -183,11 +184,13 @@ export function Step3Personalize({
     };
   }, []);
 
-  const placeholders = useMemo(() => {
-    const matches = template.body_text.match(/\{\{(\d+)\}\}/g);
-    if (!matches) return [];
-    return [...new Set(matches)].sort();
-  }, [template.body_text]);
+  // Positional ({{1}}) and named ({{customer_name}}) variables alike: a
+  // template synced from Meta in its NAMED format has only the latter,
+  // and used to show "Preview not available." with nothing to map.
+  const placeholders = useMemo(
+    () => extractVariableKeys(template.body_text).map((key) => `{{${key}}}`),
+    [template.body_text]
+  );
 
   // Templates with an IMAGE/VIDEO/DOCUMENT header need a media URL at
   // send time — Meta requires the media component on every delivery and

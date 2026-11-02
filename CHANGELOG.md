@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Broadcasts: templates with named variables
+
+No migration. A template synced from Meta in its named format (`Hello
+{{customer_name}},` rather than `{{1}}`) showed "Preview not available."
+on the broadcast's Personalize step, with nothing to map. Its variables
+now get the usual field picker and preview, a Meta send tags each value
+with its `parameter_name` (Meta refuses positional values for such a
+template), and Whapi/OpenWA render the names locally. Mappings left over
+from a template chosen earlier in the wizard are no longer sent.
+
 ### Compass's withdrawn statuses close the case
 
 **Migration required: 166** (`166_compass_finished_statuses.sql`). Apply

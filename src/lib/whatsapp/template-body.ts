@@ -17,18 +17,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
+import { extractVariableKeys } from '@/lib/whatsapp/template-validators';
 import type { MessageTemplate } from '@/types';
 
 /**
- * Substitute positional `{{1}}`, `{{2}}`… placeholders in a template
- * body. A placeholder with no corresponding param is left as-is rather
+ * Substitute a template body's placeholders. Positional `{{1}}`,
+ * `{{2}}`… take `params[N-1]`; named `{{customer_name}}` placeholders
+ * (a template synced from Meta in its NAMED format) take their slot in
+ * `extractVariableKeys` order, the order a broadcast resolves values
+ * in. A placeholder with no corresponding param is left as-is rather
  * than blanked, so a caller that under-supplies params gets a visible
  * `{{2}}` instead of a silently truncated sentence.
  */
 export function renderTemplateBody(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
-    const idx = Number(raw) - 1;
-    return params[idx] ?? `{{${raw}}}`;
+  const keys = extractVariableKeys(body);
+  // One pass, so a substituted value that itself contains `{{…}}` is
+  // never substituted again.
+  return body.replace(/\{\{(\d+|[a-z_][a-z0-9_]*)\}\}/g, (match, key) => {
+    const idx = /^\d+$/.test(key) ? Number(key) - 1 : keys.indexOf(key);
+    return (idx >= 0 ? params[idx] : undefined) ?? match;
   });
 }
 

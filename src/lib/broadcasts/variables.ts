@@ -1,5 +1,9 @@
 import type { Contact } from '@/types';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import {
+  compareVariableKeys,
+  extractVariableKeys,
+} from '@/lib/whatsapp/template-validators';
 
 /**
  * One row of an uploaded broadcast CSV. `phone`/`name`/`company` are
@@ -54,16 +58,33 @@ export function contactFieldValue(
   return fieldMap[field] ?? undefined;
 }
 
-/** Placeholder keys in send order: numeric-aware so {{1}} precedes {{10}}. */
+/**
+ * Placeholder keys in send order: numeric-aware so {{1}} precedes
+ * {{10}}, names after. The Meta send pairs the values back to the
+ * template's named variables in this same order
+ * (`compareVariableKeys`).
+ */
 export function sortedVariableKeys(
   variables: Record<string, VariableMapping>
 ): string[] {
-  return Object.keys(variables).sort((a, b) => {
-    const an = Number(a);
-    const bn = Number(b);
-    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
-    return a.localeCompare(b);
-  });
+  return Object.keys(variables).sort(compareVariableKeys);
+}
+
+/**
+ * Only the mappings for variables this template actually has. The
+ * wizard keeps mappings when the admin goes back and picks another
+ * template, and a leftover key would take a slot in the value list
+ * and shift every value after it.
+ */
+export function pickTemplateVariables(
+  variables: Record<string, VariableMapping>,
+  bodyText: string
+): Record<string, VariableMapping> {
+  const out: Record<string, VariableMapping> = {};
+  for (const key of extractVariableKeys(bodyText)) {
+    if (variables[key]) out[key] = variables[key];
+  }
+  return out;
 }
 
 /**

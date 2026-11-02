@@ -4,6 +4,7 @@ import {
   countBlankVariables,
   csvValuesForContact,
   indexCsvRowsByPhone,
+  pickTemplateVariables,
   resolveVariableWithFallback,
   resolveVariables,
   sortedVariableKeys,
@@ -32,6 +33,30 @@ describe('sortedVariableKeys', () => {
         '1': { type: 'static', value: '' },
       })
     ).toEqual(['1', '2', '10']);
+  });
+
+  it('orders named keys as the Meta send pairs them back', () => {
+    expect(
+      sortedVariableKeys({
+        plan: { type: 'static', value: '' },
+        customer_name: { type: 'static', value: '' },
+      })
+    ).toEqual(['customer_name', 'plan']);
+  });
+});
+
+describe('pickTemplateVariables', () => {
+  it("keeps only the template's variables, so a leftover cannot shift values", () => {
+    // Mapped {{1}} for one template, then switched to a named one.
+    const picked = pickTemplateVariables(
+      {
+        '1': { type: 'static', value: 'old' },
+        customer_name: { type: 'field', value: 'name' },
+      },
+      'Hello {{customer_name}},'
+    );
+    expect(picked).toEqual({ customer_name: { type: 'field', value: 'name' } });
+    expect(resolveVariables(picked, contact)).toEqual(['Alice (CRM)']);
   });
 });
 
