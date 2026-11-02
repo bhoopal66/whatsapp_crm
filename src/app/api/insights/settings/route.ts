@@ -131,7 +131,7 @@ export async function PUT(request: Request) {
     if (error?.code === '23505' || (!error && !data)) return changed();
     if (error) {
       console.error('[insights/settings PUT] save error:', error.message);
-      // 23503: the tag is gone or another account's; 23514: a sub-tag.
+      // 23503: the tag is gone; 23514: a sub-tag or another account's (165).
       if (error.code === '23503' || error.code === '23514')
         return NextResponse.json(
           { error: 'Choose one of your main chat tags' },

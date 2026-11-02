@@ -166,7 +166,11 @@ BEGIN
     RETURNS text LANGUAGE plpgsql AS $body$
     DECLARE v text := p_prefix || gen_random_uuid() || '-' || p_name;
     BEGIN
-      INSERT INTO storage.objects (bucket_id, name) VALUES ('chat-files', v);
+      -- 165: a forward compares the copy's stored size and mimetype with
+      -- the source object's, so fixture objects carry storage metadata.
+      INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('chat-files', v,
+        jsonb_build_object('size', 10, 'mimetype',
+          CASE WHEN p_name LIKE '%.ogg' THEN 'audio/ogg' ELSE 'application/pdf' END));
       RETURN v;
     END $body$
   $fn$;

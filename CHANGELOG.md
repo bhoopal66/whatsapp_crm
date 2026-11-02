@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Three permission gaps closed (team chat, Smart insights)
+
+**Migration required:** apply `supabase/migrations/165_security_lows.sql`
+(after 160, as a superuser or BYPASSRLS role like 156–160).
+Forwarding a message with files now checks the copied files themselves
+in storage (size and type must match the original), so a
+person who may send voice notes but not upload files can no longer slip
+an arbitrary file through as a "forward". In team and private channels
+only a workspace owner or admin can change the role of a channel admin
+(anyone may still step down themselves), and a bank guest can never be
+made a channel admin. A channel admin who is not a workspace owner or
+admin can no longer demote or remove a co-admin either, and the members
+panel no longer offers it. Smart insights settings refuse an
+interested-reply tag from another workspace with a clear message and
+record who saved them.
+
 ### Security: small hardening (2026-10-31 audit)
 
 No migration. The OpenDesk (Taamul sales) webhook now stops reading a

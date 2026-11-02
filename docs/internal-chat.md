@@ -107,7 +107,15 @@ Their defaults change nothing until an owner or admin saves rules.
   taken the name meanwhile: rename that channel first (an archived one
   cannot be renamed).
 - **Removing a member.** Nobody removes themselves (that is leaving),
-  and the last (non-guest) channel admin cannot be removed. Someone
+  and the last (non-guest) channel admin cannot be removed. Since 165,
+  changing the role of someone who is a channel admin (in a team or a
+  private channel) needs a workspace owner or admin, unless it is your
+  own role (`42501`), so one channel admin cannot demote the others and
+  keep the channel; promoting members still works for any channel
+  admin, and a bank guest is never made a channel admin (`22023`). Removing
+  a co-admin follows the same rule: a channel admin who is not a
+  workspace owner or admin cannot (`chat_remove_member` refuses with
+  `42501`). Someone
   removed from a private channel loses it at once, with their bell rows
   for it. Removed from a team channel, a staff member can still read it
   and rejoins by posting.
@@ -327,7 +335,12 @@ audited as `update_sensitive_guard` (old and new).
   itself asks for no upload right, so each attachment must match a
   distinct attachment of the source on name, type, size, kind and
   duration (no more of them than the source has; else `22023`, "copies
-  of the source message"). Copying the files is a storage upload,
+  of the source message"). Since 165 the stored object is checked too,
+  not only the fields the browser sends: each copy's storage object must
+  have the source file's size and the same stored mimetype as the source
+  file's object, and an object with no metadata is refused (`22023`), so
+  someone with _send voice_ but not _upload files_ cannot upload an
+  arbitrary file and pass it off as a copy. Copying the files is a storage upload,
   though, which the storage policy allows only with _upload files_ or
   _send voice_: a message **with files** is therefore forwardable only by
   someone who also holds one of those, and the app offers Forward on it

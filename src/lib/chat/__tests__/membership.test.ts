@@ -122,6 +122,7 @@ describe('canSetRoles / roleChange', () => {
     ...ctx({ myRole: 'admin', ...o }),
     members: roster,
     peopleById: byId,
+    userId: 'me',
   });
 
   it('private needs a channel admin; team also lets a workspace owner/admin', () => {
@@ -150,6 +151,32 @@ describe('canSetRoles / roleChange', () => {
       to: 'member',
       block: null,
     });
+  });
+
+  it('another channel admin only by a workspace owner/admin; a bank guest is never made admin (165)', () => {
+    const two = {
+      ...full({ kind: 'team' }),
+      members: [member('me', 'admin'), member('ann', 'admin')],
+    };
+    const ann = member('ann', 'admin');
+    // An agent channel admin: no menu for a co-admin, in private channels too.
+    expect(roleChange(ann, two)).toBeNull();
+    expect(roleChange(ann, { ...two, kind: 'private' })).toBeNull();
+    // Stepping down yourself is still offered.
+    expect(roleChange(member('me', 'admin'), two)).toEqual({
+      to: 'member',
+      block: null,
+    });
+    for (const accountRole of ['owner', 'admin'])
+      expect(roleChange(ann, { ...two, accountRole })).toEqual({
+        to: 'member',
+        block: null,
+      });
+    // A bank guest holding a member row is never offered make-admin.
+    expect(roleChange(member('gus', 'member'), full({}))).toBeNull();
+    expect(
+      roleChange(member('gus', 'member'), full({ accountRole: 'owner' }))
+    ).toBeNull();
   });
 });
 
@@ -292,6 +319,26 @@ describe('canRemoveMember (091)', () => {
       canRemoveMember(bob, {
         ...admin,
         ...roster([bob, member('ann', 'admin')]),
+      })
+    ).toBe(true);
+    // An agent channel admin cannot remove a co-admin (165); a member yes.
+    const agentAdmin = ctx({ myRole: 'admin' });
+    const both = roster([member('me', 'admin'), member('ann', 'admin')]);
+    expect(
+      canRemoveMember(member('ann', 'admin'), { ...agentAdmin, ...both })
+    ).toBe(false);
+    expect(
+      canRemoveMember(member('ann', 'admin'), {
+        ...agentAdmin,
+        kind: 'team',
+        ...both,
+      })
+    ).toBe(false);
+    expect(
+      canRemoveMember(member('ann', 'admin'), {
+        ...agentAdmin,
+        accountRole: 'admin',
+        ...both,
       })
     ).toBe(true);
     // A guest member can be removed.

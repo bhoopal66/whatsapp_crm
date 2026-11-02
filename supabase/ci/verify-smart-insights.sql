@@ -179,7 +179,8 @@ BEGIN
   r := pg_temp.si_do(format(
          'UPDATE ai_insight_settings SET reply_interested_tag_id = %L WHERE account_id = %L', m_b, a_acct));
   n := n + 1;
-  IF r NOT LIKE 'ERROR 23503%' THEN
+  -- 165's guard refuses it (23514) before 147's composite FK (23503) would.
+  IF r NOT LIKE 'ERROR 23503%' AND r NOT LIKE 'ERROR 23514%of this workspace%' THEN
     failed := array_append(failed, ('another account''s tag was accepted as the interested tag: ' || r)::text);
   END IF;
 
