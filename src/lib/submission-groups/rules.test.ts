@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assertWindowDays,
   canRead,
   canSend,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
+  DEFAULT_FINAL_STATUSES,
   isFinalStatus,
   prefixMessage,
   shouldEnd,
@@ -115,5 +118,34 @@ describe('assertWindowDays', () => {
     expect(() => assertWindowDays(0)).not.toThrow();
     expect(() => assertWindowDays(-1)).toThrow(RangeError);
     expect(() => assertWindowDays(1.5)).toThrow(RangeError);
+  });
+});
+
+describe('isFinalStatus (migration 166)', () => {
+  it("counts Compass's withdrawn labels, read as case_status_key reads them", () => {
+    expect(isFinalStatus('Customer Withdrawn')).toBe(true);
+    expect(isFinalStatus('customer_withdrawn')).toBe(true);
+    expect(isFinalStatus(' AGENCY  WITHDRAWN ')).toBe(true);
+    expect(isFinalStatus('Approved')).toBe(true);
+  });
+  it('leaves open statuses open', () => {
+    expect(isFinalStatus('Bank Review')).toBe(false);
+    expect(isFinalStatus('Awaiting Fulfillment')).toBe(false);
+    expect(isFinalStatus('Withdrawn by bank')).toBe(false);
+  });
+  it('equals the WHEN keys of case_final_stage_for_status', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/166_compass_finished_statuses.sql'
+      ),
+      'utf8'
+    );
+    const body = sql.match(
+      /FUNCTION public\.case_final_stage_for_status\(p text\)[\s\S]*?\$\$([\s\S]*?)\$\$/
+    );
+    expect(body).not.toBeNull();
+    const keys = [...body![1].matchAll(/WHEN '([^']+)'/g)].map((m) => m[1]);
+    expect([...keys].sort()).toEqual([...DEFAULT_FINAL_STATUSES].sort());
   });
 });

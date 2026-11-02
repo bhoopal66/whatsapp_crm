@@ -111,6 +111,8 @@ export const TRACKER_STATUS_CHIP: Readonly<Record<string, string>> = {
   approved: GREEN,
   declined: RED,
   withdrawn: GREY,
+  'customer withdrawn': GREY,
+  'agency withdrawn': GREY,
   closed: GREY,
 };
 

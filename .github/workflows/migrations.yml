@@ -646,6 +646,15 @@ jobs:
       - name: Verify case status map
         run: supabase db query --local --file supabase/ci/verify-case-status-map.sql
 
+      # Migration 166's finished Compass statuses: "Customer Withdrawn"
+      # and "Agency Withdrawn" (read through case_status_key) close an
+      # open case as Withdrawn, as the API, like the four original final
+      # words; an open status leaves the case where it is and a closed
+      # case is never touched; the repair closes open cases already
+      # holding a new label, and a second pass closes nothing more.
+      - name: Verify Compass finished statuses
+        run: supabase db query --local --file supabase/ci/verify-compass-finished-statuses.sql
+
       # Migration 152's knowledge-gap topics: an admin reads topics and
       # members, an agent and another account read nothing; dismiss and
       # reopen only through kb_gap_topic_set_status (admin+ of the active

@@ -360,6 +360,9 @@ describe('caseStatusView', () => {
     );
     expect(colour('APPROVED')).toBe(stageChipClass('Approved'));
     expect(colour('DECLINED')).toBe(stageChipClass('Declined'));
+    // 166: Compass's two withdrawn labels are finished, grey as WITHDRAWN.
+    expect(colour('Customer Withdrawn')).toBe(colour('WITHDRAWN'));
+    expect(colour('Agency_Withdrawn')).toBe(colour('WITHDRAWN'));
   });
 
   it('else takes the colour of the stage the status names', () => {
@@ -400,9 +403,9 @@ describe('caseStatusView', () => {
 
 describe('contactPersonLine', () => {
   it("shows the contact's own name when it differs from the customer", () => {
-    expect(
-      contactPersonLine('ALA DIN GENTS SALOON L.L.C', 'Nasrullah')
-    ).toBe('Nasrullah');
+    expect(contactPersonLine('ALA DIN GENTS SALOON L.L.C', 'Nasrullah')).toBe(
+      'Nasrullah'
+    );
     expect(contactPersonLine(null, ' Nasrullah ')).toBe('Nasrullah');
   });
 

@@ -43,15 +43,24 @@ export const ROLE_LABELS: Record<StaffLabel, string> = {
 
 /** Days after ended_at during which the group's coordinator / team_lead may still read it. */
 export const DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS = 60;
+/**
+ * Compass statuses that finish a submission: the group ends and the case
+ * closes. Mirrors case_final_stage_for_status (migration 166), which
+ * rules.test.ts reads: change one, change both.
+ */
 export const DEFAULT_FINAL_STATUSES: readonly string[] = [
   'APPROVED',
   'DECLINED',
   'WITHDRAWN',
+  'CUSTOMER WITHDRAWN',
+  'AGENCY WITHDRAWN',
   'CLOSED',
 ];
 
 const DAY_MS = 86_400_000;
-const norm = (s: string) => s.trim().toUpperCase();
+/** SQL's case_status_key (151): `_` read as a space, blanks collapsed, case ignored. */
+const norm = (s: string) =>
+  s.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
 
 export function isStaffLabel(value: unknown): value is StaffLabel {
   return (STAFF_LABELS as readonly unknown[]).includes(value);
