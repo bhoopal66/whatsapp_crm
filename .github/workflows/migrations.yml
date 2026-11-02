@@ -709,3 +709,10 @@ jobs:
       # service role only.
       - name: Verify chat-media staged sweep
         run: supabase db query --local --file supabase/ci/verify-chat-media-staged.sql
+
+      # Migration 164: chat-files, deal-files and call-recordings carry a
+      # non-empty allowed_mime_types with no HTML, XHTML, SVG, XML or
+      # JavaScript type, so no upload is served as a page on the app's
+      # origin.
+      - name: Verify storage safe mime
+        run: supabase db query --local --file supabase/ci/verify-storage-safe-mime.sql

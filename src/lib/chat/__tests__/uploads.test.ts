@@ -107,6 +107,30 @@ describe('upload / signed URL', () => {
     expect(att.storage_path).toMatch(PATH_RE);
   });
 
+  it('stores an HTML file as octet-stream, never as a page (164)', async () => {
+    const { sb, uploads } = fakeStorage();
+    const att = await uploadChatFile(sb, {
+      accountId: WS,
+      channelId: CH,
+      file: file('x.html', 3, 'text/html'),
+    });
+    expect(uploads[0].opts).toMatchObject({
+      contentType: 'application/octet-stream',
+    });
+    expect(att.mime).toBe('application/octet-stream');
+  });
+
+  it('drops parameters, so a recorder type passes the bucket allowlist', async () => {
+    const { sb, uploads } = fakeStorage();
+    const att = await uploadChatFile(sb, {
+      accountId: WS,
+      channelId: CH,
+      file: file('voice.ogg', 3, 'audio/webm;codecs=opus'),
+    });
+    expect(uploads[0].opts).toMatchObject({ contentType: 'audio/webm' });
+    expect(att.mime).toBe('audio/webm');
+  });
+
   it('maps a storage RLS refusal to FORBIDDEN', async () => {
     const { sb } = fakeStorage({
       message: 'new row violates row-level security policy',

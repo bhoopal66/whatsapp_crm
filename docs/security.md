@@ -88,6 +88,93 @@ Unset (or the header missing), the webhooks share one `unknown`
 bucket, sign-in keys on the email, and the API-key lockout is off.
 IPv6 addresses are bucketed by their /64.
 
+## Stored file types
+
+Storage is served on the app's own origin and returns each object with
+the type it was stored with, so a file stored as HTML or SVG would run
+as the app when its link is opened. The private buckets `chat-files`,
+`deal-files` and `call-recordings` therefore store only the types in
+`src/lib/storage/safe-mime.ts` (`safeStoredMime`: lower-cased,
+parameters dropped; a comma, a control character or anything off the
+list is stored as `application/octet-stream`, which browsers download).
+
+Migration 164 enforces the same list in the database, for a client
+that bypasses the app:
+
+- Each bucket's `allowed_mime_types` is set to it (with `audio/*` and
+  `video/*`). Storage checks that on upload only, and only up to the
+  first `/`, so `audio/x, text/html` passes as `audio/*` and a browser
+  then renders it as HTML (it takes the last of comma-separated types).
+- The `storage_objects_safe_mime` trigger closes both gaps. Every
+  Storage route writes the `storage.objects` row, whose metadata holds
+  the stored type, and an object with no row is never served. For the
+  three buckets the trigger refuses a row whose `metadata.mimetype` (the
+  type the S3 backend serves) or `metadata.contentType` (the type the
+  file backend's copy writes) has a comma or a control character, or
+  whose type before any `;` is not on the list, `audio/<x>` or
+  `video/<x>`. On the copy route (`POST /storage/v1/object/copy`),
+  which never checks `allowed_mime_types` and merges the caller's
+  `metadata` into the copy, that refuses a copy that sets a bad type.
+  An update that keeps the bucket, version and type (Storage touching
+  the owner or `last_accessed_at`) is not re-checked, so old objects
+  stay readable.
+
+What the database cannot see: on Storage's **file backend** (the
+self-hosted default) the type a file is served with is kept on disk
+with the file (the `user.supabase.content-type` extended attribute),
+not taken from the row. A copy keeps the source file's attribute unless
+the caller sets `contentType`, so a copy that sets only
+`metadata.mimetype` to a safe type passes the trigger and is still
+served with the source's type: an old HTML or SVG object, or a file
+uploaded to a public bucket (`avatars`, `chat-media`, `flow-media`,
+which 164 leaves alone) with a type list such as
+`image/png/,application/xhtml+xml`, which Storage accepts as
+`image/png`. **The nginx headers below are therefore required**, not
+optional; they are what make every stored file safe, including those
+stored before 164.
+
+### Required nginx headers on storage
+
+Give Storage its own location ahead of `location /supabase/`, with the
+same proxy settings, and sandbox every response that is not one plain
+media type or a PDF. A sandboxed document gets an opaque origin and no
+script, so an HTML, SVG or XML file cannot act as the app; `<img>`,
+`<audio>` and `<video>` embeds are unaffected. The whole Content-Type
+must match, because a comma would let the browser pick a later type.
+
+```nginx
+# http level, next to the other map blocks
+map $upstream_http_content_type $storage_csp {
+    "~*^(image/(png|jpeg|gif|webp|heic|heif|bmp|tiff)|audio/[a-z0-9.+-]+|video/[a-z0-9.+-]+|application/pdf)\s*(;[^,]*)?$" "";
+    default "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
+}
+
+# server block, before location /supabase/
+location /supabase/storage/ {
+    proxy_pass http://127.0.0.1:8000/storage/;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Cookie            "";
+    proxy_read_timeout  3600s;
+    proxy_send_timeout  3600s;
+    proxy_buffering off;
+    proxy_buffer_size       32k;
+    proxy_buffers        8  32k;
+    proxy_busy_buffers_size 64k;
+    add_header Content-Security-Policy $storage_csp always;
+    add_header X-Content-Type-Options  nosniff always;
+}
+```
+
+An empty map value adds no header. `add_header` in a location drops
+any inherited from the server block, so repeat those here if your
+server block sets any. `verify-storage-safe-mime.sql` asserts the bucket
+lists and the trigger's refusals; nothing in CI checks the nginx
+headers.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.

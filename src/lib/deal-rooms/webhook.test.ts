@@ -555,6 +555,40 @@ describe('group messages and receipts', () => {
     );
   });
 
+  it("never stores a participant's HTML document as a page (164)", async () => {
+    getMediaUrl.mockResolvedValueOnce({
+      url: 'https://lookaside.fbsbx.com/m',
+      mimeType: 'text/html; charset=utf-8',
+      fileSize: 3,
+    });
+    const { db, upload, inserts } = fakeDb({
+      tables: { deal_rooms: ROOM },
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.5',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'document',
+          document: {
+            id: 'media-2',
+            filename: 'x.html',
+            mime_type: 'text/html',
+          },
+        },
+      ],
+    });
+    expect(upload).toHaveBeenCalledWith(
+      'account-acct-1/room-room-1/wamid.5-x.html',
+      expect.any(Buffer),
+      expect.objectContaining({ contentType: 'application/octet-stream' })
+    );
+    expect(inserts('deal_files')[0]).toEqual(
+      expect.objectContaining({ mime: 'application/octet-stream' })
+    );
+  });
+
   it('removes and opts out a participant who writes an opt-out keyword', async () => {
     const { db, rpc } = fakeDb({
       tables: {

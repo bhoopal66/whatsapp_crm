@@ -13,6 +13,8 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { safeStoredMime } from '@/lib/storage/safe-mime';
+
 const BUCKET = 'deal-files';
 
 export interface TranscriptMessage {
@@ -241,12 +243,12 @@ export async function saveTranscript(
   const name = `transcript-${stamp}.html`;
   const path = `account-${room.account_id}/room-${room.id}/${name}`;
   const bytes = Buffer.from(html, 'utf8');
-  const { error: upErr } = await db.storage
-    .from(BUCKET)
-    .upload(path, bytes, {
-      contentType: 'text/html; charset=utf-8',
-      upsert: false,
-    });
+  const { error: upErr } = await db.storage.from(BUCKET).upload(path, bytes, {
+    // Stored as octet-stream so it downloads rather than renders on the
+    // app's origin (164, safe-mime.ts); the row still says text/html.
+    contentType: safeStoredMime('text/html; charset=utf-8'),
+    upsert: false,
+  });
   if (upErr) throw new Error(`transcript upload failed: ${upErr.message}`);
   const row = {
     id: randomUUID(),

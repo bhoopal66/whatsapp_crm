@@ -12,6 +12,28 @@ and polish.
 
 ## [Unreleased]
 
+### Uploaded files can no longer run as a page (security)
+
+**Migration required: 164** (`164_storage_safe_mime.sql`). Re-runnable;
+apply it before or with this build, as `supabase_admin` or `postgres`.
+**Server change required:** the nginx headers on `/supabase/storage/`
+in `docs/security.md` ("Stored file types"); the migration alone does
+not close the hole. Files posted in team chat, shared in a deal room
+and call recordings are now stored only with a safe file type: an HTML,
+SVG, XML or script file is kept as a plain download
+(`application/octet-stream`) instead of opening as a page on the app's
+own address, where it could have taken over the session of whoever
+opened its link. The migration also makes the database refuse those
+types for the three buckets on a direct upload, on a type list such as
+`audio/x, text/html`, and on Storage's copy route when it sets a new
+type. It cannot stop a copy that keeps the type stored on disk with the
+source file, and the public buckets (avatars, chat-media, flow-media)
+also accept a type list, so the nginx headers are what make every
+stored file safe, old ones included. Deal-room transcripts now download
+rather than open in the browser. Forwarding a team-chat file stored
+before the update with a type that is no longer accepted (for example
+Markdown or a macro-enabled Office file) now fails.
+
 ### Three permission gaps closed (team chat, Smart insights)
 
 **Migration required:** apply `supabase/migrations/165_security_lows.sql`

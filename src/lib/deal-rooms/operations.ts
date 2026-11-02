@@ -33,6 +33,7 @@ import {
   sendGroupTemplate,
   sendGroupText,
 } from '@/lib/whatsapp/meta-groups';
+import { safeStoredMime } from '@/lib/storage/safe-mime';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
 import {
@@ -396,7 +397,7 @@ async function stageMedia(
   const path = roomMediaPath(room.account_id, room.id, input.fileName);
   const bucket = db.storage.from(DEAL_FILES_BUCKET);
   const { error: upErr } = await bucket.upload(path, input.bytes, {
-    contentType: input.mime,
+    contentType: safeStoredMime(input.mime),
     upsert: false,
   });
   if (upErr) {
