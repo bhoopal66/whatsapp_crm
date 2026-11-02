@@ -148,7 +148,7 @@ BEGIN
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf', pdf))), uuidp);
   n := n + 1; failed := failed || pg_temp.tc_check('1b copy whose object has another mimetype was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf',
-      jsonb_build_object('size', 10, 'mimetype', 'application/x-msdownload')))),
+      jsonb_build_object('size', 10, 'mimetype', 'application/zip')))),
     'ERROR 22023:%stored object does not match the source file%');
   n := n + 1; failed := failed || pg_temp.tc_check('1c copy whose object has another size was accepted', u_ag,
     format(fwd, src, tm, pg_temp.tc_pdf(pg_temp.tc_up(a, tm, 'd.pdf',
