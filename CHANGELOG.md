@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Assigning a chat moves its contact too
+
+- **Migration required:** apply `169_contact_follows_assignment.sql`.
+- When a chat is assigned or reassigned to someone (from the chat
+  header, Take over, an automation, a flow or the API), its contact
+  now becomes theirs as well, so it shows under their contacts.
+  Unassigning a chat leaves the contact with whoever had it.
+- Every contact now keeps a permanent record of who it was created
+  for (`contacts.created_by`). It is not shown anywhere and nothing
+  changes it; existing contacts take their current owner.
+- The Contacts screens' "Created by" column is now "Owner", since
+  that column shows whose contact it is and that now moves.
+- The assign confirmation says the contact moves with the chat.
+
 ### Inbox: confirm before assigning a chat
 
 - Picking a person in a chat's assignee menu (or Unassign) now asks

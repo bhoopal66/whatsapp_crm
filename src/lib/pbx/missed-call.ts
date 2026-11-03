@@ -18,7 +18,8 @@ export interface MissedCallOwnerInput {
   holders: ReadonlySet<string>;
   /** The conversation's assigned_agent_id. */
   assignedAgentId: string | null;
-  /** The contact's user_id (its creator or importer). */
+  /** The contact's user_id (its owner: the creator or importer, or since
+   *  migration 169 whoever its chat was last assigned to). */
   contactOwnerId: string | null;
 }
 

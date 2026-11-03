@@ -734,3 +734,11 @@ jobs:
       # origin.
       - name: Verify storage safe mime
         run: supabase db query --local --file supabase/ci/verify-storage-safe-mime.sql
+
+      # Migration 169: assigning a chat moves its contact (user_id) to a
+      # live staff assignee of the same account, from any writer;
+      # unassigning, a refused assignment, a deactivated member, a bank
+      # guest or another account's person move nothing; created_by is
+      # the user_id at insert and never changes for any writer.
+      - name: Verify contact follows assignment
+        run: supabase db query --local --file supabase/ci/verify-contact-follows-assignment.sql
