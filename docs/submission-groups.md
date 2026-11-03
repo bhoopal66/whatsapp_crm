@@ -219,6 +219,21 @@ stage, bank, product, amount, outcome reason or document received/rejected
 status (409 `MANAGED_EXTERNALLY`). Notes, tasks and the rest stay open,
 and this API is never locked. See [cases.md](cases.md).
 
+## Automatic messages (170)
+
+- **Welcome.** Posted once into a group after it is ready and its case
+  exists; the text is `welcomeMessage()` in
+  `src/lib/submission-groups/rules.ts`.
+- **Status updates from the tracker.** A Compass `text` notification
+  (`POST /api/v1/compass/notifications`) whose `reference` is the
+  submission id, or whose customer has a live group, is posted into the
+  group instead of 1:1 (`docs/compass.md` §5), once per idempotency key.
+- **2-day hold.** After a final status ends a group, closing it on
+  WhatsApp waits 2 days so the last status update can still be posted.
+- **System rows.** These are `submission_group_messages` rows with
+  `sender_user_id` NULL and a `system_kind` (`welcome` /
+  `status_update`), sent from the hosting number with no name prefix.
+
 ## Known limits
 
 - If WhatsApp accepts a staff message but the CRM fails to record that

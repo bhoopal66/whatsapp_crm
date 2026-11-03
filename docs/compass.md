@@ -274,6 +274,19 @@ agents' working record. Returns `{ "data": { "deleted": true } }`, or
 
 Scope: `compass_notifications:send`
 
+**Where it goes (migration 170).** Put the submission id in
+`reference`. A `text` update for a customer whose submission has a live
+WhatsApp group is posted **only into that group**, from the group's own
+number, and not 1:1. The group is the one whose submission id equals
+`reference`; when `reference` matches none, it is the customer's newest
+submission group that still has a live WhatsApp group. With no such
+group (or when the group refuses the post) it is sent 1:1 as below.
+Only `text` goes to a group: `image` and `document` are always 1:1.
+After a submission ends on a final status, its group stays open for 2
+days, and status updates still go into it during that hold. The
+response says where it went: `delivered_to` is `group` (with
+`submission_group_id`) or `customer`.
+
 **Request**
 
 ```json
@@ -316,6 +329,8 @@ Scope: `compass_notifications:send`
     "whatsapp_message_id": "wamid.…",
     "conversation_id": "a81c…",
     "contact_id": "7c9e…",
+    "delivered_to": "customer",
+    "submission_group_id": null,
     "error": null,
     "created_at": "2026-09-23T09:15:00.000Z",
     "updated_at": "2026-09-23T09:15:01.000Z",
@@ -361,9 +376,11 @@ Scope: `compass_notifications:send`. Filters: `status`
 | 404  | `compass_contact_not_found` | Unknown `compass_id`                                                                                                                  | Sync the customer first, or send `to`                                                                      |
 | 409  | `in_progress`               | The same key is being sent right now                                                                                                  | Wait a few seconds, then `GET` the key                                                                     |
 | 409  | `whapi_not_connected`       | The Whapi WhatsApp channel isn't connected, or the Whapi number this customer's chat uses is logged out of WhatsApp. Nothing was sent | Alert an admin; retry later with the **same** key                                                          |
+| 422  | `customer_opted_out`        | The customer opted out of WhatsApp messages; nothing was sent, in the group or 1:1                                                    | Do not retry; contact the customer another way                                                             |
 | 422  | `no_phone`                  | The synced customer has no phone                                                                                                      | Sync a phone for them, or send `to`                                                                        |
 | 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent   | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
 | 429  | `rate_limited`              | Over 120 requests/min on this key                                                                                                     | Wait `Retry-After` seconds, retry the same key                                                             |
+| 502  | `group_send_failed`         | WhatsApp refused the post into the customer's submission group. Nothing was sent                                                      | Retry later with the **same** key                                                                          |
 | 502  | `whatsapp_error`            | WhatsApp refused or failed the send (e.g. the number isn't on WhatsApp, or the phone paired to Whapi is offline)                      | Retry later with the same key. If it keeps failing, check the number.                                      |
 | 500  | `internal` / `db_error`     | Unexpected server error                                                                                                               | Retry later with the same key                                                                              |
 

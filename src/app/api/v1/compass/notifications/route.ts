@@ -5,7 +5,8 @@
 // Scope: compass_notifications:send (both).
 //
 // The Taamul Compass integration (migration 056, docs/compass.md).
-// Always sent on the Whapi number, into the customer's existing chat
+// A text update goes only into the customer's live submission group
+// when there is one (migration 170); otherwise it is sent on the Whapi number, into the customer's existing chat
 // without changing who handles it, at most once per idempotency_key —
 // the rules and their reasons are in lib/compass/notify.ts.
 //
@@ -43,6 +44,7 @@ import {
   serializeNotification,
 } from '@/lib/compass/notify';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
+import { submissionGroupService } from '@/lib/submission-groups/server';
 
 export async function POST(request: Request) {
   try {
@@ -53,7 +55,13 @@ export async function POST(request: Request) {
     const outcome = await sendCompassNotification(
       ctx.supabase,
       ctx.accountId,
-      req
+      req,
+      {
+        // 170: a text update goes into the customer's submission group
+        // when one is live (lib/compass/notify.ts).
+        groupSender: (input) =>
+          submissionGroupService(ctx.accountId).sendSystem(input),
+      }
     );
 
     return ok(

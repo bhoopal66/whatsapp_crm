@@ -231,4 +231,21 @@ GRANT EXECUTE ON FUNCTION
   public.sg_send_begin_system(uuid, text, text, text)
   TO service_role;
 
+
+-- ---------- 6. Compass notifications sent into a group ----------
+-- A tracker update goes into the customer's submission group when there
+-- is a live one (lib/compass/notify.ts). The log row then names the group
+-- and its message instead of a 1:1 messages row.
+
+ALTER TABLE public.compass_notifications
+  ADD COLUMN IF NOT EXISTS submission_group_id uuid
+    REFERENCES public.submission_groups(id) ON DELETE SET NULL;
+ALTER TABLE public.compass_notifications
+  ADD COLUMN IF NOT EXISTS group_message_id bigint;
+
+COMMENT ON COLUMN public.compass_notifications.submission_group_id IS
+  'Set when the update went into this submission group instead of the 1:1 chat (170).';
+COMMENT ON COLUMN public.compass_notifications.group_message_id IS
+  'submission_group_messages.id of the group post (170); no FK, the log outlives the message.';
+
 RESET lock_timeout;
