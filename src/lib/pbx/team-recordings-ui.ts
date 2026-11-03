@@ -296,3 +296,40 @@ export function dayHeading(key: string, locale: string): string {
     month: 'short',
   }).format(new Date(Date.UTC(y, m - 1, d)));
 }
+
+// ---------- Day picker ----------
+
+/** A YYYY-MM-DD moved by `by` calendar days (no zone: a calendar day). */
+export function shiftDay(key: string, by: number): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + by)).toISOString().slice(0, 10);
+}
+
+/**
+ * The one day the period shows, for the day picker: today, yesterday or
+ * a custom period of a single day. Null for a longer period.
+ */
+export function pickedDay(
+  p: Pick<RecordingsParams, 'period' | 'from' | 'to'>,
+  today: string
+): string | null {
+  if (p.period === 'today') return today;
+  if (p.period === 'yesterday') return shiftDay(today, -1);
+  if (p.period === 'custom' && p.from && p.from === p.to) return p.from;
+  return null;
+}
+
+/**
+ * The period that shows `day`: Today and Yesterday keep their own
+ * buttons lit, any other day is a custom period of that one day. A day
+ * after today is today (nothing has been recorded there yet).
+ */
+export function dayPeriod(
+  day: string,
+  today: string
+): Pick<RecordingsParams, 'period' | 'from' | 'to'> {
+  if (day >= today) return { period: 'today', from: null, to: null };
+  if (day === shiftDay(today, -1))
+    return { period: 'yesterday', from: null, to: null };
+  return { period: 'custom', from: day, to: day };
+}

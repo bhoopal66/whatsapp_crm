@@ -18,6 +18,8 @@ import {
   ArrowLeftRight,
   ArrowUp,
   AudioLines,
+  ChevronLeft,
+  ChevronRight,
   PhoneIncoming,
   PhoneOutgoing,
   RefreshCw,
@@ -36,7 +38,7 @@ import { formatDuration } from '@/lib/pbx/call-stats';
 import { mergeCalls, periodButtons } from '@/lib/pbx/call-stats-ui';
 import { OUTCOMES, maskPhone } from '@/lib/pbx/call-ui';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
-import { clock } from '@/lib/pbx/timeline';
+import { clock, dayKey } from '@/lib/pbx/timeline';
 import {
   NUMBER_SEARCH_MIN,
   RECORDING_DIRECTIONS,
@@ -58,6 +60,9 @@ import {
   summaryRows,
   type RecordingsParams,
   type SummarySortKey,
+  dayPeriod,
+  pickedDay,
+  shiftDay,
 } from '@/lib/pbx/team-recordings-ui';
 import { cn } from '@/lib/utils';
 
@@ -137,6 +142,9 @@ export function TeamRecordings() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
+  // When the last page-1 load settled: the day picker's "today" (read
+  // there, not during render, and kept current by Refresh).
+  const [settledAt, setSettledAt] = useState<number | null>(null);
   const queryRef = useRef(query);
   useEffect(() => {
     queryRef.current = query;
@@ -175,7 +183,9 @@ export function TeamRecordings() {
         }
       )
       .finally(() => {
-        if (live) setRefreshing(false);
+        if (!live) return;
+        setRefreshing(false);
+        setSettledAt(Date.now());
       });
     return () => {
       live = false;
@@ -302,6 +312,18 @@ export function TeamRecordings() {
   );
 
   const customProblem = checkCustomDays(draft.from, draft.to);
+  // The day picker: one day at a time, in the account's zone (the
+  // route's answer, else the viewer's until it lands).
+  const today =
+    settledAt === null ? null : dayKey(settledAt, data?.range.timeZone ?? tz);
+  const picked = customOpen || !today ? null : pickedDay(params, today);
+  const goToDay = (day: string) => {
+    if (!today || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    setCustomOpen(false);
+    setParams(dayPeriod(day, today));
+  };
+  const dayButton =
+    'border-border bg-card hover:bg-accent text-muted-foreground inline-flex size-8 items-center justify-center rounded-md border transition-colors disabled:pointer-events-none disabled:opacity-40';
   const filters = (
     <div className="border-border bg-card space-y-3 rounded-xl border p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -320,6 +342,43 @@ export function TeamRecordings() {
             {tStats(`periods.${p}`)}
           </button>
         ))}
+        <div className="flex items-center gap-1 sm:ml-auto">
+          <button
+            type="button"
+            className={dayButton}
+            aria-label={t('filters.previousDay')}
+            title={t('filters.previousDay')}
+            disabled={!today}
+            onClick={() => today && goToDay(shiftDay(picked ?? today, -1))}
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </button>
+          <label className="sr-only" htmlFor="team-recordings-day">
+            {t('filters.day')}
+          </label>
+          <input
+            id="team-recordings-day"
+            type="date"
+            value={picked ?? ''}
+            max={today ?? undefined}
+            disabled={!today}
+            onChange={(e) => goToDay(e.target.value)}
+            className={cn(
+              'border-input bg-card text-foreground dark:bg-input/30 h-8 rounded-md border px-2 text-sm',
+              picked && 'border-primary/40'
+            )}
+          />
+          <button
+            type="button"
+            className={dayButton}
+            aria-label={t('filters.nextDay')}
+            title={t('filters.nextDay')}
+            disabled={!picked || !today || picked >= today}
+            onClick={() => picked && goToDay(shiftDay(picked, 1))}
+          >
+            <ChevronRight className="size-4" aria-hidden />
+          </button>
+        </div>
       </div>
       {(customOpen || (params.period === 'custom' && !query)) && (
         <form

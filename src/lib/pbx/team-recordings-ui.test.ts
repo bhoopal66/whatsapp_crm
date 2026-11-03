@@ -4,13 +4,16 @@ import { mergeCalls } from './call-stats-ui';
 import {
   averageRecording,
   dayHeading,
+  dayPeriod,
   groupRecordingsByDay,
   nextSort,
   numberSearch,
   peopleOfTeam,
+  pickedDay,
   readRecordingsParams,
   recordingsQuery,
   recordingsSearch,
+  shiftDay,
   sortSummary,
   summaryRows,
   type RecordingsParams,
@@ -233,5 +236,49 @@ describe('the list', () => {
     expect(
       mergeCalls(first, [call('2', 'b'), call('3', 'c')]).map((c) => c.id)
     ).toEqual(['1', '2', '3']);
+  });
+});
+
+describe('day picker', () => {
+  const today = '2026-11-03';
+  it('moves a calendar day across month and year ends', () => {
+    expect(shiftDay('2026-11-03', -1)).toBe('2026-11-02');
+    expect(shiftDay('2026-11-01', -1)).toBe('2026-10-31');
+    expect(shiftDay('2026-12-31', 1)).toBe('2027-01-01');
+    expect(shiftDay('2028-02-28', 1)).toBe('2028-02-29');
+  });
+  it('reads the one day a period shows', () => {
+    const base = { from: null, to: null };
+    expect(pickedDay({ ...base, period: 'today' }, today)).toBe(today);
+    expect(pickedDay({ ...base, period: 'yesterday' }, today)).toBe(
+      '2026-11-02'
+    );
+    expect(
+      pickedDay(
+        { period: 'custom', from: '2026-10-07', to: '2026-10-07' },
+        today
+      )
+    ).toBe('2026-10-07');
+    expect(
+      pickedDay(
+        { period: 'custom', from: '2026-10-07', to: '2026-10-09' },
+        today
+      )
+    ).toBeNull();
+    expect(pickedDay({ ...base, period: 'month' }, today)).toBeNull();
+  });
+  it('turns a day into the period that shows it', () => {
+    expect(dayPeriod(today, today)).toEqual({
+      period: 'today',
+      from: null,
+      to: null,
+    });
+    expect(dayPeriod('2026-11-09', today).period).toBe('today');
+    expect(dayPeriod('2026-11-02', today).period).toBe('yesterday');
+    expect(dayPeriod('2026-10-07', today)).toEqual({
+      period: 'custom',
+      from: '2026-10-07',
+      to: '2026-10-07',
+    });
   });
 });
