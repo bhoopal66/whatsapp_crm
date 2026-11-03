@@ -52,7 +52,10 @@ One PBX can serve several workspaces.
   a person, in any workspace where you are an owner or admin. Only an
   active owner, admin, team leader or agent can hold an extension (not a
   viewer or a bank guest), and a person holds at most one extension per
-  workspace. Turn on **Softphone** for people who should take calls in
+  workspace. Mapping an extension also gives that person the
+  extension's earlier calls that have no person (calls made before it
+  was mapped), so their Call report matches the PBX; calls already
+  someone else's stay theirs. Turn on **Softphone** for people who should take calls in
   the browser, and leave **Presence** on (the default) for those whose
   status the team should see.
 

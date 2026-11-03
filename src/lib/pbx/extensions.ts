@@ -186,3 +186,32 @@ export async function mappableWorkspaces(
       .map((p) => ({ userId: String(p.user_id), name: nameOf(p) })),
   }));
 }
+
+/**
+ * Give a newly mapped person their extension's earlier calls that have
+ * no person. A call takes its person from the mapping when it is
+ * stored, so calls made before an admin mapped the extension stayed
+ * unattributed and the Call report undercounted the person against the
+ * PBX's own figures. Only calls with no person move: a remap from A to
+ * B leaves A's calls with A. Returns how many calls were claimed.
+ */
+export async function claimUnassignedCalls(
+  db: SupabaseClient,
+  m: {
+    connectionId: string;
+    accountId: string;
+    extension: string;
+    userId: string;
+  }
+): Promise<number> {
+  const { data, error } = await db
+    .from('calls')
+    .update({ user_id: m.userId })
+    .eq('connection_id', m.connectionId)
+    .eq('account_id', m.accountId)
+    .eq('extension', m.extension)
+    .is('user_id', null)
+    .select('id');
+  if (error) throw new Error(`calls update failed: ${error.message}`);
+  return (data ?? []).length;
+}

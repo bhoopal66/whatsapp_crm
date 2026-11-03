@@ -18,6 +18,7 @@ import {
   EXTENSION_COLUMNS,
   adminWorkspaces,
   canHoldExtension,
+  claimUnassignedCalls,
   extensionViews,
 } from '@/lib/pbx/extensions';
 
@@ -146,6 +147,22 @@ export async function PATCH(
 
     // The presence row follows the mapping and the Presence switch in
     // the same transaction: migration 101's pbx_presence_follow_mapping.
+
+    // Calls made on the extension before it was mapped carry no person;
+    // give them to the new holder so their talk time matches the PBX.
+    // Best-effort: the mapping is saved either way, and any later save
+    // of a mapped extension claims again.
+    const holder = (saved as { user_id: string | null }).user_id;
+    if (holder) {
+      await claimUnassignedCalls(db, {
+        connectionId: conn.id,
+        accountId: (saved as { account_id: string }).account_id,
+        extension: current.extension,
+        userId: holder,
+      }).catch((err) =>
+        console.error('[pbx-extensions] claiming earlier calls failed', err)
+      );
+    }
 
     const [view] = await extensionViews(
       db,

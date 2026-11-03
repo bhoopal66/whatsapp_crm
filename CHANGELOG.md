@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Mapping an extension claims its earlier calls
+
+- Calls made on an extension before an admin mapped it to a person were
+  stored with no person, so that person's Call report talk time came out
+  below the PBX's (for example 1h 07m against 01:12:55). Mapping an
+  extension (Settings → Phone system → Extensions) now gives the person
+  every earlier call on it that has no person; calls that already
+  belong to someone stay theirs. No migration.
+
 ### Tracker updates go into the submission group
 
 - **Migration required: 170** (`170_submission_group_system_messages.sql`
