@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Members: admins edit a member's name and login email
+
+**Migration required: 167** (`167_member_details_change.sql`). Apply
+after 166 as `supabase_admin` (it refuses a role without superuser or
+BYPASSRLS, like 140); re-runnable. An owner or admin can now change
+another member's full name and login email from Settings → Members, on
+the same terms as setting their password: only for someone below them
+in this workspace and in every other workspace the person belongs to.
+The new email is the login from then on, with no confirmation mail; an
+address another login already uses is refused. Name and email are
+shared by all of the person's workspaces, and each change is recorded
+in their audit logs as `details_changed`.
+
 ### Calendar: every event type always shows
 
 No migration. The Calendar's left rail no longer has the "Calendars"

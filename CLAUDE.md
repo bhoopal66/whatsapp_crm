@@ -137,6 +137,11 @@ sign-in bounces back to `/login`.
   in every other workspace the person belongs to**: one login opens them
   all. `canChangePasswordOf` mirrors only the first half (the roster
   cannot see other workspaces). `verify-member-password.sql`.
+- **Editing a member's name and email (migration 167)** is PATCH
+  `/api/account/members/[id]/details`: `authorize_member_details_change`
+  (140's rule), then GoTrue for a new email (`email_confirm: true`, put
+  back if the profiles write fails), then the profiles rows, then
+  `log_member_details_change`. `verify-member-details.sql`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
 

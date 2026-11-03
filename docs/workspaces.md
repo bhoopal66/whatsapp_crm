@@ -168,6 +168,27 @@ caller, and calls GoTrue only once it agrees:
   already has survive depends on the GoTrue version; to cut someone off
   at once, deactivate them.
 
+## Editing a member's details
+
+An owner or admin edits another member's full name and login email
+from Settings → Members. `PATCH /api/account/members/[userId]/details`
+`{ full_name, email }` asks `authorize_member_details_change()`
+(migration 167) first, as the caller, with the same rule as setting a
+password (above): a live owner or admin of the active workspace, never
+for themselves (their own are Settings → Profile), strictly outranking
+the person there and in every other workspace the person belongs to.
+
+- The name and email are one identity shared by all of the person's
+  workspaces (083 copies them to every membership), so an edit shows
+  in each of them.
+- A new email changes the login at once: the person signs in with it
+  from then on, and no confirmation mail is sent. An address another
+  login already has is refused, and then nothing is changed.
+- A name is 1–120 characters; the email is stored lower-cased.
+- The change is recorded as `details_changed` (below) in the audit log
+  of every workspace the person belongs to; a save that changes nothing
+  writes nothing.
+
 ## Renaming
 
 An owner or admin renames their active workspace in Settings → Workspace →
@@ -187,17 +208,18 @@ people and settings. Triggers on `profiles` and `accounts` write it, so
 every writer is covered: the member RPCs, `PATCH /api/account`, the
 service role, a hand-run UPDATE. One row per change:
 
-| action                                      | when                                                           | detail                               |
-| ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------ |
-| `member_added`                              | a membership is created, or moved in from another account      | `role`, `name`, `bank_code` (guests) |
-| `member_removed`                            | a membership is deleted, or moved to another account           | `role`, `name`                       |
-| `role_changed`                              | the role changes (an ownership transfer records both people's) | `from`, `to`                         |
-| `member_deactivated` / `member_reactivated` | deactivation is set or lifted                                  | —                                    |
-| `bank_changed`                              | a guest's bank code changes                                    | `from`, `to`                         |
-| `workspace_renamed` / `short_name_changed`  | the name or short name changes                                 | `from`, `to`                         |
-| `ownership_transferred`                     | `transfer_account_ownership()`; the target is the new owner    | `from_user_id`                       |
-| `team_chat_enabled` / `team_chat_disabled`  | Team chat is switched on or off                                | —                                    |
-| `password_changed`                          | an owner or admin set the person's password (see below)        | `name`                               |
+| action                                      | when                                                           | detail                                                                |
+| ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `member_added`                              | a membership is created, or moved in from another account      | `role`, `name`, `bank_code` (guests)                                  |
+| `member_removed`                            | a membership is deleted, or moved to another account           | `role`, `name`                                                        |
+| `role_changed`                              | the role changes (an ownership transfer records both people's) | `from`, `to`                                                          |
+| `member_deactivated` / `member_reactivated` | deactivation is set or lifted                                  | —                                                                     |
+| `bank_changed`                              | a guest's bank code changes                                    | `from`, `to`                                                          |
+| `workspace_renamed` / `short_name_changed`  | the name or short name changes                                 | `from`, `to`                                                          |
+| `ownership_transferred`                     | `transfer_account_ownership()`; the target is the new owner    | `from_user_id`                                                        |
+| `team_chat_enabled` / `team_chat_disabled`  | Team chat is switched on or off                                | —                                                                     |
+| `password_changed`                          | an owner or admin set the person's password (see below)        | `name`                                                                |
+| `details_changed`                           | an owner or admin edited the person's name or login email      | `name`, `changed`, `name_from` / `name_to`, `email_from` / `email_to` |
 
 - **Actor** is the signed-in caller (`auth.uid()`), or empty for the
   server: the service role, which also provisions new logins
@@ -208,8 +230,14 @@ service role, a hand-run UPDATE. One row per change:
   accepted the change, with the admin as the actor, so a refused or
   failed change is never logged. It writes one row in every workspace
   the person belongs to, since the login opens them all.
-- **Not recorded:** workspace switches (`is_active`), name, email and
-  avatar edits, and a membership that disappears with its deleted
+- **`details_changed`** is written the same way, through
+  `log_member_details_change()` once the new name or email is saved.
+  `changed` lists `full_name` and/or `email`; only the changed pairs
+  are recorded.
+- **Not recorded:** workspace switches (`is_active`), the name, email
+  and avatar edits a person makes to their own profile (Settings →
+  Profile; an admin's edit is `details_changed`), and a membership
+  that disappears with its deleted
   account. A move between accounts (removal from someone's only
   workspace, an invitation redeemed by a new login) records both sides;
   when the new login's empty personal account is then deleted, only the
@@ -248,6 +276,11 @@ service role, a hand-run UPDATE. One row per change:
   `log_member_password_change()` (service role only) and the
   `password_changed` audit action. Like 092 it must be applied as a
   superuser or BYPASSRLS role. `verify-member-password.sql` asserts it.
+- `167_member_details_change.sql` adds
+  `authorize_member_details_change()` (signed-in callers),
+  `log_member_details_change()` (service role only) and the
+  `details_changed` audit action. Like 140 it must be applied as a
+  superuser or BYPASSRLS role. `verify-member-details.sql` asserts it.
 
 Apply 082, then 083, each in its own run. All of them are re-runnable.
 

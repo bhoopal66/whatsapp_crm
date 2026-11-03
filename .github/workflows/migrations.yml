@@ -538,6 +538,15 @@ jobs:
       - name: Verify member password change
         run: supabase db query --local --file supabase/ci/verify-member-password.sql
 
+      # Migration 167's member details change (name and login email):
+      # 140's rule with its own wording (live owner / admin, never
+      # themselves, strictly outranking the person in the active workspace
+      # and in every other workspace they belong to); the check writes
+      # nothing; the audit function writes one details_changed row per
+      # workspace with the route's detail and is service_role's alone.
+      - name: Verify member details change
+        run: supabase db query --local --file supabase/ci/verify-member-details.sql
+
       # Migration 143's team chat DM rules: no rules means every DM is
       # open; only a live owner / admin replaces the rule set; a 'none'
       # pair refuses opening (new and reopen) and posting and hides the
