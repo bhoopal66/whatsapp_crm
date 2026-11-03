@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   loadCampaignContext: vi.fn(),
   logAiUsage: vi.fn(),
+  calls: [] as unknown[][],
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -48,10 +49,16 @@ function fakeClient(results: Record<string, Result>) {
       const take = () =>
         Promise.resolve(results[table] ?? { data: null, error: null });
       for (const method of ['select', 'eq', 'order']) {
-        builder[method] = () => builder;
+        builder[method] = (...args: unknown[]) => {
+          mocks.calls.push([table, method, ...args]);
+          return builder;
+        };
       }
       builder.maybeSingle = take;
-      builder.limit = take;
+      builder.limit = (...args: unknown[]) => {
+        mocks.calls.push([table, 'limit', ...args]);
+        return take();
+      };
       return builder;
     },
   };
@@ -110,6 +117,7 @@ function sentContent(): string {
 describe('POST /api/ai/draft', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.calls.length = 0;
     setup();
     mocks.loadAiConfig.mockResolvedValue({
       provider: 'anthropic',
@@ -196,5 +204,21 @@ describe('POST /api/ai/draft', () => {
     const res = await post({ conversation_id: CONV });
     expect(res.status).toBe(404);
     expect(mocks.generateReply).not.toHaveBeenCalled();
+  });
+
+  it('reads the newest messages, failed sends included for filtering', async () => {
+    await post({ conversation_id: CONV });
+    expect(mocks.calls).toContainEqual([
+      'messages',
+      'order',
+      'created_at',
+      { ascending: false },
+    ]);
+    expect(mocks.calls).toContainEqual(['messages', 'limit', 20]);
+    expect(mocks.calls).toContainEqual([
+      'messages',
+      'select',
+      'sender_type, content_type, content_text, created_at, status',
+    ]);
   });
 });

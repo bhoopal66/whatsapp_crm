@@ -3,6 +3,7 @@ import { createTranslator } from 'next-intl';
 
 import en from '../../../../messages/en.json';
 import {
+  aiDraftBox,
   callHeading,
   callsSidebar,
   editBox,
@@ -442,6 +443,33 @@ describe('missed-call WhatsApp draft', () => {
       origin: null,
     });
     expect(editBox(EMPTY_COMPOSER_BOX, 'Typed').origin).toBeNull();
+  });
+
+  it('an AI draft from the missed-call text keeps its consent mark, Undo too', () => {
+    const marked = { text: 'Hi Khalid', origin: 'missed_call_draft' as const };
+    const drafted = aiDraftBox(
+      marked,
+      'Hi Khalid',
+      'Hi Khalid, sorry we missed your call.'
+    );
+    expect(drafted).toEqual({
+      text: 'Hi Khalid, sorry we missed your call.',
+      origin: 'missed_call_draft',
+    });
+    // Undo puts the text back through an edit: the mark stays.
+    expect(editBox(drafted, 'Hi Khalid').origin).toBe('missed_call_draft');
+  });
+
+  it('an AI draft into an empty box starts unmarked', () => {
+    expect(aiDraftBox(EMPTY_COMPOSER_BOX, '', 'Hello!')).toEqual({
+      text: 'Hello!',
+      origin: null,
+    });
+  });
+
+  it('an AI draft never lands over text typed since it was asked for', () => {
+    const box = { text: 'ask for payslip, and', origin: null };
+    expect(aiDraftBox(box, 'ask for payslip', 'Could you send…')).toBe(box);
   });
 
   it('restores a failed send with its origin, into an empty box only', () => {

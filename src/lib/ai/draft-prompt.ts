@@ -28,6 +28,8 @@ export interface DraftMessageRow {
   content_type: string;
   content_text: string | null;
   created_at: string;
+  /** A send WhatsApp refused never reached the customer: left out. */
+  status?: string | null;
 }
 
 const MEDIA_LABEL: Record<string, string> = {
@@ -39,6 +41,15 @@ const MEDIA_LABEL: Record<string, string> = {
   contacts: 'a contact card',
 };
 
+/**
+ * Text from outside the prompt (messages, the contact's display name,
+ * the box) cannot open or close the prompt's own <conversation> /
+ * <agent_input> blocks: angle brackets become look-alikes.
+ */
+export function neutralizeTags(text: string): string {
+  return text.replace(/</g, '‹').replace(/>/g, '›');
+}
+
 /** "2026-11-03 08:15 UTC", or '' for an unreadable date. */
 function stamp(iso: string): string {
   const d = new Date(iso);
@@ -46,17 +57,25 @@ function stamp(iso: string): string {
   return `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
 
-/** One transcript line, or null for a row with nothing to show. */
-function line(row: DraftMessageRow): string | null {
-  const who = row.sender_type === 'customer' ? 'Customer' : 'Business';
-  const text = (row.content_text ?? '').trim();
+interface Entry {
+  fromCustomer: boolean;
+  /** The message's own text, for the knowledge query. */
+  text: string;
+  line: string;
+}
+
+/** One transcript entry, or null for a row with nothing to show. */
+function entry(row: DraftMessageRow): Entry | null {
+  const fromCustomer = row.sender_type === 'customer';
+  const who = fromCustomer ? 'Customer' : 'Business';
+  const text = neutralizeTags((row.content_text ?? '').trim());
   let body: string;
   if (row.content_type === 'template') {
     body = text ? `(template message) ${text}` : '(a template message)';
   } else if (MEDIA_LABEL[row.content_type]) {
     const what = `[sent ${MEDIA_LABEL[row.content_type]}]`;
     body = text ? `${what} ${text}` : what;
-  } else if (row.content_type === 'interactive' && who === 'Customer') {
+  } else if (row.content_type === 'interactive' && fromCustomer) {
     if (!text) return null;
     body = `(tapped the option) ${text}`;
   } else {
@@ -64,15 +83,26 @@ function line(row: DraftMessageRow): string | null {
     body = text;
   }
   const at = stamp(row.created_at);
-  return `${at ? `[${at}] ` : ''}${who}: ${body}`;
+  return { fromCustomer, text, line: `${at ? `[${at}] ` : ''}${who}: ${body}` };
 }
 
-/** The thread as transcript lines, oldest first. Rows arrive in any order. */
-export function draftTranscript(rows: readonly DraftMessageRow[]): string[] {
+/**
+ * What the model is shown, oldest first: rows arrive in any order, and
+ * failed sends and empty rows are left out. Everything else here (who
+ * spoke last, what is unanswered) is read from this, so it always agrees
+ * with the transcript.
+ */
+function entries(rows: readonly DraftMessageRow[]): Entry[] {
   return [...rows]
+    .filter((r) => r.status !== 'failed')
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .map(line)
-    .filter((l): l is string => l !== null);
+    .map(entry)
+    .filter((e): e is Entry => e !== null);
+}
+
+/** The thread as transcript lines, oldest first. */
+export function draftTranscript(rows: readonly DraftMessageRow[]): string[] {
+  return entries(rows).map((e) => e.line);
 }
 
 /** The box text as it goes to the model: trimmed and capped, '' for none. */
@@ -89,14 +119,10 @@ export function normalizeTyped(typed: unknown): string {
 export function unansweredCustomerText(
   rows: readonly DraftMessageRow[]
 ): string {
-  const sorted = [...rows].sort((a, b) =>
-    a.created_at.localeCompare(b.created_at)
-  );
+  const shown = entries(rows);
   const out: string[] = [];
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    if (sorted[i].sender_type !== 'customer') break;
-    const text = (sorted[i].content_text ?? '').trim();
-    if (text) out.unshift(text);
+  for (let i = shown.length - 1; i >= 0 && shown[i].fromCustomer; i--) {
+    if (shown[i].text) out.unshift(shown[i].text);
   }
   return out.join('\n');
 }
@@ -105,21 +131,21 @@ export function unansweredCustomerText(
  * The one user message the draft model receives: the transcript, who
  * the customer is, the task, and the agent's typed text when there is
  * some. Null when there is nothing to work from (no messages and nothing
- * typed).
+ * typed). What <agent_input> means is stated in the draft system prompt
+ * too (buildSystemPrompt), so the model does not read it as untrusted.
  */
 export function buildDraftMessages(args: {
   rows: readonly DraftMessageRow[];
   typed?: string;
   contactName?: string | null;
 }): ChatMessage[] | null {
-  const transcript = draftTranscript(args.rows);
-  const typed = normalizeTyped(args.typed);
+  const shown = entries(args.rows);
+  const transcript = shown.map((e) => e.line);
+  const typed = neutralizeTags(normalizeTyped(args.typed));
   if (transcript.length === 0 && !typed) return null;
 
   const businessSpokeLast =
-    args.rows.length > 0 &&
-    [...args.rows].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
-      .sender_type !== 'customer';
+    shown.length > 0 && !shown[shown.length - 1].fromCustomer;
 
   const parts: string[] = [];
   if (transcript.length > 0) {
@@ -131,7 +157,12 @@ export function buildDraftMessages(args: {
     parts.push('There are no messages in this conversation yet.');
   }
 
-  const name = args.contactName?.trim();
+  // A display name the customer chose: one line, no quotes or tags.
+  const name = neutralizeTags(
+    (args.contactName ?? '').replace(/\s+/g, ' ').replace(/"/g, "'")
+  )
+    .trim()
+    .slice(0, 80);
   if (name) {
     parts.push(
       `The customer's name in our CRM is "${name}" (it may be a WhatsApp display name; use it only if it looks like a real name).`

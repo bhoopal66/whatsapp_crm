@@ -31,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   COMPOSER_PREFILL_EVENT,
+  aiDraftBox,
   EMPTY_COMPOSER_BOX,
   editBox,
   placeDraft,
@@ -783,12 +784,11 @@ export function MessageComposer({
         toast.info(t('draftChanged'));
         return;
       }
-      // It replaces the box, so a missed-call draft's mark goes with it.
-      setBox((b) =>
-        b.text === requested ? { text: draftText, origin: null } : b
-      );
+      setBox((b) => aiDraftBox(b, requested, draftText));
       setTranslation(
-        typed ? { original: requested, translated: draftText, kind: 'ai' } : null
+        typed
+          ? { original: requested, translated: draftText, kind: 'ai' }
+          : null
       );
       // Let the textarea grow to fit and drop the cursor at the end so
       // the agent can tweak immediately.
@@ -1408,17 +1408,17 @@ export function MessageComposer({
             canAct={!readOnly}
             gateReason="send messages"
             title={readOnly ? undefined : t('sendTemplate')}
-            className={TOOL_BUTTON}
+            className={cn(TOOL_BUTTON, showTranslate && 'max-sm:hidden')}
             onClick={onOpenTemplates}
           >
             <LayoutTemplate className="h-5 w-5" />
           </GatedButton>
 
-          {/* On a phone the draft button makes way for Translate while
-              there is text: with both, the box shrinks to about 95px, and
-              a draft would replace the typed text anyway. `contents`
-              leaves the wider layouts untouched. */}
-          <span className={cn('contents', showTranslate && 'max-sm:hidden')}>
+          {/* The draft button stays on a phone while there is text: it
+              writes the reply from that text. Templates make way for
+              Translate instead (a template does not use the typed text),
+              so the box keeps its width. */}
+          <span className="contents">
             <GatedButton
               variant="ghost"
               size="sm"

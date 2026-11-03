@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     // (the lookup above already proved they can).
     const { data: rowData, error: rowsErr } = await supabase
       .from('messages')
-      .select('sender_type, content_type, content_text, created_at')
+      .select('sender_type, content_type, content_text, created_at, status')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(aiContextMessageLimit())

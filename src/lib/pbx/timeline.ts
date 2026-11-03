@@ -786,6 +786,21 @@ export function placeDraft(
 }
 
 /**
+ * An AI draft lands only over the text it was asked about (anything
+ * typed since wins). Written from typed text it is an edit of that text,
+ * so a missed-call draft keeps its mark (and Undo, an edit too, keeps
+ * it); written into an empty box it starts unmarked.
+ */
+export function aiDraftBox(
+  box: ComposerBox,
+  requested: string,
+  draft: string
+): ComposerBox {
+  if (box.text !== requested) return box;
+  return requested.trim() ? editBox(box, draft) : { text: draft, origin: null };
+}
+
+/**
  * A failed send's words come back with the origin they were sent with,
  * into an empty box only: anything typed since wins.
  */
