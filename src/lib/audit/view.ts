@@ -73,6 +73,8 @@ export type AuditFact =
     }
   | { key: 'change'; from: string; to: string }
   | { key: 'rename'; from: string; to: string }
+  /** A login email changed (`details_changed`). */
+  | { key: 'email'; from: string; to: string }
   /** A channel topic; null is none. */
   | { key: 'topic'; from: string | null; to: string | null }
   | { key: 'number'; value: string }
@@ -157,6 +159,20 @@ function workspaceFacts(action: string, d: Raw): AuditFact[] {
     case 'role_changed': {
       const to = str(d.to);
       return to ? [{ key: 'role', from: str(d.from), to }] : [];
+    }
+    case 'details_changed': {
+      // A member's name and login email (167): each side shown only when
+      // the row recorded both ends and they differ.
+      const facts: AuditFact[] = [];
+      const nameFrom = str(d.name_from);
+      const nameTo = str(d.name_to);
+      if (nameFrom && nameTo && nameFrom !== nameTo)
+        facts.push({ key: 'rename', from: nameFrom, to: nameTo });
+      const emailFrom = str(d.email_from);
+      const emailTo = str(d.email_to);
+      if (emailFrom && emailTo && emailFrom !== emailTo)
+        facts.push({ key: 'email', from: emailFrom, to: emailTo });
+      return facts;
     }
     case 'bank_changed':
     case 'workspace_renamed':

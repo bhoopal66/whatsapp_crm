@@ -1933,6 +1933,25 @@
       "deactivating": "Deactivating...",
       "deactivateBtn": "Deactivate",
       "bankCode": "Bank: {code}",
+      "details": {
+        "button": "Edit details",
+        "title": "Edit {name}'s details",
+        "description": "Change the name colleagues see and the email they sign in with.",
+        "nameLabel": "Name",
+        "emailLabel": "Login email",
+        "emailNote": "Changing it changes the address they sign in with, straight away.",
+        "problem": {
+          "nameRequired": "Enter a name.",
+          "nameTooLong": "Use at most {max} characters.",
+          "emailRequired": "Enter an email address.",
+          "emailInvalid": "Enter a valid email address.",
+          "emailTooLong": "That address is too long."
+        },
+        "cancel": "Cancel",
+        "save": "Save",
+        "done": "Details saved for {name}.",
+        "failed": "Could not save the details. Try again."
+      },
       "password": {
         "button": "Change password",
         "title": "Change {name}'s password",
@@ -3887,7 +3906,8 @@
           "team_chat_disabled": "Turned team chat off",
           "workspace_archived": "Archived the workspace",
           "workspace_restored": "Restored the workspace",
-          "password_changed": "Changed a password"
+          "password_changed": "Changed a password",
+          "details_changed": "Edited a member's details"
         },
         "team_chat": {
           "admin_read_private": "Read a private channel",
@@ -3938,6 +3958,7 @@
         "members": "{count, plural, one {# member} other {# members}}",
         "change": "{from} → {to}",
         "rename": "Name: {from} → {to}",
+        "email": "Email: {from} → {to}",
         "topic": "Topic: {from} → {to}",
         "noTopic": "none",
         "number": "Number {value}",

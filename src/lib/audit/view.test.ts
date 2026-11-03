@@ -284,6 +284,37 @@ describe('shapeAuditRow', () => {
       item: null,
       facts: [{ key: 'change', from: '—', to: 'TC' }],
     });
+    expect(
+      shape('details_changed', {
+        name: 'Sara Ali',
+        changed: ['full_name', 'email'],
+        name_from: 'Sara',
+        name_to: 'Sara Ali',
+        email_from: 'sara@old.ae',
+        email_to: 'sara@new.ae',
+      })
+    ).toMatchObject({
+      item: { kind: 'person', id: C },
+      facts: [
+        { key: 'rename', from: 'Sara', to: 'Sara Ali' },
+        { key: 'email', from: 'sara@old.ae', to: 'sara@new.ae' },
+      ],
+      recordedName: 'Sara Ali',
+    });
+    // Only the side that changed; a half-recorded side shows nothing.
+    expect(
+      shape('details_changed', {
+        changed: ['email'],
+        name_from: 'Sara',
+        name_to: 'Sara',
+        email_from: 'sara@old.ae',
+        email_to: 'sara@new.ae',
+      })?.facts
+    ).toEqual([{ key: 'email', from: 'sara@old.ae', to: 'sara@new.ae' }]);
+    expect(
+      shape('details_changed', { changed: ['full_name'], name_to: 'Sara' })
+        ?.facts
+    ).toEqual([]);
     const off = shape('team_chat_disabled', {}, null);
     expect(off).toMatchObject({ item: null, facts: [] });
     expect(off).not.toHaveProperty('recordedName');
