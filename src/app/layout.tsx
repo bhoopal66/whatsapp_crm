@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   // app/icon.png, and the tab fell back to a 404ing /favicon.ico.
   icons: {
     // Bump ?v= when icon.png changes: browsers cache tab icons by URL.
-    icon: [{ url: "/icon.png?v=3", type: "image/png", sizes: "256x256" }],
+    icon: [{ url: "/icon.png?v=4", type: "image/png", sizes: "256x256" }],
     apple: [{ url: "/icons/icon-192.png", sizes: "192x192" }],
   },
   appleWebApp: {
