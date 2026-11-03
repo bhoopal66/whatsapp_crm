@@ -155,6 +155,9 @@ BEGIN
   UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_ag, u_ag2, u_ag3, u_ag4, u_x, u_pr);
   UPDATE profiles SET full_name = 'Mod Two' WHERE user_id = u_ag2;
   INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  -- 168: only admins, team leaders and coordinators create team and
+  -- private channels; u_ag (an agent) creates a fixture, so is a coordinator.
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_ag, 'ADCB') ON CONFLICT DO NOTHING;
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
 
   ch := pg_temp.tc_try('authenticated', u_own, format('SELECT public.chat_create_channel(%L, %L, %L, NULL, %L::uuid[])::text', a, 'team', 'Mod team', ARRAY[u_adm, u_tl, u_ag, u_ag2, u_ag3]));

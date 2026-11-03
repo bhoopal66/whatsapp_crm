@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Hash, Lock } from 'lucide-react';
+import { Handshake, Hash, Lock, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -42,8 +42,11 @@ const INPUT_BOX =
 
 interface TypeCard {
   type: NewChannelType;
+  icon: LucideIcon;
   title: string;
+  tag: string;
   body: string;
+  who: string;
   disabled: boolean;
 }
 
@@ -95,8 +98,11 @@ function NewChannelBody({
       ? [
           {
             type: 'team' as const,
+            icon: Hash,
             title: t('team'),
+            tag: t('teamTag'),
             body: t('teamBody'),
+            who: t('teamWho'),
             disabled: false,
           },
         ]
@@ -105,8 +111,11 @@ function NewChannelBody({
       ? [
           {
             type: 'private' as const,
+            icon: Lock,
             title: t('private'),
+            tag: t('privateTag'),
             body: t('privateBody'),
+            who: t('privateWho'),
             disabled: false,
           },
         ]
@@ -116,8 +125,11 @@ function NewChannelBody({
       : [
           {
             type: 'deal_room' as const,
+            icon: Handshake,
             title: t('dealRoom'),
+            tag: t('dealRoomTag'),
             body: t('dealRoomBody'),
+            who: t('dealRoomWho'),
             disabled: dealRoom !== 'open' || !onCreateDealRoom,
           },
         ]),
@@ -190,7 +202,18 @@ function NewChannelBody({
                   className="mt-0.5"
                 />
                 <span className="min-w-0 space-y-1">
-                  <span className="block text-sm font-semibold">{c.title}</span>
+                  <span className="flex items-center gap-1.5 text-sm font-semibold">
+                    <c.icon className="size-4 shrink-0" aria-hidden />
+                    {c.title}
+                  </span>
+                  <span
+                    className={cn(
+                      'block text-xs font-semibold',
+                      deal ? 'text-warning' : 'text-primary'
+                    )}
+                  >
+                    {c.tag}
+                  </span>
                   <span
                     className={cn(
                       'block text-xs leading-snug',
@@ -198,6 +221,9 @@ function NewChannelBody({
                     )}
                   >
                     {c.body}
+                  </span>
+                  <span className="text-foreground block text-xs leading-snug font-medium">
+                    {c.who}
                   </span>
                   {deal && dealRoom === 'agentsOnly' && (
                     <span className="text-warning block text-xs font-semibold">
@@ -234,7 +260,11 @@ function NewChannelBody({
                     setTakenByServer(false);
                   }}
                   maxLength={CHANNEL_NAME_MAX}
-                  placeholder={t('namePlaceholder')}
+                  placeholder={
+                    type === 'private'
+                      ? t('namePlaceholderPrivate')
+                      : t('namePlaceholderTeam')
+                  }
                   aria-invalid={taken || undefined}
                   aria-describedby={
                     taken ? 'new-channel-name-error' : undefined
@@ -267,7 +297,11 @@ function NewChannelBody({
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   maxLength={CHANNEL_TOPIC_MAX}
-                  placeholder={t('topicPlaceholder')}
+                  placeholder={
+                    type === 'private'
+                      ? t('topicPlaceholderPrivate')
+                      : t('topicPlaceholderTeam')
+                  }
                   autoComplete="off"
                   className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-sm outline-none"
                 />

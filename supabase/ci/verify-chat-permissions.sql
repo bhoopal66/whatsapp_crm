@@ -24,7 +24,11 @@
 -- member. The four API functions are executable by authenticated only;
 -- the six helpers by nobody. Migration 158 adds a key to
 -- chat_my_permissions and an audit action, so neither list is asserted
--- exactly.
+-- exactly. Migration 168 refuses create_team_channel /
+-- create_private_channel to agents and viewers whatever the matrix says,
+-- except an agent who is a coordinator (a coordinator_banks row); the
+-- matrix still applies to everyone 168 lets through. u_ag is that
+-- coordinator, so sections A, B and D read as before 168 (section B2).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -193,6 +197,7 @@ BEGIN
   UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_ag, u_ag2, u_ag3);
   UPDATE profiles SET account_id = a, account_role = 'viewer' WHERE user_id = u_vw;
   INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_ag, 'ADCB') ON CONFLICT DO NOTHING;  -- 168
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
 
   ch := pg_temp.tc_try('authenticated', u_own, format(mk, a, 'team', 'TC157 team', ARRAY[u_adm, u_tl, u_ag, u_ag2]));
@@ -236,7 +241,7 @@ BEGIN
       = 'falsefalsefalsefalsetruetrue', 'guest capabilities (' || j::text || ')');
   n := n + 1; failed := failed || pg_temp.tc_check('my_permissions without a live profile', u_out, format(my, a), 'ERROR P0002:%');
 
-  -- ---------- B. defaults: an agent may do everything ----------
+  -- ---------- B. defaults: an agent (a coordinator, 168) may do everything ----------
   n := n + 1; failed := failed || pg_temp.tc_check('default: agent creates a team channel', u_ag, format(mk, a, 'team', 'TC157 ag team', ARRAY[u_ag3]), uuidp);
   n := n + 1; failed := failed || pg_temp.tc_check('default: agent creates a private channel', u_ag, format(mk, a, 'private', 'TC157 ag priv', '{}'), uuidp);
   n := n + 1; failed := failed || pg_temp.tc_check('default: agent opens a group DM', u_ag, format(opdm, a, ARRAY[u_ag2, u_ag3]), uuidp);
@@ -256,6 +261,39 @@ BEGIN
   m := pg_temp.tc_try('authenticated', u_ag, format(post, ch, 'mine'));
   n := n + 1; failed := failed || pg_temp.tc_check('default: agent edits own', u_ag, format(edit, m, 'mine!'), 'ok');
   n := n + 1; failed := failed || pg_temp.tc_check('default: agent deletes own', u_ag, format(del, m), '{}');
+
+  -- ---------- B2. 168: who creates team and private channels ----------
+  j := pg_temp.tc_try('authenticated', u_ag2, format(my, a))::jsonb;
+  n := n + 1; failed := failed || pg_temp.tc_ok(
+    (j->'capabilities'->>'create_team_channel') || (j->'capabilities'->>'create_private_channel') = 'falsefalse'
+    AND (SELECT count(*) FILTER (WHERE j->'capabilities'->>c = 'true') FROM unnest(caps) c) = 10,
+    '168: plain agent capabilities not create-false, rest true (' || j::text || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: plain agent creates a team channel', u_ag2, format(mk, a, 'team', 'TC168 ag2 team', '{}'), 'ERROR 42501: chat: your role may not create team channels');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: plain agent creates a private channel', u_ag2, format(mk, a, 'private', 'TC168 ag2 priv', '{}'), 'ERROR 42501: chat: your role may not create private channels');
+  j := pg_temp.tc_try('authenticated', u_vw, format(my, a))::jsonb;
+  n := n + 1; failed := failed || pg_temp.tc_ok(
+    (j->'capabilities'->>'create_team_channel') || (j->'capabilities'->>'create_private_channel') = 'falsefalse',
+    '168: viewer may create channels (' || j::text || ')');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: viewer creates a team channel', u_vw, format(mk, a, 'team', 'TC168 vw team', '{}'), 'ERROR 42501: chat: your role may not%');
+  -- A viewer is never a coordinator, even with a stray row.
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_vw, 'ADCB');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: viewer with a coordinator row creates a private channel', u_vw, format(mk, a, 'private', 'TC168 vw priv', '{}'), 'ERROR 42501: chat: your role may not%');
+  DELETE FROM coordinator_banks WHERE account_id = a AND user_id = u_vw;
+  -- A coordinator's banks in another workspace do not count.
+  INSERT INTO case_banks (account_id, code, name)
+  SELECT p.account_id, 'ADCB', 'ADCB Bank' FROM profiles p WHERE p.user_id = u_out ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code)
+  SELECT p.account_id, u_ag2, 'ADCB' FROM profiles p WHERE p.user_id = u_out;
+  n := n + 1; failed := failed || pg_temp.tc_check('168: coordinator elsewhere creates a team channel here', u_ag2, format(mk, a, 'team', 'TC168 ag2 other', '{}'), 'ERROR 42501: chat: your role may not%');
+  DELETE FROM coordinator_banks WHERE user_id = u_ag2;
+  -- Becoming a coordinator opens it; losing the banks closes it again.
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_ag2, 'ADCB');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: new coordinator creates a private channel', u_ag2, format(mk, a, 'private', 'TC168 ag2 coord', '{}'), uuidp);
+  DELETE FROM coordinator_banks WHERE account_id = a AND user_id = u_ag2;
+  n := n + 1; failed := failed || pg_temp.tc_check('168: former coordinator creates a team channel', u_ag2, format(mk, a, 'team', 'TC168 ag2 former', '{}'), 'ERROR 42501: chat: your role may not%');
+  n := n + 1; failed := failed || pg_temp.tc_check('168: team leader creates a team channel', u_tl, format(mk, a, 'team', 'TC168 tl team', '{}'), uuidp);
+  n := n + 1; failed := failed || pg_temp.tc_check('168: admin creates a private channel', u_adm, format(mk, a, 'private', 'TC168 adm priv', '{}'), uuidp);
+  n := n + 1; failed := failed || pg_temp.tc_check('168: plain agent still opens a group DM', u_ag2, format(opdm, a, ARRAY[u_ag, u_ag3]), uuidp);
 
   -- ---------- C. setters: who, and validation ----------
   n := n + 1; failed := failed || pg_temp.tc_check('set_permissions by agent', u_ag, format(setp, a, '[]'), 'ERROR 42501:%');
@@ -303,7 +341,7 @@ BEGIN
   j := pg_temp.tc_try('authenticated', u_tl, format(my, a))::jsonb;
   n := n + 1; failed := failed || pg_temp.tc_ok((SELECT count(*) FILTER (WHERE j->'capabilities'->>c = 'true') FROM unnest(caps) c) = 12,
     'team leader caught a viewer or agent row (' || j::text || ')');
-  -- create_team_channel / create_private_channel
+  -- create_team_channel / create_private_channel (u_ag is a coordinator: the matrix binds 168's exception)
   n := n + 1; failed := failed || pg_temp.tc_check('agent creates a team channel', u_ag, format(mk, a, 'team', 'x', '{}'), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('agent creates a private channel', u_ag, format(mk, a, 'private', 'x', '{}'), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('team leader creates a private channel', u_tl, format(mk, a, 'private', 'TC157 tl priv', '{}'), uuidp);

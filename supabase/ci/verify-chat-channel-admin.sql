@@ -118,6 +118,10 @@ BEGIN
   UPDATE profiles SET account_id = a, account_role = 'agent' WHERE user_id IN (u_rm, u_rm2);
   UPDATE profiles SET account_id = a, account_role = 'viewer' WHERE user_id = u_ag;
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
+  -- 168: only admins, team leaders and coordinators create team and
+  -- private channels; u_rm (an agent) creates fixtures, so is a coordinator.
+  INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_rm, 'ADCB') ON CONFLICT DO NOTHING;
 
   -- tc: team, channel admin u_rm. pc: private, channel admin u_sup (a
   -- supervisor may add a guest); u_admin is a plain member. The owner is

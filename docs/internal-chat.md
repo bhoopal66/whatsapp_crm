@@ -57,9 +57,19 @@ Their defaults change nothing until an owner or admin saves rules.
   channels that are not archived, a team and a private channel cannot
   share a name, ignoring case. The database enforces the length and the
   uniqueness; the lowercase and hyphen shaping is the dialog's.
-- **Who creates.** Owners, admins, team leaders, agents and viewers can
-  create team and private channels. Bank guests cannot. Since 157 an
-  owner or admin can take that away per role (see _Permissions_).
+- **Who creates.** Owners, admins, team leaders and coordinators
+  create team and private channels (since 168). An agent may only
+  while they are a coordinator (they hold at least one bank in
+  Settings → Coordinators); other agents, viewers and bank guests
+  cannot, and their sidebar shows no New channel button. DMs are
+  unchanged. Since 157 an owner or admin can also take channel
+  creation away per role (see _Permissions_); the agent row there
+  governs coordinators.
+- **The three kinds, as the New channel dialog names them.** A
+  **team channel** is _open to all staff_: every staff member can find,
+  read and join it. A **private channel** is _invite only_: only the
+  members added can see it. A **deal room** is a _WhatsApp group with
+  the customer_. Each card says who sees it.
 - **Posting rules** (157; team and private channels only, DMs and deal
   rooms are fixed to _everyone_). Three switches per channel, each
   _everyone_ or _admins_: **posting** (top-level messages),
@@ -149,8 +159,8 @@ usual audience; only posting is limited.
   channel they belong to, and may start a private channel that includes
   one. A team leader's other chat rights do not differ from an agent's.
 - **Agent and viewer.** Every team channel, and the private channels,
-  DMs and deal rooms they belong to. They create channels and DMs, and
-  add staff to team channels. In a private channel only a channel admin
+  DMs and deal rooms they belong to. They open DMs and add staff to team
+  channels; only an agent who is a coordinator creates channels (168). In a private channel only a channel admin
   can add staff.
 - **Bank guest.** Sees only the private channels they are a member of.
   Never a team channel or a DM, never a deal room's Team notes (the
@@ -216,7 +226,9 @@ someone saves: a workspace with no rows keeps today's rights.
   cards (conversation and call cards), add members (not the initial
   members of a new channel), edit own, delete own. A bank guest can be
   denied only upload files, send voice, pin messages, forward messages,
-  mention everyone, edit own and delete own.
+  mention everyone, edit own and delete own. Since 168 a viewer never
+  creates channels (the table shows a dash) and an agent's two create
+  boxes apply to coordinators only.
 - **Presets.** The page has **Use recommended** (viewer: create
   channels, group DMs, @channel, pin, add members; agent: @channel;
   guest: forward, @channel) and **Allow everything**. The list lives in

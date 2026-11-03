@@ -148,6 +148,13 @@ BEGIN
    WHERE user_id IN (u_rm, u_rm2, u_vic, u_x, u_g, u_two, u_dead);
   UPDATE profiles SET account_id = a, account_role = 'viewer' WHERE user_id = u_ag;
   UPDATE profiles SET account_id = a, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
+  -- 168: only admins, team leaders and coordinators create team and
+  -- private channels; u_rm, u_x and u_prm (agents) create fixtures, so are
+  -- coordinators.
+  INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_rm, 'ADCB'), (a, u_x, 'ADCB') ON CONFLICT DO NOTHING;
+  INSERT INTO case_banks (account_id, code, name) VALUES (b, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (b, u_prm, 'ADCB') ON CONFLICT DO NOTHING;
   UPDATE profiles SET account_id = b, account_role = 'team_leader' WHERE user_id = u_psup;
   UPDATE profiles SET account_id = b, account_role = 'agent' WHERE user_id = u_prm;
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_dead;

@@ -173,6 +173,27 @@ export function isDeniable(
   );
 }
 
+/**
+ * Migration 168's fixed rule for creating team and private channels:
+ * a viewer never may ('never'), an agent only while a coordinator
+ * ('coordinatorsOnly', so the matrix's agent box governs coordinators).
+ * Every other pair is the matrix's alone (null).
+ */
+export function channelCreationLimit(
+  roleClass: ChatRoleClass,
+  capability: ChatCapability
+): 'never' | 'coordinatorsOnly' | null {
+  if (
+    capability !== 'create_team_channel' &&
+    capability !== 'create_private_channel'
+  ) {
+    return null;
+  }
+  if (roleClass === 'viewer') return 'never';
+  if (roleClass === 'agent') return 'coordinatorsOnly';
+  return null;
+}
+
 /** Everything allowed, for every class. */
 export function openPermissionMatrix(): PermissionMatrix {
   return Object.fromEntries(

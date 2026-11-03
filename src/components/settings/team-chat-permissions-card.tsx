@@ -12,6 +12,7 @@ import { ChatError } from '@/lib/chat/errors';
 import {
   CHAT_CAPABILITIES,
   CHAT_ROLE_CLASSES,
+  channelCreationLimit,
   deniedFromMatrix,
   isDeniable,
   openPermissionMatrix,
@@ -211,18 +212,36 @@ export function PermissionsCard({
                       </th>
                       {CHAT_ROLE_CLASSES.map((rc) => (
                         <td key={rc} className="px-2 py-2 text-center">
-                          {isDeniable(rc, cap) ? (
-                            <Checkbox
-                              checked={draft[rc][cap]}
-                              onCheckedChange={(checked) =>
-                                toggle(rc, cap, checked === true)
-                              }
-                              disabled={saving}
-                              aria-label={t('cellLabel', {
-                                role: t(`classes.${rc}`),
-                                capability: t(`capabilities.${cap}.label`),
-                              })}
-                            />
+                          {channelCreationLimit(rc, cap) === 'never' ? (
+                            <span
+                              className="text-muted-foreground"
+                              title={t('channelsNever')}
+                            >
+                              <span aria-hidden="true">—</span>
+                              <span className="sr-only">
+                                {t('channelsNever')}
+                              </span>
+                            </span>
+                          ) : isDeniable(rc, cap) ? (
+                            <span className="inline-flex flex-col items-center gap-0.5">
+                              <Checkbox
+                                checked={draft[rc][cap]}
+                                onCheckedChange={(checked) =>
+                                  toggle(rc, cap, checked === true)
+                                }
+                                disabled={saving}
+                                aria-label={t('cellLabel', {
+                                  role: t(`classes.${rc}`),
+                                  capability: t(`capabilities.${cap}.label`),
+                                })}
+                              />
+                              {channelCreationLimit(rc, cap) ===
+                                'coordinatorsOnly' && (
+                                <span className="text-muted-foreground text-[11px] leading-tight whitespace-nowrap">
+                                  {t('coordinatorsOnly')}
+                                </span>
+                              )}
+                            </span>
                           ) : (
                             <span
                               className="text-muted-foreground"
@@ -246,6 +265,7 @@ export function PermissionsCard({
               <Info className="mt-0.5 size-4 shrink-0" />
               <div className="space-y-1">
                 <p>{t('ownerNote')}</p>
+                <p>{t('channelsNote')}</p>
                 <p>{t('guestNote')}</p>
                 <p>{t('savedNote')}</p>
               </div>

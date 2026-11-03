@@ -9,6 +9,7 @@ import {
   GUEST_CAPABILITIES,
   RECOMMENDED_DENIED,
   deniedFromMatrix,
+  channelCreationLimit,
   isDeniable,
   matrixFromRows,
   openPermissionMatrix,
@@ -49,6 +50,36 @@ describe('permissions mirror migration 157', () => {
     const m = SQL.match(/'capabilities',[\s\S]*?unnest\(ARRAY\[([^\]]*)\]/);
     expect(m).not.toBeNull();
     expect(quoted(m![1])).toEqual([...CHAT_CAPABILITIES]);
+  });
+});
+
+describe('channelCreationLimit (migration 168)', () => {
+  it('limits only channel creation, for viewers and agents', () => {
+    expect(channelCreationLimit('viewer', 'create_team_channel')).toBe('never');
+    expect(channelCreationLimit('viewer', 'create_private_channel')).toBe(
+      'never'
+    );
+    expect(channelCreationLimit('agent', 'create_team_channel')).toBe(
+      'coordinatorsOnly'
+    );
+    expect(channelCreationLimit('agent', 'create_private_channel')).toBe(
+      'coordinatorsOnly'
+    );
+    expect(channelCreationLimit('team_leader', 'create_team_channel')).toBe(
+      null
+    );
+    expect(channelCreationLimit('admin', 'create_private_channel')).toBe(null);
+    expect(channelCreationLimit('agent', 'open_group_dm')).toBe(null);
+    expect(channelCreationLimit('viewer', 'upload_files')).toBe(null);
+  });
+
+  it('matches the classes 168 refuses in SQL', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/168_chat_channel_creators.sql'),
+      'utf8'
+    );
+    expect(sql).toContain("AND v_class IN ('agent','viewer')");
+    expect(sql).toContain("AND NOT (v_class = 'agent'");
   });
 });
 

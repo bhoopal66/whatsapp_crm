@@ -168,12 +168,18 @@ BEGIN
   VALUES (u_mx, 'IC multi', 'ic-mx@example.invalid', a, 'agent', false);
 
   -- ================= role matrix =================
-  FOREACH uu IN ARRAY ARRAY[u_own, u_adm, u_sup, u_rm, u_ag] LOOP
+  -- 168: owners, admins, team leaders and coordinators create channels;
+  -- u_rm is a coordinator, u_rm2 a plain agent, u_ag a viewer.
+  INSERT INTO case_banks (account_id, code, name) VALUES (a, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a, u_rm, 'ADCB') ON CONFLICT DO NOTHING;
+  FOREACH uu IN ARRAY ARRAY[u_own, u_adm, u_sup, u_rm] LOOP
     t := pg_temp.must(pg_temp.mk(uu, a, 'team', 'team-' || uu));
     p := pg_temp.must(pg_temp.mk(uu, a, 'private', 'priv-' || uu));
     PERFORM pg_temp.ck('creator is admin of own team+private channel ' || uu,
       (SELECT string_agg(role, ',') FROM chat_channel_members WHERE user_id = uu AND channel_id IN (t, p)), 'admin,admin');
   END LOOP;
+  PERFORM pg_temp.ck('plain agent creates team channel', pg_temp.mk(u_rm2, a, 'team', 'a1'), 'ERROR 42501:%your role may not create team channels%');
+  PERFORM pg_temp.ck('viewer creates private channel', pg_temp.mk(u_ag, a, 'private', 'v1'), 'ERROR 42501:%your role may not create private channels%');
   PERFORM pg_temp.ck('guest creates team channel', pg_temp.mk(u_g, a, 'team', 'g1'), 'ERROR 42501:%bank guests cannot create channels%');
   PERFORM pg_temp.ck('guest creates private channel', pg_temp.mk(u_g, a, 'private', 'g2'), 'ERROR 42501:%bank guests cannot create channels%');
   PERFORM pg_temp.ck('guest opens DM', pg_temp.dm(u_g, a, ARRAY[u_rm]), 'ERROR 42501:%bank guests cannot open DMs%');
@@ -244,6 +250,8 @@ BEGIN
   PERFORM pg_temp.ck('mention notified', pg_temp.nk(m, u_rm2), 'mention');
   PERFORM pg_temp.ck('mention bell row', (SELECT count(*)::text FROM notifications WHERE user_id = u_rm2 AND account_id = a
       AND type = 'chat_mention' AND meta->>'channel_id' = t::text AND meta->>'message_id' = m::text), '1');
+  INSERT INTO case_banks (account_id, code, name) VALUES (b, 'ADCB', 'ADCB Bank') ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (b, u_prm, 'ADCB') ON CONFLICT DO NOTHING;  -- 168
   t := pg_temp.must(pg_temp.mk(u_prm, b, 'team', 'tp'));
   PERFORM pg_temp.must(pg_temp.post(u_prm, t, 'zebrafinch settlement'));
   PERFORM pg_temp.ck('A owner searches B', pg_temp.srch(u_own, b, 'zebrafinch'), '-');

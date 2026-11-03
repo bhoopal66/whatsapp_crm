@@ -919,7 +919,9 @@ only). `docs/internal-chat.md` is the contract.
   `chat_forward_message`. Typing never joins a channel; a play by the
   author is not recorded.
   - *Permissions (157).* A `chat_role_permissions` row is a denial; owners
-    exempt; the 12 capabilities in `lib/chat/permissions.ts` are pinned to
+    exempt; since 168 agents and viewers never create team/private
+    channels unless the agent is a coordinator (`chat_has_permission`,
+    `channelCreationLimit`); the 12 capabilities in `lib/chat/permissions.ts` are pinned to
     the table's CHECK by a test in `src/lib/chat/__tests__`. Edit/delete
     windows exempt owners and admins. Posting rules (`posting`,
     `thread_replies`, `mention_everyone`) exist on team/private only; DMs

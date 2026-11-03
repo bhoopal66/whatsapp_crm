@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: only leaders, admins and coordinators create channels; clearer channel types
+
+- **Migration required:** apply `168_chat_channel_creators.sql`.
+- Creating a team or private channel is now for owners, admins, team
+  leaders and coordinators. Other agents and viewers no longer see the
+  New channel button and the database refuses them; they still start
+  direct messages as before. Settings → Team chat → Role permissions
+  shows the rule (viewers: a dash; agents: "Coordinators only").
+- The New channel dialog now names each kind and says who sees it:
+  **Team channel — open to all staff**, **Private channel — invite
+  only**, **Deal room — WhatsApp group with the customer**, with an
+  example use for each and matching name and topic hints.
+
 ### Calls: Team call recordings page for team leaders and admins (no migration)
 
 - A page to listen to your team's call recordings: choose a period,
