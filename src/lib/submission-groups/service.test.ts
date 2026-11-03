@@ -6,6 +6,7 @@ import {
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
+  type SubmissionGroupServiceDeps,
   type GroupStore,
   type GroupsApi,
 } from './service';
@@ -330,7 +331,14 @@ const ACCESS = [
   { userId: 'sara', label: 'team_lead' as const },
 ];
 
-function setup(o: { now?: () => Date; store?: FakeStore; api?: FakeApi } = {}) {
+function setup(
+  o: {
+    now?: () => Date;
+    store?: FakeStore;
+    api?: FakeApi;
+    welcomeDetails?: SubmissionGroupServiceDeps['welcomeDetails'];
+  } = {}
+) {
   const store = o.store ?? new FakeStore();
   const api = o.api ?? new FakeApi();
   const consent: { answer: ConsentAnswer; asked: number } = {
@@ -346,6 +354,7 @@ function setup(o: { now?: () => Date; store?: FakeStore; api?: FakeApi } = {}) {
     },
     displayName: async (u) => NAMES[u] ?? null,
     logger: { warn: () => {} },
+    ...(o.welcomeDetails ? { welcomeDetails: o.welcomeDetails } : {}),
     ...(o.now ? { now: o.now } : {}),
   });
   const open = (
@@ -1181,6 +1190,57 @@ describe('SubmissionGroupService.sendSystem (170)', () => {
       /sendGroupText failed/
     );
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+});
+
+describe('SubmissionGroupService.sendWelcomeIfDue (170)', () => {
+  it('sends the welcome text once, keyed welcome', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const r = await s.svc.sendWelcomeIfDue(g.id);
+    expect(r).toMatchObject({ status: 'sent' });
+    expect(s.store.messages).toMatchObject([
+      { systemKind: 'welcome', sendStatus: 'sent' },
+    ]);
+    expect(s.api.of('sendGroupText')[0].args[2]).toMatch(
+      /^Hello 👋\n\nThis group is for your application with Taamul Credit\./
+    );
+    expect(await s.svc.sendWelcomeIfDue(g.id)).toMatchObject({
+      status: 'duplicate',
+    });
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+  });
+
+  it('uses the welcomeDetails dep for the product and bank', async () => {
+    const s = setup({
+      welcomeDetails: async () => ({ product: 'Loan', bankName: 'ADCB' }),
+    });
+    const g = await opened(s);
+    await s.svc.sendWelcomeIfDue(g.id);
+    expect(s.api.of('sendGroupText')[0].args[2]).toContain(
+      '*Loan* application with *ADCB*'
+    );
+  });
+
+  it('returns null for an ENDED group, a none-mode group and one not ready', async () => {
+    const s = setup();
+    const ended = await opened(s, 'S-1');
+    s.store.groups.get(ended.id)!.status = 'ENDED';
+    const none = await opened(s, 'S-2');
+    s.store.groups.get(none.id)!.waMode = 'none';
+    const pending = await opened(s, 'S-3');
+    s.store.groups.get(pending.id)!.waGroupId = null;
+    for (const id of [ended.id, none.id, pending.id])
+      expect(await s.svc.sendWelcomeIfDue(id)).toBeNull();
+    expect(s.api.of('sendGroupText')).toEqual([]);
+    expect(await s.svc.sendWelcomeIfDue('missing')).toBeNull();
+  });
+
+  it('swallows a failing send', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('sendGroupText');
+    expect(await s.svc.sendWelcomeIfDue(g.id)).toBeNull();
   });
 });
 

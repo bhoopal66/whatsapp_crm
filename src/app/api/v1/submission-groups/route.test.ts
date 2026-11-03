@@ -21,7 +21,7 @@ const m = vi.hoisted(() => ({
     noteInvite: vi.fn(),
     get: vi.fn(),
   },
-  service: { openForSubmission: vi.fn() },
+  service: { openForSubmission: vi.fn(), sendWelcomeIfDue: vi.fn() },
   findOrCreateContact: vi.fn(),
   loadChannels: vi.fn(),
   sendInviteLink: vi.fn(),
@@ -158,6 +158,7 @@ beforeEach(() => {
     refusedParticipants: [],
   });
   m.sendInviteLink.mockResolvedValue({});
+  m.service.sendWelcomeIfDue.mockResolvedValue(null);
   m.store.noteInvite.mockResolvedValue(true);
   m.store.get.mockResolvedValue(null);
   m.caseStore.mockReturnValue(m.cases);
@@ -298,6 +299,39 @@ describe('POST /api/v1/submission-groups', () => {
       { bankCode: 'NEWBANK', bankName: null, product: null, amount: null },
       null
     );
+  });
+
+  it('sends the welcome message after the case is opened, for a ready group', async () => {
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    expect(m.service.sendWelcomeIfDue).toHaveBeenCalledWith('g1');
+    expect(m.cases.open.mock.invocationCallOrder[0]).toBeLessThan(
+      m.service.sendWelcomeIfDue.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('sends no welcome for a group still pending, and a throwing welcome never fails the request', async () => {
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: group({ waGroupId: null }),
+      inviteLink: null,
+      refusedParticipants: [],
+    });
+    expect((await post(body)).status).toBe(202);
+    expect(m.service.sendWelcomeIfDue).not.toHaveBeenCalled();
+
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: group(),
+      inviteLink: null,
+      refusedParticipants: [],
+    });
+    m.service.sendWelcomeIfDue.mockRejectedValue(new Error('boom'));
+    expect((await post(body)).status).toBe(201);
+    err.mockRestore();
   });
 
   it('still answers 201 with case null when the case cannot be opened', async () => {

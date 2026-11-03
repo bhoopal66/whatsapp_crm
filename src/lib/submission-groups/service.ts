@@ -39,6 +39,7 @@ import {
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
   prefixMessage,
   shouldEnd,
+  welcomeMessage,
   type StaffLabel,
 } from './rules';
 import type {
@@ -107,6 +108,10 @@ export interface SubmissionGroupServiceDeps {
   consent: (contactId: string) => Promise<ConsentAnswer>;
   /** profiles.full_name of the user in the group's account (store.displayName). */
   displayName: (userId: string, accountId: string) => Promise<string | null>;
+  /** 170: the case's product and bank name for the welcome message. */
+  welcomeDetails?: (
+    groupId: string
+  ) => Promise<{ product: string | null; bankName: string | null } | null>;
   /** Lease on a pending group's WhatsApp group creation (default 120000 ms). */
   createLeaseMs?: number;
   /** Clock for the create lease and the archive window; absent = the DB clock. */
@@ -588,6 +593,38 @@ export class SubmissionGroupService {
       );
     }
     return { messageId, prefixedBody: prefixed, waMessageId: sent.waMessageId };
+  }
+
+  /**
+   * 170: the welcome message, once, when the WhatsApp group is ready. The key
+   * makes a repeat a no-op. Never throws: a failed welcome must not fail the
+   * request or the cron pass that created the group.
+   */
+  async sendWelcomeIfDue(groupId: string): Promise<SystemSendResult | null> {
+    try {
+      const group = await this.deps.store.get(groupId);
+      if (
+        !group ||
+        group.waMode !== 'group' ||
+        group.waGroupId === null ||
+        group.status !== 'ACTIVE'
+      )
+        return null;
+      const details = (await this.deps.welcomeDetails?.(groupId)) ?? null;
+      return await this.sendSystem({
+        groupId,
+        kind: 'welcome',
+        key: 'welcome',
+        text: welcomeMessage({
+          customerName: group.customerName ?? null,
+          product: details?.product ?? null,
+          bankName: details?.bankName ?? null,
+        }),
+      });
+    } catch (err) {
+      this.log.warn('welcome message not sent', { groupId, err });
+      return null;
+    }
   }
 
   /**

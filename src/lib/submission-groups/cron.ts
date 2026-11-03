@@ -31,7 +31,10 @@ type CronStore = Pick<
   SubmissionGroupStore,
   'listPendingCreates' | 'listUnclosedEnded' | 'failStalePending'
 >;
-type CronService = Pick<SubmissionGroupService, 'retryPending' | 'retryClose'>;
+type CronService = Pick<
+  SubmissionGroupService,
+  'retryPending' | 'retryClose' | 'sendWelcomeIfDue'
+>;
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -99,6 +102,8 @@ export async function runSubmissionGroupsCron(
             olderThanMs: PENDING_CREATE_AGE_MS,
           });
           out.created += r.created.length;
+          // Never throws; the case row exists by now (opened with the submission).
+          for (const id of r.created) await svc.sendWelcomeIfDue(id);
           out.createFailed += r.failed.length;
         } catch (err) {
           out.errors.push(`${accountId}: ${errText(err)}`);

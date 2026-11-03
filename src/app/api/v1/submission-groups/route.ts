@@ -424,10 +424,23 @@ export async function POST(request: Request) {
       }
     }
 
+    // The case is opened first: the welcome message reads its product and bank.
+    const openedCase = await openCase(ctx.accountId, group.id, input);
+    if (
+      group.waMode === 'group' &&
+      group.waGroupId !== null &&
+      group.status === 'ACTIVE'
+    ) {
+      try {
+        await service.sendWelcomeIfDue(group.id);
+      } catch (err) {
+        console.error('[api/v1/submission-groups] welcome send:', err);
+      }
+    }
     const extras = {
       refusedParticipants: result.refusedParticipants,
       inviteSent,
-      case: await openCase(ctx.accountId, group.id, input),
+      case: openedCase,
     };
     if (
       group.waMode === 'group' &&

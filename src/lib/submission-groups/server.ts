@@ -29,5 +29,30 @@ export function submissionGroupService(
     api: createWhapiGroupsApi(admin, accountId),
     consent: (contactId) => store.contactConsent(contactId),
     displayName: (userId, account) => store.displayName(userId, account),
+    welcomeDetails: async (groupId) => {
+      const { data: c, error } = await admin
+        .from('cases')
+        .select('bank_code, product, account_id')
+        .eq('group_id', groupId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!c) return null;
+      const code = (c.bank_code as string | null) ?? null;
+      let name: string | null = null;
+      if (code) {
+        const { data: b, error: be } = await admin
+          .from('case_banks')
+          .select('name')
+          .eq('account_id', c.account_id as string)
+          .eq('code', code)
+          .maybeSingle();
+        if (be) throw be;
+        name = (b?.name as string | null) ?? null;
+      }
+      return {
+        product: (c.product as string | null) ?? null,
+        bankName: name ?? code,
+      };
+    },
   });
 }

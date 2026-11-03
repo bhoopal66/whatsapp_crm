@@ -28,6 +28,7 @@ function fakes(o: {
     {
       retryPending: ReturnType<typeof vi.fn>;
       retryClose: ReturnType<typeof vi.fn>;
+      sendWelcomeIfDue: ReturnType<typeof vi.fn>;
     }
   >();
   const serviceFor = (accountId: string) => {
@@ -39,6 +40,7 @@ function fakes(o: {
         failed: [],
       }),
       retryClose: vi.fn().mockResolvedValue({ closed: true }),
+      sendWelcomeIfDue: vi.fn().mockResolvedValue(null),
     };
     services.set(accountId, svc);
     return svc;
@@ -47,6 +49,13 @@ function fakes(o: {
 }
 
 describe('runSubmissionGroupsCron', () => {
+  it('sends the welcome message for each group the pass created', async () => {
+    const f = fakes({ pending: [g('p1', 'A')] });
+    await runSubmissionGroupsCron(admin, f);
+    expect(f.services.get('A')!.sendWelcomeIfDue).toHaveBeenCalledTimes(1);
+    expect(f.services.get('A')!.sendWelcomeIfDue).toHaveBeenCalledWith('x');
+  });
+
   it('sweeps once, then retries pending creates and closes per account with that account only', async () => {
     const f = fakes({
       pending: [g('p1', 'A'), g('p2', 'A')],

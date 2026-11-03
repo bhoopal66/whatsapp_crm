@@ -11,6 +11,7 @@ import {
   isFinalStatus,
   prefixMessage,
   shouldEnd,
+  welcomeMessage,
 } from './rules';
 
 const DAY = 86_400_000;
@@ -169,5 +170,50 @@ describe('CLOSE_HOLD_DAYS', () => {
       /FUNCTION public\.sg_close_hold\(\)[\s\S]*?SELECT interval '(\d+) days'/
     );
     expect(m?.[1]).toBe(String(CLOSE_HOLD_DAYS));
+  });
+});
+
+describe('welcomeMessage (170)', () => {
+  const full = {
+    customerName: 'Aisha',
+    product: 'Personal loan',
+    bankName: 'ADCB',
+  };
+  const tail =
+    " Our *coordinators* are here with you: they'll post updates and ask for any documents the bank needs.\n\nAsk us anything here at any time.\n_Taamul Credit team_";
+
+  it('names the customer, product and bank', () => {
+    expect(welcomeMessage(full)).toBe(
+      'Hello Aisha 👋\n\nThis group is for your *Personal loan* application with *ADCB*.' +
+        tail
+    );
+  });
+
+  it('greets without a name', () => {
+    expect(welcomeMessage({ ...full, customerName: null })).toMatch(
+      /^Hello 👋\n\n/
+    );
+    expect(welcomeMessage({ ...full, customerName: '  ' })).toMatch(
+      /^Hello 👋\n\n/
+    );
+  });
+
+  it('falls back to the generic sentence without a product or without a bank', () => {
+    const generic =
+      'This group is for your application with Taamul Credit.' + tail;
+    expect(welcomeMessage({ ...full, product: null })).toContain(generic);
+    expect(welcomeMessage({ ...full, bankName: ' ' })).toContain(generic);
+  });
+
+  it('collapses whitespace and strips formatting characters', () => {
+    expect(
+      welcomeMessage({
+        customerName: '  *Ai_sha*\n  ~Khan ',
+        product: 'Home\t  loan',
+        bankName: '_*FAB*~',
+      })
+    ).toMatch(
+      /^Hello Aisha Khan 👋\n\nThis group is for your \*Home loan\* application with \*FAB\*\./
+    );
   });
 });

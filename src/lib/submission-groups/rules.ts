@@ -184,3 +184,32 @@ export function canSend(
 ): boolean {
   return status === 'ACTIVE' && onList && label !== null && isStaffLabel(label);
 }
+
+const cleanPart = (v: string | null | undefined): string =>
+  (v ?? '').replace(/[*_~]/g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * The first message in a ready group (170). WhatsApp markup (`*bold*`,
+ * `_italic_`): the inputs lose `*`, `_` and `~` and collapse whitespace so a
+ * name cannot break the formatting. Without a product or a bank the second
+ * paragraph falls back to a generic sentence.
+ */
+export function welcomeMessage(input: {
+  customerName: string | null;
+  product: string | null;
+  bankName: string | null;
+}): string {
+  const name = cleanPart(input.customerName);
+  const product = cleanPart(input.product);
+  const bank = cleanPart(input.bankName);
+  const hello = name ? `Hello ${name} 👋` : 'Hello 👋';
+  const purpose =
+    product && bank
+      ? `This group is for your *${product}* application with *${bank}*.`
+      : 'This group is for your application with Taamul Credit.';
+  return [
+    hello,
+    `${purpose} Our *coordinators* are here with you: they'll post updates and ask for any documents the bank needs.`,
+    'Ask us anything here at any time.\n_Taamul Credit team_',
+  ].join('\n\n');
+}
