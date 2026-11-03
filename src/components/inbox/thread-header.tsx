@@ -24,6 +24,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
 
 import {
   DropdownMenu,
@@ -32,6 +33,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import {
+  assignChangeKind,
+  type AssignChangeKind,
+} from '@/lib/inbox/assign-confirm';
 import type { ConversationHandler } from '@/lib/inbox/handler';
 import { cn } from '@/lib/utils';
 import type { Contact, Profile } from '@/types';
@@ -82,7 +88,10 @@ export interface ThreadHeaderProps {
   /** Who this person may hand the chat to. */
   assignableProfiles: Profile[];
   assignedAgentId: string | null;
+  /** The current assignee's name, for the confirmation's wording. */
+  assignedAgentName: string | null;
   currentUserId: string | null;
+  /** Called only after the person confirms the change. */
   onAssign: (agentId: string | null) => void;
   onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
   /** The refresh button renders only when this is provided. */
@@ -107,6 +116,7 @@ export function ThreadHeader({
   handlerTitle,
   assignableProfiles,
   assignedAgentId,
+  assignedAgentName,
   currentUserId,
   onAssign,
   onChatTagsChange,
@@ -125,6 +135,30 @@ export function ThreadHeader({
     conversation,
     !!sharedBank
   );
+
+  // Assigning is one click in the menu, which made it easy to hand a
+  // chat to the wrong person by accident, so every change is asked
+  // first. The question remembers which chat it was asked about: one
+  // that lands after the agent opened another chat is dropped.
+  const [pendingAssign, setPendingAssign] = useState<{
+    conversationId: string;
+    kind: AssignChangeKind;
+    agentId: string | null;
+    name: string | null;
+  } | null>(null);
+  const askAssign = (agentId: string | null, name: string | null) => {
+    const kind = assignChangeKind(assignedAgentId, agentId);
+    if (!kind) return;
+    setPendingAssign({ conversationId: conversation.id, kind, agentId, name });
+  };
+  const confirmAssign = () => {
+    const pending = pendingAssign;
+    setPendingAssign(null);
+    if (!pending || pending.conversationId !== conversation.id) return;
+    onAssign(pending.agentId);
+  };
+  const fromName = assignedAgentName ?? t('unknownAgent');
+  const toName = pendingAssign?.name ?? '';
 
   const identity = (
     <>
@@ -261,7 +295,15 @@ export function ThreadHeader({
                   return (
                     <DropdownMenuItem
                       key={p.id}
-                      onClick={() => onAssign(p.user_id)}
+                      onClick={() =>
+                        askAssign(
+                          p.user_id,
+                          (p.full_name?.trim() ||
+                            p.email ||
+                            t('unknownAgent')) +
+                            (p.user_id === currentUserId ? t('me') : '')
+                        )
+                      }
                       className={cn(
                         'text-sm',
                         isSelected ? 'text-primary' : 'text-popover-foreground'
@@ -281,7 +323,7 @@ export function ThreadHeader({
                 <>
                   <DropdownMenuSeparator className="bg-border" />
                   <DropdownMenuItem
-                    onClick={() => onAssign(null)}
+                    onClick={() => askAssign(null, null)}
                     className="text-muted-foreground text-sm"
                   >
                     {t('unassign')}
@@ -290,6 +332,48 @@ export function ThreadHeader({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          <ConfirmDialog
+            open={
+              pendingAssign !== null &&
+              pendingAssign.conversationId === conversation.id
+            }
+            onOpenChange={(open) => {
+              if (!open) setPendingAssign(null);
+            }}
+            title={
+              pendingAssign?.kind === 'reassign'
+                ? t('confirmReassignTitle')
+                : pendingAssign?.kind === 'unassign'
+                  ? t('confirmUnassignTitle')
+                  : t('confirmAssignTitle')
+            }
+            description={
+              pendingAssign?.kind === 'reassign'
+                ? t('confirmReassignBody', {
+                    customer: displayName,
+                    from: fromName,
+                    to: toName,
+                  })
+                : pendingAssign?.kind === 'unassign'
+                  ? t('confirmUnassignBody', {
+                      customer: displayName,
+                      name: fromName,
+                    })
+                  : t('confirmAssignBody', {
+                      customer: displayName,
+                      name: toName,
+                    })
+            }
+            cancelLabel={t('confirmAssignCancel')}
+            confirmLabel={
+              pendingAssign?.kind === 'reassign'
+                ? t('confirmReassignAction')
+                : pendingAssign?.kind === 'unassign'
+                  ? t('unassign')
+                  : t('assign')
+            }
+            onConfirm={confirmAssign}
+          />
 
           {fullContact && (
             <CallButton

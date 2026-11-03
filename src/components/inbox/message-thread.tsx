@@ -1689,6 +1689,15 @@ export function MessageThread({
           : t('handlerOwner', { name: handlerName })
       : t('handlerNobody');
 
+  const assignedProfile = assignedAgentId
+    ? profiles.find((p) => p.user_id === assignedAgentId)
+    : undefined;
+  const assignedAgentName = assignedAgentId
+    ? (assignedProfile?.full_name?.trim() ||
+        assignedProfile?.email ||
+        t('unknownAgent')) + (assignedAgentId === user?.id ? t('me') : '')
+    : null;
+
   const aiAttention = needsAttention(conversation);
 
   return (
@@ -1714,6 +1723,7 @@ export function MessageThread({
           handlerTitle={handlerTitle}
           assignableProfiles={assignableProfiles}
           assignedAgentId={assignedAgentId}
+          assignedAgentName={assignedAgentName}
           currentUserId={user?.id ?? null}
           onAssign={handleAssignChange}
           onChatTagsChange={onChatTagsChange}

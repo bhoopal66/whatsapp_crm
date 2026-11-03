@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Inbox: confirm before assigning a chat
+
+- Picking a person in a chat's assignee menu (or Unassign) now asks
+  first: "Assign this chat?", "Reassign this chat?" (naming who it
+  moves from and to) or "Unassign this chat?". Nothing changes until
+  you confirm; picking the person who already has the chat does
+  nothing. No migration.
+
 ### Team chat: only leaders, admins and coordinators create channels; clearer channel types
 
 - **Migration required:** apply `168_chat_channel_creators.sql`.
