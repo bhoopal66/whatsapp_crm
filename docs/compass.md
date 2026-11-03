@@ -280,7 +280,13 @@ WhatsApp group is posted **only into that group**, from the group's own
 number, and not 1:1. The group is the one whose submission id equals
 `reference`; when `reference` matches none, it is the customer's newest
 submission group that still has a live WhatsApp group. With no such
-group (or when the group refuses the post) it is sent 1:1 as below.
+group it is sent 1:1 as below. When `reference` names a submission, only
+that submission's group is ever used: if it has no live WhatsApp group
+(or cannot take the post) the update goes 1:1, never into another
+submission's group. Once a post into the group has failed, a retry with
+the same key is posted into the group again (at most 3 attempts in all)
+and never falls back to 1:1, because the failed post may still have
+reached WhatsApp.
 Only `text` goes to a group: `image` and `document` are always 1:1.
 After a submission ends on a final status, its group stays open for 2
 days, and status updates still go into it during that hold. The
@@ -380,7 +386,8 @@ Scope: `compass_notifications:send`. Filters: `status`
 | 422  | `no_phone`                  | The synced customer has no phone                                                                                                      | Sync a phone for them, or send `to`                                                                        |
 | 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent   | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
 | 429  | `rate_limited`              | Over 120 requests/min on this key                                                                                                     | Wait `Retry-After` seconds, retry the same key                                                             |
-| 502  | `group_send_failed`         | WhatsApp refused the post into the customer's submission group. Nothing was sent                                                      | Retry later with the **same** key                                                                          |
+| 502  | `group_send_failed`         | The post into the customer's submission group failed. After 3 failed attempts, or when the group closed after a failed attempt, nothing more is sent for this key | Retry later with the **same** key; after 3 failures, check the group in the CRM                            |
+| 503  | `group_lookup_failed`       | The customer's submission group could not be looked up. Nothing was sent                                                              | Retry later with the **same** key                                                                          |
 | 502  | `whatsapp_error`            | WhatsApp refused or failed the send (e.g. the number isn't on WhatsApp, or the phone paired to Whapi is offline)                      | Retry later with the same key. If it keeps failing, check the number.                                      |
 | 500  | `internal` / `db_error`     | Unexpected server error                                                                                                               | Retry later with the same key                                                                              |
 

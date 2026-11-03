@@ -23,7 +23,7 @@ and polish.
   final status too. Otherwise it is sent 1:1 as before; images and
   documents are always 1:1. Notifications now carry `delivered_to` and
   `submission_group_id`; new errors `customer_opted_out` (422) and
-  `group_send_failed` (502). See `docs/compass.md` §5.
+  `group_send_failed` (502) and `group_lookup_failed` (503). See `docs/compass.md` §5.
 
 ### Assigning a chat moves its contact too
 

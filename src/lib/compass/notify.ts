@@ -484,76 +484,108 @@ export interface NotifyDeps {
 }
 
 const MAX_SYSTEM_KEY_LENGTH = 240;
+/**
+ * Group attempts per idempotency key. A failed attempt spends its system
+ * key (170's unique index), so a retry posts under `<key>#2`, `<key>#3`;
+ * after that the update is reported failed rather than sent 1:1.
+ */
+const MAX_GROUP_ATTEMPTS = 3;
 
 interface GroupCandidate {
   id: string;
   contact_id: string | null;
 }
 
+const lookupFailed = () =>
+  new NotifyError(
+    'group_lookup_failed',
+    "The customer's submission group could not be looked up. Nothing was sent — retry later with the same idempotency_key.",
+    503
+  );
+
 /**
- * The groups a text update may go into, best first: the group whose
- * submission_ref is the request's `reference` (Compass sends the
- * submission id there), else the customer's newest group that has a live
- * WhatsApp group. ACTIVE and ENDED both qualify: sendSystem decides, and
- * allows a status update during 170's hold after a final-status end.
+ * The group a text update goes into. The group whose submission_ref is the
+ * request's `reference` (Compass sends the submission id there) is the
+ * ONLY candidate when it exists, even if it cannot take the update: a
+ * refusal there goes 1:1, never into another case's group. Only when the
+ * reference names no group is the customer's newest group with a live
+ * WhatsApp group used. ACTIVE and ENDED both qualify: sendSystem decides,
+ * and allows a status update during 170's hold after a final-status end.
+ * A read error throws (retryable) rather than sending 1:1 past a group.
  */
-async function groupCandidates(
+async function groupCandidate(
   db: SupabaseClient,
   accountId: string,
   reference: string | null,
   phone: string
-): Promise<GroupCandidate[]> {
-  const out: GroupCandidate[] = [];
+): Promise<GroupCandidate | null> {
   if (reference) {
-    const { data } = await db
+    const { data, error } = await db
       .from('submission_groups')
       .select('id, contact_id')
       .eq('account_id', accountId)
       .eq('submission_ref', reference)
       .maybeSingle();
-    if (data) out.push(data as GroupCandidate);
+    if (error) throw lookupFailed();
+    if (data) return data as GroupCandidate;
   }
   const contact = await findExistingContact(
     db,
     accountId,
     sanitizePhoneForMeta(`+${phone}`)
   );
-  if (contact) {
-    const { data } = await db
-      .from('submission_groups')
-      .select('id, contact_id')
-      .eq('account_id', accountId)
-      .eq('contact_id', contact.id)
-      .eq('wa_mode', 'group')
-      .in('status', ['ACTIVE', 'ENDED'])
-      .not('wa_group_id', 'is', null)
-      .is('wa_closed_at', null)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    const newest = (data as GroupCandidate[] | null)?.[0];
-    if (newest && !out.some((c) => c.id === newest.id)) out.push(newest);
-  }
-  return out;
+  if (!contact) return null;
+  const { data, error } = await db
+    .from('submission_groups')
+    .select('id, contact_id')
+    .eq('account_id', accountId)
+    .eq('contact_id', contact.id)
+    .eq('wa_mode', 'group')
+    .in('status', ['ACTIVE', 'ENDED'])
+    .not('wa_group_id', 'is', null)
+    .is('wa_closed_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw lookupFailed();
+  return (data as GroupCandidate[] | null)?.[0] ?? null;
 }
 
 /**
- * Try the candidates in order. Returns the group the update went into, or
- * null when it should go 1:1 instead (no group, every one refused, or an
- * earlier attempt under this key failed or was blocked in the group, which
- * the key can never re-send there). A consent block throws: the customer
- * opted out, so nothing goes 1:1 either.
+ * Posts the update into the group. Returns where it went, or null when it
+ * should go 1:1 instead: the group refused it (no WhatsApp group, closed,
+ * past the hold) and no earlier attempt under this key reached the
+ * gateway. Throws otherwise, never falling back to 1:1 once a group
+ * attempt may have been delivered: a consent block (422, the customer
+ * opted out, on this try or an earlier one), a send in flight (409), a
+ * failed send (502, retried under the next attempt key), or the attempts
+ * used up.
  */
 async function sendToGroup(
   send: CompassGroupSender,
-  candidates: GroupCandidate[],
-  key: string,
+  group: GroupCandidate,
+  baseKey: string,
   text: string
 ): Promise<{
   groupId: string;
   contactId: string | null;
   messageId: string | null;
 } | null> {
-  for (const group of candidates) {
+  const delivered = (messageId: string | null) => ({
+    groupId: group.id,
+    contactId: group.contact_id,
+    messageId,
+  });
+  const optedOut = () =>
+    new NotifyError(
+      'customer_opted_out',
+      'The customer has opted out of WhatsApp messages. Nothing was sent.',
+      422
+    );
+  const failed = (message: string) =>
+    new NotifyError('group_send_failed', message, 502);
+  const base = baseKey.slice(0, MAX_SYSTEM_KEY_LENGTH - 2);
+  for (let attempt = 1; attempt <= MAX_GROUP_ATTEMPTS; attempt++) {
+    const key = attempt === 1 ? base : `${base}#${attempt}`;
     let result: SystemSendResult;
     try {
       result = await send({
@@ -564,33 +596,28 @@ async function sendToGroup(
       });
     } catch (err) {
       if (err instanceof SubmissionGroupSentNotRecordedError) {
-        return {
-          groupId: group.id,
-          contactId: group.contact_id,
-          messageId: err.messageId,
-        };
+        return delivered(err.messageId);
       }
       console.error('[compass/notify] group send failed:', err);
-      throw new NotifyError(
-        'group_send_failed',
-        "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
-        502
+      throw failed(
+        "The update could not be sent into the customer's submission group. Retry later with the same idempotency_key."
       );
     }
     switch (result.status) {
       case 'sent':
-        return {
-          groupId: group.id,
-          contactId: group.contact_id,
-          messageId: result.messageId,
-        };
+        return delivered(result.messageId);
+      case 'blocked':
+        throw optedOut();
+      case 'refused':
+        // A first attempt the group refused never reached WhatsApp: 1:1 is
+        // safe. After a failed attempt it may have, so report instead.
+        if (attempt === 1) return null;
+        throw failed(
+          "An earlier attempt to post this update into the customer's submission group failed, and the group can no longer take it. Nothing more was sent, to avoid a double message."
+        );
       case 'duplicate':
         if (result.sendStatus === 'sent' || result.sendStatus === null) {
-          return {
-            groupId: group.id,
-            contactId: group.contact_id,
-            messageId: result.messageId,
-          };
+          return delivered(result.messageId);
         }
         if (result.sendStatus === 'pending') {
           throw new NotifyError(
@@ -599,18 +626,13 @@ async function sendToGroup(
             409
           );
         }
-        return null;
-      case 'blocked':
-        throw new NotifyError(
-          'customer_opted_out',
-          'The customer has opted out of WhatsApp messages. Nothing was sent.',
-          422
-        );
-      case 'refused':
-        continue;
+        if (result.sendStatus === 'blocked') throw optedOut();
+        continue; // failed: try the next attempt key
     }
   }
-  return null;
+  throw failed(
+    `Posting this update into the customer's submission group failed ${MAX_GROUP_ATTEMPTS} times. Nothing more will be sent for this idempotency_key.`
+  );
 }
 
 /**
@@ -698,18 +720,15 @@ export async function sendCompassNotification(
     // so this runs before the Whapi number check. Media stays 1:1 (the
     // group send is text-only).
     if (deps.groupSender && req.type === 'text' && req.text) {
-      const candidates = await groupCandidates(
-        db,
-        accountId,
-        req.reference,
-        phone
-      );
-      const inGroup = await sendToGroup(
-        deps.groupSender,
-        candidates,
-        `compass:${req.idempotencyKey}`.slice(0, MAX_SYSTEM_KEY_LENGTH),
-        req.text
-      );
+      const group = await groupCandidate(db, accountId, req.reference, phone);
+      const inGroup = group
+        ? await sendToGroup(
+            deps.groupSender,
+            group,
+            `compass:${req.idempotencyKey}`,
+            req.text
+          )
+        : null;
       if (inGroup) {
         await record({
           status: 'sent',
