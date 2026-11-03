@@ -123,8 +123,9 @@ sign-in bounces back to `/login`.
 - **A contact's owner follows its chat (migration 169).** `contacts.user_id`
   is the owner, not the creator: assigning the chat to a live staff member
   of the account moves it (`conversations_move_contact_owner`, any writer;
-  unassigning leaves it). The creator is `contacts.created_by`, set from
-  `user_id` on insert and frozen by a trigger; nothing displays it.
+  unassigning leaves it, and an UPDATE that also changes `contact_id` moves
+  nothing). The creator is `contacts.created_by`: `auth.uid()` on insert,
+  else `user_id`, then frozen by a trigger; nothing displays it.
   `verify-contact-follows-assignment.sql`.
 - **Deactivation (migration 069)** is `profiles.deactivated_at`, set
   only through `set_member_active` (PATCH `/api/account/members/[id]`

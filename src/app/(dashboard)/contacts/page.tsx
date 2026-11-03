@@ -153,7 +153,7 @@ export function ContactsPageInner({
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
-  // Names for the Created by / Assigned to columns, from the members
+  // Names for the Owner / Assigned to columns, from the members
   // list the inbox and pipelines already cache (no extra round trip).
   const { nameOf } = useWorkspaceMembers();
 

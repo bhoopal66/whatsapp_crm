@@ -9,8 +9,11 @@
 -- to, so user_id becomes the owner and moves; the creator is saved in
 -- a new column that nothing ever moves:
 --
---   contacts.created_by   who the contact was created for. Set from
---                         user_id on INSERT, frozen on every UPDATE by
+--   contacts.created_by   who created the contact: the signed-in
+--                         person who inserted it, else (the service
+--                         role: inbound, the API, imports by a job) the
+--                         user_id it was created for. Frozen on every
+--                         UPDATE by
 --                         contacts_created_by_guard (any writer, the
 --                         service role included). Existing rows take
 --                         their current user_id once, below. Plain
@@ -28,6 +31,10 @@
 --                         the chat's own account is moved to (never a
 --                         bank guest or a deactivated member).
 --                         Unassigning leaves the contact where it is.
+--                         Only the chat's own contact moves: an UPDATE
+--                         that also changes contact_id moves nothing,
+--                         or an agent could re-point a chat they see at
+--                         any contact and take it in the same write.
 --                         Like 080's tag→deal trigger it never blocks
 --                         the assignment: a failure is a WARNING.
 --
@@ -46,7 +53,7 @@ ALTER TABLE public.contacts
   ADD COLUMN IF NOT EXISTS created_by UUID;
 
 COMMENT ON COLUMN public.contacts.created_by IS
-  'Who the contact was created for (user_id at insert). Never changes; user_id is the current owner and follows chat assignment (migration 169).';
+  'Who created the contact (the inserting user, else user_id at insert). Never changes; user_id is the current owner and follows chat assignment (migration 169).';
 
 -- Backfill before the guard exists. Only set_updated_at fires on this
 -- column (every other contacts trigger names its columns), and a
@@ -70,7 +77,7 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    NEW.created_by := NEW.user_id;
+    NEW.created_by := COALESCE(auth.uid(), NEW.user_id);
   ELSE
     NEW.created_by := OLD.created_by;
   END IF;
@@ -93,6 +100,9 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF NEW.contact_id IS NULL OR NEW.assigned_agent_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.contact_id IS DISTINCT FROM OLD.contact_id THEN
     RETURN NULL;
   END IF;
 

@@ -19,8 +19,10 @@ and polish.
   header, Take over, an automation, a flow or the API), its contact
   now becomes theirs as well, so it shows under their contacts.
   Unassigning a chat leaves the contact with whoever had it.
-- Every contact now keeps a permanent record of who it was created
-  for (`contacts.created_by`). It is not shown anywhere and nothing
+- Every contact now keeps a permanent record of who created it
+  (`contacts.created_by`: the person who added it, or for contacts made
+  by incoming messages, the API or background jobs, the owner they were
+  created for). It is not shown anywhere and nothing
   changes it; existing contacts take their current owner.
 - The Contacts screens' "Created by" column is now "Owner", since
   that column shows whose contact it is and that now moves.

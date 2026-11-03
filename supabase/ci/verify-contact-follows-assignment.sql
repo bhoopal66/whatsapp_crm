@@ -2,12 +2,13 @@
 -- moves its contact (contacts.user_id) to the assignee, and
 -- contacts.created_by keeps who the contact was created for.
 --
--- Asserts: created_by is set from user_id on insert whatever the
--- writer passes and never changes afterwards, for an admin, the
+-- Asserts: created_by is the inserting person (else user_id) whatever
+-- the writer passes and never changes afterwards, for an admin, the
 -- service role or a no-user session; assigning a chat (admin, an
 -- agent's own Take over, the service role, an insert with an assignee)
 -- moves the contact and leaves created_by alone; reassigning moves it
--- again; unassigning, a refused assignment, and an assignee who is
+-- again; re-pointing a chat at another contact while assigning moves
+-- neither; unassigning, a refused assignment, and an assignee who is
 -- deactivated, a bank guest or from another account move nothing; the
 -- functions are not callable by clients.
 --
@@ -88,7 +89,8 @@ BEGIN
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_gone;
 
   -- ---------- created_by on insert ----------
-  -- Whatever the writer passes, created_by is the user_id it inserted.
+  -- No signed-in user (a job, the service role): created_by is the
+  -- user_id it inserted, whatever the writer passes.
   INSERT INTO contacts (account_id, user_id, phone, name, created_by)
   VALUES (a_acct, u_owner, '971500169001', 'CF one', u_other) RETURNING id INTO ct;
   n := n + 1;
@@ -102,6 +104,15 @@ BEGIN
   IF r <> 'ok' OR (SELECT created_by FROM contacts WHERE phone = '971500169002' AND account_id = a_acct)
        IS DISTINCT FROM u_agent THEN
     failed := array_append(failed, ('agent insert: created_by not the agent: ' || r)::text);
+  END IF;
+  -- A person who creates a contact for someone else is still its creator.
+  r := pg_temp.cf_try('authenticated', u_agent, format(
+    'INSERT INTO contacts (account_id, user_id, phone, name, created_by) VALUES (%L, %L, %L, %L, %L)',
+    a_acct, u_owner, '971500169005', 'CF made for the owner', u_owner));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT created_by FROM contacts WHERE phone = '971500169005' AND account_id = a_acct)
+       IS DISTINCT FROM u_agent THEN
+    failed := array_append(failed, ('agent insert for another owner: created_by not the agent: ' || r)::text);
   END IF;
 
   -- ---------- created_by never changes ----------
@@ -223,6 +234,19 @@ BEGIN
   IF owner_id IS DISTINCT FROM u_agent OR creator IS DISTINCT FROM u_owner THEN
     failed := array_append(failed, ('insert with an assignee: owner=' || coalesce(owner_id::text, 'NULL')
       || ' creator=' || coalesce(creator::text, 'NULL'))::text);
+  END IF;
+
+  -- ---------- re-pointing a chat at another contact moves nothing ----------
+  -- An agent who sees a chat re-points it at a contact they cannot
+  -- see and takes it in the same write: that contact must stay put.
+  UPDATE conversations SET user_id = u_agent2, assigned_agent_id = NULL WHERE id = cv2;
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_owner, '971500169006', 'CF not theirs') RETURNING id INTO ct3;
+  r := pg_temp.cf_try('authenticated', u_agent2, format(
+    'UPDATE conversations SET contact_id = %L, assigned_agent_id = %L WHERE id = %L', ct3, u_agent2, cv2));
+  n := n + 1;
+  IF (SELECT user_id FROM contacts WHERE id = ct3) IS DISTINCT FROM u_owner THEN
+    failed := array_append(failed, ('re-pointed chat took another contact: ' || r)::text);
   END IF;
 
   -- ---------- an unassigned chat leaves its contact alone ----------
