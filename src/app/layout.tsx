@@ -39,7 +39,11 @@ export const metadata: Metadata = {
   },
   // Installable PWA: iOS only delivers web push to a Home Screen app.
   manifest: "/manifest.webmanifest",
+  // The tab icon is listed here explicitly: declaring `icons` at all
+  // replaces the <link rel="icon"> Next would otherwise generate from
+  // app/icon.png, and the tab fell back to a 404ing /favicon.ico.
   icons: {
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "256x256" }],
     apple: [{ url: "/icons/icon-192.png", sizes: "192x192" }],
   },
   appleWebApp: {
