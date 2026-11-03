@@ -30,7 +30,7 @@ class FakeStore implements GroupStore {
     label: StaffLabel;
     removed: boolean;
   }[] = [];
-  messages: (GroupMessage & { groupId: string })[] = [];
+  messages: (GroupMessage & { groupId: string; systemKey?: string })[] = [];
   admins = new Set(['adam']);
   audit: { groupId: string; userId: string }[] = [];
   private seq = 0;
@@ -154,6 +154,54 @@ class FakeStore implements GroupStore {
       waTimestamp: null,
     });
     return mid;
+  }
+  /** 170: per group; absent = no hold (the SQL rule is asserted by verify-submission-group-system-messages). */
+  holds = new Map<string, Date | (() => never)>();
+  async closeHoldUntil(id: string) {
+    const h = this.holds.get(id);
+    if (typeof h === 'function') return h();
+    return h ?? null;
+  }
+  async beginSystemSend(
+    id: string,
+    kind: 'welcome' | 'status_update',
+    key: string,
+    body: string
+  ) {
+    const g = this.groups.get(id);
+    if (!g) return { refused: 'NOT_FOUND' as const };
+    const dup = this.messages.find(
+      (m) => m.groupId === id && m.systemKey === key
+    );
+    if (dup)
+      return {
+        refused: 'DUPLICATE' as const,
+        id: dup.id,
+        sendStatus: dup.sendStatus,
+      };
+    if (!g.waGroupId) return { refused: 'GROUP_NOT_READY' as const };
+    if (g.status !== 'ACTIVE') return { refused: 'ENDED' as const };
+    const mid = String(++this.seq);
+    this.messages.push({
+      groupId: id,
+      id: mid,
+      direction: 'out',
+      senderUserId: null,
+      senderWaId: null,
+      senderKind: null,
+      type: 'text',
+      body,
+      prefixedBody: body,
+      media: null,
+      waMessageId: null,
+      sendStatus: 'pending',
+      postEnd: false,
+      createdAt: new Date(),
+      waTimestamp: null,
+      systemKind: kind,
+      systemKey: key,
+    });
+    return { id: mid };
   }
   async settleSend(
     mid: string,
@@ -1056,6 +1104,120 @@ describe('a submission without a WhatsApp group (136, waMode none)', () => {
       closeDeferred: false,
     });
     expect(s.store.groups.get(g.id)!.status).toBe('ENDED');
+    expect(s.api.of('closeGroup')).toEqual([]);
+  });
+});
+
+describe('SubmissionGroupService.sendSystem (170)', () => {
+  const welcome = (groupId: string) => ({
+    groupId,
+    kind: 'welcome' as const,
+    key: 'welcome',
+    text: 'Hello 👋',
+  });
+
+  it('stores the row, then sends the text unprefixed and settles it sent', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const asked = s.consent.asked;
+    const r = await s.svc.sendSystem(welcome(g.id));
+    expect(r).toEqual({
+      status: 'sent',
+      messageId: expect.any(String),
+      waMessageId: expect.stringMatching(/^wamid-/),
+    });
+    expect(s.api.of('sendGroupText').map((c) => c.args)).toEqual([
+      [CH, g.waGroupId, 'Hello 👋'],
+    ]);
+    expect(s.store.messages).toMatchObject([
+      { senderUserId: null, systemKind: 'welcome', sendStatus: 'sent' },
+    ]);
+    expect(s.consent.asked).toBe(asked + 1);
+  });
+
+  it('a repeated key is a duplicate: nothing new stored or sent', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const first = await s.svc.sendSystem(welcome(g.id));
+    const again = await s.svc.sendSystem(welcome(g.id));
+    expect(again).toEqual({
+      status: 'duplicate',
+      messageId: first.status === 'sent' ? first.messageId : '',
+      sendStatus: 'sent',
+    });
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+    expect(s.store.messages).toHaveLength(1);
+  });
+
+  it('a refusal stores and sends nothing', async () => {
+    const s = setup();
+    const g = await opened(s);
+    await s.svc.endNow(g.id, 'MANUAL');
+    expect(await s.svc.sendSystem(welcome(g.id))).toEqual({
+      status: 'refused',
+      code: 'ENDED',
+    });
+    expect(s.api.of('sendGroupText')).toEqual([]);
+    expect(s.store.messages).toEqual([]);
+  });
+
+  it('consent refused: the row is settled blocked and nothing is sent', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.consent.answer = { allowed: false, phone: null, reason: 'opted_out' };
+    expect(await s.svc.sendSystem(welcome(g.id))).toEqual({
+      status: 'blocked',
+      reason: 'opted_out',
+    });
+    expect(s.api.of('sendGroupText')).toEqual([]);
+    expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['blocked']);
+  });
+
+  it('a gateway error settles the row failed and is rethrown', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('sendGroupText');
+    await expect(s.svc.sendSystem(welcome(g.id))).rejects.toThrow(
+      /sendGroupText failed/
+    );
+    expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+});
+
+describe('the 2-day close hold (170)', () => {
+  it('defers the WhatsApp close while the hold is in the future, closes once it has passed', async () => {
+    let now = new Date('2026-11-03T10:00:00Z');
+    const s = setup({ now: () => now });
+    const g = await opened(s);
+    s.store.holds.set(g.id, new Date('2026-11-05T10:00:00Z'));
+    expect(await s.svc.endIfDue(due(g.id))).toEqual({
+      ended: true,
+      reason: 'FINAL_STATUS:APPROVED',
+      closed: false,
+      closeError: null,
+      closeDeferred: true,
+    });
+    expect(await s.svc.retryClose(g.id)).toMatchObject({
+      closed: false,
+      closeDeferred: true,
+    });
+    expect(s.api.of('closeGroup')).toEqual([]);
+    now = new Date('2026-11-05T10:00:01Z');
+    expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
+    expect(s.api.of('closeGroup')).toHaveLength(1);
+  });
+
+  it('an unreadable hold keeps the group open', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.store.holds.set(g.id, () => {
+      throw new Error('db down');
+    });
+    expect(await s.svc.endNow(g.id, 'CASE_FINAL')).toMatchObject({
+      ended: true,
+      closed: false,
+      closeDeferred: true,
+    });
     expect(s.api.of('closeGroup')).toEqual([]);
   });
 });

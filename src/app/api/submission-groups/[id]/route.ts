@@ -41,7 +41,7 @@ import {
 type Params = { params: Promise<{ id: string }> };
 
 const MESSAGE_COLUMNS =
-  'id, direction, sender_user_id, sender_wa_id, sender_kind, type, body, prefixed_body, media, wa_message_id, wa_timestamp, send_status, post_end, created_at';
+  'id, direction, sender_user_id, sender_wa_id, sender_kind, type, body, prefixed_body, media, wa_message_id, wa_timestamp, send_status, post_end, created_at, system_kind';
 
 export async function GET(_request: Request, { params }: Params) {
   try {

@@ -64,7 +64,28 @@ export interface GroupMessage {
   postEnd: boolean;
   createdAt: Date;
   waTimestamp: Date | null;
+  /** 170: an automatic message (no sender_user_id); null = a person's or the customer's. Optional so fixtures predating 170 still type-check; toMessage always sets it. sg_read_archive does not return it. */
+  systemKind?: SystemKind | null;
 }
+
+/** 170: the kinds of automatic message sg_send_begin_system writes. */
+export type SystemKind = 'welcome' | 'status_update';
+
+/** sg_send_begin_system's answer: a new pending row, the row an earlier call with the same key wrote, or a refusal (nothing stored). */
+export type SystemSendBegin =
+  | { id: string }
+  | { refused: 'DUPLICATE'; id: string; sendStatus: SendStatus | null }
+  | { refused: SystemSendRefusal };
+
+export type SystemSendRefusal =
+  | 'BAD_INPUT'
+  | 'NOT_FOUND'
+  | 'NO_WHATSAPP_GROUP'
+  | 'GROUP_NOT_READY'
+  | 'NUMBER_REMOVED'
+  | 'CONTACT_REMOVED'
+  | 'WA_CLOSED'
+  | 'ENDED';
 
 export type ArchiveResult =
   { allowed: false } | { allowed: true; messages: GroupMessage[] };
@@ -135,6 +156,10 @@ export function toMessage(m: Row): GroupMessage {
     postEnd: m.post_end === true,
     createdAt: date(m.created_at)!,
     waTimestamp: date(m.wa_timestamp),
+    systemKind:
+      m.system_kind === 'welcome' || m.system_kind === 'status_update'
+        ? m.system_kind
+        : null,
   };
 }
 
@@ -434,6 +459,37 @@ export class SubmissionGroupStore {
         p_prefixed: prefixed,
       })
     );
+  }
+
+  /** 170: writes an automatic 'out' row as pending, at most once per (group, key). Only an `{ id }` answer may be sent. */
+  async beginSystemSend(
+    groupId: string,
+    kind: SystemKind,
+    key: string,
+    body: string
+  ): Promise<SystemSendBegin> {
+    const r = (await this.rpc('sg_send_begin_system', {
+      p_group: groupId,
+      p_kind: kind,
+      p_key: key,
+      p_body: body,
+    })) as Row | null;
+    if (!r || typeof r !== 'object')
+      throw new SubmissionGroupDbError('sg_send_begin_system: no answer', null);
+    if (r.refused === undefined || r.refused === null)
+      return { id: String(r.id) };
+    if (r.refused === 'DUPLICATE')
+      return {
+        refused: 'DUPLICATE',
+        id: String(r.id),
+        sendStatus: (r.send_status as SendStatus | null) ?? null,
+      };
+    return { refused: String(r.refused) as SystemSendRefusal };
+  }
+
+  /** 170: when the WhatsApp close of an ENDED group may happen (ended_at + 2 days after a final status); null = no hold. */
+  async closeHoldUntil(groupId: string): Promise<Date | null> {
+    return date(await this.rpc('sg_close_hold_until', { p_group: groupId }));
   }
 
   /** Settles a pending 'out' row once; false if it was not pending. */

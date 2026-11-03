@@ -43,6 +43,13 @@ export const ROLE_LABELS: Record<StaffLabel, string> = {
 
 /** Days after ended_at during which the group's coordinator / team_lead may still read it. */
 export const DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS = 60;
+
+/**
+ * 170's sg_close_hold(): after a final status the WhatsApp group stays open
+ * this long, so the customer still gets the closing status update. The SQL
+ * decides (sg_close_hold_until); this restates it, pinned by rules.test.ts.
+ */
+export const CLOSE_HOLD_DAYS = 2;
 /**
  * Compass statuses that finish a submission: the group ends and the case
  * closes. Mirrors case_final_stage_for_status (migration 166), which

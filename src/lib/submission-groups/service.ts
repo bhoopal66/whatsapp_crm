@@ -45,7 +45,10 @@ import type {
   ArchiveResult,
   ConsentAnswer,
   SubmissionGroup,
+  SendStatus,
   SubmissionGroupStore,
+  SystemKind,
+  SystemSendRefusal,
   WaMode,
 } from './store';
 
@@ -85,12 +88,14 @@ export type GroupStore = Pick<
   | 'releaseCreateClaim'
   | 'attachWaGroup'
   | 'beginSend'
+  | 'beginSystemSend'
   | 'settleSend'
   | 'sendState'
   | 'end'
   | 'markWaClosed'
   | 'recordWaCloseError'
   | 'countPendingOut'
+  | 'closeHoldUntil'
   | 'failStalePending'
   | 'readArchive'
 >;
@@ -172,7 +177,7 @@ export type OpenResult =
       refusedParticipants: string[];
     };
 
-/** closeDeferred: ENDED, but closeGroup waits for a pending send; the next call retries. */
+/** closeDeferred: ENDED, but closeGroup waits for a pending send or 170's close hold; the next call retries. */
 export type EndResult = {
   ended: boolean;
   reason: string | null;
@@ -180,6 +185,18 @@ export type EndResult = {
   closeError: string | null;
   closeDeferred: boolean;
 };
+
+/**
+ * sendSystem's outcome. `duplicate`: a row with this key already exists
+ * (its own state in `sendStatus`); nothing new was stored or sent.
+ * `refused`: sg_send_begin_system stored nothing. `blocked`: the consent
+ * check refused and the row was settled 'blocked'.
+ */
+export type SystemSendResult =
+  | { status: 'sent'; messageId: string; waMessageId: string }
+  | { status: 'duplicate'; messageId: string; sendStatus: SendStatus | null }
+  | { status: 'refused'; code: SystemSendRefusal }
+  | { status: 'blocked'; reason: 'opted_out' | 'do_not_contact' };
 
 type CreateOutcome =
   | { consentRequired: true }
@@ -574,6 +591,101 @@ export class SubmissionGroupService {
   }
 
   /**
+   * Sends an automatic message (170: welcome, status update) into the group
+   * from its hosting number, with no name prefix. Same safety as
+   * sendFromCrm: the row exists before the gateway, consent is re-checked,
+   * and a gateway error settles the row 'failed' and is rethrown (unless
+   * Whapi's echo shows it went out: SubmissionGroupSentNotRecordedError).
+   * `key` makes it at most once per group: a repeat answers `duplicate`.
+   */
+  async sendSystem(input: {
+    groupId: string;
+    kind: SystemKind;
+    key: string;
+    text: string;
+  }): Promise<SystemSendResult> {
+    const { store, api } = this.deps;
+    const begun = await store.beginSystemSend(
+      input.groupId,
+      input.kind,
+      input.key,
+      input.text
+    );
+    if ('refused' in begun) {
+      return begun.refused === 'DUPLICATE'
+        ? {
+            status: 'duplicate',
+            messageId: begun.id,
+            sendStatus: begun.sendStatus,
+          }
+        : { status: 'refused', code: begun.refused };
+    }
+    const messageId = begun.id;
+
+    // sg_send_begin_system checked the number, group and contact under the
+    // group lock; they are frozen or only ever cleared, so a re-read that
+    // finds one gone means it went in between and nothing may be sent.
+    let group: SubmissionGroup | null;
+    try {
+      group = await store.get(input.groupId);
+    } catch (err) {
+      await this.settleQuietly(messageId, 'failed');
+      throw err;
+    }
+    if (!group?.channelId || !group.waGroupId || !group.contactId) {
+      await this.settleQuietly(messageId, 'failed');
+      return {
+        status: 'refused',
+        code: !group
+          ? 'NOT_FOUND'
+          : !group.waGroupId
+            ? 'GROUP_NOT_READY'
+            : !group.channelId
+              ? 'NUMBER_REMOVED'
+              : 'CONTACT_REMOVED',
+      };
+    }
+    const { channelId, contactId, waGroupId } = group;
+
+    let consent: ConsentAnswer;
+    try {
+      consent = await this.deps.consent(contactId);
+    } catch (err) {
+      await this.settleQuietly(messageId, 'failed');
+      throw err;
+    }
+    if (!consent.allowed && consent.reason) {
+      await this.settleQuietly(messageId, 'blocked');
+      return { status: 'blocked', reason: consent.reason };
+    }
+
+    let sent: { waMessageId: string };
+    try {
+      sent = await api.sendGroupText(channelId, waGroupId, input.text);
+    } catch (err) {
+      // As sendFromCrm: an echo that already settled the row 'sent' means
+      // WhatsApp has it, and reporting a failure would invite a resend.
+      const echoed = await this.echoedSent(messageId);
+      if (echoed !== null)
+        throw new SubmissionGroupSentNotRecordedError(messageId, echoed, err);
+      if (!(await this.settleQuietly(messageId, 'failed'))) {
+        const late = await this.echoedSent(messageId);
+        if (late !== null)
+          throw new SubmissionGroupSentNotRecordedError(messageId, late, err);
+      }
+      throw err;
+    }
+    if (!(await this.settleSent(messageId, sent.waMessageId))) {
+      throw new SubmissionGroupSentNotRecordedError(
+        messageId,
+        sent.waMessageId,
+        new Error(`message ${messageId} is no longer pending`)
+      );
+    }
+    return { status: 'sent', messageId, waMessageId: sent.waMessageId };
+  }
+
+  /**
    * Settles an accepted send 'sent'. A settle that throws is retried once;
    * a second failure (a throw, or the row no longer pending because the
    * first attempt may have landed) is SubmissionGroupSentNotRecordedError,
@@ -742,6 +854,25 @@ export class SubmissionGroupService {
     // The number was removed (115 detaches the group): nothing can close it any more.
     if (group.channelId === null)
       return { ended, reason, ...none, closeError: 'number_removed' };
+    // 170: after a final status the group stays open CLOSE_HOLD_DAYS so the
+    // customer still gets the closing update; the cron's close retry
+    // (listUnclosedEnded) closes it once the hold is over. An unreadable
+    // hold keeps the group open: closing early cannot be undone.
+    let holdUntil: Date | null;
+    try {
+      holdUntil = await store.closeHoldUntil(group.id);
+    } catch (err) {
+      this.log.warn('close hold could not be read; close deferred', {
+        groupId: group.id,
+        err: errText(err),
+      });
+      return { ended, reason, ...none, closeDeferred: true };
+    }
+    if (
+      holdUntil !== null &&
+      holdUntil.getTime() > (this.deps.now?.() ?? new Date()).getTime()
+    )
+      return { ended, reason, ...none, closeDeferred: true };
     if ((await store.countPendingOut(group.id)) > 0)
       return { ended, reason, ...none, closeDeferred: true };
     try {

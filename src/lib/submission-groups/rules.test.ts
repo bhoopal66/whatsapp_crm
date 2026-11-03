@@ -5,6 +5,7 @@ import {
   assertWindowDays,
   canRead,
   canSend,
+  CLOSE_HOLD_DAYS,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
   DEFAULT_FINAL_STATUSES,
   isFinalStatus,
@@ -152,5 +153,21 @@ describe('isFinalStatus (migration 166)', () => {
     expect(body).not.toBeNull();
     const keys = [...body![1].matchAll(/WHEN '([^']+)'/g)].map((m) => m[1]);
     expect([...keys].sort()).toEqual([...DEFAULT_FINAL_STATUSES].sort());
+  });
+});
+
+describe('CLOSE_HOLD_DAYS', () => {
+  it("equals 170's sg_close_hold()", () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/170_submission_group_system_messages.sql'
+      ),
+      'utf8'
+    );
+    const m = sql.match(
+      /FUNCTION public\.sg_close_hold\(\)[\s\S]*?SELECT interval '(\d+) days'/
+    );
+    expect(m?.[1]).toBe(String(CLOSE_HOLD_DAYS));
   });
 });
