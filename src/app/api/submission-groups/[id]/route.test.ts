@@ -220,6 +220,7 @@ describe('GET /api/submission-groups/[id]', () => {
       body: 'm1',
       prefixed_body: null,
       send_status: null,
+      system_kind: null,
       post_end: false,
       type: 'text',
       media: null,
