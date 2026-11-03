@@ -10,13 +10,20 @@
 //      decides: 140's password rule (a live owner / admin of the active
 //      workspace who strictly outranks the person there and in every
 //      other workspace the person belongs to; never their own details).
-//   2. If nothing changed, answer ok and write nothing.
+//   2. Read the roster row and the login. They can disagree: a person
+//      changing their own email in Settings → Profile changes only the
+//      login. The login's email is what a rollback restores, and either
+//      differing from the new one counts as a change. If nothing
+//      changed, answer ok and write nothing.
 //   3. A new email goes to GoTrue first (service role), confirmed at
 //      once: this install sends no mail. A taken address is a 409, and
 //      nothing else has been written yet.
 //   4. Then the profiles rows (service role; 135's guard refuses only
-//      'authenticated'). If that fails, the GoTrue email is put back so
-//      the login and the members list keep agreeing.
+//      'authenticated'), writing only the fields that changed. The email
+//      is compare-and-set on the value read in step 2, so of two admins
+//      saving at once one gets a 409 and puts the login back to what the
+//      roster then holds. If the write fails, the login email from step
+//      2 is put back, so the login and the members list keep agreeing.
 //   5. log_member_details_change writes the audit row in every
 //      workspace the person belongs to. It cannot undo steps 3-4, so a
 //      failure there is logged and the answer is still ok.
@@ -68,6 +75,9 @@ const EMAIL_TAKEN = 'That email is already used by another login.';
 
 const NOT_CHANGED =
   'Could not change the details. Nothing was changed; try again.';
+
+const RACED =
+  'Someone else changed these details at the same time. Close this, reopen it and try again.';
 
 type Field = 'full_name' | 'email';
 
@@ -167,9 +177,24 @@ export async function PATCH(
       return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
     }
 
+    const { data: login, error: loginError } =
+      await admin.auth.admin.getUserById(userId);
+    if (loginError || !login?.user) {
+      console.error(
+        `[member details route] could not read the login of ${userId}:`,
+        loginError
+          ? { status: loginError.status, code: loginError.code }
+          : 'no user'
+      );
+      return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
+    }
+    const loginEmail = login.user.email ?? '';
+    const rosterEmail = current.email ?? '';
+
+    const loginChanged = next.email !== loginEmail.toLowerCase();
     const changed: Field[] = [];
     if (next.full_name !== (current.full_name ?? '')) changed.push('full_name');
-    if (next.email !== (current.email ?? '').toLowerCase()) {
+    if (loginChanged || next.email !== rosterEmail.toLowerCase()) {
       changed.push('email');
     }
     const member = { user_id: userId, ...next };
@@ -178,7 +203,21 @@ export async function PATCH(
     }
 
     const emailChanged = changed.includes('email');
-    if (emailChanged) {
+    /** Put the login email back; only after a GoTrue change succeeded. */
+    async function restoreLogin(email: string) {
+      const { error: revertError } = await admin.auth.admin.updateUserById(
+        userId,
+        { email, email_confirm: true }
+      );
+      if (revertError) {
+        console.error(
+          `[member details route] could not put back the login email of ${userId}; login and profile now disagree:`,
+          { status: revertError.status, code: revertError.code }
+        );
+      }
+    }
+
+    if (loginChanged) {
       const { error: authError } = await admin.auth.admin.updateUserById(
         userId,
         { email: next.email, email_confirm: true }
@@ -197,28 +236,35 @@ export async function PATCH(
 
     // Every row of the person: the propagation trigger would copy them
     // anyway, and this way no row is left behind if it ever did not.
-    const { error: profileError } = await admin
-      .from('profiles')
-      .update({ full_name: next.full_name, email: next.email })
-      .eq('user_id', userId);
+    // Only the changed fields, so a name edit never writes back an email
+    // another admin has just changed.
+    const values: Partial<Record<Field, string>> = {};
+    if (changed.includes('full_name')) values.full_name = next.full_name;
+    if (emailChanged) values.email = next.email;
+    let write = admin.from('profiles').update(values).eq('user_id', userId);
+    if (emailChanged) write = write.eq('email', rosterEmail);
+    const { data: written, error: profileError } = await write.select('id');
     if (profileError) {
       console.error(
         `[member details route] profiles update failed for ${userId}:`,
         { code: profileError.code }
       );
-      if (emailChanged) {
-        const { error: revertError } = await admin.auth.admin.updateUserById(
-          userId,
-          { email: current.email, email_confirm: true }
-        );
-        if (revertError) {
-          console.error(
-            `[member details route] could not put back the login email of ${userId}; login and profile now disagree:`,
-            { status: revertError.status, code: revertError.code }
-          );
-        }
-      }
+      if (loginChanged) await restoreLogin(loginEmail);
       return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
+    }
+    if (!written || written.length === 0) {
+      // Another save changed the email after step 2. Leave the roster as
+      // it now is and bring the login in line with it.
+      if (loginChanged) {
+        const { data: now } = await admin
+          .from('profiles')
+          .select('email')
+          .eq('user_id', userId)
+          .eq('account_id', ctx.accountId)
+          .maybeSingle();
+        await restoreLogin(now?.email || loginEmail);
+      }
+      return NextResponse.json({ error: RACED }, { status: 409 });
     }
 
     const detail: Record<string, unknown> = { changed };
@@ -227,7 +273,7 @@ export async function PATCH(
       detail.name_to = next.full_name;
     }
     if (emailChanged) {
-      detail.email_from = current.email;
+      detail.email_from = loginEmail;
       detail.email_to = next.email;
     }
     const { error: auditError } = await admin.rpc('log_member_details_change', {

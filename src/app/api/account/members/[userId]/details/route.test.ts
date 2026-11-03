@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   adminRpc: vi.fn(),
   updateUserById: vi.fn(),
+  getUserById: vi.fn(),
   readProfile: vi.fn(),
   updateProfiles: vi.fn(),
 }));
@@ -25,7 +26,12 @@ vi.mock('@/lib/auth/account', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    auth: { admin: { updateUserById: mocks.updateUserById } },
+    auth: {
+      admin: {
+        updateUserById: mocks.updateUserById,
+        getUserById: mocks.getUserById,
+      },
+    },
     rpc: mocks.adminRpc,
     from: (table: string) => {
       if (table !== 'profiles') throw new Error(`unexpected table ${table}`);
@@ -37,10 +43,17 @@ vi.mock('@supabase/supabase-js', () => ({
             }),
           }),
         }),
-        update: (values: unknown) => ({
-          eq: (col: string, val: string) =>
-            mocks.updateProfiles(values, { [col]: val }),
-        }),
+        update: (values: unknown) => {
+          const filters: Record<string, string> = {};
+          const builder = {
+            eq: (col: string, val: string) => {
+              filters[col] = val;
+              return builder;
+            },
+            select: () => mocks.updateProfiles(values, filters),
+          };
+          return builder;
+        },
       };
     },
   }),
@@ -86,8 +99,16 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     // leak its second one into the next test.
     mocks.updateUserById.mockReset();
     mocks.updateUserById.mockResolvedValue({ error: null });
+    mocks.readProfile.mockReset();
     mocks.readProfile.mockResolvedValue({ data: CURRENT, error: null });
-    mocks.updateProfiles.mockResolvedValue({ error: null });
+    mocks.getUserById.mockResolvedValue({
+      data: { user: { id: 'user-2', email: CURRENT.email } },
+      error: null,
+    });
+    mocks.updateProfiles.mockResolvedValue({
+      data: [{ id: 'profile-2' }],
+      error: null,
+    });
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -120,7 +141,7 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     });
     expect(mocks.updateProfiles).toHaveBeenCalledWith(
       { full_name: 'Sara Khan', email: 'sara@new.example' },
-      { user_id: 'user-2' }
+      { user_id: 'user-2', email: 'sara@old.example' }
     );
     expect(mocks.adminRpc).toHaveBeenCalledWith('log_member_details_change', {
       p_actor_id: 'user-1',
@@ -229,7 +250,7 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     expect((await res.json()).changed).toEqual(['full_name']);
     expect(mocks.updateUserById).not.toHaveBeenCalled();
     expect(mocks.updateProfiles).toHaveBeenCalledWith(
-      { full_name: 'Sara Khan', email: 'sara@old.example' },
+      { full_name: 'Sara Khan' },
       { user_id: 'user-2' }
     );
     expect(mocks.adminRpc).toHaveBeenCalledWith('log_member_details_change', {
@@ -354,5 +375,77 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('restores the login email, not a stale roster email, on a failed write', async () => {
+    // The person changed their own login in Settings → Profile; the
+    // roster still shows the old address.
+    mocks.getUserById.mockResolvedValue({
+      data: { user: { id: 'user-2', email: 'sara@own-change.example' } },
+      error: null,
+    });
+    mocks.updateProfiles.mockResolvedValue({ error: { code: 'XX000' } });
+    const res = await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(res.status).toBe(502);
+    expect(mocks.updateUserById).toHaveBeenLastCalledWith('user-2', {
+      email: 'sara@own-change.example',
+      email_confirm: true,
+    });
+  });
+
+  it('syncs the roster to the login without asking GoTrue', async () => {
+    mocks.getUserById.mockResolvedValue({
+      data: { user: { id: 'user-2', email: 'sara@new.example' } },
+      error: null,
+    });
+    const res = await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).changed).toEqual(['email']);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+    expect(mocks.updateProfiles).toHaveBeenCalledWith(
+      { email: 'sara@new.example' },
+      { user_id: 'user-2', email: 'sara@old.example' }
+    );
+  });
+
+  it('answers 502 and writes nothing when the login cannot be read', async () => {
+    mocks.getUserById.mockResolvedValue({
+      data: { user: null },
+      error: { status: 500, code: 'down' },
+    });
+    const res = await PATCH(
+      request({ full_name: 'Sara Khan', email: 'sara@new.example' }),
+      params
+    );
+    expect(res.status).toBe(502);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+    expect(mocks.updateProfiles).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 when another save changed the email first, matching the login to the roster', async () => {
+    // The compare-and-set matched no row: another admin's save landed.
+    mocks.updateProfiles.mockResolvedValue({ data: [], error: null });
+    mocks.readProfile
+      .mockResolvedValueOnce({ data: CURRENT, error: null })
+      .mockResolvedValueOnce({
+        data: { email: 'sara@other-admin.example' },
+        error: null,
+      });
+    const res = await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(res.status).toBe(409);
+    expect(mocks.updateUserById).toHaveBeenLastCalledWith('user-2', {
+      email: 'sara@other-admin.example',
+      email_confirm: true,
+    });
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
   });
 });

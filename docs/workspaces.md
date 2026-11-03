@@ -185,6 +185,16 @@ the person there and in every other workspace the person belongs to.
   from then on, and no confirmation mail is sent. An address another
   login already has is refused, and then nothing is changed.
 - A name is 1–120 characters; the email is stored lower-cased.
+- The login's email is the one compared and, if the save fails half
+  way, restored: it can differ from the members list when the person
+  changed it themselves in Settings → Profile, and saving then brings
+  the list in line. If two admins change the email at once, the second
+  save is refused (409) and the login is matched to what the list shows.
+- Anything that finds a person by email follows the new address: the
+  submission tracker names group staff by login email
+  (`sg_staff_by_email`) and the Compass push matches agents by exact
+  email. Change an address there too, or those lookups stop finding
+  the person (or find someone else).
 - The change is recorded as `details_changed` (below) in the audit log
   of every workspace the person belongs to; a save that changes nothing
   writes nothing.
