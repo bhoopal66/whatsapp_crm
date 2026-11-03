@@ -42,9 +42,11 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const kind = bubbleKind(m);
             const status = sendStatusOf(m);
             const out = kind === 'staff';
-            const sender = out
-              ? staffSenderLine(m)
-              : m.sender_name || waIdPhone(m.sender_wa_id);
+            const sender = m.system_kind
+              ? t('automatic')
+              : out
+                ? staffSenderLine(m)
+                : m.sender_name || waIdPhone(m.sender_wa_id);
             return (
               <div
                 key={m.id}

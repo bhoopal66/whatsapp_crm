@@ -7247,6 +7247,7 @@
     },
     "chat": {
       "someone": "알 수 없음",
+      "automatic": "Taamul Credit · 자동",
       "attachment": "첨부 파일",
       "afterEnd": "종료 후",
       "kind": {

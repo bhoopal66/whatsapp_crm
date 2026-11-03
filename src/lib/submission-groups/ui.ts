@@ -81,6 +81,8 @@ export interface SgMessage {
   body: string | null;
   prefixed_body: string | null;
   send_status: SgSendStatus | null;
+  /** 170: an automatic message (welcome, tracker update); no staff sender. */
+  system_kind?: 'welcome' | 'status_update' | null;
   post_end: boolean;
   type: string | null;
   media: unknown;

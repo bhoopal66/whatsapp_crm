@@ -338,6 +338,7 @@ export function toMessageView(
     body: m.body,
     prefixed_body: m.prefixedBody,
     send_status: m.sendStatus,
+    system_kind: m.systemKind ?? null,
     post_end: m.postEnd,
     type: m.type,
     media: m.media,

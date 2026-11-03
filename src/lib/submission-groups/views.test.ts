@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SgHttpError } from './http';
-import type { SubmissionGroup } from './store';
+import type { GroupMessage, SubmissionGroup } from './store';
 import {
   LIST_LIMIT_DEFAULT,
   LIST_LIMIT_MAX,
@@ -17,6 +17,7 @@ import {
   toChannelRef,
   toDetailGroup,
   toListItem,
+  toMessageView,
 } from './views';
 
 const GID = '11111111-1111-4111-8111-111111111111';
@@ -329,5 +330,34 @@ describe('bankHolderLabel (163)', () => {
     ).toBeNull();
     for (const role of ['admin', 'owner', 'viewer', 'bank_guest'] as const)
       expect(bankHolderLabel(group(), role, held, banks)).toBeNull();
+  });
+});
+
+describe('toMessageView', () => {
+  const base: GroupMessage = {
+    id: '7',
+    direction: 'out',
+    senderUserId: null,
+    senderWaId: null,
+    senderKind: null,
+    type: 'text',
+    body: 'Hello 👋',
+    prefixedBody: 'Hello 👋',
+    media: null,
+    waMessageId: 'wamid.1',
+    waTimestamp: null,
+    sendStatus: 'sent',
+    postEnd: false,
+    createdAt: new Date('2026-11-03T10:00:00Z'),
+  };
+
+  it('marks an automatic message so the list can label it', () => {
+    const v = toMessageView({ ...base, systemKind: 'welcome' }, new Map());
+    expect(v.system_kind).toBe('welcome');
+    expect(v.sender_name).toBeNull();
+  });
+
+  it('leaves a staff or older row unmarked', () => {
+    expect(toMessageView(base, new Map()).system_kind).toBeNull();
   });
 });

@@ -7247,6 +7247,7 @@
     },
     "chat": {
       "someone": "Someone",
+      "automatic": "Taamul Credit · Automatic",
       "attachment": "Attachment",
       "afterEnd": "after end",
       "kind": {
