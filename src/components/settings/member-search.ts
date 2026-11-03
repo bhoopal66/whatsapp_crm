@@ -52,3 +52,15 @@ export function filterMembers<T extends SearchableMember>(
     ? members
     : members.filter((m) => memberMatches(m, words, roleLabel));
 }
+
+/**
+ * Active people first, deactivated ones always at the bottom; each group
+ * keeps its original order (Array.prototype.sort is stable).
+ */
+export function inactiveLast<T extends { deactivated_at?: string | null }>(
+  members: T[]
+): T[] {
+  return [...members].sort(
+    (a, b) => Number(!!a.deactivated_at) - Number(!!b.deactivated_at)
+  );
+}

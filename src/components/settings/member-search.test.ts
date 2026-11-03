@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { filterMembers, searchWords } from './member-search';
+import { filterMembers, inactiveLast, searchWords } from './member-search';
 
 const label = (r: string) =>
   ({ team_leader: 'Team leader', agent: 'Agent', bank_guest: 'Bank guest' })[
@@ -41,5 +41,18 @@ describe('member search', () => {
   it('needs every word to match somewhere', () => {
     expect(names('sara agent')).toEqual(['Sara Khan']);
     expect(names('sara leader')).toEqual([]);
+  });
+});
+
+describe('inactiveLast', () => {
+  it('moves deactivated people to the bottom, keeping each group in order', () => {
+    const list = [
+      { id: 'a', deactivated_at: '2026-10-01T00:00:00Z' },
+      { id: 'b', deactivated_at: null },
+      { id: 'c', deactivated_at: '2026-09-01T00:00:00Z' },
+      { id: 'd', deactivated_at: null },
+    ];
+    expect(inactiveLast(list).map((m) => m.id)).toEqual(['b', 'd', 'a', 'c']);
+    expect(list.map((m) => m.id)).toEqual(['a', 'b', 'c', 'd']);
   });
 });

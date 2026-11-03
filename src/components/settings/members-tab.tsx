@@ -108,7 +108,7 @@ import { InviteMemberDialog } from './invite-member-dialog';
 import { MemberDetailsDialog } from './member-details-dialog';
 import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
-import { filterMembers } from './member-search';
+import { filterMembers, inactiveLast } from './member-search';
 import { ROLE_META } from './role-meta';
 
 interface Member {
@@ -188,7 +188,10 @@ export function MembersTab() {
   const [detailsMember, setDetailsMember] = useState<Member | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
   const shownMembers = useMemo(
-    () => filterMembers(members, memberQuery, (r) => tRoles(r as AccountRole)),
+    () =>
+      inactiveLast(
+        filterMembers(members, memberQuery, (r) => tRoles(r as AccountRole))
+      ),
     [members, memberQuery, tRoles]
   );
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
