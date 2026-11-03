@@ -140,9 +140,15 @@ export function buildSystemPrompt(args: {
     notes,
   } = args;
   const parts: string[] = [
-    'You are a customer-messaging assistant for a business that uses a WhatsApp CRM. ' +
-      'You are shown the recent WhatsApp conversation between the business (assistant) and a customer (user). ' +
-      'Write the next reply the business should send to the customer.',
+    mode === 'draft'
+      ? // The draft sends the thread as one transcript (draft-prompt.ts),
+        // not as chat turns, and a person sends what comes back.
+        'You are a customer-messaging assistant for a business that uses a WhatsApp CRM. ' +
+        'You help a human agent of the business write their next WhatsApp message to a customer: ' +
+        'you are shown the recent conversation as a transcript, and the agent reviews your text before sending it.'
+      : 'You are a customer-messaging assistant for a business that uses a WhatsApp CRM. ' +
+        'You are shown the recent WhatsApp conversation between the business (assistant) and a customer (user). ' +
+        'Write the next reply the business should send to the customer.',
     'Guidelines: reply in the same language the customer is writing in; keep it concise and friendly, suitable for WhatsApp; ' +
       'never invent facts, prices, order numbers, availability, or promises that are not supported by the conversation or the business context below; ' +
       'output only the message text — no quotes, no "Reply:" label, no preamble.',

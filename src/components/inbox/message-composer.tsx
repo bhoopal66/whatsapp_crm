@@ -732,16 +732,23 @@ export function MessageComposer({
 
   // Ask the AI assistant for a suggested reply and drop it into the
   // composer for the agent to edit + send. Read-only server-side —
-  // nothing is sent until the agent hits Send.
+  // nothing is sent until the agent hits Send. Whatever is in the box
+  // goes along: the reply is then written from it (lib/ai/draft-prompt),
+  // and Undo puts the typed text back.
   const handleDraft = useCallback(async () => {
     if (drafting) return;
     const requestedChat = conversationId;
+    const requested = text;
+    const typed = requested.trim();
     setDrafting(true);
     try {
       const res = await fetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversation_id: requestedChat }),
+        body: JSON.stringify({
+          conversation_id: requestedChat,
+          ...(typed ? { typed } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       // A reply drafted for one customer, landing after a switch, would
@@ -763,8 +770,26 @@ export function MessageComposer({
         toast.error("The assistant didn't return a reply.");
         return;
       }
+      // Only over the text it was asked about: anything typed while the
+      // draft was being written wins.
+      const landing = landTranslation({
+        requested,
+        requestedChat,
+        currentText: textRef.current,
+        currentChat: openChatRef.current,
+      });
+      if (landing === 'moved') return;
+      if (landing === 'changed') {
+        toast.info(t('draftChanged'));
+        return;
+      }
       // It replaces the box, so a missed-call draft's mark goes with it.
-      setBox({ text: draftText, origin: null });
+      setBox((b) =>
+        b.text === requested ? { text: draftText, origin: null } : b
+      );
+      setTranslation(
+        typed ? { original: requested, translated: draftText, kind: 'ai' } : null
+      );
       // Let the textarea grow to fit and drop the cursor at the end so
       // the agent can tweak immediately.
       requestAnimationFrame(() => {
@@ -780,7 +805,7 @@ export function MessageComposer({
     } finally {
       setDrafting(false);
     }
-  }, [drafting, conversationId, adjustHeight]);
+  }, [drafting, conversationId, text, adjustHeight, t]);
 
   // Translate the draft into Arabic in place. Nothing is sent: the agent
   // reads it, edits it if they like, and sends it as usual. The answer
@@ -1253,11 +1278,20 @@ export function MessageComposer({
         }}
       />
 
-      {/* After Translate to Arabic, until the Arabic is edited or sent. */}
+      {/* After Translate to Arabic, or an AI draft written from the
+          typed text, until the result is edited or sent. */}
       {!draft && !recording && undoAvailable(translation, text) && (
         <div className="text-wa-text-secondary mb-1.5 flex items-center gap-1.5 px-1 text-xs">
-          <Languages className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>{t('translatedToArabic')}</span>
+          {translation.kind === 'ai' ? (
+            <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          ) : (
+            <Languages className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          )}
+          <span>
+            {translation.kind === 'ai'
+              ? t('draftedFromTyped')
+              : t('translatedToArabic')}
+          </span>
           <span aria-hidden>·</span>
           <button
             type="button"
@@ -1391,7 +1425,13 @@ export function MessageComposer({
               canAct={!readOnly}
               gateReason="send messages"
               disabled={drafting}
-              title={readOnly ? undefined : t('draftWithAI')}
+              title={
+                readOnly
+                  ? undefined
+                  : text.trim()
+                    ? t('draftFromTyped')
+                    : t('draftWithAI')
+              }
               className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
               onClick={handleDraft}
             >

@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Inbox: Draft a reply with AI reads the conversation and what you typed
+
+- The draft is written from the last messages as a transcript (who said
+  what and when, campaign templates and media included, and the campaign
+  the customer is answering), so it answers what the customer actually
+  wrote since your last message, or follows up when you spoke last,
+  instead of a generic greeting.
+- Type a rough reply or a note ("ask for salary cert + 3 months
+  statement") and press the AI button: the draft says that, polished and
+  fitted to the conversation, keeping your names and numbers. **Undo**
+  puts your text back. If you keep typing while it writes, your text is
+  kept. No migration.
+
 ### Members: admins edit a member's name and login email
 
 **Migration required: 167** (`167_member_details_change.sql`). Apply

@@ -11,10 +11,15 @@ export function canTranslateDraft(text: string): boolean {
   return !isMostlyArabic(text);
 }
 
-/** What the composer keeps after Translate to Arabic, so Undo can put the draft back. */
+/**
+ * What the composer keeps after it replaced the agent's text, so Undo
+ * can put it back: Translate to Arabic, or an AI draft written from what
+ * they typed (`kind: 'ai'`; absent means a translation).
+ */
 export interface DraftTranslation {
   original: string;
   translated: string;
+  kind?: 'translate' | 'ai';
 }
 
 /** Undo is offered only while the box still holds exactly the translation: any edit ends it. */

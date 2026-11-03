@@ -2,11 +2,17 @@ import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { loadAiConfig } from '@/lib/ai/config'
-import { buildConversationContext } from '@/lib/ai/context'
+import { aiContextMessageLimit } from '@/lib/ai/defaults'
+import {
+  buildDraftMessages,
+  normalizeTyped,
+  unansweredCustomerText,
+  type DraftMessageRow,
+} from '@/lib/ai/draft-prompt'
+import { loadCampaignContext } from '@/lib/ai/auto-reply'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
-import { latestUserMessage } from '@/lib/ai/query'
 import { logAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
@@ -14,8 +20,13 @@ import { AiError } from '@/lib/ai/types'
 /**
  * POST /api/ai/draft  (agent+)
  *
- * Body: { conversation_id }
+ * Body: { conversation_id, typed? }
  * Returns: { draft } — a suggested reply for the agent to edit + send.
+ *
+ * The last messages go to the model as one transcript with the task
+ * spelled out (lib/ai/draft-prompt.ts), plus the campaign the customer
+ * is answering. `typed` is what the agent has in the reply box: the
+ * draft then says that, fitted to the conversation.
  *
  * Uses the account's configured provider/key (BYO). Read-only: it never
  * sends or stores anything, just hands text back to the composer.
@@ -36,6 +47,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null)
     const conversationId =
       body && typeof body.conversation_id === 'string' ? body.conversation_id : ''
+    const typed = normalizeTyped(body?.typed)
     if (!conversationId) {
       return NextResponse.json(
         { error: 'conversation_id is required' },
@@ -47,7 +59,7 @@ export async function POST(request: Request) {
     // row means "not yours / not found" either way.
     const { data: conversation, error: convErr } = await supabase
       .from('conversations')
-      .select('id')
+      .select('id, campaign_broadcast_id, contact:contacts(name)')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr) {
@@ -79,10 +91,32 @@ export async function POST(request: Request) {
       )
     }
 
-    const messages = await buildConversationContext(supabase, conversationId)
-    // Nothing to draft from — a brand-new thread with no customer text
+    // The caller's own client: RLS shows them only a thread they can see
+    // (the lookup above already proved they can).
+    const { data: rowData, error: rowsErr } = await supabase
+      .from('messages')
+      .select('sender_type, content_type, content_text, created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(aiContextMessageLimit())
+    if (rowsErr) {
+      console.error('[ai/draft] messages lookup error:', rowsErr)
+      return NextResponse.json({ error: 'Failed to load conversation' }, { status: 500 })
+    }
+    const rows = (rowData ?? []) as DraftMessageRow[]
+
+    // PostgREST may hand a to-one embed back as an object or a one-row array.
+    const embed = (conversation as { contact?: unknown }).contact
+    const contact = (Array.isArray(embed) ? embed[0] : embed) as
+      | { name?: unknown }
+      | null
+      | undefined
+    const contactName = typeof contact?.name === 'string' ? contact.name : null
+
+    const messages = buildDraftMessages({ rows, typed, contactName })
+    // Nothing to draft from — a brand-new thread with nothing typed
     // would otherwise produce a nonsensical reply-to-nothing.
-    if (messages.length === 0) {
+    if (!messages) {
       return NextResponse.json(
         {
           error: 'No messages to draft from yet.',
@@ -94,17 +128,29 @@ export async function POST(request: Request) {
 
     // Ground the draft in the account's knowledge base (best-effort —
     // returns [] when there's no KB or retrieval fails).
-    const knowledge = await retrieveKnowledge(
-      supabase,
-      accountId,
-      config,
-      latestUserMessage(messages),
-    )
+    // Retrieve for what the reply is about: the customer's unanswered
+    // messages and what the agent typed.
+    const query = [unansweredCustomerText(rows), typed]
+      .filter(Boolean)
+      .join('\n')
+    const knowledge = query
+      ? await retrieveKnowledge(supabase, accountId, config, query)
+      : []
+
+    // The campaign template never lands in the thread (migration 048),
+    // so without it a reply to a campaign has nothing to answer.
+    // Service role, scoped to the account: broadcasts are admin-read.
+    const broadcastId = (conversation as { campaign_broadcast_id?: string | null })
+      .campaign_broadcast_id
+    const campaign = broadcastId
+      ? await loadCampaignContext(supabaseAdmin(), accountId, broadcastId)
+      : null
 
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'draft',
       knowledge,
+      campaign,
     })
 
     const { text, usage } = await generateReply({ config, systemPrompt, messages })
