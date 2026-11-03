@@ -19,6 +19,7 @@ import {
   canCreateMeetings,
   canArchiveWorkspace,
   canChangePasswordOf,
+  canEditDetailsOf,
   canViewOnly,
   canCreateGroups,
   canSyncGroups,
@@ -371,5 +372,23 @@ describe('group capabilities (114)', () => {
       'owner',
       'team_leader',
     ]);
+  });
+});
+
+describe('canEditDetailsOf (167)', () => {
+  it('follows the password rule exactly', () => {
+    for (const caller of ACCOUNT_ROLES) {
+      for (const target of ACCOUNT_ROLES) {
+        expect(canEditDetailsOf(caller, target)).toBe(
+          canChangePasswordOf(caller, target)
+        );
+      }
+    }
+  });
+
+  it('an admin edits those below them, never another admin', () => {
+    expect(canEditDetailsOf('admin', 'agent')).toBe(true);
+    expect(canEditDetailsOf('admin', 'admin')).toBe(false);
+    expect(canEditDetailsOf('owner', 'admin')).toBe(true);
   });
 });

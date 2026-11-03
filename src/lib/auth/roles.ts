@@ -147,6 +147,21 @@ export function canChangePasswordOf(
 }
 
 /**
+ * Owner / admin: edit the name and login email of someone they strictly
+ * outrank in this workspace (migration 167). The same rule as
+ * `canChangePasswordOf`, for the same reason: the name and the login are
+ * shared by every workspace the person is in, so
+ * `authorize_member_details_change` also checks the others, which this
+ * screen cannot see.
+ */
+export function canEditDetailsOf(
+  caller: AccountRole,
+  target: AccountRole
+): boolean {
+  return canChangePasswordOf(caller, target);
+}
+
+/**
  * Team leader and up: add people to the workspace, by invite link or
  * by email (migration 099). Which roles is `canGrantRole`; changing a
  * role, deactivating and removing stay `canManageMembers`.
