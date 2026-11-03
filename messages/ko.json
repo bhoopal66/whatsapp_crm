@@ -9522,5 +9522,69 @@
     "sortLabel": "정렬",
     "sortDefault": "최신순",
     "sortByScore": "리드 점수순 정렬"
+  },
+  "TeamRecordings": {
+    "title": "팀 통화 녹음",
+    "subtitle": "팀의 녹음된 통화를 사람별, 날짜별로 봅니다. 모든 재생은 기록됩니다.",
+    "unnamed": "이름 없음",
+    "showing": "{name} 표시 중",
+    "clearPerson": "모두 보기",
+    "forbidden": "팀 리더와 관리자만 이 페이지를 볼 수 있습니다",
+    "failed": "녹음을 불러오지 못했습니다",
+    "retry": "다시 시도",
+    "filters": {
+      "team": "팀",
+      "allTeams": "모든 팀",
+      "allMyTeams": "내 모든 팀",
+      "person": "사람",
+      "everyone": "모두",
+      "minTalk": "길이",
+      "talk": {
+        "any": "모든 길이",
+        "s30": "30초 이상",
+        "m1": "1분 이상",
+        "m3": "3분 이상",
+        "m5": "5분 이상"
+      },
+      "number": "번호",
+      "numberPlaceholder": "번호 검색",
+      "numberHint": "숫자를 {min}자리 이상 입력하세요",
+      "direction": "방향",
+      "directions": {
+        "all": "전체",
+        "inbound": "수신",
+        "outbound": "발신",
+        "internal": "내부"
+      }
+    },
+    "summary": {
+      "title": "사람별",
+      "capped": "이 기간의 통화가 요약에서 읽는 양보다 많아 가장 오래된 통화는 집계되지 않았습니다.",
+      "empty": "이 필터에 해당하는 사람이 없습니다",
+      "columns": {
+        "person": "사람",
+        "calls": "통화",
+        "answered": "응답",
+        "recorded": "녹음",
+        "recordedTime": "녹음 시간",
+        "avgRecording": "평균 녹음",
+        "longest": "최장",
+        "lastRecording": "마지막 녹음"
+      }
+    },
+    "list": {
+      "title": "녹음",
+      "empty": "이 필터에 해당하는 녹음이 없습니다",
+      "unknownNumber": "알 수 없는 번호",
+      "shown": "{count, plural, other {녹음 #건 표시}}",
+      "loadMore": "더 보기",
+      "loadingMore": "불러오는 중…",
+      "moreFailed": "녹음을 더 불러오지 못했습니다",
+      "direction": {
+        "inbound": "수신 통화",
+        "outbound": "발신 통화",
+        "internal": "내부 통화"
+      }
+    }
   }
 }

@@ -1,0 +1,741 @@
+'use client';
+
+// Team call recordings (/calls/recordings): a team leader or admin picks
+// a period, team, person, direction, minimum length or a number, and
+// gets a per-person summary and the recorded calls by day, each
+// playable with the Calls list's player (which logs every play and
+// refuses held or expired audio). Browse and listen only: nothing about
+// a review is stored. Every filter lives in the URL, so a link opens
+// the same view. The route (GET /api/pbx/calls/recordings) scopes the
+// people; this page never widens what it gets back.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
+import {
+  ArrowDown,
+  ArrowLeftRight,
+  ArrowUp,
+  AudioLines,
+  PhoneIncoming,
+  PhoneOutgoing,
+  RefreshCw,
+  X,
+} from 'lucide-react';
+
+import {
+  CallRecordingPanel,
+  CallRecordingToggle,
+} from '@/components/calls/call-recording';
+import { BackLink } from '@/components/layout/back-link';
+import { useAuth } from '@/hooks/use-auth';
+import { canViewAllCalls } from '@/lib/auth/roles';
+import { checkCustomDays } from '@/lib/pbx/call-report';
+import { formatDuration } from '@/lib/pbx/call-stats';
+import { mergeCalls, periodButtons } from '@/lib/pbx/call-stats-ui';
+import { OUTCOMES, maskPhone } from '@/lib/pbx/call-ui';
+import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
+import { clock } from '@/lib/pbx/timeline';
+import {
+  NUMBER_SEARCH_MIN,
+  RECORDING_DIRECTIONS,
+  TALK_FILTERS,
+  type TeamRecordingCall,
+  type TeamRecordingsResponse,
+} from '@/lib/pbx/team-recordings';
+import {
+  DEFAULT_SUMMARY_SORT,
+  dayHeading,
+  groupRecordingsByDay,
+  nextSort,
+  numberSearch,
+  peopleOfTeam,
+  readRecordingsParams,
+  recordingsQuery,
+  recordingsSearch,
+  sortSummary,
+  summaryRows,
+  type RecordingsParams,
+  type SummarySortKey,
+} from '@/lib/pbx/team-recordings-ui';
+import { cn } from '@/lib/utils';
+
+/** The number box's pause before it narrows the list. */
+const SEARCH_DEBOUNCE_MS = 400;
+
+const TALK_LABEL: Record<number, string> = {
+  0: 'any',
+  30: 's30',
+  60: 'm1',
+  180: 'm3',
+  300: 'm5',
+};
+
+const COLUMNS: { key: SummarySortKey; label: string; numeric: boolean }[] = [
+  { key: 'name', label: 'person', numeric: false },
+  { key: 'calls', label: 'calls', numeric: true },
+  { key: 'answered', label: 'answered', numeric: true },
+  { key: 'recorded', label: 'recorded', numeric: true },
+  { key: 'recordedSeconds', label: 'recordedTime', numeric: true },
+  { key: 'avgSeconds', label: 'avgRecording', numeric: true },
+  { key: 'longestSeconds', label: 'longest', numeric: true },
+  { key: 'lastRecordedAt', label: 'lastRecording', numeric: false },
+];
+
+interface Loaded {
+  /** The query this answers: a filter change makes it stale. */
+  key: string;
+  data: TeamRecordingsResponse | null;
+  error: 'forbidden' | 'failed' | null;
+}
+
+const chip = (on: boolean) =>
+  cn(
+    'focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
+    on
+      ? 'border-primary/40 bg-primary-soft text-primary font-medium'
+      : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
+  );
+
+const selectClass =
+  'border-input bg-card text-foreground dark:bg-input/30 max-w-[14rem] rounded-md border px-2 py-1 text-sm';
+
+export function TeamRecordings() {
+  const t = useTranslations('TeamRecordings');
+  const tStats = useTranslations('CallStatsPage');
+  const tOutcome = useTranslations('PbxCall.outcomes');
+  const locale = useLocale();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const { accountRole } = useAuth();
+
+  const params = useMemo(
+    () => readRecordingsParams((k) => search.get(k)),
+    [search]
+  );
+  const setParams = useCallback(
+    (patch: Partial<RecordingsParams>) => {
+      const qs = recordingsSearch({ ...params, ...patch });
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [params, pathname, router]
+  );
+
+  const [tz] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  );
+  const query = recordingsQuery(params, tz);
+
+  // ---------- Loading ----------
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [reload, setReload] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [calls, setCalls] = useState<TeamRecordingCall[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  const [openPlayer, setOpenPlayer] = useState<string | null>(null);
+  const queryRef = useRef(query);
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+
+  useEffect(() => {
+    if (!query) return;
+    let live = true;
+    fetch(`/api/pbx/calls/recordings?${query}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(r.status === 403 ? 'forbidden' : 'failed');
+        return (await r.json()) as TeamRecordingsResponse;
+      })
+      .then(
+        (data) => {
+          if (!live) return;
+          setLoaded({ key: query, data, error: null });
+          setCalls(data.calls);
+          setNext(data.next);
+          setMoreFailed(false);
+        },
+        (err: Error) => {
+          if (!live) return;
+          setLoaded({
+            key: query,
+            data: null,
+            error: err.message === 'forbidden' ? 'forbidden' : 'failed',
+          });
+          setCalls([]);
+          setNext(null);
+        }
+      )
+      .finally(() => {
+        if (live) setRefreshing(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [query, reload]);
+
+  const current = loaded && loaded.key === query ? loaded : null;
+  const data = current?.data ?? null;
+
+  const loadMore = () => {
+    if (!next || !query) return;
+    const asked = query;
+    setLoadingMore(true);
+    setMoreFailed(false);
+    fetch(`/api/pbx/calls/recordings?${recordingsQuery(params, tz, next)}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as TeamRecordingsResponse;
+      })
+      .then(
+        (page) => {
+          // A filter changed while this page was on its way: drop it.
+          if (queryRef.current !== asked) return;
+          setCalls((c) => mergeCalls(c, page.calls));
+          setNext(page.next);
+        },
+        () => {
+          if (queryRef.current === asked) setMoreFailed(true);
+        }
+      )
+      .finally(() => setLoadingMore(false));
+  };
+
+  // ---------- Filters ----------
+  const [customOpen, setCustomOpen] = useState(false);
+  const [draft, setDraft] = useState({
+    from: params.from ?? '',
+    to: params.to ?? '',
+  });
+  const shownPeriod = customOpen ? 'custom' : params.period;
+
+  const [box, setBox] = useState(params.q ?? '');
+  const boxRef = useRef(params.q);
+  useEffect(() => {
+    const sendable = numberSearch(box);
+    if (sendable === null) return;
+    const q = sendable || null;
+    if (q === boxRef.current) return;
+    const id = setTimeout(() => {
+      boxRef.current = q;
+      setParams({ q });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [box, setParams]);
+
+  const people = useMemo(() => data?.people ?? [], [data]);
+  const teams = useMemo(() => data?.teams ?? [], [data]);
+  const pickable = peopleOfTeam(people, teams, params.team);
+  const personName = (id: string | null) =>
+    people.find((p) => p.userId === id)?.name ?? t('unnamed');
+
+  // ---------- By person ----------
+  const [sort, setSort] = useState(DEFAULT_SUMMARY_SORT);
+  const rows = useMemo(
+    () =>
+      data
+        ? sortSummary(
+            summaryRows(data.summary, data.people, data.teams),
+            sort.key,
+            sort.dir
+          )
+        : [],
+    [data, sort]
+  );
+
+  const days = useMemo(
+    () => groupRecordingsByDay(calls, data?.range.timeZone ?? tz),
+    [calls, data, tz]
+  );
+
+  const at = (iso: string) =>
+    new Intl.DateTimeFormat(locale, {
+      timeZone: data?.range.timeZone ?? tz,
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(iso));
+
+  // ---------- Pieces ----------
+  const header = (
+    <div className="space-y-3">
+      <BackLink fallbackHref="/calls" fallbackLabel={tStats('back')} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">{t('title')}</h1>
+          <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setRefreshing(true);
+            setReload((n) => n + 1);
+          }}
+          disabled={!query || refreshing}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
+        >
+          <RefreshCw
+            className={cn('size-4', refreshing && 'animate-spin')}
+            aria-hidden
+          />
+          {refreshing ? tStats('refreshing') : tStats('refresh')}
+        </button>
+      </div>
+    </div>
+  );
+
+  const customProblem = checkCustomDays(draft.from, draft.to);
+  const filters = (
+    <div className="border-border bg-card space-y-3 rounded-xl border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {periodButtons(params.period).map((p) => (
+          <button
+            key={p}
+            type="button"
+            aria-pressed={shownPeriod === p}
+            onClick={() => {
+              if (p === 'custom') return setCustomOpen(true);
+              setCustomOpen(false);
+              setParams({ period: p, from: null, to: null });
+            }}
+            className={chip(shownPeriod === p)}
+          >
+            {tStats(`periods.${p}`)}
+          </button>
+        ))}
+      </div>
+      {(customOpen || (params.period === 'custom' && !query)) && (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (customProblem) return;
+            setCustomOpen(false);
+            setParams({ period: 'custom', from: draft.from, to: draft.to });
+          }}
+        >
+          {(['from', 'to'] as const).map((k) => (
+            <label key={k} className="text-muted-foreground text-xs">
+              {tStats(k)}
+              <input
+                type="date"
+                value={draft[k]}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, [k]: e.target.value }))
+                }
+                className="border-input bg-card text-foreground dark:bg-input/30 mt-1 block rounded-md border px-2 py-1 text-sm"
+              />
+            </label>
+          ))}
+          <button
+            type="submit"
+            disabled={customProblem !== null}
+            className="bg-primary text-primary-foreground hover:bg-primary-hover rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          >
+            {tStats('apply')}
+          </button>
+          {customProblem && customProblem !== 'missing' && (
+            <p className="text-destructive w-full text-xs">
+              {tStats(`custom.${customProblem}`)}
+            </p>
+          )}
+        </form>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {teams.length > 0 && (
+          <label className="text-muted-foreground flex items-center gap-2 text-sm">
+            {t('filters.team')}
+            <select
+              value={params.team ?? ''}
+              onChange={(e) => {
+                const team = e.target.value || null;
+                const keep =
+                  params.user &&
+                  peopleOfTeam(people, teams, team).some(
+                    (p) => p.userId === params.user
+                  );
+                setParams({ team, user: keep ? params.user : null });
+              }}
+              className={selectClass}
+            >
+              <option value="">
+                {accountRole && canViewAllCalls(accountRole)
+                  ? t('filters.allTeams')
+                  : t('filters.allMyTeams')}
+              </option>
+              {teams.map((tm) => (
+                <option key={tm.id} value={tm.id}>
+                  {tm.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="text-muted-foreground flex items-center gap-2 text-sm">
+          {t('filters.person')}
+          <select
+            value={params.user ?? ''}
+            onChange={(e) => setParams({ user: e.target.value || null })}
+            className={selectClass}
+          >
+            <option value="">{t('filters.everyone')}</option>
+            {params.user && !pickable.some((p) => p.userId === params.user) && (
+              <option value={params.user}>
+                {people.length ? personName(params.user) : '…'}
+              </option>
+            )}
+            {pickable.map((p) => (
+              <option key={p.userId} value={p.userId}>
+                {p.name ?? t('unnamed')}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-muted-foreground flex items-center gap-2 text-sm">
+          {t('filters.minTalk')}
+          <select
+            value={String(params.minTalk)}
+            onChange={(e) => setParams({ minTalk: Number(e.target.value) })}
+            className={selectClass}
+          >
+            {TALK_FILTERS.map((s) => (
+              <option key={s} value={s}>
+                {t(`filters.talk.${TALK_LABEL[s]}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-muted-foreground flex items-center gap-2 text-sm">
+          {t('filters.number')}
+          <input
+            type="search"
+            inputMode="tel"
+            value={box}
+            onChange={(e) => setBox(e.target.value)}
+            placeholder={t('filters.numberPlaceholder')}
+            className="border-input bg-card text-foreground dark:bg-input/30 w-40 rounded-md border px-2 py-1 text-sm"
+          />
+        </label>
+        {numberSearch(box) === null && (
+          <span className="text-muted-foreground text-xs">
+            {t('filters.numberHint', { min: NUMBER_SEARCH_MIN })}
+          </span>
+        )}
+      </div>
+      <div
+        role="group"
+        aria-label={t('filters.direction')}
+        className="flex flex-wrap items-center gap-2"
+      >
+        {RECORDING_DIRECTIONS.map((d) => (
+          <button
+            key={d}
+            type="button"
+            aria-pressed={params.direction === d}
+            onClick={() => setParams({ direction: d })}
+            className={chip(params.direction === d)}
+          >
+            {t(`filters.directions.${d}`)}
+          </button>
+        ))}
+        {params.user && (
+          <button
+            type="button"
+            onClick={() => setParams({ user: null })}
+            className="border-primary/40 bg-primary-soft text-primary inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium sm:ml-auto"
+            aria-label={t('clearPerson')}
+          >
+            {t('showing', { name: personName(params.user) })}
+            <X className="size-3.5" aria-hidden />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const sortIcon = (key: SummarySortKey) =>
+    sort.key !== key ? null : sort.dir === 'asc' ? (
+      <ArrowUp className="size-3" aria-hidden />
+    ) : (
+      <ArrowDown className="size-3" aria-hidden />
+    );
+
+  const summary = data && (
+    <section className="border-border bg-card overflow-hidden rounded-xl border">
+      <h2 className="border-border border-b px-4 py-2 text-sm font-semibold">
+        {t('summary.title')}
+      </h2>
+      {data.summaryCapped && (
+        <p className="text-muted-foreground border-border border-b px-4 py-2 text-xs">
+          {t('summary.capped')}
+        </p>
+      )}
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground px-4 py-6 text-center text-sm">
+          {t('summary.empty')}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[52rem] text-sm">
+            <thead>
+              <tr className="border-border text-muted-foreground border-b text-xs">
+                {COLUMNS.map((c) => (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    aria-sort={
+                      sort.key === c.key
+                        ? sort.dir === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : undefined
+                    }
+                    className={cn(
+                      'px-3 py-2 font-medium',
+                      c.numeric ? 'text-right' : 'text-left'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSort((s) => nextSort(s, c.key))}
+                      className={cn(
+                        'hover:text-foreground inline-flex items-center gap-1',
+                        sort.key === c.key && 'text-foreground'
+                      )}
+                    >
+                      {t(`summary.columns.${c.label}`)}
+                      {sortIcon(c.key)}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const selected = params.user === r.userId;
+                return (
+                  <tr
+                    key={r.userId}
+                    onClick={() =>
+                      setParams({ user: selected ? null : r.userId })
+                    }
+                    aria-selected={selected}
+                    className={cn(
+                      'border-border cursor-pointer border-b tabular-nums last:border-b-0',
+                      selected ? 'bg-primary-soft' : 'hover:bg-card-2'
+                    )}
+                  >
+                    <td className="px-3 py-2 text-left">
+                      <button
+                        type="button"
+                        className="text-left font-medium hover:underline"
+                        aria-pressed={selected}
+                      >
+                        {r.name ?? t('unnamed')}
+                      </button>
+                      {r.teamNames.length > 0 && (
+                        <p className="text-muted-foreground text-xs">
+                          {r.teamNames.join(', ')}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">{r.calls}</td>
+                    <td className="px-3 py-2 text-right">{r.answered}</td>
+                    <td className="px-3 py-2 text-right font-medium">
+                      {r.recorded}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {r.recorded ? formatDuration(r.recordedSeconds) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatDuration(r.avgSeconds)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {r.recorded ? formatDuration(r.longestSeconds) : '—'}
+                    </td>
+                    <td className="text-muted-foreground px-3 py-2 text-left">
+                      {r.lastRecordedAt ? at(r.lastRecordedAt) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+
+  const row = (c: TeamRecordingCall) => {
+    const kind =
+      c.direction === 'inbound' || c.direction === 'outbound'
+        ? c.direction
+        : 'internal';
+    const Icon =
+      kind === 'inbound'
+        ? PhoneIncoming
+        : kind === 'outbound'
+          ? PhoneOutgoing
+          : ArrowLeftRight;
+    const who =
+      c.contactName?.trim() ||
+      maskPhone(c.remoteNumber) ||
+      t('list.unknownNumber');
+    const outcome =
+      c.disposition && (OUTCOMES as readonly string[]).includes(c.disposition)
+        ? tOutcome(c.disposition)
+        : c.disposition;
+    const playerOpen = openPlayer === c.id && listPlayerOffered(c);
+    return (
+      <li
+        key={c.id}
+        className="border-border border-b px-4 py-3 last:border-b-0"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-muted-foreground w-11 shrink-0 text-sm tabular-nums">
+            {clock(c.startedAt, data?.range.timeZone ?? tz)}
+          </span>
+          <span
+            className="bg-card-2 text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg"
+            title={t(`list.direction.${kind}`)}
+          >
+            <Icon className="size-4" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1 basis-48">
+            <p className="truncate text-sm">
+              <span className="font-semibold">
+                {c.userName?.trim() || t('unnamed')}
+              </span>
+              <span className="text-muted-foreground"> · </span>
+              {c.contactId ? (
+                <Link
+                  href={`/contacts/${c.contactId}`}
+                  className="hover:underline"
+                >
+                  {who}
+                </Link>
+              ) : (
+                <span>{who}</span>
+              )}
+            </p>
+            {c.notes && (
+              <p
+                className="text-muted-foreground truncate text-xs"
+                title={c.notes}
+              >
+                {c.notes}
+              </p>
+            )}
+          </div>
+          <span className="text-sm tabular-nums">
+            {formatDuration(c.talkSeconds)}
+          </span>
+          {outcome && (
+            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
+              {outcome}
+            </span>
+          )}
+          <CallRecordingToggle
+            call={c}
+            open={playerOpen}
+            onToggle={() => setOpenPlayer((o) => nextOpenPlayer(o, c.id))}
+          />
+        </div>
+        {playerOpen && <CallRecordingPanel call={c} />}
+      </li>
+    );
+  };
+
+  const list = data && (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold">{t('list.title')}</h2>
+      {calls.length === 0 ? (
+        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
+          <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
+            <AudioLines className="size-5" aria-hidden />
+          </span>
+          <p className="text-muted-foreground text-sm">{t('list.empty')}</p>
+        </div>
+      ) : (
+        <>
+          {days.map((d) => (
+            <section
+              key={d.key}
+              className="border-border bg-card overflow-hidden rounded-xl border"
+            >
+              <h3 className="border-border text-muted-foreground border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
+                {dayHeading(d.key, locale)}
+              </h3>
+              <ul>{d.items.map(row)}</ul>
+            </section>
+          ))}
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-muted-foreground text-xs">
+              {t('list.shown', { count: calls.length })}
+            </p>
+            {moreFailed && (
+              <p className="text-destructive text-sm">{t('list.moreFailed')}</p>
+            )}
+            {next && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="border-border bg-card hover:bg-accent rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+              >
+                {loadingMore ? t('list.loadingMore') : t('list.loadMore')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
+      {header}
+      {filters}
+      {!query ? null : !current ? (
+        <div className="space-y-4" aria-hidden>
+          <div className="bg-muted h-40 animate-pulse rounded-xl" />
+          <div className="bg-muted h-64 animate-pulse rounded-xl" />
+        </div>
+      ) : current.error ? (
+        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-xl border px-4 py-12 text-center">
+          <p
+            className={cn(
+              'text-sm',
+              current.error === 'forbidden'
+                ? 'text-muted-foreground'
+                : 'text-destructive'
+            )}
+          >
+            {current.error === 'forbidden' ? t('forbidden') : t('failed')}
+          </p>
+          {current.error === 'failed' && (
+            <button
+              type="button"
+              onClick={() => {
+                setLoaded(null);
+                setReload((n) => n + 1);
+              }}
+              className="border-border bg-card hover:bg-accent rounded-md border px-3 py-1.5 text-sm font-medium"
+            >
+              {t('retry')}
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          {summary}
+          {list}
+        </>
+      )}
+    </div>
+  );
+}

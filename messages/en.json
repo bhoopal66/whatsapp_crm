@@ -9522,5 +9522,69 @@
     "sortLabel": "Sort",
     "sortDefault": "Newest first",
     "sortByScore": "Sort by lead score"
+  },
+  "TeamRecordings": {
+    "title": "Team call recordings",
+    "subtitle": "Your team's recorded calls, by person and by day. Every play is logged.",
+    "unnamed": "Unnamed",
+    "showing": "Showing {name}",
+    "clearPerson": "Show everyone",
+    "forbidden": "Only team leaders and admins can see this page",
+    "failed": "Couldn't load recordings",
+    "retry": "Retry",
+    "filters": {
+      "team": "Team",
+      "allTeams": "All teams",
+      "allMyTeams": "All my teams",
+      "person": "Person",
+      "everyone": "Everyone",
+      "minTalk": "Length",
+      "talk": {
+        "any": "Any length",
+        "s30": "30s+",
+        "m1": "1 min+",
+        "m3": "3 min+",
+        "m5": "5 min+"
+      },
+      "number": "Number",
+      "numberPlaceholder": "Search a number",
+      "numberHint": "Type at least {min} digits",
+      "direction": "Direction",
+      "directions": {
+        "all": "All",
+        "inbound": "Incoming",
+        "outbound": "Outgoing",
+        "internal": "Internal"
+      }
+    },
+    "summary": {
+      "title": "By person",
+      "capped": "This period has more calls than the summary reads: the oldest are not counted.",
+      "empty": "Nobody to show for these filters",
+      "columns": {
+        "person": "Person",
+        "calls": "Calls",
+        "answered": "Answered",
+        "recorded": "Recorded",
+        "recordedTime": "Recorded time",
+        "avgRecording": "Avg recording",
+        "longest": "Longest",
+        "lastRecording": "Last recording"
+      }
+    },
+    "list": {
+      "title": "Recordings",
+      "empty": "No recordings for these filters",
+      "unknownNumber": "Unknown number",
+      "shown": "{count, plural, one {# recording shown} other {# recordings shown}}",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…",
+      "moreFailed": "Couldn't load more recordings",
+      "direction": {
+        "inbound": "Incoming call",
+        "outbound": "Outgoing call",
+        "internal": "Internal call"
+      }
+    }
   }
 }
