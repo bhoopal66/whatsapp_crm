@@ -105,6 +105,7 @@ export function AuditLogPanel() {
     switch (f.key) {
       case 'change':
       case 'rename':
+      case 'email':
         return t(`facts.${f.key}`, { from: f.from, to: f.to });
       case 'topic':
         return t('facts.topic', {

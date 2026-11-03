@@ -1933,6 +1933,25 @@
       "deactivating": "비활성화 중...",
       "deactivateBtn": "비활성화",
       "bankCode": "은행: {code}",
+      "details": {
+        "button": "정보 편집",
+        "title": "{name}님의 정보 편집",
+        "description": "동료에게 보이는 이름과 로그인에 쓰는 이메일을 변경합니다.",
+        "nameLabel": "이름",
+        "emailLabel": "로그인 이메일",
+        "emailNote": "변경하면 로그인에 쓰는 주소가 즉시 바뀝니다.",
+        "problem": {
+          "nameRequired": "이름을 입력하세요.",
+          "nameTooLong": "최대 {max}자까지 입력할 수 있습니다.",
+          "emailRequired": "이메일 주소를 입력하세요.",
+          "emailInvalid": "올바른 이메일 주소를 입력하세요.",
+          "emailTooLong": "주소가 너무 깁니다."
+        },
+        "cancel": "취소",
+        "save": "저장",
+        "done": "{name}님의 정보를 저장했습니다.",
+        "failed": "정보를 저장하지 못했습니다. 다시 시도하세요."
+      },
       "password": {
         "button": "비밀번호 변경",
         "title": "{name}님의 비밀번호 변경",
@@ -3887,7 +3906,8 @@
           "team_chat_disabled": "팀 채팅 끄기",
           "workspace_archived": "워크스페이스 보관",
           "workspace_restored": "워크스페이스 복원",
-          "password_changed": "비밀번호 변경"
+          "password_changed": "비밀번호 변경",
+          "details_changed": "멤버 정보 편집"
         },
         "team_chat": {
           "admin_read_private": "비공개 채널 열람",
@@ -3938,6 +3958,7 @@
         "members": "멤버 {count}명",
         "change": "{from} → {to}",
         "rename": "이름: {from} → {to}",
+        "email": "이메일: {from} → {to}",
         "topic": "주제: {from} → {to}",
         "noTopic": "없음",
         "number": "번호 {value}",

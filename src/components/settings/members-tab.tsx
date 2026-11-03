@@ -5,8 +5,10 @@
 //
 // Two stacked sections:
 //   1. Roster   — every member of the account. Admin+ can change a
-//                 teammate's role inline, set the password of someone
-//                 below them (migration 140, `canChangePasswordOf`),
+//                 teammate's role inline, edit the name and login
+//                 email (migration 167, `canEditDetailsOf`) or set the
+//                 password (migration 140, `canChangePasswordOf`) of
+//                 someone below them,
 //                 deactivate / reactivate them (migration 069), and
 //                 remove them. Owner row is non-editable everywhere
 //                 (transfer is its own separate flow, deferred to a
@@ -42,6 +44,7 @@ import {
   Plus,
   Trash2,
   UserCheck,
+  UserPen,
   UserX,
   UsersRound,
 } from 'lucide-react';
@@ -81,6 +84,7 @@ import { usePresence } from '@/hooks/use-presence';
 import {
   ASSIGNABLE_ROLES,
   canChangePasswordOf,
+  canEditDetailsOf,
   canManageMembers,
   type AccountRole,
   type AssignableRole,
@@ -98,6 +102,7 @@ import {
 import { CoordinatorBanksDialog } from './coordinator-banks-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { MemberDetailsDialog } from './member-details-dialog';
 import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
@@ -176,6 +181,7 @@ export function MembersTab() {
   );
   const [editingBanks, setEditingBanks] = useState<Member | null>(null);
   const [passwordMember, setPasswordMember] = useState<Member | null>(null);
+  const [detailsMember, setDetailsMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
   );
@@ -623,6 +629,31 @@ export function MembersTab() {
                         </Tooltip>
                       )}
 
+                      {/* Edit their name and login email: the same people
+                        as the password below (migration 167). */}
+                      {!isSelf &&
+                        !!accountRole &&
+                        canEditDetailsOf(accountRole, member.role) && (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={t('details.button')}
+                                  onClick={() => setDetailsMember(member)}
+                                  disabled={isBusy}
+                                >
+                                  <UserPen className="size-4" />
+                                </Button>
+                              }
+                            />
+                            <TooltipContent>
+                              {t('details.button')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+
                       {/* Set their password: someone below you in this
                         workspace. The database also checks every other
                         workspace their login opens (migration 140). */}
@@ -810,6 +841,31 @@ export function MembersTab() {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
+      />
+
+      <MemberDetailsDialog
+        member={
+          detailsMember
+            ? {
+                user_id: detailsMember.user_id,
+                full_name: detailsMember.full_name,
+                email: detailsMember.email ?? '',
+              }
+            : null
+        }
+        onClose={() => setDetailsMember(null)}
+        onSaved={(saved) => {
+          // Patched in place so the roster doesn't flash a reload;
+          // assignee pickers elsewhere read the cached member list.
+          invalidateCached(MEMBERS_CACHE_KEY);
+          setMembers((prev) =>
+            prev.map((m) =>
+              m.user_id === saved.user_id
+                ? { ...m, full_name: saved.full_name, email: saved.email }
+                : m
+            )
+          );
+        }}
       />
 
       <MemberPasswordDialog
