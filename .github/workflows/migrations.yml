@@ -336,6 +336,13 @@ jobs:
       - name: Verify submissions without WhatsApp groups
         run: supabase db query --local --file supabase/ci/verify-submission-no-whatsapp.sql
 
+      # Automatic messages in a submission group (170): a welcome once
+      # per group and the tracker's status updates, with no sender and
+      # a key unique per group; a group ENDED by a final status takes
+      # status updates for a 2-day close hold, a manual end none.
+      - name: Verify submission group system messages
+        run: supabase db query --local --file supabase/ci/verify-submission-system-messages.sql
+
       # Submission customer name (141): sg_open stores customer.name on
       # the group; case_inbox names that customer, else the contact.
       - name: Verify the submission's customer name
