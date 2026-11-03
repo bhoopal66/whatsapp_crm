@@ -44,6 +44,10 @@ import {
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
+import {
+  SubmissionGroupSentNotRecordedError,
+  type SystemSendResult,
+} from '@/lib/submission-groups/service';
 
 /** A `sending` claim older than this is presumed dead and may be retried. */
 export const STALE_CLAIM_MS = 2 * 60_000;
@@ -225,6 +229,9 @@ export interface ApiCompassNotification {
   whatsapp_message_id: string | null;
   conversation_id: string | null;
   contact_id: string | null;
+  /** Where it went: the customer's 1:1 chat, or their submission group (170). */
+  delivered_to: 'customer' | 'group' | null;
+  submission_group_id: string | null;
   error: { code: string; message: string } | null;
   created_at: string;
   updated_at: string;
@@ -251,6 +258,12 @@ export function serializeNotification(
     whatsapp_message_id: message?.message_id ?? null,
     conversation_id: (row.conversation_id as string | null) ?? null,
     contact_id: (row.contact_id as string | null) ?? null,
+    delivered_to: row.submission_group_id
+      ? 'group'
+      : row.message_id
+        ? 'customer'
+        : null,
+    submission_group_id: (row.submission_group_id as string | null) ?? null,
     error: row.error_code
       ? {
           code: row.error_code as string,
@@ -455,6 +468,151 @@ async function whapiNumberFor(
   return channel.provider === 'whapi' ? channel : null;
 }
 
+// ---------- the submission group (170) ----------
+
+/** Posts a status update into a submission group (SubmissionGroupService.sendSystem). */
+export type CompassGroupSender = (input: {
+  groupId: string;
+  kind: 'status_update';
+  key: string;
+  text: string;
+}) => Promise<SystemSendResult>;
+
+export interface NotifyDeps {
+  /** Absent: never routed to a group (every notification goes 1:1). */
+  groupSender?: CompassGroupSender;
+}
+
+const MAX_SYSTEM_KEY_LENGTH = 240;
+
+interface GroupCandidate {
+  id: string;
+  contact_id: string | null;
+}
+
+/**
+ * The groups a text update may go into, best first: the group whose
+ * submission_ref is the request's `reference` (Compass sends the
+ * submission id there), else the customer's newest group that has a live
+ * WhatsApp group. ACTIVE and ENDED both qualify: sendSystem decides, and
+ * allows a status update during 170's hold after a final-status end.
+ */
+async function groupCandidates(
+  db: SupabaseClient,
+  accountId: string,
+  reference: string | null,
+  phone: string
+): Promise<GroupCandidate[]> {
+  const out: GroupCandidate[] = [];
+  if (reference) {
+    const { data } = await db
+      .from('submission_groups')
+      .select('id, contact_id')
+      .eq('account_id', accountId)
+      .eq('submission_ref', reference)
+      .maybeSingle();
+    if (data) out.push(data as GroupCandidate);
+  }
+  const contact = await findExistingContact(
+    db,
+    accountId,
+    sanitizePhoneForMeta(`+${phone}`)
+  );
+  if (contact) {
+    const { data } = await db
+      .from('submission_groups')
+      .select('id, contact_id')
+      .eq('account_id', accountId)
+      .eq('contact_id', contact.id)
+      .eq('wa_mode', 'group')
+      .in('status', ['ACTIVE', 'ENDED'])
+      .not('wa_group_id', 'is', null)
+      .is('wa_closed_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const newest = (data as GroupCandidate[] | null)?.[0];
+    if (newest && !out.some((c) => c.id === newest.id)) out.push(newest);
+  }
+  return out;
+}
+
+/**
+ * Try the candidates in order. Returns the group the update went into, or
+ * null when it should go 1:1 instead (no group, every one refused, or an
+ * earlier attempt under this key failed or was blocked in the group, which
+ * the key can never re-send there). A consent block throws: the customer
+ * opted out, so nothing goes 1:1 either.
+ */
+async function sendToGroup(
+  send: CompassGroupSender,
+  candidates: GroupCandidate[],
+  key: string,
+  text: string
+): Promise<{
+  groupId: string;
+  contactId: string | null;
+  messageId: string | null;
+} | null> {
+  for (const group of candidates) {
+    let result: SystemSendResult;
+    try {
+      result = await send({
+        groupId: group.id,
+        kind: 'status_update',
+        key,
+        text,
+      });
+    } catch (err) {
+      if (err instanceof SubmissionGroupSentNotRecordedError) {
+        return {
+          groupId: group.id,
+          contactId: group.contact_id,
+          messageId: err.messageId,
+        };
+      }
+      console.error('[compass/notify] group send failed:', err);
+      throw new NotifyError(
+        'group_send_failed',
+        "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
+        502
+      );
+    }
+    switch (result.status) {
+      case 'sent':
+        return {
+          groupId: group.id,
+          contactId: group.contact_id,
+          messageId: result.messageId,
+        };
+      case 'duplicate':
+        if (result.sendStatus === 'sent' || result.sendStatus === null) {
+          return {
+            groupId: group.id,
+            contactId: group.contact_id,
+            messageId: result.messageId,
+          };
+        }
+        if (result.sendStatus === 'pending') {
+          throw new NotifyError(
+            'in_progress',
+            'This update is being sent into the submission group right now — check its status with GET before retrying',
+            409
+          );
+        }
+        return null;
+      case 'blocked':
+        throw new NotifyError(
+          'customer_opted_out',
+          'The customer has opted out of WhatsApp messages. Nothing was sent.',
+          422
+        );
+      case 'refused':
+        continue;
+    }
+  }
+  return null;
+}
+
 /**
  * Send one status notification. Returns the stored row; throws
  * `NotifyError` / `SendMessageError` on failure, after recording the
@@ -464,7 +622,8 @@ async function whapiNumberFor(
 export async function sendCompassNotification(
   db: SupabaseClient,
   accountId: string,
-  req: NotificationRequest
+  req: NotificationRequest,
+  deps: NotifyDeps = {}
 ): Promise<NotificationOutcome> {
   const claimed = await claim(db, accountId, req);
   if ('duplicateOf' in claimed) {
@@ -533,6 +692,58 @@ export async function sendCompassNotification(
       );
     }
     if (phone !== req.to) await record({ phone });
+
+    // 170: a text update goes ONLY into the customer's submission group
+    // when there is a live one; it is sent from the group's own number,
+    // so this runs before the Whapi number check. Media stays 1:1 (the
+    // group send is text-only).
+    if (deps.groupSender && req.type === 'text' && req.text) {
+      const candidates = await groupCandidates(
+        db,
+        accountId,
+        req.reference,
+        phone
+      );
+      const inGroup = await sendToGroup(
+        deps.groupSender,
+        candidates,
+        `compass:${req.idempotencyKey}`.slice(0, MAX_SYSTEM_KEY_LENGTH),
+        req.text
+      );
+      if (inGroup) {
+        await record({
+          status: 'sent',
+          submission_group_id: inGroup.groupId,
+          group_message_id: inGroup.messageId,
+          contact_id: inGroup.contactId,
+          message_id: null,
+          conversation_id: null,
+        });
+        if (req.compassId && inGroup.contactId) {
+          await db
+            .from('compass_contacts')
+            .update({ contact_id: inGroup.contactId })
+            .eq('account_id', accountId)
+            .eq('compass_id', req.compassId);
+        }
+        const row = await loadNotification(db, accountId, {
+          id: notificationId,
+        });
+        return {
+          notification: serializeNotification(
+            row ?? {
+              id: notificationId,
+              idempotency_key: req.idempotencyKey,
+              status: 'sent',
+              submission_group_id: inGroup.groupId,
+            }
+          ),
+          duplicate: false,
+          contactCreated: false,
+          conversationCreated: false,
+        };
+      }
+    }
 
     // Checked before a contact or chat is created, so a missing channel
     // leaves nothing behind. The send core re-checks (requireProvider).

@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Tracker updates go into the submission group
+
+- **Migration required: 170** (`170_submission_group_system_messages.sql`
+  adds `compass_notifications.submission_group_id` and `group_message_id`).
+- A Compass status update (`POST /api/v1/compass/notifications`, type
+  `text`) for a customer whose submission has a live WhatsApp group is
+  posted only into that group (matched by `reference` = submission id,
+  else the customer's newest live group), during the 2-day hold after a
+  final status too. Otherwise it is sent 1:1 as before; images and
+  documents are always 1:1. Notifications now carry `delivered_to` and
+  `submission_group_id`; new errors `customer_opted_out` (422) and
+  `group_send_failed` (502). See `docs/compass.md` §5.
+
 ### Assigning a chat moves its contact too
 
 - **Migration required:** apply `169_contact_follows_assignment.sql`.

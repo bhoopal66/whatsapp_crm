@@ -37,6 +37,7 @@ import {
 } from './notify';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
+import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
 
 // ------------------------------------------------------------
 // In-memory stand-in for the two Compass tables (and the chats the
@@ -47,12 +48,18 @@ import { ChannelError } from '@/lib/whatsapp/channels';
 type Row = Record<string, unknown>;
 
 function makeDb(
-  seed: { contacts?: Row[]; notifications?: Row[]; conversations?: Row[] } = {}
+  seed: {
+    contacts?: Row[];
+    notifications?: Row[];
+    conversations?: Row[];
+    groups?: Row[];
+  } = {}
 ) {
   const tables: Record<string, Row[]> = {
     compass_contacts: seed.contacts ?? [],
     compass_notifications: seed.notifications ?? [],
     conversations: seed.conversations ?? [],
+    submission_groups: seed.groups ?? [],
   };
   let nextId = 1;
   /** Every table an insert or update was run against. */
@@ -63,9 +70,16 @@ function makeDb(
       const rows = tables[table];
       let op: 'select' | 'insert' | 'update' = 'select';
       let payload: Row = {};
-      const filters: [string, unknown][] = [];
-      const matching = () =>
-        rows.filter((r) => filters.every(([k, v]) => r[k] === v));
+      const filters: ((r: Row) => boolean)[] = [];
+      let sortDesc: string | null = null;
+      const matching = () => {
+        const hit = rows.filter((r) => filters.every((f) => f(r)));
+        if (sortDesc) {
+          const k = sortDesc;
+          hit.sort((a, b) => String(b[k]).localeCompare(String(a[k])));
+        }
+        return hit;
+      };
 
       const run = (): { data: unknown; error: unknown } => {
         if (op !== 'select') written.add(table);
@@ -105,10 +119,25 @@ function makeDb(
           return builder;
         },
         eq: (k: string, v: unknown) => {
-          filters.push([k, v]);
+          filters.push((r) => r[k] === v);
           return builder;
         },
-        order: () => builder,
+        in: (k: string, vs: unknown[]) => {
+          filters.push((r) => vs.includes(r[k]));
+          return builder;
+        },
+        is: (k: string, v: unknown) => {
+          filters.push((r) => (r[k] ?? null) === v);
+          return builder;
+        },
+        not: (k: string, _op: 'is', v: unknown) => {
+          filters.push((r) => (r[k] ?? null) !== v);
+          return builder;
+        },
+        order: (k: string, o?: { ascending?: boolean }) => {
+          if (o?.ascending === false) sortDesc = k;
+          return builder;
+        },
         limit: () => builder,
         single: () => {
           const { data, error } = run();
@@ -661,5 +690,255 @@ describe('sendCompassNotification', () => {
         })
       )
     ).rejects.toMatchObject({ code: 'no_phone', status: 422 });
+  });
+});
+
+describe('sendCompassNotification into a submission group (170)', () => {
+  const group = (over: Row = {}): Row => ({
+    id: 'g-ref',
+    account_id: 'acct',
+    submission_ref: 'sub-1',
+    contact_id: 'contact-g',
+    wa_mode: 'group',
+    status: 'ACTIVE',
+    wa_group_id: '120@g.us',
+    wa_closed_at: null,
+    created_at: '2026-11-01T00:00:00Z',
+    ...over,
+  });
+  const sent = (messageId = '41') => ({
+    status: 'sent' as const,
+    messageId,
+    waMessageId: 'wa-g',
+  });
+
+  it('sends a reference match into the group only, nothing 1:1', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    const groupSender = vi.fn().mockResolvedValue(sent());
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(groupSender).toHaveBeenCalledWith({
+      groupId: 'g-ref',
+      kind: 'status_update',
+      key: 'compass:APP-1:approved',
+      text: 'Approved',
+    });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(resolveConversationByPhone).not.toHaveBeenCalled();
+    expect(resolveSendChannel).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      submission_group_id: 'g-ref',
+      group_message_id: '41',
+      contact_id: 'contact-g',
+      message_id: null,
+      conversation_id: null,
+    });
+    expect(outcome.notification).toMatchObject({
+      delivered_to: 'group',
+      submission_group_id: 'g-ref',
+    });
+  });
+
+  it("uses the contact's newest live group when the reference matches none", async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-g' });
+    const { db, tables } = makeDb({
+      groups: [
+        group({ id: 'g-old', submission_ref: 'a' }),
+        group({
+          id: 'g-new',
+          submission_ref: 'b',
+          created_at: '2026-11-02T00:00:00Z',
+        }),
+        group({
+          id: 'g-none',
+          submission_ref: 'c',
+          wa_mode: 'none',
+          wa_group_id: null,
+          created_at: '2026-11-03T00:00:00Z',
+        }),
+        group({
+          id: 'g-closed',
+          submission_ref: 'd',
+          status: 'ENDED',
+          wa_closed_at: '2026-11-03T00:00:00Z',
+          created_at: '2026-11-03T00:00:00Z',
+        }),
+      ],
+    });
+    const groupSender = vi.fn().mockResolvedValue(sent());
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'unknown' }),
+      { groupSender }
+    );
+    expect(groupSender).toHaveBeenCalledTimes(1);
+    expect(groupSender.mock.calls[0][0].groupId).toBe('g-new');
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].submission_group_id).toBe('g-new');
+  });
+
+  it('tries the next candidate on a refusal, then falls back to 1:1', async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-g' });
+    const { db, tables } = makeDb({
+      groups: [
+        group(),
+        group({
+          id: 'g-other',
+          submission_ref: 'x',
+          created_at: '2026-11-02T00:00:00Z',
+        }),
+      ],
+    });
+    const groupSender = vi
+      .fn()
+      .mockResolvedValue({ status: 'refused', code: 'WA_CLOSED' });
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(groupSender.mock.calls.map((c) => c[0].groupId)).toEqual([
+      'g-ref',
+      'g-other',
+    ]);
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    expect(tables.compass_notifications[0].submission_group_id ?? null).toBe(
+      null
+    );
+    expect(outcome.notification.delivered_to).toBe('customer');
+  });
+
+  it('treats a duplicate that was sent as sent', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    const groupSender = vi.fn().mockResolvedValue({
+      status: 'duplicate',
+      messageId: '7',
+      sendStatus: 'sent',
+    });
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      group_message_id: '7',
+    });
+  });
+
+  it('sends 1:1 when the earlier group attempt under this key failed', async () => {
+    const { db } = makeDb({ groups: [group()] });
+    const groupSender = vi.fn().mockResolvedValue({
+      status: 'duplicate',
+      messageId: '7',
+      sendStatus: 'failed',
+    });
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    expect(outcome.notification.status).toBe('sent');
+  });
+
+  it('refuses with 422 and sends nothing 1:1 when the customer opted out', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    const groupSender = vi
+      .fn()
+      .mockResolvedValue({ status: 'blocked', reason: 'opted_out' });
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest({ reference: 'sub-1' }), {
+        groupSender,
+      })
+    ).rejects.toMatchObject({ code: 'customer_opted_out', status: 422 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: 'customer_opted_out',
+    });
+  });
+
+  it('records a gateway error as failed 502, so a retry is allowed', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    const groupSender = vi.fn().mockRejectedValue(new Error('whapi 500'));
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest({ reference: 'sub-1' }), {
+        groupSender,
+      })
+    ).rejects.toMatchObject({ code: 'group_send_failed', status: 502 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: 'group_send_failed',
+    });
+  });
+
+  it('keeps the key spent when WhatsApp has it but the row was not settled', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    const groupSender = vi
+      .fn()
+      .mockRejectedValue(
+        new SubmissionGroupSentNotRecordedError('9', 'wa-9', new Error('x'))
+      );
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(outcome.notification.status).toBe('sent');
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      submission_group_id: 'g-ref',
+      group_message_id: '9',
+    });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('sends an image 1:1 even when there is a group', async () => {
+    const { db } = makeDb({ groups: [group()] });
+    const groupSender = vi.fn();
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({
+        reference: 'sub-1',
+        type: 'image',
+        text: undefined,
+        media_url: 'https://example.com/a.png',
+      }),
+      { groupSender }
+    );
+    expect(groupSender).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends 1:1 as before when the customer has no group', async () => {
+    const { db, tables } = makeDb();
+    const groupSender = vi.fn();
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'sub-1' }),
+      { groupSender }
+    );
+    expect(groupSender).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      message_id: 'msg-1',
+    });
+    expect(outcome.notification.delivered_to).toBe('customer');
   });
 });

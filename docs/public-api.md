@@ -633,9 +633,11 @@ case-insensitively on trimmed text). `bank` and `product` are required.
 
 `/api/v1/compass/contacts` (customer sync into a dedicated
 `compass_contacts` table) and `/api/v1/compass/notifications` (status
-notifications — always on the Whapi number, into the customer's
-existing chat without changing who handles it, at most once per
-`idempotency_key`) are the ERP integration surface. Their full
+notifications — on the Whapi number, into the customer's existing chat
+without changing who handles it, at most once per `idempotency_key`;
+since migration 170 a `text` update goes only into the customer's live
+submission group when there is one, and the notification carries
+`delivered_to` (`customer` | `group` | null) and `submission_group_id`) are the ERP integration surface. Their full
 contract is [`compass.md`](compass.md).
 
 ## Pagination
