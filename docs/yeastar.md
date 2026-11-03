@@ -574,6 +574,21 @@ section describes the behaviour once it is on.
   no person, and it is counted once, under
   _No person_ and in the total, never once per person it rang. A call
   to an extension with no CRM login is counted the same way.
+- **Team call recordings** (`/calls/recordings`: team leaders, admins
+  and owners). Browse and listen only: pick a period (as the Call
+  report, in the workspace's time zone), a team, a person, a direction
+  (incoming, outgoing, between colleagues) and a minimum length, or
+  search a customer's number. A team leader sees the people of the
+  teams they lead and themselves, an owner or admin everyone. The page
+  shows, per person, the calls they took or placed in the period, how
+  many were answered and recorded, the recorded talk time, the longest
+  recording and the latest; then the recorded calls, newest first, each
+  with the usual player. A call with no person (a missed call to a ring
+  group) is not listed. Every play is logged as anywhere else, and
+  _Download_ in the player is there for team leaders and up. Nothing is
+  stored by the page. A recording deleted under the retention period is
+  not listed, though the per-person counts still include it.
+  (`GET /api/pbx/calls/recordings`.)
 - **Outcome and notes.** After a call, the person on it (or a team
   leader and up) sets the outcome (interested, documents requested,
   call back, not eligible, wrong number) and notes, up to 4,000
@@ -672,6 +687,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai)                                                                                                           |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)                                                                                                                 |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)                                                                                                             |
+| `GET /api/pbx/calls/recordings`      | `?period=&from=&to=&tz=&team=&user=&direction=all\|inbound\|outbound\|internal&minTalk=&q=&before=&limit=` → `{ range, people, teams, summary, summaryCapped, calls, next }` (team leader and up; `next` is the `before` of the next page) |
 | `PUT /api/pbx/me/presence`           | `{ status }` → `{ status }`; your own extension's status (section 12)                                                                                                                                     |
 | `GET /api/pbx/voicemail`             | Your own voicemail box (section 13)                                                                                                                                                                       |
 | `GET /api/pbx/groups`                | Ring groups and queues (section 14)                                                                                                                                                                       |

@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Calls: Team call recordings page for team leaders and admins (no migration)
+
+- A page to listen to your team's call recordings: choose a period,
+  team, person, direction and minimum length, see per person how many
+  calls were recorded and for how long, then play the recordings one by
+  one. A team leader sees the teams they lead, an admin everyone. Plays
+  are logged as before. No migration.
+
 ### Inbox: Draft a reply with AI reads the conversation and what you typed
 
 - The draft is written from the last messages as a transcript (who said
