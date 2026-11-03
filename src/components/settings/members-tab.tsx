@@ -31,7 +31,7 @@
 //   enforcement point.
 // ============================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
@@ -42,7 +42,9 @@ import {
   Mail,
   MailX,
   Plus,
+  Search,
   Trash2,
+  X,
   UserCheck,
   UserPen,
   UserX,
@@ -56,6 +58,7 @@ import {
   AvatarImage,
 } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -105,6 +108,7 @@ import { InviteMemberDialog } from './invite-member-dialog';
 import { MemberDetailsDialog } from './member-details-dialog';
 import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
+import { filterMembers } from './member-search';
 import { ROLE_META } from './role-meta';
 
 interface Member {
@@ -182,6 +186,11 @@ export function MembersTab() {
   const [editingBanks, setEditingBanks] = useState<Member | null>(null);
   const [passwordMember, setPasswordMember] = useState<Member | null>(null);
   const [detailsMember, setDetailsMember] = useState<Member | null>(null);
+  const [memberQuery, setMemberQuery] = useState('');
+  const shownMembers = useMemo(
+    () => filterMembers(members, memberQuery, (r) => tRoles(r as AccountRole)),
+    [members, memberQuery, tRoles]
+  );
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
   );
@@ -454,12 +463,57 @@ export function MembersTab() {
           );
         })()}
 
-      {/* Roster */}
+      {/* Roster, with a search over name, email, role and bank code. */}
+      {managesRoster && members.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+              aria-hidden
+            />
+            <Input
+              type="text"
+              enterKeyHint="search"
+              value={memberQuery}
+              onChange={(e) => setMemberQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setMemberQuery('');
+              }}
+              placeholder={t('searchPlaceholder')}
+              aria-label={t('searchLabel')}
+              className="pr-8 pl-8"
+            />
+            {memberQuery && (
+              <button
+                type="button"
+                onClick={() => setMemberQuery('')}
+                aria-label={t('searchClear')}
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+          {memberQuery.trim() && (
+            <span className="text-muted-foreground text-xs" aria-live="polite">
+              {t('searchCount', {
+                shown: shownMembers.length,
+                total: members.length,
+              })}
+            </span>
+          )}
+        </div>
+      )}
       {managesRoster && (
         <Card>
           <CardContent className="p-0">
+            {shownMembers.length === 0 && memberQuery.trim() ? (
+              <p className="text-muted-foreground px-4 py-8 text-center text-sm">
+                {t('searchNoMatch', { query: memberQuery.trim() })}
+              </p>
+            ) : null}
             <ul className="divide-border divide-y">
-              {members.map((member) => {
+              {shownMembers.map((member) => {
                 const roleMeta = ROLE_META[member.role];
                 const RoleIcon = roleMeta.icon;
                 const isSelf = member.user_id === user?.id;
