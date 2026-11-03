@@ -141,10 +141,15 @@ export function TeamRecordings() {
   useEffect(() => {
     queryRef.current = query;
   }, [query]);
+  // Bumped when a page-1 load starts (filters or Refresh) and when a Load
+  // more starts: a Load more response is kept only if neither happened since.
+  const loadGen = useRef(0);
+  const moreGen = useRef(0);
 
   useEffect(() => {
     if (!query) return;
     let live = true;
+    loadGen.current += 1;
     fetch(`/api/pbx/calls/recordings?${query}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 403 ? 'forbidden' : 'failed');
@@ -183,6 +188,12 @@ export function TeamRecordings() {
   const loadMore = () => {
     if (!next || !query) return;
     const asked = query;
+    const gen = loadGen.current;
+    const mine = ++moreGen.current;
+    const stale = () =>
+      queryRef.current !== asked ||
+      loadGen.current !== gen ||
+      moreGen.current !== mine;
     setLoadingMore(true);
     setMoreFailed(false);
     fetch(`/api/pbx/calls/recordings?${recordingsQuery(params, tz, next)}`)
@@ -192,16 +203,18 @@ export function TeamRecordings() {
       })
       .then(
         (page) => {
-          // A filter changed while this page was on its way: drop it.
-          if (queryRef.current !== asked) return;
+          // A filter change, a Refresh or a newer Load more: drop it.
+          if (stale()) return;
           setCalls((c) => mergeCalls(c, page.calls));
           setNext(page.next);
         },
         () => {
-          if (queryRef.current === asked) setMoreFailed(true);
+          if (!stale()) setMoreFailed(true);
         }
       )
-      .finally(() => setLoadingMore(false));
+      .finally(() => {
+        if (moreGen.current === mine) setLoadingMore(false);
+      });
   };
 
   // ---------- Filters ----------
@@ -650,6 +663,17 @@ export function TeamRecordings() {
     );
   };
 
+  const loadMoreButton = next && (
+    <button
+      type="button"
+      onClick={loadMore}
+      disabled={loadingMore}
+      className="border-border bg-card hover:bg-accent rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+    >
+      {loadingMore ? t('list.loadingMore') : t('list.loadMore')}
+    </button>
+  );
+
   const list = data && (
     <section className="space-y-3">
       <h2 className="text-sm font-semibold">{t('list.title')}</h2>
@@ -659,6 +683,10 @@ export function TeamRecordings() {
             <AudioLines className="size-5" aria-hidden />
           </span>
           <p className="text-muted-foreground text-sm">{t('list.empty')}</p>
+          {moreFailed && (
+            <p className="text-destructive text-sm">{t('list.moreFailed')}</p>
+          )}
+          {loadMoreButton}
         </div>
       ) : (
         <>
@@ -680,16 +708,7 @@ export function TeamRecordings() {
             {moreFailed && (
               <p className="text-destructive text-sm">{t('list.moreFailed')}</p>
             )}
-            {next && (
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="border-border bg-card hover:bg-accent rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-              >
-                {loadingMore ? t('list.loadingMore') : t('list.loadMore')}
-              </button>
-            )}
+            {loadMoreButton}
           </div>
         </>
       )}

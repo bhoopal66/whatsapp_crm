@@ -229,4 +229,52 @@ describe('GET /api/pbx/calls/recordings', () => {
     expect(body.calls.map((c: { id: string }) => c.id)).toEqual([CALL1]);
     expect(body.next).toBeNull();
   });
+
+  it('skips the per-person summary on a Load more page', async () => {
+    const res = await get(`?before=2026-10-12T08:00:00Z|${CALL1}`);
+    expect(res.status).toBe(200);
+    for (const q of callQueries())
+      expect(String(step(q, 'select')?.[0])).not.toMatch(/^user_id/);
+    expect(callQueries()).toHaveLength(1);
+    const body = await res.json();
+    expect(body.summary).toEqual([]);
+    expect(body.summaryCapped).toBe(false);
+    expect(body.calls.map((c: { id: string }) => c.id)).toEqual([CALL1]);
+  });
+
+  it('names only in-scope people among who rang', async () => {
+    const base = answer;
+    answer = (q) => {
+      const res = base(q);
+      if (
+        q.table === 'calls' &&
+        !String(step(q, 'select')?.[0]).startsWith('user_id')
+      )
+        (res.data as { meta: unknown }[])[0].meta = {
+          rang_user_ids: [AGENT, OTHER],
+        };
+      if (
+        q.table === 'profiles' &&
+        step(q, 'select')?.[0] === 'user_id, full_name'
+      )
+        return {
+          data: [
+            { user_id: AGENT, full_name: 'Sara' },
+            { user_id: OTHER, full_name: 'Outsider' },
+          ].filter((p) => (step(q, 'in')?.[1] as string[]).includes(p.user_id)),
+          error: null,
+        };
+      return res;
+    };
+    const body = await (await get()).json();
+    const lookup = queries.filter(
+      (q) =>
+        q.table === 'profiles' &&
+        step(q, 'select')?.[0] === 'user_id, full_name'
+    );
+    expect(lookup).toHaveLength(1);
+    expect(step(lookup[0], 'in')?.[1]).not.toContain(OTHER);
+    expect(body.calls[0].rangNames).toEqual(['Sara']);
+    expect(JSON.stringify(body)).not.toContain('Outsider');
+  });
 });

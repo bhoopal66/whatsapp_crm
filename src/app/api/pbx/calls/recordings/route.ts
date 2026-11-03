@@ -33,7 +33,8 @@
 // range, team/user and direction (not minTalk or q). Read light, newest
 // first, SUMMARY_PAGE rows a page and at most SUMMARY_MAX_PAGES pages;
 // summaryCapped says the cap cut it (the oldest calls then go
-// uncounted). It reads calls only, so a recording the retention period
+// uncounted). A `before=` page (Load more) skips the read and answers
+// summary [] / summaryCapped false: the screen keeps page 1's. It reads calls only, so a recording the retention period
 // has since erased (call_recordings.erased_at) still counts as recorded.
 //
 // calls: fetched recordings only, newest first (started_at, then id),
@@ -235,7 +236,8 @@ export async function GET(request: Request) {
     // ---- Summary ----
     const summaryRows: SummaryCallRow[] = [];
     let summaryCapped = false;
-    for (let page = 0; ; page++) {
+    // A Load more page's summary is thrown away by the screen: don't read it.
+    for (let page = 0; !q.before; page++) {
       if (page === SUMMARY_MAX_PAGES) {
         summaryCapped = true;
         break;
@@ -251,7 +253,7 @@ export async function GET(request: Request) {
       summaryRows.push(...chunk);
       if (chunk.length < SUMMARY_PAGE) break;
     }
-    const summary = summarizeRecordings(userIds, summaryRows);
+    const summary = q.before ? [] : summarizeRecordings(userIds, summaryRows);
 
     // ---- The page of recordings ----
     let list = scoped(
@@ -275,11 +277,16 @@ export async function GET(request: Request) {
     const contactIds = [
       ...new Set(rows.map((r) => r.contact_id).filter((v): v is string => !!v)),
     ];
+    // Names only for the caller's scope: a ring-group member outside it
+    // is not named, whatever the narrowing.
+    const inScope = new Set(scope.people.map((p) => p.userId));
+    const scopedRangIds = (meta: CallRow['meta']) =>
+      rangIds(meta).filter((u) => inScope.has(u));
     const nameIds = [
       ...new Set(
         rows.flatMap((r) => [
           ...(r.user_id ? [r.user_id] : []),
-          ...rangIds(r.meta),
+          ...scopedRangIds(r.meta),
         ])
       ),
     ];
@@ -356,7 +363,7 @@ export async function GET(request: Request) {
           doNotContactReason: (dncAt && contact?.do_not_contact_reason) || null,
           userId: r.user_id,
           userName: (r.user_id && userName.get(r.user_id)) || null,
-          rangNames: rangIds(r.meta)
+          rangNames: scopedRangIds(r.meta)
             .map((u) => userName.get(u)?.trim())
             .filter((name): name is string => !!name),
           disposition: r.disposition,
