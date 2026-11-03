@@ -46,6 +46,7 @@
     "roleTeamLeader": "팀 리더",
     "teamInbox": "팀 받은편지함",
     "teamContacts": "팀 연락처",
+    "teamRecordings": "팀 통화 녹음",
     "compass": "Compass",
     "teamActivity": "팀 활동",
     "groups": {
@@ -98,6 +99,7 @@
     "calendar": "캘린더",
     "teamInbox": "팀 받은편지함",
     "teamContacts": "팀 연락처",
+    "teamRecordings": "팀 통화 녹음",
     "calls": "통화",
     "journeys": "여정",
     "flows": "플로우",
@@ -6006,7 +6008,8 @@
       "failed": "상태를 바꾸지 못했습니다",
       "notOnPbx": "전화 시스템에 내 내선이 없습니다"
     },
-    "reportLink": "통화 리포트"
+    "reportLink": "통화 리포트",
+    "teamRecordingsLink": "팀 통화 녹음"
   },
   "ChatCalls": {
     "section": "통화",
@@ -8796,6 +8799,7 @@
     "teamInbox": "팀 받은편지함으로 돌아가기",
     "calls": "통화로 돌아가기",
     "callReport": "통화 보고서로 돌아가기",
+    "teamRecordings": "팀 통화 녹음으로 돌아가기",
     "groups": "그룹 목록으로 돌아가기",
     "group": "그룹으로 돌아가기",
     "submissionGroups": "제출 그룹 목록으로 돌아가기",

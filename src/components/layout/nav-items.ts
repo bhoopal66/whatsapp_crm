@@ -22,6 +22,7 @@ import {
   Workflow,
   Zap,
   type LucideIcon,
+  AudioLines,
 } from 'lucide-react';
 
 import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
@@ -233,6 +234,18 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamContacts',
         icon: ContactRound,
         minRole: 'team_leader',
+        guarded: true,
+      },
+      // The recorded calls of the people a leader leads (an admin:
+      // everyone's), to listen back by person. The route's layout is the
+      // team_leader+ guard; which calls come back is RLS's call
+      // (pbx_can_view_call) narrowed to the caller's people.
+      {
+        href: '/calls/recordings',
+        labelKey: 'teamRecordings',
+        icon: AudioLines,
+        minRole: 'team_leader',
+        needsPbx: true,
         guarded: true,
       },
       // Who starts chats and how many get an answer, against the limits

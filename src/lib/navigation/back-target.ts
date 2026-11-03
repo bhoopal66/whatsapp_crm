@@ -34,6 +34,7 @@ export type BackLabelKey =
   | 'teamInbox'
   | 'calls'
   | 'callReport'
+  | 'teamRecordings'
   | 'groups'
   | 'group'
   | 'submissionGroups'
@@ -70,6 +71,7 @@ const ROUTE_LABELS: ReadonlyArray<readonly [string, BackLabelKey]> = [
   ['/team-inbox', 'teamInbox'],
   ['/calls', 'calls'],
   ['/calls/report', 'callReport'],
+  ['/calls/recordings', 'teamRecordings'],
   ['/groups', 'groups'],
   ['/groups/*', 'group'],
   ['/submission-groups', 'submissionGroups'],

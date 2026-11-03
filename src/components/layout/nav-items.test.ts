@@ -229,6 +229,7 @@ describe('navPrefetch', () => {
         '/broadcasts',
         '/calendar',
         '/calls',
+        '/calls/recordings',
         '/cases',
         '/compass',
         '/flows',

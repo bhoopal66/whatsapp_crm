@@ -46,6 +46,7 @@
     "roleTeamLeader": "Team leader",
     "teamInbox": "Team inbox",
     "teamContacts": "Team contacts",
+    "teamRecordings": "Team recordings",
     "compass": "Compass",
     "teamActivity": "Team activity",
     "groups": {
@@ -98,6 +99,7 @@
     "calendar": "Calendar",
     "teamInbox": "Team inbox",
     "teamContacts": "Team contacts",
+    "teamRecordings": "Team call recordings",
     "calls": "Calls",
     "journeys": "Journeys",
     "flows": "Flows",
@@ -6006,7 +6008,8 @@
       "failed": "Couldn't change your status",
       "notOnPbx": "The phone system does not list your extension"
     },
-    "reportLink": "Call report"
+    "reportLink": "Call report",
+    "teamRecordingsLink": "Team recordings"
   },
   "ChatCalls": {
     "section": "Calls",
@@ -8796,6 +8799,7 @@
     "teamInbox": "Back to Team inbox",
     "calls": "Back to Calls",
     "callReport": "Back to Call report",
+    "teamRecordings": "Back to Team recordings",
     "groups": "Back to Groups",
     "group": "Back to the group",
     "submissionGroups": "Back to Submission groups",

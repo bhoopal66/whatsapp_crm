@@ -13,6 +13,7 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/inbox', 'inbox'],
   ['/team-inbox', 'teamInbox'],
   ['/calls', 'calls'],
+  ['/calls/recordings', 'teamRecordings'],
   ['/groups', 'whatsappGroups'],
   // /groups/<id>: one group's page.
   ['/groups/*', 'whatsappGroup'],

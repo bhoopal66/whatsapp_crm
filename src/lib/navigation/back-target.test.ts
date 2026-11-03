@@ -151,6 +151,7 @@ describe('backLabelKey', () => {
     ['/calls', 'calls'],
     ['/calls?tab=missed', 'calls'],
     ['/calls/report', 'callReport'],
+    ['/calls/recordings', 'teamRecordings'],
     ['/inbox', 'inbox'],
     ['/team-inbox', 'teamInbox'],
     ['/contacts', 'contacts'],

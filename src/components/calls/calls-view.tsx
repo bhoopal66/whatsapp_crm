@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { BarChart3, Phone, PhoneMissed } from 'lucide-react';
+import { AudioLines, BarChart3, Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
 import {
@@ -19,6 +19,7 @@ import { MyStatus } from '@/components/calls/my-status';
 import { CallButton } from '@/components/pbx/call-button';
 import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
+import { canLeadTeam } from '@/lib/auth/roles';
 import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
 import {
   UNROUTED_SUMMARY_DAYS,
@@ -315,6 +316,15 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             <BarChart3 className="size-4" aria-hidden />
             {t('reportLink')}
           </Link>
+          {accountRole && canLeadTeam(accountRole) && (
+            <Link
+              href="/calls/recordings"
+              className="border-border bg-card hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
+            >
+              <AudioLines className="size-4" aria-hidden />
+              {t('teamRecordingsLink')}
+            </Link>
+          )}
           <MyStatus />
         </div>
       </div>
