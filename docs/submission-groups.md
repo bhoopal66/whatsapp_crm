@@ -37,7 +37,7 @@ call is idempotent per `submission_id`: a repeat returns the existing group
 (`200`). A new group answers `201`. If WhatsApp could not create the
 group yet, the answer is `202` with `whatsapp.pending: true` and the
 cron finishes it. Errors: `409 consent_required`, `422 unknown_user`,
-`duplicate_user`, `no_whapi_number`, `channel_not_allowed`.
+`duplicate_user`, `no_whapi_number`.
 
 When the case reaches a final status the app reports it with `PATCH
 /api/v1/submission-groups/{submission_id}` `{ "status": "APPROVED" }`.
@@ -67,10 +67,16 @@ switch: Compass names one person as both `agent_email` and
 `agent_email` is not an active staff member here is refused
 (`unknown_user`), so it gets no group and no case.
 
+So is a case whose agent has no WhatsApp number they may use (every
+number is allocated to other people, or a body `channel_id` names one of
+those): it opens as `none`, answered `201`, instead of being refused. The
+server log names the agent, so an admin can allocate a number for their
+later cases; a case already open keeps its mode.
+
 With the switch off, a **new** submission is opened as `none`: staff
 emails are still resolved (`unknown_user`, `duplicate_user`), but no
-Whapi number is looked up (no `no_whapi_number` /
-`channel_not_allowed`; a body `channel_id` is ignored), consent is not
+Whapi number is looked up (no `no_whapi_number`; a body `channel_id` is
+ignored), consent is not
 checked because nothing is sent to the customer, there is no invite, and
 the answer is `201` (a repeat `200`), never `202`. With it on, a new
 submission is a `group` row. Turning the switch on or off never changes

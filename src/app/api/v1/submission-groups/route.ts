@@ -10,15 +10,16 @@
 //
 // Staff are named by login email: each must be a live agent, team
 // leader, admin or owner of the key's workspace (422 unknown_user names
-// the field). The group lives on a Whapi number the agent may use.
+// the field). The group lives on a Whapi number the agent may use; an
+// agent with none gets the CRM record alone (`whatsapp.mode: 'none'`).
 // A customer WhatsApp refused to add is sent the invite link 1:1; the
 // outcome is recorded on the group (migration 118, invite_sent_at).
 //
 // Migration 136: WhatsApp groups are a per-account switch
 // (case_submission_whatsapp_groups, default off). Off, a NEW submission
 // opens only the CRM record (`whatsapp.mode: 'none'`): staff are still
-// resolved, but no hosting number is looked up (no no_whapi_number /
-// channel_not_allowed; a body channel_id is ignored), consent is not
+// resolved, but no hosting number is looked up (no no_whapi_number; a
+// body channel_id is ignored), consent is not
 // checked (nothing is sent to the customer), there is no invite, and the
 // answer is 201 (repeat 200), never 202. A switch that cannot be read is
 // a 500, never a silently created group. On, everything above holds as
@@ -275,7 +276,9 @@ export async function POST(request: Request) {
         }
         filedByCoordinator = (banks ?? []).length > 0;
       }
-      if (groupsOn !== true || filedByCoordinator) {
+      // The CRM record alone: nothing is sent to the customer, so no number
+      // and no consent refusal.
+      const recordOnly = async (): Promise<typeof open> => {
         const auditUserId = await resolveAuditUserId(db, ctx.accountId);
         const contact = await findOrCreateContact(
           db,
@@ -287,7 +290,7 @@ export async function POST(request: Request) {
           }
         );
         // No consent refusal: nothing is sent to the customer.
-        open = {
+        return {
           accountId: ctx.accountId,
           submissionRef: input.submissionId,
           contactId: contact.id,
@@ -299,6 +302,9 @@ export async function POST(request: Request) {
           keyId: ctx.keyId,
           customerName: input.customerName,
         };
+      };
+      if (groupsOn !== true || filedByCoordinator) {
+        open = await recordOnly();
       } else {
         // 142: the bank's coordinators join the group too. Looked up before
         // anything is written, so an error answers 500 with no contact made.
@@ -351,55 +357,59 @@ export async function POST(request: Request) {
           agentRole: agent.role,
           requestedId: input.channelId,
         });
-        if (!hosting.ok) {
-          return hosting.code === 'no_whapi_number'
-            ? fail(
-                'no_whapi_number',
-                'No Whapi WhatsApp number is connected to this workspace',
-                422
-              )
-            : fail(
-                'channel_not_allowed',
-                'The agent may not use this WhatsApp number',
-                422
-              );
+        if (!hosting.ok && hosting.code === 'no_whapi_number') {
+          return fail(
+            'no_whapi_number',
+            'No Whapi WhatsApp number is connected to this workspace',
+            422
+          );
         }
+        if (!hosting.ok) {
+          // A real member of staff with no number they may use: refusing
+          // kept their case out of the CRM, and Compass retried it for ever.
+          // The log says whom to give a number. Their email only.
+          console.warn(
+            '[api/v1/submission-groups] no usable number, case opened without a group:',
+            emails.get(agent.userId)
+          );
+          open = await recordOnly();
+        } else {
+          const auditUserId = await resolveAuditUserId(db, ctx.accountId);
+          const contact = await findOrCreateContact(
+            db,
+            ctx.accountId,
+            auditUserId,
+            {
+              phone: input.customerPhone,
+              name: input.customerName ?? undefined,
+            }
+          );
 
-        const auditUserId = await resolveAuditUserId(db, ctx.accountId);
-        const contact = await findOrCreateContact(
-          db,
-          ctx.accountId,
-          auditUserId,
-          {
-            phone: input.customerPhone,
-            name: input.customerName ?? undefined,
-          }
-        );
+          const consent = await store.contactConsent(contact.id);
+          if (
+            consent.reason === 'opted_out' ||
+            consent.reason === 'do_not_contact'
+          )
+            return fail('consent_required', CONSENT_MESSAGE, 409);
+          customerPhone = consent.phone ?? input.customerPhone;
 
-        const consent = await store.contactConsent(contact.id);
-        if (
-          consent.reason === 'opted_out' ||
-          consent.reason === 'do_not_contact'
-        )
-          return fail('consent_required', CONSENT_MESSAGE, 409);
-        customerPhone = consent.phone ?? input.customerPhone;
-
-        open = {
-          accountId: ctx.accountId,
-          submissionRef: input.submissionId,
-          contactId: contact.id,
-          channelId: hosting.channel.id,
-          subject: input.subject,
-          coordinatorPhone: input.coordinatorPhone,
-          coordinatorPhones: coordinatorPhoneList(
-            bankPhones,
-            input.coordinatorPhone,
-            customerPhone
-          ),
-          access,
-          keyId: ctx.keyId,
-          customerName: input.customerName,
-        };
+          open = {
+            accountId: ctx.accountId,
+            submissionRef: input.submissionId,
+            contactId: contact.id,
+            channelId: hosting.channel.id,
+            subject: input.subject,
+            coordinatorPhone: input.coordinatorPhone,
+            coordinatorPhones: coordinatorPhoneList(
+              bankPhones,
+              input.coordinatorPhone,
+              customerPhone
+            ),
+            access,
+            keyId: ctx.keyId,
+            customerName: input.customerName,
+          };
+        }
       }
     }
 

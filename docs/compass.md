@@ -425,8 +425,8 @@ switch, **Settings → Cases → Open a WhatsApp group for each submission**,
 off by default (migration 136):
 
 - **Off:** only the case is opened (`whatsapp.mode: "none"`). No Whapi
-  number is needed (`no_whapi_number` and `channel_not_allowed` never
-  happen and a `channel_id` in the body is ignored), nothing is sent to
+  number is needed (`no_whapi_number` never happens and a `channel_id`
+  in the body is ignored), nothing is sent to
   the customer, so an opted-out customer is not refused, and the answer
   is `201` (`200` on a repeat), never `202`.
 - **On:** one Whapi WhatsApp group per submission (`whatsapp.mode:

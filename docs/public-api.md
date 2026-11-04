@@ -419,8 +419,8 @@ setting **Settings → Cases → Open a WhatsApp group for each submission**
 decides what a *new* submission gets. Off, the call opens the case only
 and the group answers `whatsapp.mode: "none"`, `channel_id: null` and
 `whatsapp.pending: false`. No Whapi number is needed, so
-`no_whapi_number` and `channel_not_allowed` are never returned and a
-`channel_id` in the body is ignored; nothing is sent to the customer, so
+`no_whapi_number` is never returned and a `channel_id` in the body is
+ignored; nothing is sent to the customer, so
 `consent_required` is never returned either. The answer is `201` for a
 new submission and `200` for a repeat, never `202`. Staff emails are
 checked as below. On, everything below applies and new groups answer
@@ -534,8 +534,8 @@ link went out (recorded on the group, so `GET` and `PATCH` return it too;
 (the customer opted out or is do-not-contact); `422 unknown_user` (the
 message names the field), `duplicate_user` (the same person under two labels, except agent and
 coordinator: that is a case the coordinator filed, opened with no group),
-`no_whapi_number`,
-`channel_not_allowed`.
+`no_whapi_number`. An agent with no Whapi number they may use is not
+refused: the case opens with `whatsapp.mode: "none"`.
 
 ### `GET /api/v1/submission-groups/{submission_id}`
 

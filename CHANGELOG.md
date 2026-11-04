@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Staff with no WhatsApp number still get their case
+
+- A submission from a staff member with no WhatsApp number they may use
+  was refused with `422 channel_not_allowed`, so the case never reached
+  the CRM and Compass retried it every hour. It now opens with no
+  WhatsApp group and nothing sent to the customer, and the server log
+  names the agent so an admin can allocate a number. No migration.
+
 ### No WhatsApp group for a case a coordinator filed
 
 - A submission gets a WhatsApp group only when a regular staff member of

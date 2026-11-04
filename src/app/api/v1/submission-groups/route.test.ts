@@ -464,15 +464,28 @@ describe('POST /api/v1/submission-groups', () => {
     expect(m.findOrCreateContact).not.toHaveBeenCalled();
   });
 
-  it('answers 422 channel_not_allowed for a number allocated to someone else', async () => {
+  it("opens the case with no group when the number asked for is someone else's", async () => {
     m.members = [{ config_id: 'w1', user_id: 'u-other' }];
     const res = await post({
       ...body,
       channel_id: '00000000-0000-4000-8000-000000000001',
     });
-    expect(res.status).toBe(422);
-    expect((await res.json()).error.code).toBe('channel_not_allowed');
-    expect(m.findOrCreateContact).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(m.service.openForSubmission.mock.calls[0][0]).toMatchObject({
+      waMode: 'none',
+      channelId: null,
+    });
+    expect(m.store.contactConsent).not.toHaveBeenCalled();
+  });
+
+  it('opens the case with no group when the agent has no number of their own', async () => {
+    m.members = [{ config_id: 'w1', user_id: 'u-other' }];
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    expect(m.service.openForSubmission.mock.calls[0][0]).toMatchObject({
+      waMode: 'none',
+      channelId: null,
+    });
   });
 
   it('returns an existing group (200) without re-resolving staff', async () => {
