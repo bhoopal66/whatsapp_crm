@@ -49,9 +49,10 @@ on the case. There is no IT role.
 
 "Acts" covers stage moves, details, tasks, documents, notes, the bank
 contact log, SLA events and replies. The new agent or coordinator must be
-live staff (agent and up) of the workspace. Reassigning does **not** change
-the submission group's access list: a newly assigned agent must be added to
-the group before they can send in it.
+live staff (agent and up) of the workspace. Reassigning moves the active
+submission group's access with the case (migration 173): the new person
+gets the agent or coordinator row and the old one loses it, unless they
+hold another label there. An ended group's list does not change.
 
 **Read audit.** Every time a coordinator, team leader, admin or owner opens
 a case's conversation, a row is written to the case's view audit first; an
@@ -409,7 +410,6 @@ A failure is only logged.
 
 - **Take over is disabled** until legal approves the hand-over wording
   (draft English only; Arabic to do).
-- Reassigning a case does not change the group's access list.
 - Case tasks are separate from CRM [tasks](tasks.md): they are not on the
   calendar or the customer page's task list.
 - A case edit that changes details, priority and due date together is not

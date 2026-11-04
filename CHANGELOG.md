@@ -41,7 +41,8 @@ and polish.
   a push to the case's agent and coordinators, once per group until they
   open it, and opening the group clears your count and your bell. The team
   leader of a case's agent can now read and send in its active group
-  without being named on it. **Migration required:** apply
+  without being named on it. Reassigning a case now moves group access
+  to the new agent or coordinator. **Migration required:** apply
   `supabase/migrations/173_submission_group_reads.sql` as a superuser or
   BYPASSRLS role before restarting.
 

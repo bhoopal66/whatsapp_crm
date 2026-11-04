@@ -1180,7 +1180,9 @@ submission app. `docs/submission-groups.md` is the contract.
   ACTIVE group a live leader of the case's agent counts as `team_lead`
   after a real open row and before 163's bank holder
   (`sg_leads_group_agent`, service role only); `openAccessLabel` and
-  `impliedLabel` are its TS mirrors. The type lives in
+  `impliedLabel` are its TS mirrors. A reassign moves access
+  (`cases_move_group_access`; a failure there warns and never fails the
+  reassign). The type lives in
   `notifications_type_check`, `push_bell_url`, `hrefFor`, `PUSH_KINDS` and
   `kindGroup`: change them together. `verify-submission-group-reads.sql`.
 
