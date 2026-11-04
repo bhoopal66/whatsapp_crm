@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### A direct message is with one person
+
+- Team chat's _New message_ picker now takes one person. A conversation
+  among several people is a private channel. Group messages already open
+  keep working, and the _Start group messages_ row is gone from Settings
+  → Team chat → Role permissions, because nothing starts one any more.
+
 ### Added
 
 - **Delete a team chat channel permanently (database side).** An owner or

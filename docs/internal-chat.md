@@ -38,8 +38,10 @@ Their defaults change nothing until an owner or admin saves rules.
   themselves: an existing member adds people, and only a channel admin
   adds staff. The creator is its first channel admin. The last
   (non-guest) admin cannot leave, be demoted or be removed.
-- **Direct message** (`dm`): 2 to 8 people, the opener included, so a
-  group DM is the same thing as a DM. A DM has no name; it is labelled
+- **Direct message** (`dm`): the New message picker opens a DM with one
+  other person; a conversation among several people is a private
+  channel. Group DMs (up to 8 people) already open keep working. A DM has
+  no name; it is labelled
   by the other members. The same set of people always opens the same
   DM, and reopening one you left brings back only you. Nobody can be
   added to a DM later: open a new one. The last member cannot leave.

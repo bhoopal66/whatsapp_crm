@@ -6,7 +6,6 @@ import { hasMinRole, isAccountRole, isBankGuest } from '@/lib/auth/roles';
 
 import {
   CHANNEL_TOPIC_MAX,
-  DM_MAX_OTHERS,
   channelNameProblem,
   finalChannelName,
   type NameProblem,
@@ -108,10 +107,8 @@ export function allowedChannelKinds(
 }
 
 /**
- * How many other people the DM picker lets the caller choose: one
- * without open_group_dm (a group DM is 3+ people including the
- * caller), else the 087 maximum.
+ * How many other people the DM picker lets anyone choose. A message to
+ * several people is a private channel, so the picker opens one-to-one
+ * DMs only. Group DMs already open stay; the 2-8 limit in SQL is theirs.
  */
-export const dmSelectionMax = (
-  can: Readonly<Pick<ChatCapabilities, 'open_group_dm'>>
-): number => (can.open_group_dm ? DM_MAX_OTHERS : 1);
+export const DM_PICKER_MAX = 1;

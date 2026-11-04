@@ -5060,11 +5060,10 @@
     "dm": {
       "new": "New message",
       "title": "New message",
-      "subtitle": "Choose up to {max} people. Internal only.",
+      "subtitle": "Choose one person. Internal only.",
       "open": "Open",
       "cancel": "Cancel",
       "hiddenByRules": "Some people aren't shown because of your workspace's message rules.",
-      "groupRestricted": "You can only message one person at a time.",
       "peersLoading": "Checking who you can message…"
     },
     "newChannel": {

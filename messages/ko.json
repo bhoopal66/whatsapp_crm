@@ -5060,11 +5060,10 @@
     "dm": {
       "new": "새 메시지",
       "title": "새 메시지",
-      "subtitle": "최대 {max}명을 선택하세요. 내부 전용입니다.",
+      "subtitle": "한 사람을 선택하세요. 내부 전용입니다.",
       "open": "열기",
       "cancel": "취소",
       "hiddenByRules": "워크스페이스의 메시지 규칙 때문에 일부 사람은 표시되지 않습니다.",
-      "groupRestricted": "한 번에 한 사람에게만 메시지를 보낼 수 있습니다.",
       "peersLoading": "메시지를 보낼 수 있는 사람을 확인하는 중…"
     },
     "newChannel": {

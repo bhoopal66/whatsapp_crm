@@ -48,6 +48,8 @@ export function togglePick(
   max = Infinity
 ): string[] {
   if (picked.includes(id)) return picked.filter((x) => x !== id);
+  // Choosing one person: a new pick replaces the old, like a radio.
+  if (max === 1) return [id];
   return picked.length >= max ? [...picked] : [...picked, id];
 }
 

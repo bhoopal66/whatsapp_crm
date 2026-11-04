@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { ChatError } from '../errors';
-import { DM_MAX_OTHERS } from '../compose';
 import {
   allowedChannelKinds,
   createChannelInput,
   dealRoomOption,
-  dmSelectionMax,
+  DM_PICKER_MAX,
   nameTakenError,
   privateMemberCandidates,
   type NewChannelForm,
@@ -132,8 +131,7 @@ describe('creation permissions (157)', () => {
     expect(k(true, false)).toEqual(['team']);
     expect(k(false, false)).toEqual([]);
   });
-  it('limits a DM to one other person without open_group_dm', () => {
-    expect(dmSelectionMax({ open_group_dm: false })).toBe(1);
-    expect(dmSelectionMax({ open_group_dm: true })).toBe(DM_MAX_OTHERS);
+  it('opens a DM with one other person only', () => {
+    expect(DM_PICKER_MAX).toBe(1);
   });
 });

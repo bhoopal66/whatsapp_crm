@@ -56,6 +56,8 @@ describe('channel names', () => {
 describe('pickers', () => {
   it('togglePick adds up to the cap and removes', () => {
     const six = ['a', 'b', 'c', 'd', 'e', 'f'];
+    expect(togglePick(['a'], 'b', 1)).toEqual(['b']);
+    expect(togglePick(['a'], 'a', 1)).toEqual([]);
     expect(togglePick(six, 'g', DM_MAX_OTHERS)).toHaveLength(7);
     expect(togglePick([...six, 'g'], 'h', DM_MAX_OTHERS)).toHaveLength(7);
     expect(togglePick(['a', 'b'], 'a')).toEqual(['b']);

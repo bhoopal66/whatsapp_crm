@@ -46,6 +46,11 @@ import {
 
 type Supabase = ReturnType<typeof createClient>;
 
+/** Nothing starts a group DM any more, so its row would do nothing. */
+const MATRIX_CAPABILITIES = CHAT_CAPABILITIES.filter(
+  (cap) => cap !== 'open_group_dm'
+);
+
 /**
  * Settings → Team chat → Role permissions (migration 157): which role
  * may do what in team chat. A ticked cell is allowed; the save sends the
@@ -194,7 +199,7 @@ export function PermissionsCard({
                   </tr>
                 </thead>
                 <tbody>
-                  {CHAT_CAPABILITIES.map((cap) => (
+                  {MATRIX_CAPABILITIES.map((cap) => (
                     <tr
                       key={cap}
                       className="border-border border-b last:border-b-0"
