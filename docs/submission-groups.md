@@ -125,9 +125,12 @@ went out, or the reason it failed, and the group page's header shows
 An owner, an admin or anyone with an open label on the group can send it
 again with **Resend invite** in the group's details, on an active group
 that has its WhatsApp group, number and contact. A customer who opted out
-or is marked do-not-contact gets nothing, and a resend within 10 minutes
-of the last invite that went out is refused, because repeated sends risk
-the number being flagged. A group with no usable stored link fetches the
+or is marked do-not-contact gets nothing, and so does one already in the
+group. A resend within 10 minutes of the last attempt is refused, because
+repeated sends risk the number being flagged. A failed attempt also waits
+10 minutes, because it may have reached the customer. The window is spent
+atomically before the gateway call (`sg_invite_claim`), so two clicks send
+once. A group with no usable stored link fetches the
 current one for that send.
 
 ## Has the customer joined?

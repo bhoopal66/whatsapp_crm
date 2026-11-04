@@ -634,6 +634,22 @@ export class SubmissionGroupStore {
     );
   }
 
+  /**
+   * Spends the 1:1 invite's send window atomically: false when an invite was claimed or sent within the cooldown.
+   * Every attempt spends it, a failed one included.
+   */
+  async claimInvite(
+    groupId: string,
+    cooldownSeconds: number
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_invite_claim', {
+        p_group: groupId,
+        p_cooldown_seconds: cooldownSeconds,
+      })) === true
+    );
+  }
+
   /** Records the 1:1 invite send's outcome; false when the group is not ACTIVE. */
   async noteInvite(
     groupId: string,

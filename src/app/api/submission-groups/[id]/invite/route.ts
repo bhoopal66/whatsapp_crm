@@ -43,9 +43,14 @@ const REFUSALS: Record<
     message: 'The customer is marked do not contact, so no invite was sent',
   },
   no_phone: { status: 409, message: 'The customer has no phone number' },
+  already_joined: {
+    status: 409,
+    message: 'The customer is already in the group',
+  },
   too_soon: {
     status: 429,
-    message: 'An invite went out in the last 10 minutes. Try again later',
+    message:
+      'An invite was sent, or tried, in the last 10 minutes. Try again later',
   },
 };
 

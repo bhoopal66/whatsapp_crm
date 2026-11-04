@@ -42,6 +42,23 @@ class FakeStore implements GroupStore {
   audit: { groupId: string; userId: string }[] = [];
   invites: { groupId: string; sent: boolean; error: string | null }[] = [];
   noteInviteFails = false;
+  /** The clock `claimInvite` judges the cooldown by; tests set it to the service's. */
+  claimNow = new Date();
+  claimed = new Set<string>();
+  claimCalls: { groupId: string; seconds: number }[] = [];
+  /** Answers true once per group, like the SQL: a claim or a sent invite inside the window refuses. */
+  async claimInvite(groupId: string, seconds: number) {
+    this.claimCalls.push({ groupId, seconds });
+    const g = this.groups.get(groupId);
+    if (!g || g.status !== 'ACTIVE' || this.claimed.has(groupId)) return false;
+    if (
+      g.inviteSentAt &&
+      this.claimNow.getTime() - g.inviteSentAt.getTime() < seconds * 1000
+    )
+      return false;
+    this.claimed.add(groupId);
+    return true;
+  }
   private seq = 0;
 
   async open(i: Parameters<GroupStore['open']>[0]) {
@@ -1501,6 +1518,38 @@ describe('invite for a customer WhatsApp refused', () => {
     }
   );
 
+  it.each([
+    [
+      'withdrawn',
+      () => ({ allowed: false, phone: PHONE, reason: 'opted_out' }),
+    ],
+    [
+      'unreadable',
+      () => {
+        throw new Error('db down');
+      },
+    ],
+  ] as const)(
+    'consent %s after createGroup: nothing is sent or recorded as sent',
+    async (_n, after) => {
+      const s = refusing();
+      const live: ConsentAnswer = { allowed: true, phone: PHONE };
+      Object.defineProperty(s.consent, 'answer', {
+        get: () => (s.api.of('createGroup').length ? after() : live),
+      });
+      const r = await s.open();
+      expect(r).toMatchObject({ inviteSent: false });
+      expect(s.api.of('sendInvite')).toEqual([]);
+      expect(s.store.invites).toEqual([
+        {
+          groupId: expect.any(String),
+          sent: false,
+          error: 'The customer can no longer be contacted',
+        },
+      ]);
+    }
+  );
+
   it('logs a failed record and still answers the send', async () => {
     const warn = vi.fn();
     const s = refusing({ logger: { warn } });
@@ -1539,6 +1588,7 @@ describe('resendInvite', () => {
   /** An open group with a WhatsApp group and no invite recorded. */
   const opened = async (o: Parameters<typeof setup>[0] = {}) => {
     const s = setup({ now: () => NOW, ...o });
+    s.store.claimNow = NOW;
     s.api.link = LINK;
     await s.open();
     s.api.calls = [];
@@ -1648,14 +1698,49 @@ describe('resendInvite', () => {
     });
   });
 
-  it('a failed attempt does not start the cooldown', async () => {
+  it('a failed attempt spends the window too: it may have reached the customer', async () => {
     const { s, g } = await opened();
     s.api.inviteError = new Error('down');
     await s.svc.resendInvite(g.id);
     s.api.inviteError = null;
-    await expect(s.svc.resendInvite(g.id)).resolves.toMatchObject({
-      status: 'sent',
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'refused',
+      code: 'too_soon',
     });
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+
+  it('asks for the 10-minute window just before the gateway, and not on a refusal', async () => {
+    const { s, g } = await opened();
+    s.consent.answer = { allowed: false, phone: PHONE, reason: 'opted_out' };
+    await s.svc.resendInvite(g.id);
+    expect(s.store.claimCalls).toEqual([]);
+    s.consent.answer = { allowed: true, phone: PHONE };
+    await s.svc.resendInvite(g.id);
+    expect(s.store.claimCalls).toEqual([{ groupId: g.id, seconds: 600 }]);
+  });
+
+  it('two simultaneous resends send once', async () => {
+    const { s, g } = await opened();
+    const [a, b] = await Promise.all([
+      s.svc.resendInvite(g.id),
+      s.svc.resendInvite(g.id),
+    ]);
+    expect([a.status, b.status].sort()).toEqual(['refused', 'sent']);
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+
+  it('refuses a customer already in the group, before consent and the gateway', async () => {
+    const { s, g } = await opened();
+    g.customerMembership = 'joined';
+    const asked = s.consent.asked;
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'refused',
+      code: 'already_joined',
+    });
+    expect(s.consent.asked).toBe(asked);
+    expect(s.store.claimCalls).toEqual([]);
+    expect(s.api.calls).toEqual([]);
   });
 
   it('records a refused send and answers its plain reason, never the raw error', async () => {

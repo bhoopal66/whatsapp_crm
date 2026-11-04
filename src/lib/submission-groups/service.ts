@@ -108,6 +108,7 @@ export type GroupStore = Pick<
   | 'end'
   | 'markWaClosed'
   | 'noteInvite'
+  | 'claimInvite'
   | 'recordWaCloseError'
   | 'countPendingOut'
   | 'closeHoldUntil'
@@ -124,6 +125,7 @@ export type ResendInviteRefusal =
   | 'opted_out'
   | 'do_not_contact'
   | 'no_phone'
+  | 'already_joined'
   | 'too_soon';
 
 export type ResendInviteResult =
@@ -260,6 +262,7 @@ export const DEFAULT_CREATE_LEASE_MS = 120_000;
 // error text (which can carry provider detail) stays in the server log.
 const INVITE_NO_NUMBER = 'The hosting WhatsApp number is not available';
 const INVITE_NO_LINK = 'The group has no invite link';
+const INVITE_NOT_ALLOWED = 'The customer can no longer be contacted';
 const INVITE_REFUSED = 'WhatsApp refused the invite';
 const INVITE_NOT_SENT = 'The invite could not be sent';
 
@@ -538,6 +541,24 @@ export class SubmissionGroupService {
     let error: string | null = INVITE_NO_LINK;
     if (code) {
       try {
+        // Consent was judged before createGroup; the customer may have opted out since.
+        let allowed = false;
+        try {
+          if (group.contactId)
+            allowed = (await this.deps.consent(group.contactId)).allowed;
+        } catch (err) {
+          this.log.warn('invite consent could not be re-read', {
+            groupId: group.id,
+            err: errText(err),
+          });
+        }
+        if (!allowed) {
+          error = INVITE_NOT_ALLOWED;
+          return {
+            group: await this.recordInvite(group, false, error),
+            sent: false,
+          };
+        }
         await this.deps.api.sendInvite(channelId, code, phone);
         sent = true;
         error = null;
@@ -554,8 +575,9 @@ export class SubmissionGroupService {
 
   /**
    * A person's Resend invite. Unlike `inviteCustomer` the outcome is answered, not only recorded, and a group with
-   * no usable stored link fetches one for this send (it is not stored). A refusal records nothing. The cooldown reads
-   * `invite_sent_at`, so two simultaneous requests can both pass it.
+   * no usable stored link fetches one for this send (it is not stored). A refusal records nothing. The cooldown is
+   * spent atomically by `claimInvite` just before the gateway, so simultaneous requests send once and a failed
+   * attempt (which may have reached the customer) waits too.
    */
   async resendInvite(groupId: string): Promise<ResendInviteResult> {
     const refused = (code: ResendInviteRefusal): ResendInviteResult => ({
@@ -569,14 +591,17 @@ export class SubmissionGroupService {
     if (!waGroupId) return refused('no_group_yet');
     if (!channelId || !contactId) return refused('detached');
 
+    if (group.customerMembership === 'joined') return refused('already_joined');
+
     const consent = await this.deps.consent(contactId);
     if (!consent.allowed || !consent.phone)
       return refused(consent.reason ?? 'no_phone');
 
-    const now = this.deps.now?.() ?? new Date();
     if (
-      group.inviteSentAt &&
-      now.getTime() - group.inviteSentAt.getTime() < INVITE_RESEND_COOLDOWN_MS
+      !(await this.deps.store.claimInvite(
+        group.id,
+        INVITE_RESEND_COOLDOWN_MS / 1000
+      ))
     )
       return refused('too_soon');
 

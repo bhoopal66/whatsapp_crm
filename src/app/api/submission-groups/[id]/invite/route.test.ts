@@ -102,6 +102,7 @@ describe('POST invite: the answer', () => {
     ['opted_out', 409],
     ['do_not_contact', 409],
     ['no_phone', 409],
+    ['already_joined', 409],
     ['too_soon', 429],
   ])('words the refusal %s as %i', async (code, status) => {
     mocks.resendInvite.mockResolvedValue({ status: 'refused', code });
