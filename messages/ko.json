@@ -7234,7 +7234,8 @@
     "deleteLeftConfirm": "CRM에서 삭제",
     "deleteLeftDone": "그룹 {count}개를 삭제했습니다",
     "deleteLeftFailed": "그룹을 삭제하지 못했습니다: {reason}",
-    "deleteLeftRefused": "제출 그룹 {count}개는 삭제되지 않았습니다"
+    "deleteLeftRefused": "제출 그룹 {count}개는 삭제되지 않았습니다",
+    "customerNotInGroup": "고객이 그룹에 없음"
   },
   "SubmissionGroups": {
     "title": "제출 그룹",
@@ -7404,7 +7405,8 @@
       "emptyMineTitle": "내 제출이 없습니다",
       "emptyMineBody": "지금까지 불러온 제출 중 내가 참여한 것이 없습니다. 모두 보려면 내 그룹을 끄세요.",
       "selectTitle": "제출을 선택하세요",
-      "selectBody": "목록에서 하나를 선택하면 세부 정보, 참여자, 메시지를 볼 수 있습니다."
+      "selectBody": "목록에서 하나를 선택하면 세부 정보, 참여자, 메시지를 볼 수 있습니다.",
+      "customerNotInGroup": "고객이 그룹에 없음"
     },
     "details": {
       "title": "세부 정보",
@@ -7424,7 +7426,13 @@
       "coordinatorPhone": "코디네이터 전화번호",
       "number": "WhatsApp 번호",
       "invite": "초대 링크",
-      "notSet": "—"
+      "notSet": "—",
+      "customerRow": "고객",
+      "customerState": {
+        "joined": "그룹에 있음",
+        "absent": "그룹에 없음",
+        "unknown": "아직 확인되지 않음"
+      }
     }
   },
   "CallStatsPage": {

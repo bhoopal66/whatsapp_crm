@@ -123,6 +123,33 @@ outcome is recorded on the group (migration 118): `invite_sent_at` when it
 went out, or the reason it failed, and the group page's header shows
 "Invite link sent to the customer" or "Invite link could not be sent".
 
+## Has the customer joined?
+
+Each group with a WhatsApp group records whether the customer is in it
+(migration 174). Staff see "Customer not in group" on the list rows only
+when the customer is known to be missing from a live group, and the
+detail card has a Customer row.
+
+- **In the group** (`joined`): WhatsApp added the customer when the group
+  was created, a `groups` webhook reports them added, the participant
+  list names them, or they wrote in the group (a SQL trigger).
+- **Not in the group** (`absent`): WhatsApp refused them at creation, a
+  webhook reports them removed or leaving, or the participant list shows
+  only real numbers and none is theirs.
+- **Not checked yet** (`unknown`): nothing is known. No warning is shown.
+
+WhatsApp can hide a number behind an `…@lid` id, and such an id matches
+nobody. If the customer is not listed and anyone in the group is hidden,
+the customer could be that person, so the answer stays as it was: a hidden
+number never counts as absence. The same goes for an empty list, a group
+with no phone on file, and a refusal at creation that names a hidden id.
+
+The cron re-reads the participants of every ACTIVE group not marked
+`joined`, once unchecked or six hours after the last check, at most 10
+groups per account per run. A gateway failure leaves the group due and
+ends that account's pass until the next run. A group, number or contact
+that is gone is stamped as checked, so it waits six hours like the rest.
+
 ## The access list and labels
 
 Staff are named by **login email**: the agent (required), optionally a

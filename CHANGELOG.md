@@ -19,6 +19,19 @@ and polish.
   retry or an admin's retry used to invite nobody and record nothing. No
   migration.
 
+### Added
+
+- **Submission groups show when the customer isn't in the group.** The
+  Submission groups and Groups lists mark a live group "Customer not in
+  group", and the group's details card has a Customer row. We learn this
+  when the group is created, when WhatsApp reports someone added or
+  removed, when the customer writes, and from a check every six hours.
+  A hidden number never counts as "not in the group".
+  **Migration required:**
+  `supabase/migrations/174_submission_group_customer_membership.sql`.
+  Apply it before restarting on this version: the group screens read its
+  new columns and fail without them.
+
 ### No WhatsApp group for a case an admin filed
 
 - A submission whose agent is an owner or admin now opens in the CRM with

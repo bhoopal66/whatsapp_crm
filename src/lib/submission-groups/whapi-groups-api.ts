@@ -19,10 +19,23 @@ export { SubmissionGroupChannelError };
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
 
+/** The cron's read of who is in a group (174). */
+export interface ParticipantsApi {
+  /**
+   * Everyone in the group: phone digits, or the raw id of a hidden number
+   * (`…@lid`). null when the group or number is gone, so asking again won't
+   * help; any other failure throws.
+   */
+  getParticipants(
+    channelId: string,
+    waGroupId: string
+  ): Promise<string[] | null>;
+}
+
 export function createWhapiGroupsApi(
   admin: SupabaseClient,
   accountId: string
-): GroupsApi {
+): GroupsApi & ParticipantsApi {
   // Loaded per call rather than cached: a reconnected number carries a
   // new token, and the adapter may outlive a single request in the cron.
   async function channelFor(channelId: string): Promise<WhatsAppChannel> {
@@ -64,6 +77,22 @@ export function createWhapiGroupsApi(
         // Best-effort: the group exists, the link can be fetched later.
       }
       return { waGroupId, inviteLink, refused };
+    },
+
+    async getParticipants(channelId, waGroupId) {
+      try {
+        const channel = await channelFor(channelId);
+        const group = await groups.getGroup({ channel, groupId: waGroupId });
+        return group.participants.map((p) => p.waId ?? p.jid);
+      } catch (err) {
+        if (
+          isGroupGone(err) ||
+          err instanceof SubmissionGroupChannelError ||
+          err instanceof groups.GroupsUnsupportedError
+        )
+          return null;
+        throw err;
+      }
     },
 
     async sendGroupText(channelId, waGroupId, text) {

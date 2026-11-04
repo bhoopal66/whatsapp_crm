@@ -22,6 +22,11 @@ function fakes(o: {
     listPendingCreates: vi.fn().mockResolvedValue(o.pending ?? []),
     listUnclosedEnded: vi.fn().mockResolvedValue(o.unclosed ?? []),
     failStalePending: vi.fn().mockResolvedValue(['9']),
+    membershipAccounts: vi.fn().mockResolvedValue([]),
+    membershipDue: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+    contactConsent: vi.fn(),
+    noteCustomerMembership: vi.fn(),
   };
   const services = new Map<
     string,
@@ -75,6 +80,7 @@ describe('runSubmissionGroupsCron', () => {
     expect(r).toEqual({
       stalePendingFailed: 1,
       accounts: 2,
+      membershipChecked: 0,
       created: 1,
       createFailed: 0,
       closed: 2,

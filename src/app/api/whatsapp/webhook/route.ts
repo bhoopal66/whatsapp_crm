@@ -29,7 +29,10 @@ import {
   parseWhapiGroupEvents,
   type WhapiGroupEvent,
 } from '@/lib/whatsapp/whapi-group-events'
-import { recordSubmissionGroupInbound } from '@/lib/submission-groups/inbound'
+import {
+  recordSubmissionGroupInbound,
+  recordSubmissionGroupMembership,
+} from '@/lib/submission-groups/inbound'
 import { caseSlaInboundHook } from '@/lib/cases/server'
 import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
@@ -525,6 +528,17 @@ async function processWhapiGroups(
     await applyGroupEvents(admin, channel, events)
   } catch (error) {
     console.error('[whapi-webhook] group events failed:', error)
+  }
+  try {
+    // Leaves `ok` alone: the cron re-reads the group, so a lost event is no
+    // reason to have Whapi redeliver the callback.
+    await recordSubmissionGroupMembership(
+      new SubmissionGroupStore(admin),
+      channel,
+      events,
+    )
+  } catch (error) {
+    console.error('[whapi-webhook] submission group membership failed:', error)
   }
   return ok
 }

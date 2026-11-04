@@ -690,6 +690,11 @@ function GroupRow({
                 {t('caseBadge')}
               </span>
             )}
+            {g.customer_absent && (
+              <span className="bg-warning-soft text-warning shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-medium">
+                {t('customerNotInGroup')}
+              </span>
+            )}
             {unreadText && (
               <span
                 role="img"

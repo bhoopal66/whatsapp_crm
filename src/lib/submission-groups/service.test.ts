@@ -24,6 +24,11 @@ const DAY = 86_400_000;
 
 /** In-memory stand-in for the sg_* RPCs (the SQL itself is asserted by verify-submission-groups.sql). */
 class FakeStore implements GroupStore {
+  memberships: [string, string][] = [];
+  async noteCustomerMembership(groupId: string, state: string) {
+    this.memberships.push([groupId, state]);
+    return true;
+  }
   groups = new Map<string, SubmissionGroup>();
   claims = new Map<string, { token: string; until: number }>();
   access: {
@@ -473,6 +478,27 @@ describe('SubmissionGroupService.openForSubmission', () => {
     old.consent.answer = { allowed: true, phone: '+971500000001' };
     await old.open('S-2', '971500000001');
     expect(old.api.of('createGroup')[0].args[1]).toEqual(['+971500000001']);
+  });
+
+  it('records the customer as joined after a create, absent when refused', async () => {
+    const phone = '+971500000001';
+    const s = setup();
+    s.consent.answer = { allowed: true, phone };
+    const r = await s.open('S-1', '971500000009');
+    expect(s.store.memberships).toEqual([
+      [r.consentRequired ? '' : r.group.id, 'joined'],
+    ]);
+    const no = setup();
+    no.consent.answer = { allowed: true, phone };
+    const real = no.api.createGroup.bind(no.api);
+    no.api.createGroup = async (...a: Parameters<typeof real>) => ({
+      ...(await real(...a)),
+      refused: ['971500000001'],
+    });
+    const n = await no.open('S-2', '971500000009');
+    expect(no.store.memberships).toEqual([
+      [n.consentRequired ? '' : n.group.id, 'absent'],
+    ]);
   });
 
   it('consent refused: no row and no gateway call', async () => {

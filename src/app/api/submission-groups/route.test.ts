@@ -243,6 +243,7 @@ describe('GET /api/submission-groups', () => {
       ended_at: null,
       end_reason: null,
       wa_mode: 'group',
+      customer_membership: 'unknown',
       pending: false,
       archive: false,
       unread: 0,

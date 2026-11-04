@@ -302,6 +302,7 @@ export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
     ended_at: iso(group.endedAt),
     end_reason: group.endReason,
     wa_mode: group.waMode,
+    customer_membership: group.customerMembership ?? 'unknown',
     pending: isPendingCreate(group),
     archive: group.status === 'ENDED',
     unread: refs.unread ?? 0,

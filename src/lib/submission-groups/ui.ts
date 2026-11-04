@@ -49,6 +49,19 @@ export interface SgListItem {
   archive: boolean;
   /** 173: the caller's unread messages; absent on older payloads. */
   unread?: number;
+  /** 174: absent on older payloads, which read as 'unknown'. */
+  customer_membership?: 'unknown' | 'joined' | 'absent';
+}
+
+/** 174: the warning chip. Only a known absence on a live WhatsApp group; 'unknown' shows nothing. */
+export function customerNotInGroup(
+  g: Pick<SgListItem, 'status' | 'wa_mode' | 'customer_membership'>
+): boolean {
+  return (
+    g.customer_membership === 'absent' &&
+    g.status === 'ACTIVE' &&
+    waModeOf(g) === 'group'
+  );
 }
 
 export interface SgGroup extends SgListItem {

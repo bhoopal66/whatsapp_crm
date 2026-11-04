@@ -7234,7 +7234,8 @@
     "deleteLeftConfirm": "Delete from CRM",
     "deleteLeftDone": "Deleted {count, plural, =1 {# group} other {# groups}}",
     "deleteLeftFailed": "Couldn't delete the groups: {reason}",
-    "deleteLeftRefused": "{count, plural, =1 {# submission group was} other {# submission groups were}} not deleted"
+    "deleteLeftRefused": "{count, plural, =1 {# submission group was} other {# submission groups were}} not deleted",
+    "customerNotInGroup": "Customer not in group"
   },
   "SubmissionGroups": {
     "title": "Submission groups",
@@ -7404,7 +7405,8 @@
       "emptyMineTitle": "None of these are yours",
       "emptyMineBody": "You are not on any of the submissions loaded so far. Turn off My groups to see them all.",
       "selectTitle": "Select a submission",
-      "selectBody": "Choose one from the list to see its details, people and messages."
+      "selectBody": "Choose one from the list to see its details, people and messages.",
+      "customerNotInGroup": "Customer not in group"
     },
     "details": {
       "title": "Details",
@@ -7424,7 +7426,13 @@
       "coordinatorPhone": "Coordinator phone",
       "number": "WhatsApp number",
       "invite": "Invite link",
-      "notSet": "—"
+      "notSet": "—",
+      "customerRow": "Customer",
+      "customerState": {
+        "joined": "In the group",
+        "absent": "Not in the group",
+        "unknown": "Not checked yet"
+      }
     }
   },
   "CallStatsPage": {

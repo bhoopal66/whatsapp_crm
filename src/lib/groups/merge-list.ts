@@ -9,12 +9,14 @@
  *   or not the caller may read that submission group.
  * - `wa_group_id` stays on the server: items are built field by field.
  */
+import { customerNotInGroup } from '@/lib/submission-groups/ui';
+
 import type { WhatsappGroupRow } from './types';
 import type { GroupListItem } from './ui';
 
 /** The `submission_groups` columns a list row needs, and no more. */
 export const SUBMISSION_ROW_COLUMNS =
-  'id, channel_id, subject, customer_name, submission_ref, wa_group_id, last_activity_at';
+  'id, channel_id, subject, customer_name, submission_ref, wa_group_id, last_activity_at, customer_membership';
 
 export interface SubmissionListRow {
   id: string;
@@ -24,6 +26,8 @@ export interface SubmissionListRow {
   submission_ref: string;
   wa_group_id: string | null;
   last_activity_at: string | null;
+  /** 174: absent on older fixtures, which read as 'unknown'. */
+  customer_membership?: 'unknown' | 'joined' | 'absent';
 }
 
 export interface MergeGroupListInput {
@@ -88,6 +92,12 @@ export function mergeGroupList(input: MergeGroupListInput): GroupListItem[] {
     created_by: null,
     can_manage: false,
     unread: unread.get(row.id) ?? 0,
+    // The route lists ACTIVE rows of WhatsApp groups only.
+    customer_absent: customerNotInGroup({
+      status: 'ACTIVE',
+      wa_mode: 'group',
+      customer_membership: row.customer_membership,
+    }),
   }));
 
   return [...normal, ...submission].sort(

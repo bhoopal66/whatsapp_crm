@@ -11,6 +11,9 @@ import type { GroupStatus, StaffLabel } from './rules';
 /** 136: whether a WhatsApp group exists (or will) for a submission. */
 export type WaMode = 'group' | 'none';
 
+/** 174: whether the customer is in the WhatsApp group; 'unknown' = we can't tell yet. */
+export type CustomerMembership = 'unknown' | 'joined' | 'absent';
+
 export interface SubmissionGroup {
   id: string;
   accountId: string;
@@ -42,6 +45,10 @@ export interface SubmissionGroup {
   inviteSentAt: Date | null;
   /** Why the last 1:1 invite send failed; cleared by a later success. */
   inviteSendError: string | null;
+  /** 174. Optional so older fixtures still type-check; toGroup always sets it. */
+  customerMembership?: CustomerMembership;
+  /** 174: when membership was last checked; NULL = never. Optional like customerMembership. */
+  customerCheckedAt?: Date | null;
 }
 
 /** 'out' rows only (null for 'in'). Only "sent" reached the customer. */
@@ -97,7 +104,7 @@ export interface ConsentAnswer {
 }
 
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode, customer_name, coordinator_phones';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode, customer_name, coordinator_phones, customer_membership, customer_checked_at';
 
 type Row = Record<string, unknown>;
 
@@ -137,6 +144,11 @@ export function toGroup(r: Row): SubmissionGroup {
     waCloseError: str(r.wa_close_error),
     inviteSentAt: date(r.invite_sent_at),
     inviteSendError: str(r.invite_send_error),
+    customerMembership:
+      r.customer_membership === 'joined' || r.customer_membership === 'absent'
+        ? r.customer_membership
+        : 'unknown',
+    customerCheckedAt: date(r.customer_checked_at),
   };
 }
 
@@ -635,6 +647,53 @@ export class SubmissionGroupStore {
         p_error: error,
       })) === true
     );
+  }
+
+  /**
+   * Records what we learned about the customer and stamps the check; 'unknown'
+   * stamps only. False when the group is not ACTIVE.
+   */
+  async noteCustomerMembership(
+    groupId: string,
+    state: CustomerMembership
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_note_customer_membership', {
+        p_group: groupId,
+        p_state: state,
+      })) === true
+    );
+  }
+
+  /** The account's groups due a membership check, oldest first. */
+  async membershipDue(accountId: string, limit: number): Promise<string[]> {
+    return scalarIds(
+      await this.rpc('sg_membership_due', {
+        p_account: accountId,
+        p_limit: limit,
+      })
+    );
+  }
+
+  /**
+   * Accounts that may have a membership check due. `sg_membership_due` needs an
+   * account, and most accounts have no retry work to find them by. Longest
+   * unchecked first, so one large account cannot fill the window.
+   */
+  async membershipAccounts(limit = 500): Promise<string[]> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select('account_id')
+      .eq('status', 'ACTIVE')
+      .eq('wa_mode', 'group')
+      .not('wa_group_id', 'is', null)
+      .neq('customer_membership', 'joined')
+      .order('customer_checked_at', { ascending: true, nullsFirst: true })
+      .limit(limit);
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return [
+      ...new Set(((data ?? []) as Row[]).map((r) => String(r.account_id))),
+    ];
   }
 
   async countPendingOut(groupId: string): Promise<number> {

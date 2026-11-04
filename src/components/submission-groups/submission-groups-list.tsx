@@ -30,6 +30,7 @@ import {
   shortRef,
   trackerStatusChip,
   type SgListItem,
+  customerNotInGroup,
   unreadBadgeText,
   waModeOf,
 } from '@/lib/submission-groups/ui';
@@ -378,6 +379,7 @@ function Row({
   const pending = g.pending && !ended && !noGroup;
   const archived = ended && g.archive;
   const noGroupBadge = noGroup && !ended;
+  const customerAbsent = customerNotInGroup(g);
   const unreadText = unreadBadgeText(g.unread);
 
   return (
@@ -453,8 +455,17 @@ function Row({
               </span>
             )}
           </span>
-          {(noGroupBadge || pending || archived || g.my_label) && (
+          {(noGroupBadge ||
+            pending ||
+            archived ||
+            customerAbsent ||
+            g.my_label) && (
             <span className="flex flex-wrap items-center gap-1 pt-0.5">
+              {customerAbsent && (
+                <span className={cn(BADGE, 'bg-warning-soft text-warning')}>
+                  {tl('customerNotInGroup')}
+                </span>
+              )}
               {g.my_label && (
                 <span className={cn(BADGE, 'bg-success-soft text-success')}>
                   {t(`labels.${g.my_label}`)}

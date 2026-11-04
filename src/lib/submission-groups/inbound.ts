@@ -19,6 +19,7 @@
  * message as sent. The sender's own settle, or the cron, decides them.
  */
 import type { GroupChannel, GroupInboundMessage } from '@/lib/groups/inbound';
+import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
 import { normalizePhone, phoneVariants } from '@/lib/whatsapp/phone-utils';
 
 import type {
@@ -60,7 +61,7 @@ export interface InboundOutcome {
 }
 
 /** Every trunk-0 form of a phone, for comparing a sender with a number on file. */
-function forms(phone: string | null | undefined): string[] {
+export function forms(phone: string | null | undefined): string[] {
   const digits = normalizePhone(phone ?? '').replace(/^00/, '');
   return phoneVariants(digits);
 }
@@ -160,6 +161,55 @@ export async function recordSubmissionGroupInbound(
     }
   }
   return out;
+}
+
+export type MembershipStore = Pick<
+  SubmissionGroupStore,
+  'findByWaGroupId' | 'contactConsent' | 'noteCustomerMembership'
+>;
+
+/**
+ * The customer being added to or leaving this number's submission groups
+ * (174). Event ids are phone digits; a hidden number is only counted in
+ * `unresolved`, so it matches nobody and absence is never inferred from it.
+ * Each event is isolated. A failure is logged, never thrown: the cron reads the
+ * group again, so this is no reason for Whapi to redeliver. Answers the failures.
+ */
+export async function recordSubmissionGroupMembership(
+  store: MembershipStore,
+  channel: Pick<GroupChannel, 'id' | 'accountId'>,
+  events: readonly WhapiGroupEvent[]
+): Promise<number> {
+  let failed = 0;
+  for (const e of events) {
+    if (e.kind !== 'participants' || e.waIds.length === 0) continue;
+    if (e.action !== 'add' && e.action !== 'remove') continue;
+    try {
+      const group = await store.findByWaGroupId(
+        channel.accountId,
+        channel.id,
+        e.groupId
+      );
+      if (!group?.contactId) continue;
+      const { phone } = await store.contactConsent(group.contactId);
+      const customer = new Set(forms(phone).filter(Boolean));
+      const named = e.waIds.some(
+        (id) => !id.includes('@') && forms(id).some((f) => customer.has(f))
+      );
+      if (!named) continue;
+      await store.noteCustomerMembership(
+        group.id,
+        e.action === 'add' ? 'joined' : 'absent'
+      );
+    } catch (error) {
+      failed++;
+      console.error(
+        `[submission-groups] membership event on channel ${channel.id} failed:`,
+        error instanceof Error ? error.message : 'unknown error'
+      );
+    }
+  }
+  return failed;
 }
 
 /** The customer_message SLA event on the group's case, if any; never throws. */

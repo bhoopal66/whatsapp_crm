@@ -10,8 +10,8 @@ import {
   endReasonView,
   inviteNotice,
   trackerStatusChip,
-  type SgGroup,
   waModeOf,
+  type SgGroup,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
@@ -140,6 +140,11 @@ export function GroupDetailsCard({
             ) : (
               <span className="text-destructive">{tp('numberRemoved')}</span>
             )}
+          </Row>
+        )}
+        {waModeOf(group) === 'group' && (
+          <Row label={t('customerRow')}>
+            {t(`customerState.${group.customer_membership ?? 'unknown'}`)}
           </Row>
         )}
         {invite && (

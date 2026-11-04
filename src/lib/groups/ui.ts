@@ -31,6 +31,8 @@ export interface GroupListItem {
   id: string;
   /** 'submission': a submission group, listed here but not a group row. */
   kind: 'group' | 'submission';
+  /** 174: a submission group the customer is known not to be in. */
+  customer_absent?: boolean;
   name: string;
   description: string | null;
   icon_url: string | null;

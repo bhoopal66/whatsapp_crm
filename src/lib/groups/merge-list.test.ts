@@ -103,6 +103,7 @@ describe('mergeGroupList', () => {
       created_by: null,
       can_manage: false,
       unread: 3,
+      customer_absent: false,
     });
   });
 

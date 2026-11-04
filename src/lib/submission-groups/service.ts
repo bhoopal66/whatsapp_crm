@@ -38,6 +38,7 @@
  *   viewArchive — sg_read_archive: the role is decided in SQL from the user id;
  *     audit row and read in one statement.
  */
+import { noteCreatedMembership } from './membership';
 import {
   assertWindowDays,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
@@ -88,6 +89,7 @@ export interface GroupsApi {
 
 export type GroupStore = Pick<
   SubmissionGroupStore,
+  | 'noteCustomerMembership'
   | 'open'
   | 'get'
   | 'findByRef'
@@ -434,9 +436,9 @@ export class SubmissionGroupService {
         await this.releaseClaimQuietly(group.id, token, null);
         return { consentRequired: true };
       }
-      customerPhone = consent.phone;
       // The customer, then the coordinator numbers. A 142 row's list is already deduped, capped and holds the
       // request's number; only an older row falls back to its single coordinator_phone. Compared as digits.
+      customerPhone = consent.phone;
       const participants = [consent.phone];
       const seen = [consent.phone.replace(/\D/g, '')];
       const coordinators = group.coordinatorPhones?.length
@@ -496,6 +498,7 @@ export class SubmissionGroupService {
     const invite = phoneWasRefused(refused, customerPhone)
       ? await this.inviteCustomer(live, channelId, customerPhone)
       : { group: live, sent: false };
+    await noteCreatedMembership(store, group.id, customerPhone, refused);
     return {
       consentRequired: false,
       group: invite.group,
