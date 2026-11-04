@@ -543,17 +543,20 @@ export class SubmissionGroupService {
       try {
         // Consent was judged before createGroup; the customer may have opted out since.
         let allowed = false;
+        let refusal = INVITE_NOT_ALLOWED;
         try {
           if (group.contactId)
             allowed = (await this.deps.consent(group.contactId)).allowed;
         } catch (err) {
+          // A failed read is not a customer who opted out: say so to staff.
+          refusal = INVITE_NOT_SENT;
           this.log.warn('invite consent could not be re-read', {
             groupId: group.id,
             err: errText(err),
           });
         }
         if (!allowed) {
-          error = INVITE_NOT_ALLOWED;
+          error = refusal;
           return {
             group: await this.recordInvite(group, false, error),
             sent: false,

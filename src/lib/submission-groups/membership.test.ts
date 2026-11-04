@@ -59,6 +59,9 @@ describe('customerMembershipFrom', () => {
     expect(read('12345678901234567')).toBe('unsure');
     expect(read({ id: '1234567890123@lid', phone: PHONE })).toBe('joined');
     expect(read(`${OTHER}0@s.whatsapp.net`)).toBe('absent');
+    expect(read({ id: `${PHONE}@s.whatsapp.net`, phone: PHONE })).toBe(
+      'joined'
+    );
   });
 
   it('says nothing from an empty list or without a phone', () => {

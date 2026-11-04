@@ -1520,16 +1520,18 @@ describe('invite for a customer WhatsApp refused', () => {
     [
       'withdrawn',
       () => ({ allowed: false, phone: PHONE, reason: 'opted_out' }),
+      'The customer can no longer be contacted',
     ],
     [
       'unreadable',
       () => {
         throw new Error('db down');
       },
+      'The invite could not be sent',
     ],
   ] as const)(
     'consent %s after createGroup: nothing is sent or recorded as sent',
-    async (_n, after) => {
+    async (_n, after, reason) => {
       const s = refusing();
       const live: ConsentAnswer = { allowed: true, phone: PHONE };
       Object.defineProperty(s.consent, 'answer', {
@@ -1542,7 +1544,7 @@ describe('invite for a customer WhatsApp refused', () => {
         {
           groupId: expect.any(String),
           sent: false,
-          error: 'The customer can no longer be contacted',
+          error: reason,
         },
       ]);
     }
