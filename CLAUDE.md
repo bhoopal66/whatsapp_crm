@@ -1185,6 +1185,17 @@ submission app. `docs/submission-groups.md` is the contract.
   reassign). The type lives in
   `notifications_type_check`, `push_bell_url`, `hrefFor`, `PUSH_KINDS` and
   `kindGroup`: change them together. `verify-submission-group-reads.sql`.
+- **Who gets a group.** A new submission opens `wa_mode 'none'` when the
+  agent is a coordinator, an owner or an admin (`isAdminAgent`), or has no
+  usable number; an unknown email stays `422 unknown_user`.
+- **Invites and joining (174).** `createPending` sends a refused customer
+  the invite, on every create path, and `resendInvite` backs the page's
+  button (10-minute limit, read from `invite_sent_at`).
+  `customer_membership` is 'unknown' / 'joined' / 'absent', written only by
+  `sg_note_customer_membership`: creation, the webhook's participant
+  events, a trigger on a customer message, and the cron's participant
+  read (`sg_membership_due`, 6 hours). A hidden `@lid` number never reads
+  as absent. `verify-submission-group-membership.sql`.
 
 ### Cases (`lib/cases/*`, migrations 122-130)
 
