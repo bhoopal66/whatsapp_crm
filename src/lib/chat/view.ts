@@ -557,6 +557,8 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   audienceHidesYou: true,
   outsideAudience: true,
   restrictEndInvalid: true,
+  channelDeleteDenied: true,
+  channelDeleteMismatch: true,
 };
 
 /** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */

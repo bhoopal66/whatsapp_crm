@@ -78,6 +78,8 @@ export type AuditFact =
   /** A channel topic; null is none. */
   | { key: 'topic'; from: string | null; to: string | null }
   | { key: 'number'; value: string }
+  /** A deleted channel's kind (`delete_channel`). */
+  | { key: 'channelKind'; value: string }
   /** A role id; `from` is set on a change of role. */
   | { key: 'role'; from: string | null; to: string }
   | { key: 'bank'; value: string };
@@ -95,9 +97,9 @@ export interface AuditRow {
   reason: string | null;
   facts: AuditFact[];
   /**
-   * The person item's name as the row recorded it (092's detail.name):
-   * someone removed from the workspace has no profile here to name
-   * them by.
+   * The item's name as the row recorded it: someone removed from the
+   * workspace has no profile here to name them by (092's detail.name),
+   * and a deleted channel has no row (172's detail.name).
    */
   recordedName?: string;
 }
@@ -232,6 +234,23 @@ export function shapeAuditRow(source: AuditSource, r: Raw): AuditRow | null {
           item: item('person', d.user_id),
           reason: null,
           facts: changeFact(d.from, d.to),
+        };
+      }
+      // 172: the channel is gone, so the row is all that names it.
+      if (action === 'delete_channel') {
+        const name = str(d.name);
+        const kind = str(d.kind);
+        return {
+          ...base,
+          item: item('channel', r.channel_id),
+          reason: null,
+          facts: [
+            ...(kind ? [{ key: 'channelKind' as const, value: kind }] : []),
+            ...countFact('messages', d.messages),
+            ...countFact('members', d.members),
+            ...countFact('files', d.attachments),
+          ],
+          ...(name ? { recordedName: name } : {}),
         };
       }
       // 091: the old and new name and topic (a null topic is none),
@@ -432,7 +451,9 @@ export function nameAuditRows(
       itemLabel: r.item
         ? r.item.kind === 'person'
           ? personName(r.item.id)
-          : (items.get(`${r.item.kind}:${r.item.id}`) ?? null)
+          : (items.get(`${r.item.kind}:${r.item.id}`) ??
+            r.recordedName?.trim() ??
+            null)
         : null,
     };
   });

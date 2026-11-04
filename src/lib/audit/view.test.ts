@@ -503,3 +503,37 @@ describe('naming', () => {
     ).toBe('Chen Back');
   });
 });
+
+describe('a deleted channel in the audit log', () => {
+  const raw = {
+    id: 'x9',
+    actor_id: A,
+    action: 'delete_channel',
+    channel_id: B,
+    at: AT,
+    detail: {
+      name: 'sales-team',
+      kind: 'private',
+      messages: 12,
+      members: 3,
+      attachments: 2,
+    },
+  };
+
+  it('shows the kind and the counts', () => {
+    const row = shapeAuditRow('team_chat', raw);
+    expect(row?.item).toEqual({ kind: 'channel', id: B });
+    expect(row?.facts).toEqual([
+      { key: 'channelKind', value: 'private' },
+      { key: 'messages', count: 12 },
+      { key: 'members', count: 3 },
+      { key: 'files', count: 2 },
+    ]);
+  });
+
+  it('names the channel from the row, which has no channel to look up', () => {
+    const row = shapeAuditRow('team_chat', raw)!;
+    const [named] = nameAuditRows([row], new Map(), new Map());
+    expect(named.itemLabel).toBe('sales-team');
+  });
+});

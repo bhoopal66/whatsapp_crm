@@ -114,6 +114,8 @@ export function AuditLogPanel() {
         });
       case 'number':
         return t('facts.number', { value: f.value });
+      case 'channelKind':
+        return t('facts.channelKind', { kind: f.value });
       case 'bank':
         return t('facts.bank', { value: f.value });
       case 'role':

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   Archive,
@@ -11,6 +12,7 @@ import {
   Megaphone,
   Pencil,
   Settings,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,6 +37,8 @@ import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  canDeleteChannel,
+  deleteChannel,
   setChannelArchived,
   setMuted,
   updateChannel,
@@ -46,6 +50,10 @@ import {
   normalizeChannelName,
 } from '@/lib/chat/compose';
 import { channelRuleActions } from '@/lib/chat/channel-rules';
+import {
+  confirmDeletable,
+  offersChannelDelete,
+} from '@/lib/chat/delete-channel';
 import {
   channelAdminErrorKey,
   channelEditInput,
@@ -67,7 +75,9 @@ import { GREEN_BUTTON } from './dm-picker';
  * re-topic, posting permissions and (team channels) who can see it,
  * archive and unarchive, each offered only where
  * channelSettingsActions allows; the database decides. A write reloads
- * the channel list here, and realtime reloads everyone else's.
+ * the channel list here, and realtime reloads everyone else's. Delete
+ * (172) sits apart at the end, and only the database's own answer shows
+ * it: a creator who no longer manages the channel still gets this menu.
  */
 export function ChannelSettingsMenu({
   channel,
@@ -82,6 +92,10 @@ export function ChannelSettingsMenu({
   const [editing, setEditing] = useState(false);
   const [rules, setRules] = useState<'policy' | 'audience' | null>(null);
   const [confirm, setConfirm] = useState<'archive' | 'unarchive' | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [menuOpens, setMenuOpens] = useState(0);
+  const canDelete = useCanDeleteChannel(channel, menuOpens);
   const ctx = {
     kind: channel.kind,
     archived: !!channel.archivedAt,
@@ -92,7 +106,7 @@ export function ChannelSettingsMenu({
   const canRules = channelRuleActions(ctx);
   const mute = muteAction(channel.membership);
   const manages = can.edit || can.archive || can.unarchive;
-  if (!manages && !mute) return null;
+  if (!manages && !mute && !canDelete) return null;
 
   const toggleMute = async (muted: boolean) => {
     try {
@@ -120,7 +134,11 @@ export function ChannelSettingsMenu({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open) setMenuOpens((n) => n + 1);
+        }}
+      >
         <DropdownMenuTrigger
           aria-label={t('settings.menu')}
           title={t('settings.menu')}
@@ -169,6 +187,16 @@ export function ChannelSettingsMenu({
               {t('settings.unarchive')}
             </DropdownMenuItem>
           )}
+          {canDelete && (mute || manages) && <DropdownMenuSeparator />}
+          {canDelete && (
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 aria-hidden />
+              {t('settings.delete')}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={editing} onOpenChange={setEditing}>
@@ -200,6 +228,23 @@ export function ChannelSettingsMenu({
           )}
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={deleting}
+        onOpenChange={(open) => {
+          if (!deleteBusy) setDeleting(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {deleting && (
+            <DeleteChannelForm
+              channel={channel}
+              busy={deleteBusy}
+              setBusy={setDeleteBusy}
+              onDone={() => setDeleting(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={confirm !== null}
         onOpenChange={(open) => !open && setConfirm(null)}
@@ -224,6 +269,123 @@ export function ChannelSettingsMenu({
         destructive={confirm !== 'unarchive'}
       />
     </>
+  );
+}
+
+/**
+ * The database's answer for this channel, asked when the channel changes
+ * and each time the menu opens (`asks`), never per message. No while
+ * unanswered, and an answer about another channel is not used.
+ */
+function useCanDeleteChannel(
+  channel: ChannelWithMembership,
+  asks: number
+): boolean {
+  const { sb } = useChatWorkspaceContext();
+  const { id, kind } = channel;
+  const offered = offersChannelDelete(kind);
+  const [answer, setAnswer] = useState<{ id: string; can: boolean } | null>(
+    null
+  );
+  useEffect(() => {
+    if (!offered) return;
+    let off = false;
+    void canDeleteChannel(sb, id).then((can) => {
+      if (!off) setAnswer({ id, can });
+    });
+    return () => {
+      off = true;
+    };
+  }, [sb, id, offered, asks]);
+  return offered && answer?.id === id && answer.can;
+}
+
+/**
+ * The permanent delete: the exact name must be typed, as the database
+ * checks it. Only the delete is inside the try: once it has happened, a
+ * failed reload must not read as a failed delete.
+ */
+function DeleteChannelForm({
+  channel,
+  busy,
+  setBusy,
+  onDone,
+}: {
+  channel: ChannelWithMembership;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  onDone: () => void;
+}) {
+  const t = useTranslations('Chat');
+  const ws = useChatWorkspaceContext();
+  const router = useRouter();
+  const [typed, setTyped] = useState('');
+  const ready = confirmDeletable(typed, channel.name);
+
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    try {
+      await deleteChannel(ws.sb, { channelId: channel.id, confirmName: typed });
+    } catch (err) {
+      ws.fail(err);
+      setBusy(false);
+      return;
+    }
+    // Realtime's echo reloads the list too, so a failure here is harmless.
+    void ws.reloadChannels().catch(() => {});
+    toast.success(t('settings.deleted'));
+    setBusy(false);
+    onDone();
+    router.push('/chat');
+  };
+
+  return (
+    <form
+      className="contents"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>
+          {t('settings.deleteTitle', { name: channel.name ?? '' })}
+        </DialogTitle>
+        <DialogDescription>{t('settings.deleteBody')}</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-1.5">
+        <Label htmlFor="channel-delete-name">
+          {t('settings.deleteTypeName')}
+        </Label>
+        <p className="bg-card-2 rounded-md px-2 py-1 font-mono text-sm break-all select-all">
+          {channel.name}
+        </p>
+        <Input
+          id="channel-delete-name"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          autoFocus
+        />
+      </div>
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={onDone}
+        >
+          {t('settings.cancel')}
+        </Button>
+        <Button type="submit" variant="destructive" disabled={!ready || busy}>
+          {busy ? t('settings.deleting') : t('settings.deleteConfirm')}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 

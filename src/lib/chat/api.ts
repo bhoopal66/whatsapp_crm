@@ -497,6 +497,38 @@ export const setChannelArchived = (
     p_archived: archived,
   });
 
+/**
+ * May the caller delete this channel (172)? The only answer to who sees
+ * the action. Any failure is a no, without an error: the screen ships
+ * before the migration, and until then the function is simply missing.
+ */
+export const canDeleteChannel = async (
+  sb: SupabaseClient,
+  channelId: string
+): Promise<boolean> => {
+  try {
+    const { data, error } = await sb.rpc('chat_can_delete_channel', {
+      p_channel: channelId,
+    });
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Delete a team or private channel for good, with everything in it (172).
+ * `confirmName` must equal the channel's name exactly.
+ */
+export const deleteChannel = (
+  sb: SupabaseClient,
+  i: { channelId: string; confirmName: string }
+): Promise<void> =>
+  rpc(sb, 'chat_delete_channel', {
+    p_channel: i.channelId,
+    p_confirm_name: i.confirmName,
+  });
+
 /** Remove someone else from a team or private channel (091); leaving is leaveChannel. */
 export const removeMember = (
   sb: SupabaseClient,

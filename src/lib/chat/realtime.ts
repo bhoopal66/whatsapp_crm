@@ -6,6 +6,12 @@
  * events carry only the primary key and are not RLS-filtered — the
  * reducers ignore ids they do not hold.
  *
+ * chat_channels has default replica identity, so a DELETE's old row is
+ * the id alone and the account filter never matches it: its DELETE has a
+ * binding of its own, unfiltered. Do not set REPLICA IDENTITY FULL
+ * instead: DELETE is not RLS-filtered, so that would send private
+ * channels' names to every subscriber.
+ *
  * chat_typing and chat_voice_plays exist from migration 156, and
  * chat_channel_restrictions from 160; against an older database those
  * subscriptions error, so apply the migrations first.
@@ -87,11 +93,12 @@ export function subscribeChat(
   const on = (
     table: string,
     filter: string | undefined,
-    fn: (p: Payload) => void
+    fn: (p: Payload) => void,
+    event: '*' | 'DELETE' = '*'
   ) => {
     ch = ch.on(
       'postgres_changes' as never,
-      { event: '*', schema: 'public', table, ...(filter ? { filter } : {}) },
+      { event, schema: 'public', table, ...(filter ? { filter } : {}) },
       (p: unknown) => fn(p as Payload)
     );
   };
@@ -125,6 +132,12 @@ export function subscribeChat(
   });
   on('chat_channels', byAccount, (p) =>
     opts.onChannel?.({ type: change(p), channel: toChannel(rowOf(p)) })
+  );
+  on(
+    'chat_channels',
+    undefined,
+    (p) => opts.onChannel?.({ type: 'delete', channel: toChannel(p.old) }),
+    'DELETE'
   );
   on('chat_channel_members', undefined, (p) => {
     const r = rowOf(p);

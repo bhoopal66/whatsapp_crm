@@ -68,7 +68,10 @@ export type ChatErrorKey =
   // 159's restricted channels
   | 'outsideAudience'
   // 160's posting timeout: the end time was refused
-  | 'restrictEndInvalid';
+  | 'restrictEndInvalid'
+  // 172's channel delete
+  | 'channelDeleteDenied'
+  | 'channelDeleteMismatch';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -122,6 +125,7 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     [/contains sensitive data/i, 'sensitiveData'],
     [/restricted from posting/i, 'restrictedPosting'],
     [/direct messages between these people are turned off/i, 'dmNotAllowed'],
+    [/you may not delete this channel/i, 'channelDeleteDenied'],
     [/channel is archived/i, 'archived'],
     [/not a member of this channel/i, 'notChannelMember'],
     [
@@ -139,6 +143,7 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
   ],
   NOT_FOUND: [[/was not uploaded/i, 'attachmentMissing']],
   INVALID: [
+    [/confirmation does not match the channel name/i, 'channelDeleteMismatch'],
     [/2 to 8 members/i, 'dmSize'],
     [/last admin/i, 'lastAdmin'],
     [/last member/i, 'lastMember'],

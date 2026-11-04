@@ -28,6 +28,7 @@ import {
   type RightColumn,
   type SidePanel,
 } from '@/lib/chat/panels';
+import { channelGone } from '@/lib/chat/delete-channel';
 
 /** Wide enough for the right column beside the timeline (Tailwind lg). */
 const SIDE_BY_SIDE = '(min-width: 1024px)';
@@ -75,6 +76,8 @@ function ChannelScreen() {
   // A deal room's channel is its Team notes: open the room instead.
   const ws = useChatWorkspaceContext();
   const kind = ws.channels?.find((c) => c.id === channelId)?.kind;
+  // A channel deleted or lost while open takes its side panel with it.
+  const panel = channelGone(ws.channels, channelId) ? null : right;
   useEffect(() => {
     if (kind !== 'deal_room') return;
     let live = true;
@@ -107,25 +110,25 @@ function ChannelScreen() {
             onFocusDone={onFocusDone}
           />
         </div>
-        {right?.kind === 'thread' && (
+        {panel?.kind === 'thread' && (
           <ThreadPanel
-            key={right.rootId}
+            key={panel.rootId}
             channelId={channelId}
-            rootId={right.rootId}
+            rootId={panel.rootId}
             onClose={close}
           />
         )}
-        {right?.kind === 'members' && (
+        {panel?.kind === 'members' && (
           <MembersPanel
             channelId={channelId}
             onClose={close}
             onLeft={() => router.push('/chat')}
           />
         )}
-        {right?.kind === 'pins' && (
+        {panel?.kind === 'pins' && (
           <PinsPanel channelId={channelId} onClose={close} onJump={jump} />
         )}
-        {right?.kind === 'files' && (
+        {panel?.kind === 'files' && (
           <FilesPanel
             key={channelId}
             channelId={channelId}
