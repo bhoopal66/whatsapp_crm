@@ -83,6 +83,14 @@ export function canDeleteGroup(
   return !!role && !isSubmissionGroup && canDeleteGroups(role);
 }
 
+/** Who sees "Leave group": never on a submission group (the route refuses). */
+export function canLeaveGroup(
+  leaveBlock: unknown,
+  isSubmissionGroup: boolean
+): boolean {
+  return leaveBlock === null && !isSubmissionGroup;
+}
+
 /** The wording keys (the group screen's namespace) for the delete confirm. */
 export function deleteCopyKeys(ourRole: string) {
   return ourRole === 'left'

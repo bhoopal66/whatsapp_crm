@@ -60,6 +60,7 @@ import {
   SEND_TEXT_MAX,
   sendErrorKey,
   sentAsPreview,
+  settleRead,
   shortRef,
   trackerStatusChip,
   type BannerKey,
@@ -117,6 +118,8 @@ export function SubmissionGroupPage({
 }) {
   const t = useTranslations('SubmissionGroups.page');
   const tDetails = useTranslations('SubmissionGroups.details');
+  const tGroups = useTranslations('Groups.page');
+  const backLabel = backHref === '/groups' ? tGroups('back') : t('backToList');
   const locale = useLocale();
   const { user, profile } = useAuth();
   const [state, setState] = useState<State>('loading');
@@ -138,6 +141,20 @@ export function SubmissionGroupPage({
   const mounted = useRef(true);
   // `reload` runs on every live update; opening a group marks it once.
   const markedRead = useRef<string | null>(null);
+  const readOwed = useRef(false);
+
+  // `due`: a read just fell due. Without it, pays one owed from before.
+  const settle = useCallback(
+    (due: boolean) => {
+      const { mark, owed } = settleRead(
+        readOwed.current || due,
+        document.visibilityState === 'visible'
+      );
+      readOwed.current = owed;
+      if (mark) void markSubmissionGroupRead(groupId);
+    },
+    [groupId]
+  );
 
   const reload = useCallback(async () => {
     try {
@@ -155,13 +172,13 @@ export function SubmissionGroupPage({
       setState('ok');
       if (json.group.status === 'ACTIVE' && markedRead.current !== groupId) {
         markedRead.current = groupId;
-        void markSubmissionGroupRead(groupId);
+        settle(true);
       }
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
       if (mounted.current) setState((s) => (s === 'ok' ? s : 'error'));
     }
-  }, [groupId]);
+  }, [groupId, settle]);
 
   useEffect(() => {
     mounted.current = true;
@@ -170,6 +187,12 @@ export function SubmissionGroupPage({
       mounted.current = false;
     };
   }, [reload]);
+
+  useEffect(() => {
+    const onVisibility = () => settle(false);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [settle]);
 
   // Live: a new or updated message row re-reads the group, which applies
   // the access rules server-side. One unique topic per mount.
@@ -195,13 +218,11 @@ export function SubmissionGroupPage({
         },
         (payload) => {
           soon();
-          // Seen as it arrives, so it does not count as unread.
+          // Seen as it arrives, so it does not count as unread; judged
+          // when the timer fires, since the page may be hidden by then.
           if (payload.new.direction === 'in') {
             if (readTimer) clearTimeout(readTimer);
-            readTimer = setTimeout(
-              () => void markSubmissionGroupRead(groupId),
-              2000
-            );
+            readTimer = setTimeout(() => settle(true), 2000);
           }
         }
       )
@@ -221,7 +242,7 @@ export function SubmissionGroupPage({
       if (readTimer) clearTimeout(readTimer);
       void supabase.removeChannel(channel);
     };
-  }, [groupId, reload]);
+  }, [groupId, reload, settle]);
 
   // The sheet is for the undocked layout only: close it on docking.
   useEffect(() => {
@@ -354,13 +375,13 @@ export function SubmissionGroupPage({
   };
 
   if (state === 'loading')
-    return <DetailSkeleton backLabel={t('backToList')} backHref={backHref} />;
+    return <DetailSkeleton backLabel={backLabel} backHref={backHref} />;
 
   if (state !== 'ok' || !detail) {
     return (
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <div className="border-b px-3 py-2 lg:hidden">
-          <BackLink label={t('backToList')} href={backHref} />
+          <BackLink label={backLabel} href={backHref} />
         </div>
         <div
           role={state === 'error' ? 'alert' : 'status'}
@@ -423,6 +444,7 @@ export function SubmissionGroupPage({
       <DetailHeader
         detail={detail}
         backHref={backHref}
+        backLabel={backLabel}
         now={now}
         locale={locale}
         acting={acting}
@@ -632,6 +654,7 @@ export function SubmissionGroupPage({
 function DetailHeader({
   detail,
   backHref,
+  backLabel,
   now,
   locale,
   acting,
@@ -644,6 +667,7 @@ function DetailHeader({
 }: {
   detail: SgDetail;
   backHref: string;
+  backLabel: string;
   now: Date;
   locale: string;
   acting: boolean;
@@ -693,7 +717,7 @@ function DetailHeader({
   return (
     <header className="bg-card sticky top-0 z-10 border-b px-3 py-3 sm:px-4">
       <div className="flex items-start gap-3">
-        <BackLink label={t('backToList')} href={backHref} />
+        <BackLink label={backLabel} href={backHref} />
         <span
           aria-hidden
           className={cn(

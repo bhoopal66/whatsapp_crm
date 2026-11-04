@@ -345,6 +345,18 @@ export function addableStaff(
 /** Upper bound of a staff message, as the API enforces it. */
 export const SEND_TEXT_MAX = 4096;
 
+/**
+ * Where a group's read marker stands. `sg_mark_read` also clears the
+ * customer's bell, so a read only happens with the page on screen: one
+ * that falls due while it is hidden stays owed until it is shown again.
+ */
+export function settleRead(
+  owed: boolean,
+  visible: boolean
+): { mark: boolean; owed: boolean } {
+  return visible ? { mark: owed, owed: false } : { mark: false, owed };
+}
+
 type Named = Pick<SgListItem, 'customer_name' | 'contact'>;
 
 /**

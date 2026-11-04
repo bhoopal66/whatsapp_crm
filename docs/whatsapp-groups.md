@@ -44,8 +44,9 @@ is on.
 - **Still in the group:** your number leaves it on WhatsApp first, and
   members see that. If the leave fails (a disconnected number, WhatsApp
   not answering), nothing is deleted and the reason is shown. If WhatsApp
-  says the group is already gone, the delete carries on. One call handles
-  at most 10 such groups.
+  says the group is already gone, the delete carries on only once the
+  number answers a health check as connected, because a wrong token gets
+  the same answer. One call handles at most 10 such groups.
 - **Already left:** nothing happens on WhatsApp.
 - Either way the group, its members list, managers, invite link and saved
   messages are removed from the CRM. This cannot be undone: a record of
@@ -56,7 +57,9 @@ is on.
 
 **Sync skips submission groups.** It lists every group on the number, so
 it used to copy them onto this page. A copy made before this change
-stays, is not marked left by Sync and has no delete option.
+stays, is not marked left by Sync and has no leave or delete option. The
+server refuses both, so a bookmark or an old bell can't take the number
+out of a live submission group.
 
 ## Submission groups on this page
 

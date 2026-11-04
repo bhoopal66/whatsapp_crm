@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canDeleteGroup,
+  canLeaveGroup,
   deleteCopyKeys,
   MAX_JOINED_DELETES,
   parseDeleteOutcome,
@@ -35,6 +36,14 @@ describe('planGroupDelete', () => {
     expect(plan.joined).toHaveLength(MAX_JOINED_DELETES);
     expect(plan.overLimit).toHaveLength(15 - MAX_JOINED_DELETES);
     expect(plan.left).toHaveLength(15);
+  });
+});
+
+describe('canLeaveGroup', () => {
+  it('offers Leave only unblocked and never on a submission group', () => {
+    expect(canLeaveGroup(null, false)).toBe(true);
+    expect(canLeaveGroup(null, true)).toBe(false);
+    expect(canLeaveGroup({ reason: 'not_allowed' }, false)).toBe(false);
   });
 });
 

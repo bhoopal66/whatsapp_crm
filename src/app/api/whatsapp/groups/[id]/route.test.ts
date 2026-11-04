@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
   updateGroupSetting: vi.fn(),
   leaveGroup: vi.fn(),
   adminUpdates: [] as unknown[],
+  submissionRead: { data: [], error: null } as {
+    data: Array<{ wa_group_id: string }> | null;
+    error: unknown;
+  },
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -42,6 +46,7 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
         q
       );
       for (const m of ['eq', 'select']) q[m] = () => q;
+      q.in = async () => mocks.submissionRead;
       q.single = async () => ({
         data: { ...mocks.group, ...values },
         error: null,
@@ -51,17 +56,20 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   }),
 }));
 
-import { DELETE, PATCH } from './route';
+import { DELETE, GET, PATCH } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
 const CH = '33333333-3333-4333-8333-333333333333';
+const WA_ID = '120363000000000001@g.us';
 const params = { params: Promise.resolve({ id: G }) };
 
 const rlsClient = {
   from: () => {
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'eq']) q[m] = () => q;
+    for (const m of ['select', 'eq', 'order']) q[m] = () => q;
     q.maybeSingle = async () => ({ data: mocks.group, error: null });
+    // The participant and manager lists await the query itself.
+    q.then = (done: (v: unknown) => void) => done({ data: [], error: null });
     return q;
   },
   rpc: vi.fn(async (fn: string) => ({
@@ -85,11 +93,12 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   mocks.canManage = true;
   mocks.adminUpdates = [];
+  mocks.submissionRead = { data: [], error: null };
   mocks.group = {
     id: G,
     account_id: 'acct-1',
     channel_id: CH,
-    wa_group_id: '120363000000000001@g.us',
+    wa_group_id: WA_ID,
     name: 'Old',
     description: null,
     settings: {},
@@ -111,6 +120,28 @@ beforeEach(() => {
       wabaId: '971500000000',
     },
   ]);
+});
+
+describe('GET /api/whatsapp/groups/[id]', () => {
+  const isSubmissionGroup = async () => {
+    const res = await GET(new Request('http://x'), params);
+    expect(res.status).toBe(200);
+    return (await res.json()).is_submission_group;
+  };
+
+  it('says false for an ordinary group', async () => {
+    expect(await isSubmissionGroup()).toBe(false);
+  });
+
+  it('says true for a mirror of a submission group', async () => {
+    mocks.submissionRead = { data: [{ wa_group_id: WA_ID }], error: null };
+    expect(await isSubmissionGroup()).toBe(true);
+  });
+
+  it('says true when the check fails, hiding what may be refused', async () => {
+    mocks.submissionRead = { data: null, error: new Error('down') };
+    expect(await isSubmissionGroup()).toBe(true);
+  });
 });
 
 describe('PATCH /api/whatsapp/groups/[id]', () => {
@@ -189,5 +220,23 @@ describe('DELETE /api/whatsapp/groups/[id]', () => {
     expect(res.status).toBe(200);
     expect(mocks.leaveGroup).toHaveBeenCalledTimes(1);
     expect(mocks.adminUpdates).toEqual([{ our_role: 'left' }]);
+  });
+
+  it('refuses a mirror of a submission group, with no leave', async () => {
+    mocks.submissionRead = { data: [{ wa_group_id: WA_ID }], error: null };
+    const res = await DELETE(new Request('http://x'), params);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'submission_group' });
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(mocks.adminUpdates).toEqual([]);
+  });
+
+  it('refuses when submission groups cannot be read', async () => {
+    mocks.submissionRead = { data: null, error: new Error('down') };
+    const res = await DELETE(new Request('http://x'), params);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: 'unavailable' });
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(mocks.adminUpdates).toEqual([]);
   });
 });

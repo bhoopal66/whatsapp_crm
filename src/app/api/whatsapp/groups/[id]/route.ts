@@ -3,7 +3,8 @@
 // GET: anyone who can see it (RLS); `?refresh=1` re-reads it from
 // Whapi, managers only. PATCH (name, description, settings) and DELETE
 // (leave) need `whatsapp_group_can_manage`. Whapi first, then the
-// service role persists what WhatsApp accepted.
+// service role persists what WhatsApp accepted. A submission group's
+// mirror is never left.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -262,6 +263,30 @@ export async function DELETE(_request: Request, { params }: Params) {
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     if (group.our_role === 'left') return NextResponse.json({ group });
+    // A Sync mirror of a submission group is still reachable by a
+    // bookmark or an old bell. Leaving would stop the group's sends.
+    const isSubmissionGroup = await submissionGroupIds(
+      supabaseAdmin(),
+      ctx.accountId,
+      [group.wa_group_id]
+    ).then(
+      (ids) => ids.has(group.wa_group_id),
+      (err) => {
+        console.error('[groups] submission check failed', err);
+        throw new GroupHttpError(
+          503,
+          'unavailable',
+          "Couldn't check this group; try again"
+        );
+      }
+    );
+    if (isSubmissionGroup) {
+      throw new GroupHttpError(
+        409,
+        'submission_group',
+        "This is a submission group, so your number can't leave it from here"
+      );
+    }
     const channel = await channelForGroup(group);
     await leaveGroup({ channel, groupId: group.wa_group_id });
     const { data, error } = await supabaseAdmin()

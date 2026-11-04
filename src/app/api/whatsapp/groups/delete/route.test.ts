@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   channelForGroup: vi.fn(),
   leaveGroup: vi.fn(),
+  probeChannel: vi.fn(),
   admin: null as unknown,
 }));
 
@@ -39,6 +40,10 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
   leaveGroup: mocks.leaveGroup,
 }));
+vi.mock('@/lib/whatsapp/provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/whatsapp/provider')>()),
+  probeChannel: mocks.probeChannel,
+}));
 
 import { POST } from './route';
 
@@ -50,6 +55,8 @@ const MISSING = '55555555-5555-4555-8555-555555555555';
 const MIRROR = '66666666-6666-4666-8666-666666666666';
 const ORPHAN = '77777777-7777-4777-8777-777777777777';
 const ADMIN_ROLE = '88888888-8888-4888-8888-888888888888';
+
+const AUTHORIZED = { status: 'AUTH', authorized: true, phone: '971500000000' };
 
 const wa = (id: string) => `wa-${id.slice(0, 1)}@g.us`;
 const row = (
@@ -114,6 +121,7 @@ beforeEach(() => {
     status: 'connected',
   });
   mocks.leaveGroup.mockResolvedValue(undefined);
+  mocks.probeChannel.mockResolvedValue(AUTHORIZED);
   asRole('admin');
 });
 
@@ -246,29 +254,68 @@ describe('POST /api/whatsapp/groups/delete', () => {
     expect(stones()).toEqual([]);
   });
 
-  it('carries on when WhatsApp says the group is already gone', async () => {
-    mocks.leaveGroup.mockRejectedValue(new WhapiError('Group not found', 404));
-    const body = await (await post({ ids: [MEMBER] })).json();
-    expect(body.deleted).toEqual([MEMBER]);
-    expect(stones()).toHaveLength(1);
-  });
+  describe('a leave answered 404', () => {
+    // A wrong token is a 404 too, and this bare message is all Whapi's
+    // error leaves us for a non-JSON body: only the probe can tell.
+    const expectStillJoined = async () => {
+      const body = await (await post({ ids: [MEMBER] })).json();
+      expect(body.deleted).toEqual([]);
+      expect(body.failed).toEqual([
+        { id: MEMBER, reason: "The group's number is disconnected" },
+      ]);
+      expect(ids()).toContain(MEMBER);
+      expect(stones()).toEqual([]);
+      expect(db.writes).toEqual([]);
+    };
 
-  it('does not read a dead token as the group being gone', async () => {
-    // A wrong token is also a 404: we are still in the group.
-    mocks.leaveGroup.mockRejectedValue(
-      new WhapiError('Service not found', 404)
-    );
-    const body = await (await post({ ids: [MEMBER] })).json();
-    expect(body.deleted).toEqual([]);
-    expect(body.failed).toHaveLength(1);
-    expect(ids()).toContain(MEMBER);
-    expect(stones()).toEqual([]);
+    beforeEach(() => {
+      mocks.leaveGroup.mockRejectedValue(
+        new WhapiError('Whapi API error: 404', 404)
+      );
+    });
+
+    it('counts as left when the number probes as authorized', async () => {
+      const body = await (await post({ ids: [MEMBER] })).json();
+      expect(mocks.probeChannel).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ch-1' })
+      );
+      expect(body.deleted).toEqual([MEMBER]);
+      expect(body.failed).toEqual([]);
+      expect(ids()).not.toContain(MEMBER);
+      expect(stones()).toEqual([
+        expect.objectContaining({ wa_group_id: wa(MEMBER) }),
+      ]);
+    });
+
+    it('is a failure when the probe throws', async () => {
+      mocks.probeChannel.mockRejectedValue(
+        new WhapiError('Service not found', 404)
+      );
+      await expectStillJoined();
+    });
+
+    it('is a failure when the number is not authorized', async () => {
+      mocks.probeChannel.mockResolvedValue({
+        ...AUTHORIZED,
+        status: 'QR',
+        authorized: false,
+      });
+      await expectStillJoined();
+    });
+
+    it('is a failure when the probe has nothing to say', async () => {
+      mocks.probeChannel.mockResolvedValue(null);
+      await expectStillJoined();
+    });
   });
 
   it('words a refused number, not "not an admin", on a leave 403', async () => {
     mocks.leaveGroup.mockRejectedValue(new WhapiError('nope', 403));
     const body = await (await post({ ids: [MEMBER] })).json();
     expect(body.failed[0].reason).toBe("The group's number is disconnected");
+    // Only a 404 can mean "already out": nothing to probe for.
+    expect(mocks.probeChannel).not.toHaveBeenCalled();
+    expect(stones()).toEqual([]);
   });
 
   it('treats a row with no number as left, with no tombstone', async () => {

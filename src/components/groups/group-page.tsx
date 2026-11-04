@@ -30,6 +30,7 @@ import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import { canEditSettings } from '@/lib/auth/roles';
 import {
   canDeleteGroup,
+  canLeaveGroup,
   deleteCopyKeys,
   GROUP_DELETED_EVENT,
   parseDeleteOutcome,
@@ -354,7 +355,10 @@ export function GroupPage({ groupId }: { groupId: string }) {
   const subLine = [t('members', { count: group.participants_count })]
     .concat(numberLabel ? [numberLabel] : [])
     .join(' · ');
-  const canLeave = detail.blocks.leave === null;
+  const canLeave = canLeaveGroup(
+    detail.blocks.leave,
+    !!detail.is_submission_group
+  );
   const canDelete = canDeleteGroup(accountRole, !!detail.is_submission_group);
   const deleteCopy = deleteCopyKeys(group.our_role);
   const tabProps: GroupTabProps = {

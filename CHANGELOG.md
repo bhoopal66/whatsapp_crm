@@ -29,7 +29,7 @@ and polish.
   first, and members see that; if the leave fails, nothing is deleted.
   A deleted group is gone for good: Sync and webhooks do not bring it
   back, even if someone adds the number again.
-- Submission groups cannot be deleted here, and Sync no longer copies
+- Submission groups cannot be deleted or left here, and Sync no longer copies
   them onto the Groups page.
 - **Migration required:** apply `173` (`whatsapp_group_tombstones`)
   before this build; until then group saves and Sync fail.
@@ -39,7 +39,8 @@ and polish.
 - The sidebar and the group list show how many messages you have not read
   in each submission group. A customer's message rings the bell and sends
   a push to the case's agent and coordinators, once per group until they
-  open it, and opening the group clears your count and your bell. The team
+  open it, and opening the group clears your count and your bell (a group
+  open in a hidden tab waits until you look at it again). The team
   leader of a case's agent can now read and send in its active group
   without being named on it. Reassigning a case now moves group access
   to the new agent or coordinator. **Migration required:** apply

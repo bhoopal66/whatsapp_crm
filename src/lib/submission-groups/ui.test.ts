@@ -27,6 +27,7 @@ import {
   sendErrorKey,
   sendStatusOf,
   sentAsPreview,
+  settleRead,
   staffSenderLine,
   unreadBadgeText,
   type SgGroup,
@@ -432,5 +433,23 @@ describe('group display (141)', () => {
     expect(cleared.map((g) => g.unread)).toEqual([0, 2, undefined]);
     // A pure patch: the rows handed in keep their counts.
     expect(rows[0].unread).toBe(4);
+  });
+});
+
+describe('settleRead', () => {
+  it('marks a read that falls due on screen', () => {
+    expect(settleRead(true, true)).toEqual({ mark: true, owed: false });
+  });
+
+  it('holds a read that falls due while hidden, until shown', () => {
+    const held = settleRead(true, false);
+    expect(held).toEqual({ mark: false, owed: true });
+    expect(settleRead(held.owed, false)).toEqual(held);
+    expect(settleRead(held.owed, true)).toEqual({ mark: true, owed: false });
+  });
+
+  it('marks nothing on being shown with nothing owed', () => {
+    expect(settleRead(false, true)).toEqual({ mark: false, owed: false });
+    expect(settleRead(false, false)).toEqual({ mark: false, owed: false });
   });
 });

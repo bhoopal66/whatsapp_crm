@@ -26,6 +26,7 @@ import {
   type GroupFailureKey,
 } from '@/lib/whatsapp/groups';
 import { normalizePhone, phoneVariants } from '@/lib/whatsapp/phone-utils';
+import { probeChannel } from '@/lib/whatsapp/provider';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
 import { parseGroupSettings, type WhatsappGroupRow } from './types';
@@ -193,16 +194,23 @@ export function channelForGroup(
 
 /**
  * Did a failed leave find us already out? Only a 404 says so, and a
- * wrong or revoked token is a 404 too. Deleting after that would keep
- * our number in the group with no way back, so Whapi's token wording is
- * ruled out here and the route refuses a number marked disconnected.
+ * wrong or revoked token is a 404 too, often with no wording to tell
+ * them apart. Deleting after that would keep our number in the group
+ * with no way back, so the 404 counts only once the number itself
+ * answers a probe as authorized. A probe that throws, says unauthorized
+ * or has nothing to say means the leave failed.
  */
-export function isAlreadyOutOfGroup(err: unknown): boolean {
-  return (
-    err instanceof WhapiError &&
-    err.isGroupNotFound &&
-    !/service not found/i.test(err.message)
-  );
+export async function isAlreadyOutOfGroup(
+  err: unknown,
+  channel: WhatsAppChannel
+): Promise<boolean> {
+  if (!(err instanceof WhapiError) || !err.isGroupNotFound) return false;
+  try {
+    return (await probeChannel(channel))?.authorized === true;
+  } catch (probeErr) {
+    console.error('[groups] probe after a leave 404 failed', probeErr);
+    return false;
+  }
 }
 
 /** A failed leave in plain words, for the delete route's `failed` list. */
@@ -210,8 +218,9 @@ export function leaveFailureReason(err: unknown): string {
   if (err instanceof GroupHttpError || err instanceof ChannelError) {
     return err.message;
   }
-  // Leaving needs no admin rights, so a 401/403 here is the number.
-  if (err instanceof WhapiError && err.isAuthError) {
+  // Leaving needs no admin rights, so a 401/403 here is the number. So
+  // is a 404: it only gets here when `isAlreadyOutOfGroup` said no.
+  if (err instanceof WhapiError && (err.isAuthError || err.isGroupNotFound)) {
     return groupFailure('channel_disconnected').error;
   }
   return groupFailure(describeGroupFailure(err)).error;

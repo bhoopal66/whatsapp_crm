@@ -9,7 +9,10 @@
 //   and a failed read stops the request.
 // - Still in the group: leave on WhatsApp FIRST, at most
 //   MAX_JOINED_DELETES per call, the rest in `failed`. A failed leave
-//   writes nothing. Whapi saying the group is gone counts as left.
+//   writes nothing. A leave 404 counts as left only if the number then
+//   probes as authorized: a wrong token is a 404 too. The last leave
+//   starts by 30 s and ends by 45 s, the probe by 50 s, inside
+//   `maxDuration` with 10 s to save and answer.
 // - Then the tombstone, then the row. Tombstone first: a failed delete
 //   leaves a row a retry can finish, never a deleted group a webhook or
 //   Sync can recreate. A row with no number has no tombstone (its key
@@ -247,8 +250,8 @@ export async function POST(request: Request) {
           channel,
           groupId: group.wa_group_id,
           timeoutMs: GROUP_CALL_TIMEOUT_MS,
-        }).catch((err) => {
-          if (!isAlreadyOutOfGroup(err)) throw err;
+        }).catch(async (err) => {
+          if (!(await isAlreadyOutOfGroup(err, channel))) throw err;
         });
       } catch (err) {
         console.error('[groups] leave before delete failed', group.id, err);
