@@ -61,6 +61,30 @@ export async function loadRefs(
   };
 }
 
+/**
+ * The caller's unread count per ACTIVE group (migration 173). Unlike the
+ * lookups here it takes the caller's RLS client: `sg_unread_by_group`
+ * answers for `auth.uid()`, which the service role does not have. A count
+ * is a decoration on the row, so any failure (the migration not applied
+ * yet included) is an empty map, never a failed list.
+ */
+export async function loadUnread(
+  rlsClient: SupabaseClient
+): Promise<Map<string, number>> {
+  try {
+    const { data, error } = await rlsClient.rpc('sg_unread_by_group');
+    if (error) throw error;
+    return new Map(
+      ((data ?? []) as Record<string, unknown>[]).map((r) => [
+        String(r.group_id),
+        Number(r.unread),
+      ])
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 /** Staff full names in this account (one profile per workspace). */
 export async function loadNames(
   admin: SupabaseClient,

@@ -18,6 +18,7 @@ import {
   appendPage,
   bubbleKind,
   canRetryCreate,
+  clearUnread,
   endReasonView,
   groupBanners,
   listUrl,
@@ -27,6 +28,7 @@ import {
   sendStatusOf,
   sentAsPreview,
   staffSenderLine,
+  unreadBadgeText,
   type SgGroup,
   type SgListItem,
 } from './ui';
@@ -410,5 +412,25 @@ describe('group display (141)', () => {
     expect(
       onlyMine([row('a', 'agent'), row('b', null)]).map((g) => g.id)
     ).toEqual(['a']);
+  });
+
+  it('shows an unread badge only above 0, and caps it at 99+', () => {
+    expect(unreadBadgeText(undefined)).toBeNull();
+    expect(unreadBadgeText(0)).toBeNull();
+    expect(unreadBadgeText(1)).toBe('1');
+    expect(unreadBadgeText(99)).toBe('99');
+    expect(unreadBadgeText(100)).toBe('99+');
+  });
+
+  it('clears the unread count of the named groups only', () => {
+    const rows = [
+      item({ id: 'a', unread: 4 }),
+      item({ id: 'b', unread: 2 }),
+      item({ id: 'c' }),
+    ];
+    const cleared = clearUnread(rows, new Set(['a', 'missing']));
+    expect(cleared.map((g) => g.unread)).toEqual([0, 2, undefined]);
+    // A pure patch: the rows handed in keep their counts.
+    expect(rows[0].unread).toBe(4);
   });
 });

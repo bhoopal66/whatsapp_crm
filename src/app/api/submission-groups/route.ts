@@ -25,6 +25,7 @@ import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
 import {
   loadBankHolding,
   loadRefs,
+  loadUnread,
   matchingContactIds,
 } from '@/lib/submission-groups/view-refs';
 import {
@@ -109,7 +110,11 @@ export async function GET(request: Request) {
       mine = (res.data ?? []) as AccessRow[];
     }
 
-    const refs = await loadRefs(admin, ctx.accountId, groups);
+    // An ENDED group has no unread count; 173 counts ACTIVE groups only.
+    const [refs, unread] = await Promise.all([
+      loadRefs(admin, ctx.accountId, groups),
+      ended ? new Map<string, number>() : loadUnread(ctx.supabase),
+    ]);
     // 163: a holder of the case's bank reads an ACTIVE group as coordinator.
     const holding = ended
       ? null
@@ -128,6 +133,7 @@ export async function GET(request: Request) {
             (holding
               ? bankHolderLabel(g, ctx.role, holding.held, holding.bankByGroup)
               : null),
+          unread: unread.get(g.id),
         })
       ),
       next_cursor: nextCursor(rows, query.limit, query.status),

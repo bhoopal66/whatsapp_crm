@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useUnreadChats } from '@/hooks/use-total-unread';
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
 import { useGroupsUnread } from '@/hooks/use-groups-unread';
+import { useSubmissionGroupsUnread } from '@/hooks/use-submission-groups-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import {
@@ -109,6 +110,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const unreadChats = useUnreadChats();
   const casesOverdue = useCasesOverdue();
   const groupsUnread = useGroupsUnread();
+  const submissionGroupsUnread = useSubmissionGroupsUnread();
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
@@ -195,6 +197,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         return {
           count: groupsUnread,
           label: t('unreadGroups', { count: groupsUnread }),
+          className: PRIMARY_BADGE,
+        };
+      case '/submission-groups':
+        return {
+          count: submissionGroupsUnread,
+          label: t('unreadSubmissionGroups', {
+            count: submissionGroupsUnread,
+          }),
           className: PRIMARY_BADGE,
         };
       case '/cases':

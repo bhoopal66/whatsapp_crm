@@ -193,6 +193,7 @@ describe('GET /api/submission-groups', () => {
       wa_mode: 'group',
       pending: false,
       archive: false,
+      unread: 0,
     });
     expect(body.groups[1]).toMatchObject({
       my_label: null,
@@ -203,6 +204,52 @@ describe('GET /api/submission-groups', () => {
       submission_status: 'Inhouse Review',
     });
     expect(admin.log?.some(([t]) => t === 'submission_groups')).toBe(false);
+  });
+
+  it('lists every group at unread 0 when sg_unread_by_group fails', async () => {
+    // No handler: the fake answers PGRST202, as before 173 is applied.
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups.map((g: { unread: number }) => g.unread)).toEqual([
+      0, 0,
+    ]);
+  });
+
+  it('lists every group at unread 0 when sg_unread_by_group throws', async () => {
+    rls.rpc = {
+      sg_unread_by_group: () => {
+        throw new Error('network');
+      },
+    };
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups.map((g: { unread: number }) => g.unread)).toEqual([
+      0, 0,
+    ]);
+  });
+
+  it("puts the caller's unread count on the group it belongs to", async () => {
+    rls.rpc = { sg_unread_by_group: () => [{ group_id: A2, unread: 3 }] };
+    const body = await (await get()).json();
+    expect(
+      body.groups.map((g: { id: string; unread: number }) => [g.id, g.unread])
+    ).toEqual([
+      [A, 0],
+      [A2, 3],
+    ]);
+  });
+
+  it('reads no unread counts for ENDED groups', async () => {
+    as('admin');
+    readable.add(E);
+    const unread = vi.fn(() => [{ group_id: E, unread: 3 }]);
+    rls.rpc = { sg_unread_by_group: unread };
+    const body = await (await get('?status=ended')).json();
+    expect(body.groups.map((g: { id: string }) => g.id)).toEqual([E]);
+    expect(body.groups[0].unread).toBe(0);
+    expect(unread).not.toHaveBeenCalled();
   });
 
   it("never lists another account's group, even if a client returned it", async () => {

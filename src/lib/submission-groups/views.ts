@@ -239,6 +239,8 @@ export interface ItemRefs {
   contacts: ReadonlyMap<string, ContactRef>;
   channels: ReadonlyMap<string, ChannelRef>;
   myLabel: StaffLabel | null;
+  /** 173: the caller's unread messages in this group; list rows only. */
+  unread?: number;
 }
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -280,6 +282,7 @@ export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
     wa_mode: group.waMode,
     pending: isPendingCreate(group),
     archive: group.status === 'ENDED',
+    unread: refs.unread ?? 0,
   };
 }
 

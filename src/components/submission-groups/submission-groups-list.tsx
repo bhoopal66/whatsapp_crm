@@ -16,9 +16,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { relativeActivity } from '@/lib/groups/ui';
+import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import {
   appendPage,
   avatarTone,
+  clearUnread,
   groupContactName,
   groupTitle,
   initialsOf,
@@ -28,6 +30,7 @@ import {
   shortRef,
   trackerStatusChip,
   type SgListItem,
+  unreadBadgeText,
   waModeOf,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
@@ -64,6 +67,10 @@ export function SubmissionGroupsList({
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const seq = useRef(0);
+  // Groups read since the last load or refresh started. A fetch already
+  // in flight may have counted before the read, so every response drops
+  // these counts rather than putting an old one back.
+  const reads = useRef(new Set<string>());
   const { registerRefresh } = useSubmissionGroupsList();
   const current = useRef({ tab, q: debounced });
   current.current = { tab, q: debounced };
@@ -75,6 +82,7 @@ export function SubmissionGroupsList({
 
   const load = useCallback(async (status: Tab, q: string) => {
     const mine = ++seq.current;
+    reads.current.clear();
     setLoaded(null);
     try {
       const res = await fetch(listUrl(status, q, null), { cache: 'no-store' });
@@ -82,7 +90,7 @@ export function SubmissionGroupsList({
       const page = parseSgList(await res.json());
       if (mine === seq.current)
         setLoaded({
-          groups: page.groups,
+          groups: clearUnread(page.groups, reads.current),
           next: page.next_cursor,
           failed: false,
         });
@@ -101,6 +109,7 @@ export function SubmissionGroupsList({
   // (the route), so it is untouched.
   const refresh = useCallback(async () => {
     const mine = ++seq.current;
+    reads.current.clear();
     const { tab: status, q } = current.current;
     try {
       const res = await fetch(listUrl(status, q, null), { cache: 'no-store' });
@@ -108,7 +117,7 @@ export function SubmissionGroupsList({
       const page = parseSgList(await res.json());
       if (mine === seq.current)
         setLoaded({
-          groups: page.groups,
+          groups: clearUnread(page.groups, reads.current),
           next: page.next_cursor,
           failed: false,
         });
@@ -120,6 +129,20 @@ export function SubmissionGroupsList({
   useEffect(
     () => registerRefresh(() => void refresh()),
     [registerRefresh, refresh]
+  );
+
+  // A read patches the rows in place: `refresh` restarts from page one,
+  // which would drop what "Load more" added.
+  useEffect(
+    () =>
+      onSubmissionGroupRead((id) => {
+        reads.current.add(id);
+        const read = new Set([id]);
+        setLoaded((prev) =>
+          prev ? { ...prev, groups: clearUnread(prev.groups, read) } : prev
+        );
+      }),
+    []
   );
 
   useEffect(() => {
@@ -144,11 +167,12 @@ export function SubmissionGroupsList({
       });
       if (!res.ok) throw new Error(String(res.status));
       const page = parseSgList(await res.json());
+      const more = clearUnread(page.groups, reads.current);
       if (mine === seq.current)
         setLoaded((prev) =>
           prev
             ? {
-                groups: appendPage(prev.groups, page.groups),
+                groups: appendPage(prev.groups, more),
                 next: page.next_cursor,
                 failed: false,
               }
@@ -310,6 +334,8 @@ export function SubmissionGroupsList({
 }
 
 const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
+const UNREAD_BADGE =
+  'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold';
 
 function Row({
   group: g,
@@ -352,6 +378,7 @@ function Row({
   const pending = g.pending && !ended && !noGroup;
   const archived = ended && g.archive;
   const noGroupBadge = noGroup && !ended;
+  const unreadText = unreadBadgeText(g.unread);
 
   return (
     <li>
@@ -374,14 +401,25 @@ function Row({
           {initialsOf(title)}
         </span>
         <span className="min-w-0 flex-1 space-y-0.5">
-          <span
-            className={cn(
-              'block truncate text-sm font-medium',
-              !named && 'text-muted-foreground italic'
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-sm font-medium',
+                !named && 'text-muted-foreground italic'
+              )}
+              title={title}
+            >
+              {title}
+            </span>
+            {unreadText && (
+              <span
+                role="img"
+                aria-label={tl('unreadBadge', { count: g.unread ?? 0 })}
+                className={UNREAD_BADGE}
+              >
+                {unreadText}
+              </span>
             )}
-            title={title}
-          >
-            {title}
           </span>
           {contactName && (
             <span

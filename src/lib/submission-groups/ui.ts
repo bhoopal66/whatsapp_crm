@@ -47,6 +47,8 @@ export interface SgListItem {
   wa_mode?: SgWaMode;
   pending: boolean;
   archive: boolean;
+  /** 173: the caller's unread messages; absent on older payloads. */
+  unread?: number;
 }
 
 export interface SgGroup extends SgListItem {
@@ -421,6 +423,20 @@ export function trackerStatusChip(
 export function waIdPhone(id: string | null | undefined): string | null {
   const digits = (id ?? '').split('@')[0].replace(/\D/g, '');
   return digits ? `+${digits}` : null;
+}
+
+/** A row's unread badge text; null when there is nothing to show. */
+export function unreadBadgeText(unread: number | undefined): string | null {
+  if (!unread || unread <= 0) return null;
+  return unread > 99 ? '99+' : String(unread);
+}
+
+/** The rows with the given groups' unread counts cleared. */
+export function clearUnread(
+  groups: readonly SgListItem[],
+  ids: ReadonlySet<string>
+): SgListItem[] {
+  return groups.map((g) => (ids.has(g.id) ? { ...g, unread: 0 } : g));
 }
 
 /** "My groups": the rows the caller holds a label on. */

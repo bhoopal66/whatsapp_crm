@@ -48,6 +48,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { shouldSendOnKey } from '@/lib/groups/group-page';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
+import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
 import {
   avatarTone,
@@ -128,6 +129,8 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const mounted = useRef(true);
+  // `reload` runs on every live update; opening a group marks it once.
+  const markedRead = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -143,6 +146,10 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
       setDetail(json);
       setNow(new Date());
       setState('ok');
+      if (json.group.status === 'ACTIVE' && markedRead.current !== groupId) {
+        markedRead.current = groupId;
+        void markSubmissionGroupRead(groupId);
+      }
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
       if (mounted.current) setState((s) => (s === 'ok' ? s : 'error'));
@@ -161,6 +168,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
   // the access rules server-side. One unique topic per mount.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let readTimer: ReturnType<typeof setTimeout> | null = null;
     const soon = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void reload(), REFETCH_DEBOUNCE_MS);
@@ -178,7 +186,17 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
           table: 'submission_group_messages',
           filter: `group_id=eq.${groupId}`,
         },
-        soon
+        (payload) => {
+          soon();
+          // Seen as it arrives, so it does not count as unread.
+          if (payload.new.direction === 'in') {
+            if (readTimer) clearTimeout(readTimer);
+            readTimer = setTimeout(
+              () => void markSubmissionGroupRead(groupId),
+              2000
+            );
+          }
+        }
       )
       .on(
         'postgres_changes',
@@ -193,6 +211,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
       .subscribe();
     return () => {
       if (timer) clearTimeout(timer);
+      if (readTimer) clearTimeout(readTimer);
       void supabase.removeChannel(channel);
     };
   }, [groupId, reload]);
