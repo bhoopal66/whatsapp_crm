@@ -7,7 +7,7 @@
 -- a group the customer never entered.
 --
 --  * submission_groups.customer_membership: 'unknown' (nobody has
---    looked yet, or the look failed), 'joined', 'absent'.
+--    looked yet, or the look could not tell), 'joined', 'absent'.
 --    customer_checked_at: when the app last asked WhatsApp. Written only
 --    by the two functions here and the backfill.
 --  * submission_groups_guard needs no change. It names the frozen
@@ -16,9 +16,13 @@
 --    rest of the archive. That is why every write below is confined to
 --    ACTIVE, the backfill included: touching an ENDED row raises.
 --  * sg_note_customer_membership(group, state): the app's report of one
---    check, always stamping customer_checked_at. 'unknown' (the check
---    could not tell) stamps only and never overwrites a known state.
---    'joined' and 'absent' replace each other: a customer can leave.
+--    check, always stamping customer_checked_at. 'unknown' (the read
+--    failed or told us nothing) stamps only and never overwrites a known
+--    state. 'joined' and 'absent' replace each other: a customer can
+--    leave. 'unsure' is a report, never a stored state: the participant
+--    list was read and someone in it has a hidden number, so we cannot
+--    say the customer is absent. It turns 'absent' into 'unknown' and
+--    leaves 'joined' and 'unknown' as they are.
 --  * sg_membership_due(account, limit): the ACTIVE real groups to look
 --    at next, never checked first, then oldest check first, each at
 --    most once in 6 hours. 'joined' is settled and not looked at again;
@@ -37,6 +41,13 @@
 --    and not a copy of it. It runs after the trigger exists, so a
 --    message arriving during the apply is caught by one or the other.
 --    Everything else stays 'unknown': the app checks those.
+--  * submission_groups.invite_claimed_at, sg_invite_claim(group,
+--    cooldown seconds): the claim on sending an invite, so concurrent
+--    resends cannot each send. One conditional UPDATE: a second caller
+--    waits on the row lock, then re-reads the first one's stamp. A claim
+--    or an invite_sent_at inside the cooldown refuses it. Every attempt
+--    spends the window, including one that later fails: a send that
+--    timed out may still have reached the customer.
 --
 -- The SECURITY DEFINER functions write an RLS-forced table, so, as in
 -- 115, this must be applied by a superuser or BYPASSRLS role.
@@ -58,7 +69,8 @@ END $$;
 
 ALTER TABLE public.submission_groups
   ADD COLUMN IF NOT EXISTS customer_membership text NOT NULL DEFAULT 'unknown',
-  ADD COLUMN IF NOT EXISTS customer_checked_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS customer_checked_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS invite_claimed_at timestamptz NULL;
 
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -76,10 +88,15 @@ COMMENT ON COLUMN public.submission_groups.customer_membership IS
   'Is the customer in the WhatsApp group: unknown, joined or absent. Written by sg_note_customer_membership and the customer-message trigger, ACTIVE groups only. Migration 174.';
 COMMENT ON COLUMN public.submission_groups.customer_checked_at IS
   'When the app last asked WhatsApp about the customer, whatever the answer. NULL: never. Migration 174.';
+COMMENT ON COLUMN public.submission_groups.invite_claimed_at IS
+  'When sg_invite_claim last gave someone the right to send the invite, whether or not the send then worked. NULL: never. Migration 174.';
 
 -- ---------- 2. sg_note_customer_membership ----------
 
--- False when the group is not ACTIVE (nothing is written).
+-- False when the group is not ACTIVE (nothing is written). 'unsure' is
+-- accepted here and never stored: the list was read, a hidden number in
+-- it means the customer cannot be called absent, so 'absent' falls back
+-- to 'unknown'. 'unknown' stamps only: the read failed or told us nothing.
 CREATE OR REPLACE FUNCTION public.sg_note_customer_membership(p_group uuid, p_state text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -88,12 +105,17 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-  IF p_state IS NULL OR p_state NOT IN ('unknown', 'joined', 'absent') THEN
+  IF p_state IS NULL OR p_state NOT IN ('unknown', 'unsure', 'joined', 'absent') THEN
     RAISE EXCEPTION 'submission group membership: % is not a state', coalesce(p_state, 'NULL')
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
   UPDATE public.submission_groups
-     SET customer_membership = CASE WHEN p_state = 'unknown' THEN customer_membership ELSE p_state END,
+     SET customer_membership = CASE
+           WHEN p_state = 'unknown' THEN customer_membership
+           WHEN p_state = 'unsure' AND customer_membership <> 'absent' THEN customer_membership
+           WHEN p_state = 'unsure' THEN 'unknown'
+           ELSE p_state
+         END,
          customer_checked_at = now()
    WHERE id = p_group AND status = 'ACTIVE';
   RETURN FOUND;
@@ -201,5 +223,37 @@ REVOKE ALL ON FUNCTION public.sg_backfill_customer_membership()
   FROM PUBLIC, anon, authenticated, service_role;
 
 SELECT public.sg_backfill_customer_membership();
+
+-- ---------- 6. sg_invite_claim ----------
+
+-- True: the caller may send, and the window starts now. False: not
+-- ACTIVE, or a claim or a send inside the last p_cooldown_seconds.
+-- Claiming is not sending: invite_sent_at stays sg_note_invite's.
+CREATE OR REPLACE FUNCTION public.sg_invite_claim(p_group uuid, p_cooldown_seconds integer)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF p_cooldown_seconds IS NULL OR p_cooldown_seconds < 0 THEN
+    RAISE EXCEPTION 'submission group invite claim: % is not a cooldown', coalesce(p_cooldown_seconds::text, 'NULL')
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  UPDATE public.submission_groups
+     SET invite_claimed_at = now()
+   WHERE id = p_group
+     AND status = 'ACTIVE'
+     AND (invite_claimed_at IS NULL OR invite_claimed_at <= now() - make_interval(secs => p_cooldown_seconds))
+     AND (invite_sent_at IS NULL OR invite_sent_at <= now() - make_interval(secs => p_cooldown_seconds));
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.sg_invite_claim(uuid, integer)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.sg_invite_claim(uuid, integer)
+  TO service_role;
 
 RESET lock_timeout;

@@ -3,10 +3,12 @@
 --
 -- customer_membership is 'unknown', 'joined' or 'absent'.
 -- sg_note_customer_membership records one check and always stamps
--- customer_checked_at; 'unknown' never overwrites a known state.
+-- customer_checked_at; 'unknown' never overwrites a known state, and
+-- 'unsure', never stored, takes an 'absent' back to 'unknown'.
 -- sg_membership_due lists the groups to check next. A customer's message
 -- marks the group joined, and a failure there never loses the message.
--- An ENDED group is frozen: nothing here writes it.
+-- An ENDED group is frozen: nothing here writes it. sg_invite_claim
+-- gives one caller per cooldown the right to send an invite.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The fixtures are
@@ -31,6 +33,8 @@ DECLARE
   gs       UUID;
   gx       UUID;
   gf       UUID;
+  gu       UUID;
+  gc       UUID;
   d_null   UUID;
   d_old1   UUID;
   d_old2   UUID;
@@ -141,6 +145,11 @@ BEGIN
       WHERE c.table_schema = 'public' AND c.table_name = 'submission_groups' AND c.column_name = 'customer_checked_at'),
     'customer_checked_at is not a nullable timestamptz');
   n := n + 1; failed := failed || pg_temp.sm_ok(
+    (SELECT c.is_nullable = 'YES' AND c.data_type = 'timestamp with time zone'
+       FROM information_schema.columns c
+      WHERE c.table_schema = 'public' AND c.table_name = 'submission_groups' AND c.column_name = 'invite_claimed_at'),
+    'invite_claimed_at is not a nullable timestamptz');
+  n := n + 1; failed := failed || pg_temp.sm_ok(
     (SELECT c.convalidated FROM pg_constraint c
       WHERE c.conname = 'submission_groups_customer_membership_check'
         AND c.conrelid = 'public.submission_groups'::regclass),
@@ -185,6 +194,31 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.sm_ok(b AND m = 'unknown' AND at = now(),
     format('unknown over unknown: returned %s, state %s, checked %s', b, m, at));
 
+  -- 'unsure': the list was read, a hidden number means we cannot say
+  -- absent. It takes an 'absent' back and is never stored.
+  gu := pg_temp.sm_group(a_a, 'SM-U', c1, w1, '120363000174004');
+  b := sg_note_customer_membership(gu, 'absent');
+  UPDATE submission_groups SET customer_checked_at = old_at WHERE id = gu;
+  b := sg_note_customer_membership(gu, 'unsure');
+  SELECT customer_membership, customer_checked_at INTO m, at FROM submission_groups WHERE id = gu;
+  n := n + 1; failed := failed || pg_temp.sm_ok(b AND m = 'unknown' AND at = now(),
+    format('unsure over absent: returned %s, state %s, checked %s', b, m, at));
+  UPDATE submission_groups SET customer_checked_at = old_at WHERE id = gu;
+  b := sg_note_customer_membership(gu, 'unsure');
+  SELECT customer_membership, customer_checked_at INTO m, at FROM submission_groups WHERE id = gu;
+  n := n + 1; failed := failed || pg_temp.sm_ok(b AND m = 'unknown' AND at = now(),
+    format('unsure over unknown: returned %s, state %s, checked %s', b, m, at));
+  b := sg_note_customer_membership(gu, 'joined');
+  UPDATE submission_groups SET customer_checked_at = old_at WHERE id = gu;
+  b := sg_note_customer_membership(gu, 'unsure');
+  SELECT customer_membership, customer_checked_at INTO m, at FROM submission_groups WHERE id = gu;
+  n := n + 1; failed := failed || pg_temp.sm_ok(b AND m = 'joined' AND at = now(),
+    format('unsure over joined: returned %s, state %s, checked %s', b, m, at));
+  r := pg_temp.sm_try(NULL, NULL, format(
+    'UPDATE public.submission_groups SET customer_membership = %L WHERE id = %L', 'unsure', gu));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 23514:%',
+    format('the CHECK let unsure be stored (%s)', r));
+
   UPDATE submission_groups SET customer_checked_at = old_at WHERE id = gm;
   r := pg_temp.sm_try(NULL, NULL, format('SELECT sg_note_customer_membership(%L, %L)', gm, 'maybe'));
   n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 22023:%', format('an invalid state was taken (%s)', r));
@@ -203,6 +237,8 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.sm_ok(NOT b, 'noting an ENDED group returned true');
   b := sg_note_customer_membership(ge, 'unknown');
   n := n + 1; failed := failed || pg_temp.sm_ok(NOT b, 'stamping an ENDED group returned true');
+  b := sg_note_customer_membership(ge, 'unsure');
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b, 'unsure on an ENDED group returned true');
   SELECT customer_membership, customer_checked_at INTO m, at FROM submission_groups WHERE id = ge;
   n := n + 1; failed := failed || pg_temp.sm_ok(m = 'unknown' AND at IS NULL,
     format('an ENDED group was written (%s / %s)', m, at));
@@ -356,7 +392,82 @@ BEGIN
   i := sg_backfill_customer_membership();
   n := n + 1; failed := failed || pg_temp.sm_ok(i = 0, format('a second backfill wrote %s rows', i));
 
-  -- ---------- (f) a failing trigger never loses the message ----------
+  -- ---------- (f) sg_invite_claim ----------
+  gc := pg_temp.sm_group(a_a, 'SM-C', c1, w1, '120363000174041');
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(at IS NULL, format('a new group starts claimed at %s', at));
+  b := sg_invite_claim(gc, 60);
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(b AND at = now(),
+    format('first claim: returned %s, claimed %s', b, at));
+  b := sg_invite_claim(gc, 60);
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b, 'a second claim at once returned true');
+
+  UPDATE submission_groups SET invite_claimed_at = now() - interval '59 seconds' WHERE id = gc;
+  b := sg_invite_claim(gc, 60);
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b AND at = now() - interval '59 seconds',
+    format('a claim inside the window: returned %s, claimed %s', b, at));
+
+  UPDATE submission_groups SET invite_claimed_at = now() - interval '61 seconds' WHERE id = gc;
+  b := sg_invite_claim(gc, 60);
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(b AND at = now(),
+    format('a claim after the window: returned %s, claimed %s', b, at));
+
+  -- A recent send blocks on its own, with no claim on the row.
+  UPDATE submission_groups
+     SET invite_claimed_at = NULL, invite_sent_at = now() - interval '59 seconds'
+   WHERE id = gc;
+  b := sg_invite_claim(gc, 60);
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b AND at IS NULL,
+    format('a recent invite_sent_at: returned %s, claimed %s', b, at));
+  UPDATE submission_groups SET invite_sent_at = now() - interval '61 seconds' WHERE id = gc;
+  b := sg_invite_claim(gc, 60);
+  n := n + 1; failed := failed || pg_temp.sm_ok(b, 'an old invite_sent_at still blocked the claim');
+  n := n + 1; failed := failed || pg_temp.sm_ok(
+    (SELECT invite_sent_at = now() - interval '61 seconds' FROM submission_groups WHERE id = gc),
+    'a claim moved invite_sent_at');
+
+  -- Zero is no window, and is not refused.
+  b := sg_invite_claim(gc, 0);
+  n := n + 1; failed := failed || pg_temp.sm_ok(b, 'a cooldown of 0 refused the claim');
+
+  b := sg_invite_claim(ge, 60);
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = ge;
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b AND at IS NULL,
+    format('an ENDED group: returned %s, claimed %s', b, at));
+  b := sg_invite_claim('00000000-0000-4000-8000-000000174999', 60);
+  n := n + 1; failed := failed || pg_temp.sm_ok(NOT b, 'claiming a missing group returned true');
+
+  UPDATE submission_groups SET invite_claimed_at = old_at WHERE id = gc;
+  r := pg_temp.sm_try(NULL, NULL, format('SELECT sg_invite_claim(%L, NULL)', gc));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 22023:%', format('a NULL cooldown was taken (%s)', r));
+  r := pg_temp.sm_try(NULL, NULL, format('SELECT sg_invite_claim(%L, -1)', gc));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 22023:%', format('a negative cooldown was taken (%s)', r));
+  r := pg_temp.sm_try('authenticated', u_a, format('SELECT sg_invite_claim(%L, 60)', gc));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 42501:%', format('authenticated claimed an invite (%s)', r));
+  r := pg_temp.sm_try('anon', NULL, format('SELECT sg_invite_claim(%L, 60)', gc));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r LIKE 'ERROR 42501:%', format('anon claimed an invite (%s)', r));
+  SELECT invite_claimed_at INTO at FROM submission_groups WHERE id = gc;
+  n := n + 1; failed := failed || pg_temp.sm_ok(at = old_at, format('a refused claim still wrote (%s)', at));
+  r := pg_temp.sm_try('service_role', NULL, format('SELECT sg_invite_claim(%L, 60)', gc));
+  n := n + 1; failed := failed || pg_temp.sm_ok(r = 'true', format('service_role could not claim (%s)', r));
+  n := n + 1; failed := failed || pg_temp.sm_ok(
+    has_function_privilege('service_role', 'public.sg_invite_claim(uuid, integer)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.sg_invite_claim(uuid, integer)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.sg_invite_claim(uuid, integer)', 'EXECUTE')
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_proc p, LATERAL aclexplode(p.proacl) x
+       WHERE p.oid = 'public.sg_invite_claim(uuid, integer)'::regprocedure AND x.grantee = 0),
+    'sg_invite_claim is not service_role only');
+  n := n + 1; failed := failed || pg_temp.sm_ok(
+    (SELECT p.prosecdef AND 'search_path=""' = ANY (p.proconfig) FROM pg_proc p
+      WHERE p.oid = 'public.sg_invite_claim(uuid, integer)'::regprocedure),
+    'sg_invite_claim is not SECURITY DEFINER with an empty search_path');
+
+  -- ---------- (g) a failing trigger never loses the message ----------
   -- Last: the swapped CHECK refuses every write of 'joined'.
   gf := pg_temp.sm_group(a_a, 'SM-F', c1, w1, '120363000174040');
   ALTER TABLE submission_groups DROP CONSTRAINT submission_groups_customer_membership_check;
