@@ -238,6 +238,32 @@ export async function submissionGroupIds(
 const PAGE = 1000;
 
 /**
+ * Every submission group's WhatsApp id in the account, ACTIVE or ENDED:
+ * the Groups list drops `whatsapp_groups` rows that mirror one. Paged
+ * like `groupIdsOnChannel`: a cut list would let a mirror back in. The
+ * ids are compared on the server and never reach the client.
+ */
+export async function accountSubmissionWaIds(
+  admin: SupabaseClient,
+  accountId: string
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from('submission_groups')
+      .select('wa_group_id')
+      .eq('account_id', accountId)
+      .not('wa_group_id', 'is', null)
+      .order('wa_group_id')
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ wa_group_id: string | null }>;
+    for (const r of rows) if (r.wa_group_id) out.add(r.wa_group_id);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/**
  * Every `wa_group_id` a table holds for one number, paged because
  * PostgREST caps a read: a cut list would let Sync bring a group back.
  */

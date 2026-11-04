@@ -58,6 +58,28 @@ is on.
 it used to copy them onto this page. A copy made before this change
 stays, is not marked left by Sync and has no delete option.
 
+## Submission groups on this page
+
+Active submission groups are listed here with the other groups, marked
+**Case**, in the same order and with their unread count.
+
+- **Who sees them:** only the people who can already read that group on
+  the Submission groups page (its access list, its bank's coordinators,
+  the agent's team leader, owners and admins), agents and up. Nothing
+  here widens that.
+- **Which ones:** only an active group that exists on WhatsApp. A case
+  with no WhatsApp group is never listed, and an **ended** group stays
+  on the Submission groups page, where reading it is audited.
+- **They open here,** beside the list, with the same chat and details
+  as on the Submission groups page.
+- **They cannot be deleted.** No delete is offered, and **Delete all
+  left groups** does not include them.
+- A copy an older Sync made of a submission group no longer shows in
+  the list, whether that group is active or ended.
+
+The sidebar counts stay separate: **Groups** counts these rows out, and
+**Submission groups** keeps its own count.
+
 ## Unread groups
 
 The sidebar's **Groups** item shows how many groups have something new

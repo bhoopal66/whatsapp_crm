@@ -432,10 +432,10 @@ export function unreadBadgeText(unread: number | undefined): string | null {
 }
 
 /** The rows with the given groups' unread counts cleared. */
-export function clearUnread(
-  groups: readonly SgListItem[],
+export function clearUnread<T extends { id: string; unread?: number }>(
+  groups: readonly T[],
   ids: ReadonlySet<string>
-): SgListItem[] {
+): T[] {
   return groups.map((g) => (ids.has(g.id) ? { ...g, unread: 0 } : g));
 }
 

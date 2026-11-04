@@ -2,7 +2,9 @@
 // /api/whatsapp/groups — the group list and group creation
 // (migration 114).
 // GET: the groups the caller's RLS shows, latest activity first, each
-// with its number's display name and whether the caller manages it.
+// with its number's display name and whether the caller manages it,
+// merged with the caller's ACTIVE submission groups (kind 'submission',
+// `merge-list.ts`). Mirror rows of submission groups are left out.
 // POST: create a group on a Whapi number the caller may use
 // (`whatsapp_group_can_create`). WhatsApp first; the service role then
 // persists what WhatsApp made, and description, settings and managers
@@ -11,10 +13,17 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { getCurrentAccount, type AccountContext } from '@/lib/auth/account';
+import { canSendMessages } from '@/lib/auth/roles';
+import {
+  mergeGroupList,
+  SUBMISSION_ROW_COLUMNS,
+  type SubmissionListRow,
+} from '@/lib/groups/merge-list';
 import { screenRecipients } from '@/lib/groups/recipients';
 import { nameSearchPattern, parseCreate } from '@/lib/groups/requests';
 import {
+  accountSubmissionWaIds,
   GROUP_COLUMNS,
   GroupHttpError,
   groupErrorResponse,
@@ -27,6 +36,8 @@ import type {
   GroupSettings,
   WhatsappGroupRow,
 } from '@/lib/groups/types';
+import { loadUnread } from '@/lib/submission-groups/view-refs';
+import { searchTerm, sortColumn } from '@/lib/submission-groups/views';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   createGroup,
@@ -94,24 +105,68 @@ async function createdSnapshot(
   };
 }
 
+/**
+ * The caller's listable submission groups, through their own RLS client:
+ * this read decides who sees which group, so it never runs on the service
+ * role. The account pin matters: the read rule is not limited to the
+ * active workspace. Only a group that exists on WhatsApp and is ACTIVE
+ * (an ENDED group's reads are audited, on the Submission groups page).
+ * Agents and up, as the page behind the row. A failed read is an empty
+ * list: the rest of the page must still answer.
+ */
+async function listedSubmissionRows(
+  ctx: AccountContext,
+  q: string | null
+): Promise<SubmissionListRow[]> {
+  const searching = nameSearchPattern(q) !== null;
+  // `searchTerm`, not the name pattern: this one goes inside `or()`.
+  const term = searching ? searchTerm(q) : null;
+  if (!canSendMessages(ctx.role) || (searching && !term)) return [];
+  let query = ctx.supabase
+    .from('submission_groups')
+    .select(SUBMISSION_ROW_COLUMNS)
+    .eq('account_id', ctx.accountId)
+    .eq('status', 'ACTIVE')
+    .eq('wa_mode', 'group')
+    .not('wa_group_id', 'is', null);
+  if (term) {
+    query = query.or(`subject.ilike.*${term}*,customer_name.ilike.*${term}*`);
+  }
+  const { data, error } = await query
+    .order(sortColumn('ACTIVE'), { ascending: false })
+    .order('id', { ascending: false })
+    .limit(LIST_LIMIT);
+  if (error) {
+    console.error('[groups] submission groups failed', error);
+    return [];
+  }
+  return (data ?? []) as unknown as SubmissionListRow[];
+}
+
 export async function GET(request: Request) {
   try {
     const ctx = await getCurrentAccount();
-    const pattern = nameSearchPattern(
-      new URL(request.url).searchParams.get('q')
-    );
+    const q = new URL(request.url).searchParams.get('q');
+    const pattern = nameSearchPattern(q);
     let query = ctx.supabase
       .from('whatsapp_groups')
       .select(GROUP_COLUMNS)
       .eq('account_id', ctx.accountId);
     if (pattern) query = query.ilike('name', pattern);
-    const [list, manageable] = await Promise.all([
-      query
-        .order('last_message_at', { ascending: false, nullsFirst: false })
-        .order('name', { ascending: true })
-        .limit(LIST_LIMIT),
-      ctx.supabase.rpc('whatsapp_group_manageable_ids'),
-    ]);
+    const [list, manageable, submissionRows, unread, mirrorWaIds] =
+      await Promise.all([
+        query
+          .order('last_message_at', { ascending: false, nullsFirst: false })
+          .order('name', { ascending: true })
+          .limit(LIST_LIMIT),
+        ctx.supabase.rpc('whatsapp_group_manageable_ids'),
+        listedSubmissionRows(ctx, q),
+        loadUnread(ctx.supabase),
+        accountSubmissionWaIds(supabaseAdmin(), ctx.accountId).catch((err) => {
+          console.error('[groups] submission group ids failed', err);
+          return new Set<string>();
+        }),
+      ]);
     if (list.error || manageable.error) {
       console.error('[groups] list failed', list.error ?? manageable.error);
       throw unavailable('load the groups');
@@ -122,7 +177,9 @@ export async function GET(request: Request) {
     // Display columns only: the caller may not read whatsapp_config,
     // and its tokens never leave the server.
     const channelIds = [
-      ...new Set(groups.map((g) => g.channel_id).filter(Boolean)),
+      ...new Set(
+        [...groups, ...submissionRows].map((g) => g.channel_id).filter(Boolean)
+      ),
     ] as string[];
     const channelOf = new Map<
       string,
@@ -152,19 +209,14 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      groups: groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        description: g.description,
-        icon_url: g.icon_url,
-        participants_count: g.participants_count,
-        our_role: g.our_role,
-        channel_id: g.channel_id,
-        channel: (g.channel_id && channelOf.get(g.channel_id)) || null,
-        last_message_at: g.last_message_at,
-        created_by: g.created_by,
-        can_manage: canManage.has(g.id),
-      })),
+      groups: mergeGroupList({
+        groups,
+        submissionRows,
+        mirrorWaIds,
+        unread,
+        canManage,
+        channelOf,
+      }),
     });
   } catch (err) {
     return groupErrorResponse(err);

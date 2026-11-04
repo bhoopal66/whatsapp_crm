@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups on the WhatsApp Groups page
+
+- Active submission groups now show on the Groups page like any other
+  group, with a small "Case" label and their unread count, and open
+  beside the list. Only people who can already read a group see it.
+- Ended submission groups, and cases with no WhatsApp group, stay on
+  the Submission groups page. These rows cannot be deleted.
+- Copies of submission groups left by older Syncs no longer show in the
+  list.
+
 ### Delete any WhatsApp group from the Groups page
 
 - Owners and admins can now delete any group, not only ones the number

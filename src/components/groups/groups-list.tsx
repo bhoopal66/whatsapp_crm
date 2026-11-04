@@ -31,6 +31,7 @@ import {
   avatarToneIndex,
   filterGroups,
   GROUP_LIST_CHIPS,
+  groupHref,
   groupInitials,
   groupNumbers,
   parseGroupList,
@@ -38,6 +39,8 @@ import {
   type GroupListChip,
   type GroupListItem,
 } from '@/lib/groups/ui';
+import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
+import { clearUnread, unreadBadgeText } from '@/lib/submission-groups/ui';
 import { createClient } from '@/lib/supabase/client';
 import { usableNumbers } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
@@ -94,6 +97,8 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const mounted = useRef(true);
+  // Marked read while a re-read was in flight: its answer may be older.
+  const reads = useRef(new Set<string>());
 
   const canCreate = !!accountRole && canCreateGroups(accountRole);
   const canSync = !!accountRole && canSyncGroups(accountRole);
@@ -112,10 +117,14 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
       : null;
 
   const load = useCallback(async () => {
+    reads.current.clear();
     try {
       const res = await fetch('/api/whatsapp/groups', { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
-      const groups = parseGroupList(await res.json());
+      const groups = clearUnread(
+        parseGroupList(await res.json()),
+        reads.current
+      );
       if (mounted.current) setLoaded({ groups, failed: false });
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
@@ -136,6 +145,19 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     window.addEventListener(GROUP_DELETED_EVENT, drop);
     return () => window.removeEventListener(GROUP_DELETED_EVENT, drop);
   }, []);
+
+  // A submission group was opened: clear its count here, no re-read.
+  useEffect(
+    () =>
+      onSubmissionGroupRead((id) => {
+        reads.current.add(id);
+        const read = new Set([id]);
+        setLoaded(
+          (prev) => prev && { ...prev, groups: clearUnread(prev.groups, read) }
+        );
+      }),
+    []
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -165,6 +187,16 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           event: '*',
           schema: 'public',
           table: 'whatsapp_groups',
+          filter: `account_id=eq.${accountId}`,
+        },
+        soon
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submission_groups',
           filter: `account_id=eq.${accountId}`,
         },
         soon
@@ -570,14 +602,20 @@ function GroupRow({
   const number = g.channel
     ? (g.channel.name ?? g.channel.phone ?? '')
     : t('numberRemoved');
-  const meta = [t('members', { count: g.participants_count }), number]
+  const submission = g.kind === 'submission';
+  // A submission group's member count is not stored, so none is shown.
+  const meta = [
+    submission ? null : t('members', { count: g.participants_count }),
+    number,
+  ]
     .filter(Boolean)
     .join(' · ');
+  const unreadText = unreadBadgeText(g.unread);
 
   return (
     <li>
       <Link
-        href={`/groups/${g.id}`}
+        href={groupHref(g)}
         aria-current={selected ? 'page' : undefined}
         className={cn(
           'flex w-full items-center gap-3 pl-3 text-left transition-colors',
@@ -645,6 +683,20 @@ function GroupRow({
             {left && (
               <span className="bg-wa-search text-wa-text-secondary shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-medium">
                 {t('leftBadge')}
+              </span>
+            )}
+            {submission && (
+              <span className="bg-wa-search text-wa-text-secondary shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-medium">
+                {t('caseBadge')}
+              </span>
+            )}
+            {unreadText && (
+              <span
+                role="img"
+                aria-label={t('unreadBadge', { count: g.unread })}
+                className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold"
+              >
+                {unreadText}
               </span>
             )}
           </span>

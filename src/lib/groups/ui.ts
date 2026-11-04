@@ -29,6 +29,8 @@ export const GROUP_MEMBERS_PER_OPERATION = GROUP_ADD_POLICY.maxPerOperation;
 
 export interface GroupListItem {
   id: string;
+  /** 'submission': a submission group, listed here but not a group row. */
+  kind: 'group' | 'submission';
   name: string;
   description: string | null;
   icon_url: string | null;
@@ -39,6 +41,8 @@ export interface GroupListItem {
   last_message_at: string | null;
   created_by: string | null;
   can_manage: boolean;
+  /** Unread messages; submission groups only (migration 173). */
+  unread: number;
 }
 
 const str = (v: unknown): string | null =>
@@ -58,6 +62,7 @@ export function parseGroupList(json: unknown): GroupListItem[] {
     const role = r.our_role;
     out.push({
       id,
+      kind: r.kind === 'submission' ? 'submission' : 'group',
       name: str(r.name) ?? '',
       description: str(r.description),
       icon_url: str(r.icon_url),
@@ -75,9 +80,17 @@ export function parseGroupList(json: unknown): GroupListItem[] {
       last_message_at: str(r.last_message_at),
       created_by: str(r.created_by),
       can_manage: r.can_manage === true,
+      unread: typeof r.unread === 'number' && r.unread > 0 ? r.unread : 0,
     });
   }
   return out;
+}
+
+/** Where a list row opens; a submission group has its own detail route. */
+export function groupHref(g: Pick<GroupListItem, 'id' | 'kind'>): string {
+  return g.kind === 'submission'
+    ? `/groups/submission/${g.id}`
+    : `/groups/${g.id}`;
 }
 
 /**

@@ -19,6 +19,8 @@ const g = (over: Partial<GroupListItem>): GroupListItem => ({
   last_message_at: null,
   created_by: null,
   can_manage: false,
+  kind: 'group',
+  unread: 0,
   ...over,
 });
 

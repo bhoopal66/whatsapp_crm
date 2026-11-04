@@ -88,10 +88,10 @@ const chipClass =
  * Below `lg` the list is hidden on /[id]: this is the way back to it,
  * or to wherever the group was opened from (a case, a customer).
  */
-function BackLink({ label }: { label: string }) {
+function BackLink({ label, href }: { label: string; href: string }) {
   return (
     <SharedBackLink
-      fallbackHref="/submission-groups"
+      fallbackHref={href}
       fallbackLabel={label}
       iconOnly
       className={cn(
@@ -105,9 +105,16 @@ function BackLink({ label }: { label: string }) {
 /**
  * /submission-groups/[id], the detail pane of the split view: a sticky
  * header, then either the group's chat with a details column, or (no
- * WhatsApp group, migration 136) a details-and-people page.
+ * WhatsApp group, migration 136) a details-and-people page. `backHref`
+ * is the list it sits beside: /groups/submission/[id] renders it too.
  */
-export function SubmissionGroupPage({ groupId }: { groupId: string }) {
+export function SubmissionGroupPage({
+  groupId,
+  backHref = '/submission-groups',
+}: {
+  groupId: string;
+  backHref?: string;
+}) {
   const t = useTranslations('SubmissionGroups.page');
   const tDetails = useTranslations('SubmissionGroups.details');
   const locale = useLocale();
@@ -347,13 +354,13 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
   };
 
   if (state === 'loading')
-    return <DetailSkeleton backLabel={t('backToList')} />;
+    return <DetailSkeleton backLabel={t('backToList')} backHref={backHref} />;
 
   if (state !== 'ok' || !detail) {
     return (
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <div className="border-b px-3 py-2 lg:hidden">
-          <BackLink label={t('backToList')} />
+          <BackLink label={t('backToList')} href={backHref} />
         </div>
         <div
           role={state === 'error' ? 'alert' : 'status'}
@@ -415,6 +422,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <DetailHeader
         detail={detail}
+        backHref={backHref}
         now={now}
         locale={locale}
         acting={acting}
@@ -623,6 +631,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
 /** The sticky header: who, status chips, ref and dates, and the actions. */
 function DetailHeader({
   detail,
+  backHref,
   now,
   locale,
   acting,
@@ -634,6 +643,7 @@ function DetailHeader({
   onShowDetails,
 }: {
   detail: SgDetail;
+  backHref: string;
   now: Date;
   locale: string;
   acting: boolean;
@@ -683,7 +693,7 @@ function DetailHeader({
   return (
     <header className="bg-card sticky top-0 z-10 border-b px-3 py-3 sm:px-4">
       <div className="flex items-start gap-3">
-        <BackLink label={t('backToList')} />
+        <BackLink label={t('backToList')} href={backHref} />
         <span
           aria-hidden
           className={cn(
@@ -898,14 +908,20 @@ function Banners({
 }
 
 /** First paint: the header's shape, then a body placeholder. */
-function DetailSkeleton({ backLabel }: { backLabel: string }) {
+function DetailSkeleton({
+  backLabel,
+  backHref,
+}: {
+  backLabel: string;
+  backHref: string;
+}) {
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       aria-busy="true"
     >
       <div className="bg-card flex items-start gap-3 border-b px-3 py-3 sm:px-4">
-        <BackLink label={backLabel} />
+        <BackLink label={backLabel} href={backHref} />
         <div className="bg-muted size-11 shrink-0 animate-pulse rounded-full" />
         <div className="flex-1 space-y-2">
           <div className="bg-muted h-5 w-56 max-w-full animate-pulse rounded" />

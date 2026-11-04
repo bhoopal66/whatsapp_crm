@@ -6899,6 +6899,8 @@
     "members": "{count, plural, =1 {# member} other {# members}}",
     "adminBadge": "Admin",
     "leftBadge": "Left",
+    "caseBadge": "Case",
+    "unreadBadge": "{count, plural, =1 {# unread message} other {# unread messages}}",
     "numberRemoved": "Number removed",
     "activityNone": "No messages yet",
     "activityNow": "Active just now",

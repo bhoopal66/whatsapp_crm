@@ -10,7 +10,9 @@ import {
   createErrorKey,
   contactSearchFilter,
   DEFAULT_TOGGLES,
+  applyGroupFilter,
   filterGroups,
+  groupHref,
   firstInvalidStep,
   GROUP_ADD_BATCH,
   GROUP_ADD_PAUSE_SECONDS,
@@ -195,6 +197,8 @@ describe('the list', () => {
     last_message_at: null,
     created_by: null,
     can_manage: true,
+    kind: 'group',
+    unread: 0,
     ...over,
   });
 
@@ -211,9 +215,28 @@ describe('the list', () => {
         participants_count: 0,
         channel: null,
         can_manage: false,
+        kind: 'group',
+        unread: 0,
       }),
     ]);
     expect(parseGroupList(null)).toEqual([]);
+  });
+
+  it('parseGroupList keeps a submission row, which never reads as left', () => {
+    const [row] = parseGroupList({
+      groups: [{ id: 's', kind: 'submission', unread: 4, our_role: 'member' }],
+    });
+    expect(row).toMatchObject({ kind: 'submission', unread: 4 });
+    expect(applyGroupFilter([row], { chip: 'left', channelId: null })).toEqual(
+      []
+    );
+  });
+
+  it('groupHref opens a submission row on its own route', () => {
+    expect(groupHref({ id: 'a', kind: 'group' })).toBe('/groups/a');
+    expect(groupHref({ id: 's', kind: 'submission' })).toBe(
+      '/groups/submission/s'
+    );
   });
 
   it('filterGroups searches name, number name and digits; left groups sink', () => {

@@ -20,10 +20,13 @@ function fakeDb(resolve: Resolver, log: Op[]) {
         'eq',
         'in',
         'is',
+        'not',
+        'or',
         'neq',
         'ilike',
         'order',
         'limit',
+        'range',
         'update',
         'upsert',
       ]) {
@@ -76,12 +79,17 @@ const CH = '33333333-3333-4333-8333-333333333333';
 const C1 = '44444444-4444-4444-8444-444444444444';
 const M1 = '55555555-5555-4555-8555-555555555555';
 const WA = '120363000000000001@g.us';
+const SG = '66666666-6666-4666-8666-666666666666';
 
 let rlsLog: Op[];
 let adminLog: Op[];
 let canCreate: boolean;
 let registry: Array<Record<string, unknown>>;
 let staff: string[];
+let sgRows: Array<Record<string, unknown>>;
+let sgError: unknown;
+let sgWaIds: unknown;
+let sgWaIdsError: unknown;
 const rpc = vi.fn();
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -112,21 +120,33 @@ beforeEach(() => {
   canCreate = true;
   staff = [M1];
   registry = [];
+  sgRows = [];
+  sgError = null;
+  sgWaIds = [];
+  sgWaIdsError = null;
   rpc.mockImplementation(async (fn: string) =>
     fn === 'whatsapp_group_can_create'
       ? { data: canCreate, error: null }
-      : { data: [G], error: null }
+      : fn === 'sg_unread_by_group'
+        ? { data: [{ group_id: SG, unread: 2 }], error: null }
+        : { data: [G], error: null }
   );
   const rls = fakeDb((op) => {
+    if (op.table === 'submission_groups') {
+      return { data: sgError ? null : sgRows, error: sgError };
+    }
     if (op.table === 'contacts') {
       return { data: [{ id: C1, phone: '+971 50 999 8888' }], error: null };
     }
     return {
-      data: [row(), row({ id: 'other', channel_id: null, name: 'Old' })],
+      data: [row(), row({ id: 'other', channel_id: null, name: 'Zoo' })],
       error: null,
     };
   }, rlsLog);
   mocks.admin = fakeDb((op) => {
+    if (op.table === 'submission_groups') {
+      return { data: sgWaIdsError ? null : sgWaIds, error: sgWaIdsError };
+    }
     if (op.table === 'whatsapp_config') {
       return {
         data: [{ id: CH, label: 'Sales', waba_id: '971500000000' }],
@@ -176,6 +196,8 @@ describe('GET /api/whatsapp/groups', () => {
     const { groups } = await res.json();
     expect(groups[0]).toEqual({
       id: G,
+      kind: 'group',
+      unread: 0,
       name: 'Team',
       description: null,
       icon_url: null,
@@ -193,10 +215,104 @@ describe('GET /api/whatsapp/groups', () => {
       'order',
       ['last_message_at', { ascending: false, nullsFirst: false }],
     ]);
-    expect(adminLog[0].calls).toContainEqual([
-      'select',
-      ['id, label, waba_id'],
+    expect(
+      adminLog.find((op) => op.table === 'whatsapp_config')?.calls
+    ).toContainEqual(['select', ['id, label, waba_id']]);
+  });
+});
+
+describe('GET /api/whatsapp/groups: submission groups', () => {
+  const sg = (over: Record<string, unknown> = {}) => ({
+    id: SG,
+    channel_id: CH,
+    subject: 'Acme x Taamul Credit',
+    customer_name: 'Acme LLC',
+    submission_ref: 'SUB-1',
+    wa_group_id: 'wa-sg',
+    last_activity_at: '2026-11-03T10:00:00Z',
+    ...over,
+  });
+  const list = async (url = 'http://x/api/whatsapp/groups') => {
+    const res = await GET(new Request(url));
+    return { status: res.status, groups: (await res.json()).groups };
+  };
+  const sgRead = () => rlsLog.find((op) => op.table === 'submission_groups');
+
+  it('adds a submission row with its number and unread count', async () => {
+    sgRows = [sg()];
+    const { groups } = await list();
+    expect(groups[0]).toMatchObject({
+      id: SG,
+      kind: 'submission',
+      name: 'Acme x Taamul Credit',
+      channel: { id: CH, name: 'Sales', phone: '971500000000' },
+      our_role: 'member',
+      can_manage: false,
+      unread: 2,
+    });
+    expect(JSON.stringify(groups)).not.toContain('wa-sg');
+  });
+
+  it('drops a mirror of a group the caller cannot see, by the account-wide ids', async () => {
+    sgWaIds = [{ wa_group_id: WA }];
+    const { groups } = await list();
+    expect(groups.map((g: { id: string }) => g.id)).toEqual([]);
+    const ids = adminLog.find((op) => op.table === 'submission_groups');
+    expect(ids?.calls).toContainEqual(['select', ['wa_group_id']]);
+    expect(ids?.calls).toContainEqual(['eq', ['account_id', 'acct-1']]);
+  });
+
+  it('reads only ACTIVE groups that exist on WhatsApp', async () => {
+    await list();
+    const calls = sgRead()?.calls;
+    expect(calls).toContainEqual(['eq', ['account_id', 'acct-1']]);
+    expect(calls).toContainEqual(['eq', ['status', 'ACTIVE']]);
+    expect(calls).toContainEqual(['eq', ['wa_mode', 'group']]);
+    expect(calls).toContainEqual(['not', ['wa_group_id', 'is', null]]);
+    expect(calls).toContainEqual([
+      'order',
+      ['last_activity_at', { ascending: false }],
     ]);
+  });
+
+  it('takes group details from the RLS client, only ids from the service role', async () => {
+    await list();
+    expect(sgRead()?.calls[0][1][0]).toContain('subject');
+    const admin = adminLog.filter((op) => op.table === 'submission_groups');
+    expect(admin).toHaveLength(1);
+    expect(admin[0].calls[0]).toEqual(['select', ['wa_group_id']]);
+  });
+
+  it('keeps the normal groups when the submission reads fail', async () => {
+    sgError = { message: 'boom' };
+    sgWaIdsError = { message: 'boom' };
+    rpc.mockImplementation(async (fn: string) =>
+      fn === 'sg_unread_by_group'
+        ? { data: null, error: { message: 'boom' } }
+        : { data: [G], error: null }
+    );
+    const { status, groups } = await list();
+    expect(status).toBe(200);
+    expect(groups.map((g: { id: string }) => g.id)).toEqual([G, 'other']);
+  });
+
+  it('searches subject and customer name with a term safe inside or()', async () => {
+    await list('http://x/api/whatsapp/groups?q=a,b(c');
+    expect(sgRead()?.calls).toContainEqual([
+      'or',
+      ['subject.ilike.*a_b_c*,customer_name.ilike.*a_b_c*'],
+    ]);
+  });
+
+  it('lists none for a viewer, who has no page to open them on', async () => {
+    const ctx = await mocks.getCurrentAccount();
+    mocks.getCurrentAccount.mockResolvedValue({ ...ctx, role: 'viewer' });
+    sgRows = [sg()];
+    const { groups } = await list();
+    expect(groups.some((g: { kind: string }) => g.kind === 'submission')).toBe(
+      false
+    );
+    expect(sgRead()).toBeUndefined();
   });
 });
 

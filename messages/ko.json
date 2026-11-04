@@ -6899,6 +6899,8 @@
     "members": "멤버 {count}명",
     "adminBadge": "관리자",
     "leftBadge": "나감",
+    "caseBadge": "케이스",
+    "unreadBadge": "읽지 않은 메시지 {count}개",
     "numberRemoved": "번호 삭제됨",
     "activityNone": "아직 메시지 없음",
     "activityNow": "방금 활동",
