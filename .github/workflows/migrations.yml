@@ -758,3 +758,12 @@ jobs:
       # person (else user_id) and never changes for any writer.
       - name: Verify contact follows assignment
         run: supabase db query --local --file supabase/ci/verify-contact-follows-assignment.sql
+
+      # Migration 173: read markers and unread counts of submission
+      # groups; the case agent's team leader on an ACTIVE group; a
+      # customer message rings one unread bell per person per group, and
+      # marking the group read reads that bell; deleted WhatsApp groups
+      # stay deleted; rows mirroring a submission group leave the Groups
+      # count.
+      - name: Verify submission group reads
+        run: supabase db query --local --file supabase/ci/verify-submission-group-reads.sql
