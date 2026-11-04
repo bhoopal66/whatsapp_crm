@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
   assignee: null as string | null,
+  engagedAt: null as string | null,
   assignFromCalls: vi.fn(),
   rpcsAtAssign: null as string[] | null,
   calls: [] as Call[],
@@ -51,6 +52,7 @@ function respond(call: Call): Result {
           channel_id: 'ch-1',
           send_channel_id: null,
           assigned_agent_id: h.assignee,
+          human_engaged_at: h.engagedAt,
         },
       ],
       error: null,
@@ -113,7 +115,11 @@ function fakeDb() {
 
 vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => fakeDb() }));
 vi.mock('@/lib/contacts/dedupe', () => ({
-  findExistingContact: async () => ({ id: 'contact-1', name: 'Asha' }),
+  findExistingContact: async () => ({
+    id: 'contact-1',
+    name: 'Asha',
+    user_id: 'owner-1',
+  }),
   isUniqueViolation: () => false,
 }));
 vi.mock('@/lib/conversations/reopen', () => ({
@@ -205,6 +211,7 @@ const message: NormalizedInboundMessage = {
 beforeEach(() => {
   h.meaningOn = true;
   h.assignee = null;
+  h.engagedAt = null;
   h.assignFromCalls.mockReset().mockResolvedValue(null);
   h.rpcsAtAssign = null;
   h.calls = [];
@@ -234,6 +241,8 @@ describe('processMessage — assigning from call history', () => {
     expect(h.assignFromCalls.mock.calls[0][1]).toEqual({
       accountId: 'acct-1',
       conversationId: 'conv-1',
+      contactId: 'contact-1',
+      contactOwnerId: 'owner-1',
       phone: '971500000001',
     });
     expect(h.rpcsAtAssign).toEqual([]);
@@ -252,6 +261,12 @@ describe('processMessage — assigning from call history', () => {
 
   it('leaves a chat that already has someone', async () => {
     h.assignee = 'agent-9';
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.assignFromCalls).not.toHaveBeenCalled();
+  });
+
+  it('leaves a chat a person replied in or released, with no assignee', async () => {
+    h.engagedAt = '2026-11-01T00:00:00Z';
     await processMessage(message, 'acct-1', 'owner-1', channel);
     expect(h.assignFromCalls).not.toHaveBeenCalled();
   });

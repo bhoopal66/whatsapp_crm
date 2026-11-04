@@ -818,16 +818,20 @@ export async function processMessage(
     return;
   }
 
-  // A chat nobody holds goes to the person who last called this number
-  // from an extension. After the idempotency boundary, so a replay never
-  // re-assigns a chat a person has since released; ahead of the unread
-  // bump and the push, so the bump's realtime event and the push reach
-  // the new assignee. Part of the inbox: a sender over the rate limit
-  // (fanOut: false) is assigned too. Never throws.
-  if (!conversation.assigned_agent_id) {
+  // A chat no person has touched goes to whoever last called this
+  // customer from an extension. human_engaged_at (067) is the test
+  // because replying does not assign: an admin working a chat, or one a
+  // person released on purpose, has no assignee and must not be taken.
+  // After the idempotency boundary like everything side-effecting;
+  // ahead of the unread bump and the push, so the bump's realtime event
+  // and the push reach the new assignee. Part of the inbox: a sender
+  // over the rate limit (fanOut: false) is assigned too. Never throws.
+  if (!conversation.assigned_agent_id && !conversation.human_engaged_at) {
     await assignChatFromCallHistory(supabaseAdmin(), {
       accountId,
       conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactOwnerId: contactRecord.user_id ?? null,
       phone: senderPhone,
     });
   }

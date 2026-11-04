@@ -597,8 +597,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // only the first member, usually the owner: a chat already held
       // (inbound gives it to the customer's last caller) keeps its person.
       if (cfg.mode === 'round_robin') write = write.is('assigned_agent_id', null)
-      await write
-      return `assigned to ${agentId}`
+      const { data: assigned } = await write.select('id')
+      return assigned?.length ? `assigned to ${agentId}` : 'no chat to assign'
     }
 
     case 'update_contact_field': {

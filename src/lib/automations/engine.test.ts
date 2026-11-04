@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
     // chat_channels_with_guests' answer: the channels that have a bank guest.
     chatGuestRpc: { data: [], error: null } as { data: unknown; error: unknown },
     // conversations lookup: rows keyed by id, each with its owner.
+    chatHeld: false,
     conversations: [] as {
       id: string;
       account_id: string;
@@ -108,7 +109,11 @@ vi.mock("./admin-client", () => {
     }
     if (table === "conversations" && type === "update") {
       state.updateCalls.push({ table, filters: ops.filters });
-      return { data: null, error: null };
+      // A chat with an assignee does not match the round_robin write.
+      return {
+        data: ops.filters.some(([op]) => op === "is") && state.chatHeld ? [] : [{ id: "conv-1" }],
+        error: null,
+      };
     }
     if (table === "conversations" && type === "select") {
       // Honour every eq() filter, like PostgREST would.
@@ -222,6 +227,7 @@ beforeEach(() => {
   h.state.logInserts = [];
   h.state.logUpdates = [];
   h.state.conversations = [];
+  h.state.chatHeld = false;
   h.state.dealInserts = [];
   h.state.rpcCalls = [];
   h.state.dealOwnerRpc = { data: null, error: null };
@@ -468,6 +474,13 @@ describe("assign_conversation — a held chat keeps its person", () => {
       "assigned_agent_id",
       null,
     ]);
+  });
+
+  it("logs no assignment when the chat was already held", async () => {
+    h.state.chatHeld = true;
+    await run({ mode: "round_robin" });
+    expect(JSON.stringify(h.state.logUpdates)).toContain("no chat to assign");
+    expect(JSON.stringify(h.state.logUpdates)).not.toContain("assigned to");
   });
 
   it("a named person still takes the chat", async () => {

@@ -16,14 +16,16 @@ and polish.
 
 - **Migration required: 171** (`171_calls_outbound_number_index.sql`, an
   index only; the feature works without it, more slowly).
-- An inbound WhatsApp message on a chat with no assignee now looks for
-  the sender's number in the workspace's whole call history. If someone
-  called that number from an extension, the chat is assigned to the most
-  recent caller who is still active staff, whether or not the call was
-  answered, instead of staying with the admin who connected the number.
-  They get the usual assignment bell, and the contact moves to them.
-  Because the chat now has a person, the AI bot leaves it alone, as on
-  any assigned chat. Flows and journeys still run.
+- An inbound WhatsApp message on a chat no person has touched now looks
+  for the sender's number in the workspace's whole call history. If
+  someone called that number from an extension, the chat is assigned to
+  the most recent caller who is still active staff, whether or not the
+  call was answered, instead of staying with the admin who connected the
+  number. They get the usual assignment bell, and the contact moves to
+  them. A chat a person has replied in or released is left alone, and so
+  is a contact another agent owns. Because the chat now has a person, the
+  AI bot leaves it alone, as on any assigned chat. Flows and journeys
+  still run.
 - An automation's _round robin_ assign step now only takes a chat with no
   assignee. An assign step that names a person still reassigns. See
   `docs/yeastar.md`.
