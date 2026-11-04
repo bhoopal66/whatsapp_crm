@@ -6,7 +6,7 @@
  * WhatsApp can hide a number behind an `…@lid` id, and that id matches nobody.
  * A hidden id may be the customer, so it is never evidence of absence.
  */
-import { phoneWasRefused } from './api-input';
+import { phoneWasRefused } from './rules';
 import { forms } from './inbound';
 import type { CustomerMembership, SubmissionGroupStore } from './store';
 
