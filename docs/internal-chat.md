@@ -648,6 +648,37 @@ room can read it, but must give a reason first.
   `moderate_delete`, `restrict_member` and `export_channel`: sixteen
   actions in all, named by one CHECK on `chat_audit_log.action`.
 
+## Deleting a channel (migration 172)
+
+`chat_delete_channel(p_channel, p_confirm_name)` removes a team or private
+channel for good, in one transaction. `chat_can_delete_channel(p_channel)`
+answers whether the caller may. Both are for signed-in users only.
+
+- **Who.** A live owner or admin, for any channel showing in their app: a
+  private channel they are not a member of does not, and reading one through
+  the audited admin read does not change that. A team leader or coordinator
+  (a live agent with a bank), for a channel they created and can still read.
+  Never a plain agent, viewer or bank guest, even as creator, and never a DM
+  or deal room. An archived channel can be deleted. The rule is fixed in SQL,
+  not in the permission matrix. With team chat switched off the call raises
+  `CH001`.
+- **Confirmation.** `p_confirm_name` must equal the channel name exactly.
+- **What goes.** Messages, attachment rows, reactions, pins, saves, mentions,
+  edit history, shared cards, voice plays, typing rows, restrictions, audience
+  teams, members, chat notifications, bell rows and `push_outbox` rows. A
+  message forwarded to another channel is a copy there and stays.
+- **Files.** With no attachment row an object is unreadable at once, and the
+  orphan sweep removes it once it is 24 hours old. A signed URL (300 s)
+  outlives the delete.
+- **Audit.** One `delete_channel` row with who, the channel's name and kind and
+  the counts, no message text. `chat_audit_log.channel_id` is a plain uuid
+  since 172, so earlier rows keep naming the channel by id.
+- **Realtime.** A DELETE event carries only the primary key and is not
+  RLS-filtered. `chat_channels` has default replica identity, so its old row
+  has no `account_id` for an `account_id=eq.` filter to match. Do not set
+  `REPLICA IDENTITY FULL` to fix that: every subscriber would get the name and
+  topic of a private channel.
+
 ## Retention and erasure
 
 Nothing in chat is deleted automatically (decision D-4, which stands);

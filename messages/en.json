@@ -3946,7 +3946,8 @@
           "set_audience": "Changed who can see a channel",
           "moderate_delete": "Removed someone else's message",
           "restrict_member": "Changed a posting restriction",
-          "export_channel": "Exported a channel"
+          "export_channel": "Exported a channel",
+          "delete_channel": "Deleted a channel"
         },
         "recordings": {
           "play": "Played a recording",

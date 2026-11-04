@@ -941,7 +941,7 @@ only). `docs/internal-chat.md` is the contract.
   - *Moderation (160).* Deleting another's message needs a 5–500 character
     reason and sets `deleted_by`; a restriction is enforced in
     `chat_assert_can_write`; `chat_export_channel` writes its audit row
-    first. `chat_audit_log.action` has a 16-value CHECK: any later
+    first. `chat_audit_log.action` has a 17-value CHECK (172 added one): any later
     migration must recreate it whole; 157–160 each skip the recreation
     when the constraint already lists their values, so re-running an
     older file does not drop it (it still restores its function bodies:
@@ -960,6 +960,12 @@ only). `docs/internal-chat.md` is the contract.
     The RPC needs no upload right, but the client-side copy is a storage
     upload (`chat_storage_can_write`: upload_files or send_voice), so
     `messageActions` offers Forward on a message with files only then.
+  - *Deleting a channel (172).* `chat_delete_channel` lists every table
+    with an FK to `chat_channels` / `internal_messages`, and
+    `verify-chat-delete-channel.sql` pins that list: a new one joins both.
+    `chat_audit_log.channel_id` has no FK so the log outlives the channel;
+    don't restore it. The function must be owned by
+    `internal_message_edits`' owner, or the `chat.erase` delete is refused.
   - Verify files: `verify-chat-messaging-v2.sql`, `verify-chat-permissions.sql`,
     `verify-chat-sensitive-guard.sql`, `verify-chat-restricted-channels.sql`,
     `verify-chat-moderation.sql`.

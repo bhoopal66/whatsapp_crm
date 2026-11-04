@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Added
+
+- **Delete a team chat channel permanently (database side).** An owner or
+  admin can delete any team or private channel showing in their app; a team
+  leader or coordinator the ones they created. Agents, viewers and bank
+  guests cannot, and DMs and deal rooms are never deleted this way. The
+  channel name must be typed to confirm. Messages, files, reactions, pins
+  and notifications go with it; the audit log keeps one row with the name
+  and counts, and its earlier rows. **Migration required: 172**
+  (`supabase/migrations/172_chat_delete_channel.sql`, as a superuser or
+  BYPASSRLS role).
+
 ### Team chat quick reactions suit a workplace
 
 - The one-tap reactions on a team chat message are now 👍 ✅ 👀 ⏳ 🙏 👏.

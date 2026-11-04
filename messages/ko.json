@@ -3946,7 +3946,8 @@
           "set_audience": "채널 공개 범위 변경",
           "moderate_delete": "다른 사람의 메시지 삭제",
           "restrict_member": "게시 제한 변경",
-          "export_channel": "채널 내보내기"
+          "export_channel": "채널 내보내기",
+          "delete_channel": "채널 삭제"
         },
         "recordings": {
           "play": "녹음 재생",

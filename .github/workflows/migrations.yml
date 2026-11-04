@@ -630,6 +630,14 @@ jobs:
       - name: Verify chat moderation
         run: supabase db query --local --file supabase/ci/verify-chat-moderation.sql
 
+      # Migration 172's permanent channel delete: who may (owner / admin on
+      # what shows in their app, a team leader or coordinator on their own,
+      # never an agent, viewer, guest, DM or deal room), the confirm name,
+      # that nothing of the channel remains, and that the audit log keeps
+      # its earlier rows and gains one with no message text.
+      - name: Verify chat channel delete
+        run: supabase db query --local --file supabase/ci/verify-chat-delete-channel.sql
+
       # Migration 165's security lows: a forwarded copy's storage object
       # must have the source file's size and the source object's stored
       # mimetype (no metadata: refused); the Smart insights interested-
