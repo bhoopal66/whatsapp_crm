@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Submission group invites on every retry
+
+- When WhatsApp refuses to add a customer, they now get the group's invite
+  link however the group was created. A group created by the automatic
+  retry or an admin's retry used to invite nobody and record nothing. No
+  migration.
+
 ### No WhatsApp group for a case an admin filed
 
 - A submission whose agent is an owner or admin now opens in the CRM with

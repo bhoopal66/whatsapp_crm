@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   createGroup: vi.fn(),
   getInviteLink: vi.fn(),
   sendGroupText: vi.fn(),
+  sendInviteLink: vi.fn(),
   getGroup: vi.fn(),
   removeParticipants: vi.fn(),
   leaveGroup: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   createGroup: h.createGroup,
   getInviteLink: h.getInviteLink,
   sendGroupText: h.sendGroupText,
+  sendInviteLink: h.sendInviteLink,
   getGroup: h.getGroup,
   removeParticipants: h.removeParticipants,
   leaveGroup: h.leaveGroup,
@@ -122,6 +124,24 @@ describe('createGroup', () => {
       api().createGroup('cfg-meta', ['971501234567'], 'S', 'k')
     ).rejects.toThrow('Whapi');
     expect(h.createGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendInvite', () => {
+  it('sends the link from the hosting number', async () => {
+    await api().sendInvite('cfg-1', 'CODE1', '971501234567');
+    expect(h.sendInviteLink).toHaveBeenCalledWith({
+      channel: expect.objectContaining({ id: 'cfg-1' }),
+      inviteCode: 'CODE1',
+      to: '971501234567',
+    });
+  });
+
+  it("refuses a number that isn't this account's", async () => {
+    await expect(
+      api().sendInvite('cfg-other', 'CODE1', '971501234567')
+    ).rejects.toBeInstanceOf(SubmissionGroupChannelError);
+    expect(h.sendInviteLink).not.toHaveBeenCalled();
   });
 });
 

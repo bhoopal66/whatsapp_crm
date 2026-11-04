@@ -12,8 +12,9 @@
 // leader, admin or owner of the key's workspace (422 unknown_user names
 // the field). The group lives on a Whapi number the agent may use; an
 // agent with none gets the CRM record alone (`whatsapp.mode: 'none'`).
-// A customer WhatsApp refused to add is sent the invite link 1:1; the
-// outcome is recorded on the group (migration 118, invite_sent_at).
+// A customer WhatsApp refused to add is sent the invite link 1:1 by the
+// service, as on every create path; the outcome is recorded on the group
+// (migration 118, invite_sent_at) and answered as `invite_sent`.
 //
 // Migration 136: WhatsApp groups are a per-account switch
 // (case_submission_whatsapp_groups, default off). Off, a NEW submission
@@ -40,7 +41,6 @@ import {
   ContactError,
 } from '@/lib/api/v1/contacts';
 import { loadChannels } from '@/lib/whatsapp/channels';
-import { sendInviteLink } from '@/lib/whatsapp/groups';
 import {
   submissionGroupService,
   submissionGroupStore,
@@ -48,10 +48,8 @@ import {
 import {
   chooseHostingNumber,
   coordinatorPhoneList,
-  inviteCodeOf,
   isAdminAgent,
   parseCreateInput,
-  phoneWasRefused,
   resolveStaff,
   serializeGroup,
   type AccessEntry,
@@ -71,19 +69,6 @@ const CONSENT_MESSAGE =
   'The customer has opted out of WhatsApp messages or asked not to be contacted';
 const PENDING_MESSAGE =
   'WhatsApp could not create the group yet; it will be retried automatically';
-// The invite's recorded failure (`invite_send_error`), one fixed category:
-// every member of the group reads it in the dashboard, so the gateway's own
-// error text (which can carry provider detail) stays in the server log.
-const INVITE_NO_NUMBER = 'The hosting WhatsApp number is not available';
-const INVITE_REFUSED = 'WhatsApp refused the invite';
-const INVITE_NOT_SENT = 'The invite could not be sent';
-
-/** A gateway error carries its HTTP `status`: the provider answered and refused. */
-function inviteFailure(err: unknown): string {
-  const status = (err as { status?: unknown } | null)?.status;
-  return typeof status === 'number' ? INVITE_REFUSED : INVITE_NOT_SENT;
-}
-
 /** Opens (or fills) the group's case; null on any failure, never a throw. */
 async function openCase(
   accountId: string,
@@ -439,37 +424,8 @@ export async function POST(request: Request) {
     if (result.consentRequired)
       return fail('consent_required', CONSENT_MESSAGE, 409);
 
-    let group = result.group;
+    const group = result.group;
     await linkCompassContact(db, ctx.accountId, group, customerPhone);
-    let inviteSent = false;
-    const code = inviteCodeOf(result.inviteLink);
-    if (code && phoneWasRefused(result.refusedParticipants, customerPhone)) {
-      let sendError: string | null = INVITE_NO_NUMBER;
-      try {
-        const channel = (await loadChannels(db, ctx.accountId)).find(
-          (c) => c.id === group.channelId
-        );
-        if (channel) {
-          await sendInviteLink({
-            channel,
-            inviteCode: code,
-            to: customerPhone,
-          });
-          inviteSent = true;
-          sendError = null;
-        }
-      } catch (err) {
-        console.error('[api/v1/submission-groups] invite send:', err);
-        sendError = inviteFailure(err);
-      }
-      // Best-effort: the send already happened (or not); recording it never fails the request.
-      try {
-        if (await store.noteInvite(group.id, inviteSent, sendError))
-          group = (await store.get(group.id)) ?? group;
-      } catch (err) {
-        console.error('[api/v1/submission-groups] invite record:', err);
-      }
-    }
 
     // The case is opened first: the welcome message reads its product and bank.
     const openedCase = await openCase(ctx.accountId, group.id, input);
@@ -486,7 +442,7 @@ export async function POST(request: Request) {
     }
     const extras = {
       refusedParticipants: result.refusedParticipants,
-      inviteSent,
+      inviteSent: result.inviteSent,
       case: openedCase,
     };
     if (

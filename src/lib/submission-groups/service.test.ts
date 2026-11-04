@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { StaffLabel } from './rules';
 import {
+  SubmissionGroupChannelError,
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
@@ -34,6 +35,8 @@ class FakeStore implements GroupStore {
   messages: (GroupMessage & { groupId: string; systemKey?: string })[] = [];
   admins = new Set(['adam']);
   audit: { groupId: string; userId: string }[] = [];
+  invites: { groupId: string; sent: boolean; error: string | null }[] = [];
+  noteInviteFails = false;
   private seq = 0;
 
   async open(i: Parameters<GroupStore['open']>[0]) {
@@ -245,6 +248,16 @@ class FakeStore implements GroupStore {
       (m) => m.groupId === id && m.sendStatus === 'pending'
     ).length;
   }
+  async noteInvite(groupId: string, sent: boolean, error: string | null) {
+    if (this.noteInviteFails) throw new Error('db down');
+    this.invites.push({ groupId, sent, error });
+    const g = this.groups.get(groupId);
+    if (!g || g.status !== 'ACTIVE') return false;
+    if (sent)
+      Object.assign(g, { inviteSentAt: new Date(), inviteSendError: null });
+    else g.inviteSendError = error;
+    return true;
+  }
   async failStalePending(olderThanMs: number, now?: Date) {
     const cut = (now ?? new Date()).getTime() - olderThanMs;
     const hit = this.messages.filter(
@@ -283,6 +296,10 @@ class FakeApi implements GroupsApi {
   fail = new Set<string>();
   byKey = new Map<string, string>();
   hook: (() => Promise<void>) | null = null;
+  /** What createGroup answers: who WhatsApp refused, and the link when set. */
+  refused: string[] = [];
+  link: string | null | undefined = undefined;
+  inviteError: Error | null = null;
   private seq = 0;
   private maybeFail(m: string) {
     if (this.fail.delete(m)) throw new Error(`${m} failed`);
@@ -297,7 +314,16 @@ class FakeApi implements GroupsApi {
     this.maybeFail('createGroup');
     const wa = this.byKey.get(key) ?? `wag-${++this.seq}@g.us`;
     this.byKey.set(key, wa);
-    return { waGroupId: wa, inviteLink: `https://chat.whatsapp.com/${wa}` };
+    return {
+      waGroupId: wa,
+      inviteLink:
+        this.link === undefined ? `https://chat.whatsapp.com/${wa}` : this.link,
+      refused: this.refused,
+    };
+  }
+  async sendInvite(ch: string, code: string, to: string) {
+    this.calls.push({ method: 'sendInvite', args: [ch, code, to] });
+    if (this.inviteError) throw this.inviteError;
   }
   async sendGroupText(ch: string, wa: string, text: string) {
     this.calls.push({ method: 'sendGroupText', args: [ch, wa, text] });
@@ -337,6 +363,7 @@ function setup(
     store?: FakeStore;
     api?: FakeApi;
     welcomeDetails?: SubmissionGroupServiceDeps['welcomeDetails'];
+    logger?: SubmissionGroupServiceDeps['logger'];
   } = {}
 ) {
   const store = o.store ?? new FakeStore();
@@ -353,7 +380,7 @@ function setup(
       return consent.answer;
     },
     displayName: async (u) => NAMES[u] ?? null,
-    logger: { warn: () => {} },
+    logger: o.logger ?? { warn: () => {} },
     ...(o.welcomeDetails ? { welcomeDetails: o.welcomeDetails } : {}),
     ...(o.now ? { now: o.now } : {}),
   });
@@ -1279,5 +1306,194 @@ describe('the 2-day close hold (170)', () => {
       closeDeferred: true,
     });
     expect(s.api.of('closeGroup')).toEqual([]);
+  });
+});
+
+describe('invite for a customer WhatsApp refused', () => {
+  const PHONE = '971500000001';
+  const LINK = 'https://chat.whatsapp.com/CODE1';
+  const later = () => new Date(Date.now() + DAY);
+  const refusing = (o: Parameters<typeof setup>[0] = {}) => {
+    const s = setup(o);
+    s.api.refused = [PHONE];
+    s.api.link = LINK;
+    return s;
+  };
+  /** A group whose first createGroup failed, so it is pending. */
+  const pending = async (s: ReturnType<typeof setup>) => {
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow('createGroup failed');
+    return [...s.store.groups.values()][0];
+  };
+
+  it('sends once on a first create and answers the recorded group', async () => {
+    const s = refusing();
+    const r = await s.open();
+    expect(s.api.of('sendInvite')).toEqual([
+      { method: 'sendInvite', args: [CH, 'CODE1', PHONE] },
+    ]);
+    expect(s.store.invites).toEqual([
+      { groupId: expect.any(String), sent: true, error: null },
+    ]);
+    expect(r).toMatchObject({
+      inviteSent: true,
+      refusedParticipants: [PHONE],
+      group: { waGroupId: expect.any(String), inviteLink: LINK },
+    });
+    if (r.consentRequired) throw new Error('unexpected consentRequired');
+    expect(r.group.inviteSentAt).toBeInstanceOf(Date);
+  });
+
+  it('matches a refused JID by its digits', async () => {
+    const s = refusing();
+    s.api.refused = [`${PHONE}@s.whatsapp.net`];
+    await s.open();
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+
+  it('sends nothing more on a repeat call', async () => {
+    const s = refusing();
+    await s.open();
+    const again = await s.open();
+    expect(again).toMatchObject({ inviteSent: false, refusedParticipants: [] });
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+    expect(s.store.invites).toHaveLength(1);
+  });
+
+  it('invites from a group the cron created', async () => {
+    const s = refusing({ now: later });
+    const g = await pending(s);
+    const input = { accountId: ACC, olderThanMs: 1000 };
+    const r = await s.svc.retryPending(input);
+    expect(r.created).toEqual([g.id]);
+    expect(s.api.of('sendInvite')).toEqual([
+      { method: 'sendInvite', args: [CH, 'CODE1', PHONE] },
+    ]);
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: true, error: null },
+    ]);
+    await s.svc.retryPending(input);
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+
+  it('invites from a group the admin retry created', async () => {
+    const s = refusing();
+    const g = await pending(s);
+    const r = await s.svc.retryOne(g.id);
+    expect(r).toMatchObject({ inviteSent: true, refusedParticipants: [PHONE] });
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: true, error: null },
+    ]);
+    await expect(s.svc.retryOne(g.id)).resolves.toMatchObject({
+      inviteSent: false,
+    });
+    expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+
+  it('sends nothing when no one was refused', async () => {
+    const s = setup();
+    s.api.link = LINK;
+    await expect(s.open()).resolves.toMatchObject({ inviteSent: false });
+    expect(s.api.of('sendInvite')).toEqual([]);
+    expect(s.store.invites).toEqual([]);
+  });
+
+  it('sends nothing when only a coordinator was refused', async () => {
+    const s = refusing();
+    s.api.refused = ['971500000009'];
+    const r = await s.open('S-1', '971500000009');
+    expect(r).toMatchObject({
+      inviteSent: false,
+      refusedParticipants: ['971500000009'],
+    });
+    expect(s.api.of('sendInvite')).toEqual([]);
+    expect(s.store.invites).toEqual([]);
+  });
+
+  it('records a failed send and the create still succeeds', async () => {
+    const s = refusing();
+    s.api.inviteError = new Error('gateway down: secret');
+    const r = await s.open();
+    expect(r).toMatchObject({
+      inviteSent: false,
+      group: {
+        waGroupId: expect.any(String),
+        inviteSendError: 'The invite could not be sent',
+      },
+    });
+    expect(s.store.invites).toEqual([
+      {
+        groupId: expect.any(String),
+        sent: false,
+        error: 'The invite could not be sent',
+      },
+    ]);
+  });
+
+  it('records a fixed category, never the gateway text, when WhatsApp refuses the invite', async () => {
+    const s = refusing();
+    s.api.inviteError = Object.assign(
+      new Error('HTTP 403: token abc123 refused'),
+      { status: 403 }
+    );
+    await s.open();
+    expect(s.store.invites[0]).toMatchObject({
+      sent: false,
+      error: 'WhatsApp refused the invite',
+    });
+  });
+
+  it('names a hosting number that is gone', async () => {
+    const s = refusing();
+    s.api.inviteError = new SubmissionGroupChannelError(CH);
+    await s.open();
+    expect(s.store.invites[0]).toMatchObject({
+      sent: false,
+      error: 'The hosting WhatsApp number is not available',
+    });
+  });
+
+  it.each([null, 'https://evil.example/CODE1'])(
+    'records the failure, and sends nothing, with no usable link (%s)',
+    async (link) => {
+      const s = refusing();
+      s.api.link = link;
+      await expect(s.open()).resolves.toMatchObject({ inviteSent: false });
+      expect(s.api.of('sendInvite')).toEqual([]);
+      expect(s.store.invites[0]).toMatchObject({
+        sent: false,
+        error: 'The group has no invite link',
+      });
+    }
+  );
+
+  it('logs a failed record and still answers the send', async () => {
+    const warn = vi.fn();
+    const s = refusing({ logger: { warn } });
+    s.store.noteInviteFails = true;
+    const r = await s.open();
+    expect(r).toMatchObject({
+      inviteSent: true,
+      group: { waGroupId: expect.any(String), inviteSentAt: null },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      'invite outcome could not be recorded',
+      expect.objectContaining({ sent: true })
+    );
+  });
+
+  it('never reaches an opted-out customer: the consent re-check stops the create', async () => {
+    const s = refusing({ now: later });
+    const g = await pending(s);
+    s.api.calls = [];
+    s.consent.answer = { allowed: false, phone: PHONE, reason: 'opted_out' };
+    const r = await s.svc.retryPending({ accountId: ACC, olderThanMs: 1000 });
+    expect(r.consentRequired).toEqual([g.id]);
+    await expect(s.svc.retryOne(g.id)).resolves.toMatchObject({
+      consentRequired: true,
+    });
+    expect(s.api.calls).toEqual([]);
+    expect(s.store.invites).toEqual([]);
   });
 });

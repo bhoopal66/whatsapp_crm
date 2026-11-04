@@ -5,10 +5,8 @@ import {
   coordinatorPhoneList,
   defaultSubject,
   MAX_COORDINATOR_PHONES,
-  inviteCodeOf,
   parseCreateInput,
   parsePatchInput,
-  phoneWasRefused,
   resolveStaff,
   serializeGroup,
 } from './api-input';
@@ -427,23 +425,6 @@ describe('chooseHostingNumber', () => {
       ok: true,
       channel: { id: 'w2' },
     });
-  });
-});
-
-describe('phoneWasRefused / inviteCodeOf', () => {
-  it('matches wa ids and JIDs by digits', () => {
-    expect(
-      phoneWasRefused(['971501234567@s.whatsapp.net'], '971501234567')
-    ).toBe(true);
-    expect(phoneWasRefused(['971501234567'], '+971 50 123 4567')).toBe(true);
-    expect(phoneWasRefused(['971509999999'], '971501234567')).toBe(false);
-    expect(phoneWasRefused([], '971501234567')).toBe(false);
-  });
-
-  it('reads the code of a chat.whatsapp.com link only', () => {
-    expect(inviteCodeOf('https://chat.whatsapp.com/AbC123')).toBe('AbC123');
-    expect(inviteCodeOf('https://evil.example/AbC123')).toBeNull();
-    expect(inviteCodeOf(null)).toBeNull();
   });
 });
 

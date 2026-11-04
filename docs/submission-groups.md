@@ -114,7 +114,10 @@ defaults to `<company> x Taamul Credit`, the company being
 If WhatsApp refuses to add the customer (privacy settings), the group
 still exists and the group's invite link is sent to them 1:1 from the
 hosting number (as plain text when the group has no picture, which
-Whapi's rich invite needs). That invite is the one message this module sends without
+Whapi's rich invite needs). This holds however the group came to exist:
+the first request, a repeat request, the cron's retry or an admin's
+retry. A group created with no usable invite link records that as the
+failure. That invite is the one message this module sends without
 storing it: it appears neither in the group's log nor in the inbox. Its
 outcome is recorded on the group (migration 118): `invite_sent_at` when it
 went out, or the reason it failed, and the group page's header shows

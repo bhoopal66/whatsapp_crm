@@ -8,7 +8,9 @@ import {
   CLOSE_HOLD_DAYS,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
   DEFAULT_FINAL_STATUSES,
+  inviteCodeOf,
   isFinalStatus,
+  phoneWasRefused,
   prefixMessage,
   shouldEnd,
   welcomeMessage,
@@ -215,5 +217,22 @@ describe('welcomeMessage (170)', () => {
     ).toMatch(
       /^Hello Aisha Khan 👋\n\nThis group is for your \*Home loan\* application with \*FAB\*\./
     );
+  });
+});
+
+describe('phoneWasRefused / inviteCodeOf', () => {
+  it('matches wa ids and JIDs by digits', () => {
+    expect(
+      phoneWasRefused(['971501234567@s.whatsapp.net'], '971501234567')
+    ).toBe(true);
+    expect(phoneWasRefused(['971501234567'], '+971 50 123 4567')).toBe(true);
+    expect(phoneWasRefused(['971509999999'], '971501234567')).toBe(false);
+    expect(phoneWasRefused([], '971501234567')).toBe(false);
+  });
+
+  it('reads the code of a chat.whatsapp.com link only', () => {
+    expect(inviteCodeOf('https://chat.whatsapp.com/AbC123')).toBe('AbC123');
+    expect(inviteCodeOf('https://evil.example/AbC123')).toBeNull();
+    expect(inviteCodeOf(null)).toBeNull();
   });
 });

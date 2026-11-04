@@ -571,27 +571,19 @@ describe('POST /api/v1/submission-groups', () => {
     });
   });
 
-  it('sends the invite link to a customer WhatsApp refused', async () => {
+  it('answers the invite the service sent, and sends none of its own', async () => {
     m.service.openForSubmission.mockResolvedValue({
       consentRequired: false,
       created: true,
-      group: group(),
+      group: group({ inviteSentAt: new Date('2026-10-16T10:01:00Z') }),
       inviteLink: 'https://chat.whatsapp.com/CODE1',
       refusedParticipants: ['971501234567'],
+      inviteSent: true,
     });
-    m.store.get.mockResolvedValue(
-      group({ inviteSentAt: new Date('2026-10-16T10:01:00Z') })
-    );
     const res = await post(body);
     expect(res.status).toBe(201);
-    expect(m.sendInviteLink).toHaveBeenCalledWith(
-      expect.objectContaining({
-        inviteCode: 'CODE1',
-        to: '971501234567',
-        channel: expect.objectContaining({ id: 'w1' }),
-      })
-    );
-    expect(m.store.noteInvite).toHaveBeenCalledWith('g1', true, null);
+    expect(m.sendInviteLink).not.toHaveBeenCalled();
+    expect(m.store.noteInvite).not.toHaveBeenCalled();
     const { data } = await res.json();
     expect(data.whatsapp).toMatchObject({
       invite_sent: true,
@@ -600,15 +592,15 @@ describe('POST /api/v1/submission-groups', () => {
     });
   });
 
-  it('answers 201 even when recording the invite fails', async () => {
+  it('answers 201 with invite_sent_at null when the record failed', async () => {
     m.service.openForSubmission.mockResolvedValue({
       consentRequired: false,
       created: true,
       group: group(),
       inviteLink: 'https://chat.whatsapp.com/CODE1',
       refusedParticipants: ['971501234567'],
+      inviteSent: true,
     });
-    m.store.noteInvite.mockRejectedValue(new Error('db down'));
     const res = await post(body);
     expect(res.status).toBe(201);
     const { data } = await res.json();
@@ -618,45 +610,18 @@ describe('POST /api/v1/submission-groups', () => {
     });
   });
 
-  it('reports invite_sent false when the invite send fails', async () => {
+  it('reports invite_sent false when the invite send failed', async () => {
     m.service.openForSubmission.mockResolvedValue({
       consentRequired: false,
       created: true,
       group: group(),
       inviteLink: 'https://chat.whatsapp.com/CODE1',
       refusedParticipants: ['971501234567@s.whatsapp.net'],
+      inviteSent: false,
     });
-    m.sendInviteLink.mockRejectedValue(new Error('gateway down: secret'));
     const res = await post(body);
     expect(res.status).toBe(201);
     expect((await res.json()).data.whatsapp.invite_sent).toBe(false);
-    expect(m.store.noteInvite).toHaveBeenCalledWith(
-      'g1',
-      false,
-      'The invite could not be sent'
-    );
-  });
-
-  it('records a fixed category, never the gateway text, when WhatsApp refuses the invite', async () => {
-    m.service.openForSubmission.mockResolvedValue({
-      consentRequired: false,
-      created: true,
-      group: group(),
-      inviteLink: 'https://chat.whatsapp.com/CODE1',
-      refusedParticipants: ['971501234567'],
-    });
-    m.sendInviteLink.mockRejectedValue(
-      Object.assign(new Error('HTTP 403: token abc123 refused'), {
-        status: 403,
-      })
-    );
-    const res = await post(body);
-    expect(res.status).toBe(201);
-    expect(m.store.noteInvite).toHaveBeenCalledWith(
-      'g1',
-      false,
-      'WhatsApp refused the invite'
-    );
   });
 
   it('answers 202 pending, never 5xx, when WhatsApp cannot create the group', async () => {

@@ -17,6 +17,10 @@
  *     only if the re-read row shows it cannot be live. Before every createGroup
  *     the claim holder re-checks consent (deps.consent: opt-out, do-not-contact,
  *     phone on record — never the caller's phone).
+ *     Every create (first call, repeat call, cron, admin retry) ends here, so
+ *     this is the one place a customer WhatsApp refused is sent the invite link
+ *     1:1: best-effort, the outcome recorded by sg_note_invite, never failing
+ *     the create. Consent was checked just before the createGroup.
  *   sendFromCrm — sg_send_begin writes the 'out' row as 'pending' (SQL decides
  *     who may send); then the consent check (refused: row 'blocked'), the send
  *     from the hosting number (error: row 'failed'), and the row is settled
@@ -37,6 +41,8 @@
 import {
   assertWindowDays,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
+  inviteCodeOf,
+  phoneWasRefused,
   prefixMessage,
   shouldEnd,
   welcomeMessage,
@@ -76,6 +82,8 @@ export interface GroupsApi {
     text: string
   ): Promise<{ waMessageId: string }>;
   closeGroup(channelId: string, waGroupId: string): Promise<void>;
+  /** Sends the group's invite link 1:1 to `to` from the hosting number. */
+  sendInvite(channelId: string, inviteCode: string, to: string): Promise<void>;
 }
 
 export type GroupStore = Pick<
@@ -94,6 +102,7 @@ export type GroupStore = Pick<
   | 'sendState'
   | 'end'
   | 'markWaClosed'
+  | 'noteInvite'
   | 'recordWaCloseError'
   | 'countPendingOut'
   | 'closeHoldUntil'
@@ -145,6 +154,14 @@ export class SubmissionGroupSendRefusedError extends Error {
   }
 }
 
+/** The group's number is gone from the account (or never belonged to it). */
+export class SubmissionGroupChannelError extends Error {
+  override readonly name = 'SubmissionGroupChannelError';
+  constructor(readonly channelId: string) {
+    super(`WhatsApp number ${channelId} is not connected to this account`);
+  }
+}
+
 /** The consent check refused a send; the row was settled 'blocked'. */
 export class SubmissionGroupSendBlockedError extends Error {
   override readonly name = 'SubmissionGroupSendBlockedError';
@@ -180,6 +197,8 @@ export type OpenResult =
       group: SubmissionGroup;
       inviteLink: string | null;
       refusedParticipants: string[];
+      /** This call sent the customer the invite link 1:1. */
+      inviteSent: boolean;
     };
 
 /** closeDeferred: ENDED, but closeGroup waits for a pending send or 170's close hold; the next call retries. */
@@ -210,9 +229,25 @@ type CreateOutcome =
       group: SubmissionGroup;
       inviteLink: string | null;
       refused: string[];
+      inviteSent: boolean;
     };
 
 export const DEFAULT_CREATE_LEASE_MS = 120_000;
+
+// The invite's recorded failure (`invite_send_error`), one fixed category:
+// every member of the group reads it in the dashboard, so the gateway's own
+// error text (which can carry provider detail) stays in the server log.
+const INVITE_NO_NUMBER = 'The hosting WhatsApp number is not available';
+const INVITE_NO_LINK = 'The group has no invite link';
+const INVITE_REFUSED = 'WhatsApp refused the invite';
+const INVITE_NOT_SENT = 'The invite could not be sent';
+
+/** A gateway error carries its HTTP `status`: the provider answered and refused. */
+function inviteFailure(err: unknown): string {
+  if (err instanceof SubmissionGroupChannelError) return INVITE_NO_NUMBER;
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? INVITE_REFUSED : INVITE_NOT_SENT;
+}
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const CONSENT_REQUIRED = {
@@ -277,6 +312,7 @@ export class SubmissionGroupService {
         group,
         inviteLink: group.inviteLink,
         refusedParticipants: [],
+        inviteSent: false,
       };
     const out = await this.createPending(group);
     if (out.consentRequired) return CONSENT_REQUIRED;
@@ -286,6 +322,7 @@ export class SubmissionGroupService {
       group: out.group,
       inviteLink: out.inviteLink,
       refusedParticipants: out.refused,
+      inviteSent: out.inviteSent,
     };
   }
 
@@ -345,6 +382,7 @@ export class SubmissionGroupService {
         group,
         inviteLink: group.inviteLink,
         refusedParticipants: [],
+        inviteSent: false,
       };
     const out = await this.createPending(group);
     if (out.consentRequired) return CONSENT_REQUIRED;
@@ -354,6 +392,7 @@ export class SubmissionGroupService {
       group: out.group,
       inviteLink: out.inviteLink,
       refusedParticipants: out.refused,
+      inviteSent: out.inviteSent,
     };
   }
 
@@ -368,6 +407,7 @@ export class SubmissionGroupService {
         group,
         inviteLink: group.inviteLink,
         refused: [],
+        inviteSent: false,
       };
     // Only the holder of the create claim calls the gateway; anyone else gets the group as it stands.
     const token = await store.claimCreate(
@@ -382,9 +422,11 @@ export class SubmissionGroupService {
         group: current ?? group,
         inviteLink: current?.inviteLink ?? null,
         refused: [],
+        inviteSent: false,
       };
     }
     let made: Awaited<ReturnType<GroupsApi['createGroup']>>;
+    let customerPhone: string;
     try {
       // Re-checked by the claim holder before every createGroup: a pending group's row says nothing about consent now.
       const consent = await this.deps.consent(contactId);
@@ -392,6 +434,7 @@ export class SubmissionGroupService {
         await this.releaseClaimQuietly(group.id, token, null);
         return { consentRequired: true };
       }
+      customerPhone = consent.phone;
       // The customer, then the coordinator numbers. A 142 row's list is already deduped, capped and holds the
       // request's number; only an older row falls back to its single coordinator_phone. Compared as digits.
       const participants = [consent.phone];
@@ -440,19 +483,70 @@ export class SubmissionGroupService {
         group: current ?? group,
         inviteLink: current?.inviteLink ?? null,
         refused: [],
+        inviteSent: false,
       };
     }
+    const live: SubmissionGroup = {
+      ...group,
+      waGroupId: made.waGroupId,
+      inviteLink: made.inviteLink,
+      waCreateError: null,
+    };
+    const refused = made.refused ?? [];
+    const invite = phoneWasRefused(refused, customerPhone)
+      ? await this.inviteCustomer(live, channelId, customerPhone)
+      : { group: live, sent: false };
     return {
       consentRequired: false,
-      group: {
-        ...group,
-        waGroupId: made.waGroupId,
-        inviteLink: made.inviteLink,
-        waCreateError: null,
-      },
+      group: invite.group,
       inviteLink: made.inviteLink,
-      refused: made.refused ?? [],
+      refused,
+      inviteSent: invite.sent,
     };
+  }
+
+  /** Sends a refused customer the group's invite link and records the outcome. Never throws. */
+  private async inviteCustomer(
+    group: SubmissionGroup,
+    channelId: string,
+    phone: string
+  ): Promise<{ group: SubmissionGroup; sent: boolean }> {
+    const code = inviteCodeOf(group.inviteLink);
+    let sent = false;
+    let error: string | null = INVITE_NO_LINK;
+    if (code) {
+      try {
+        await this.deps.api.sendInvite(channelId, code, phone);
+        sent = true;
+        error = null;
+      } catch (err) {
+        this.log.warn('invite link could not be sent', {
+          groupId: group.id,
+          err: errText(err),
+        });
+        error = inviteFailure(err);
+      }
+    }
+    return { group: await this.recordInvite(group, sent, error), sent };
+  }
+
+  /** The group as it stands after the record; a failed record is logged, since the send already happened (or not). */
+  private async recordInvite(
+    group: SubmissionGroup,
+    sent: boolean,
+    error: string | null
+  ): Promise<SubmissionGroup> {
+    try {
+      if (await this.deps.store.noteInvite(group.id, sent, error))
+        return (await this.deps.store.get(group.id)) ?? group;
+    } catch (err) {
+      this.log.warn('invite outcome could not be recorded', {
+        groupId: group.id,
+        sent,
+        err: errText(err),
+      });
+    }
+    return group;
   }
 
   /**

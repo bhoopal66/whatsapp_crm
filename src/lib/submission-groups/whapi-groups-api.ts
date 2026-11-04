@@ -12,15 +12,9 @@ import * as groups from '@/lib/whatsapp/groups';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
-import type { GroupsApi } from './service';
+import { SubmissionGroupChannelError, type GroupsApi } from './service';
 
-/** The group's number is gone from the account (or never belonged to it). */
-export class SubmissionGroupChannelError extends Error {
-  override readonly name = 'SubmissionGroupChannelError';
-  constructor(readonly channelId: string) {
-    super(`WhatsApp number ${channelId} is not connected to this account`);
-  }
-}
+export { SubmissionGroupChannelError };
 
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
@@ -80,6 +74,11 @@ export function createWhapiGroupsApi(
         text,
       });
       return { waMessageId: sent.messageId };
+    },
+
+    async sendInvite(channelId, inviteCode, to) {
+      const channel = await channelFor(channelId);
+      await groups.sendInviteLink({ channel, inviteCode, to });
     },
 
     /**

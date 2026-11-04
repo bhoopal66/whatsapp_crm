@@ -213,3 +213,20 @@ export function welcomeMessage(input: {
     'Ask us anything here at any time.\n_Taamul Credit team_',
   ].join('\n\n');
 }
+
+const digits = (s: string) => s.replace(/@.*$/, '').replace(/\D/g, '');
+
+/** True when WhatsApp refused to add this phone (refused entries are wa ids or JIDs). */
+export function phoneWasRefused(
+  refused: readonly string[],
+  phone: string
+): boolean {
+  const want = digits(phone);
+  return want !== '' && refused.some((r) => digits(r) === want);
+}
+
+/** The invite code of a https://chat.whatsapp.com/<code> link, or null. */
+export function inviteCodeOf(link: string | null): string | null {
+  const m = link?.match(/^https:\/\/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)$/);
+  return m ? m[1] : null;
+}
