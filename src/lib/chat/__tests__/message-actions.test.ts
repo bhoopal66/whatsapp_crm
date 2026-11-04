@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { formatMention } from '../mentions';
 import {
+  QUICK_REACTIONS,
   applyLocalPatch,
   canViewEditHistory,
   editHistoryRows,
@@ -56,6 +57,12 @@ const windows = (edit: number | null, del: number | null, apply = true) => ({
   editWindowMinutes: edit,
   deleteWindowMinutes: del,
   windowsApply: apply,
+});
+
+describe('QUICK_REACTIONS', () => {
+  it('offers work answers, not hearts or laughter', () => {
+    expect(QUICK_REACTIONS).toEqual(['👍', '✅', '👀', '⏳', '🙏', '👏']);
+  });
 });
 
 describe('messageActions', () => {

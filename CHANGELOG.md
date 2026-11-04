@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat quick reactions suit a workplace
+
+- The one-tap reactions on a team chat message are now 👍 ✅ 👀 ⏳ 🙏 👏.
+  ❤️ and 😂 are gone from the quick row; the full emoji picker is
+  unchanged, and reactions already on messages stay.
+
 ### Team chat no longer shows colleagues as "Unknown"
 
 - Team chat read its list of names once per page load and, if that read

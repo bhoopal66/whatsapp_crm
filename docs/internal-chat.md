@@ -388,7 +388,7 @@ audited as `update_sensitive_guard` (old and new).
   capability and the channel's @channel rule (`42501`, "you may not
   notify everyone").
 - **Reactions** toggle: the same emoji again removes it. The quick bar
-  offers 👍 ✅ 👀 🙏 ❤️ 😂; the database accepts any emoji of 1 to 32
+  offers 👍 ✅ 👀 ⏳ 🙏 👏; the database accepts any emoji of 1 to 32
   characters.
 - **Pins.** Anyone who can post in the channel (and holds _pin
   messages_) can pin and unpin. A

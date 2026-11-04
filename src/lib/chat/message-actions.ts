@@ -12,7 +12,12 @@ import { canModerate } from './moderation';
 import { windowOpen, type ChatPermissions } from './permissions';
 import type { ChatMessage, ChatPerson, MessageEdit } from './types';
 
-export const QUICK_REACTIONS = ['👍', '✅', '👀', '🙏', '❤️', '😂'] as const;
+/**
+ * Agreed, done, looking at it, in progress, thank you, well done. This is
+ * a company chat room, so the one-tap choices are work answers; anything
+ * else is still in the full picker.
+ */
+export const QUICK_REACTIONS = ['👍', '✅', '👀', '⏳', '🙏', '👏'] as const;
 
 export interface MessageActionSet {
   react: boolean;
