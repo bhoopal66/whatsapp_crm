@@ -1,51 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Deleting from the CRM is owner/admin only and touches nothing but
-// groups our number has LEFT in the caller's active account. Both
-// filters sit on the DELETE itself, so a group re-joined between the
-// read and the delete survives.
+import { fakeSupabase, type FakeDb } from '@/lib/groups/test-db';
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
-type Row = { id: string; account_id: string; our_role: string };
-type Op = { kind: 'select' | 'delete'; calls: Array<[string, unknown[]]> };
-
-/** An in-memory `whatsapp_groups` that applies eq/in like PostgREST. */
-function fakeDb(rows: Row[], log: Op[], afterRead?: () => void) {
-  return {
-    from(table: string) {
-      expect(table).toBe('whatsapp_groups');
-      const op: Op = { kind: 'select', calls: [] };
-      log.push(op);
-      const q: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'in']) {
-        q[m] = (...args: unknown[]) => (op.calls.push([m, args]), q);
-      }
-      q.delete = () => ((op.kind = 'delete'), q);
-      q.then = (ok: (v: unknown) => unknown) => {
-        const hit = rows.filter((r) =>
-          op.calls.every(([m, args]) => {
-            const col = args[0] as keyof Row;
-            if (m === 'eq') return r[col] === args[1];
-            if (m === 'in') return (args[1] as string[]).includes(r[col]);
-            return true;
-          })
-        );
-        if (op.kind === 'delete') {
-          for (const r of hit) rows.splice(rows.indexOf(r), 1);
-        } else {
-          afterRead?.();
-        }
-        return Promise.resolve({
-          data: hit.map((r) => ({ id: r.id })),
-          error: null,
-        }).then(ok);
-      };
-      return q;
-    },
-  };
-}
+// Deleting is owner/admin only, for good, and confined to the caller's
+// active account. A still-joined group is left on WhatsApp first; a
+// submission group is never touched; the tombstone goes before the row.
 
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
+  channelForGroup: vi.fn(),
+  leaveGroup: vi.fn(),
   admin: null as unknown,
 }));
 
@@ -68,6 +33,11 @@ vi.mock('@/lib/auth/account', async (importOriginal) => {
 vi.mock('@/lib/groups/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/groups/server')>()),
   supabaseAdmin: () => mocks.admin,
+  channelForGroup: mocks.channelForGroup,
+}));
+vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
+  leaveGroup: mocks.leaveGroup,
 }));
 
 import { POST } from './route';
@@ -77,9 +47,24 @@ const MEMBER = '22222222-2222-4222-8222-222222222222';
 const OTHER_ACCT = '33333333-3333-4333-8333-333333333333';
 const LEFT2 = '44444444-4444-4444-8444-444444444444';
 const MISSING = '55555555-5555-4555-8555-555555555555';
+const MIRROR = '66666666-6666-4666-8666-666666666666';
+const ORPHAN = '77777777-7777-4777-8777-777777777777';
+const ADMIN_ROLE = '88888888-8888-4888-8888-888888888888';
 
-let rows: Row[];
-let log: Op[];
+const wa = (id: string) => `wa-${id.slice(0, 1)}@g.us`;
+const row = (
+  id: string,
+  our_role: string,
+  account_id = 'acct-1',
+  channel_id: string | null = 'ch-1'
+) => ({ id, account_id, channel_id, wa_group_id: wa(id), our_role });
+
+let db: FakeDb;
+const groups = () => db.tables.whatsapp_groups;
+const stones = () => db.tables.whatsapp_group_tombstones;
+const ids = () => groups().map((g) => g.id);
+const writesTo = (table: string) =>
+  (db.writes ?? []).filter(([t]) => t === table);
 
 const post = (body: unknown) =>
   POST(
@@ -101,14 +86,34 @@ function asRole(role: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  rows = [
-    { id: LEFT, account_id: 'acct-1', our_role: 'left' },
-    { id: LEFT2, account_id: 'acct-1', our_role: 'left' },
-    { id: MEMBER, account_id: 'acct-1', our_role: 'member' },
-    { id: OTHER_ACCT, account_id: 'acct-2', our_role: 'left' },
-  ];
-  log = [];
-  mocks.admin = fakeDb(rows, log);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  db = {
+    tables: {
+      whatsapp_groups: [
+        row(LEFT, 'left'),
+        row(LEFT2, 'left'),
+        row(MEMBER, 'member'),
+        row(ADMIN_ROLE, 'admin'),
+        row(MIRROR, 'member'),
+        row(ORPHAN, 'member', 'acct-1', null),
+        row(OTHER_ACCT, 'left', 'acct-2'),
+      ],
+      submission_groups: [
+        { account_id: 'acct-1', channel_id: 'ch-1', wa_group_id: wa(MIRROR) },
+        // Another workspace's submission group refuses nothing here.
+        { account_id: 'acct-2', channel_id: 'ch-9', wa_group_id: wa(LEFT2) },
+      ],
+      whatsapp_group_tombstones: [],
+    },
+    writes: [],
+  };
+  mocks.admin = fakeSupabase(db);
+  mocks.channelForGroup.mockResolvedValue({
+    id: 'ch-1',
+    provider: 'whapi',
+    status: 'connected',
+  });
+  mocks.leaveGroup.mockResolvedValue(undefined);
   asRole('admin');
 });
 
@@ -118,8 +123,8 @@ describe('POST /api/whatsapp/groups/delete', () => {
     const res = await post({ ids: [LEFT] });
     expect(res.status).toBe(403);
     expect(await res.json()).toHaveProperty('error');
-    expect(log).toEqual([]);
-    expect(rows).toHaveLength(4);
+    expect(db.writes).toEqual([]);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -132,49 +137,225 @@ describe('POST /api/whatsapp/groups/delete', () => {
     const res = await post(body);
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: expect.any(String) });
-    expect(log).toEqual([]);
+    expect(db.writes).toEqual([]);
   });
 
-  it('deletes only the left groups of the caller account', async () => {
-    const res = await post({
-      ids: [LEFT, MEMBER, OTHER_ACCT, LEFT2, MISSING],
-    });
+  it('deletes left groups of the caller account with no gateway call', async () => {
+    const res = await post({ ids: [LEFT, OTHER_ACCT, LEFT2, MISSING] });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.deleted.sort()).toEqual([LEFT, LEFT2].sort());
-    expect(body.skipped.sort()).toEqual([MEMBER, OTHER_ACCT, MISSING].sort());
-    expect(rows.map((r) => r.id).sort()).toEqual([MEMBER, OTHER_ACCT].sort());
+    expect(body.skipped.sort()).toEqual([OTHER_ACCT, MISSING].sort());
+    expect(body.refused).toEqual([]);
+    expect(body.failed).toEqual([]);
+    expect(ids()).toContain(OTHER_ACCT);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
   });
 
-  it('owners may delete too', async () => {
+  it('tombstones a left group before deleting it', async () => {
     asRole('owner');
     const res = await post({ ids: [LEFT] });
-    expect(await res.json()).toEqual({ deleted: [LEFT], skipped: [] });
-  });
-
-  it('puts the account and left filters on the delete query itself', async () => {
-    await post({ ids: [LEFT] });
-    const del = log.find((op) => op.kind === 'delete');
-    expect(del?.calls).toEqual(
-      expect.arrayContaining([
-        ['eq', ['account_id', 'acct-1']],
-        ['eq', ['our_role', 'left']],
-      ])
-    );
+    expect(await res.json()).toEqual({
+      deleted: [LEFT],
+      skipped: [],
+      refused: [],
+      failed: [],
+    });
+    expect(stones()).toEqual([
+      expect.objectContaining({
+        account_id: 'acct-1',
+        channel_id: 'ch-1',
+        wa_group_id: wa(LEFT),
+        deleted_by: 'u-1',
+      }),
+    ]);
+    expect((db.writes ?? []).map(([t, op]) => `${t}:${op}`)).toEqual([
+      'whatsapp_group_tombstones:upsert',
+      'whatsapp_groups:delete',
+    ]);
   });
 
   it('keeps a group re-joined between the read and the delete', async () => {
-    mocks.admin = fakeDb(rows, log, () => {
-      rows.find((r) => r.id === LEFT)!.our_role = 'member';
-    });
+    // The re-join lands while the tombstone is being written, so only
+    // the `our_role` filter on the DELETE itself can save the group.
+    const base = fakeSupabase(db);
+    mocks.admin = {
+      ...base,
+      from(table: string) {
+        if (table === 'whatsapp_group_tombstones') {
+          groups().find((g) => g.id === LEFT)!.our_role = 'member';
+        }
+        return base.from(table);
+      },
+    };
     const res = await post({ ids: [LEFT, LEFT2] });
-    expect(await res.json()).toEqual({ deleted: [LEFT2], skipped: [LEFT] });
-    expect(rows.some((r) => r.id === LEFT)).toBe(true);
+    expect(await res.json()).toMatchObject({
+      deleted: [LEFT2],
+      skipped: [LEFT],
+    });
+    expect(ids()).toContain(LEFT);
+    // It keeps syncing: no tombstone may outlive the surviving row.
+    expect(stones().map((s) => s.wa_group_id)).toEqual([wa(LEFT2)]);
   });
 
-  it('runs no delete when none of the ids is a left group', async () => {
+  it('leaves a joined group first, then tombstones and deletes it', async () => {
     const res = await post({ ids: [MEMBER] });
-    expect(await res.json()).toEqual({ deleted: [], skipped: [MEMBER] });
-    expect(log.some((op) => op.kind === 'delete')).toBe(false);
+    expect(await res.json()).toEqual({
+      deleted: [MEMBER],
+      skipped: [],
+      refused: [],
+      failed: [],
+    });
+    expect(mocks.leaveGroup).toHaveBeenCalledTimes(1);
+    expect(mocks.leaveGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: wa(MEMBER) })
+    );
+    expect(ids()).not.toContain(MEMBER);
+    expect(stones()).toHaveLength(1);
+  });
+
+  it('writes nothing when the gateway refuses the leave', async () => {
+    mocks.leaveGroup.mockImplementation(async () => {
+      expect(db.writes).toEqual([]);
+      throw new WhapiError('boom', 500);
+    });
+    const res = await post({ ids: [MEMBER] });
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [],
+      refused: [],
+      failed: [{ id: MEMBER, reason: 'WhatsApp did not respond; try again' }],
+    });
+    expect(ids()).toContain(MEMBER);
+    expect(stones()).toEqual([]);
+    expect(db.writes).toEqual([]);
+  });
+
+  it('never leaves or deletes from a number marked disconnected', async () => {
+    mocks.channelForGroup.mockResolvedValue({
+      id: 'ch-1',
+      provider: 'whapi',
+      status: 'disconnected',
+    });
+    const body = await (await post({ ids: [MEMBER] })).json();
+    expect(body.failed).toEqual([
+      { id: MEMBER, reason: "The group's number is disconnected" },
+    ]);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(ids()).toContain(MEMBER);
+    expect(stones()).toEqual([]);
+  });
+
+  it('carries on when WhatsApp says the group is already gone', async () => {
+    mocks.leaveGroup.mockRejectedValue(new WhapiError('Group not found', 404));
+    const body = await (await post({ ids: [MEMBER] })).json();
+    expect(body.deleted).toEqual([MEMBER]);
+    expect(stones()).toHaveLength(1);
+  });
+
+  it('does not read a dead token as the group being gone', async () => {
+    // A wrong token is also a 404: we are still in the group.
+    mocks.leaveGroup.mockRejectedValue(
+      new WhapiError('Service not found', 404)
+    );
+    const body = await (await post({ ids: [MEMBER] })).json();
+    expect(body.deleted).toEqual([]);
+    expect(body.failed).toHaveLength(1);
+    expect(ids()).toContain(MEMBER);
+    expect(stones()).toEqual([]);
+  });
+
+  it('words a refused number, not "not an admin", on a leave 403', async () => {
+    mocks.leaveGroup.mockRejectedValue(new WhapiError('nope', 403));
+    const body = await (await post({ ids: [MEMBER] })).json();
+    expect(body.failed[0].reason).toBe("The group's number is disconnected");
+  });
+
+  it('treats a row with no number as left, with no tombstone', async () => {
+    const body = await (await post({ ids: [ORPHAN] })).json();
+    expect(body.deleted).toEqual([ORPHAN]);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(mocks.channelForGroup).not.toHaveBeenCalled();
+    expect(ids()).not.toContain(ORPHAN);
+    expect(stones()).toEqual([]);
+  });
+
+  it('refuses a submission group: no leave, no delete, no tombstone', async () => {
+    const res = await post({ ids: [MIRROR] });
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [],
+      refused: [MIRROR],
+      failed: [],
+    });
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(ids()).toContain(MIRROR);
+    expect(db.writes).toEqual([]);
+  });
+
+  it('refuses a left mirror too', async () => {
+    groups().find((g) => g.id === MIRROR)!.our_role = 'left';
+    const body = await (await post({ ids: [MIRROR, LEFT] })).json();
+    expect(body.refused).toEqual([MIRROR]);
+    expect(body.deleted).toEqual([LEFT]);
+    expect(ids()).toContain(MIRROR);
+  });
+
+  it('stops everything when submission groups cannot be read', async () => {
+    db.errors = { 'submission_groups:select': { message: 'down' } };
+    const res = await post({ ids: [MEMBER, LEFT] });
+    expect(res.status).toBe(500);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(db.writes).toEqual([]);
+  });
+
+  it('deletes nothing when the tombstone cannot be written', async () => {
+    db.errors = { 'whatsapp_group_tombstones:upsert': { message: 'down' } };
+    const body = await (await post({ ids: [LEFT] })).json();
+    expect(body.deleted).toEqual([]);
+    expect(body.failed).toEqual([{ id: LEFT, reason: expect.any(String) }]);
+    expect(ids()).toContain(LEFT);
+  });
+
+  it('keeps the tombstone when the delete fails, so a retry can finish', async () => {
+    db.errors = { 'whatsapp_groups:delete': { message: 'down' } };
+    const body = await (await post({ ids: [MEMBER] })).json();
+    expect(body.failed).toEqual([{ id: MEMBER, reason: expect.any(String) }]);
+    expect(stones()).toHaveLength(1);
+    // We did leave: the retry takes the left path, with no second leave.
+    expect(groups().find((g) => g.id === MEMBER)?.our_role).toBe('left');
+    db.errors = {};
+    mocks.leaveGroup.mockClear();
+    const retry = await (await post({ ids: [MEMBER] })).json();
+    expect(retry.deleted).toEqual([MEMBER]);
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+  });
+
+  it('takes at most 10 joined groups per call, the rest in failed', async () => {
+    const many = Array.from(
+      { length: 12 },
+      (_, i) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`
+    );
+    for (const [i, id] of many.entries()) {
+      groups().push({ ...row(id, 'member'), wa_group_id: `m${i}@g.us` });
+    }
+    const body = await (await post({ ids: [...many, LEFT] })).json();
+    expect(mocks.leaveGroup).toHaveBeenCalledTimes(10);
+    expect(body.deleted).toHaveLength(11);
+    expect(body.failed.map((f: { id: string }) => f.id)).toEqual(
+      many.slice(10)
+    );
+    expect(ids()).toEqual(expect.arrayContaining(many.slice(10)));
+  });
+
+  it('starts no leave past the time budget', async () => {
+    const now = vi.spyOn(Date, 'now');
+    const start = Date.now();
+    now.mockReturnValueOnce(start).mockReturnValue(start + 40_000);
+    const body = await (await post({ ids: [MEMBER] })).json();
+    now.mockRestore();
+    expect(mocks.leaveGroup).not.toHaveBeenCalled();
+    expect(body.failed).toHaveLength(1);
+    expect(writesTo('whatsapp_groups')).toEqual([]);
   });
 });

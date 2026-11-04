@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Delete any WhatsApp group from the Groups page
+
+- Owners and admins can now delete any group, not only ones the number
+  has left. If the number is still in the group it leaves on WhatsApp
+  first, and members see that; if the leave fails, nothing is deleted.
+  A deleted group is gone for good: Sync and webhooks do not bring it
+  back, even if someone adds the number again.
+- Submission groups cannot be deleted here, and Sync no longer copies
+  them onto the Groups page.
+- **Migration required:** apply `173` (`whatsapp_group_tombstones`)
+  before this build; until then group saves and Sync fail.
+
 ### Staff with no WhatsApp number still get their case
 
 - A submission from a staff member with no WhatsApp number they may use

@@ -191,6 +191,78 @@ export function channelForGroup(
   return loadWhapiChannel(group.account_id, group.channel_id);
 }
 
+/**
+ * Did a failed leave find us already out? Only a 404 says so, and a
+ * wrong or revoked token is a 404 too. Deleting after that would keep
+ * our number in the group with no way back, so Whapi's token wording is
+ * ruled out here and the route refuses a number marked disconnected.
+ */
+export function isAlreadyOutOfGroup(err: unknown): boolean {
+  return (
+    err instanceof WhapiError &&
+    err.isGroupNotFound &&
+    !/service not found/i.test(err.message)
+  );
+}
+
+/** A failed leave in plain words, for the delete route's `failed` list. */
+export function leaveFailureReason(err: unknown): string {
+  if (err instanceof GroupHttpError || err instanceof ChannelError) {
+    return err.message;
+  }
+  // Leaving needs no admin rights, so a 401/403 here is the number.
+  if (err instanceof WhapiError && err.isAuthError) {
+    return groupFailure('channel_disconnected').error;
+  }
+  return groupFailure(describeGroupFailure(err)).error;
+}
+
+/** Of these WhatsApp ids, the ones that are submission groups. */
+export async function submissionGroupIds(
+  admin: SupabaseClient,
+  accountId: string,
+  waGroupIds: string[]
+): Promise<Set<string>> {
+  if (waGroupIds.length === 0) return new Set();
+  const { data, error } = await admin
+    .from('submission_groups')
+    .select('wa_group_id')
+    .eq('account_id', accountId)
+    .in('wa_group_id', waGroupIds);
+  if (error) throw error;
+  return new Set(
+    ((data ?? []) as Array<{ wa_group_id: string }>).map((r) => r.wa_group_id)
+  );
+}
+
+const PAGE = 1000;
+
+/**
+ * Every `wa_group_id` a table holds for one number, paged because
+ * PostgREST caps a read: a cut list would let Sync bring a group back.
+ */
+export async function groupIdsOnChannel(
+  admin: SupabaseClient,
+  table: 'submission_groups' | 'whatsapp_group_tombstones',
+  accountId: string,
+  channelId: string
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from(table)
+      .select('wa_group_id')
+      .eq('account_id', accountId)
+      .eq('channel_id', channelId)
+      .order('wa_group_id')
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{ wa_group_id: string | null }>;
+    for (const r of rows) if (r.wa_group_id) out.add(r.wa_group_id);
+    if (rows.length < PAGE) return out;
+  }
+}
+
 const MAX_IN = 300;
 
 /**
@@ -242,14 +314,28 @@ async function matchContacts(
  * out when our number is not in the list, so an existing row keeps it
  * (a left group stays left) and a new one takes the default `member`.
  * The icon URL is an expiring CDN link and is not stored.
+ *
+ * A group an admin deleted (`whatsapp_group_tombstones`) stays deleted:
+ * nothing is written and the answer is `null`. A failed tombstone read
+ * throws rather than risk bringing one back; every webhook caller
+ * catches it.
  */
 export async function persistGroupSnapshot(
   admin: SupabaseClient,
   channel: Pick<WhatsAppChannel, 'id' | 'accountId' | 'wabaId'>,
   group: Group,
   opts: { createdBy?: string } = {}
-): Promise<WhatsappGroupRow> {
+): Promise<WhatsappGroupRow | null> {
   if (!isGroupId(group.id)) throw new Error(`Not a group id: ${group.id}`);
+  const mark = await admin
+    .from('whatsapp_group_tombstones')
+    .select('wa_group_id')
+    .eq('account_id', channel.accountId)
+    .eq('channel_id', channel.id)
+    .eq('wa_group_id', group.id)
+    .limit(1);
+  if (mark.error) throw mark.error;
+  if ((mark.data ?? []).length > 0) return null;
   const row: Record<string, unknown> = {
     account_id: channel.accountId,
     channel_id: channel.id,

@@ -1865,8 +1865,13 @@ export async function updateGroupSetting(args: UpdateGroupSettingArgs): Promise<
 }
 
 /** `DELETE /groups/{id}`: our number leaves the group. */
-export async function leaveGroup(args: GroupArgs): Promise<void> {
-  await whapiRequest({ token: args.token, path: groupPath(args.groupId), method: 'DELETE' })
+export async function leaveGroup(args: GroupArgs & { timeoutMs?: number }): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId),
+    method: 'DELETE',
+    timeoutMs: args.timeoutMs,
+  })
 }
 
 /** `GET /groups/{id}/invite`: the current invite code. Admin only. */

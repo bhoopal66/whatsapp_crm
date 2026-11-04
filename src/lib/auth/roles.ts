@@ -354,8 +354,8 @@ export function canSyncGroups(role: AccountRole): boolean {
 }
 
 /**
- * Owner / admin: delete from the CRM a WhatsApp group our number has
- * left (`POST /api/whatsapp/groups/delete`). WhatsApp is not touched.
+ * Owner / admin: delete a WhatsApp group for good, leaving it first if
+ * our number is still in it (`POST /api/whatsapp/groups/delete`).
  */
 export function canDeleteGroups(role: AccountRole): boolean {
   return hasMinRole(role, 'admin');

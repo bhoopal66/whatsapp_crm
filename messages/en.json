@@ -7201,11 +7201,15 @@
         "managers": "Managers"
       },
       "leaveHint": "Your number leaves the WhatsApp group. Messages already here stay.",
-      "deleteFromCrm": "Delete from CRM",
+      "deleteGroup": "Delete group",
+      "deleteJoinedHint": "Your number will leave this group on WhatsApp, and the group and its saved messages are removed from the CRM for good. Members will see that the number left.",
+      "deleteJoinedTitle": "Leave and delete this group?",
+      "deleteJoinedBody": "Your number will leave \"{name}\" on WhatsApp, and members will see that. The group and its saved messages are then removed from the CRM. This cannot be undone.",
+      "deleteRefused": "this is a submission group",
       "deleteHint": "You left this group. Deleting removes it and its saved messages from the CRM; WhatsApp is not affected.",
       "deleteTitle": "Delete this group from the CRM?",
       "deleteBody": "\"{name}\" and its saved messages are removed from the CRM. WhatsApp is not affected. This cannot be undone.",
-      "deleted": "Group deleted from the CRM",
+      "deleted": "Group deleted",
       "deleteFailed": "Couldn't delete the group: {reason}"
     },
     "listCount": "{count, plural, =1 {# group} other {# groups}}",
@@ -7226,7 +7230,8 @@
     "deleteLeftBody": "Your number has left {count, plural, =1 {this group} other {these # groups}}. Deleting removes {count, plural, =1 {it} other {them}} and the saved messages from the CRM; WhatsApp is not affected. This cannot be undone.",
     "deleteLeftConfirm": "Delete from CRM",
     "deleteLeftDone": "Deleted {count, plural, =1 {# group} other {# groups}}",
-    "deleteLeftFailed": "Couldn't delete the groups: {reason}"
+    "deleteLeftFailed": "Couldn't delete the groups: {reason}",
+    "deleteLeftRefused": "{count, plural, =1 {# submission group was} other {# submission groups were}} not deleted"
   },
   "SubmissionGroups": {
     "title": "Submission groups",

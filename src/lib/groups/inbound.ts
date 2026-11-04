@@ -257,7 +257,8 @@ type KnownGroup = {
  * Apply Whapi `groups` events to known groups of this number. A group
  * the number itself created (Whapi's `created_by` is our phone) is
  * inserted unowned on `group_upsert`, so admins see it; any other
- * unknown group is ignored. Each event is isolated: one failure is
+ * unknown group is ignored, and so is a group an admin deleted for good
+ * (`persistGroupSnapshot` skips it). Each event is isolated: one failure is
  * logged and the rest still apply. Returns how many failed.
  */
 export async function applyGroupEvents(
@@ -285,8 +286,9 @@ export async function applyGroupEvents(
           unknown++;
           continue;
         }
+        // `null`: an admin deleted this group for good.
         const saved = await persistGroupSnapshot(admin, channel, e.group);
-        groups.set(e.group.id, saved);
+        if (saved) groups.set(e.group.id, saved);
         continue;
       }
       const group = groups.get(e.groupId);

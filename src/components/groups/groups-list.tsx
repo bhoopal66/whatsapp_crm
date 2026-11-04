@@ -25,6 +25,7 @@ import {
 import { canEditSettings } from '@/lib/auth/roles';
 import { canSyncGroups } from '@/lib/groups/access';
 import { canCreateGroups, canDeleteGroups } from '@/lib/auth/roles';
+import { GROUP_DELETED_EVENT, parseDeleteOutcome } from '@/lib/groups/delete';
 import {
   applyGroupFilter,
   avatarToneIndex,
@@ -123,6 +124,19 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     }
   }, []);
 
+  // The group screen deleted one: drop it now, not at the next re-read.
+  useEffect(() => {
+    const drop = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      setLoaded(
+        (prev) =>
+          prev && { ...prev, groups: prev.groups.filter((g) => g.id !== id) }
+      );
+    };
+    window.addEventListener(GROUP_DELETED_EVENT, drop);
+    return () => window.removeEventListener(GROUP_DELETED_EVENT, drop);
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     void load();
@@ -197,6 +211,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     setDeleteOpen(false);
     setDeleting(true);
     const deleted: string[] = [];
+    let refused = 0;
     let failure: string | null = null;
     try {
       for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
@@ -210,13 +225,17 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           failure = json?.error ?? String(res.status);
           break;
         }
-        if (Array.isArray(json?.deleted)) deleted.push(...json.deleted);
+        const outcome = parseDeleteOutcome(json);
+        deleted.push(...outcome.deleted);
+        refused += outcome.refused.length;
+        failure ??= outcome.failed[0]?.reason ?? null;
       }
     } catch {
       failure = 'network';
     }
     if (failure) toast.error(t('deleteLeftFailed', { reason: failure }));
-    if (deleted.length > 0 || !failure) {
+    if (refused > 0) toast.error(t('deleteLeftRefused', { count: refused }));
+    if (deleted.length > 0 || (!failure && refused === 0)) {
       toast.success(t('deleteLeftDone', { count: deleted.length }));
     }
     if (mounted.current) setDeleting(false);

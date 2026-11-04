@@ -3,6 +3,9 @@
 // from WhatsApp (admin and up). A group no longer listed is marked
 // `left`, but only when that number's listing was complete: a capped or
 // interrupted walk proves nothing about the groups it did not reach.
+// The listing is everything on the number, so a submission group (its
+// own screens) and a group an admin deleted for good are skipped; both
+// still count as listed, so a row of theirs is not marked left.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -12,6 +15,7 @@ import { canSyncGroups } from '@/lib/groups/access';
 import {
   GroupHttpError,
   groupErrorResponse,
+  groupIdsOnChannel,
   persistGroupSnapshot,
   supabaseAdmin,
 } from '@/lib/groups/server';
@@ -70,13 +74,30 @@ export async function POST() {
       const knownIds = new Set(known.map((g) => g.wa_group_id));
 
       let listed;
+      let skip: Set<string>;
       try {
+        const [submissions, tombstones] = await Promise.all([
+          groupIdsOnChannel(
+            admin,
+            'submission_groups',
+            ctx.accountId,
+            channel.id
+          ),
+          groupIdsOnChannel(
+            admin,
+            'whatsapp_group_tombstones',
+            ctx.accountId,
+            channel.id
+          ),
+        ]);
+        skip = new Set([...submissions, ...tombstones]);
         listed = await listGroups({
           channel,
           maxGroups: SYNC_GROUPS_PER_CHANNEL + 1,
         });
       } catch (err) {
-        // One number down must not stop the others.
+        // One number down must not stop the others. Without the skip
+        // sets a number is not walked at all: it could bring groups back.
         console.error('[groups] sync listing failed', channel.id, err);
         firstFailure ??= err;
         continue;
@@ -90,8 +111,10 @@ export async function POST() {
           break;
         }
         seen.add(group.id);
+        if (skip.has(group.id)) continue;
         try {
-          await persistGroupSnapshot(admin, channel, group);
+          const saved = await persistGroupSnapshot(admin, channel, group);
+          if (!saved) continue;
           synced++;
           if (!knownIds.has(group.id)) created++;
         } catch (err) {

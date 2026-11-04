@@ -34,16 +34,29 @@ requests. **Refresh** re-reads the group from WhatsApp.
   admin approval. Each new request rings a bell for the group's managers
   and admins; the bell opens the tab.
 
-### Deleting a group you left
+### Deleting a group
 
-Once your number has left a group (Leave, or a Sync that no longer
-finds it), an owner or admin can delete it from the CRM: **Delete from
-CRM** at the bottom of the group's info panel or in its ⋮ menu, or
-**Delete all left groups** above the list while the Left filter is on.
-Only groups the number has left can be deleted. Deleting removes the
-group, its members list, managers, invite link and saved messages from
-the CRM for good; nothing happens on WhatsApp (the number is already
-out), and a later Sync does not bring the group back.
+An owner or admin can delete any group on the Groups page, permanently:
+**Delete group** at the bottom of the group's info panel or in its ⋮
+menu, or **Delete all left groups** above the list while the Left filter
+is on.
+
+- **Still in the group:** your number leaves it on WhatsApp first, and
+  members see that. If the leave fails (a disconnected number, WhatsApp
+  not answering), nothing is deleted and the reason is shown. If WhatsApp
+  says the group is already gone, the delete carries on. One call handles
+  at most 10 such groups.
+- **Already left:** nothing happens on WhatsApp.
+- Either way the group, its members list, managers, invite link and saved
+  messages are removed from the CRM. This cannot be undone: a record of
+  the deleted group is kept per number, so neither Sync nor a webhook
+  brings it back, even if someone adds the number to it again.
+- A **submission group** cannot be deleted here. The option is hidden and
+  the server refuses it.
+
+**Sync skips submission groups.** It lists every group on the number, so
+it used to copy them onto this page. A copy made before this change
+stays, is not marked left by Sync and has no delete option.
 
 ## Unread groups
 

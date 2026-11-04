@@ -256,9 +256,11 @@ export async function POST(request: Request) {
     let group: WhatsappGroupRow;
     try {
       const snapshot = await createdSnapshot(channel, outcome, deadline);
-      group = await persistGroupSnapshot(admin, channel, snapshot, {
+      const saved = await persistGroupSnapshot(admin, channel, snapshot, {
         createdBy: ctx.userId,
       });
+      if (!saved) throw new Error('new group id has a tombstone');
+      group = saved;
     } catch (err) {
       // The group exists on WhatsApp; a sync brings it in.
       console.error('[groups] created on WhatsApp but not saved', err);

@@ -7201,11 +7201,15 @@
         "managers": "관리 담당자"
       },
       "leaveHint": "내 번호가 WhatsApp 그룹에서 나갑니다. 이미 있는 메시지는 그대로 남습니다.",
-      "deleteFromCrm": "CRM에서 삭제",
+      "deleteGroup": "그룹 삭제",
+      "deleteJoinedHint": "내 번호가 WhatsApp에서 이 그룹을 나가고, 그룹과 저장된 메시지가 CRM에서 영구히 제거됩니다. 멤버들에게 번호가 나간 것이 표시됩니다.",
+      "deleteJoinedTitle": "이 그룹을 나가고 삭제할까요?",
+      "deleteJoinedBody": "내 번호가 WhatsApp에서 \"{name}\" 그룹을 나가며 멤버들에게 표시됩니다. 이후 그룹과 저장된 메시지가 CRM에서 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "deleteRefused": "제출 그룹입니다",
       "deleteHint": "이 그룹에서 나갔습니다. 삭제하면 그룹과 저장된 메시지가 CRM에서 제거됩니다. WhatsApp에는 영향이 없습니다.",
       "deleteTitle": "이 그룹을 CRM에서 삭제할까요?",
       "deleteBody": "\"{name}\" 그룹과 저장된 메시지가 CRM에서 제거됩니다. WhatsApp에는 영향이 없습니다. 되돌릴 수 없습니다.",
-      "deleted": "그룹을 CRM에서 삭제했습니다",
+      "deleted": "그룹을 삭제했습니다",
       "deleteFailed": "그룹을 삭제하지 못했습니다: {reason}"
     },
     "listCount": "{count, plural, other {그룹 #개}}",
@@ -7226,7 +7230,8 @@
     "deleteLeftBody": "내 번호가 이 그룹 {count}개에서 나갔습니다. 삭제하면 그룹과 저장된 메시지가 CRM에서 제거됩니다. WhatsApp에는 영향이 없습니다. 되돌릴 수 없습니다.",
     "deleteLeftConfirm": "CRM에서 삭제",
     "deleteLeftDone": "그룹 {count}개를 삭제했습니다",
-    "deleteLeftFailed": "그룹을 삭제하지 못했습니다: {reason}"
+    "deleteLeftFailed": "그룹을 삭제하지 못했습니다: {reason}",
+    "deleteLeftRefused": "제출 그룹 {count}개는 삭제되지 않았습니다"
   },
   "SubmissionGroups": {
     "title": "제출 그룹",

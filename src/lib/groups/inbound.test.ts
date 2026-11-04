@@ -9,6 +9,7 @@ import {
   persistGroupMessages,
 } from './inbound';
 import { fakeSupabase, type FakeDb } from './test-db';
+import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
 
 const GROUP = '120363025555555555@g.us';
 
@@ -282,5 +283,68 @@ describe('applyGroupEvents: a join request', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await applyGroupEvents(admin, channel, [event])).toBe(0);
     log.mockRestore();
+  });
+});
+
+describe('applyGroupEvents: a group deleted for good', () => {
+  const OUR = '971500000000';
+  const WA = '120363000000000099@g.us';
+  const tombstoned = {
+    id: 'ch-1',
+    accountId: 'acct-1',
+    wabaId: OUR,
+  };
+  const upsert = {
+    kind: 'group_upsert',
+    group: {
+      id: WA,
+      name: 'Gone',
+      description: null,
+      participantsCount: 0,
+      participants: [],
+      createdAt: null,
+      createdBy: { waId: OUR },
+      settings: {},
+    },
+  } as unknown as WhapiGroupEvent;
+  const fresh = (): FakeDb => ({
+    tables: {
+      whatsapp_groups: [],
+      whatsapp_group_participants: [],
+      contacts: [],
+      whatsapp_group_tombstones: [
+        { account_id: 'acct-1', channel_id: 'ch-1', wa_group_id: WA },
+      ],
+    },
+  });
+
+  it('is not recreated by a group_upsert of our own group', async () => {
+    const d = fresh();
+    const failed = await applyGroupEvents(
+      fakeSupabase(d) as never,
+      tombstoned as never,
+      [upsert]
+    );
+    expect(failed).toBe(0);
+    expect(d.tables.whatsapp_groups).toEqual([]);
+  });
+
+  it('is created as before when it has no tombstone', async () => {
+    const d = fresh();
+    d.tables.whatsapp_group_tombstones = [];
+    await applyGroupEvents(fakeSupabase(d) as never, tombstoned as never, [
+      upsert,
+    ]);
+    expect(d.tables.whatsapp_groups).toHaveLength(1);
+  });
+
+  it('does not throw and skips when the tombstone read fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const d = fresh();
+    d.errors = { 'whatsapp_group_tombstones:select': { message: 'down' } };
+    await expect(
+      applyGroupEvents(fakeSupabase(d) as never, tombstoned as never, [upsert])
+    ).resolves.toBe(1);
+    expect(d.tables.whatsapp_groups).toEqual([]);
   });
 });

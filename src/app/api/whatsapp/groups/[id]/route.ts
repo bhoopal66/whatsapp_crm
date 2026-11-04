@@ -18,6 +18,7 @@ import {
   groupErrorResponse,
   loadGroupForCaller,
   persistGroupSnapshot,
+  submissionGroupIds,
   supabaseAdmin,
 } from '@/lib/groups/server';
 import { parsePatch } from '@/lib/groups/requests';
@@ -67,7 +68,8 @@ export async function GET(request: Request, { params }: Params) {
       }
       const channel = await channelForGroup(group);
       const fresh = await getGroup({ channel, groupId: group.wa_group_id });
-      group = await persistGroupSnapshot(supabaseAdmin(), channel, fresh);
+      group =
+        (await persistGroupSnapshot(supabaseAdmin(), channel, fresh)) ?? group;
     }
 
     const [parts, mgrs] = await Promise.all([
@@ -97,7 +99,7 @@ export async function GET(request: Request, { params }: Params) {
 
     // Contact names under the caller's RLS: a customer they cannot see
     // stays a bare number. Manager names are staff names, workspace-wide.
-    const [contacts, profiles] = await Promise.all([
+    const [contacts, profiles, isSubmissionGroup] = await Promise.all([
       contactIds.length
         ? ctx.supabase.from('contacts').select('id, name').in('id', contactIds)
         : Promise.resolve({ data: [] }),
@@ -108,6 +110,14 @@ export async function GET(request: Request, { params }: Params) {
             .eq('account_id', ctx.accountId)
             .in('user_id', managerIds)
         : Promise.resolve({ data: [] }),
+      // Only hides the delete action; the delete route decides. A failed
+      // read hides it rather than offer what may be refused.
+      submissionGroupIds(supabaseAdmin(), ctx.accountId, [group.wa_group_id])
+        .then((ids) => ids.has(group.wa_group_id))
+        .catch((err) => {
+          console.error('[groups] submission check failed', err);
+          return true;
+        }),
     ]);
     const nameOf = new Map(
       ((contacts.data ?? []) as Array<{ id: string; name: string | null }>).map(
@@ -161,6 +171,7 @@ export async function GET(request: Request, { params }: Params) {
       })),
       canManage,
       blocks,
+      is_submission_group: isSubmissionGroup,
     });
   } catch (err) {
     return groupErrorResponse(err);

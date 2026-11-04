@@ -75,7 +75,7 @@ export interface InfoFocus {
  * The "Group info" panel: the group's details, its sections (Members,
  * Invite link, Join requests, Settings, Managers — only those
  * `infoSections` allows) and Leave — or, for a group our number has
- * left, Delete from CRM (owner/admin). Docked beside the chat or inside a
+ * left, Delete group (owner/admin). Docked beside the chat or inside a
  * sheet; the parent decides, the panel only fills its box.
  */
 export function GroupInfoPanel({
@@ -93,6 +93,7 @@ export function GroupInfoPanel({
   canLeave,
   onLeave,
   canDelete,
+  deleteHint,
   onDelete,
 }: {
   heading: ReactNode;
@@ -109,8 +110,10 @@ export function GroupInfoPanel({
   iconVersion: number;
   canLeave: boolean;
   onLeave: () => void;
-  /** The group is `left` and the caller may delete it from the CRM. */
+  /** The caller may delete this group for good. */
   canDelete: boolean;
+  /** What deleting does here: it differs once our number has left. */
+  deleteHint: string;
   onDelete: () => void;
 }) {
   const t = useTranslations('Groups.page');
@@ -264,9 +267,9 @@ export function GroupInfoPanel({
               onClick={onDelete}
             >
               <Trash2 className="size-4" />
-              {t('deleteFromCrm')}
+              {t('deleteGroup')}
             </Button>
-            <p className="text-wa-text-secondary text-xs">{t('deleteHint')}</p>
+            <p className="text-wa-text-secondary text-xs">{deleteHint}</p>
           </div>
         )}
       </div>

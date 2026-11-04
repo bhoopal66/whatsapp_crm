@@ -27,7 +27,13 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
-import { canDeleteGroups, canEditSettings } from '@/lib/auth/roles';
+import { canEditSettings } from '@/lib/auth/roles';
+import {
+  canDeleteGroup,
+  deleteCopyKeys,
+  GROUP_DELETED_EVENT,
+  parseDeleteOutcome,
+} from '@/lib/groups/delete';
 import { cn } from '@/lib/utils';
 import {
   infoSectionFromTab,
@@ -66,6 +72,8 @@ export interface GroupDetail {
   }>;
   managers: Array<{ user_id: string; name: string | null }>;
   canManage: boolean;
+  /** Mirrored by an older Sync: the delete route refuses it. */
+  is_submission_group?: boolean;
   blocks: GroupBlocks;
 }
 
@@ -245,9 +253,9 @@ export function GroupPage({ groupId }: { groupId: string }) {
     }
   };
 
-  // Removes a group our number has left from the CRM; WhatsApp is not
-  // touched. The route deletes only `left` groups and reports the rest.
-  const deleteFromCrm = async () => {
+  // Deletes the group for good; the route leaves it on WhatsApp first if
+  // our number is still in it, and reports anything it would not do.
+  const deleteGroup = async () => {
     setDeleteOpen(false);
     try {
       const res = await fetch('/api/whatsapp/groups/delete', {
@@ -256,16 +264,20 @@ export function GroupPage({ groupId }: { groupId: string }) {
         body: JSON.stringify({ ids: [groupId] }),
       });
       const body = (await res.json().catch(() => null)) as {
-        deleted?: string[];
         error?: string;
       } | null;
-      if (!res.ok || !body?.deleted?.includes(groupId)) {
-        toast.error(
-          t('deleteFailed', { reason: body?.error ?? String(res.status) })
-        );
+      const outcome = parseDeleteOutcome(body);
+      if (!res.ok || !outcome.deleted.includes(groupId)) {
+        const reason = outcome.refused.includes(groupId)
+          ? t('deleteRefused')
+          : (outcome.failed[0]?.reason ?? body?.error ?? String(res.status));
+        toast.error(t('deleteFailed', { reason }));
         return;
       }
       toast.success(t('deleted'));
+      window.dispatchEvent(
+        new CustomEvent(GROUP_DELETED_EVENT, { detail: groupId })
+      );
       router.push('/groups');
     } catch {
       toast.error(t('deleteFailed', { reason: 'network' }));
@@ -343,8 +355,8 @@ export function GroupPage({ groupId }: { groupId: string }) {
     .concat(numberLabel ? [numberLabel] : [])
     .join(' · ');
   const canLeave = detail.blocks.leave === null;
-  const canDelete =
-    group.our_role === 'left' && !!accountRole && canDeleteGroups(accountRole);
+  const canDelete = canDeleteGroup(accountRole, !!detail.is_submission_group);
+  const deleteCopy = deleteCopyKeys(group.our_role);
   const tabProps: GroupTabProps = {
     groupId,
     detail,
@@ -373,6 +385,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
         setLeaveOpen(true);
       }}
       canDelete={canDelete}
+      deleteHint={t(deleteCopy.hint)}
       onDelete={() => {
         setSheetOpen(false);
         setDeleteOpen(true);
@@ -479,7 +492,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
                       variant="destructive"
                       onClick={() => setDeleteOpen(true)}
                     >
-                      {t('deleteFromCrm')}
+                      {t('deleteGroup')}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -530,11 +543,11 @@ export function GroupPage({ groupId }: { groupId: string }) {
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title={t('deleteTitle')}
-        description={t('deleteBody', { name: group.name })}
+        title={t(deleteCopy.title)}
+        description={t(deleteCopy.body, { name: group.name })}
         cancelLabel={t('cancel')}
-        confirmLabel={t('deleteFromCrm')}
-        onConfirm={() => void deleteFromCrm()}
+        confirmLabel={t('deleteGroup')}
+        onConfirm={() => void deleteGroup()}
         destructive
       />
     </div>

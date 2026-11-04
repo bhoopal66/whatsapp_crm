@@ -40,6 +40,51 @@ function db(): FakeDb {
   };
 }
 
+describe('persistGroupSnapshot tombstones', () => {
+  const mark = (account_id: string, channel_id: string) => ({
+    account_id,
+    channel_id,
+    wa_group_id: '120363000000000001@g.us',
+  });
+
+  it('writes nothing for a group an admin deleted for good', async () => {
+    const d = db();
+    d.tables.whatsapp_group_tombstones = [mark('acct-1', 'ch-1')];
+    const saved = await persistGroupSnapshot(
+      fakeSupabase(d) as never,
+      channel,
+      group(['971501111111'])
+    );
+    expect(saved).toBeNull();
+    expect(d.tables.whatsapp_groups).toEqual([]);
+    expect(d.tables.whatsapp_group_participants).toEqual([]);
+  });
+
+  it("ignores another number's or account's tombstone", async () => {
+    const d = db();
+    d.tables.whatsapp_group_tombstones = [
+      mark('acct-1', 'ch-2'),
+      mark('acct-2', 'ch-1'),
+    ];
+    const saved = await persistGroupSnapshot(
+      fakeSupabase(d) as never,
+      channel,
+      group(['971501111111'])
+    );
+    expect(saved).not.toBeNull();
+    expect(d.tables.whatsapp_groups).toHaveLength(1);
+  });
+
+  it('writes nothing when the tombstone read fails', async () => {
+    const d = db();
+    d.errors = { 'whatsapp_group_tombstones:select': { message: 'down' } };
+    await expect(
+      persistGroupSnapshot(fakeSupabase(d) as never, channel, group([]))
+    ).rejects.toEqual({ message: 'down' });
+    expect(d.tables.whatsapp_groups).toEqual([]);
+  });
+});
+
 describe('persistGroupSnapshot participants', () => {
   it('survives two interleaved saves of one group', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -82,7 +127,7 @@ describe('persistGroupSnapshot participants', () => {
     ]);
     // Never deleted and re-inserted: a reader in between saw it all along.
     expect(rows.find((r) => r.wa_id === '971501111111')).toMatchObject({
-      group_id: saved.id,
+      group_id: saved?.id,
       added_at: '2026-10-01T00:00:00Z',
     });
   });

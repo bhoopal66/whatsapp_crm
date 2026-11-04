@@ -429,10 +429,11 @@ export function updateGroupSetting(
   });
 }
 
-export function leaveGroup(args: GroupRef) {
+export function leaveGroup(args: GroupRef & { timeoutMs?: number }) {
   return whapi.leaveGroup({
     token: whapiToken(args.channel),
     groupId: args.groupId,
+    timeoutMs: args.timeoutMs,
   });
 }
 

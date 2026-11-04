@@ -1118,8 +1118,11 @@ Groups on a Whapi number, at `/groups`. `docs/whatsapp-groups.md` is the contrac
 - **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
   change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
 - **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
-- **Delete** (`POST /api/whatsapp/groups/delete`, owner/admin) removes
-  only groups whose `our_role` is `left`; children cascade.
+- **Delete** (`POST /api/whatsapp/groups/delete`, owner/admin) is for
+  good: a still-joined group is left on WhatsApp first (failure deletes
+  nothing), then `whatsapp_group_tombstones` (173), then the row;
+  children cascade. A submission group is refused. `persistGroupSnapshot`
+  and Sync skip tombstoned groups; Sync skips submission groups too.
 - **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
   invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.
 
