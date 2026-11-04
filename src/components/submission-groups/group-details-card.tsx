@@ -28,9 +28,13 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export function GroupDetailsCard({
   group,
   onCopyRef,
+  onResendInvite,
+  resendingInvite,
 }: {
   group: SgGroup;
   onCopyRef: () => void;
+  onResendInvite?: () => void;
+  resendingInvite?: boolean;
 }) {
   const t = useTranslations('SubmissionGroups.details');
   const tp = useTranslations('SubmissionGroups.page');
@@ -147,12 +151,25 @@ export function GroupDetailsCard({
             {t(`customerState.${group.customer_membership ?? 'unknown'}`)}
           </Row>
         )}
-        {invite && (
+        {(invite || onResendInvite) && (
           <Row label={t('invite')}>
-            {invite.key === 'sent' ? (
+            {!invite ? (
+              t('inviteNone')
+            ) : invite.key === 'sent' ? (
               tp('inviteSent', { when: date(invite.at) })
             ) : (
               <span className="text-destructive">{tp('inviteFailed')}</span>
+            )}
+            {onResendInvite && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="mt-1 flex"
+                disabled={resendingInvite}
+                onClick={onResendInvite}
+              >
+                {t('resendInvite')}
+              </Button>
             )}
           </Row>
         )}

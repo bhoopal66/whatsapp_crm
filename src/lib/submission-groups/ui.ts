@@ -315,6 +315,22 @@ export function inviteNotice(
   return null;
 }
 
+/**
+ * Resend invite is offered on an ACTIVE group whose WhatsApp group exists and
+ * still has its number and contact. Consent and the 10-minute limit are the
+ * route's to refuse: the page knows neither.
+ */
+export function canResendInvite(g: SgGroup): boolean {
+  return (
+    waModeOf(g) === 'group' &&
+    g.status === 'ACTIVE' &&
+    !!g.wa_group_id &&
+    !!g.channel &&
+    !!g.contact &&
+    g.customer_membership !== 'joined'
+  );
+}
+
 /** Retry create is offered while an ACTIVE group has no WhatsApp group yet. */
 export function canRetryCreate(g: SgGroup): boolean {
   return (

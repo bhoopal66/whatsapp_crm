@@ -42,6 +42,7 @@ import { noteCreatedMembership } from './membership';
 import {
   assertWindowDays,
   DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS,
+  INVITE_RESEND_COOLDOWN_MS,
   inviteCodeOf,
   phoneWasRefused,
   prefixMessage,
@@ -85,6 +86,8 @@ export interface GroupsApi {
   closeGroup(channelId: string, waGroupId: string): Promise<void>;
   /** Sends the group's invite link 1:1 to `to` from the hosting number. */
   sendInvite(channelId: string, inviteCode: string, to: string): Promise<void>;
+  /** The group's current invite link, from the gateway. */
+  getInviteLink(channelId: string, waGroupId: string): Promise<string>;
 }
 
 export type GroupStore = Pick<
@@ -111,6 +114,22 @@ export type GroupStore = Pick<
   | 'failStalePending'
   | 'readArchive'
 >;
+
+/** Why a Resend invite was not attempted; the route words each one. */
+export type ResendInviteRefusal =
+  | 'not_active'
+  | 'no_whatsapp'
+  | 'no_group_yet'
+  | 'detached'
+  | 'opted_out'
+  | 'do_not_contact'
+  | 'no_phone'
+  | 'too_soon';
+
+export type ResendInviteResult =
+  | { status: 'sent'; group: SubmissionGroup }
+  | { status: 'refused'; code: ResendInviteRefusal }
+  | { status: 'failed'; reason: string };
 
 export interface SubmissionGroupServiceDeps {
   store: GroupStore;
@@ -531,6 +550,54 @@ export class SubmissionGroupService {
       }
     }
     return { group: await this.recordInvite(group, sent, error), sent };
+  }
+
+  /**
+   * A person's Resend invite. Unlike `inviteCustomer` the outcome is answered, not only recorded, and a group with
+   * no usable stored link fetches one for this send (it is not stored). A refusal records nothing. The cooldown reads
+   * `invite_sent_at`, so two simultaneous requests can both pass it.
+   */
+  async resendInvite(groupId: string): Promise<ResendInviteResult> {
+    const refused = (code: ResendInviteRefusal): ResendInviteResult => ({
+      status: 'refused',
+      code,
+    });
+    const group = await this.deps.store.get(groupId);
+    if (!group || group.status !== 'ACTIVE') return refused('not_active');
+    if (group.waMode === 'none') return refused('no_whatsapp');
+    const { channelId, contactId, waGroupId } = group;
+    if (!waGroupId) return refused('no_group_yet');
+    if (!channelId || !contactId) return refused('detached');
+
+    const consent = await this.deps.consent(contactId);
+    if (!consent.allowed || !consent.phone)
+      return refused(consent.reason ?? 'no_phone');
+
+    const now = this.deps.now?.() ?? new Date();
+    if (
+      group.inviteSentAt &&
+      now.getTime() - group.inviteSentAt.getTime() < INVITE_RESEND_COOLDOWN_MS
+    )
+      return refused('too_soon');
+
+    let error: string | null = null;
+    try {
+      const code =
+        inviteCodeOf(group.inviteLink) ??
+        inviteCodeOf(await this.deps.api.getInviteLink(channelId, waGroupId));
+      if (code) await this.deps.api.sendInvite(channelId, code, consent.phone);
+      else error = INVITE_NO_LINK;
+    } catch (err) {
+      this.log.warn('invite link could not be resent', {
+        groupId: group.id,
+        err: errText(err),
+      });
+      error = inviteFailure(err);
+    }
+    const recorded = await this.recordInvite(group, error === null, error);
+    return error === null
+      ? { status: 'sent', group: recorded }
+      : { status: 'failed', reason: error };
   }
 
   /** The group as it stands after the record; a failed record is logged, since the send already happened (or not). */

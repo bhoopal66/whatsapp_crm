@@ -18,6 +18,10 @@ and polish.
   link however the group was created. A group created by the automatic
   retry or an admin's retry used to invite nobody and record nothing. No
   migration.
+- A group's details now have a Resend invite button for owners, admins and
+  anyone on the group. A customer who opted out or is marked do-not-contact
+  gets nothing, and a resend within 10 minutes of the last invite is
+  refused, because repeated sends risk the number being flagged.
 
 ### Added
 

@@ -7373,6 +7373,8 @@
       "retryBody": "We will ask WhatsApp to create the group again.",
       "retryDone": "Asked WhatsApp to create the group again.",
       "retryFailed": "Could not retry.",
+      "inviteResendDone": "Invite link sent to the customer again.",
+      "inviteResendFailed": "Could not resend the invite.",
       "cancel": "Cancel",
       "backToList": "Back to submission groups",
       "untitled": "Untitled submission",
@@ -7426,6 +7428,8 @@
       "coordinatorPhone": "Coordinator phone",
       "number": "WhatsApp number",
       "invite": "Invite link",
+      "inviteNone": "Not sent yet",
+      "resendInvite": "Resend invite",
       "notSet": "—",
       "customerRow": "Customer",
       "customerState": {

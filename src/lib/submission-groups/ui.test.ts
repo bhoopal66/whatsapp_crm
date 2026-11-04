@@ -17,6 +17,7 @@ import {
   addableStaff,
   appendPage,
   bubbleKind,
+  canResendInvite,
   canRetryCreate,
   clearUnread,
   endReasonView,
@@ -193,6 +194,32 @@ describe('sendErrorKey', () => {
     expect(sendErrorKey(404)).toBe('notFound');
     expect(sendErrorKey(400)).toBe('tooLong');
     expect(sendErrorKey(500)).toBe('unknown');
+  });
+});
+
+describe('canResendInvite', () => {
+  it('is not offered once the customer is in the group', () => {
+    expect(canResendInvite(group({ customer_membership: 'joined' }))).toBe(
+      false
+    );
+    expect(canResendInvite(group({ customer_membership: 'absent' }))).toBe(
+      true
+    );
+  });
+
+  it('offers it on an active group with a WhatsApp group, invited or not', () => {
+    expect(canResendInvite(group())).toBe(true);
+    expect(
+      canResendInvite(group({ invite_sent_at: '2026-11-04T10:00:00Z' }))
+    ).toBe(true);
+  });
+
+  it('hides it where the route would refuse for the group itself', () => {
+    expect(canResendInvite(group({ status: 'ENDED' }))).toBe(false);
+    expect(canResendInvite(group({ wa_mode: 'none' }))).toBe(false);
+    expect(canResendInvite(group({ wa_group_id: null }))).toBe(false);
+    expect(canResendInvite(group({ channel: null }))).toBe(false);
+    expect(canResendInvite(group({ contact: null }))).toBe(false);
   });
 });
 

@@ -122,6 +122,13 @@ storing it: it appears neither in the group's log nor in the inbox. Its
 outcome is recorded on the group (migration 118): `invite_sent_at` when it
 went out, or the reason it failed, and the group page's header shows
 "Invite link sent to the customer" or "Invite link could not be sent".
+An owner, an admin or anyone with an open label on the group can send it
+again with **Resend invite** in the group's details, on an active group
+that has its WhatsApp group, number and contact. A customer who opted out
+or is marked do-not-contact gets nothing, and a resend within 10 minutes
+of the last invite that went out is refused, because repeated sends risk
+the number being flagged. A group with no usable stored link fetches the
+current one for that send.
 
 ## Has the customer joined?
 

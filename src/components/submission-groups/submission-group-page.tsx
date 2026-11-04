@@ -52,6 +52,7 @@ import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
 import {
   avatarTone,
+  canResendInvite,
   canRetryCreate,
   groupBanners,
   groupContactName,
@@ -342,6 +343,29 @@ export function SubmissionGroupPage({
     }
   };
 
+  const resendInvite = async () => {
+    setActing(true);
+    try {
+      const res = await fetch(`/api/submission-groups/${groupId}/invite`, {
+        method: 'POST',
+      });
+      if (res.ok) toast.success(t('inviteResendDone'));
+      else {
+        const json = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        toast.error(
+          typeof json?.error === 'string' ? json.error : t('inviteResendFailed')
+        );
+      }
+    } catch {
+      toast.error(t('inviteResendFailed'));
+    } finally {
+      setActing(false);
+      void reload();
+    }
+  };
+
   const openArchive = async () => {
     setConfirm(null);
     setArchiveLoading(true);
@@ -426,6 +450,12 @@ export function SubmissionGroupPage({
       <GroupDetailsCard
         group={group}
         onCopyRef={() => void copyRef(group.submission_ref)}
+        onResendInvite={
+          (detail.can_manage || detail.can_send) && canResendInvite(group)
+            ? () => void resendInvite()
+            : undefined
+        }
+        resendingInvite={acting}
       />
       <PeoplePanel
         groupId={groupId}

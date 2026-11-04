@@ -305,6 +305,8 @@ class FakeApi implements GroupsApi {
   refused: string[] = [];
   link: string | null | undefined = undefined;
   inviteError: Error | null = null;
+  fetchedLink = 'https://chat.whatsapp.com/FETCHED';
+  fetchLinkError: Error | null = null;
   private seq = 0;
   private maybeFail(m: string) {
     if (this.fail.delete(m)) throw new Error(`${m} failed`);
@@ -329,6 +331,11 @@ class FakeApi implements GroupsApi {
   async sendInvite(ch: string, code: string, to: string) {
     this.calls.push({ method: 'sendInvite', args: [ch, code, to] });
     if (this.inviteError) throw this.inviteError;
+  }
+  async getInviteLink(ch: string, wa: string) {
+    this.calls.push({ method: 'getInviteLink', args: [ch, wa] });
+    if (this.fetchLinkError) throw this.fetchLinkError;
+    return this.fetchedLink;
   }
   async sendGroupText(ch: string, wa: string, text: string) {
     this.calls.push({ method: 'sendGroupText', args: [ch, wa, text] });
@@ -1521,5 +1528,188 @@ describe('invite for a customer WhatsApp refused', () => {
     });
     expect(s.api.calls).toEqual([]);
     expect(s.store.invites).toEqual([]);
+  });
+});
+
+describe('resendInvite', () => {
+  const PHONE = '971500000001';
+  const LINK = 'https://chat.whatsapp.com/CODE1';
+  const NOW = new Date('2026-11-04T10:00:00Z');
+  const MINUTE = 60_000;
+  /** An open group with a WhatsApp group and no invite recorded. */
+  const opened = async (o: Parameters<typeof setup>[0] = {}) => {
+    const s = setup({ now: () => NOW, ...o });
+    s.api.link = LINK;
+    await s.open();
+    s.api.calls = [];
+    const g = [...s.store.groups.values()][0];
+    return { s, g };
+  };
+
+  it('sends the stored link to the consent phone and answers the recorded group', async () => {
+    const { s, g } = await opened();
+    s.consent.answer = { allowed: true, phone: '971500000099' };
+    const r = await s.svc.resendInvite(g.id);
+    expect(s.api.calls).toEqual([
+      { method: 'sendInvite', args: [CH, 'CODE1', '971500000099'] },
+    ]);
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: true, error: null },
+    ]);
+    if (r.status !== 'sent') throw new Error('expected sent');
+    expect(r.group.inviteSentAt).toBeInstanceOf(Date);
+  });
+
+  it.each([
+    ['empty', null],
+    ['unusable', 'https://example.com/CODE1'],
+  ])(
+    'fetches the link when the stored one is %s, and does not store it',
+    async (_n, stored) => {
+      const { s, g } = await opened();
+      g.inviteLink = stored;
+      await expect(s.svc.resendInvite(g.id)).resolves.toMatchObject({
+        status: 'sent',
+      });
+      expect(s.api.calls).toEqual([
+        { method: 'getInviteLink', args: [CH, g.waGroupId] },
+        { method: 'sendInvite', args: [CH, 'FETCHED', PHONE] },
+      ]);
+      expect(s.store.groups.get(g.id)?.inviteLink).toBe(stored);
+    }
+  );
+
+  it.each([
+    ['not_active', { status: 'ENDED' }],
+    ['no_whatsapp', { waMode: 'none' }],
+    ['no_group_yet', { waGroupId: null }],
+    ['detached', { channelId: null }],
+    ['detached', { contactId: null }],
+  ])(
+    'refuses %s without asking consent or the gateway',
+    async (code, patch) => {
+      const { s, g } = await opened();
+      Object.assign(g, patch);
+      const asked = s.consent.asked;
+      await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+        status: 'refused',
+        code,
+      });
+      expect(s.consent.asked).toBe(asked);
+      expect(s.api.calls).toEqual([]);
+      expect(s.store.invites).toEqual([]);
+    }
+  );
+
+  it('refuses a group that is gone', async () => {
+    await expect(setup().svc.resendInvite('nope')).resolves.toEqual({
+      status: 'refused',
+      code: 'not_active',
+    });
+  });
+
+  it.each(['opted_out', 'do_not_contact'] as const)(
+    'sends nothing to a customer marked %s',
+    async (reason) => {
+      const { s, g } = await opened();
+      s.consent.answer = { allowed: false, phone: PHONE, reason };
+      await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+        status: 'refused',
+        code: reason,
+      });
+      expect(s.api.calls).toEqual([]);
+      expect(s.store.invites).toEqual([]);
+    }
+  );
+
+  it('refuses a contact with no phone', async () => {
+    const { s, g } = await opened();
+    s.consent.answer = { allowed: false, phone: null };
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'refused',
+      code: 'no_phone',
+    });
+    expect(s.api.calls).toEqual([]);
+  });
+
+  it('holds a resend for 10 minutes after the last invite went out', async () => {
+    const { s, g } = await opened();
+    g.inviteSentAt = new Date(NOW.getTime() - 10 * MINUTE + 1);
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'refused',
+      code: 'too_soon',
+    });
+    expect(s.api.calls).toEqual([]);
+    expect(s.store.invites).toEqual([]);
+
+    g.inviteSentAt = new Date(NOW.getTime() - 10 * MINUTE);
+    await expect(s.svc.resendInvite(g.id)).resolves.toMatchObject({
+      status: 'sent',
+    });
+  });
+
+  it('a failed attempt does not start the cooldown', async () => {
+    const { s, g } = await opened();
+    s.api.inviteError = new Error('down');
+    await s.svc.resendInvite(g.id);
+    s.api.inviteError = null;
+    await expect(s.svc.resendInvite(g.id)).resolves.toMatchObject({
+      status: 'sent',
+    });
+  });
+
+  it('records a refused send and answers its plain reason, never the raw error', async () => {
+    const { s, g } = await opened();
+    s.api.inviteError = Object.assign(new Error('token secret'), {
+      status: 403,
+    });
+    const reason = 'WhatsApp refused the invite';
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'failed',
+      reason,
+    });
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: false, error: reason },
+    ]);
+  });
+
+  it('a failed link fetch sends nothing and is recorded the same way', async () => {
+    const { s, g } = await opened();
+    g.inviteLink = null;
+    s.api.fetchLinkError = new SubmissionGroupChannelError(CH);
+    const reason = 'The hosting WhatsApp number is not available';
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'failed',
+      reason,
+    });
+    expect(s.api.of('sendInvite')).toEqual([]);
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: false, error: reason },
+    ]);
+  });
+
+  it('a fetched link that is no invite link sends nothing', async () => {
+    const { s, g } = await opened();
+    g.inviteLink = null;
+    s.api.fetchedLink = 'https://example.com/x';
+    const reason = 'The group has no invite link';
+    await expect(s.svc.resendInvite(g.id)).resolves.toEqual({
+      status: 'failed',
+      reason,
+    });
+    expect(s.api.of('sendInvite')).toEqual([]);
+    expect(s.store.invites).toEqual([
+      { groupId: g.id, sent: false, error: reason },
+    ]);
+  });
+
+  it('answers sent when only the record failed, since the send happened', async () => {
+    const { s, g } = await opened();
+    s.store.noteInviteFails = true;
+    await expect(s.svc.resendInvite(g.id)).resolves.toMatchObject({
+      status: 'sent',
+      group: { id: g.id, inviteSentAt: null },
+    });
+    expect(s.api.of('sendInvite')).toHaveLength(1);
   });
 });

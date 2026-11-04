@@ -7373,6 +7373,8 @@
       "retryBody": "WhatsApp에 그룹 생성을 다시 요청합니다.",
       "retryDone": "WhatsApp에 그룹 생성을 다시 요청했습니다.",
       "retryFailed": "다시 시도하지 못했습니다.",
+      "inviteResendDone": "고객에게 초대 링크를 다시 보냈습니다.",
+      "inviteResendFailed": "초대를 다시 보내지 못했습니다.",
       "cancel": "취소",
       "backToList": "제출 그룹 목록으로 돌아가기",
       "untitled": "이름 없는 제출",
@@ -7426,6 +7428,8 @@
       "coordinatorPhone": "코디네이터 전화번호",
       "number": "WhatsApp 번호",
       "invite": "초대 링크",
+      "inviteNone": "아직 보내지 않음",
+      "resendInvite": "초대 다시 보내기",
       "notSet": "—",
       "customerRow": "고객",
       "customerState": {

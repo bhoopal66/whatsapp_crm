@@ -110,6 +110,11 @@ export function createWhapiGroupsApi(
       await groups.sendInviteLink({ channel, inviteCode, to });
     },
 
+    async getInviteLink(channelId, waGroupId) {
+      const channel = await channelFor(channelId);
+      return (await groups.getInviteLink({ channel, groupId: waGroupId })).link;
+    },
+
     /**
      * Remove everyone but our own number, then leave. A group WhatsApp
      * no longer knows on this number (404) is already closed.

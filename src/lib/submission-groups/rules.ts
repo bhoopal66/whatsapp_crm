@@ -50,6 +50,8 @@ export const DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS = 60;
  * decides (sg_close_hold_until); this restates it, pinned by rules.test.ts.
  */
 export const CLOSE_HOLD_DAYS = 2;
+/** A person's Resend invite waits this long after the last one that went out: repeated sends risk the number being flagged. */
+export const INVITE_RESEND_COOLDOWN_MS = 600_000;
 /**
  * Compass statuses that finish a submission: the group ends and the case
  * closes. Mirrors case_final_stage_for_status (migration 166), which

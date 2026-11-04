@@ -71,6 +71,25 @@ beforeEach(() => {
   });
 });
 
+describe('getInviteLink', () => {
+  it('asks the gateway on the account channel and answers the link', async () => {
+    await expect(api().getInviteLink('cfg-1', WA_GROUP)).resolves.toBe(
+      'https://chat.whatsapp.com/ABC'
+    );
+    expect(h.getInviteLink).toHaveBeenCalledWith({
+      channel: whapi,
+      groupId: WA_GROUP,
+    });
+  });
+
+  it("refuses another account's number", async () => {
+    await expect(
+      api().getInviteLink('cfg-other', WA_GROUP)
+    ).rejects.toBeInstanceOf(SubmissionGroupChannelError);
+    expect(h.getInviteLink).not.toHaveBeenCalled();
+  });
+});
+
 describe('createGroup', () => {
   it('creates on the account channel, reports who is missing, and fetches the link', async () => {
     const out = await api().createGroup(
