@@ -207,6 +207,22 @@ export async function POST(request: Request) {
       }
       const staff = resolveStaff(input.staff, (staffRows ?? []) as StaffRow[]);
       if (!staff.ok) {
+        // Compass retries a refusal for ever and sees only this answer, so
+        // the log is the one place that says whom to fix. Staff emails
+        // only: nothing of the customer's.
+        console.warn(
+          '[api/v1/submission-groups] staff refused:',
+          staff.code,
+          staff.code === 'unknown_user' ? staff.field : staff.fields.join('+'),
+          input.staff
+            .filter((s) =>
+              staff.code === 'unknown_user'
+                ? s.field === staff.field
+                : staff.fields.includes(s.field)
+            )
+            .map((s) => s.email)
+            .join(' ')
+        );
         return staff.code === 'unknown_user'
           ? fail(
               'unknown_user',
