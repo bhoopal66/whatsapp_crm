@@ -5887,6 +5887,7 @@
     "draftOptedOut": "No WhatsApp draft: the customer opted out of messages",
     "play": "Play recording",
     "pause": "Pause recording",
+    "speed": "Playback speed {speed}x",
     "attach": "Attach to deal file",
     "attached": "Recording attached to the deal file",
     "noticePlayed": "Notice played · stored in wacrm · every play is logged",

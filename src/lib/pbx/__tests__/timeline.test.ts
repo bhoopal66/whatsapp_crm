@@ -15,6 +15,7 @@ import {
   groupByDay,
   maskPhone,
   mergeTimeline,
+  applyRecordingSpeed,
   needsRecordingLink,
   RECORDING_LINK_FRESH_MS,
   recordingView,
@@ -527,5 +528,15 @@ describe('noAudioView', () => {
     expect(noAudioView('past_retention')).toBeNull();
     expect(noAudioView(undefined)).toBeNull();
     expect(noAudioView('constructor')).toBeNull();
+  });
+});
+
+describe('applyRecordingSpeed', () => {
+  it('sets the default rate too, so a re-signed link keeps the speed', () => {
+    const el = { playbackRate: 1, defaultPlaybackRate: 1 };
+    applyRecordingSpeed(el, 2);
+    expect(el).toEqual({ playbackRate: 2, defaultPlaybackRate: 2 });
+    applyRecordingSpeed(el, 1);
+    expect(el).toEqual({ playbackRate: 1, defaultPlaybackRate: 1 });
   });
 });

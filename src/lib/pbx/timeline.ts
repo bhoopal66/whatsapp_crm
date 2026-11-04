@@ -268,6 +268,21 @@ export function needsRecordingLink(
   return signedAt === null || now - signedAt >= RECORDING_LINK_FRESH_MS;
 }
 
+export type RecordingSpeed = 1 | 2;
+
+/**
+ * Sets both rates: a new `src` reloads the element, which resets
+ * `playbackRate` to `defaultPlaybackRate`, so a link re-signed mid-listen
+ * would otherwise drop the recording back to 1x.
+ */
+export function applyRecordingSpeed(
+  el: Pick<HTMLMediaElement, 'playbackRate' | 'defaultPlaybackRate'>,
+  speed: RecordingSpeed
+): void {
+  el.defaultPlaybackRate = speed;
+  el.playbackRate = speed;
+}
+
 /** '24 s', '6 min 18 s', '6 min'. */
 export function duration(seconds: number | null | undefined): Msg {
   const s = Math.max(0, Math.round(seconds ?? 0));

@@ -5887,6 +5887,7 @@
     "draftOptedOut": "WhatsApp 초안 없음: 고객이 메시지 수신을 거부했습니다",
     "play": "녹음 재생",
     "pause": "녹음 일시정지",
+    "speed": "재생 속도 {speed}배",
     "attach": "딜 파일에 첨부",
     "attached": "녹음을 딜 파일에 첨부했습니다",
     "noticePlayed": "안내 방송 재생됨 · wacrm에 보관 · 모든 재생이 기록됩니다",

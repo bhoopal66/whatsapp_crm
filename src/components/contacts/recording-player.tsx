@@ -42,11 +42,13 @@ import { useAuth } from '@/hooks/use-auth';
 import { canDownloadRecording, canPlaceLegalHold } from '@/lib/auth/roles';
 import { reasonOk } from '@/lib/chat/admin-tools';
 import {
+  applyRecordingSpeed,
   needsRecordingLink,
   noAudioView,
   playerClock,
   recordingView,
   refusalView,
+  type RecordingSpeed,
   type RecordingView,
   type TimelineCall,
 } from '@/lib/pbx/timeline';
@@ -87,6 +89,7 @@ export function RecordingPlayer({
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [length, setLength] = useState<number | null>(null);
+  const [speed, setSpeed] = useState<RecordingSpeed>(1);
   const [attach, setAttach] = useState<'idle' | 'busy' | 'done'>('idle');
   const { accountRole } = useAuth();
   const canHold = !!accountRole && canPlaceLegalHold(accountRole);
@@ -157,6 +160,12 @@ export function RecordingPlayer({
     } finally {
       setBusy(false);
     }
+  };
+
+  const toggleSpeed = () => {
+    const next: RecordingSpeed = speed === 1 ? 2 : 1;
+    setSpeed(next);
+    if (audio.current) applyRecordingSpeed(audio.current, next);
   };
 
   const download = async () => {
@@ -274,6 +283,16 @@ export function RecordingPlayer({
           <span className="text-muted-foreground font-mono text-xs tabular-nums">
             {playerClock(at)} / {playerClock(total)}
           </span>
+          <Button
+            size="xs"
+            variant="outline"
+            className="w-9 font-mono tabular-nums"
+            aria-label={t('speed', { speed })}
+            title={t('speed', { speed })}
+            onClick={toggleSpeed}
+          >
+            {speed}x
+          </Button>
         </div>
       )}
       {/* The src is set by Play, never rendered: the link is signed per play. */}

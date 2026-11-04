@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Play a call recording at 2x
+
+Call recordings have a 1x / 2x button next to the time, on Team
+recordings, the Calls list and the customer page. The speed holds for
+the whole recording, including after a pause.
+
 ### Only owners and admins add people
 
 - Adding people to a workspace, by login, by email or by invite link, is
