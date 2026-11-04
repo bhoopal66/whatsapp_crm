@@ -767,3 +767,12 @@ jobs:
       # count.
       - name: Verify submission group reads
         run: supabase db query --local --file supabase/ci/verify-submission-group-reads.sql
+
+      # Migration 174: customer_membership's default and CHECK;
+      # sg_note_customer_membership (state changes, 'unknown' stamps only,
+      # ENDED untouched) and sg_membership_due (filters, order, limit, the
+      # 6-hour rule), service role only; a customer's message marks the
+      # group joined and a failure there never loses the message; the
+      # backfill skips ENDED and 'absent' rows and is idempotent.
+      - name: Verify submission group membership
+        run: supabase db query --local --file supabase/ci/verify-submission-group-membership.sql
