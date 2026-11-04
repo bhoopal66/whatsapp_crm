@@ -19,15 +19,12 @@
 //                 rather than pretending we can resurface it.
 //
 // Role-gating
-//   The section opens to team leaders and up (`minRole: 'team_leader'`
-//   in settings-sections.ts, migration 099). A team leader gets the
-//   invite button, offering only the roles they may grant
-//   (`grantableRoles`), and the links they made themselves. "Add
-//   person", which creates a login with a password the adder chooses,
-//   the roster and its role / deactivate / remove controls stay
-//   admin-only (`canManageMembers`), as does GET /api/account/members
-//   behind it. The routes, the RPCs (add_workspace_member,
-//   set_member_role, remove_account_member) and 099's RLS are the
+//   The section is owner / admin only (`minRole: 'admin'` in
+//   settings-sections.ts; migration 175 took it back from team leaders,
+//   who had it from 099), so everything here is for an admin: add a
+//   person, invite by link, the roster and its role / deactivate /
+//   remove controls. The routes, the RPCs (add_workspace_member,
+//   set_member_role, remove_account_member) and RLS are the
 //   enforcement point.
 // ============================================================
 
@@ -88,7 +85,6 @@ import {
   ASSIGNABLE_ROLES,
   canChangePasswordOf,
   canEditDetailsOf,
-  canManageMembers,
   type AccountRole,
   type AssignableRole,
 } from '@/lib/auth/roles';
@@ -163,8 +159,6 @@ export function MembersTab() {
   const tRoles = useTranslations('Settings.roles');
   const tCoord = useTranslations('Coordinators.members');
   const { user, accountRole } = useAuth();
-  // Owner/admin: the roster too. A team leader only adds people (099).
-  const managesRoster = !!accountRole && canManageMembers(accountRole);
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -201,32 +195,26 @@ export function MembersTab() {
   const loadEverything = useCallback(async () => {
     try {
       const [mres, ires] = await Promise.all([
-        managesRoster
-          ? fetch('/api/account/members', { cache: 'no-store' })
-          : null,
+        fetch('/api/account/members', { cache: 'no-store' }),
         fetch('/api/account/invitations', { cache: 'no-store' }),
       ]);
 
-      if (mres) {
-        if (!mres.ok) {
-          const payload = await mres.json().catch(() => ({}));
-          toast.error(payload.error || 'Failed to load members');
-          return;
-        }
-        const mdata = (await mres.json()) as { members: Member[] };
-        setMembers(mdata.members);
+      if (!mres.ok) {
+        const payload = await mres.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to load members');
+        return;
       }
+      const mdata = (await mres.json()) as { members: Member[] };
+      setMembers(mdata.members);
 
-      if (mres) {
-        // Coordinator badges; a failure only costs the badges.
-        const cres = await fetch('/api/coordinators', { cache: 'no-store' });
-        if (cres.ok) {
-          const cdata = (await cres.json()) as {
-            coordinators: Parameters<typeof banksByUser>[0];
-          };
-          setCoordBanks(banksByUser(cdata.coordinators));
-          setCoordPhones(phonesByUser(cdata.coordinators));
-        }
+      // Coordinator badges; a failure only costs the badges.
+      const cres = await fetch('/api/coordinators', { cache: 'no-store' });
+      if (cres.ok) {
+        const cdata = (await cres.json()) as {
+          coordinators: Parameters<typeof banksByUser>[0];
+        };
+        setCoordBanks(banksByUser(cdata.coordinators));
+        setCoordPhones(phonesByUser(cdata.coordinators));
       }
 
       if (!ires.ok) {
@@ -242,7 +230,7 @@ export function MembersTab() {
     } finally {
       setLoading(false);
     }
-  }, [managesRoster]);
+  }, []);
 
   useEffect(() => {
     void loadEverything();
@@ -412,14 +400,11 @@ export function MembersTab() {
             {/* Primary: self-service signup is gone, so creating the
                   login here is the only way a new person gets in. The
                   invite link remains for someone who ALREADY has a
-                  login on another account. Owner / admin only: a team
-                  leader invites by link (099). */}
-            {managesRoster && (
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="size-4" />
-                {t('createMember')}
-              </Button>
-            )}
+                  login on another account. */}
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" />
+              {t('createMember')}
+            </Button>
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               {t('inviteMember')}
             </Button>
@@ -427,14 +412,9 @@ export function MembersTab() {
         }
       />
 
-      {!managesRoster && (
-        <p className="text-muted-foreground text-sm">{t('leaderNote')}</p>
-      )}
-
       {/* Live presence summary across the roster. Updates without a
           full refresh as heartbeats and the local re-derive tick land. */}
-      {managesRoster &&
-        members.length > 0 &&
+      {members.length > 0 &&
         (() => {
           // Presence counts only people who can sign in; a deactivated
           // member would otherwise sit in "offline" forever.
@@ -467,7 +447,7 @@ export function MembersTab() {
         })()}
 
       {/* Roster, with a search over name, email, role and bank code. */}
-      {managesRoster && members.length > 0 && (
+      {members.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="relative w-full sm:max-w-xs">
             <Search
@@ -507,298 +487,291 @@ export function MembersTab() {
           )}
         </div>
       )}
-      {managesRoster && (
-        <Card>
-          <CardContent className="p-0">
-            {shownMembers.length === 0 && memberQuery.trim() ? (
-              <p className="text-muted-foreground px-4 py-8 text-center text-sm">
-                {t('searchNoMatch', { query: memberQuery.trim() })}
-              </p>
-            ) : null}
-            <ul className="divide-border divide-y">
-              {shownMembers.map((member) => {
-                const roleMeta = ROLE_META[member.role];
-                const RoleIcon = roleMeta.icon;
-                const isSelf = member.user_id === user?.id;
-                const isOwnerRow = member.role === 'owner';
-                const isBusy = pendingMemberAction === member.user_id;
-                const isInactive = !!member.deactivated_at;
-                const presence = getPresence(member.user_id);
-                const presenceRow = getRow(member.user_id);
-                const presenceText = presenceLabel(
-                  presence,
-                  presenceRow?.last_seen_at ?? null,
-                  now
-                );
+      <Card>
+        <CardContent className="p-0">
+          {shownMembers.length === 0 && memberQuery.trim() ? (
+            <p className="text-muted-foreground px-4 py-8 text-center text-sm">
+              {t('searchNoMatch', { query: memberQuery.trim() })}
+            </p>
+          ) : null}
+          <ul className="divide-border divide-y">
+            {shownMembers.map((member) => {
+              const roleMeta = ROLE_META[member.role];
+              const RoleIcon = roleMeta.icon;
+              const isSelf = member.user_id === user?.id;
+              const isOwnerRow = member.role === 'owner';
+              const isBusy = pendingMemberAction === member.user_id;
+              const isInactive = !!member.deactivated_at;
+              const presence = getPresence(member.user_id);
+              const presenceRow = getRow(member.user_id);
+              const presenceText = presenceLabel(
+                presence,
+                presenceRow?.last_seen_at ?? null,
+                now
+              );
 
-                return (
-                  <li
-                    key={member.user_id}
-                    // Mobile: stack identity (avatar+name+email) above the
-                    // role/remove actions so the role dropdown's fixed
-                    // 128px width doesn't force the name into a 50-pixel
-                    // truncation. Desktop (sm+): everything inline as
-                    // before.
-                    className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+              return (
+                <li
+                  key={member.user_id}
+                  // Mobile: stack identity (avatar+name+email) above the
+                  // role/remove actions so the role dropdown's fixed
+                  // 128px width doesn't force the name into a 50-pixel
+                  // truncation. Desktop (sm+): everything inline as
+                  // before.
+                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
+                >
+                  <div
+                    className={`flex min-w-0 flex-1 items-center gap-4 ${isInactive ? 'opacity-60' : ''}`}
                   >
-                    <div
-                      className={`flex min-w-0 flex-1 items-center gap-4 ${isInactive ? 'opacity-60' : ''}`}
-                    >
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Avatar className="size-9 shrink-0">
-                              {member.avatar_url ? (
-                                <AvatarImage
-                                  src={member.avatar_url}
-                                  alt={member.full_name || 'Member'}
-                                />
-                              ) : null}
-                              <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                                {(member.full_name || member.email || 'U')
-                                  .charAt(0)
-                                  .toUpperCase()}
-                              </AvatarFallback>
-                              {/* role+label so screen readers announce
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Avatar className="size-9 shrink-0">
+                            {member.avatar_url ? (
+                              <AvatarImage
+                                src={member.avatar_url}
+                                alt={member.full_name || 'Member'}
+                              />
+                            ) : null}
+                            <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+                              {(member.full_name || member.email || 'U')
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                            {/* role+label so screen readers announce
                                 presence — the hover tooltip alone isn't
                                 reachable by keyboard/AT on a non-focusable
                                 avatar. */}
-                              <AvatarBadge
-                                role="img"
-                                aria-label={presenceText}
-                                className={PRESENCE_DOT_CLASS[presence]}
-                              />
-                            </Avatar>
-                          }
-                        />
-                        <TooltipContent>{presenceText}</TooltipContent>
-                      </Tooltip>
+                            <AvatarBadge
+                              role="img"
+                              aria-label={presenceText}
+                              className={PRESENCE_DOT_CLASS[presence]}
+                            />
+                          </Avatar>
+                        }
+                      />
+                      <TooltipContent>{presenceText}</TooltipContent>
+                    </Tooltip>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-foreground truncate text-sm font-medium">
-                            {member.full_name || t('unnamed')}
-                          </span>
-                          {isSelf && (
-                            <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
-                              {t('you')}
-                            </Badge>
-                          )}
-                          {(coordBanks.get(member.user_id)?.length ?? 0) >
-                            0 && (
-                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
-                              {tCoord('badge')} ·{' '}
-                              {coordBanks.get(member.user_id)!.join(', ')}
-                            </Badge>
-                          )}
-                          {isInactive && (
-                            <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
-                              {t('inactive')}
-                            </Badge>
-                          )}
-                        </div>
-                        {member.email && (
-                          <p className="text-muted-foreground truncate text-xs">
-                            {member.email}
-                          </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-foreground truncate text-sm font-medium">
+                          {member.full_name || t('unnamed')}
+                        </span>
+                        {isSelf && (
+                          <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
+                            {t('you')}
+                          </Badge>
+                        )}
+                        {(coordBanks.get(member.user_id)?.length ?? 0) > 0 && (
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                            {tCoord('badge')} ·{' '}
+                            {coordBanks.get(member.user_id)!.join(', ')}
+                          </Badge>
+                        )}
+                        {isInactive && (
+                          <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
+                            {t('inactive')}
+                          </Badge>
                         )}
                       </div>
+                      {member.email && (
+                        <p className="text-muted-foreground truncate text-xs">
+                          {member.email}
+                        </p>
+                      )}
                     </div>
+                  </div>
 
-                    {/* Joined date stays desktop-only. The mobile row's
+                  {/* Joined date stays desktop-only. The mobile row's
                       vertical density makes the joined date noise. */}
-                    <div className="text-muted-foreground hidden text-right text-xs sm:block">
-                      {member.deactivated_at
-                        ? t('deactivatedOn', {
-                            date: fmtDate(member.deactivated_at),
-                          })
-                        : t('joined', { date: fmtDate(member.joined_at) })}
-                    </div>
+                  <div className="text-muted-foreground hidden text-right text-xs sm:block">
+                    {member.deactivated_at
+                      ? t('deactivatedOn', {
+                          date: fmtDate(member.deactivated_at),
+                        })
+                      : t('joined', { date: fmtDate(member.joined_at) })}
+                  </div>
 
-                    {/* Actions cluster. On mobile this is its own row
+                  {/* Actions cluster. On mobile this is its own row
                       below the identity block; on desktop it sits
                       inline. Items align to the start on mobile so the
                       role dropdown lines up under the avatar. */}
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      {/* Role display / editor. Not on the owner row (owner
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Role display / editor. Not on the owner row (owner
                         changes go through transfer) nor your own, and
                         not on a bank guest's: set_member_role refuses to
                         turn a guest into staff or back. */}
-                      {!isOwnerRow &&
-                      !isSelf &&
-                      member.role !== 'bank_guest' ? (
-                        <Select
-                          value={member.role}
-                          onValueChange={(v) =>
-                            // Base UI Select can emit null on clear. We
-                            // don't expose a clear affordance, so the
-                            // guard is defensive — but the typed
-                            // signature requires it.
-                            v && handleRoleChange(member, v as AccountRole)
-                          }
+                    {!isOwnerRow && !isSelf && member.role !== 'bank_guest' ? (
+                      <Select
+                        value={member.role}
+                        onValueChange={(v) =>
+                          // Base UI Select can emit null on clear. We
+                          // don't expose a clear affordance, so the
+                          // guard is defensive — but the typed
+                          // signature requires it.
+                          v && handleRoleChange(member, v as AccountRole)
+                        }
+                      >
+                        <SelectTrigger
+                          className="border-border text-foreground w-32"
+                          disabled={isBusy}
                         >
-                          <SelectTrigger
-                            className="border-border text-foreground w-32"
-                            disabled={isBusy}
-                          >
-                            <SelectValue>{tRoles(member.role)}</SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ASSIGNABLE_ROLES.map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {tRoles(r)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <span className="inline-flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
-                          >
-                            <RoleIcon className="size-3.5" />
-                            {tRoles(member.role)}
-                          </span>
-                          {member.role === 'bank_guest' && member.bank_code ? (
-                            <span className="text-muted-foreground text-xs">
-                              {t('bankCode', { code: member.bank_code })}
-                            </span>
-                          ) : null}
+                          <SelectValue>{tRoles(member.role)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ASSIGNABLE_ROLES.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {tRoles(r)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
+                        >
+                          <RoleIcon className="size-3.5" />
+                          {tRoles(member.role)}
                         </span>
-                      )}
+                        {member.role === 'bank_guest' && member.bank_code ? (
+                          <span className="text-muted-foreground text-xs">
+                            {t('bankCode', { code: member.bank_code })}
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
 
-                      {canHoldCoordinatorBanks(member.role) && !isInactive && (
+                    {canHoldCoordinatorBanks(member.role) && !isInactive && (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label={tCoord('manage')}
+                              onClick={() => setEditingBanks(member)}
+                              disabled={isBusy}
+                            >
+                              <Landmark className="size-4" />
+                            </Button>
+                          }
+                        />
+                        <TooltipContent>{tCoord('manage')}</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {/* Edit their name and login email: the same people
+                        as the password below (migration 167). */}
+                    {!isSelf &&
+                      !!accountRole &&
+                      canEditDetailsOf(accountRole, member.role) && (
                         <Tooltip>
                           <TooltipTrigger
                             render={
                               <Button
                                 variant="outline"
                                 size="sm"
-                                aria-label={tCoord('manage')}
-                                onClick={() => setEditingBanks(member)}
+                                aria-label={t('details.button')}
+                                onClick={() => setDetailsMember(member)}
                                 disabled={isBusy}
                               >
-                                <Landmark className="size-4" />
+                                <UserPen className="size-4" />
                               </Button>
                             }
                           />
-                          <TooltipContent>{tCoord('manage')}</TooltipContent>
+                          <TooltipContent>{t('details.button')}</TooltipContent>
                         </Tooltip>
                       )}
 
-                      {/* Edit their name and login email: the same people
-                        as the password below (migration 167). */}
-                      {!isSelf &&
-                        !!accountRole &&
-                        canEditDetailsOf(accountRole, member.role) && (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  aria-label={t('details.button')}
-                                  onClick={() => setDetailsMember(member)}
-                                  disabled={isBusy}
-                                >
-                                  <UserPen className="size-4" />
-                                </Button>
-                              }
-                            />
-                            <TooltipContent>
-                              {t('details.button')}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-
-                      {/* Set their password: someone below you in this
+                    {/* Set their password: someone below you in this
                         workspace. The database also checks every other
                         workspace their login opens (migration 140). */}
-                      {!isSelf &&
-                        !!accountRole &&
-                        canChangePasswordOf(accountRole, member.role) && (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  aria-label={t('password.button')}
-                                  onClick={() => setPasswordMember(member)}
-                                  disabled={isBusy}
-                                >
-                                  <KeyRound className="size-4" />
-                                </Button>
-                              }
-                            />
-                            <TooltipContent>
-                              {t('password.button')}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-
-                      {/* Deactivate / reactivate. Same gate as Remove: the
-                        owner can't be deactivated (someone must be able
-                        to turn people back on) and neither can you. */}
-                      {!isOwnerRow && !isSelf && (
+                    {!isSelf &&
+                      !!accountRole &&
+                      canChangePasswordOf(accountRole, member.role) && (
                         <Tooltip>
                           <TooltipTrigger
                             render={
                               <Button
                                 variant="outline"
                                 size="sm"
-                                aria-label={
-                                  isInactive ? t('reactivate') : t('deactivate')
-                                }
-                                onClick={() =>
-                                  isInactive
-                                    ? handleSetActive(member, true)
-                                    : setDeactivatingMember(member)
-                                }
+                                aria-label={t('password.button')}
+                                onClick={() => setPasswordMember(member)}
                                 disabled={isBusy}
                               >
-                                {isBusy && !deactivatingMember ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : isInactive ? (
-                                  <UserCheck className="size-4" />
-                                ) : (
-                                  <UserX className="size-4" />
-                                )}
+                                <KeyRound className="size-4" />
                               </Button>
                             }
                           />
                           <TooltipContent>
-                            {isInactive ? t('reactivate') : t('deactivate')}
+                            {t('password.button')}
                           </TooltipContent>
                         </Tooltip>
                       )}
 
-                      {/* Remove. Admin+ only; never on the owner row;
+                    {/* Deactivate / reactivate. Same gate as Remove: the
+                        owner can't be deactivated (someone must be able
+                        to turn people back on) and neither can you. */}
+                    {!isOwnerRow && !isSelf && (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label={
+                                isInactive ? t('reactivate') : t('deactivate')
+                              }
+                              onClick={() =>
+                                isInactive
+                                  ? handleSetActive(member, true)
+                                  : setDeactivatingMember(member)
+                              }
+                              disabled={isBusy}
+                            >
+                              {isBusy && !deactivatingMember ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : isInactive ? (
+                                <UserCheck className="size-4" />
+                              ) : (
+                                <UserX className="size-4" />
+                              )}
+                            </Button>
+                          }
+                        />
+                        <TooltipContent>
+                          {isInactive ? t('reactivate') : t('deactivate')}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {/* Remove. Admin+ only; never on the owner row;
                         never on yourself. Pre-polish styling was
                         neutral-default + red-on-hover — the
                         destructive intent was invisible until the
                         user moused over. Now red is the default
                         state with a darker shade on hover so the
                         affordance reads at-a-glance. */}
-                      {!isOwnerRow && !isSelf && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setRemovingMember(member)}
-                          disabled={isBusy}
-                          className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+                    {!isOwnerRow && !isSelf && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRemovingMember(member)}
+                        disabled={isBusy}
+                        className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
 
       {/* Pending invitations */}
       <div>

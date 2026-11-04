@@ -248,7 +248,7 @@ export function CreateWorkspaceDialog({
 
   const roleCards = [
     { title: t('cardAdminTitle'), body: t('cardAdminBody'), guest: false },
-    // A team leader has no settings (099: adds agents and viewers only).
+    // A team leader has no settings and adds nobody (175).
     { title: t('cardLeaderTitle'), body: t('cardLeaderBody'), guest: false },
     { title: t('cardAgentTitle'), body: t('cardAgentBody'), guest: false },
     { title: t('cardGuestTitle'), body: t('cardGuestBody'), guest: true },

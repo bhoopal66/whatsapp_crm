@@ -240,8 +240,7 @@ export function SettingsOverview({
         </>
       ),
     },
-    // The roster is admin-only: a team leader, who opens Members to
-    // invite, gets the hint rather than a count of nobody.
+    // The roster is admin-only (Members is, since 175).
     ...(canManageMembers
       ? {
           members: {

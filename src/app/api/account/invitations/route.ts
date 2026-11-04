@@ -4,12 +4,10 @@
 //   GET  — list outstanding (un-redeemed, non-expired) invites.
 //   POST — create a new invite link.
 //
-// Both team leader and up (migration 099). The list endpoint is what
-// the Members tab uses to populate the "Pending invitations" section;
-// create is what the "Invite member" dialog calls. An owner or admin
-// invites with any role and lists every link; a team leader invites
-// agents and viewers only (`canGrantRole`) and lists only the links
-// they made: 099's RLS policies hold both, since `redeem_invitation`
+// Both owner and admin only (migration 175; team leaders had a share
+// from 099). The list endpoint is what the Members tab uses to populate
+// the "Pending invitations" section; create is what the "Invite member"
+// dialog calls. RLS holds the same rule, since `redeem_invitation`
 // takes the token's hash and so a readable `token_hash` is a usable
 // link.
 //
@@ -31,11 +29,7 @@ import {
   inviteExpiresAt,
   inviteUrl,
 } from "@/lib/auth/invitations";
-import {
-  canGrantRole,
-  canInviteMembers,
-  isAccountRole,
-} from "@/lib/auth/roles";
+import { canInviteMembers, isAccountRole } from "@/lib/auth/roles";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -151,7 +145,7 @@ function getBaseUrl(request: Request): string {
 
 const MAX_LABEL_LEN = 80;
 
-const INVITERS_ONLY = "Inviting people requires the team leader role or higher";
+const INVITERS_ONLY = "Inviting people requires the admin role or higher";
 
 export async function GET() {
   try {
@@ -213,12 +207,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "'role' must be one of admin, team_leader, agent, viewer" },
         { status: 400 },
-      );
-    }
-    if (!canGrantRole(ctx.role, role)) {
-      return NextResponse.json(
-        { error: "A team leader can invite agents and viewers only" },
-        { status: 403 },
       );
     }
 

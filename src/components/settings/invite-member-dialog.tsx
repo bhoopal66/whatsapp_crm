@@ -40,13 +40,12 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import {
   ASSIGNABLE_ROLES,
-  canGrantRole,
   grantableRoles,
   type AssignableRole,
 } from '@/lib/auth/roles';
 
 /** Any role but owner — the same list as creating a login, narrowed to
- *  what the caller may grant (a team leader: agent, viewer; 099). */
+ *  what the caller may grant. */
 type InviteRole = AssignableRole;
 
 interface InviteMemberDialogProps {
@@ -86,7 +85,6 @@ export function InviteMemberDialog({
   const tRoles = useTranslations('Settings.roles');
   const { account, accountRole } = useAuth();
   const roles = grantableRoles(accountRole, ASSIGNABLE_ROLES);
-  const mayAddGuests = !!accountRole && canGrantRole(accountRole, 'bank_guest');
   const [role, setRole] = useState<InviteRole>('agent');
   const [expiry, setExpiry] = useState<string>('7');
   const [label, setLabel] = useState('');
@@ -305,13 +303,10 @@ export function InviteMemberDialog({
                   {tRoles(`${role}Hint`)}
                 </p>
                 {/* redeem_invitation refuses a guest: a guest row needs
-                    a bank code, which an invitation does not carry. A
-                    team leader adds no guests at all (099). */}
-                {mayAddGuests && (
-                  <p className="text-muted-foreground text-xs">
-                    {t('bankGuestHint')}
-                  </p>
-                )}
+                    a bank code, which an invitation does not carry. */}
+                <p className="text-muted-foreground text-xs">
+                  {t('bankGuestHint')}
+                </p>
               </div>
 
               <div className="space-y-2">

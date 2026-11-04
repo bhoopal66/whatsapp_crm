@@ -265,12 +265,11 @@ describe('canViewUnroutedCalls', () => {
   });
 });
 
-// Module 014's matrix: a supervisor (team_leader) invites RMs/agents;
-// changing roles, removing and deactivating stay admin+ (099).
-describe('adding people (migration 099)', () => {
-  it('canInviteMembers: team leader and up', () => {
+// Only owners and admins add people (099 gave team leaders a share; 175
+// took it back). Changing roles, removing and deactivating are admin+ too.
+describe('adding people (migration 175)', () => {
+  it('canInviteMembers: admin and up', () => {
     expect(ACCOUNT_ROLES.filter((r) => canInviteMembers(r))).toEqual([
-      'team_leader',
       'admin',
       'owner',
     ]);
@@ -292,23 +291,19 @@ describe('adding people (migration 099)', () => {
     }
   });
 
-  it('a team leader may grant only agent and viewer', () => {
-    expect(ACCOUNT_ROLES.filter((r) => canGrantRole('team_leader', r))).toEqual(
-      ['viewer', 'agent']
-    );
-  });
-
-  it('agents, viewers and bank guests may grant nothing', () => {
-    for (const caller of ['agent', 'viewer', 'bank_guest'] as const) {
+  it('team leaders, agents, viewers and bank guests may grant nothing', () => {
+    for (const caller of [
+      'team_leader',
+      'agent',
+      'viewer',
+      'bank_guest',
+    ] as const) {
       expect(ACCOUNT_ROLES.filter((r) => canGrantRole(caller, r))).toEqual([]);
     }
   });
 
   it('grantableRoles narrows a picker list, keeping its order', () => {
-    expect(grantableRoles('team_leader', ASSIGNABLE_ROLES)).toEqual([
-      'agent',
-      'viewer',
-    ]);
+    expect(grantableRoles('team_leader', ASSIGNABLE_ROLES)).toEqual([]);
     expect(grantableRoles('admin', ASSIGNABLE_ROLES)).toEqual([
       ...ASSIGNABLE_ROLES,
     ]);
@@ -322,15 +317,15 @@ describe('adding people (migration 099)', () => {
 // of the person's others, which only the database can see).
 describe('canChangePasswordOf (140)', () => {
   it('an admin: team leaders, agents, viewers and bank guests', () => {
-    expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf('admin', r))).toEqual(
-      ['bank_guest', 'viewer', 'agent', 'team_leader']
-    );
+    expect(
+      ACCOUNT_ROLES.filter((r) => canChangePasswordOf('admin', r))
+    ).toEqual(['bank_guest', 'viewer', 'agent', 'team_leader']);
   });
 
   it('the owner: everyone but another owner', () => {
-    expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf('owner', r))).toEqual(
-      ['bank_guest', 'viewer', 'agent', 'team_leader', 'admin']
-    );
+    expect(
+      ACCOUNT_ROLES.filter((r) => canChangePasswordOf('owner', r))
+    ).toEqual(['bank_guest', 'viewer', 'agent', 'team_leader', 'admin']);
   });
 
   it('nobody for their own role, so never for themselves', () => {
@@ -340,10 +335,15 @@ describe('canChangePasswordOf (140)', () => {
   });
 
   it('nobody below admin, even for people they outrank', () => {
-    for (const caller of ['team_leader', 'agent', 'viewer', 'bank_guest'] as const) {
-      expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf(caller, r))).toEqual(
-        []
-      );
+    for (const caller of [
+      'team_leader',
+      'agent',
+      'viewer',
+      'bank_guest',
+    ] as const) {
+      expect(
+        ACCOUNT_ROLES.filter((r) => canChangePasswordOf(caller, r))
+      ).toEqual([]);
     }
   });
 });

@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Only owners and admins add people
+
+- Adding people to a workspace, by login, by email or by invite link, is
+  now for owners and admins only. Team leaders lose what migration 099
+  gave them: they can no longer invite agents and viewers, add anyone by
+  email, or revoke links. Settings → Members is gone for a team leader,
+  and the invite links a team leader already sent stop working. Agents,
+  viewers and bank guests could not add people before, and role changes,
+  deactivation and removal were already admin-only. Team chat and deal
+  rooms still add people who are already in the workspace.
+- **Migration required:** `supabase/migrations/175_admin_only_invites.sql`.
+
 ### Submission group invites on every retry
 
 - When WhatsApp refuses to add a customer, they now get the group's invite

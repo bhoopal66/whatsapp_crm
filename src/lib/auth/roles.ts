@@ -162,37 +162,23 @@ export function canEditDetailsOf(
 }
 
 /**
- * Team leader and up: add people to the workspace, by invite link or
- * by email (migration 099). Which roles is `canGrantRole`; changing a
- * role, deactivating and removing stay `canManageMembers`.
+ * Owner / admin only: add people to the workspace, by invite link or
+ * by email. Team leaders had this from migration 099 until 175 took it
+ * back. Which roles is `canGrantRole`; changing a role, deactivating
+ * and removing are `canManageMembers`.
  */
 export function canInviteMembers(role: AccountRole): boolean {
-  return hasMinRole(role, 'team_leader');
+  return hasMinRole(role, 'admin');
 }
-
-/**
- * The roles a team leader may give: the people a leader runs. Mirrored
- * by `add_workspace_member` and the `account_invitations` leader
- * policies (099) — change one, change both.
- */
-export const LEADER_GRANTABLE_ROLES = [
-  'agent',
-  'viewer',
-] as const satisfies readonly AccountRole[];
 
 /**
  * May a caller with `role` add someone as `target`? Owner / admin: any
  * role but owner (a bank guest included, which the add-member path
- * takes with a bank code). A team leader: only `LEADER_GRANTABLE_ROLES`
- * — never admin, team_leader, owner or bank_guest. Anyone else: none.
+ * takes with a bank code). Anyone else: none.
  */
 export function canGrantRole(role: AccountRole, target: AccountRole): boolean {
   if (target === 'owner') return false;
-  if (canManageMembers(role)) return true;
-  return (
-    canInviteMembers(role) &&
-    (LEADER_GRANTABLE_ROLES as readonly AccountRole[]).includes(target)
-  );
+  return canManageMembers(role);
 }
 
 /** `roles` narrowed to those `role` may grant, order kept (for the

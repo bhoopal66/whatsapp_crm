@@ -34,7 +34,6 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account';
 import {
-  canGrantRole,
   canInviteMembers,
   canManageMembers,
   isAccountRole,
@@ -132,27 +131,20 @@ export async function GET() {
 // Add a person to the caller's workspace, with their role chosen up
 // front: one of `ASSIGNABLE_ROLES`, or `bank_guest` with a `bankCode`.
 // There is no self-service signup, so someone adding them is the ONLY
-// way in: an owner or admin with any of those roles, or (migration 099)
-// a team leader with an agent or viewer role (`canGrantRole`).
-// `add_workspace_member` applies the same rule.
+// way in, and only an owner or admin may (migration 175; team leaders
+// had a share from 099). `add_workspace_member` applies the same rule.
 //
 // Body: { email, role, full_name?, password?, bankCode? }. Since
 // migration 083 the email decides what happens (`addOrCreateMember`):
 // an existing login gets a row here and needs no password; a new one
 // is created with `password` and moved in. 201 { member, created }.
-//
-// Only an owner or admin creates a login (`mayCreateLogin`): whoever
-// does chooses its password and claims its address. A team leader adds
-// an existing login (083's rule: someone they administer elsewhere) and
-// invites anyone else by link; `add_workspace_member` never answers
-// them the P0002 that leads to the service-role provision (099).
 // ============================================================
 export async function POST(request: Request) {
   try {
     const ctx = await getCurrentAccount();
     if (!canInviteMembers(ctx.role)) {
       return NextResponse.json(
-        { error: 'Adding people requires the team leader role or higher' },
+        { error: 'Adding people requires the admin role or higher' },
         { status: 403 }
       );
     }
@@ -188,12 +180,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (!canGrantRole(ctx.role, role)) {
-      return NextResponse.json(
-        { error: 'A team leader can add agents and viewers only' },
-        { status: 403 }
-      );
-    }
 
     const result = await addOrCreateMember({
       supabase: ctx.supabase,
@@ -204,7 +190,6 @@ export async function POST(request: Request) {
       bankCode: bankCode || null,
       password,
       fullName,
-      mayCreateLogin: canManageMembers(ctx.role),
     });
     if (!result.ok) {
       return NextResponse.json(

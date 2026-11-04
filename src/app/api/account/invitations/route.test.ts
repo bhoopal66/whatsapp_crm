@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Who may mint an invite link, and with which role (migration 099):
-// owner/admin any staff role, a team leader agent or viewer only. RLS
-// holds the same rule; this pins the route's own check.
+// Who may list, mint and revoke invite links (migration 175): owners and
+// admins only; a team leader is refused like an agent. RLS holds the
+// same rule; this pins the routes' own check.
 
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   insert: vi.fn(),
   single: vi.fn(),
+  select: vi.fn(),
+  del: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -17,7 +19,8 @@ vi.mock('@/lib/auth/account', () => ({
   ),
 }));
 
-import { POST } from './route';
+import { DELETE } from './[id]/route';
+import { GET, POST } from './route';
 
 const insertQuery = {
   select: () => insertQuery,
@@ -58,34 +61,17 @@ describe('POST /api/account/invitations', () => {
     });
   });
 
-  it.each(['agent', 'viewer'])(
-    'lets a team leader invite a %s',
-    async (role) => {
-      mocks.getCurrentAccount.mockResolvedValue(ctx('team_leader'));
-      const res = await POST(request({ role }));
-      expect(res.status).toBe(201);
-      expect(mocks.insert).toHaveBeenCalledWith(
-        expect.objectContaining({ role, account_id: 'account-1' })
-      );
-    }
-  );
-
-  it.each(['admin', 'team_leader', 'bank_guest'])(
-    'refuses a team leader inviting a %s',
-    async (role) => {
-      mocks.getCurrentAccount.mockResolvedValue(ctx('team_leader'));
-      const res = await POST(request({ role }));
-      expect(res.status).toBe(403);
-      expect(mocks.insert).not.toHaveBeenCalled();
-    }
-  );
-
-  it.each(['agent', 'viewer', 'bank_guest'])(
-    'refuses a %s caller',
+  it.each(['team_leader', 'agent', 'viewer', 'bank_guest'])(
+    'refuses a %s caller on every role',
     async (role) => {
       mocks.getCurrentAccount.mockResolvedValue(ctx(role));
-      const res = await POST(request({ role: 'agent' }));
-      expect(res.status).toBe(403);
+      for (const invited of ['agent', 'viewer', 'admin']) {
+        const res = await POST(request({ role: invited }));
+        expect(res.status).toBe(403);
+        expect((await res.json()).error).toBe(
+          'Inviting people requires the admin role or higher'
+        );
+      }
       expect(mocks.insert).not.toHaveBeenCalled();
     }
   );
@@ -98,4 +84,54 @@ describe('POST /api/account/invitations', () => {
       expect.objectContaining({ role: 'admin' })
     );
   });
+});
+
+describe('GET /api/account/invitations', () => {
+  it.each(['team_leader', 'agent', 'viewer', 'bank_guest'])(
+    'refuses a %s caller before reading',
+    async (role) => {
+      mocks.getCurrentAccount.mockResolvedValue({
+        ...ctx(role),
+        supabase: {
+          from: () => {
+            mocks.select();
+            return {};
+          },
+        },
+      });
+      const res = await GET();
+      expect(res.status).toBe(403);
+      expect(mocks.select).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('DELETE /api/account/invitations/[id]', () => {
+  const params = { params: Promise.resolve({ id: 'inv-1' }) };
+  const del = () =>
+    DELETE(
+      new Request('https://crm.example/api/account/invitations/inv-1'),
+      params
+    );
+
+  it.each(['team_leader', 'agent', 'viewer', 'bank_guest'])(
+    'refuses a %s caller before deleting',
+    async (role) => {
+      mocks.getCurrentAccount.mockResolvedValue({
+        ...ctx(role),
+        supabase: {
+          from: () => {
+            mocks.del();
+            return {};
+          },
+        },
+      });
+      const res = await del();
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toBe(
+        'Revoking invitations requires the admin role or higher'
+      );
+      expect(mocks.del).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -1941,7 +1941,6 @@
       "searchClear": "Clear search",
       "searchCount": "{shown} of {total}",
       "searchNoMatch": "No members match “{query}”",
-      "leaderNote": "As a team leader you can invite agents and viewers with a link, and revoke the invite links you made. Creating logins, changing roles and removing people is up to an admin.",
       "deactivate": "Deactivate",
       "reactivate": "Reactivate",
       "deactivatedOn": "Deactivated {date}",

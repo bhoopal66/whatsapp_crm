@@ -1,11 +1,10 @@
 // ============================================================
 // DELETE /api/account/invitations/[id]
 //
-// Team leader and up. Revokes a pending invitation by id. RLS on
+// Owner and admin only. Revokes a pending invitation by id. RLS on
 // `account_invitations` already restricts the DELETE to admins of
-// the inviting account, and a team leader to the agent/viewer links
-// they made themselves (migration 099); we lean on it and skip the
-// explicit ownership check.
+// the inviting account; we lean on it and skip the explicit ownership
+// check.
 //
 // We intentionally delete the row outright rather than soft-
 // deleting (a "revoked_at" flag). Once revoked, an invite is
@@ -32,7 +31,7 @@ export async function DELETE(
     const ctx = await getCurrentAccount();
     if (!canInviteMembers(ctx.role)) {
       return NextResponse.json(
-        { error: "Revoking invitations requires the team leader role or higher" },
+        { error: "Revoking invitations requires the admin role or higher" },
         { status: 403 },
       );
     }
@@ -46,9 +45,8 @@ export async function DELETE(
     const { id } = await params;
 
     // No `eq('account_id', ctx.accountId)` — the RLS policies
-    // (`is_account_member(account_id, 'admin')`, and 099's leader
-    // policy) already scope the DELETE to invites in the caller's
-    // account. Adding the
+    // (`is_account_member(account_id, 'admin')`) already scope the
+    // DELETE to invites in the caller's account. Adding the
     // filter would be redundant; omitting it surfaces a
     // cross-account attempt as a silent 0-row delete (which is
     // exactly what we want for a revocation endpoint).

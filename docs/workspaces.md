@@ -82,40 +82,25 @@ staff. A guest:
   needs a bank code. Someone who already has a login keeps it and gains
   a membership; an unknown email gets a new login. The new membership
   does not become the person's active one unless they have no other.
-- **Who can add people (migration 099):** an owner or admin of the
-  active workspace, with any role but owner; or a **team leader** of
-  it, as an **agent or viewer** only — never admin, team leader, owner
-  or bank guest. Both the add-by-email and the invite-link paths hold
-  the same rule twice: in the API routes (`canGrantRole`) and in the
-  database (`add_workspace_member()` refuses any other role with 42501
-  before it looks the email up, and the `account_invitations` leader
-  policies admit only agent/viewer links). A team leader sees and
-  revokes only the invite links they made — a link's stored hash is
-  enough to redeem it, so other people's links stay hidden — and
-  cannot edit one, nor make one valid for more than the 365 days the
-  API allows. Changing a role, deactivating, removing, transferring
-  ownership and creating workspaces stay owner/admin only; Settings →
-  Members shows a team leader the invite button and their own pending
-  links, not "Add person" or the roster.
-- **Only an owner or admin creates a login (099).** Whoever creates one
-  chooses its password and claims its address, so a team leader brings
-  a new person in with an invite link (which needs the person to have a
-  login already, or an admin to create one). By email a leader adds
-  only an existing login the rule below allows; for any other address
-  `add_workspace_member()` answers them 42501 "This email is not a login
-  you can add. Invite them with a link instead." — one answer for an
-  unknown and an ineligible address, and never the P0002 on which the
-  API creates a login. `POST /api/account/members` is rate-limited to
-  30 a minute per caller, like creating invite links.
-- **A link dies with its creator's right to grant it (099).**
+- **Who can add people (migration 175):** only an owner or admin of the
+  active workspace, with any role but owner. Team leaders could add
+  agents and viewers from migration 099 until 175 took it back; agents,
+  viewers and bank guests never could. The rule is held twice, for both
+  add-by-email and invite links: in the API routes (`canInviteMembers`,
+  `canGrantRole`; a team leader gets 403 "requires the admin role or
+  higher") and in the database (`add_workspace_member()`, and the
+  `account_invitations` policies, which are admin-only). Settings →
+  Members is hidden from everyone below admin. Changing a role,
+  deactivating, removing, transferring ownership and creating
+  workspaces are owner/admin only too.
+- **A link dies with its creator's right to grant it.**
   `redeem_invitation()` checks, at redemption, that the link's creator
-  still has a live (not deactivated) membership in its workspace with a
-  role that may give the link's role: owner or admin any, team leader
-  agent or viewer. A link whose creator was demoted, deactivated or
+  still has a live (not deactivated) membership in its workspace as an
+  owner or admin. A link whose creator was demoted, deactivated or
   removed, or whose login was deleted, is refused as "Invitation has
-  expired" — admins' links included. The `/join` page's preview does
-  not apply this check, so such a link still previews as valid and is
-  refused on Accept.
+  expired" — and so is a link a team leader made before 175. The
+  `/join` page's preview does not apply this check, so such a link
+  still previews as valid and is refused on Accept.
 - **Who can add an existing login:** only an owner or admin of a
   workspace where that person is an active (not deactivated) member —
   for example an owner bringing their RM from workspace A into

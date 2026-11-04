@@ -45,12 +45,12 @@ const ADMIN_ONLY: SettingsSection[] = [
   'ai',
   'api',
   'deals',
+  'members',
 ];
 
-// Team leader and up: Members, to add agents and viewers (099; the
-// roster stays admin-only inside the panel), and the phone system's
-// mandatory-outcome switch (097).
-const LEADER_UP: SettingsSection[] = ['members', 'phone-system'];
+// Team leader and up: the phone system's mandatory-outcome switch (097).
+// Members went admin-only with migration 175.
+const LEADER_UP: SettingsSection[] = ['phone-system'];
 
 const OPEN_TO_ALL: SettingsSection[] = [
   'overview',
@@ -159,11 +159,10 @@ describe('categories', () => {
     ]);
   });
 
-  it('shows a leader Members, the phone system and the personal sections', () => {
+  it('shows a leader the phone system and the personal sections', () => {
     expect(visibleCategories('team_leader')).toEqual([
       { id: 'overview', sections: ['overview'] },
       { id: 'account', sections: ACCOUNT_SECTIONS },
-      { id: 'workspace', sections: ['members'] },
       { id: 'integrations', sections: ['phone-system'] },
     ]);
   });

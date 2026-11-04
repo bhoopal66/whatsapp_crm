@@ -172,14 +172,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'workspace',
     minRole: 'admin',
   },
-  // Team leader and up (migration 099): a leader adds agents and
-  // viewers here. The roster's role changes, deactivation and removal
-  // stay admin-only inside the panel (`canManageMembers`).
+  // Owner / admin only (migration 175; team leaders had the add
+  // controls from 099): adding people, the roster, role changes,
+  // deactivation and removal.
   members: {
     id: 'members',
     icon: UsersRound,
     category: 'workspace',
-    minRole: 'team_leader',
+    minRole: 'admin',
   },
   teams: {
     id: 'teams',
