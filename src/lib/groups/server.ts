@@ -196,15 +196,17 @@ export function channelForGroup(
  * Did a failed leave find us already out? Only a 404 says so, and a
  * wrong or revoked token is a 404 too, often with no wording to tell
  * them apart. Deleting after that would keep our number in the group
- * with no way back, so the 404 counts only once the number itself
- * answers a probe as authorized. A probe that throws, says unauthorized
- * or has nothing to say means the leave failed.
+ * with no way back, so a 404 naming the token never counts, and any
+ * other counts only once the number itself answers a probe as
+ * authorized. A probe that throws, says unauthorized or has nothing to
+ * say means the leave failed.
  */
 export async function isAlreadyOutOfGroup(
   err: unknown,
   channel: WhatsAppChannel
 ): Promise<boolean> {
   if (!(err instanceof WhapiError) || !err.isGroupNotFound) return false;
+  if (/service not found/i.test(err.message)) return false;
   try {
     return (await probeChannel(channel))?.authorized === true;
   } catch (probeErr) {

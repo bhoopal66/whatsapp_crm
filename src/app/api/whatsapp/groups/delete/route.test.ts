@@ -287,6 +287,13 @@ describe('POST /api/whatsapp/groups/delete', () => {
       ]);
     });
 
+    it('is a failure when the 404 names the token, whatever the probe says', async () => {
+      mocks.leaveGroup.mockRejectedValue(
+        new WhapiError('Service not found', 404)
+      );
+      await expectStillJoined();
+    });
+
     it('is a failure when the probe throws', async () => {
       mocks.probeChannel.mockRejectedValue(
         new WhapiError('Service not found', 404)
