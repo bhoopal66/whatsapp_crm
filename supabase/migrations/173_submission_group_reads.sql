@@ -1,7 +1,8 @@
 -- ============================================================
 -- 173_submission_group_reads.sql — unread counts and a bell for
--- submission groups, the case agent's team leader in the group, and
--- WhatsApp groups an admin deleted staying deleted.
+-- submission groups, the case agent's team leader in the group, group
+-- access following a reassigned case, and WhatsApp groups an admin
+-- deleted staying deleted.
 --
 --  * submission_group_reads: (group_id, user_id) -> last_read_at, as
 --    146's whatsapp_group_reads. Moved forward only, by sg_mark_read,
@@ -54,6 +55,28 @@
 --    miss every group the caller cannot see and every ENDED one, and
 --    the mirror would still count. It already names the account and
 --    the visible set.
+--  * Group access follows the case: case_reassign writes only
+--    cases.agent_id / coordinator_id, so the old person kept reading
+--    the group and got the bell, and the new one got neither. The
+--    AFTER UPDATE trigger cases_move_group_access, on an ACTIVE group,
+--    closes the old person's open row of that field's label and opens
+--    the new person's through sg_access_set. All closes run before any
+--    open, so someone moving between the two fields ends with one open
+--    row under the new label; someone still named in the other field
+--    keeps a row under that label, and any other label is left alone.
+--    An ENDED group and a lead (group_id NULL) change nothing. A
+--    failure is a WARNING, with nothing moved, and never fails the
+--    reassign; lock_timeout bounds the wait because WHEN OTHERS does
+--    not catch query_canceled. The preflight refuses a role that could
+--    not run sg_access_*, which would otherwise only ever warn.
+--  * case_backfill_group_access(), run once here: for each case on an
+--    ACTIVE group, a live staff agent / coordinator with no open row
+--    gets one. ADDITIVE ONLY: it closes nobody's row, leaves an open
+--    row of another label as it is, and writes nothing on a second
+--    run. So someone a reassign before this migration left behind
+--    keeps their row: only the new person is repaired. It also reopens
+--    a named person whose row was closed by hand, on every run of this
+--    file.
 --
 -- The SECURITY DEFINER functions read RLS-forced tables, so, as in
 -- 115, this must be applied by a superuser or BYPASSRLS role.
@@ -68,6 +91,12 @@ SET lock_timeout = '5s';
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
     RAISE EXCEPTION '173 must be applied by a superuser or BYPASSRLS role (the functions read and write RLS-forced tables)';
+  END IF;
+  -- 115 revoked these from everyone but their owner. Without EXECUTE the
+  -- trigger of section 8 would only ever log a WARNING.
+  IF NOT (has_function_privilege(current_user, 'public.sg_access_set(uuid, uuid, text, uuid)', 'EXECUTE')
+          AND has_function_privilege(current_user, 'public.sg_access_remove(uuid, uuid)', 'EXECUTE')) THEN
+    RAISE EXCEPTION '173 must be applied by a superuser or the owner of sg_access_set / sg_access_remove (cases_move_group_access runs as the applying role)';
   END IF;
 END $$;
 
@@ -328,9 +357,11 @@ GRANT EXECUTE ON FUNCTION public.sg_mark_read(uuid),
 -- ---------- 5. The bell ----------
 
 -- 153's list plus submission_group_message; a later type edits it here.
+-- One statement: each runs in its own transaction here, so a lock
+-- timeout between a DROP and an ADD would leave no check at all. NOT
+-- VALID keeps the table scan out of that lock.
 ALTER TABLE public.notifications
-  DROP CONSTRAINT IF EXISTS notifications_type_check;
-ALTER TABLE public.notifications
+  DROP CONSTRAINT IF EXISTS notifications_type_check,
   ADD CONSTRAINT notifications_type_check
   CHECK (type IN (
     'conversation_assigned',
@@ -362,7 +393,8 @@ ALTER TABLE public.notifications
     'conversation_shared',
     'insight_attention',
     'submission_group_message'
-  ));
+  )) NOT VALID;
+ALTER TABLE public.notifications VALIDATE CONSTRAINT notifications_type_check;
 
 -- Restates 153's push_bell_url with that one type added; change it
 -- together with hrefFor in src/lib/notifications/target.ts.
@@ -406,11 +438,15 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.push_bell_url(public.notifications) FROM PUBLIC, anon, authenticated;
 
+-- lock_timeout: a blocked notifications must not stall the inbound
+-- insert or, under a statement_timeout, reject it: query_canceled is
+-- outside WHEN OTHERS, a lock timeout (55P03) is not.
 CREATE OR REPLACE FUNCTION public.sg_ring_customer_message()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
+SET lock_timeout = '1s'
 AS $$
 DECLARE
   v_who text;
@@ -522,5 +558,120 @@ AS $$
 $$;
 COMMENT ON FUNCTION public.whatsapp_group_unread_count() IS
   'Groups of the active workspace the caller sees (whatsapp_group_visible_ids), not left, not mirroring a submission group of the account, with an inbound message that arrived (received_at, not WhatsApp''s created_at) after the caller''s marker; no marker reads as 7 days ago. SECURITY DEFINER since 173: submission_groups is RLS-forced. The sidebar''s Groups count. Migrations 146, 173.';
+
+-- ---------- 8. Group access follows the case ----------
+
+CREATE OR REPLACE FUNCTION public.case_move_group_access()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+SET lock_timeout = '1s'
+AS $$
+DECLARE
+  v_agent_moved  boolean := OLD.agent_id IS DISTINCT FROM NEW.agent_id;
+  v_coord_moved  boolean := OLD.coordinator_id IS DISTINCT FROM NEW.coordinator_id;
+  v_agent_closed boolean := false;
+  v_coord_closed boolean := false;
+  v_uid          uuid;
+BEGIN
+  BEGIN
+    PERFORM 1 FROM public.submission_groups g
+      WHERE g.id = NEW.group_id AND g.status = 'ACTIVE';
+    IF NOT FOUND THEN
+      RETURN NULL;
+    END IF;
+    v_uid := auth.uid();
+
+    -- Every close before any open: sg_access_set relabels, so an open
+    -- first would hide the row a close is looking for.
+    IF v_agent_moved AND EXISTS (
+      SELECT 1 FROM public.submission_group_access a
+       WHERE a.group_id = NEW.group_id AND a.user_id = OLD.agent_id
+         AND a.label = 'agent' AND a.removed_at IS NULL) THEN
+      v_agent_closed := public.sg_access_remove(NEW.group_id, OLD.agent_id);
+    END IF;
+    IF v_coord_moved AND EXISTS (
+      SELECT 1 FROM public.submission_group_access a
+       WHERE a.group_id = NEW.group_id AND a.user_id = OLD.coordinator_id
+         AND a.label = 'coordinator' AND a.removed_at IS NULL) THEN
+      v_coord_closed := public.sg_access_remove(NEW.group_id, OLD.coordinator_id);
+    END IF;
+
+    -- A person whose row just closed but who is still named in the
+    -- other field stays on the list under that label: otherwise the old
+    -- coordinator who became the agent, then lost the agent seat, would
+    -- be the case's coordinator with no access. Coordinator first, so
+    -- someone just named agent ends with the 'agent' row.
+    IF NEW.coordinator_id IS NOT NULL
+       AND (v_coord_moved OR (v_agent_closed AND NEW.coordinator_id = OLD.agent_id)) THEN
+      PERFORM public.sg_access_set(NEW.group_id, NEW.coordinator_id, 'coordinator',
+                                   coalesce(v_uid, NEW.coordinator_id));
+    END IF;
+    IF NEW.agent_id IS NOT NULL
+       AND (v_agent_moved OR (v_coord_closed AND NEW.agent_id = OLD.coordinator_id)) THEN
+      PERFORM public.sg_access_set(NEW.group_id, NEW.agent_id, 'agent',
+                                   coalesce(v_uid, NEW.agent_id));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'case_move_group_access: case %: % (%)', NEW.id, SQLERRM, SQLSTATE;
+  END;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.case_move_group_access() FROM PUBLIC, anon, authenticated, service_role;
+
+COMMENT ON FUNCTION public.case_move_group_access() IS
+  'AFTER UPDATE OF agent_id, coordinator_id on cases: on an ACTIVE group, closes the old person''s open row of that field''s label and opens the new person''s. A failure is a WARNING and moves nothing. Migration 173.';
+
+DROP TRIGGER IF EXISTS cases_move_group_access ON public.cases;
+CREATE TRIGGER cases_move_group_access
+  AFTER UPDATE OF agent_id, coordinator_id ON public.cases
+  FOR EACH ROW
+  WHEN (NEW.group_id IS NOT NULL
+        AND (OLD.agent_id IS DISTINCT FROM NEW.agent_id
+             OR OLD.coordinator_id IS DISTINCT FROM NEW.coordinator_id))
+  EXECUTE FUNCTION public.case_move_group_access();
+
+-- Additive: see the header. Someone named in both fields gets one row,
+-- 'agent' (the index allows one open row). A function so that
+-- verify-submission-group-reads.sql runs the code that shipped.
+CREATE OR REPLACE FUNCTION public.case_backfill_group_access()
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  v_added integer;
+BEGIN
+  INSERT INTO public.submission_group_access (group_id, account_id, user_id, label)
+  SELECT DISTINCT ON (w.group_id, w.user_id) w.group_id, w.account_id, w.user_id, w.label
+    FROM (SELECT c.group_id, c.account_id, c.agent_id AS user_id, 'agent' AS label, 1 AS pick
+            FROM public.cases c
+          UNION ALL
+          SELECT c.group_id, c.account_id, c.coordinator_id, 'coordinator', 2
+            FROM public.cases c
+           WHERE c.coordinator_id IS NOT NULL) w
+    JOIN public.submission_groups g ON g.id = w.group_id AND g.status = 'ACTIVE'
+   WHERE public.sg_is_staff(w.account_id, w.user_id)
+     AND NOT EXISTS (
+       SELECT 1 FROM public.submission_group_access a
+        WHERE a.group_id = w.group_id AND a.user_id = w.user_id AND a.removed_at IS NULL)
+   ORDER BY w.group_id, w.user_id, w.pick
+  ON CONFLICT (group_id, user_id) WHERE removed_at IS NULL DO NOTHING;
+  GET DIAGNOSTICS v_added = ROW_COUNT;
+  RETURN v_added;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.case_backfill_group_access() FROM PUBLIC, anon, authenticated, service_role;
+
+COMMENT ON FUNCTION public.case_backfill_group_access() IS
+  'Adds an open row for a case''s live staff agent / coordinator who has none, on an ACTIVE group. Closes nothing; returns the rows added. Run by migration 173.';
+
+DO $$ BEGIN
+  PERFORM public.case_backfill_group_access();
+END $$;
 
 RESET lock_timeout;

@@ -1,7 +1,8 @@
 -- Behavioural regression suite for migration 173: read markers and
 -- unread counts of submission groups, the case agent's team leader in
--- the group, the customer-message bell, WhatsApp group tombstones, and
--- mirrored rows leaving the Groups count.
+-- the group, the customer-message bell, WhatsApp group tombstones,
+-- mirrored rows leaving the Groups count, and group access following a
+-- reassigned case.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The fixtures are
@@ -35,6 +36,17 @@ DECLARE
   gr       UUID;
   gq       UUID;
   gm       UUID;
+  gx       UUID;
+  gy       UUID;
+  gz       UUID;
+  gw       UUID;
+  gv       UUID;
+  gu       UUID;
+  kx       UUID;
+  ky       UUID;
+  kz       UUID;
+  kw       UUID;
+  kv       UUID;
   tok      UUID;
   t1       UUID;
   t_lead   UUID;
@@ -42,6 +54,8 @@ DECLARE
   r        TEXT;
   b        BOOLEAN;
   x        TIMESTAMPTZ;
+  i        INT;
+  was      INT;
   n        INT := 0;
   failed   TEXT[] := '{}';
 BEGIN
@@ -94,6 +108,23 @@ BEGIN
       SELECT count(*)::int FROM notifications nn
        WHERE nn.user_id = p_uid AND nn.type = 'submission_group_message'
          AND nn.meta ->> 'group_id' = p_group::text
+    $body$
+  $fn$;
+  -- One person's open labels on one group: 'none', or comma separated.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.sr_open(p_group uuid, p_uid uuid)
+    RETURNS text LANGUAGE sql AS $body$
+      SELECT coalesce(string_agg(a.label, ',' ORDER BY a.label), 'none')
+        FROM submission_group_access a
+       WHERE a.group_id = p_group AND a.user_id = p_uid AND a.removed_at IS NULL
+    $body$
+  $fn$;
+  -- Whether a signed-in person's RLS shows the group, as '1' or '0'.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.sr_sees(p_uid uuid, p_group uuid)
+    RETURNS text LANGUAGE sql AS $body$
+      SELECT pg_temp.sr_try('authenticated', p_uid, format(
+        'SELECT count(*)::text FROM submission_groups WHERE id = %L', p_group))
     $body$
   $fn$;
 
@@ -427,6 +458,159 @@ BEGIN
   failed := failed || pg_temp.sr_ok(r = '1', format('an owner counts mirrors (want 1, got %s)', r));
   n := n + 1; r := pg_temp.sr_try('authenticated', u_far, 'SELECT whatsapp_group_unread_count()::text');
   failed := failed || pg_temp.sr_ok(r = '0', format('another account counts these groups (%s)', r));
+
+  -- ---------- (i) group access follows the case ----------
+  gx := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-X', c1, w1, 'x', NULL, acc, NULL, 'group') o);
+  gy := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-Y', c1, w1, 'y', NULL, acc, NULL, 'group') o);
+  gz := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-Z', c1, w1, 'z', NULL, acc, NULL, 'group') o);
+  gw := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-W', c1, w1, 'w', NULL, acc, NULL, 'group') o);
+  gv := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-V', c1, w1, 'v', NULL, acc, NULL, 'group') o);
+  gu := (SELECT o.group_id FROM sg_open(a_acct, 'SR-173-U', c1, w1, 'u', NULL, acc, NULL, 'group') o);
+  PERFORM case_open(gx, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  PERFORM case_open(gy, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  PERFORM case_open(gz, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  PERFORM case_open(gw, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  PERFORM case_open(gv, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  PERFORM case_open(gu, 'SRB', 'Bank SR', NULL, NULL, NULL);
+  SELECT id INTO kx FROM cases WHERE group_id = gx;
+  SELECT id INTO ky FROM cases WHERE group_id = gy;
+  SELECT id INTO kz FROM cases WHERE group_id = gz;
+  SELECT id INTO kw FROM cases WHERE group_id = gw;
+  SELECT id INTO kv FROM cases WHERE group_id = gv;
+  IF (SELECT count(*) FROM cases WHERE id IN (kx, ky, kz, kw, kv)
+       AND agent_id = u_agent AND coordinator_id = u_coord) <> 5 THEN
+    RAISE EXCEPTION 'fixture: the reassign cases do not name u_agent and u_coord';
+  END IF;
+
+  -- The agent, A to B: A out, B in, the bell follows.
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    pg_temp.sr_sees(u_agent, gx) = '1' AND pg_temp.sr_sees(u_other, gx) = '0',
+    'fixture: before the reassign the agent should see gx and the stranger not');
+  b := (SELECT f.changed FROM case_reassign(kx, u_owner, 'agent', u_other) f);
+  r := pg_temp.sr_open(gx, u_agent);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'none', format('the old agent''s row stayed open (%s)', r));
+  r := pg_temp.sr_open(gx, u_other);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'agent', format('the new agent has no agent row (%s)', r));
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    NOT sg_can_read(gx, u_agent) AND sg_can_read(gx, u_other)
+    AND pg_temp.sr_sees(u_agent, gx) = '0' AND pg_temp.sr_sees(u_other, gx) = '1',
+    'after the reassign the old agent still reads gx, or the new one does not');
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    (SELECT a.added_by FROM submission_group_access a
+      WHERE a.group_id = gx AND a.user_id = u_other AND a.removed_at IS NULL) = u_other,
+    'with no signed-in user, added_by should fall back to the new person');
+  b := sg_record_inbound(gx, 'sr-x1', '971500173001', 'customer', 'text', 'to the new agent', NULL, NULL);
+  n := n + 1; i := pg_temp.sr_bells(u_other, gx);
+  failed := failed || pg_temp.sr_ok(b AND i = 1, format('the new agent was not rung (%s)', i));
+  n := n + 1; i := pg_temp.sr_bells(u_agent, gx);
+  failed := failed || pg_temp.sr_ok(i = 0, format('the old agent was rung (%s)', i));
+
+  -- The coordinator, by a signed-in admin; a team_lead row is not touched.
+  PERFORM set_config('request.jwt.claim.sub', u_owner::text, true);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', u_owner, 'role', 'authenticated')::text, true);
+  b := (SELECT f.changed FROM case_reassign(kx, u_owner, 'coordinator', u_both) f);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claims', '', true);
+  r := pg_temp.sr_open(gx, u_coord);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'none', format('the old coordinator''s row stayed open (%s)', r));
+  r := pg_temp.sr_open(gx, u_both);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'coordinator', format('the new coordinator has no row (%s)', r));
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    NOT sg_can_read(gx, u_coord) AND sg_can_read(gx, u_both),
+    'the coordinator reassign did not move the read');
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    (SELECT a.added_by FROM submission_group_access a
+      WHERE a.group_id = gx AND a.user_id = u_both AND a.removed_at IS NULL) = u_owner,
+    'added_by should be the signed-in user');
+  r := pg_temp.sr_open(gx, u_tlrow);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'team_lead', format('a reassign touched the team_lead row (%s)', r));
+  -- sr-x1 rang the coordinator while they held the seat: read that one,
+  -- or the unread rule would hide a second bell.
+  UPDATE notifications SET read_at = now()
+   WHERE type = 'submission_group_message' AND meta ->> 'group_id' = gx::text AND read_at IS NULL;
+  was := pg_temp.sr_bells(u_coord, gx);
+  b := sg_record_inbound(gx, 'sr-x2', '971500173001', 'customer', 'text', 'to the new coordinator', NULL, NULL);
+  n := n + 1; i := pg_temp.sr_bells(u_both, gx);
+  failed := failed || pg_temp.sr_ok(b AND i = 1, format('the new coordinator was not rung (%s)', i));
+  n := n + 1; i := pg_temp.sr_bells(u_coord, gx);
+  failed := failed || pg_temp.sr_ok(i = was, format('the old coordinator was rung (%s to %s)', was, i));
+
+  -- The old coordinator becomes the agent: one open row, the new label.
+  b := (SELECT f.changed FROM case_reassign(ky, u_owner, 'agent', u_coord) f);
+  r := pg_temp.sr_open(gy, u_coord);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'agent', format('old coordinator as agent: want one agent row, got %s', r));
+  r := pg_temp.sr_open(gy, u_agent);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'none', format('swap: the old agent''s row stayed open (%s)', r));
+  -- Their coordinator seat goes: the 'agent' row is not that seat's.
+  b := (SELECT f.changed FROM case_reassign(ky, u_owner, 'coordinator', u_other) f);
+  r := pg_temp.sr_open(gy, u_coord) || '/' || pg_temp.sr_open(gy, u_other);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'agent/coordinator', format('leaving the coordinator seat: want agent/coordinator, got %s', r));
+  -- A true swap in one statement.
+  UPDATE cases SET agent_id = u_other, coordinator_id = u_coord WHERE id = ky;
+  r := pg_temp.sr_open(gy, u_other) || '/' || pg_temp.sr_open(gy, u_coord);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'agent/coordinator', format('one-statement swap: want agent/coordinator, got %s', r));
+  -- Named in both, then out of the seat their row is labelled for: they
+  -- are still the coordinator, so they keep a row as that.
+  b := (SELECT f.changed FROM case_reassign(ky, u_owner, 'agent', u_coord) f);
+  r := pg_temp.sr_open(gy, u_coord);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'agent', format('named in both: want agent, got %s', r));
+  b := (SELECT f.changed FROM case_reassign(ky, u_owner, 'agent', u_agent) f);
+  r := pg_temp.sr_open(gy, u_coord) || '/' || pg_temp.sr_open(gy, u_agent);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'coordinator/agent', format('still the coordinator: want coordinator/agent, got %s', r));
+
+  -- Another label on the old person stays.
+  PERFORM sg_access_set(gv, u_agent, 'team_lead', NULL);
+  b := (SELECT f.changed FROM case_reassign(kv, u_owner, 'agent', u_other) f);
+  r := pg_temp.sr_open(gv, u_agent) || '/' || pg_temp.sr_open(gv, u_other);
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND r = 'team_lead/agent', format('another label should stay: want team_lead/agent, got %s', r));
+
+  -- An ENDED group: the case moves, no access row does.
+  b := sg_end(gz, 'test');
+  r := (SELECT string_agg(a.id::text || ':' || coalesce(a.removed_at::text, 'open'), ',' ORDER BY a.id)
+          FROM submission_group_access a WHERE a.group_id = gz);
+  b := (SELECT f.changed FROM case_reassign(kz, u_owner, 'agent', u_other) f);
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    b AND (SELECT agent_id FROM cases WHERE id = kz) = u_other
+    AND r = (SELECT string_agg(a.id::text || ':' || coalesce(a.removed_at::text, 'open'), ',' ORDER BY a.id)
+               FROM submission_group_access a WHERE a.group_id = gz),
+    'a reassign on an ENDED group changed an access row, or did not reassign');
+
+  -- A failure inside the trigger: a viewer cannot be on the list, so
+  -- sg_access_set refuses. case_reassign refuses a viewer itself; a
+  -- direct write is what reaches the trigger.
+  r := pg_temp.sr_try(NULL, NULL, format(
+    'UPDATE cases SET agent_id = %L WHERE id = %L RETURNING agent_id::text', u_view, kw));
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = u_view::text, format('a failing trigger failed the reassign (%s)', r));
+  r := pg_temp.sr_open(gw, u_view) || '/' || pg_temp.sr_open(gw, u_agent);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'none/agent', format('a failing trigger should move nothing: want none/agent, got %s', r));
+
+  -- The backfill: gu's coordinator lost their row, its agent holds
+  -- another label, a stranger holds an open row.
+  b := sg_access_remove(gu, u_coord);
+  PERFORM sg_access_set(gu, u_agent, 'team_lead', NULL);
+  PERFORM sg_access_set(gu, u_other, 'coordinator', NULL);
+  was := (SELECT count(*) FROM submission_group_access WHERE removed_at IS NOT NULL);
+  i := case_backfill_group_access();
+  r := pg_temp.sr_open(gu, u_coord);
+  n := n + 1; failed := failed || pg_temp.sr_ok(i >= 1 AND r = 'coordinator', format('the backfill did not add the coordinator (added %s, %s)', i, r));
+  r := pg_temp.sr_open(gu, u_agent) || '/' || pg_temp.sr_open(gu, u_other);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'team_lead/coordinator', format('the backfill changed another row: want team_lead/coordinator, got %s', r));
+  r := pg_temp.sr_open(gw, u_view) || '/' || pg_temp.sr_open(gz, u_other);
+  n := n + 1; failed := failed || pg_temp.sr_ok(r = 'none/none', format('the backfill added a viewer or touched an ENDED group (%s)', r));
+  n := n + 1; i := (SELECT count(*) FROM submission_group_access WHERE removed_at IS NOT NULL);
+  failed := failed || pg_temp.sr_ok(i = was, format('the backfill closed rows (%s to %s)', was, i));
+  i := case_backfill_group_access();
+  n := n + 1; failed := failed || pg_temp.sr_ok(i = 0, format('a second backfill added %s rows', i));
+
+  -- The bell's lock limit, and a constraint validated after the swap.
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    (SELECT 'lock_timeout=1s' = ANY (p.proconfig) FROM pg_proc p WHERE p.oid = 'public.sg_ring_customer_message()'::regprocedure)
+    AND (SELECT 'lock_timeout=1s' = ANY (p.proconfig) FROM pg_proc p WHERE p.oid = 'public.case_move_group_access()'::regprocedure),
+    'a trigger function has no lock_timeout');
+  n := n + 1; failed := failed || pg_temp.sr_ok(
+    (SELECT c.convalidated FROM pg_constraint c
+      WHERE c.conname = 'notifications_type_check' AND c.conrelid = 'public.notifications'::regclass),
+    'notifications_type_check is not validated');
 
   -- ---------- (h) a failing bell never loses the message ----------
   -- Read first: NOT VALID spares existing rows only until they are updated.
