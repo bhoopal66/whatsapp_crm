@@ -20,13 +20,13 @@
  */
 import type { GroupChannel, GroupInboundMessage } from '@/lib/groups/inbound';
 import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
-import { normalizePhone, phoneVariants } from '@/lib/whatsapp/phone-utils';
 
 import type {
   SenderKind,
   SubmissionGroup,
   SubmissionGroupStore,
 } from './store';
+import { forms } from './rules';
 
 export type InboundStore = Pick<
   SubmissionGroupStore,
@@ -58,12 +58,6 @@ export interface InboundOutcome {
   reconciled: number;
   duplicates: number;
   failed: number;
-}
-
-/** Every trunk-0 form of a phone, for comparing a sender with a number on file. */
-export function forms(phone: string | null | undefined): string[] {
-  const digits = normalizePhone(phone ?? '').replace(/^00/, '');
-  return phoneVariants(digits);
 }
 
 /**
@@ -172,7 +166,8 @@ export type MembershipStore = Pick<
  * The customer being added to or leaving this number's submission groups
  * (174). Event ids are phone digits; a hidden number is only counted in
  * `unresolved`, so it matches nobody and absence is never inferred from it.
- * Each event is isolated. A failure is logged, never thrown: the cron reads the
+ * An add of a hidden number may be the customer joining, which is 'unsure' and
+ * lifts a stale 'absent'; a remove of one changes nothing. Each event is isolated. A failure is logged, never thrown: the cron reads the
  * group again, so this is no reason for Whapi to redeliver. Answers the failures.
  */
 export async function recordSubmissionGroupMembership(
@@ -182,7 +177,7 @@ export async function recordSubmissionGroupMembership(
 ): Promise<number> {
   let failed = 0;
   for (const e of events) {
-    if (e.kind !== 'participants' || e.waIds.length === 0) continue;
+    if (e.kind !== 'participants') continue;
     if (e.action !== 'add' && e.action !== 'remove') continue;
     try {
       const group = await store.findByWaGroupId(
@@ -193,14 +188,19 @@ export async function recordSubmissionGroupMembership(
       if (!group?.contactId) continue;
       const { phone } = await store.contactConsent(group.contactId);
       const customer = new Set(forms(phone).filter(Boolean));
+      if (customer.size === 0) continue;
       const named = e.waIds.some(
         (id) => !id.includes('@') && forms(id).some((f) => customer.has(f))
       );
-      if (!named) continue;
-      await store.noteCustomerMembership(
-        group.id,
-        e.action === 'add' ? 'joined' : 'absent'
-      );
+      const hidden = e.unresolved > 0 || e.waIds.some((id) => id.includes('@'));
+      if (named) {
+        await store.noteCustomerMembership(
+          group.id,
+          e.action === 'add' ? 'joined' : 'absent'
+        );
+      } else if (e.action === 'add' && hidden) {
+        await store.noteCustomerMembership(group.id, 'unsure');
+      }
     } catch (error) {
       failed++;
       console.error(

@@ -1585,13 +1585,14 @@ export function parseWhapiIdentity(value: unknown): WhapiIdentity | null {
     phone = str(v.phone)
   }
   if (!jid) return null
-  if (phone && /^\d{7,15}$/.test(phone)) return { jid, waId: phone }
   const [user, domain] = jid.split('@')
-  const digits = /^\d{7,15}$/.test(user ?? '') ? user : null
-  if (domain === undefined || domain === 's.whatsapp.net' || domain === 'c.us') {
-    return { jid, waId: digits }
+  const real = domain === undefined || domain === 's.whatsapp.net' || domain === 'c.us'
+  // A hidden id's own digits echoed as `phone` are not a phone number.
+  if (phone && /^\d{7,15}$/.test(phone) && (real || phone !== user)) {
+    return { jid, waId: phone }
   }
-  return { jid, waId: null }
+  const digits = /^\d{7,15}$/.test(user ?? '') ? user : null
+  return { jid, waId: real ? digits : null }
 }
 
 function parseRole(rank: unknown): WhapiGroupRole {
@@ -1820,6 +1821,7 @@ export async function createGroup(args: CreateGroupArgs): Promise<CreateGroupRes
 export interface GetGroupArgs extends GroupArgs {
   /** Ask the channel to resync the group from WhatsApp first. */
   resync?: boolean
+  timeoutMs?: number
 }
 
 export async function getGroup(args: GetGroupArgs): Promise<WhapiGroup> {
@@ -1827,6 +1829,7 @@ export async function getGroup(args: GetGroupArgs): Promise<WhapiGroup> {
     token: args.token,
     path: groupPath(args.groupId),
     query: { resync: args.resync ? true : undefined },
+    timeoutMs: args.timeoutMs,
   })
   const group = parseWhapiGroup(data)
   if (!group) throw new WhapiError('Whapi returned no usable group.', 502)

@@ -55,7 +55,7 @@ Each row carries `submission_groups.wa_mode`, fixed at creation:
   with its customer contact but no hosting number (`channel_id` NULL),
   never a `wa_group_id`, never a create claim. `sg_send_begin` refuses
   it and nothing is stored: a case reply answers `409
-  NO_WHATSAPP_GROUP` ("This submission has no WhatsApp group"), a
+NO_WHATSAPP_GROUP` ("This submission has no WhatsApp group"), a
   documents request `409 REFUSED` with `refusal: "NO_WHATSAPP_GROUP"`. `sg_end` works as usual: a final status ends the
   row and closes the case, with no WhatsApp close (`closed: false`,
   `close_deferred: false`).
@@ -140,25 +140,42 @@ Each group with a WhatsApp group records whether the customer is in it
 when the customer is known to be missing from a live group, and the
 detail card has a Customer row.
 
-- **In the group** (`joined`): WhatsApp added the customer when the group
-  was created, a `groups` webhook reports them added, the participant
-  list names them, or they wrote in the group (a SQL trigger).
+- **In the group** (`joined`): a `groups` webhook reports them added, the
+  participant list names them, or they wrote in the group (a SQL trigger).
+  It takes positive evidence: not being refused when the group was created
+  proves nothing, so a new group stays unchecked and the cron reads its
+  list within minutes.
 - **Not in the group** (`absent`): WhatsApp refused them at creation, a
   webhook reports them removed or leaving, or the participant list shows
   only real numbers and none is theirs.
 - **Not checked yet** (`unknown`): nothing is known. No warning is shown.
 
+A refusal is matched against every form of the customer's phone (a `00`
+prefix, a trunk `0`), because the number on file is not always the number
+WhatsApp was given.
+
 WhatsApp can hide a number behind an `…@lid` id, and such an id matches
 nobody. If the customer is not listed and anyone in the group is hidden,
-the customer could be that person, so the answer stays as it was: a hidden
-number never counts as absence. The same goes for an empty list, a group
-with no phone on file, and a refusal at creation that names a hidden id.
+the customer could be that person: a hidden number never counts as
+absence, and it clears an earlier **Not in the group** back to **Not
+checked yet** (internally `unsure`, which is reported but never stored).
+The same goes for a `groups` webhook adding a hidden number and a refusal
+at creation that names a hidden id; a webhook removing a hidden number
+changes nothing. An empty list or a group with no phone on file says
+nothing, so the answer stays as it was.
 
 The cron re-reads the participants of every ACTIVE group not marked
 `joined`, once unchecked or six hours after the last check, at most 10
-groups per account per run. A gateway failure leaves the group due and
-ends that account's pass until the next run. A group, number or contact
-that is gone is stamped as checked, so it waits six hours like the rest.
+groups per account per run. This pass runs after every account's pending
+creates and close retries, so it can never delay them, and it starts no
+read once it has used 15 seconds; a single read gives up after 8 seconds.
+A group on a disconnected number is stamped as checked without calling
+the gateway, because a background check must never wake a stopped
+channel. A read that fails stamps its group as checked too, and that
+number is left alone for the rest of the run while other numbers carry
+on; its remaining groups stay due. A group, number or contact that is
+gone is stamped as checked. Every stamped group waits six hours like the
+rest.
 
 ## The access list and labels
 

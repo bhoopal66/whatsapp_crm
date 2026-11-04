@@ -230,6 +230,17 @@ describe('phoneWasRefused / inviteCodeOf', () => {
     expect(phoneWasRefused([], '971501234567')).toBe(false);
   });
 
+  it('matches every form of the phone, as the group add sends it', () => {
+    expect(phoneWasRefused(['971501234567'], '00971501234567')).toBe(true);
+    expect(
+      phoneWasRefused(['971501234567@s.whatsapp.net'], '+00971 50 123 4567')
+    ).toBe(true);
+    expect(phoneWasRefused(['971501234567'], '9710501234567')).toBe(true);
+    expect(phoneWasRefused(['9710501234567'], '971501234567')).toBe(true);
+    expect(phoneWasRefused(['971509999999'], '00971501234567')).toBe(false);
+    expect(phoneWasRefused(['971501234567'], '')).toBe(false);
+  });
+
   it('reads the code of a chat.whatsapp.com link only', () => {
     expect(inviteCodeOf('https://chat.whatsapp.com/AbC123')).toBe('AbC123');
     expect(inviteCodeOf('https://evil.example/AbC123')).toBeNull();

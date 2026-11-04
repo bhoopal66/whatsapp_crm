@@ -16,6 +16,7 @@
  * A group ends when its submission reaches a final status, or (if idleDays
  * is set) after idleDays without activity.
  */
+import { normalizePhone, phoneVariants } from '@/lib/whatsapp/phone-utils';
 
 export type StaffLabel = 'agent' | 'coordinator' | 'team_lead';
 export type ArchiveRole = 'owner' | 'admin';
@@ -216,15 +217,25 @@ export function welcomeMessage(input: {
   ].join('\n\n');
 }
 
-const digits = (s: string) => s.replace(/@.*$/, '').replace(/\D/g, '');
+/** Every trunk-0 form of a phone, for comparing a sender with a number on file. */
+export function forms(phone: string | null | undefined): string[] {
+  const digits = normalizePhone(phone ?? '').replace(/^00/, '');
+  return phoneVariants(digits);
+}
 
-/** True when WhatsApp refused to add this phone (refused entries are wa ids or JIDs). */
+/**
+ * True when WhatsApp refused to add this phone. Refused entries are wa ids or
+ * JIDs, and the phone is the raw contact row: `00…` is sent without the `00`,
+ * so the two compare by form, never by exact digits.
+ */
 export function phoneWasRefused(
   refused: readonly string[],
   phone: string
 ): boolean {
-  const want = digits(phone);
-  return want !== '' && refused.some((r) => digits(r) === want);
+  const wanted = new Set(forms(phone));
+  return refused.some((r) =>
+    forms(r.replace(/@.*$/, '')).some((f) => wanted.has(f))
+  );
 }
 
 /** The invite code of a https://chat.whatsapp.com/<code> link, or null. */

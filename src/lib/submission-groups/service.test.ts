@@ -504,14 +504,12 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(old.api.of('createGroup')[0].args[1]).toEqual(['+971500000001']);
   });
 
-  it('records the customer as joined after a create, absent when refused', async () => {
+  it('records nothing after a clean create, absent when refused', async () => {
     const phone = '+971500000001';
     const s = setup();
     s.consent.answer = { allowed: true, phone };
-    const r = await s.open('S-1', '971500000009');
-    expect(s.store.memberships).toEqual([
-      [r.consentRequired ? '' : r.group.id, 'joined'],
-    ]);
+    await s.open('S-1', '971500000009');
+    expect(s.store.memberships).toEqual([]);
     const no = setup();
     no.consent.answer = { allowed: true, phone };
     const real = no.api.createGroup.bind(no.api);

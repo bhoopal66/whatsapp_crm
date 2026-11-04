@@ -13,6 +13,12 @@ export type WaMode = 'group' | 'none';
 
 /** 174: whether the customer is in the WhatsApp group; 'unknown' = we can't tell yet. */
 export type CustomerMembership = 'unknown' | 'joined' | 'absent';
+/**
+ * What may be reported to `sg_note_customer_membership`. 'unsure' is never
+ * stored: the list was read and holds a hidden number, so a stored 'absent'
+ * falls back to 'unknown'. 'unknown' only stamps the check.
+ */
+export type CustomerMembershipNote = CustomerMembership | 'unsure';
 
 export interface SubmissionGroup {
   id: string;
@@ -667,11 +673,11 @@ export class SubmissionGroupStore {
 
   /**
    * Records what we learned about the customer and stamps the check; 'unknown'
-   * stamps only. False when the group is not ACTIVE.
+   * stamps only, 'unsure' also lifts 'absent'. False when the group is not ACTIVE.
    */
   async noteCustomerMembership(
     groupId: string,
-    state: CustomerMembership
+    state: CustomerMembershipNote
   ): Promise<boolean> {
     return (
       (await this.rpc('sg_note_customer_membership', {
@@ -703,6 +709,7 @@ export class SubmissionGroupStore {
       .eq('status', 'ACTIVE')
       .eq('wa_mode', 'group')
       .not('wa_group_id', 'is', null)
+      .not('channel_id', 'is', null)
       .neq('customer_membership', 'joined')
       .order('customer_checked_at', { ascending: true, nullsFirst: true })
       .limit(limit);

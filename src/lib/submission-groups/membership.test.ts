@@ -8,9 +8,14 @@ vi.mock('./server', () => ({
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { mergeGroupList } from '@/lib/groups/merge-list';
+import { parseWhapiParticipants } from '@/lib/whatsapp/whapi-api';
 import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
 
-import { MEMBERSHIP_CHECKS_PER_RUN, runSubmissionGroupsCron } from './cron';
+import {
+  MEMBERSHIP_BUDGET_MS,
+  MEMBERSHIP_CHECKS_PER_RUN,
+  runSubmissionGroupsCron,
+} from './cron';
 import { recordSubmissionGroupMembership } from './inbound';
 import { customerMembershipFrom, noteCreatedMembership } from './membership';
 import { SubmissionGroupStore, type SubmissionGroup } from './store';
@@ -32,10 +37,28 @@ describe('customerMembershipFrom', () => {
     expect(customerMembershipFrom([OTHER], [PHONE])).toBe('absent');
   });
 
-  it('never reads a hidden number as absent', () => {
+  it('reads a hidden number as unsure, never absent', () => {
     expect(customerMembershipFrom([OTHER, '123456@lid'], [PHONE])).toBe(
-      'unknown'
+      'unsure'
     );
+  });
+
+  it('keeps a hidden id hidden all the way from the Whapi list', () => {
+    const read = (id: unknown) =>
+      customerMembershipFrom(
+        parseWhapiParticipants([{ id: OTHER }, { id }]).map(
+          (p) => p.waId ?? p.jid
+        ),
+        [PHONE]
+      );
+    expect(read('1234567890123@lid')).toBe('unsure');
+    expect(read({ id: '1234567890123@lid' })).toBe('unsure');
+    expect(read({ id: '1234567890123@lid', phone: '1234567890123' })).toBe(
+      'unsure'
+    );
+    expect(read('12345678901234567')).toBe('unsure');
+    expect(read({ id: '1234567890123@lid', phone: PHONE })).toBe('joined');
+    expect(read(`${OTHER}0@s.whatsapp.net`)).toBe('absent');
   });
 
   it('says nothing from an empty list or without a phone', () => {
@@ -45,21 +68,30 @@ describe('customerMembershipFrom', () => {
 });
 
 describe('noteCreatedMembership', () => {
-  const noted = async (refused: string[]) => {
+  const noted = async (refused: string[], phone = `+${PHONE}`) => {
     const noteCustomerMembership = vi.fn().mockResolvedValue(true);
     await noteCreatedMembership(
       { noteCustomerMembership },
       'g1',
-      `+${PHONE}`,
+      phone,
       refused
     );
-    return noteCustomerMembership.mock.calls[0][1];
+    return noteCustomerMembership.mock.calls[0]?.[1];
   };
 
-  it('records joined, absent, and unknown for a hidden refusal', async () => {
-    expect(await noted([OTHER])).toBe('joined');
+  it('records absent for a refusal, unsure for a hidden one', async () => {
     expect(await noted([`${PHONE}@s.whatsapp.net`])).toBe('absent');
-    expect(await noted(['123456@lid'])).toBe('unknown');
+    expect(await noted(['123456@lid'])).toBe('unsure');
+  });
+
+  it('infers nothing from no refusal, leaving the group due at once', async () => {
+    expect(await noted([OTHER])).toBeUndefined();
+    expect(await noted([])).toBeUndefined();
+  });
+
+  it('records absent for a refused 00 or trunk-0 number on file', async () => {
+    expect(await noted([PHONE], `00${PHONE}`)).toBe('absent');
+    expect(await noted([PHONE], '9710501234567')).toBe('absent');
   });
 
   it('never throws', async () => {
@@ -117,6 +149,40 @@ describe('recordSubmissionGroupMembership', () => {
     expect(store.noteCustomerMembership).not.toHaveBeenCalled();
   });
 
+  it('add of a hidden number with no match is unsure', async () => {
+    const store = fake();
+    await recordSubmissionGroupMembership(store, channel, [
+      event('add', [], 1),
+      event('add', [OTHER], 1),
+      event('add', ['123456@lid']),
+    ]);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([
+      ['g1', 'unsure'],
+      ['g1', 'unsure'],
+      ['g1', 'unsure'],
+    ]);
+  });
+
+  it('add of the customer beside a hidden number is joined', async () => {
+    const store = fake();
+    await recordSubmissionGroupMembership(store, channel, [
+      event('add', [PHONE], 1),
+    ]);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([['g1', 'joined']]);
+  });
+
+  it('add of someone else, or of a hidden number with no phone on file, changes nothing', async () => {
+    const store = fake();
+    await recordSubmissionGroupMembership(store, channel, [
+      event('add', [OTHER]),
+    ]);
+    store.contactConsent.mockResolvedValue({ allowed: true, phone: null });
+    await recordSubmissionGroupMembership(store, channel, [
+      event('add', [], 1),
+    ]);
+    expect(store.noteCustomerMembership).not.toHaveBeenCalled();
+  });
+
   it('counts a failure and carries on, never throwing', async () => {
     const store = fake();
     store.findByWaGroupId.mockRejectedValueOnce(new Error('db down'));
@@ -138,17 +204,26 @@ describe('the cron membership pass', () => {
       id,
       accountId: 'a1',
       contactId: 'k1',
-      channelId: 'c1',
+      // A group named like 'x:g0' sits on channel 'x'.
+      channelId: id.includes(':') ? id.split(':')[0] : 'c1',
       waGroupId: `${id}@g.us`,
     }) as SubmissionGroup;
-  const run = (ids: string[], getParticipants: ReturnType<typeof vi.fn>) => {
+  const run = (
+    ids: string[],
+    getParticipants: ReturnType<typeof vi.fn>,
+    o: {
+      accounts?: string[];
+      idsOf?: (accountId: string) => string[];
+      now?: () => number;
+    } = {}
+  ) => {
     const store = {
       listPendingCreates: vi.fn().mockResolvedValue([]),
       listUnclosedEnded: vi.fn().mockResolvedValue([]),
       failStalePending: vi.fn().mockResolvedValue([]),
-      membershipAccounts: vi.fn().mockResolvedValue(['a1']),
-      membershipDue: vi.fn(async (_: string, limit: number) =>
-        ids.slice(0, limit)
+      membershipAccounts: vi.fn().mockResolvedValue(o.accounts ?? ['a1']),
+      membershipDue: vi.fn(async (accountId: string, limit: number) =>
+        (o.idsOf?.(accountId) ?? ids).slice(0, limit)
       ),
       get: vi.fn(async (id: string) => group(id)),
       contactConsent: vi
@@ -164,6 +239,7 @@ describe('the cron membership pass', () => {
         sendWelcomeIfDue: vi.fn(),
       }),
       participantsFor: () => ({ getParticipants: getParticipants as never }),
+      now: o.now,
     });
     return { store, result };
   };
@@ -180,7 +256,7 @@ describe('the cron membership pass', () => {
     expect(store.noteCustomerMembership).toHaveBeenCalledWith('g0', 'absent');
   });
 
-  it('a gateway failure leaves the group due and stops the pass', async () => {
+  it('a gateway failure stamps the group and skips its number for the run', async () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce([PHONE])
@@ -188,9 +264,93 @@ describe('the cron membership pass', () => {
     const { store, result } = run(['g0', 'g1', 'g2'], read);
     const r = await result;
     expect(read).toHaveBeenCalledTimes(2);
-    expect(store.noteCustomerMembership.mock.calls).toEqual([['g0', 'joined']]);
-    expect(r.membershipChecked).toBe(1);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([
+      ['g0', 'joined'],
+      ['g1', 'unknown'],
+    ]);
+    expect(r.membershipChecked).toBe(2);
     expect(r.errors).toEqual(['a1: membership: gateway 503']);
+  });
+
+  it('a failing number does not stop another number or account', async () => {
+    const read = vi.fn(async (channelId: string) => {
+      if (channelId === 'bad') throw new Error('gateway 503');
+      return [PHONE];
+    });
+    const { store, result } = run([], read, {
+      accounts: ['a1', 'a2'],
+      idsOf: (accountId) =>
+        accountId === 'a1'
+          ? ['bad:g0', 'bad:g1', 'good:g2', 'bad:g3', 'good:g4']
+          : ['other:g5'],
+    });
+    await result;
+    expect(read.mock.calls.map((c) => c[0])).toEqual([
+      'bad',
+      'good',
+      'good',
+      'other',
+    ]);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([
+      ['bad:g0', 'unknown'],
+      ['good:g2', 'joined'],
+      ['good:g4', 'joined'],
+      ['other:g5', 'joined'],
+    ]);
+  });
+
+  it('starts no read once the budget is used, across accounts', async () => {
+    let clock = 0;
+    const read = vi.fn(async () => {
+      clock += MEMBERSHIP_BUDGET_MS / 2;
+      return [PHONE];
+    });
+    const { store, result } = run(['g0', 'g1', 'g2', 'g3'], read, {
+      accounts: ['a1', 'a2'],
+      now: () => clock,
+    });
+    const r = await result;
+    expect(MEMBERSHIP_BUDGET_MS).toBe(15_000);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(r.membershipChecked).toBe(2);
+    expect(store.membershipDue).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs every account's retries before any membership read", async () => {
+    const order: string[] = [];
+    const read = vi.fn(async () => {
+      order.push('read');
+      return [PHONE];
+    });
+    const { store } = run(['g0'], read);
+    const result = runSubmissionGroupsCron({} as SupabaseClient, {
+      store: {
+        ...store,
+        listPendingCreates: vi
+          .fn()
+          .mockResolvedValue([{ id: 'p', accountId: 'a1' }]),
+        listUnclosedEnded: vi
+          .fn()
+          .mockResolvedValue([{ id: 'e', accountId: 'a2' }]),
+        membershipAccounts: vi.fn().mockResolvedValue(['a1', 'a2']),
+      },
+      serviceFor: (accountId) => ({
+        retryPending: vi.fn(async () => {
+          order.push(`create ${accountId}`);
+          return { attempted: 0, created: [], consentRequired: [], failed: [] };
+        }),
+        retryClose: vi.fn(async () => {
+          order.push(`close ${accountId}`);
+          return { closed: true } as never;
+        }),
+        sendWelcomeIfDue: vi.fn(),
+      }),
+      participantsFor: () => ({ getParticipants: read as never }),
+    });
+    await result;
+    expect(order.slice(0, 2)).toEqual(['create a1', 'close a2']);
+    expect(order.slice(2).every((step) => step === 'read')).toBe(true);
+    expect(read).toHaveBeenCalled();
   });
 
   it('stamps a gone group so it cannot block the queue', async () => {
@@ -255,6 +415,25 @@ describe('the "Customer not in group" chip', () => {
 });
 
 describe('the store calls migration 174 by its contract', () => {
+  it('leaves detached groups out of the account window', async () => {
+    const q = {
+      select: vi.fn(() => q),
+      eq: vi.fn(() => q),
+      not: vi.fn(() => q),
+      neq: vi.fn(() => q),
+      order: vi.fn(() => q),
+      limit: vi.fn(async () => ({
+        data: [{ account_id: 'a1' }, { account_id: 'a1' }],
+        error: null,
+      })),
+    };
+    const store = new SubmissionGroupStore({
+      from: () => q,
+    } as unknown as SupabaseClient);
+    expect(await store.membershipAccounts()).toEqual(['a1']);
+    expect(q.not).toHaveBeenCalledWith('channel_id', 'is', null);
+  });
+
   it('passes p_group/p_state and p_account/p_limit', async () => {
     const rpc = vi
       .fn()

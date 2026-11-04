@@ -16,6 +16,9 @@ import { SubmissionGroupChannelError, type GroupsApi } from './service';
 
 export { SubmissionGroupChannelError };
 
+/** One read gives up here, so a hanging number cannot eat the cron's budget. */
+export const PARTICIPANTS_TIMEOUT_MS = 8_000;
+
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
 
@@ -24,7 +27,8 @@ export interface ParticipantsApi {
   /**
    * Everyone in the group: phone digits, or the raw id of a hidden number
    * (`…@lid`). null when the group or number is gone, so asking again won't
-   * help; any other failure throws.
+   * help, or the number is disconnected, so no call is made. Any other failure
+   * throws.
    */
   getParticipants(
     channelId: string,
@@ -82,7 +86,14 @@ export function createWhapiGroupsApi(
     async getParticipants(channelId, waGroupId) {
       try {
         const channel = await channelFor(channelId);
-        const group = await groups.getGroup({ channel, groupId: waGroupId });
+        // A background check must never wake a stopped channel, and nothing
+        // confirms that GET /groups/{id} does not: this gate is what holds.
+        if (channel.status === 'disconnected') return null;
+        const group = await groups.getGroup({
+          channel,
+          groupId: waGroupId,
+          timeoutMs: PARTICIPANTS_TIMEOUT_MS,
+        });
         return group.participants.map((p) => p.waId ?? p.jid);
       } catch (err) {
         if (

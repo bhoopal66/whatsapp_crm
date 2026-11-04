@@ -389,11 +389,14 @@ export function listGroups(args: {
   });
 }
 
-export function getGroup(args: GroupRef & { resync?: boolean }) {
+export function getGroup(
+  args: GroupRef & { resync?: boolean; timeoutMs?: number }
+) {
   return whapi.getGroup({
     token: whapiToken(args.channel),
     groupId: args.groupId,
     resync: args.resync,
+    timeoutMs: args.timeoutMs,
   });
 }
 

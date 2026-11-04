@@ -71,6 +71,38 @@ beforeEach(() => {
   });
 });
 
+describe('getParticipants', () => {
+  it('reads with a short timeout and lists hidden ids raw', async () => {
+    expect(await api().getParticipants('cfg-1', WA_GROUP)).toEqual([
+      '971500000000',
+      '971501234567',
+      '999@lid',
+    ]);
+    expect(h.getGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: WA_GROUP, timeoutMs: 8_000 })
+    );
+  });
+
+  it('makes no gateway call on a disconnected number', async () => {
+    h.loadChannels.mockResolvedValue([{ ...whapi, status: 'disconnected' }]);
+    expect(await api().getParticipants('cfg-1', WA_GROUP)).toBeNull();
+    expect(h.getGroup).not.toHaveBeenCalled();
+  });
+
+  it('answers null for a gone group and throws any other failure', async () => {
+    h.getGroup.mockRejectedValueOnce(new WhapiError('gone', 404));
+    const gone = vi
+      .spyOn(WhapiError.prototype, 'isGroupNotFound', 'get')
+      .mockReturnValueOnce(true);
+    expect(await api().getParticipants('cfg-1', WA_GROUP)).toBeNull();
+    gone.mockRestore();
+    h.getGroup.mockRejectedValueOnce(new Error('timed out'));
+    await expect(api().getParticipants('cfg-1', WA_GROUP)).rejects.toThrow(
+      'timed out'
+    );
+  });
+});
+
 describe('getInviteLink', () => {
   it('asks the gateway on the account channel and answers the link', async () => {
     await expect(api().getInviteLink('cfg-1', WA_GROUP)).resolves.toBe(
