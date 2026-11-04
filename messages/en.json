@@ -6656,7 +6656,8 @@
       "meeting_invite": "Meeting invitations",
       "meeting_reminder": "Meeting reminders",
       "event_reminder": "Calendar reminders",
-      "group_join_request": "WhatsApp group join requests"
+      "group_join_request": "WhatsApp group join requests",
+      "submission_group_message": "Customer messages in submission groups"
     },
     "quietTitle": "Quiet hours",
     "quietDescription": "Nothing is sent between these times, except meeting and calendar reminders. Leave both empty for no quiet hours.",

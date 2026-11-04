@@ -1,5 +1,5 @@
 /**
- * Which screen a bell row opens. One case per type in 153's
+ * Which screen a bell row opens. One case per type in 173's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
@@ -36,6 +36,8 @@
  *   (108's reminder sweep): `meta.meeting_id` → the meeting's page.
  * - `group_join_request` (the Whapi groups webhook): `meta.group_id` →
  *   the group's requests tab.
+ * - `submission_group_message` (173's messages trigger): `meta.group_id`
+ *   → the submission group.
  * - `calendar_invite` / `calendar_update` / `calendar_cancelled` /
  *   `calendar_response` (108's triggers) and `event_reminder` (108's
  *   sweep, `calendar_insert_reminder`): `meta.event_id` → the calendar
@@ -126,6 +128,10 @@ function hrefFor(
     case 'group_join_request': {
       const group = metaField(n.meta, 'group_id');
       return isUuid(group) ? `/groups/${group}?tab=requests` : null;
+    }
+    case 'submission_group_message': {
+      const group = metaField(n.meta, 'group_id');
+      return isUuid(group) ? `/submission-groups/${group}` : null;
     }
     case 'meeting_invite':
     case 'meeting_reminder': {

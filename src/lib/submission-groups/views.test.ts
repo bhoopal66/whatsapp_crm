@@ -9,6 +9,7 @@ import {
   decodeCursor,
   encodeCursor,
   bankHolderLabel,
+  impliedLabel,
   myLabelOf,
   nextCursor,
   parseListQuery,
@@ -330,6 +331,41 @@ describe('bankHolderLabel (163)', () => {
     ).toBeNull();
     for (const role of ['admin', 'owner', 'viewer', 'bank_guest'] as const)
       expect(bankHolderLabel(group(), role, held, banks)).toBeNull();
+  });
+});
+
+describe('impliedLabel (173)', () => {
+  const led = new Set(['g1']);
+  const none = new Set<string>();
+  const held = new Set(['ADCB']);
+  const banks = new Map([['g1', 'ADCB']]);
+  const noBanks = new Map<string, string>();
+
+  it('makes a leader of the case agent team_lead of an ACTIVE group', () => {
+    expect(impliedLabel(group(), 'team_leader', led, none, noBanks)).toBe(
+      'team_lead'
+    );
+  });
+  it('puts leading the agent ahead of holding the bank', () => {
+    expect(impliedLabel(group(), 'team_leader', led, held, banks)).toBe(
+      'team_lead'
+    );
+  });
+  it('falls to the bank label when the group is not led', () => {
+    expect(impliedLabel(group(), 'agent', none, held, banks)).toBe(
+      'coordinator'
+    );
+    expect(impliedLabel(group(), 'agent', none, none, banks)).toBeNull();
+  });
+  it('gives nothing for another group, an ENDED group or the wrong role', () => {
+    expect(
+      impliedLabel(group({ id: 'g2' }), 'team_leader', led, none, noBanks)
+    ).toBeNull();
+    expect(
+      impliedLabel(group({ status: 'ENDED' }), 'team_leader', led, held, banks)
+    ).toBeNull();
+    for (const role of ['admin', 'owner', 'viewer', 'bank_guest'] as const)
+      expect(impliedLabel(group(), role, led, held, banks)).toBeNull();
   });
 });
 

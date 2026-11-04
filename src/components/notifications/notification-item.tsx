@@ -69,6 +69,7 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
   group_join_request: UsersRound,
+  submission_group_message: MessagesSquare,
   meeting_invite: Video,
   calendar_invite: CalendarDays,
   calendar_update: CalendarClock,

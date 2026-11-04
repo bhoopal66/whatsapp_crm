@@ -434,7 +434,12 @@ export type NotificationType =
   // Sent once per pin to the chat's assigned agent, else its owner
   // (notifyInsightAttention). The row carries conversation_id; meta =
   // {reason}.
-  | 'insight_attention';
+  | 'insight_attention'
+  // Submission groups (173): a customer wrote in a group. Rung by the
+  // messages trigger to the case's agent and coordinators, at most one
+  // unread bell per person per group; opening the group clears it. meta =
+  // {group_id}.
+  | 'submission_group_message';
 
 export interface Notification {
   id: string;

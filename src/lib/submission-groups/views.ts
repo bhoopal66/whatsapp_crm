@@ -208,6 +208,28 @@ export function bankHolderLabel(
   return bank !== undefined && heldBanks.has(bank) ? 'coordinator' : null;
 }
 
+/**
+ * The label of an ACTIVE group the caller has no open access row on, in
+ * sg_resolve_role's order: 'team_lead' for a leader of the case's agent
+ * (173), else the bank fallback. The role gate is the one bankHolderLabel
+ * has, which keeps an admin who leads a team unlabelled, as in SQL.
+ */
+export function impliedLabel(
+  group: Pick<SubmissionGroup, 'id' | 'status'>,
+  role: AccountRole,
+  ledGroups: ReadonlySet<string>,
+  heldBanks: ReadonlySet<string>,
+  bankByGroup: ReadonlyMap<string, string>
+): StaffLabel | null {
+  if (
+    group.status === 'ACTIVE' &&
+    canReceiveCoordinatorShare(role) &&
+    ledGroups.has(group.id)
+  )
+    return 'team_lead';
+  return bankHolderLabel(group, role, heldBanks, bankByGroup);
+}
+
 export interface ContactRef {
   id: string;
   name: string | null;

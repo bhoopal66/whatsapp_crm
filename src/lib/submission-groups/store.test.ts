@@ -326,7 +326,7 @@ describe('wa_mode (136)', () => {
   });
 });
 
-describe('openAccessLabel (163 bank fallback)', () => {
+describe('openAccessLabel (163 bank, 173 team lead fallback)', () => {
   const store = (role: string | null, rows: Record<string, unknown>[]) => {
     const calls: string[] = [];
     const db = fakeSupabase({
@@ -358,8 +358,15 @@ describe('openAccessLabel (163 bank fallback)', () => {
     expect(await s.openAccessLabel('g1', 'u1')).toBe('coordinator');
   });
 
+  it('falls back to team_lead when sg_resolve_role says so', async () => {
+    const { s } = store('team_lead', []);
+    expect(await s.openAccessLabel('g1', 'u1')).toBe('team_lead');
+  });
+
   it('stays null for any other answer', async () => {
     expect(await store('agent', []).s.openAccessLabel('g1', 'u1')).toBeNull();
+    expect(await store('admin', []).s.openAccessLabel('g1', 'u1')).toBeNull();
+    expect(await store('owner', []).s.openAccessLabel('g1', 'u1')).toBeNull();
     expect(await store(null, []).s.openAccessLabel('g1', 'u1')).toBeNull();
   });
 });

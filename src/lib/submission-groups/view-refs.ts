@@ -85,6 +85,33 @@ export async function loadUnread(
   }
 }
 
+/**
+ * Of these groups, the ones whose case's agent `userId` leads (173). The
+ * function is granted to the service role only. A label is a decoration on
+ * the row, so an error (the migration not applied yet included) counts as
+ * not led, never a failed list.
+ */
+export async function loadLedGroups(
+  admin: SupabaseClient,
+  userId: string,
+  groupIds: readonly string[]
+): Promise<Set<string>> {
+  const led = await Promise.all(
+    groupIds.map(async (id) => {
+      try {
+        const { data, error } = await admin.rpc('sg_leads_group_agent', {
+          p_group: id,
+          p_user: userId,
+        });
+        return !error && data === true;
+      } catch {
+        return false;
+      }
+    })
+  );
+  return new Set(groupIds.filter((_, i) => led[i]));
+}
+
 /** Staff full names in this account (one profile per workspace). */
 export async function loadNames(
   admin: SupabaseClient,

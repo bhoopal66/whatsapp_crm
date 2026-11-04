@@ -20,6 +20,7 @@ describe('push kind groups', () => {
     expect(kindGroup('whatsapp_message')).toBe('messages');
     expect(kindGroup('chat_message')).toBe('messages');
     expect(kindGroup('insight_attention')).toBe('messages');
+    expect(kindGroup('submission_group_message')).toBe('messages');
     expect(kindGroup('meeting_invite')).toBe('meetings');
     expect(kindGroup('event_reminder')).toBe('meetings');
     expect(kindGroup('calendar_changed')).toBe('meetings');

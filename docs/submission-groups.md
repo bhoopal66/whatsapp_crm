@@ -139,6 +139,12 @@ an open list row keeps their own label. Taking the bank away removes the
 access at once. An ENDED group is unchanged: its archive is read only by
 those who were on the list at the end.
 
+The team leader of the case's agent also reads and sends in an **ACTIVE**
+group as Team Lead without being on the list (173). An open list row keeps
+its own label, leading the agent comes before holding the bank, and an
+owner or admin who also leads a team stays an owner or admin. An ENDED
+group is unchanged here too.
+
 ## The prefix
 
 Every staff message goes out from the hosting number as
@@ -147,10 +153,10 @@ received`. Staff cannot send as themselves.
 
 ## Who reads and sends, and when
 
-| State      | Read                                                                                                         | Send                                             |
-| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| **ACTIVE** | anyone on the open access list; owners and admins of the workspace                                           | anyone on the open list (an admin only if on it) |
-| **ENDED**  | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody                                           |
+| State      | Read                                                                                                         | Send                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| **ACTIVE** | anyone on the open access list; the team leader of the case's agent; owners and admins of the workspace      | anyone on the open list (an admin only if on it); the team leader of the case's agent |
+| **ENDED**  | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody                                                                                |
 
 Agents never read an ENDED group. An ENDED group's **messages** are read
 only through the archive view, and **every archive view is written to an
@@ -159,6 +165,20 @@ nothing. Its details (submission id, customer, final status, the access
 list at the end) stay listed, without an audit entry, for the same people
 who may open its archive. Messages that
 arrive after the end are kept but hidden from every live read.
+
+## Unread and the bell
+
+Each person has their own read marker per group (173), so opening a group
+clears nothing for anyone else. The sidebar and the group list count the
+inbound messages since you last opened each ACTIVE group you can read. A
+group you have never opened counts only the last 7 days. Opening a group
+clears its count and your bell for it.
+
+Only a customer's message rings the bell and sends a push (the push setting
+is under Messages). It goes to the case's agent and coordinators, both those
+named on the list and holders of the case's bank, with at most one unread
+bell per person per group, so a run of messages rings once. The bell shows
+the customer's name, never the message text.
 
 ## Ending
 

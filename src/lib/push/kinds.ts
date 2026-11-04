@@ -32,6 +32,7 @@ export const PUSH_KINDS = [
   'meeting_reminder',
   'event_reminder',
   'group_join_request',
+  'submission_group_message',
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];
@@ -48,6 +49,7 @@ export const QUIET_HOURS_EXEMPT: readonly string[] = [
 
 const URGENT: readonly string[] = [
   'whatsapp_message',
+  'submission_group_message',
   'chat_message',
   'meeting_reminder',
   'event_reminder',
@@ -55,7 +57,9 @@ const URGENT: readonly string[] = [
 
 /** Seconds the push service keeps an undelivered push. */
 export function ttlFor(kind: string): number {
-  return kind === 'whatsapp_message' || kind === 'chat_message'
+  return kind === 'whatsapp_message' ||
+    kind === 'submission_group_message' ||
+    kind === 'chat_message'
     ? 86_400
     : 259_200;
 }

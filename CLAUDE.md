@@ -1170,6 +1170,19 @@ submission app. `docs/submission-groups.md` is the contract.
   request's `customer.name`, set by `sg_open` at creation only; the case
   screens show it, else the contact's name (contacts are never renamed).
   `verify-submission-customer-name.sql`.
+- **Unread, bell, team leader (173).** `submission_group_reads` is a
+  per-person marker written only by `sg_mark_read`, which also reads that
+  person's `submission_group_message` bells for the group and refuses an
+  ENDED group. `sg_unread_by_group` / `sg_unread_count` count inbound
+  messages (146's 7-day rule). A trigger rings a customer's message to
+  the agent and coordinators, bank holders included, once per person per
+  group while unread; the customer's text never goes in the bell. On an
+  ACTIVE group a live leader of the case's agent counts as `team_lead`
+  after a real open row and before 163's bank holder
+  (`sg_leads_group_agent`, service role only); `openAccessLabel` and
+  `impliedLabel` are its TS mirrors. The type lives in
+  `notifications_type_check`, `push_bell_url`, `hrefFor`, `PUSH_KINDS` and
+  `kindGroup`: change them together. `verify-submission-group-reads.sql`.
 
 ### Cases (`lib/cases/*`, migrations 122-130)
 

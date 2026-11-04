@@ -158,6 +158,58 @@ describe('GET /api/submission-groups', () => {
     ]);
   });
 
+  it('labels an ACTIVE group team_lead when the caller leads its agent (173)', async () => {
+    as('team_leader');
+    const asked: unknown[] = [];
+    admin.rpc = {
+      sg_leads_group_agent: (a) => {
+        asked.push(a.p_group);
+        return a.p_group === A2;
+      },
+    };
+    admin.tables.coordinator_banks = [
+      { account_id: 'acct-1', user_id: 'u-me', bank_code: 'ADCB' },
+    ];
+    admin.tables.cases = [
+      { account_id: 'acct-1', group_id: A2, bank_code: 'ADCB' },
+    ];
+    const body = await (await get()).json();
+    // A keeps its real row label and is not asked about; on A2 leading the
+    // agent beats holding the bank.
+    expect(body.groups.map((g: { my_label: string }) => g.my_label)).toEqual([
+      'agent',
+      'team_lead',
+    ]);
+    expect(asked).toEqual([A2]);
+  });
+
+  it('does not ask whether an admin leads the agent', async () => {
+    as('admin');
+    const asked: unknown[] = [];
+    admin.rpc = {
+      sg_leads_group_agent: (a) => {
+        asked.push(a.p_group);
+        return true;
+      },
+    };
+    const body = await (await get()).json();
+    expect(body.groups[1].my_label).toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it('counts a failed lookup as not led', async () => {
+    as('team_leader');
+    admin.rpc = {
+      sg_leads_group_agent: () => {
+        throw new Error('down');
+      },
+    };
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups[1].my_label).toBeNull();
+  });
+
   it('gives no bank fallback to an admin', async () => {
     as('admin');
     admin.tables.coordinator_banks = [

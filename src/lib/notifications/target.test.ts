@@ -249,6 +249,24 @@ describe('notificationTarget', () => {
     ).toBeNull();
   });
 
+  it('submission_group_message opens the submission group', () => {
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', meta: { group_id: ROOM } },
+        'agent'
+      )
+    ).toBe(`/submission-groups/${ROOM}`);
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', meta: { group_id: 'nope' } },
+        'agent'
+      )
+    ).toBeNull();
+    expect(
+      notificationTarget({ type: 'submission_group_message' }, 'agent')
+    ).toBeNull();
+  });
+
   it('a bank guest is only sent to team chat', () => {
     expect(
       notificationTarget(

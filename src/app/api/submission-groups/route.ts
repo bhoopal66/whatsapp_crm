@@ -24,14 +24,15 @@ import {
 import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
 import {
   loadBankHolding,
+  loadLedGroups,
   loadRefs,
   loadUnread,
   matchingContactIds,
 } from '@/lib/submission-groups/view-refs';
 import {
-  bankHolderLabel,
   canManageSubmissionGroups,
   cursorFilter,
+  impliedLabel,
   myLabelOf,
   nextCursor,
   parseListQuery,
@@ -115,15 +116,20 @@ export async function GET(request: Request) {
       loadRefs(admin, ctx.accountId, groups),
       ended ? new Map<string, number>() : loadUnread(ctx.supabase),
     ]);
-    // 163: a holder of the case's bank reads an ACTIVE group as coordinator.
-    const holding = ended
-      ? null
-      : await loadBankHolding(
-          admin,
-          ctx.accountId,
-          ctx.userId,
-          groups.filter((g) => myLabelOf(g, mine) === null).map((g) => g.id)
-        );
+    // With no open row on an ACTIVE group, a leader of the case's agent
+    // reads it as team lead (173) and a holder of its bank as coordinator
+    // (163).
+    const unlabelled = groups
+      .filter((g) => myLabelOf(g, mine) === null)
+      .map((g) => g.id);
+    const [holding, led] = ended
+      ? [null, new Set<string>()]
+      : await Promise.all([
+          loadBankHolding(admin, ctx.accountId, ctx.userId, unlabelled),
+          ctx.role === 'team_leader'
+            ? loadLedGroups(admin, ctx.userId, unlabelled)
+            : new Set<string>(),
+        ]);
     return NextResponse.json({
       groups: groups.map((g) =>
         toListItem(g, {
@@ -131,7 +137,13 @@ export async function GET(request: Request) {
           myLabel:
             myLabelOf(g, mine) ??
             (holding
-              ? bankHolderLabel(g, ctx.role, holding.held, holding.bankByGroup)
+              ? impliedLabel(
+                  g,
+                  ctx.role,
+                  led,
+                  holding.held,
+                  holding.bankByGroup
+                )
               : null),
           unread: unread.get(g.id),
         })
