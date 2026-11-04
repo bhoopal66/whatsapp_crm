@@ -5561,7 +5561,7 @@
       "cardAdminTitle": "관리자",
       "cardAdminBody": "모든 채널과 채팅, 설정, 승인.",
       "cardLeaderTitle": "감독자 (팀 리더)",
-      "cardLeaderBody": "자기 팀의 채팅. 초대 링크로 상담원과 뷰어를 초대할 수 있으며 설정 권한은 없습니다.",
+      "cardLeaderBody": "자기 팀의 채팅. 설정 권한이 없고 사용자를 추가할 수 없습니다.",
       "cardAgentTitle": "RM / 상담원",
       "cardAgentBody": "본인 고객과 추가된 채널.",
       "cardGuestTitle": "은행 게스트",

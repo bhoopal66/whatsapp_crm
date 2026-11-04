@@ -5561,7 +5561,7 @@
       "cardAdminTitle": "Admin",
       "cardAdminBody": "All channels and chats, settings, approvals.",
       "cardLeaderTitle": "Supervisor (team leader)",
-      "cardLeaderBody": "Their team's chats. Invites agents and viewers by link; no settings.",
+      "cardLeaderBody": "Their team's chats. No settings, and cannot add people.",
       "cardAgentTitle": "RM / Agent",
       "cardAgentBody": "Own customers, channels they are added to.",
       "cardGuestTitle": "Bank guest",

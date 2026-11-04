@@ -17,8 +17,9 @@
 --    083's one answer for "no login" and "not yours to add" included.
 --  * redeem_invitation, peek_invitation: a link is good only while a
 --    live owner or admin of its workspace made it. Both change together
---    (135 keeps them agreeing). A leader's existing link answers as an
---    expired link would, as any link whose creator lost the right.
+--    (135 keeps them agreeing). A link whose creator lost the right
+--    answers as an expired one would; a leader's existing links are
+--    then deleted below, so they answer as not found.
 --  * revoke_ungrantable_invitations(), run here: revocation in this app
 --    is a DELETE, and links redeem now refuses would otherwise sit in
 --    Settings as live rows nobody can use. It deletes every unaccepted
