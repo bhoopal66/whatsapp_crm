@@ -19,6 +19,7 @@ import {
   allowedDmCandidates,
   dmCandidates,
   filterPeople,
+  pickerIsFull,
   togglePick,
 } from '@/lib/chat/compose';
 import { DM_PICKER_MAX } from '@/lib/chat/new-channel';
@@ -56,8 +57,7 @@ export function PeoplePicker({
     () => new Map(candidates.map((p) => [p.userId, p])),
     [candidates]
   );
-  // With one to choose, a new pick replaces the old: nothing is ever full.
-  const full = max !== undefined && max > 1 && picked.length >= max;
+  const full = pickerIsFull(picked.length, max);
   const nameOf = (p: ChatPerson | undefined) =>
     p?.fullName?.trim() || tChat('unknownPerson');
 

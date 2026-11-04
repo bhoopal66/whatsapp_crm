@@ -11,6 +11,7 @@ import {
   focusStep,
   FOCUS_MAX_PAGES,
   normalizeChannelName,
+  pickerIsFull,
   togglePick,
   withParam,
 } from '../compose';
@@ -54,6 +55,13 @@ describe('channel names', () => {
 });
 
 describe('pickers', () => {
+  it('a one-person picker keeps its other rows live', () => {
+    expect(pickerIsFull(1, 1)).toBe(false);
+    expect(pickerIsFull(7, 7)).toBe(true);
+    expect(pickerIsFull(6, 7)).toBe(false);
+    expect(pickerIsFull(9)).toBe(false);
+  });
+
   it('togglePick adds up to the cap and removes', () => {
     const six = ['a', 'b', 'c', 'd', 'e', 'f'];
     expect(togglePick(['a'], 'b', 1)).toEqual(['b']);

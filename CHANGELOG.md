@@ -21,7 +21,7 @@ and polish.
 
 ### Added
 
-- **Delete a team chat channel permanently (database side).** An owner or
+- **Delete a team chat channel permanently.** An owner or
   admin can delete any team or private channel showing in their app; a team
   leader or coordinator the ones they created. Agents, viewers and bank
   guests cannot, and DMs and deal rooms are never deleted this way. The

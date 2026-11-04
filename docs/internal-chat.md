@@ -647,7 +647,8 @@ room can read it, but must give a reason first.
   their channel role). Since 157 to 160 it also records
   `set_permissions`, `update_settings`, `update_policy`,
   `update_sensitive_guard` (old and new), `set_audience`,
-  `moderate_delete`, `restrict_member` and `export_channel`: sixteen
+  `moderate_delete`, `restrict_member`, `export_channel` and
+  `delete_channel`: seventeen
   actions in all, named by one CHECK on `chat_audit_log.action`.
 
 ## Deleting a channel (migration 172)

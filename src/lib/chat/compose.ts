@@ -53,6 +53,13 @@ export function togglePick(
   return picked.length >= max ? [...picked] : [...picked, id];
 }
 
+/**
+ * Whether a picker refuses further picks. With one to choose it never
+ * does: togglePick replaces the pick, so the other rows must stay live.
+ */
+export const pickerIsFull = (count: number, max?: number): boolean =>
+  max !== undefined && max !== 1 && count >= max;
+
 /** Everyone a DM may include besides the viewer: no bank guests. */
 export function dmCandidates(
   people: readonly ChatPerson[],

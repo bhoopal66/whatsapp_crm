@@ -203,11 +203,14 @@ BEGIN
 END $$;
 
 -- chat_append_only_guard opens edit history to the table owner only.
+-- The check goes with it: the delete runs as that owner, and the check
+-- is revoked from PUBLIC, so it must be the owner's to call.
 DO $$
 DECLARE v_owner name;
 BEGIN
   SELECT pg_get_userbyid(c.relowner) INTO v_owner FROM pg_class c
    WHERE c.oid = 'public.internal_message_edits'::regclass;
+  EXECUTE format('ALTER FUNCTION public.chat_can_delete_channel(uuid) OWNER TO %I', v_owner);
   EXECUTE format('ALTER FUNCTION public.chat_delete_channel(uuid, text) OWNER TO %I', v_owner);
 END $$;
 
