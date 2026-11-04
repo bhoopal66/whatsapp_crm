@@ -228,6 +228,17 @@ connection with no secret stored refuses every push. Optionally set
   someone, it is handed to them, and the assignment bell rings once.
   Once the task is done or cancelled, the next missed call opens a new
   one.
+- **WhatsApp chats follow the caller.** An inbound WhatsApp message on
+  a chat with no assignee looks up the sender's number (and its trunk-0
+  forms) among the workspace's outbound calls, the whole history, and
+  assigns the chat to the most recent caller, answered or not. A call
+  counts for the person on it, then the extension's current holder, so
+  a leaver's customers reach their successor; anyone not active as an
+  owner, admin, team leader or agent is passed over for the next call
+  back. Inbound calls do not count. No match leaves the chat as it was.
+  The assignment rings the usual bell and moves the contact (migration
+  169), and the AI bot stops on the chat, as on any assigned chat. A
+  chat released later is assigned again by the customer's next message.
 - **Who it rang.** Every person an inbound call rang is kept on the
   call (`calls.meta.rang_user_ids`, first rung first), gathered from
   each ringing frame, so it survives the screen pop going away. The

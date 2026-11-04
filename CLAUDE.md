@@ -1072,6 +1072,14 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
   after 45 s. `verify-pbx.sql`.
+- **Chats follow the caller.** `assignChatFromCallHistory`
+  (`assign-from-calls.ts`) runs in `processMessage` after the idempotency
+  boundary and before the unread bump (the bump's realtime event is what
+  surfaces the chat for the new assignee), for a chat with no assignee:
+  the newest outbound call to the number, in the workspace, by a live
+  staff person. Never throws; the write is conditional on the chat still
+  having no assignee. An automation's `round_robin` step leaves a held
+  chat alone for the same reason. 171's index is speed only.
 - **Link health (104).** Every ingest stamps `pbx_connections.last_event_at`
   and `last_event_via`. A trigger keeps the clock forward-only and caps it at
   `now() + 1 minute`. The cron's `silence` step rings owners and admins once

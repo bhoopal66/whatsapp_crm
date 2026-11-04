@@ -588,11 +588,16 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         )?.user_id
       }
       if (!agentId) return 'no agent resolved'
-      await db
+      let write = db
         .from('conversations')
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
+      // round_robin means "someone should have this", and its pick is
+      // only the first member, usually the owner: a chat already held
+      // (inbound gives it to the customer's last caller) keeps its person.
+      if (cfg.mode === 'round_robin') write = write.is('assigned_agent_id', null)
+      await write
       return `assigned to ${agentId}`
     }
 

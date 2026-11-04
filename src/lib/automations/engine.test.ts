@@ -49,6 +49,7 @@ vi.mock("./admin-client", () => {
     type: string;
     payload?: unknown;
     filters: [string, string, unknown][];
+    many?: boolean;
   }) {
     const { table, type } = ops;
     if (table === "contacts") {
@@ -102,14 +103,19 @@ vi.mock("./admin-client", () => {
       return { data: row ?? null, error: null };
     }
     if (table === "profiles") {
-      const row = state.profiles.find((p) => matchesEq(p, ops.filters));
-      return { data: row ?? null, error: null };
+      const rows = state.profiles.filter((p) => matchesEq(p, ops.filters));
+      return { data: ops.many ? rows : (rows[0] ?? null), error: null };
+    }
+    if (table === "conversations" && type === "update") {
+      state.updateCalls.push({ table, filters: ops.filters });
+      return { data: null, error: null };
     }
     if (table === "conversations" && type === "select") {
       // Honour every eq() filter, like PostgREST would.
       const row = state.conversations.find((c) =>
         ops.filters.every(
-          ([, k, v]) => (c as Record<string, unknown>)[k] === v
+          ([op, k, v]) =>
+            op !== "eq" || (c as Record<string, unknown>)[k] === v
         )
       );
       return { data: row ?? null, error: null };
@@ -123,6 +129,8 @@ vi.mock("./admin-client", () => {
       type: "select",
       payload: undefined as unknown,
       filters: [] as [string, string, unknown][],
+      // Awaited without single()/maybeSingle(): a list comes back.
+      many: false,
     };
     const b: Record<string, unknown> = {
       select: () => b,
@@ -132,13 +140,13 @@ vi.mock("./admin-client", () => {
       upsert: (p: unknown) => ((ops.type = "upsert"), (ops.payload = p), b),
       eq: (k: string, v: unknown) => (ops.filters.push(["eq", k, v]), b),
       gte: () => b,
-      is: () => b,
+      is: (k: string, v: unknown) => (ops.filters.push(["is", k, v]), b),
       order: () => b,
       limit: () => b,
       single: () => Promise.resolve(resolve(ops)),
       maybeSingle: () => Promise.resolve(resolve(ops)),
       then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
-        Promise.resolve(resolve(ops)).then(onF, onR),
+        Promise.resolve(resolve({ ...ops, many: true })).then(onF, onR),
     };
     return b;
   }
@@ -428,6 +436,43 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
     const filters = h.state.updateCalls[0].filters;
     expect(filters).toContainEqual(["eq", "id", "c1"]);
     expect(filters).toContainEqual(["eq", "account_id", ACCOUNT]);
+  });
+});
+
+describe("assign_conversation — a held chat keeps its person", () => {
+  const run = async (step_config: Record<string, unknown>) => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      { ...updateStep(), step_type: "assign_conversation", step_config },
+    ];
+    h.state.profiles = [
+      { id: "p1", user_id: "owner-1", account_id: ACCOUNT },
+    ];
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+    const writes = h.state.updateCalls.filter(
+      (c) => c.table === "conversations"
+    );
+    expect(writes).toHaveLength(1);
+    return writes[0].filters;
+  };
+
+  it("round_robin only takes a chat nobody holds", async () => {
+    expect(await run({ mode: "round_robin" })).toContainEqual([
+      "is",
+      "assigned_agent_id",
+      null,
+    ]);
+  });
+
+  it("a named person still takes the chat", async () => {
+    const filters = await run({ mode: "specific", agent_id: "agent-1" });
+    expect(filters).not.toContainEqual(["is", "assigned_agent_id", null]);
   });
 });
 

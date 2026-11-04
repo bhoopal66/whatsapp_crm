@@ -20,6 +20,9 @@ type Result = { data: unknown; error: unknown };
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
+  assignee: null as string | null,
+  assignFromCalls: vi.fn(),
+  rpcsAtAssign: null as string[] | null,
   calls: [] as Call[],
   rpcs: [] as string[],
   rpcArgs: [] as unknown[],
@@ -42,7 +45,14 @@ const h = vi.hoisted(() => ({
 function respond(call: Call): Result {
   if (call.table === 'conversations' && call.op === 'select') {
     return {
-      data: [{ id: 'conv-1', channel_id: 'ch-1', send_channel_id: null }],
+      data: [
+        {
+          id: 'conv-1',
+          channel_id: 'ch-1',
+          send_channel_id: null,
+          assigned_agent_id: h.assignee,
+        },
+      ],
       error: null,
     };
   }
@@ -141,6 +151,12 @@ vi.mock('@/lib/broadcasts/reply-class', () => ({
   classifyCampaignReply: (...args: unknown[]) => h.classify(...args),
   tagInterestedReply: (...args: unknown[]) => h.tagInterested(...args),
 }));
+vi.mock('@/lib/pbx/assign-from-calls', () => ({
+  assignChatFromCallHistory: (...args: unknown[]) => {
+    h.rpcsAtAssign = [...h.rpcs];
+    return h.assignFromCalls(...args);
+  },
+}));
 vi.mock('@/lib/whatsapp/provider', () => ({ getMediaUrl: vi.fn() }));
 vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
   mirrorInboundMedia: vi.fn(),
@@ -188,6 +204,9 @@ const message: NormalizedInboundMessage = {
 
 beforeEach(() => {
   h.meaningOn = true;
+  h.assignee = null;
+  h.assignFromCalls.mockReset().mockResolvedValue(null);
+  h.rpcsAtAssign = null;
   h.calls = [];
   h.rpcs = [];
   h.rpcArgs = [];
@@ -205,6 +224,43 @@ beforeEach(() => {
   h.order = [];
   h.classify.mockReset().mockResolvedValue(null);
   h.tagInterested.mockReset().mockResolvedValue('not_interested');
+});
+
+describe('processMessage — assigning from call history', () => {
+  it('looks up an unassigned chat before the unread bump and the push', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(h.assignFromCalls).toHaveBeenCalledTimes(1);
+    expect(h.assignFromCalls.mock.calls[0][1]).toEqual({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      phone: '971500000001',
+    });
+    expect(h.rpcsAtAssign).toEqual([]);
+    expect(h.rpcs).toEqual([
+      'bump_conversation_on_inbound',
+      'push_whatsapp_inbound',
+    ]);
+  });
+
+  it('assigns a sender over the rate limit too', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    expect(h.assignFromCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a chat that already has someone', async () => {
+    h.assignee = 'agent-9';
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.assignFromCalls).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on a replayed delivery', async () => {
+    h.upsertRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.assignFromCalls).not.toHaveBeenCalled();
+  });
 });
 
 describe('processMessage — fanOut', () => {

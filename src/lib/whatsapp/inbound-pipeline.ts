@@ -55,6 +55,7 @@ import { runInboundInsights } from '@/lib/insights/inbound';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
+import { assignChatFromCallHistory } from '@/lib/pbx/assign-from-calls';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -815,6 +816,20 @@ export async function processMessage(
       message.id
     );
     return;
+  }
+
+  // A chat nobody holds goes to the person who last called this number
+  // from an extension. After the idempotency boundary, so a replay never
+  // re-assigns a chat a person has since released; ahead of the unread
+  // bump and the push, so the bump's realtime event and the push reach
+  // the new assignee. Part of the inbox: a sender over the rate limit
+  // (fanOut: false) is assigned too. Never throws.
+  if (!conversation.assigned_agent_id) {
+    await assignChatFromCallHistory(supabaseAdmin(), {
+      accountId,
+      conversationId: conversation.id,
+      phone: senderPhone,
+    });
   }
 
   // Update conversation. The unread bump is done DB-side (migration 037's
