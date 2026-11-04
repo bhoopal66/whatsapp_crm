@@ -5,7 +5,8 @@
 --
 --  * submission_group_reads: (group_id, user_id) -> last_read_at, as
 --    146's whatsapp_group_reads. Moved forward only, by sg_mark_read,
---    which refuses (42501) a group outside sg_visible_ids().
+--    which refuses (42501) a group outside sg_visible_ids() and also
+--    marks the caller's unread bells of that group read.
 --  * sg_unread_by_group() / sg_unread_count(): inbound messages after
 --    the marker in the caller's ACTIVE wa_mode 'group' groups of the
 --    active workspace. created_at is the arrival time here:
@@ -264,10 +265,20 @@ BEGIN
   VALUES (p_group, v_acct, v_uid, now())
   ON CONFLICT (group_id, user_id) DO UPDATE
     SET last_read_at = greatest(r.last_read_at, EXCLUDED.last_read_at);
+
+  -- Someone who opens the group without clicking the bell has read it,
+  -- and an unread bell would silence the group for them for good (one
+  -- unread bell per person per group).
+  UPDATE public.notifications n SET read_at = now()
+   WHERE n.user_id = v_uid
+     AND n.read_at IS NULL
+     AND n.account_id = v_acct
+     AND n.type = 'submission_group_message'
+     AND n.meta ->> 'group_id' = p_group::text;
 END
 $$;
 COMMENT ON FUNCTION public.sg_mark_read(uuid) IS
-  'Moves the caller''s read marker of a submission group to now (never back). Refuses 42501 unless the group is in sg_visible_ids() (ACTIVE groups only). Migration 173.';
+  'Moves the caller''s read marker of a submission group to now (never back) and marks their unread bells of that group read. Refuses 42501 unless the group is in sg_visible_ids() (ACTIVE groups only). Migration 173.';
 
 CREATE OR REPLACE FUNCTION public.sg_unread_by_group()
 RETURNS TABLE (group_id uuid, unread integer)
