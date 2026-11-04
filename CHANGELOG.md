@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Invite links reach customers WhatsApp would not add
+
+- When WhatsApp refuses to add someone to a group, they are sent the
+  group's invite link. That send failed for any group with no picture,
+  which is every new submission group, leaving the customer with neither
+  the group nor the link. The link now goes as plain text in that case.
+
 ### A direct message is with one person
 
 - Team chat's _New message_ picker now takes one person. A conversation

@@ -1914,14 +1914,40 @@ export async function sendGroupInvite(args: SendGroupInviteArgs): Promise<WhapiS
   const body: Record<string, unknown> = { to: toWhapiRecipient(args.to) }
   if (args.body) body.body = args.body
   if (args.title) body.title = args.title
-  const data = await whapiRequest<WhapiSentEnvelope>({
+  try {
+    const data = await whapiRequest<WhapiSentEnvelope>({
+      token: args.token,
+      path: invitePath(args.inviteCode),
+      method: 'POST',
+      body,
+      timeoutMs: args.timeoutMs,
+    })
+    return { messageId: readSentMessageId(data, 'group invite') }
+  } catch (err) {
+    if (!isNoGroupPicture(err)) throw err
+  }
+  // The rich message needs the group's picture, and a new group has
+  // none: Whapi answers 400 and the person was left with neither the
+  // group nor an invite. A link in plain text joins just the same.
+  const link = groupInviteLink(args.inviteCode)
+  return sendTextMessage({
     token: args.token,
-    path: invitePath(args.inviteCode),
-    method: 'POST',
-    body,
-    timeoutMs: args.timeoutMs,
+    to: args.to,
+    text: args.body?.includes('%URL%')
+      ? args.body.replace('%URL%', link)
+      : `${args.body ?? GROUP_INVITE_TEXT}\n${link}`,
   })
-  return { messageId: readSentMessageId(data, 'group invite') }
+}
+
+const GROUP_INVITE_TEXT = "You've been invited to join our WhatsApp group:"
+
+/** Whapi's 400 for a rich invite to a group with no picture. */
+function isNoGroupPicture(err: unknown): boolean {
+  return (
+    err instanceof WhapiError &&
+    err.status === 400 &&
+    /can not find preview/i.test(err.details ?? '')
+  )
 }
 
 export interface WhapiGroupPreview {

@@ -11,6 +11,7 @@ import {
   listGroupJoinRequests,
   parseWhapiGroup,
   parseWhapiIdentity,
+  sendGroupInvite,
   setGroupIcon,
   updateGroupSetting,
 } from './whapi-api';
@@ -179,7 +180,10 @@ describe('listAllGroups', () => {
         })
       )
       .mockResolvedValueOnce(
-        json({ groups: [{ id: '120363025555500003@g.us', name: 'c' }], total: 3 })
+        json({
+          groups: [{ id: '120363025555500003@g.us', name: 'c' }],
+          total: 3,
+        })
       );
     const all = await listAllGroups({ token: 't', pageSize: 2 });
     expect(all.map((g) => g.name)).toEqual(['a', 'c']);
@@ -338,5 +342,64 @@ describe('group calls', () => {
       application: '971500000001@s.whatsapp.net',
     });
     expect(res).toEqual({ ok: false, error: 'gone' });
+  });
+});
+
+describe('sendGroupInvite', () => {
+  const args = {
+    token: 't',
+    inviteCode: 'AbCdEfGh12345678',
+    to: '971501234567',
+  };
+  const noPicture = () =>
+    json(
+      {
+        error: {
+          code: 400,
+          message: 'wrong request parameters',
+          details: 'can not find preview (group_picture)',
+        },
+      },
+      400
+    );
+  const sent = (id: string) => json({ sent: true, message: { id } });
+
+  it('sends the rich invite when Whapi can', async () => {
+    fetchMock.mockResolvedValueOnce(sent('m1'));
+    await expect(sendGroupInvite(args)).resolves.toEqual({ messageId: 'm1' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      '/groups/link/AbCdEfGh12345678'
+    );
+  });
+
+  it('sends the link as text when the group has no picture', async () => {
+    fetchMock
+      .mockResolvedValueOnce(noPicture())
+      .mockResolvedValueOnce(sent('m2'));
+    await expect(sendGroupInvite(args)).resolves.toEqual({ messageId: 'm2' });
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(String(url)).toContain('/messages/text');
+    const body = JSON.parse(String(init.body));
+    expect(body.to).toBe('971501234567');
+    expect(body.body).toContain('https://chat.whatsapp.com/AbCdEfGh12345678');
+  });
+
+  it('puts the link where a custom text asks for it', async () => {
+    fetchMock
+      .mockResolvedValueOnce(noPicture())
+      .mockResolvedValueOnce(sent('m3'));
+    await sendGroupInvite({ ...args, body: 'Join us: %URL% today' });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body)).body).toBe(
+      'Join us: https://chat.whatsapp.com/AbCdEfGh12345678 today'
+    );
+  });
+
+  it('does not retry any other refusal', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({ error: { code: 400, message: 'wrong request parameters' } }, 400)
+    );
+    await expect(sendGroupInvite(args)).rejects.toBeInstanceOf(WhapiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
