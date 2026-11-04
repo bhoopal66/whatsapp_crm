@@ -255,7 +255,27 @@ export async function POST(request: Request) {
         );
         return fail('internal', 'Failed to open the submission group', 500);
       }
-      if (groupsOn !== true) {
+      // A WhatsApp group is for a case a regular staff member filed. One a
+      // coordinator filed is the CRM record only, with or without the
+      // switch. Unreadable → 500, as above.
+      let filedByCoordinator = staff.filedByCoordinator;
+      if (groupsOn === true && !filedByCoordinator) {
+        const { data: banks, error: banksError } = await db
+          .from('coordinator_banks')
+          .select('user_id')
+          .eq('account_id', ctx.accountId)
+          .eq('user_id', agent.userId)
+          .limit(1);
+        if (banksError) {
+          console.error(
+            '[api/v1/submission-groups] coordinator check:',
+            banksError
+          );
+          return fail('internal', 'Failed to open the submission group', 500);
+        }
+        filedByCoordinator = (banks ?? []).length > 0;
+      }
+      if (groupsOn !== true || filedByCoordinator) {
         const auditUserId = await resolveAuditUserId(db, ctx.accountId);
         const contact = await findOrCreateContact(
           db,

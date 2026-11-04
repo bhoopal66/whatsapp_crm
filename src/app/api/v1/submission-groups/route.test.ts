@@ -10,6 +10,11 @@ const m = vi.hoisted(() => ({
   },
   members: [] as { config_id: string; user_id: string }[],
   // sg_bank_coordinators (142).
+  // Rows of coordinator_banks for the case's agent.
+  coordinatorBanks: { data: [], error: null } as {
+    data: unknown;
+    error: unknown;
+  },
   bankCoordinators: { data: [], error: null } as {
     data: unknown;
     error: unknown;
@@ -36,6 +41,7 @@ const db = {
       select: () => q,
       eq: () => q,
       in: async () => ({ data: m.members, error: null }),
+      limit: async () => m.coordinatorBanks,
     };
     return q;
   },
@@ -110,6 +116,7 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup =>
 beforeEach(() => {
   vi.clearAllMocks();
   m.members = [];
+  m.coordinatorBanks = { data: [], error: null };
   m.groupsSetting = { data: true, error: null };
   m.bankCoordinators = { data: [], error: null };
   const staffRows = {
@@ -382,9 +389,44 @@ describe('POST /api/v1/submission-groups', () => {
   });
 
   it('refuses the same person under two labels', async () => {
-    const res = await post({ ...body, coordinator_email: 'AGENT@x.com' });
+    const res = await post({ ...body, team_lead_email: 'AGENT@x.com' });
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe('duplicate_user');
+  });
+
+  describe('a case a coordinator filed gets no group', () => {
+    const noGroup = () =>
+      expect(m.service.openForSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ waMode: 'none', channelId: null })
+      );
+
+    it('when Compass names them as both agent and coordinator', async () => {
+      await post({ ...body, coordinator_email: 'AGENT@x.com' });
+      noGroup();
+      const open = m.service.openForSubmission.mock.calls[0][0];
+      expect(open.access).toEqual([{ userId: 'u-agent', label: 'agent' }]);
+    });
+
+    it('when the agent holds banks as a coordinator', async () => {
+      m.coordinatorBanks = { data: [{ user_id: 'u-agent' }], error: null };
+      await post(body);
+      noGroup();
+    });
+
+    it('opens a group for an agent who is not a coordinator', async () => {
+      await post(body);
+      expect(m.service.openForSubmission).not.toHaveBeenCalledWith(
+        expect.objectContaining({ waMode: 'none' })
+      );
+    });
+
+    it('answers 500 and opens nothing if the check fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      m.coordinatorBanks = { data: null, error: { message: 'boom' } };
+      const res = await post(body);
+      expect(res.status).toBe(500);
+      expect(m.service.openForSubmission).not.toHaveBeenCalled();
+    });
   });
 
   it.each(['opted_out', 'do_not_contact'] as const)(

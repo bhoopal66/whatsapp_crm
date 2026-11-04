@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### No WhatsApp group for a case a coordinator filed
+
+- A submission gets a WhatsApp group only when a regular staff member of
+  this app filed it. A case filed by a coordinator now opens in the CRM
+  with no group; these used to be refused with `422 duplicate_user`
+  when Compass named the same person as agent and coordinator, so they
+  never appeared at all. A case filed by someone with no login here
+  stays refused. Groups already open are unchanged. No migration.
+
 ### Invite links reach customers WhatsApp would not add
 
 - When WhatsApp refuses to add someone to a group, they are sent the

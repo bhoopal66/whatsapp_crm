@@ -300,6 +300,7 @@ describe('resolveStaff', () => {
         { userId: 'u1', email: 'a@x.com', label: 'agent', role: 'agent' },
         { userId: 'u2', email: 'c@x.com', label: 'coordinator', role: 'agent' },
       ],
+      filedByCoordinator: false,
     });
   });
 
@@ -314,13 +315,35 @@ describe('resolveStaff', () => {
   it('refuses one person under two labels', () => {
     expect(
       resolveStaff(
-        [req[0], { ...req[1], email: 'a@x.com' }],
+        [
+          req[0],
+          {
+            field: 'team_lead_email' as const,
+            email: 'a@x.com',
+            label: 'team_lead' as const,
+          },
+        ],
         [row('a@x.com', 'u1')]
       )
     ).toEqual({
       ok: false,
       code: 'duplicate_user',
-      fields: ['agent_email', 'coordinator_email'],
+      fields: ['agent_email', 'team_lead_email'],
+    });
+  });
+
+  it('reads one person as agent and coordinator as a coordinator filing', () => {
+    expect(
+      resolveStaff(
+        [req[0], { ...req[1], email: 'a@x.com' }],
+        [row('a@x.com', 'u1')]
+      )
+    ).toEqual({
+      ok: true,
+      staff: [
+        { userId: 'u1', email: 'a@x.com', label: 'agent', role: 'agent' },
+      ],
+      filedByCoordinator: true,
     });
   });
 });

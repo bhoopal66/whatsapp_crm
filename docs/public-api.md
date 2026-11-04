@@ -532,7 +532,9 @@ was sent to them 1:1 by this call; `invite_sent_at` is when the invite
 link went out (recorded on the group, so `GET` and `PATCH` return it too;
 `null` when none was sent). Errors: `400 bad_request`; `409 consent_required`
 (the customer opted out or is do-not-contact); `422 unknown_user` (the
-message names the field), `duplicate_user`, `no_whapi_number`,
+message names the field), `duplicate_user` (the same person under two labels, except agent and
+coordinator: that is a case the coordinator filed, opened with no group),
+`no_whapi_number`,
 `channel_not_allowed`.
 
 ### `GET /api/v1/submission-groups/{submission_id}`

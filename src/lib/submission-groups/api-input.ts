@@ -430,7 +430,12 @@ export interface ResolvedStaff {
 }
 
 export type StaffResolution =
-  | { ok: true; staff: ResolvedStaff[] }
+  | {
+      ok: true;
+      staff: ResolvedStaff[];
+      /** Compass named one person as agent and coordinator: they filed it. */
+      filedByCoordinator: boolean;
+    }
   | { ok: false; code: 'unknown_user'; field: StaffField }
   | { ok: false; code: 'duplicate_user'; fields: StaffField[] };
 
@@ -441,10 +446,21 @@ export function resolveStaff(
 ): StaffResolution {
   const byEmail = new Map(rows.map((r) => [r.email.toLowerCase(), r]));
   const staff: ResolvedStaff[] = [];
+  let filedByCoordinator = false;
   for (const req of requested) {
     const row = byEmail.get(req.email);
     if (!row) return { ok: false, code: 'unknown_user', field: req.field };
     const dup = staff.findIndex((s) => s.userId === row.user_id);
+    // They stay the case's agent: cases.agent_id is NOT NULL, and one
+    // person holds one label on a group.
+    if (
+      dup >= 0 &&
+      staff[dup].label === 'agent' &&
+      req.label === 'coordinator'
+    ) {
+      filedByCoordinator = true;
+      continue;
+    }
     if (dup >= 0)
       return {
         ok: false,
@@ -458,7 +474,7 @@ export function resolveStaff(
       role: row.role,
     });
   }
-  return { ok: true, staff };
+  return { ok: true, staff, filedByCoordinator };
 }
 
 export interface ChannelMemberRow {

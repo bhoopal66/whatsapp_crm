@@ -60,6 +60,13 @@ Each row carries `submission_groups.wa_mode`, fixed at creation:
   row and closes the case, with no WhatsApp close (`closed: false`,
   `close_deferred: false`).
 
+A case filed by a coordinator is always opened as `none`, whatever the
+switch: Compass names one person as both `agent_email` and
+`coordinator_email`, or the agent holds banks as a coordinator
+(`coordinator_banks`). They stay the case's agent. A case whose
+`agent_email` is not an active staff member here is refused
+(`unknown_user`), so it gets no group and no case.
+
 With the switch off, a **new** submission is opened as `none`: staff
 emails are still resolved (`unknown_user`, `duplicate_user`), but no
 Whapi number is looked up (no `no_whapi_number` /
