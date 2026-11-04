@@ -208,10 +208,10 @@ export function ChannelView({
             channel,
             ws.userId ?? '',
             ws.peopleById,
-            t('unknownPerson')
+            ws.unknownName
           )
         : '',
-    [channel, ws.userId, ws.peopleById, t]
+    [channel, ws.userId, ws.peopleById, ws.unknownName]
   );
 
   if (!channel)

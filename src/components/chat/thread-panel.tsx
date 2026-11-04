@@ -206,7 +206,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
         channel,
         ws.userId ?? '',
         ws.peopleById,
-        t('unknownPerson')
+        ws.unknownName
       )}`
     : '';
   const sub = [label, card?.snapshot.contactName].filter(Boolean).join(' · ');

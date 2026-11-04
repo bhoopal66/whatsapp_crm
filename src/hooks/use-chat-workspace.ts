@@ -37,6 +37,11 @@ import {
   isOwnMemberEvent,
   patchOwnReadMark,
 } from '@/lib/chat/channel-list-cache';
+import {
+  CHAT_PEOPLE_QUESTION,
+  loadPeopleWithRetries,
+  unknownPersonName,
+} from '@/lib/chat/people-load';
 
 export type ChatEvent =
   | { kind: 'message'; event: MessageEvent }
@@ -56,6 +61,7 @@ export type ChatEvent =
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
+const EMPTY_PEOPLE: ChatPerson[] = [];
 const EMPTY_UNREAD: UnreadCount[] = [];
 
 /**
@@ -69,7 +75,6 @@ export function useChatWorkspace() {
   const { user, accountId } = useAuth();
   const userId = user?.id ?? null;
   const sb = useMemo<SupabaseClient>(() => createClient(), []);
-  const [people, setPeople] = useState<ChatPerson[]>([]);
   const listeners = useRef(new Set<(e: ChatEvent) => void>());
   const phonePresence = usePhonePresence();
 
@@ -120,24 +125,25 @@ export function useChatWorkspace() {
   }, [channelList, channelsKey, accountId, userId]);
   // Counts catch up on the next event when a refresh fails.
   const refreshUnread = unreadQuery.refresh;
-  const loadPeople = useCallback(async () => {
-    if (!accountId) return;
-    try {
-      const list = await chatPeople(sb, accountId);
-      setPeople(list);
-    } catch {
-      // Names fall back to "Unknown" until the next refresh.
-    }
-  }, [sb, accountId]);
-
+  // Every name on the screen comes from this list, so it is kept in the
+  // session cache too: entering /chat again shows names at once, and a
+  // failed refresh leaves the last good list in place.
+  const peopleKey = sessionKey(accountId, userId, CHAT_PEOPLE_QUESTION);
+  const peopleQuery = useSessionQuery(peopleKey, () =>
+    loadPeopleWithRetries(() => chatPeople(sb, accountId!))
+  );
+  const people = peopleQuery.data ?? EMPTY_PEOPLE;
+  const unknownName = unknownPersonName(
+    { loaded: !!peopleQuery.data, failed: !!peopleQuery.error },
+    t('unknownPerson')
+  );
+  const refreshPeople = peopleQuery.refresh;
   useEffect(() => {
-    // Every setState in it lands after an await; started from a
-    // callback so the effect body itself sets nothing. Channels and
-    // unread load through useSessionQuery above.
-    void Promise.resolve().then(() => loadPeople());
-    const id = setInterval(() => void loadPeople(), PEOPLE_REFRESH_MS);
+    if (!peopleKey) return;
+    // Presence rides on this list; the first read is useSessionQuery's.
+    const id = setInterval(() => void refreshPeople(), PEOPLE_REFRESH_MS);
     return () => clearInterval(id);
-  }, [loadPeople]);
+  }, [peopleKey, refreshPeople]);
 
   // Handlers through a ref: the subscription is made once per account.
   const handlers = useRef({ loadChannels, refreshUnread, channelsKey });
@@ -209,6 +215,7 @@ export function useChatWorkspace() {
     channels,
     people,
     peopleById,
+    unknownName,
     phonePresence,
     unread,
     refreshUnread,

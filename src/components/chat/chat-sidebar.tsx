@@ -156,9 +156,9 @@ export function ChatSidebar({
         ws.unread,
         ws.userId ?? '',
         ws.peopleById,
-        t('unknownPerson')
+        ws.unknownName
       ),
-    [ws.channels, ws.unread, ws.userId, ws.peopleById, t]
+    [ws.channels, ws.unread, ws.userId, ws.peopleById, ws.unknownName]
   );
   const rows = isBankGuest ? [] : inboxRows({ role: accountRole, ...inbox });
   // Collapsed until asked for, or while one of them is open.

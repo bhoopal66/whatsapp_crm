@@ -105,7 +105,7 @@ export function MessageRow({
   const tRole = useTranslations('Sidebar');
   const tQuote = useTranslations('Chat.quote');
   const format = useFormatter();
-  const { peopleById, people, userId } = useChatWorkspaceContext();
+  const { peopleById, people, userId, unknownName } = useChatWorkspaceContext();
   const quotes = useQuoteLookup();
   const edits = useMessageEdits(message);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -127,7 +127,7 @@ export function MessageRow({
     : undefined;
   const name = system
     ? t('timeline.system')
-    : (person?.fullName ?? t('unknownPerson'));
+    : (person?.fullName ?? unknownName);
   const roleKey = roleLabelKey(person?.role);
   const time = formatClock(m.createdAt);
 

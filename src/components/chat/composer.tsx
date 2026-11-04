@@ -921,7 +921,7 @@ export function Composer({
     channel,
     ws.userId ?? '',
     ws.peopleById,
-    t('unknownPerson')
+    ws.unknownName
   );
   const helper = helperLine(channel.kind, name, !!threadRootId);
   const controls = composerControls(permissions.can);

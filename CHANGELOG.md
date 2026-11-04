@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat no longer shows colleagues as "Unknown"
+
+- Team chat read its list of names once per page load and, if that read
+  failed, waited a full minute to try again, so every name on the screen
+  showed "Unknown" in the meantime. A failed read is now retried within a
+  second, the last good list stays in memory, and a name stays blank
+  rather than "Unknown" while the list is still loading. No migration.
+
 ### Unassigned chats go to whoever called the customer
 
 - **Migration required: 171** (`171_calls_outbound_number_index.sql`, an
