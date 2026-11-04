@@ -63,7 +63,9 @@ Each row carries `submission_groups.wa_mode`, fixed at creation:
 A case filed by a coordinator is always opened as `none`, whatever the
 switch: Compass names one person as both `agent_email` and
 `coordinator_email`, or the agent holds banks as a coordinator
-(`coordinator_banks`). They stay the case's agent. A case whose
+(`coordinator_banks`). They stay the case's agent. So is a case whose
+agent is an owner or admin here: groups are for regular staff, meaning
+agents and team leaders. A case whose
 `agent_email` is not an active staff member here is refused
 (`unknown_user`), so it gets no group and no case.
 

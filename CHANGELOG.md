@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### No WhatsApp group for a case an admin filed
+
+- A submission whose agent is an owner or admin now opens in the CRM with
+  no WhatsApp group, as one a coordinator filed does. Groups are for
+  regular staff. Groups already open are unchanged. No migration.
+
 ### Submission groups on the WhatsApp Groups page
 
 - Active submission groups now show on the Groups page like any other

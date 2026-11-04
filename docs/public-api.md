@@ -535,7 +535,8 @@ link went out (recorded on the group, so `GET` and `PATCH` return it too;
 message names the field), `duplicate_user` (the same person under two labels, except agent and
 coordinator: that is a case the coordinator filed, opened with no group),
 `no_whapi_number`. An agent with no Whapi number they may use is not
-refused: the case opens with `whatsapp.mode: "none"`.
+refused: the case opens with `whatsapp.mode: "none"`, as does a case whose
+agent is an owner or admin.
 
 ### `GET /api/v1/submission-groups/{submission_id}`
 

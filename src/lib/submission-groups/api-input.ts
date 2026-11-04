@@ -477,6 +477,11 @@ export function resolveStaff(
   return { ok: true, staff, filedByCoordinator };
 }
 
+/** A case filed by an owner or admin gets no WhatsApp group: those are for regular staff. */
+export function isAdminAgent(role: string): boolean {
+  return isAccountRole(role) && hasMinRole(role, 'admin');
+}
+
 export interface ChannelMemberRow {
   config_id: string;
   user_id: string;

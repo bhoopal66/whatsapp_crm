@@ -49,6 +49,7 @@ import {
   chooseHostingNumber,
   coordinatorPhoneList,
   inviteCodeOf,
+  isAdminAgent,
   parseCreateInput,
   phoneWasRefused,
   resolveStaff,
@@ -257,8 +258,8 @@ export async function POST(request: Request) {
         return fail('internal', 'Failed to open the submission group', 500);
       }
       // A WhatsApp group is for a case a regular staff member filed. One a
-      // coordinator filed is the CRM record only, with or without the
-      // switch. Unreadable → 500, as above.
+      // coordinator, an admin or an owner filed is the CRM record only, with
+      // or without the switch. Unreadable → 500, as above.
       let filedByCoordinator = staff.filedByCoordinator;
       if (groupsOn === true && !filedByCoordinator) {
         const { data: banks, error: banksError } = await db
@@ -303,7 +304,7 @@ export async function POST(request: Request) {
           customerName: input.customerName,
         };
       };
-      if (groupsOn !== true || filedByCoordinator) {
+      if (groupsOn !== true || filedByCoordinator || isAdminAgent(agent.role)) {
         open = await recordOnly();
       } else {
         // 142: the bank's coordinators join the group too. Looked up before

@@ -394,7 +394,7 @@ describe('POST /api/v1/submission-groups', () => {
     expect((await res.json()).error.code).toBe('duplicate_user');
   });
 
-  describe('a case a coordinator filed gets no group', () => {
+  describe('a case a coordinator or admin filed gets no group', () => {
     const noGroup = () =>
       expect(m.service.openForSubmission).toHaveBeenCalledWith(
         expect.objectContaining({ waMode: 'none', channelId: null })
@@ -411,6 +411,46 @@ describe('POST /api/v1/submission-groups', () => {
       m.coordinatorBanks = { data: [{ user_id: 'u-agent' }], error: null };
       await post(body);
       noGroup();
+    });
+
+    const agentRole = (role: string) =>
+      m.rpc.mockImplementation(async (fn: string) =>
+        fn === 'case_submission_whatsapp_groups'
+          ? m.groupsSetting
+          : fn === 'sg_bank_coordinators'
+            ? m.bankCoordinators
+            : {
+                data: [
+                  {
+                    email: 'agent@x.com',
+                    user_id: 'u-agent',
+                    role,
+                    full_name: 'A',
+                  },
+                  {
+                    email: 'coord@x.com',
+                    user_id: 'u-coord',
+                    role: 'agent',
+                    full_name: 'C',
+                  },
+                ],
+                error: null,
+              }
+      );
+
+    it.each(['admin', 'owner'])('when the agent is an %s', async (role) => {
+      agentRole(role);
+      const res = await post(body);
+      expect(res.status).toBe(201);
+      noGroup();
+    });
+
+    it('opens a group for a team leader', async () => {
+      agentRole('team_leader');
+      await post(body);
+      expect(m.service.openForSubmission).not.toHaveBeenCalledWith(
+        expect.objectContaining({ waMode: 'none' })
+      );
     });
 
     it('opens a group for an agent who is not a coordinator', async () => {
