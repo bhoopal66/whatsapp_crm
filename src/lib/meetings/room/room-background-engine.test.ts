@@ -394,6 +394,24 @@ describe('choosing and stopping', () => {
     expect(sent(s.sender)).toEqual([null, s.out, s.out]);
   });
 
+  it('keeps the raw camera out of a recording while a background loads', async () => {
+    const s = setup();
+    const picked = s.engine.setBackground(BLUR);
+    s.inner.emit();
+    // The self-view may show it; the file, like a sender, may not.
+    expect(snap(s.engine).localVideo).toBe(s.raw);
+    expect(snap(s.engine).recordableVideo).toBeNull();
+    lastProcessor().started(s.out);
+    await picked;
+    expect(snap(s.engine).recordableVideo).toBe(s.out);
+  });
+
+  it('records the plain camera when no background is chosen', () => {
+    const s = setup();
+    s.inner.emit();
+    expect(snap(s.engine).recordableVideo).toBe(s.raw);
+  });
+
   it('goes back to the raw camera only when none is chosen', async () => {
     const s = setup();
     const processor = await running(s);

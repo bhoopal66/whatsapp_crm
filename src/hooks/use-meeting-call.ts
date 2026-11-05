@@ -215,6 +215,8 @@ export interface CallSnapshot extends CallSnapshotV2 {
   cameraOn: boolean;
   sharing: boolean;
   localVideo: MediaStreamTrack | null;
+  /** What a recording of us may show: never raw behind a chosen background. */
+  recordableVideo: MediaStreamTrack | null;
   localScreen: MediaStreamTrack | null;
   participantId: string | null;
   /** Present participants, ourselves included once our row arrives. */
@@ -369,6 +371,7 @@ export class MeetingCallEngine {
       cameraOn: false,
       sharing: false,
       localVideo: null,
+      recordableVideo: null,
       localScreen: null,
       participantId: null,
       participants: [],
@@ -427,6 +430,7 @@ export class MeetingCallEngine {
       cameraOn: !!this.video,
       sharing: !!this.screen,
       localVideo: this.outgoing(),
+      recordableVideo: this.sendable(),
       localScreen: this.screen,
       background: this.effect,
       backgroundBusy: !!this.effectLoading,

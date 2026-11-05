@@ -128,7 +128,7 @@ export function MeetingRecorder({ active }: { active: ActiveCall }) {
   useEffect(() => {
     const capture = live.capture();
     if (state !== 'recording' || !capture) return;
-    const { remote, localVideo, localScreen, participants } = call;
+    const { remote, recordableVideo, localScreen, participants } = call;
     const { participantId, activeSpeakerId } = call;
     const mic = engine.micTrack;
     const people = participants.map((p) => {
@@ -136,7 +136,7 @@ export function MeetingRecorder({ active }: { active: ActiveCall }) {
       return {
         id: p.id,
         name: nameOf(p.user_id) ?? '',
-        camera: (self ? localVideo : remote[p.id]?.video) ?? null,
+        camera: (self ? recordableVideo : remote[p.id]?.video) ?? null,
         screen: (self ? localScreen : remote[p.id]?.screen) ?? null,
       };
     });
