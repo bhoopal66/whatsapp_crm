@@ -6845,7 +6845,11 @@
       "showSelf": "Show my video",
       "reconnecting": "Reconnecting…",
       "joining": "Joining…",
-      "resize": "Resize meeting window"
+      "resize": "Resize meeting window",
+      "popOut": "Pop out",
+      "poppedOut": "Popped out",
+      "bringBack": "Bring back",
+      "popOutFailed": "The meeting window couldn't open"
     },
     "busy": {
       "title": "You're in {title}",

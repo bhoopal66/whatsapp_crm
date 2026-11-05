@@ -27,9 +27,20 @@ export interface RoomUiState {
   page: number;
   panel: RoomPanel | null;
   panelWidth: number;
+  /** The pop-out, once the layer holding the call has mounted. */
+  popout: RoomPopout | null;
   /** The newest chat line read, for the Chat button's unread badge. */
   chatSeenAt: string | null;
   recorder: RecorderView | null;
+}
+
+/** The meeting's pop-out window, offered by the layer that holds it. */
+export interface RoomPopout {
+  supported: boolean;
+  active: boolean;
+  /** Must run inside the click: the browser requires the gesture. */
+  open: () => void;
+  close: () => void;
 }
 
 export interface RoomUi {
@@ -43,6 +54,7 @@ export interface RoomUi {
   setPanelWidth: (width: number) => void;
   setChatSeenAt: (at: string | null) => void;
   setRecorder: (recorder: RecorderView | null) => void;
+  setPopout: (popout: RoomPopout | null) => void;
 }
 
 export function createRoomUi(): RoomUi {
@@ -55,6 +67,7 @@ export function createRoomUi(): RoomUi {
     panelWidth: PANEL_DEFAULT_WIDTH,
     chatSeenAt: null,
     recorder: null,
+    popout: null,
   };
   const listeners = new Set<() => void>();
   const set = <K extends keyof RoomUiState>(key: K, value: RoomUiState[K]) => {
@@ -78,5 +91,6 @@ export function createRoomUi(): RoomUi {
     setPanelWidth: (width) => set('panelWidth', width),
     setChatSeenAt: (at) => set('chatSeenAt', at),
     setRecorder: (recorder) => set('recorder', recorder),
+    setPopout: (popout) => set('popout', popout),
   };
 }

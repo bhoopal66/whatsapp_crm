@@ -26,6 +26,7 @@ import {
   type ActiveCall,
 } from './meeting-session-provider';
 import { RejoinCard } from './rejoin-card';
+import { useMeetingPopout } from './use-meeting-popout';
 
 function clearRejoinMarker() {
   try {
@@ -81,6 +82,7 @@ function HeldCall({ active }: { active: ActiveCall }) {
   const inCall = isInCall(call.phase);
   const sinkId = call.selectedDevices.audiooutput;
   useRoomNotices(call, sounds, sinkId, !onRoomPage);
+  const popout = useMeetingPopout(active, inCall, onRoomPage);
 
   useEffect(() => {
     if (!inCall) return;
@@ -131,6 +133,7 @@ function HeldCall({ active }: { active: ActiveCall }) {
       )}
       <MeetingRecorder active={active} />
       {inCall && !onRoomPage && <MeetingFloat />}
+      {popout}
     </>
   );
 }

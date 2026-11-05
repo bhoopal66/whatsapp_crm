@@ -1,25 +1,24 @@
 'use client';
 
-import { Maximize2, Mic, MicOff, Minus, PhoneOff } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import {
+  Maximize2,
+  Mic,
+  MicOff,
+  Minus,
+  PhoneOff,
+  PictureInPicture2,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type MouseEvent,
 } from 'react';
 
-import { useAuth } from '@/hooks/use-auth';
-import {
-  floatFocus,
-  floatTileSizes,
-  speakerLine,
-  type FloatView,
-} from '@/lib/meetings/float/focus';
+import { floatTileSizes, speakerLine } from '@/lib/meetings/float/focus';
 import {
   clampFloatSize,
   FLOAT_SIZE_KEY,
@@ -27,17 +26,16 @@ import {
   writeFloatSize,
   type FloatCorner,
 } from '@/lib/meetings/float/geometry';
-import { unreadCount } from '@/lib/meetings/room-ui/chat';
+import { tileReporter } from '@/lib/meetings/float/popout';
 import { formatElapsed } from '@/lib/meetings/room-ui/people';
-import { nextRemoteSpeaker } from '@/lib/meetings/room-ui/tiles';
 import type { Anchor, Rect, Size } from '@/lib/pbx/call-window';
 import { cn } from '@/lib/utils';
 
 import { useFloatingWindow } from '../../pbx/use-floating-window';
-import { useWorkspaceMembers } from '../use-workspace-members';
 import { FloatButton, FloatControls } from './float-controls';
-import { FloatAvatar, FloatStage, type FloatPeople } from './float-stage';
+import { FloatAvatar, FloatStage } from './float-stage';
 import { useActiveCall, type ActiveCall } from './meeting-session-provider';
+import { useFloatView } from './use-float-view';
 import { useResizableWindow } from './use-resizable-window';
 
 const ANCHOR: Anchor = { h: 'right', v: 'bottom', dx: 16, dy: 16 };
@@ -89,7 +87,7 @@ export function MeetingFloat() {
 }
 
 function FloatWindow({ active }: { active: ActiveCall }) {
-  const { call, meetingId, roomUi } = active;
+  const { call, roomUi } = active;
   const t = useTranslations('MeetingSession.float');
   const tRec = useTranslations('MeetingRoom.recording');
   const recordingHere = useSyncExternalStore(
@@ -97,9 +95,6 @@ function FloatWindow({ active }: { active: ActiveCall }) {
     () => roomUi.getSnapshot().recorder?.state === 'recording',
     () => false
   );
-  const router = useRouter();
-  const { user } = useAuth();
-  const { nameOf, avatarOf } = useWorkspaceMembers();
   const win = useFloatingWindow({
     storageKey: 'meetings:float',
     defaultAnchor: ANCHOR,
@@ -108,16 +103,27 @@ function FloatWindow({ active }: { active: ActiveCall }) {
     avoid: callWindowRect,
   });
   const { minimized, mobile, handleProps } = win;
+  const {
+    self,
+    ids,
+    focus,
+    people,
+    view,
+    setView,
+    openRoom,
+    openChat,
+    unread,
+  } = useFloatView(active);
+  const popout = useSyncExternalStore(
+    roomUi.subscribe,
+    () => roomUi.getSnapshot().popout,
+    () => null
+  );
+  const poppedOut = !!popout?.active;
 
   const [size, setSize] = useState(loadSize);
   const [box, setBox] = useState(size);
-  const [view, setView] = useState<FloatView>('speaker');
   const [now, setNow] = useState(() => Date.now());
-  const [lastSpeaker, setLastSpeaker] = useState<string | null>(null);
-  const self = call.participantId;
-  const next = nextRemoteSpeaker(lastSpeaker, call.activeSpeakerId, self);
-  if (next !== lastSpeaker) setLastSpeaker(next);
-
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -169,33 +175,15 @@ function FloatWindow({ active }: { active: ActiveCall }) {
     },
   });
 
-  const { participants, remote, activeSpeakerId, setTileSizes } = call;
-  const ids = useMemo(() => participants.map((p) => p.id), [participants]);
-  const focus = useMemo(() => {
-    const receivedScreens = new Set(
-      ids.filter(
-        (id) =>
-          remote[id]?.screen &&
-          participants
-            .find((p) => p.id === id)
-            ?.tracks.some((tr) => tr.kind === 'screen')
-      )
-    );
-    return floatFocus({
-      selfId: self,
-      participantIds: ids,
-      activeSpeakerId,
-      lastRemoteSpeakerId: lastSpeaker,
-      view,
-      receivedScreens,
-    });
-  }, [ids, participants, remote, self, activeSpeakerId, lastSpeaker, view]);
-
+  const { activeSpeakerId, setTileSizes } = call;
   // The phone bar shows no video either: it pulls like the pill.
   const collapsed = minimized || mobile;
+  // The pill stands in for the window, and the pop-out reports instead.
+  const reports = tileReporter(false, poppedOut) === 'float';
   const stageHeight = box.height - CHROME_HEIGHT;
   const mainCameraId = focus.kind === 'camera' ? focus.mainId : null;
   useEffect(() => {
+    if (!reports) return;
     setTileSizes(
       floatTileSizes({
         participantIds: ids,
@@ -206,31 +194,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
         minimized: collapsed,
       })
     );
-  }, [ids, self, mainCameraId, stageHeight, collapsed, setTileSizes]);
-
-  const people = useMemo<FloatPeople>(() => {
-    const userOf = (id: string) =>
-      participants.find((p) => p.id === id)?.user_id ?? id;
-    return {
-      userOf,
-      avatarOf,
-      nameOf: (id) => nameOf(userOf(id)) || t('unknown'),
-      userNameOf: (userId) => nameOf(userId) || t('unknown'),
-    };
-  }, [participants, nameOf, avatarOf, t]);
-
-  const room = `/meetings/${meetingId}/room`;
-  const open = () => router.push(room);
-  const openChat = () => {
-    roomUi.setPanel('chat');
-    open();
-  };
-  const seenAt = useSyncExternalStore(
-    roomUi.subscribe,
-    () => roomUi.getSnapshot().chatSeenAt,
-    () => null
-  );
-  const unread = unreadCount(call.chat, seenAt, user?.id ?? null);
+  }, [reports, ids, self, mainCameraId, stageHeight, collapsed, setTileSizes]);
 
   const since = call.liveSince ? Date.parse(call.liveSince) : NaN;
   const elapsed = Number.isFinite(since) ? formatElapsed(now - since) : '';
@@ -251,7 +215,8 @@ function FloatWindow({ active }: { active: ActiveCall }) {
     onPointerCancel: handleProps.onPointerCancel,
     onLostPointerCapture: handleProps.onLostPointerCapture,
     onDoubleClick: (e: MouseEvent<HTMLElement>) => {
-      if (!(e.target as Element).closest('button, a, [data-no-drag]')) open();
+      if (!(e.target as Element).closest('button, a, [data-no-drag]'))
+        openRoom();
     },
   };
   const micButton = (
@@ -273,7 +238,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
     </FloatButton>
   );
   const returnButton = (
-    <FloatButton label={t('return')} onClick={open}>
+    <FloatButton label={t('return')} onClick={openRoom}>
       <Maximize2 className="size-4" />
     </FloatButton>
   );
@@ -289,11 +254,13 @@ function FloatWindow({ active }: { active: ActiveCall }) {
       data-mode="dark"
       role="region"
       aria-label={t('region')}
-      style={collapsed ? undefined : size}
+      style={collapsed || poppedOut ? undefined : size}
       className={cn(
         'bg-card text-foreground border-border group fixed z-40 flex flex-col rounded-2xl border shadow-2xl select-none',
         mobile && 'inset-x-2 bottom-2 flex-row items-center gap-2 p-2',
-        !mobile && minimized && 'h-11 w-80 flex-row items-center gap-2 px-3'
+        !mobile &&
+          (minimized || poppedOut) &&
+          'h-11 w-80 flex-row items-center gap-2 px-3'
       )}
     >
       {mobile ? (
@@ -321,6 +288,27 @@ function FloatWindow({ active }: { active: ActiveCall }) {
           {micButton}
           {returnButton}
           {leaveButton}
+        </>
+      ) : poppedOut ? (
+        <>
+          <div
+            {...handleProps}
+            data-meeting-popout-pill
+            className="flex h-full min-w-0 flex-1 items-center gap-2 text-sm"
+          >
+            {liveDot}
+            <span className="min-w-0 flex-1 truncate">{t('poppedOut')}</span>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {elapsed}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={popout?.close}
+            className="hover:bg-accent shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
+          >
+            {t('bringBack')}
+          </button>
         </>
       ) : minimized ? (
         <>
@@ -362,6 +350,17 @@ function FloatWindow({ active }: { active: ActiveCall }) {
             <span className="text-muted-foreground text-xs tabular-nums">
               {elapsed}
             </span>
+            {popout?.supported && (
+              <button
+                type="button"
+                title={t('popOut')}
+                aria-label={t('popOut')}
+                onClick={popout.open}
+                className="hover:bg-accent grid size-7 place-items-center rounded-full"
+              >
+                <PictureInPicture2 className="size-3.5" />
+              </button>
+            )}
             <button
               type="button"
               title={t('minimise')}
@@ -375,7 +374,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
               type="button"
               title={t('return')}
               aria-label={t('return')}
-              onClick={open}
+              onClick={openRoom}
               className="hover:bg-accent grid size-7 place-items-center rounded-full"
             >
               <Maximize2 className="size-3.5" />

@@ -205,6 +205,48 @@ describe('moreItems', () => {
     ]);
   });
 
+  it('offers the pop-out in place of picture-in-picture where it exists', () => {
+    const popout = {
+      supported: true,
+      active: false,
+      open: vi.fn(),
+      close: vi.fn(),
+    };
+    const items = (p: ControlBarProps['popout']) =>
+      moreItems(
+        {
+          ...props(),
+          pip: { supported: true, active: false, available: true },
+          popout: p,
+        },
+        {
+          t: (key) => key,
+          compact: false,
+          fullscreen: { supported: false, active: false },
+          popoutLabels: { open: 'Pop out', close: 'Bring back' },
+        }
+      );
+    const entry = (p: ControlBarProps['popout']) =>
+      items(p).find((i) => i.id === 'popout') as
+        { label: string; onClick: () => void } | undefined;
+
+    expect(items(popout).some((i) => i.id === 'pip')).toBe(false);
+    expect(entry(popout)?.label).toBe('Pop out');
+    entry(popout)?.onClick();
+    expect(popout.open).toHaveBeenCalledOnce();
+
+    const open = { ...popout, active: true };
+    expect(entry(open)?.label).toBe('Bring back');
+    entry(open)?.onClick();
+    expect(popout.close).toHaveBeenCalledOnce();
+
+    // A phone or Firefox: the browser's own video window stays.
+    for (const p of [null, { ...popout, supported: false }]) {
+      expect(entry(p)).toBeUndefined();
+      expect(items(p).some((i) => i.id === 'pip')).toBe(true);
+    }
+  });
+
   it('disables picture-in-picture with nothing to show, unless it is on', () => {
     const pipItem = (pip: ControlBarProps['pip']) =>
       moreItems(

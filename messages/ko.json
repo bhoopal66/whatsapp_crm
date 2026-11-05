@@ -6845,7 +6845,11 @@
       "showSelf": "내 비디오 표시",
       "reconnecting": "다시 연결하는 중…",
       "joining": "참여하는 중…",
-      "resize": "회의 창 크기 조절"
+      "resize": "회의 창 크기 조절",
+      "popOut": "팝아웃",
+      "poppedOut": "팝아웃됨",
+      "bringBack": "다시 가져오기",
+      "popOutFailed": "회의 창을 열 수 없습니다"
     },
     "busy": {
       "title": "{title} 회의에 참여 중입니다",

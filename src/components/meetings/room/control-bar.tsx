@@ -71,7 +71,11 @@ import { SHORTCUT_KEYS } from '@/lib/meetings/room-ui/keys';
 import { reactionOffset } from '@/lib/meetings/room-ui/people';
 import type { LayoutMode } from '@/lib/meetings/room-ui/stage';
 import { recordEntry } from '@/lib/meetings/recording/plan';
-import type { RecorderView, RoomPanel } from '@/lib/meetings/session/room-ui';
+import type {
+  RecorderView,
+  RoomPanel,
+  RoomPopout,
+} from '@/lib/meetings/session/room-ui';
 import { cn } from '@/lib/utils';
 
 import { ConfirmDialog } from './confirm-dialog';
@@ -232,6 +236,8 @@ export interface ControlBarProps {
   onPip: () => void;
   /** The layer's recorder; absent until it has mounted. */
   recorder?: RecorderView | null;
+  /** Replaces picture-in-picture where the browser has it. */
+  popout?: RoomPopout | null;
 }
 
 type MoreLabels = (key: string, values?: { emoji: string }) => string;
@@ -247,6 +253,7 @@ export function moreItems(
     compact: boolean;
     fullscreen: { supported: boolean; active: boolean };
     recordLabels?: { start: string; stop: string; taken: string };
+    popoutLabels?: { open: string; close: string };
   }
 ): MoreItem[] {
   const { t, fullscreen } = o;
@@ -315,7 +322,16 @@ export function moreItems(
       onClick: p.onFullscreen,
     });
   }
-  if (pip.supported) {
+  const { popout } = p;
+  if (popout?.supported && o.popoutLabels) {
+    items.push({
+      kind: 'action',
+      id: 'popout',
+      label: popout.active ? o.popoutLabels.close : o.popoutLabels.open,
+      icon: <PictureInPicture2 />,
+      onClick: popout.active ? popout.close : popout.open,
+    });
+  } else if (pip.supported) {
     items.push({
       kind: 'action',
       id: 'pip',
@@ -410,6 +426,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
   );
   const tRec = useTranslations('MeetingRoom.recording');
   const holderName = p.recorder?.holderName;
+  const tFloat = useTranslations('MeetingSession.float');
   const more = moreItems(p, {
     t: t as MoreLabels,
     compact,
@@ -421,6 +438,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
         ? tRec('taken', { name: holderName })
         : tRec('takenNoName'),
     },
+    popoutLabels: { open: tFloat('popOut'), close: tFloat('bringBack') },
   });
   /** A caption, in the one form that shows them. */
   const caption = (text: string | null) => (full ? text : undefined);

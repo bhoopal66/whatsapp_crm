@@ -15,6 +15,7 @@ describe('createRoomUi', () => {
       panelWidth: PANEL_DEFAULT_WIDTH,
       chatSeenAt: null,
       recorder: null,
+      popout: null,
     });
   });
 
@@ -38,6 +39,7 @@ describe('createRoomUi', () => {
       panelWidth: 400,
       chatSeenAt: '2026-11-05T10:00:00Z',
       recorder: null,
+      popout: null,
     });
     expect(fn).toHaveBeenCalledTimes(7);
   });

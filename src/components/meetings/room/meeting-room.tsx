@@ -550,6 +550,7 @@ export function LiveRoom({
             onFullscreen={toggleFullscreen}
             pip={{ ...pip, available: !!pipTile }}
             onPip={togglePip}
+            popout={ui.popout}
           />
         </div>
       </div>
