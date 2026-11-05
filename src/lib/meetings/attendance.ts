@@ -10,16 +10,17 @@ export const LOCKED_REJOIN_WINDOW_MS = 5 * 60_000;
 
 /**
  * A dropped connection rejoins from scratch and the old seat is closed
- * first, so someone already inside must get past the lock: they hold an
- * open seat, or one that closed within the window.
+ * first, so someone already inside must get past the lock: they were in a
+ * seat within the window. A seat still open counts from its last
+ * heartbeat, or a tab that died hours before the lock would pass it.
  */
 export function mayEnterLocked(
-  seats: readonly { left_at: string | null }[],
+  seats: readonly { left_at: string | null; last_seen_at: string }[],
   nowMs: number
 ): boolean {
   return seats.some(
     (s) =>
-      !s.left_at || nowMs - Date.parse(s.left_at) <= LOCKED_REJOIN_WINDOW_MS
+      nowMs - Date.parse(s.left_at ?? s.last_seen_at) <= LOCKED_REJOIN_WINDOW_MS
   );
 }
 
@@ -179,7 +180,9 @@ const FORMULA_START_RE = /^[=+\-@\t\r]/;
 
 function csvCell(value: string): string {
   const safe = FORMULA_START_RE.test(value) ? `'${value}` : value;
-  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  // `;` too: a spreadsheet in a semicolon locale would split the cell there,
+  // and the half after it could open with a formula.
+  return /[",;\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 /** RFC 4180 text, CRLF line ends, times in UTC. A display name is whatever

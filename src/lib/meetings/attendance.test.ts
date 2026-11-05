@@ -14,34 +14,46 @@ const NOW = Date.parse('2026-11-05T10:00:00.000Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
 describe('mayEnterLocked', () => {
+  const open = (seenAgo: number) => ({
+    left_at: null,
+    last_seen_at: ago(seenAgo),
+  });
+  const closed = (leftAgo: number) => ({
+    left_at: ago(leftAgo),
+    last_seen_at: ago(leftAgo),
+  });
+
   it('refuses someone who never had a seat', () => {
     expect(mayEnterLocked([], NOW)).toBe(false);
   });
 
-  it('lets an open seat in, however old', () => {
-    expect(mayEnterLocked([{ left_at: null }], NOW)).toBe(true);
+  it('lets a live open seat in', () => {
+    expect(mayEnterLocked([open(10_000)], NOW)).toBe(true);
+  });
+
+  it('refuses a tab that died long before the lock', () => {
+    expect(mayEnterLocked([open(LOCKED_REJOIN_WINDOW_MS + 1)], NOW)).toBe(
+      false
+    );
   });
 
   it('lets a seat closed within the window in, up to its edge', () => {
-    expect(mayEnterLocked([{ left_at: ago(60_000) }], NOW)).toBe(true);
-    expect(
-      mayEnterLocked([{ left_at: ago(LOCKED_REJOIN_WINDOW_MS) }], NOW)
-    ).toBe(true);
+    expect(mayEnterLocked([closed(60_000)], NOW)).toBe(true);
+    expect(mayEnterLocked([closed(LOCKED_REJOIN_WINDOW_MS)], NOW)).toBe(true);
   });
 
-  it('refuses a seat closed longer ago, or an unreadable one', () => {
+  it('refuses a seat closed before the window, or an unreadable time', () => {
+    expect(mayEnterLocked([closed(LOCKED_REJOIN_WINDOW_MS + 1)], NOW)).toBe(
+      false
+    );
     expect(
-      mayEnterLocked([{ left_at: ago(LOCKED_REJOIN_WINDOW_MS + 1) }], NOW)
+      mayEnterLocked([{ left_at: 'nonsense', last_seen_at: ago(1) }], NOW)
     ).toBe(false);
-    expect(mayEnterLocked([{ left_at: 'nonsense' }], NOW)).toBe(false);
   });
 
   it('needs only one qualifying seat', () => {
     expect(
-      mayEnterLocked(
-        [{ left_at: ago(3_600_000) }, { left_at: ago(60_000) }],
-        NOW
-      )
+      mayEnterLocked([closed(LOCKED_REJOIN_WINDOW_MS + 1), open(1000)], NOW)
     ).toBe(true);
   });
 });
@@ -285,6 +297,10 @@ describe('attendanceCsv', () => {
   const lines = (name: string, over: Partial<AttendanceEntry> = {}) =>
     attendanceCsv([entry(over)], () => name, labels).split('\r\n');
   const nameCell = (name: string) => lines(name)[1].split(`,${at(0)}`)[0];
+
+  it('quotes a cell a semicolon-locale spreadsheet would split', () => {
+    expect(nameCell('x;=HYPERLINK("a")')).toBe('"x;=HYPERLINK(""a"")"');
+  });
 
   it('writes a heading and a row, CRLF throughout', () => {
     const csv = attendanceCsv(

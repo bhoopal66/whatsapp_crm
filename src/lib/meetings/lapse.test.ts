@@ -93,50 +93,63 @@ describe('lapsedInstantMeetings', () => {
 
 type Result = { data: unknown; error: { message: string } | null };
 
+/** Each meeting's seats are their own read; `seatReads` records the order. */
 function fakeAdmin(opts: {
   meetings: Result;
-  seats: Result;
+  seats?: Record<string, Result>;
   failUpdateFor?: string[];
 }) {
-  const updates: { patch: unknown; eqs: [string, unknown][] }[] = [];
-  const from = () => {
-    const calls: [string, ...unknown[]][] = [];
-    const log = (name: string) =>
-      vi.fn((...args: unknown[]) => {
-        calls.push([name, ...args]);
-        return b;
-      });
+  const updates: { patch: unknown; filters: [string, unknown][] }[] = [];
+  const seatReads: string[] = [];
+  const from = (table: string) => {
+    const filters: [string, unknown][] = [];
     const b: Record<string, unknown> = {};
-    b.select = log('select');
-    b.eq = log('eq');
-    b.is = log('is');
-    b.lt = log('lt');
-    b.limit = vi.fn(() => Promise.resolve(opts.meetings));
-    b.in = vi.fn(() => Promise.resolve(opts.seats));
-    b.update = vi.fn((patch: unknown) => {
-      const u = { patch, eqs: [] as [string, unknown][] };
+    b.select = () => b;
+    b.is = (col: string, val: unknown) => (filters.push([col, val]), b);
+    b.eq = (col: string, val: unknown) => (filters.push([col, val]), b);
+    b.lt = () => b;
+    b.order = () => b;
+    b.limit = () => {
+      if (table === 'meetings') return Promise.resolve(opts.meetings);
+      const id = filters.find(([c]) => c === 'meeting_id')?.[1] as string;
+      seatReads.push(id);
+      return Promise.resolve(opts.seats?.[id] ?? { data: [], error: null });
+    };
+    b.update = (patch: unknown) => {
+      const u = { patch, filters: [] as [string, unknown][] };
       updates.push(u);
       const ub: Record<string, unknown> = {};
-      ub.eq = (col: string, val: unknown) => {
-        u.eqs.push([col, val]);
-        if (u.eqs.length < 2) return ub;
-        const id = u.eqs.find(([c]) => c === 'id')?.[1] as string;
+      ub.eq = (col: string, val: unknown) => (u.filters.push([col, val]), ub);
+      ub.is = (col: string, val: unknown) => {
+        u.filters.push([col, val]);
+        const id = u.filters.find(([c]) => c === 'id')?.[1] as string;
         return Promise.resolve({
           error: opts.failUpdateFor?.includes(id) ? { message: 'boom' } : null,
         });
       };
       return ub;
-    });
+    };
     return b;
   };
-  return { admin: { from } as unknown as SupabaseClient, updates };
+  return {
+    admin: { from } as unknown as SupabaseClient,
+    updates,
+    seatReads,
+  };
 }
 
 describe('runMeetingLapseSweep', () => {
+  const old = () => new Date(Date.now() - 30 * MIN).toISOString();
+  const live = (id: string) => ({
+    meeting_id: id,
+    joined_at: new Date().toISOString(),
+    last_seen_at: new Date().toISOString(),
+    left_at: null,
+  });
+
   it('returns early when there are no instant meetings', async () => {
     const { admin, updates } = fakeAdmin({
       meetings: { data: [], error: null },
-      seats: { data: [], error: null },
     });
     expect(await runMeetingLapseSweep(admin)).toEqual({
       checked: 0,
@@ -145,36 +158,13 @@ describe('runMeetingLapseSweep', () => {
     expect(updates).toEqual([]);
   });
 
-  it('ends lapsed meetings with a conditional update', async () => {
+  it('ends only the meeting nobody is in, conditionally', async () => {
     const { admin, updates } = fakeAdmin({
       meetings: {
-        data: [
-          {
-            ...meeting({
-              id: 'a',
-              created_at: new Date(Date.now() - 30 * MIN).toISOString(),
-            }),
-          },
-          {
-            ...meeting({
-              id: 'b',
-              created_at: new Date(Date.now() - 30 * MIN).toISOString(),
-            }),
-          },
-        ],
+        data: ['a', 'b'].map((id) => meeting({ id, created_at: old() })),
         error: null,
       },
-      seats: {
-        data: [
-          {
-            meeting_id: 'b',
-            joined_at: new Date().toISOString(),
-            last_seen_at: new Date().toISOString(),
-            left_at: null,
-          },
-        ],
-        error: null,
-      },
+      seats: { b: { data: [live('b')], error: null } },
     });
     expect(await runMeetingLapseSweep(admin)).toEqual({
       checked: 2,
@@ -183,22 +173,49 @@ describe('runMeetingLapseSweep', () => {
     expect(updates).toEqual([
       {
         patch: { status: 'ended' },
-        eqs: [
+        filters: [
           ['id', 'a'],
           ['status', 'scheduled'],
+          ['scheduled_start', null],
         ],
       },
     ]);
   });
 
-  it('continues past one failed update', async () => {
-    const old = new Date(Date.now() - 30 * MIN).toISOString();
-    const { admin, updates } = fakeAdmin({
+  it('reads each meeting on its own, so a capped batch cannot hide a seat', async () => {
+    const { admin, seatReads } = fakeAdmin({
       meetings: {
-        data: ['a', 'b', 'c'].map((id) => meeting({ id, created_at: old })),
+        data: ['a', 'b', 'c'].map((id) => meeting({ id, created_at: old() })),
         error: null,
       },
-      seats: { data: [], error: null },
+    });
+    await runMeetingLapseSweep(admin);
+    expect(seatReads).toEqual(['a', 'b', 'c']);
+  });
+
+  it('never ends a meeting whose seats could not be read', async () => {
+    const { admin, updates } = fakeAdmin({
+      meetings: {
+        data: ['a', 'b'].map((id) => meeting({ id, created_at: old() })),
+        error: null,
+      },
+      seats: { a: { data: null, error: { message: 'down' } } },
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await runMeetingLapseSweep(admin)).toEqual({
+      checked: 2,
+      ended: 1,
+    });
+    expect(updates.map((u) => u.filters[0])).toEqual([['id', 'b']]);
+    log.mockRestore();
+  });
+
+  it('continues past one failed update', async () => {
+    const { admin, updates } = fakeAdmin({
+      meetings: {
+        data: ['a', 'b', 'c'].map((id) => meeting({ id, created_at: old() })),
+        error: null,
+      },
       failUpdateFor: ['a'],
     });
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -211,10 +228,9 @@ describe('runMeetingLapseSweep', () => {
     log.mockRestore();
   });
 
-  it('throws on a read error', async () => {
+  it('throws when the candidates cannot be read', async () => {
     const { admin } = fakeAdmin({
       meetings: { data: null, error: { message: 'down' } },
-      seats: { data: [], error: null },
     });
     await expect(runMeetingLapseSweep(admin)).rejects.toThrow('down');
   });

@@ -74,9 +74,15 @@ export async function POST(request: Request, { params }: Params) {
       .eq('id', id)
       .eq('account_id', accountId)
       .eq('status', 'scheduled');
-    // Compare-and-set on a start: of two racing managers, one wins.
+    // Compare-and-set on a start: of two racing managers, one wins. Someone
+    // stopping their own, without manage rights, clears only their own:
+    // a newer recording by someone else must keep its indicator.
     const { data, error } = await (
-      recording ? write.is('recording_started_at', null) : write
+      recording
+        ? write.is('recording_started_at', null)
+        : canManage.allowed
+          ? write
+          : write.eq('recording_by', userId)
     )
       .select('id')
       .maybeSingle();

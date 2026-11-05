@@ -64,16 +64,25 @@ export function lapsedInstantMeetings(
   return lapsed;
 }
 
+/** Oldest first, so a backlog clears over a few passes. */
+const SWEEP_LIMIT = 100;
+/** Newest first, so PostgREST's row cap can only ever drop old seats. */
+const SEATS_READ = 1000;
+
 /**
  * Ends instant meetings nobody is in any more. The meetings_guard trigger
- * stamps ended_at and closes open seat rows. A read error throws; a failed
- * update is logged and the sweep goes on.
+ * stamps ended_at and closes open seat rows, so ending a meeting someone
+ * is in would cut their call: each meeting's seats are read on their own,
+ * right before deciding. One read for the whole batch could be cut short
+ * by the row cap, making a busy meeting look empty, and would be stale by
+ * the end of the loop. A failed seat read skips that meeting, because no
+ * answer is not the same as an empty room. The candidates' read throws;
+ * a failed update is logged and the sweep goes on.
  */
 export async function runMeetingLapseSweep(
   admin: SupabaseClient
 ): Promise<{ checked: number; ended: number }> {
-  const nowMs = Date.now();
-  const cutoff = new Date(nowMs - INSTANT_LAPSE_MS).toISOString();
+  const cutoff = new Date(Date.now() - INSTANT_LAPSE_MS).toISOString();
 
   const { data: meetings, error } = await admin
     .from('meetings')
@@ -81,34 +90,44 @@ export async function runMeetingLapseSweep(
     .eq('status', 'scheduled')
     .is('scheduled_start', null)
     .lt('created_at', cutoff)
-    .limit(200);
+    .order('created_at', { ascending: true })
+    .limit(SWEEP_LIMIT);
   if (error) throw new Error(error.message);
   if (!meetings || meetings.length === 0) return { checked: 0, ended: 0 };
 
-  const ids = meetings.map((m) => m.id as string);
-  const { data: seats, error: seatError } = await admin
-    .from('meeting_participants')
-    .select('meeting_id, joined_at, last_seen_at, left_at')
-    .in('meeting_id', ids);
-  if (seatError) throw new Error(seatError.message);
-
-  const lapsed = lapsedInstantMeetings(
-    meetings as LapseMeeting[],
-    (seats ?? []) as LapseSeat[],
-    nowMs
-  );
-
   let ended = 0;
-  for (const id of lapsed) {
+  for (const m of meetings as LapseMeeting[]) {
+    const { data: seats, error: seatError } = await admin
+      .from('meeting_participants')
+      .select('meeting_id, joined_at, last_seen_at, left_at')
+      .eq('meeting_id', m.id)
+      .order('last_seen_at', { ascending: false })
+      .limit(SEATS_READ);
+    if (seatError) {
+      console.error(
+        '[meeting-lapse] could not read seats:',
+        m.id,
+        seatError.message
+      );
+      continue;
+    }
+    const lapsed = lapsedInstantMeetings(
+      [m],
+      (seats ?? []) as LapseSeat[],
+      Date.now()
+    );
+    if (lapsed.length === 0) continue;
+    // Still instant: a PATCH may have scheduled it since the read above.
     const { error: updateError } = await admin
       .from('meetings')
       .update({ status: 'ended' })
-      .eq('id', id)
-      .eq('status', 'scheduled');
+      .eq('id', m.id)
+      .eq('status', 'scheduled')
+      .is('scheduled_start', null);
     if (updateError) {
       console.error(
         '[meeting-lapse] could not end meeting:',
-        id,
+        m.id,
         updateError.message
       );
       continue;
