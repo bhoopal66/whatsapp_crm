@@ -7,6 +7,7 @@ import {
   everyInterval,
   runChannelHealthCheck,
 } from '@/lib/whatsapp/channel-health'
+import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
@@ -57,6 +58,38 @@ function scheduleChannelHealthCheck() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the channel health sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Instant meetings (Start now: no scheduled_start) have no end, so this
+ * ends one nobody has been in for 10 minutes. At most once per 5 minutes
+ * per process, inside after(); an overlapping run changes nothing because
+ * the update is conditional on the meeting still being scheduled.
+ */
+const meetingLapseDue = everyInterval(5 * 60_000)
+
+function scheduleMeetingLapseSweep() {
+  try {
+    if (!meetingLapseDue()) return
+    after(async () => {
+      try {
+        const summary = await runMeetingLapseSweep(supabaseAdmin())
+        if (summary.ended > 0) {
+          console.log('[automations-cron] meeting lapse:', summary)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] meeting lapse sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the meeting lapse sweep:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -643,6 +676,7 @@ export async function GET(request: Request) {
     return await drainDueExecutions()
   } finally {
     scheduleChannelHealthCheck()
+    scheduleMeetingLapseSweep()
     scheduleTeamActivitySweep()
     scheduleEdgePurge()
     scheduleChatFileSweep()
