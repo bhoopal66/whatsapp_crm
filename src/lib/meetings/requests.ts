@@ -24,6 +24,12 @@ export const INVITEES_MAX = 100;
 /** Migration 107's CHECK on a chat line (trimmed). */
 export const CHAT_MAX = 2000;
 export const MESSAGES_PAGE_MAX = 200;
+/** People one POST /api/meetings/[id]/invite adds. */
+export const INVITE_BATCH_MAX = 20;
+/** Migration 176's `char_length` limit: code points, not UTF-16 units. */
+export const NOTES_MAX = 20_000;
+/** `meeting_save_notes` takes an integer version. */
+const NOTES_VERSION_MAX = 2_147_483_647;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -226,6 +232,59 @@ export function diffInvitees(
   return {
     add: [...want].filter((id) => !have.has(id)),
     remove: current.filter((id) => !want.has(id.toLowerCase())),
+  };
+}
+
+/** POST /api/meetings/[id]/invite body, ids lowercased and deduped. */
+export function parseInvite(raw: unknown): Parsed<{ userIds: string[] }> {
+  const ids = isObject(raw) ? raw.userIds : undefined;
+  if (!Array.isArray(ids) || !ids.every(isUuid)) {
+    return { ok: false, error: 'userIds must be a list of user ids' };
+  }
+  const userIds = [...new Set(ids.map((id) => id.toLowerCase()))];
+  if (userIds.length === 0) {
+    return { ok: false, error: 'Choose someone to invite' };
+  }
+  if (userIds.length > INVITE_BATCH_MAX) {
+    return {
+      ok: false,
+      error: `Invite at most ${INVITE_BATCH_MAX} people at a time`,
+    };
+  }
+  return { ok: true, values: { userIds } };
+}
+
+/** PUT /api/meetings/[id]/notes body. Blank is how the notes are cleared,
+ *  and the text is kept as typed: nothing is trimmed. */
+export function parseNotesSave(
+  raw: unknown
+): Parsed<{ body: string; expectedVersion: number }> {
+  if (!isObject(raw) || typeof raw.body !== 'string') {
+    return { ok: false, error: 'body must be text' };
+  }
+  const { body, expectedVersion } = raw;
+  if (
+    !Number.isInteger(expectedVersion) ||
+    (expectedVersion as number) < 0 ||
+    (expectedVersion as number) > NOTES_VERSION_MAX
+  ) {
+    return { ok: false, error: 'expectedVersion must be a version number' };
+  }
+  // The length check first: a code point is at most two units, and this
+  // keeps an enormous body from being spread into an array.
+  if (body.length > NOTES_MAX * 2 || Array.from(body).length > NOTES_MAX) {
+    return {
+      ok: false,
+      error: `Notes must be at most ${NOTES_MAX} characters`,
+    };
+  }
+  // Postgres text cannot hold NUL: it would come back as a 500.
+  if (body.includes('\u0000')) {
+    return { ok: false, error: 'Notes contain an invalid character' };
+  }
+  return {
+    ok: true,
+    values: { body, expectedVersion: expectedVersion as number },
   };
 }
 

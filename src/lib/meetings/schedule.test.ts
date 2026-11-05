@@ -381,6 +381,17 @@ describe('parsing', () => {
     expect(parseMeetingList({ error: 'x' })).toEqual([]);
   });
 
+  it('reads attended_count, and leaves it unset when the API gave none', () => {
+    const list = (extra: object) =>
+      parseMeetingList({
+        meetings: [{ id: 'm1', host_user_id: 'h', ...extra }],
+      })[0];
+    expect(list({ attended_count: 4 }).attendedCount).toBe(4);
+    expect(list({ attended_count: 0 }).attendedCount).toBe(0);
+    expect(list({}).attendedCount).toBeUndefined();
+    expect(list({ attended_count: 'x' }).attendedCount).toBeUndefined();
+  });
+
   it('reads the detail response, counting each person in the call once', () => {
     const row = {
       id: 'm1',

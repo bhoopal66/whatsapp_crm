@@ -165,5 +165,94 @@ describe('GET /api/meetings', () => {
       { user_id: 'u-1', hand_raised_at: null },
       { user_id: 'u-2', hand_raised_at: '2026-10-15T08:00:00Z' },
     ]);
+    expect(m).not.toHaveProperty('attended_count');
+  });
+
+  describe('scope=past', () => {
+    const ended = (id: string) => ({
+      id,
+      status: 'ended',
+      scheduled_start: null,
+      scheduled_end: null,
+    });
+    /** `seatPages` answer the read that asks for an exact count, in turn. */
+    function past(
+      seatPages: { data?: unknown[]; error?: unknown; count?: number }[]
+    ) {
+      const pageRead = vi.fn();
+      const from = (table: string) => {
+        let counted = false;
+        const q: Record<string, unknown> = {};
+        for (const m of ['eq', 'is', 'gt', 'in', 'or', 'order', 'limit'])
+          q[m] = () => q;
+        q.select = (_c: string, opts?: { count?: string }) => {
+          counted = opts?.count === 'exact';
+          return q;
+        };
+        q.range = (a: number, b: number) => {
+          pageRead(a, b);
+          return q;
+        };
+        q.then = (ok: (v: unknown) => unknown) => {
+          const answer = counted
+            ? { data: [], error: null, count: 0, ...seatPages.shift() }
+            : {
+                data: table === 'meetings' ? [ended('m-1'), ended('m-2')] : [],
+                error: null,
+              };
+          return Promise.resolve(answer).then(ok);
+        };
+        return q;
+      };
+      mocks.getCurrentAccount.mockResolvedValue({
+        role: 'agent',
+        userId: 'user-1',
+        accountId: 'acct-1',
+        supabase: { from },
+      });
+      return pageRead;
+    }
+    const list = () => GET(new Request('http://x/api/meetings?scope=past'));
+    const seatRow = (meeting_id: string, user_id: string) => ({
+      meeting_id,
+      user_id,
+    });
+
+    it('counts distinct people per meeting, in one query for them all', async () => {
+      const pageRead = past([
+        {
+          data: [
+            seatRow('m-1', 'u-1'),
+            seatRow('m-1', 'u-1'),
+            seatRow('m-1', 'u-2'),
+          ],
+          count: 3,
+        },
+      ]);
+      const res = await list();
+      expect(res.status).toBe(200);
+      const { meetings } = await res.json();
+      expect(
+        meetings.map((m: { attended_count: number }) => m.attended_count)
+      ).toEqual([2, 0]);
+      expect(pageRead).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads on past a page PostgREST cut short', async () => {
+      const pageRead = past([
+        { data: [seatRow('m-1', 'u-1')], count: 2 },
+        { data: [seatRow('m-1', 'u-2')], count: 2 },
+      ]);
+      const { meetings } = await (await list()).json();
+      expect(meetings[0].attended_count).toBe(2);
+      expect(pageRead).toHaveBeenCalledTimes(2);
+      expect(pageRead.mock.calls[1][0]).toBe(1);
+    });
+
+    it('fails the list like its other reads when the count fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      past([{ data: undefined, error: { code: 'XX000' } }]);
+      expect((await list()).status).toBe(500);
+    });
   });
 });

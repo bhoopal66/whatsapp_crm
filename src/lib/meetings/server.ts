@@ -129,12 +129,27 @@ export function isMissingColumn(error: { code?: string } | null): boolean {
   return error?.code === '42703' || error?.code === 'PGRST204';
 }
 
-/** The build can run ahead of migration 176: a write to its columns
- *  answers this instead of a 500. Null for any other failure. */
+/** Postgres (42P01) or PostgREST (PGRST205) naming a table this
+ *  database does not have yet. */
+export function isMissingTable(error: { code?: string } | null): boolean {
+  return error?.code === '42P01' || error?.code === 'PGRST205';
+}
+
+/** Postgres (42883) or PostgREST (PGRST202) naming a function this
+ *  database does not have yet. */
+export function isMissingFunction(error: { code?: string } | null): boolean {
+  return error?.code === '42883' || error?.code === 'PGRST202';
+}
+
+/** The build can run ahead of migration 176: a write to its columns or a
+ *  call of its functions answers this instead of a 500. Null for any
+ *  other failure. */
 export function migrationRequiredResponse(
   error: { code?: string } | null
 ): NextResponse | null {
-  return isMissingColumn(error) ? jsonError('migration_required', 503) : null;
+  return isMissingColumn(error) || isMissingFunction(error)
+    ? jsonError('migration_required', 503)
+    : null;
 }
 
 type Db = SupabaseClient;
@@ -174,6 +189,36 @@ export async function rpcFlag(
 export function readErrorResponse(error: unknown): NextResponse {
   console.error('[meetings] read failed', error);
   return jsonError('temporarily_unavailable', 503);
+}
+
+/** Rows asked of PostgREST at a time. */
+const PAGE_SIZE = 1000;
+
+/**
+ * Every row of a read that can pass PostgREST's `max-rows`, which would
+ * otherwise cut it short without saying so. `page` must ask for an exact
+ * count and a stable order. The count, not a short page, says when to
+ * stop: every page is short when `max-rows` is below PAGE_SIZE. So the
+ * usual read is one query.
+ */
+export async function readAllRows<T>(
+  page: (
+    from: number,
+    to: number
+  ) => PromiseLike<{ data: T[] | null; error: unknown; count: number | null }>
+): Promise<{ rows: T[]; error: unknown }> {
+  const rows: T[] = [];
+  for (;;) {
+    const { data, error, count } = await page(
+      rows.length,
+      rows.length + PAGE_SIZE - 1
+    );
+    if (error) return { rows: [], error };
+    rows.push(...(data ?? []));
+    if (!data?.length || rows.length >= (count ?? Infinity)) {
+      return { rows, error: null };
+    }
+  }
 }
 
 /** The caller's own participant row in this meeting, open or not.

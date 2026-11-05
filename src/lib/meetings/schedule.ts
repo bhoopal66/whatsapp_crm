@@ -54,6 +54,8 @@ export interface MeetingSummary {
    * present seats (`participants`); empty when it only gave a count.
    */
   present: PresentPerson[];
+  /** People who took a seat; set by the Past list only. */
+  attendedCount?: number;
 }
 
 /** One person in the call; `handRaisedAt` is their earliest raised hand. */
@@ -402,6 +404,7 @@ export function parseMeeting(raw: unknown): MeetingSummary | null {
   const inviteeUserIds = idList(r.invitee_user_ids);
   const present = presentPeople(r.participants);
   const count = Number(r.present_count ?? present?.length ?? 0);
+  const attended = r.attended_count;
   return {
     id,
     title: str(r.title) ?? '',
@@ -416,6 +419,9 @@ export function parseMeeting(raw: unknown): MeetingSummary | null {
     inviteeUserIds,
     presentCount: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0,
     present: present ?? [],
+    ...(typeof attended === 'number' && attended >= 0
+      ? { attendedCount: Math.floor(attended) }
+      : {}),
   };
 }
 

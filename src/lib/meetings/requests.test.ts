@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   diffInvitees,
+  INVITE_BATCH_MAX,
+  NOTES_MAX,
+  parseInvite,
+  parseNotesSave,
   isPresent,
   meetingPhase,
   parseCreateMeeting,
@@ -286,5 +290,76 @@ describe('parseBulkModeration', () => {
     expect(parseBulkModeration(null)).toBeNull();
     expect(parseModeration({ action: 'mute_all' }).ok).toBe(false);
     expect(parseModeration({ action: 'mute_all', target: U2 }).ok).toBe(false);
+  });
+});
+
+describe('parseInvite', () => {
+  const id = (n: number) =>
+    `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
+
+  it('lowercases and dedupes', () => {
+    const upper = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
+    expect(parseInvite({ userIds: [upper, upper.toLowerCase()] })).toEqual({
+      ok: true,
+      values: { userIds: [upper.toLowerCase()] },
+    });
+  });
+
+  it('refuses anything but a list of ids', () => {
+    for (const raw of [null, {}, { userIds: 'x' }, { userIds: ['x'] }]) {
+      expect(parseInvite(raw).ok).toBe(false);
+    }
+  });
+
+  it('needs at least one', () => {
+    expect(parseInvite({ userIds: [] }).ok).toBe(false);
+  });
+
+  it('takes a batch up to the limit, counted after deduping', () => {
+    const full = Array.from({ length: INVITE_BATCH_MAX }, (_, n) => id(n));
+    expect(parseInvite({ userIds: full }).ok).toBe(true);
+    expect(parseInvite({ userIds: [...full, id(0)] }).ok).toBe(true);
+    expect(parseInvite({ userIds: [...full, id(99)] }).ok).toBe(false);
+  });
+});
+
+describe('parseNotesSave', () => {
+  const ok = (body: string, expectedVersion = 0) => ({
+    ok: true,
+    values: { body, expectedVersion },
+  });
+
+  it('keeps the text as typed, blank included', () => {
+    expect(parseNotesSave({ body: '  a\n', expectedVersion: 3 })).toEqual(
+      ok('  a\n', 3)
+    );
+    expect(parseNotesSave({ body: '', expectedVersion: 0 })).toEqual(ok(''));
+  });
+
+  it('refuses a body that is not text', () => {
+    expect(parseNotesSave({ expectedVersion: 0 }).ok).toBe(false);
+    expect(parseNotesSave({ body: 5, expectedVersion: 0 }).ok).toBe(false);
+    expect(parseNotesSave(null).ok).toBe(false);
+  });
+
+  it.each([undefined, -1, 1.5, '1', 2_147_483_648])(
+    'refuses the version %j',
+    (expectedVersion) => {
+      expect(parseNotesSave({ body: '', expectedVersion }).ok).toBe(false);
+    }
+  );
+
+  it('counts as the database does: code points, not UTF-16 units', () => {
+    const save = (body: string) => parseNotesSave({ body, expectedVersion: 0 });
+    expect(save('😀'.repeat(NOTES_MAX)).ok).toBe(true);
+    expect(save('😀'.repeat(NOTES_MAX + 1)).ok).toBe(false);
+    expect(save('a'.repeat(NOTES_MAX)).ok).toBe(true);
+    expect(save('a'.repeat(NOTES_MAX + 1)).ok).toBe(false);
+  });
+
+  it('refuses a NUL, which Postgres text cannot hold', () => {
+    expect(parseNotesSave({ body: 'a\u0000b', expectedVersion: 0 }).ok).toBe(
+      false
+    );
   });
 });

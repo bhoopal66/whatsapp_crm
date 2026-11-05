@@ -10,8 +10,11 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
 import { ForbiddenError } from '@/lib/auth/account';
 
 import {
+  isMissingFunction,
+  isMissingTable,
   loadMeeting,
   migrationRequiredResponse,
+  readAllRows,
   requireMeetingsUser,
   sfuErrorResponse,
 } from './server';
@@ -82,12 +85,78 @@ describe('sfuErrorResponse', () => {
   });
 });
 
-describe('migrationRequiredResponse', () => {
-  it.each(['42703', 'PGRST204'])('answers 503 for %s', async (code) => {
-    const res = migrationRequiredResponse({ code });
-    expect(res?.status).toBe(503);
-    expect(await res?.json()).toEqual({ error: 'migration_required' });
+describe('isMissingTable / isMissingFunction', () => {
+  it('names each by both its Postgres and its PostgREST code', () => {
+    expect(isMissingTable({ code: '42P01' })).toBe(true);
+    expect(isMissingTable({ code: 'PGRST205' })).toBe(true);
+    expect(isMissingFunction({ code: '42883' })).toBe(true);
+    expect(isMissingFunction({ code: 'PGRST202' })).toBe(true);
   });
+
+  it('reads nothing else as missing', () => {
+    expect(isMissingTable({ code: '42883' })).toBe(false);
+    expect(isMissingFunction({ code: '42P01' })).toBe(false);
+    expect(isMissingTable(null)).toBe(false);
+    expect(isMissingFunction(null)).toBe(false);
+  });
+});
+
+describe('readAllRows', () => {
+  const pages = (
+    ...answers: {
+      data: number[] | null;
+      error?: unknown;
+      count?: number | null;
+    }[]
+  ) => {
+    const page = vi.fn(async () => {
+      const { data, error = null, count = null } = answers.shift()!;
+      return { data, error, count };
+    });
+    return page;
+  };
+
+  it('stops after one query when the count is met', async () => {
+    const page = pages({ data: [1, 2], count: 2 });
+    expect(await readAllRows(page)).toEqual({ rows: [1, 2], error: null });
+    expect(page).toHaveBeenCalledTimes(1);
+    expect(page).toHaveBeenCalledWith(0, 999);
+  });
+
+  it('reads on from a short page while the count says there is more', async () => {
+    const page = pages({ data: [1, 2], count: 3 }, { data: [3], count: 3 });
+    expect((await readAllRows(page)).rows).toEqual([1, 2, 3]);
+    expect(page).toHaveBeenLastCalledWith(2, 1001);
+  });
+
+  it('stops on an empty page, rows gone or no count', async () => {
+    const shrunk = pages({ data: [1], count: 5 }, { data: [], count: 1 });
+    expect((await readAllRows(shrunk)).rows).toEqual([1]);
+    const uncounted = pages({ data: [1] }, { data: null });
+    expect((await readAllRows(uncounted)).rows).toEqual([1]);
+  });
+
+  it('gives no partial rows when a page fails', async () => {
+    const page = pages(
+      { data: [1], count: 2 },
+      { data: null, error: { code: '57014' } }
+    );
+    expect(await readAllRows(page)).toEqual({
+      rows: [],
+      error: { code: '57014' },
+    });
+  });
+});
+
+describe('migrationRequiredResponse', () => {
+  it.each(['42703', 'PGRST204', '42883', 'PGRST202'])(
+    'answers 503 for %s',
+    async (code) => {
+      const res = migrationRequiredResponse({ code });
+      expect(res?.status).toBe(503);
+      expect(await res?.json()).toEqual({ error: 'migration_required' });
+    }
+  );
 
   it('leaves every other failure to the caller', () => {
     expect(migrationRequiredResponse({ code: '23514' })).toBeNull();

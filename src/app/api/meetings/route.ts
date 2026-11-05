@@ -19,6 +19,7 @@ import {
   jsonError,
   MEETING_CREATORS_ONLY,
   meetingDbErrorResponse,
+  readAllRows,
   readJson,
   requireMeetingsUser,
 } from '@/lib/meetings/server';
@@ -30,6 +31,8 @@ const LIST_LIMIT = 200;
  * GET /api/meetings?scope=live|upcoming|past → `{ meetings }`, each with
  * `invitee_user_ids`, `present_count` (people, not tabs) and
  * `participants`: the present seats as `{ user_id, hand_raised_at }`.
+ * Past meetings also carry `attended_count`: the people who ever took a
+ * seat, however briefly.
  */
 export async function GET(request: Request) {
   try {
@@ -77,14 +80,25 @@ export async function GET(request: Request) {
     if (meetings.length === 0) return NextResponse.json({ meetings: [] });
 
     const ids = meetings.map((m) => m.id);
-    const [invitees, present] = await Promise.all([
+    const [invitees, present, seats] = await Promise.all([
       supabase
         .from('meeting_invitees')
         .select('meeting_id, user_id')
         .in('meeting_id', ids),
       presentQuery().in('meeting_id', ids),
+      scope === 'past'
+        ? readAllRows((from, to) =>
+            supabase
+              .from('meeting_participants')
+              .select('meeting_id, user_id', { count: 'exact' })
+              .eq('account_id', accountId)
+              .in('meeting_id', ids)
+              .order('id')
+              .range(from, to)
+          )
+        : null,
     ]);
-    const failed = invitees.error ?? present.error;
+    const failed = invitees.error ?? present.error ?? seats?.error;
     if (failed)
       return meetingDbErrorResponse(failed, 'Failed to load meetings');
 
@@ -107,6 +121,12 @@ export async function GET(request: Request) {
       seats.push({ user_id: r.user_id, hand_raised_at: r.hand_raised_at });
       seatsOf.set(r.meeting_id, seats);
     }
+    const attendedOf = new Map<string, Set<string>>();
+    for (const r of seats?.rows ?? []) {
+      const set = attendedOf.get(r.meeting_id) ?? new Set<string>();
+      set.add(r.user_id);
+      attendedOf.set(r.meeting_id, set);
+    }
     return NextResponse.json({
       meetings: meetings
         .map((m) => ({
@@ -114,6 +134,7 @@ export async function GET(request: Request) {
           invitee_user_ids: inviteesOf.get(m.id) ?? [],
           present_count: presentOf.get(m.id)?.size ?? 0,
           participants: seatsOf.get(m.id) ?? [],
+          ...(seats ? { attended_count: attendedOf.get(m.id)?.size ?? 0 } : {}),
         }))
         .filter((m) => meetingPhase(m, m.present_count, now) === scope),
     });
