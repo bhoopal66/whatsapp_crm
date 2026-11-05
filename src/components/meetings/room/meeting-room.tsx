@@ -539,6 +539,7 @@ export function LiveRoom({
             call={call}
             layout={mode}
             onLayout={roomUi.setLayout}
+            recorder={ui.recorder}
             hideSelf={hideSelf}
             onHideSelf={roomUi.setHideSelf}
             chatUnread={chatUnread}

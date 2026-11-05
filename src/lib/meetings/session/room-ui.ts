@@ -3,10 +3,21 @@
 // store per held engine, so a new call starts from the defaults.
 
 import { PANEL_DEFAULT_WIDTH } from '@/lib/meetings/room-ui/panels';
+import type { RecorderState } from '@/lib/meetings/recording/plan';
 import type { LayoutMode } from '@/lib/meetings/room-ui/stage';
 
 /** The side panels the room opens and toggles. */
 export type RoomPanel = 'chat' | 'people' | 'notes';
+
+/** The recorder in the layer, for the menus that drive it. */
+export interface RecorderView {
+  state: RecorderState;
+  startedAt: number | null;
+  /** Who the flag names, for "Alex is recording". */
+  holderName: string;
+  request: () => void;
+  stop: () => void;
+}
 
 export interface RoomUiState {
   layout: LayoutMode;
@@ -18,6 +29,7 @@ export interface RoomUiState {
   panelWidth: number;
   /** The newest chat line read, for the Chat button's unread badge. */
   chatSeenAt: string | null;
+  recorder: RecorderView | null;
 }
 
 export interface RoomUi {
@@ -30,6 +42,7 @@ export interface RoomUi {
   setPanel: (panel: RoomPanel | null) => void;
   setPanelWidth: (width: number) => void;
   setChatSeenAt: (at: string | null) => void;
+  setRecorder: (recorder: RecorderView | null) => void;
 }
 
 export function createRoomUi(): RoomUi {
@@ -41,6 +54,7 @@ export function createRoomUi(): RoomUi {
     panel: null,
     panelWidth: PANEL_DEFAULT_WIDTH,
     chatSeenAt: null,
+    recorder: null,
   };
   const listeners = new Set<() => void>();
   const set = <K extends keyof RoomUiState>(key: K, value: RoomUiState[K]) => {
@@ -63,5 +77,6 @@ export function createRoomUi(): RoomUi {
     setPanel: (panel) => set('panel', panel),
     setPanelWidth: (width) => set('panelWidth', width),
     setChatSeenAt: (at) => set('chatSeenAt', at),
+    setRecorder: (recorder) => set('recorder', recorder),
   };
 }

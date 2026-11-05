@@ -20,6 +20,7 @@ import {
   Users,
   Video,
   VideoOff,
+  Circle,
 } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import {
@@ -69,7 +70,8 @@ import {
 import { SHORTCUT_KEYS } from '@/lib/meetings/room-ui/keys';
 import { reactionOffset } from '@/lib/meetings/room-ui/people';
 import type { LayoutMode } from '@/lib/meetings/room-ui/stage';
-import type { RoomPanel } from '@/lib/meetings/session/room-ui';
+import { recordEntry } from '@/lib/meetings/recording/plan';
+import type { RecorderView, RoomPanel } from '@/lib/meetings/session/room-ui';
 import { cn } from '@/lib/utils';
 
 import { ConfirmDialog } from './confirm-dialog';
@@ -228,6 +230,8 @@ export interface ControlBarProps {
   /** Offered only when the browser supports it and a tile qualifies. */
   pip: { supported: boolean; active: boolean; available: boolean };
   onPip: () => void;
+  /** The layer's recorder; absent until it has mounted. */
+  recorder?: RecorderView | null;
 }
 
 type MoreLabels = (key: string, values?: { emoji: string }) => string;
@@ -242,6 +246,7 @@ export function moreItems(
     t: MoreLabels;
     compact: boolean;
     fullscreen: { supported: boolean; active: boolean };
+    recordLabels?: { start: string; stop: string; taken: string };
   }
 ): MoreItem[] {
   const { t, fullscreen } = o;
@@ -320,6 +325,33 @@ export function moreItems(
       onClick: p.onPip,
     });
   }
+  const { recorder } = p;
+  const entry =
+    recorder && o.recordLabels
+      ? recordEntry({
+          canModerate: call.canModerate,
+          state: recorder.state,
+          recordingBy: call.recording?.userId ?? null,
+          // Anyone but us: the recorder is the one that names us.
+          selfId: recorder.holderName ? null : (call.recording?.userId ?? null),
+        })
+      : null;
+  if (recorder && o.recordLabels && entry) {
+    const stops = entry === 'stop';
+    items.push({
+      kind: 'action',
+      id: 'record',
+      label: stops
+        ? o.recordLabels.stop
+        : entry === 'taken'
+          ? o.recordLabels.taken
+          : o.recordLabels.start,
+      icon: <Circle />,
+      pressed: stops,
+      disabled: entry === 'taken' || entry === 'stopping',
+      onClick: stops ? recorder.stop : recorder.request,
+    });
+  }
   items.push(
     {
       kind: 'action',
@@ -376,7 +408,20 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
     call.participantId,
     call.handRaised
   );
-  const more = moreItems(p, { t: t as MoreLabels, compact, fullscreen });
+  const tRec = useTranslations('MeetingRoom.recording');
+  const holderName = p.recorder?.holderName;
+  const more = moreItems(p, {
+    t: t as MoreLabels,
+    compact,
+    fullscreen,
+    recordLabels: {
+      start: tRec('record'),
+      stop: tRec('stop'),
+      taken: holderName
+        ? tRec('taken', { name: holderName })
+        : tRec('takenNoName'),
+    },
+  });
   /** A caption, in the one form that shows them. */
   const caption = (text: string | null) => (full ? text : undefined);
 

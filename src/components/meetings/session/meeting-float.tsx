@@ -91,6 +91,12 @@ export function MeetingFloat() {
 function FloatWindow({ active }: { active: ActiveCall }) {
   const { call, meetingId, roomUi } = active;
   const t = useTranslations('MeetingSession.float');
+  const tRec = useTranslations('MeetingRoom.recording');
+  const recordingHere = useSyncExternalStore(
+    roomUi.subscribe,
+    () => roomUi.getSnapshot().recorder?.state === 'recording',
+    () => false
+  );
   const router = useRouter();
   const { user } = useAuth();
   const { nameOf, avatarOf } = useWorkspaceMembers();
@@ -345,6 +351,14 @@ function FloatWindow({ active }: { active: ActiveCall }) {
           >
             {liveDot}
             <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+            {recordingHere && (
+              <span
+                data-float-rec
+                className="text-destructive text-xs font-semibold"
+              >
+                {tRec('mark')}
+              </span>
+            )}
             <span className="text-muted-foreground text-xs tabular-nums">
               {elapsed}
             </span>

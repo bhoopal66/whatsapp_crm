@@ -19,6 +19,7 @@ import { useJoinLeaveSounds } from '../room/use-join-leave-sounds';
 import { useRoomNotices } from '../room/use-room-notices';
 import { AudioTrack } from '../room/video-track';
 import { MeetingFloat } from './meeting-float';
+import { MeetingRecorder } from './meeting-recorder';
 import {
   useActiveCall,
   useMeetingSession,
@@ -128,6 +129,7 @@ function HeldCall({ active }: { active: ActiveCall }) {
           <AudioTrack key={pid} track={tracks.audio} sinkId={sinkId} />
         ) : null
       )}
+      <MeetingRecorder active={active} />
       {inCall && !onRoomPage && <MeetingFloat />}
     </>
   );

@@ -6435,6 +6435,25 @@
     "welcomeGuest": "Meetings you're invited to will appear here."
   },
   "MeetingRoom": {
+    "recording": {
+      "record": "Record this meeting",
+      "stop": "Stop recording",
+      "taken": "{name} is recording",
+      "takenNoName": "Someone is recording",
+      "mark": "REC",
+      "confirmTitle": "Record this meeting?",
+      "confirmBody": "Everyone in the meeting will be told this is being recorded. The recording saves to this computer. You're responsible for how it's kept and shared.",
+      "start": "Start recording",
+      "saved": "Recording saved",
+      "savedDownloads": "Recording saved to your downloads",
+      "saveFailed": "The recording could not be saved",
+      "refused": {
+        "already_recording": "Someone else is already recording this meeting.",
+        "unavailable": "Recording isn't available yet: people in the meeting couldn't be told, so nothing was recorded.",
+        "failed": "People in the meeting couldn't be told, so nothing was recorded.",
+        "start_failed": "This browser couldn't start the recording."
+      }
+    },
     "loading": "Loading the meeting…",
     "back": "Back",
     "reconnecting": "Connection lost. Reconnecting…",

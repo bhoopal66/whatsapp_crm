@@ -6435,6 +6435,25 @@
     "welcomeGuest": "초대받은 회의가 여기에 표시됩니다."
   },
   "MeetingRoom": {
+    "recording": {
+      "record": "이 회의 녹화",
+      "stop": "녹화 중지",
+      "taken": "{name}님이 녹화 중입니다",
+      "takenNoName": "다른 사람이 녹화 중입니다",
+      "mark": "REC",
+      "confirmTitle": "이 회의를 녹화할까요?",
+      "confirmBody": "회의 참가자 모두에게 녹화 중임이 알려집니다. 녹화 파일은 이 컴퓨터에 저장됩니다. 파일의 보관과 공유에 대한 책임은 본인에게 있습니다.",
+      "start": "녹화 시작",
+      "saved": "녹화가 저장되었습니다",
+      "savedDownloads": "녹화가 다운로드 폴더에 저장되었습니다",
+      "saveFailed": "녹화를 저장하지 못했습니다",
+      "refused": {
+        "already_recording": "다른 사람이 이미 이 회의를 녹화하고 있습니다.",
+        "unavailable": "아직 녹화를 사용할 수 없습니다. 참가자에게 알릴 수 없어 녹화하지 않았습니다.",
+        "failed": "참가자에게 알릴 수 없어 녹화하지 않았습니다.",
+        "start_failed": "이 브라우저에서 녹화를 시작하지 못했습니다."
+      }
+    },
     "loading": "회의를 불러오는 중…",
     "back": "돌아가기",
     "reconnecting": "연결이 끊어졌습니다. 다시 연결하는 중…",
