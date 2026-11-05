@@ -10,7 +10,6 @@ import { meetingRoomIdFrom } from '@/lib/meetings/session/paths';
 import {
   endedNotice,
   isInCall,
-  offRoomTileSizes,
   REJOIN_MARKER_KEY,
   writeRejoinMarker,
 } from '@/lib/meetings/session/session';
@@ -121,13 +120,6 @@ function HeldCall({ active }: { active: ActiveCall }) {
       // No storage: a reload simply offers no rejoin.
     }
   }, [phase, meetingId, title, userId]);
-
-  const { participants, participantId, setTileSizes } = call;
-  useEffect(() => {
-    if (onRoomPage) return;
-    const ids = participants.map((p) => p.id);
-    setTileSizes(offRoomTileSizes(ids, participantId));
-  }, [onRoomPage, participants, participantId, setTileSizes]);
 
   return (
     <>

@@ -140,6 +140,8 @@ export function useFloatingWindow({
   const [dragging, setDragging] = useState(false);
   const mobile = useSyncExternalStore(subscribeMobile, mobileNow, () => false);
   const drag = useRef<Drag | null>(null);
+  // A resize owns the element's left and top (see hold()).
+  const held = useRef(false);
   // The latest values, for the observers and handlers.
   const state = useRef({ anchor, minimized, mobile, avoid });
   useLayoutEffect(() => {
@@ -148,7 +150,7 @@ export function useFloatingWindow({
 
   const apply = useCallback(() => {
     const el = ref.current;
-    if (!el || drag.current?.moving) return;
+    if (!el || drag.current?.moving || held.current) return;
     if (state.current.mobile) {
       el.style.left = '';
       el.style.top = '';
@@ -211,6 +213,25 @@ export function useFloatingWindow({
     setAnchor(next);
     persist({ anchor: next });
   };
+
+  // For a caller resizing the window itself: hold() makes placement
+  // stand aside; settleRect() anchors the result, release() gives up.
+  const hold = useCallback(() => {
+    held.current = true;
+  }, []);
+  const release = useCallback(() => {
+    held.current = false;
+    apply();
+  }, [apply]);
+  const settleRect = useCallback(
+    (rect: Rect) => {
+      held.current = false;
+      const next = anchorOf(rect, viewport());
+      setAnchor(next);
+      persist({ anchor: next });
+    },
+    [persist]
+  );
 
   const endDrag = (e: PointerEvent<HTMLElement>, keep: boolean) => {
     const d = drag.current;
@@ -333,5 +354,8 @@ export function useFloatingWindow({
     reset,
     mobile,
     dragging,
+    hold,
+    release,
+    settleRect,
   };
 }

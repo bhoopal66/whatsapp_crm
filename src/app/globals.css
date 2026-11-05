@@ -609,3 +609,23 @@ html[data-mode='light'] [data-nav='primary'][data-mode='dark'] {
     }
   }
 }
+
+/* The meeting window's speaking bars. */
+@keyframes meeting-eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.meeting-eq-bar {
+  transform-origin: bottom;
+  animation: meeting-eq 0.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-eq-bar {
+    animation: none;
+  }
+}
