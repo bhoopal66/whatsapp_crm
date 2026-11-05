@@ -6720,7 +6720,8 @@
         "unlock": "Unlock meeting",
         "lockedState": "Locked: nobody new can join",
         "failed": "That didn't go through.",
-        "lockFailed": "Couldn't change the meeting lock."
+        "lockFailed": "Couldn't change the meeting lock.",
+        "lockUnavailable": "Locking a meeting isn't available yet."
       },
       "invite": {
         "open": "Invite people",

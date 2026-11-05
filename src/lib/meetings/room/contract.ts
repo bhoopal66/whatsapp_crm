@@ -5,7 +5,11 @@
 
 import type { BackgroundEffect } from '../effects/types';
 import type { BulkModerationAction } from '../types';
-import type { RecordingFlag, RecordingFlagResult } from './recording';
+import type {
+  LockResult,
+  RecordingFlag,
+  RecordingFlagResult,
+} from './recording';
 
 /** A participant's id is `meeting_participants.id`; 'self' is never used. */
 export type ParticipantId = string;
@@ -120,7 +124,8 @@ export interface CallActionsV2 {
     action: ModerationAction
   ) => Promise<boolean>;
   moderateAll: (action: BulkModerationAction) => Promise<boolean>;
-  setLocked: (locked: boolean) => Promise<boolean>;
+  /** `unavailable`: the database does not have migration 176 yet. */
+  setLocked: (locked: boolean) => Promise<LockResult>;
   /** The user ids invited, or null when the server refused. */
   invite: (userIds: string[]) => Promise<string[] | null>;
   /** `unavailable`: the database does not have migration 176 yet. */

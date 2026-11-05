@@ -133,6 +133,19 @@ export function stepRecordingView(
 export type RecordingFlagResult =
   'ok' | 'already_recording' | 'unavailable' | 'failed';
 
+export type LockResult = 'ok' | 'unavailable' | 'failed';
+
+/** What a refused `POST …/lock` means to the screen. */
+export function lockFailure(
+  status: number,
+  body: unknown
+): Exclude<LockResult, 'ok'> {
+  const error = (body as { error?: unknown } | null)?.error;
+  return status === 503 && error === 'migration_required'
+    ? 'unavailable'
+    : 'failed';
+}
+
 /** What a refused `POST …/recording` means to the screen. */
 export function recordingFailure(
   status: number,

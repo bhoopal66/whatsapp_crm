@@ -149,6 +149,7 @@ import {
 import {
   lateRecordingNotices,
   meetingFlagNotices,
+  lockFailure,
   recordingFailure,
   recordingFlagOf,
   stepRecordingView,
@@ -1861,10 +1862,10 @@ export class MeetingCallEngine {
 
   setLocked = async (locked: boolean) => {
     const res = await this.api('lock', 'POST', { locked });
-    if (!res.ok) return false;
+    if (!res.ok) return lockFailure(res.status, res.body);
     const answer = res.body as { locked_at?: string | null } | null;
     this.applyMeeting({ locked_at: answer?.locked_at ?? null });
-    return true;
+    return 'ok' as const;
   };
 
   invite = async (userIds: string[]) => {

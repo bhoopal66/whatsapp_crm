@@ -38,9 +38,10 @@ export function RoomHostTools({
 
   const toggleLock = async () => {
     setBusy(true);
-    const ok = await call.setLocked(!call.locked);
+    const answer = await call.setLocked(!call.locked);
     setBusy(false);
-    if (!ok) toast.error(t('lockFailed'));
+    if (answer === 'unavailable') toast.error(t('lockUnavailable'));
+    else if (answer === 'failed') toast.error(t('lockFailed'));
   };
 
   return (

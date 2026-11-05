@@ -6720,7 +6720,8 @@
         "unlock": "회의 잠금 해제",
         "lockedState": "잠김: 새로운 사람이 참여할 수 없습니다",
         "failed": "처리되지 않았습니다.",
-        "lockFailed": "회의 잠금을 변경하지 못했습니다."
+        "lockFailed": "회의 잠금을 변경하지 못했습니다.",
+        "lockUnavailable": "회의 잠금은 아직 사용할 수 없습니다."
       },
       "invite": {
         "open": "사람 초대",

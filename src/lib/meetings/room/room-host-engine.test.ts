@@ -335,7 +335,7 @@ describe('MeetingCallEngine host flags', () => {
   it('own lock: the answer shows it, realtime raises no second notice', async () => {
     const { e } = await engine();
     answer(200, { ok: true, locked_at: '2026-11-05T10:00:00.123Z' });
-    expect(await e.setLocked(true)).toBe(true);
+    expect(await e.setLocked(true)).toBe('ok');
     expect(e.getSnapshot().locked).toBe(true);
     db.onMeetingUpdate?.({
       new: { ...ROW, locked_at: '2026-11-05T10:00:00.123+00:00' },
@@ -390,10 +390,17 @@ describe('MeetingCallEngine host flags', () => {
     expect(kinds(e)).toEqual(['recording_stopped']);
   });
 
+  it('a lock the server refused for another reason says it failed', async () => {
+    const { e } = await engine();
+    answer(500, { error: 'boom' });
+    expect(await e.setLocked(true)).toBe('failed');
+    expect(e.getSnapshot().locked).toBe(false);
+  });
+
   it('a refused action changes nothing', async () => {
     const { e } = await engine();
     answer(503, { error: 'migration_required' });
-    expect(await e.setLocked(true)).toBe(false);
+    expect(await e.setLocked(true)).toBe('unavailable');
     expect(await e.setRecordingFlag(true)).toBe('unavailable');
     expect(await e.moderateAll('mute_all')).toBe(false);
     expect(await e.invite(['u'])).toBeNull();
