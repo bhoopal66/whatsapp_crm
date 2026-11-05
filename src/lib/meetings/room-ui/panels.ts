@@ -128,6 +128,128 @@ export function peopleForPanel(input: {
   return orderPeople(people);
 }
 
+/** The People tab's count: every seat, ourselves even before our row lands. */
+export function peopleCount(
+  rows: readonly { id: ParticipantId }[],
+  selfId: string | null
+): number {
+  return rows.filter((r) => r.id !== selfId).length + 1;
+}
+
+/** The search box shows once the panel lists this many people. */
+export const PEOPLE_SEARCH_FROM = 8;
+
+export interface SectionPerson extends PanelPerson {
+  isOrganiser: boolean;
+  /** Place in the room's queue of hands, 1-based; null with no hand up. */
+  queuePosition: number | null;
+}
+
+export interface NamedPerson {
+  userId: string;
+  name: string;
+}
+
+export interface PeopleSections {
+  hands: SectionPerson[];
+  here: SectionPerson[];
+  invited: NamedPerson[];
+  removed: NamedPerson[];
+  searchable: boolean;
+}
+
+function nameMatcher(query: string): (text: string) => boolean {
+  const q = query.trim().toLocaleLowerCase();
+  return (text) => text.toLocaleLowerCase().includes(q);
+}
+
+/** The detail GET's `invitee_user_ids`; absent or malformed → []. */
+export function parseInviteeIds(body: unknown): string[] {
+  const list =
+    body && typeof body === 'object' && 'invitee_user_ids' in body
+      ? (body as { invitee_user_ids: unknown }).invitee_user_ids
+      : null;
+  if (!Array.isArray(list)) return [];
+  return list.filter((id): id is string => typeof id === 'string');
+}
+
+/**
+ * The People panel's sections, from `peopleForPanel`'s ordered list.
+ * A queue number is given before the search filters, so a hand keeps its
+ * place in the room. Below PEOPLE_SEARCH_FROM there is no box to clear,
+ * so a query left over from a fuller room is ignored.
+ */
+export function peopleSections(input: {
+  people: readonly PanelPerson[];
+  hostUserId: string | null;
+  inviteeUserIds: readonly string[];
+  removedUserIds: readonly string[];
+  nameOf: (userId: string) => string | null;
+  unknownName: string;
+  query: string;
+}): PeopleSections {
+  const named = (userId: string): NamedPerson => ({
+    userId,
+    name: input.nameOf(userId) || input.unknownName,
+  });
+  const byName = (a: NamedPerson, b: NamedPerson) =>
+    a.name.localeCompare(b.name);
+
+  let position = 0;
+  const seats: SectionPerson[] = input.people.map((p) => ({
+    ...p,
+    isOrganiser: p.userId === input.hostUserId,
+    queuePosition: p.handRaisedAt ? ++position : null,
+  }));
+  const gone = new Set([
+    ...input.people.map((p) => p.userId),
+    ...input.removedUserIds,
+  ]);
+  const invited = [...new Set(input.inviteeUserIds)]
+    .filter((id) => !gone.has(id))
+    .map(named)
+    .sort(byName);
+  const removed = input.removedUserIds.map(named);
+
+  const total = seats.length + invited.length + removed.length;
+  const searchable = total >= PEOPLE_SEARCH_FROM;
+  const matches = nameMatcher(searchable ? input.query : '');
+  const shown = seats.filter((p) => matches(p.name));
+  return {
+    hands: shown.filter((p) => p.queuePosition !== null),
+    here: shown.filter((p) => p.queuePosition === null),
+    invited: invited.filter((p) => matches(p.name)),
+    removed: removed.filter((p) => matches(p.name)),
+    searchable,
+  };
+}
+
+export interface InviteMember {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  deactivated_at?: string | null;
+}
+
+/**
+ * Who the organiser can still invite: live members (bank guests never
+ * reach `useWorkspaceMembers`) outside `taken`, by name or email.
+ */
+export function inviteCandidates<T extends InviteMember>(
+  members: readonly T[],
+  taken: readonly string[],
+  query: string
+): T[] {
+  const skip = new Set(taken);
+  const matches = nameMatcher(query);
+  return members.filter(
+    (m) =>
+      !m.deactivated_at &&
+      !skip.has(m.user_id) &&
+      matches(`${m.full_name ?? ''} ${m.email ?? ''}`)
+  );
+}
+
 export type NoticeToastKey =
   | 'joined'
   | 'left'

@@ -6604,9 +6604,48 @@
     "panels": {
       "close": "Close panel",
       "resize": "Resize panel",
+      "tabs": {
+        "people": "People",
+        "chat": "Chat",
+        "unread": "{label}, {count} unread"
+      },
+      "host": {
+        "muteAll": "Mute everyone",
+        "muteAllTitle": "Mute everyone?",
+        "muteAllBody": "Everyone else is muted now. They can unmute themselves afterwards.",
+        "muted": "Everyone is muted",
+        "lowerAll": "Lower all hands",
+        "handsLowered": "All hands lowered",
+        "lock": "Lock meeting",
+        "unlock": "Unlock meeting",
+        "lockedState": "Locked: nobody new can join",
+        "failed": "That didn't go through.",
+        "lockFailed": "Couldn't change the meeting lock."
+      },
+      "invite": {
+        "open": "Invite people",
+        "title": "Invite people",
+        "search": "Search people",
+        "nobody": "Nobody to invite",
+        "send": "{count, plural, =0 {Send invites} one {Invite # person} other {Invite # people}}",
+        "sent": "{count, plural, =0 {They were already invited} one {# person invited} other {# people invited}}",
+        "failed": "Couldn't send the invites.",
+        "copyLink": "Copy meeting link",
+        "linkCopied": "Meeting link copied",
+        "copyFailed": "Couldn't copy the link."
+      },
       "people": {
         "title": "People",
-        "count": "{count, plural, one {# person in the call} other {# people in the call}}",
+        "search": "Search people",
+        "noMatch": "Nobody matches",
+        "hands": "Raised hands",
+        "here": "In this meeting",
+        "invited": "Invited",
+        "organiser": "Organiser",
+        "speaking": "Speaking",
+        "lower": "Lower",
+        "lowerHandOf": "Lower {name}'s hand",
+        "queuePosition": "Number {position} in the queue",
         "micOn": "Microphone on",
         "cameraOn": "Camera on",
         "cameraOff": "Camera off",
@@ -6649,6 +6688,7 @@
     "removedPeople": {
       "removedSection": "Removed",
       "letBackIn": "Let back in",
+      "letBackInName": "Let {name} back in",
       "letBackInFailed": "Couldn't let them back in. Try again."
     }
   },

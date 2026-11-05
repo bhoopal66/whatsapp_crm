@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { MessageSquare, Users, X, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
@@ -15,6 +15,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth';
 import type { MeetingCall } from '@/hooks/use-meeting-call';
 import { unreadCount } from '@/lib/meetings/room-ui/chat';
@@ -24,6 +25,7 @@ import {
   latestChatAt,
   nextPanel,
   PANEL_KEY_STEP,
+  peopleCount,
   PHONE_MEDIA_QUERY,
 } from '@/lib/meetings/room-ui/panels';
 import type { RoomPanel, RoomUi } from '@/lib/meetings/session/room-ui';
@@ -113,36 +115,55 @@ export function RoomPanels({
       <RoomPeoplePanel call={call} />
     ) : null;
 
+  const tabs: PanelTab[] = [
+    {
+      id: 'people',
+      label: t('tabs.people'),
+      Icon: Users,
+      count: peopleCount(call.participants, call.participantId),
+    },
+    {
+      id: 'chat',
+      label: t('tabs.chat'),
+      Icon: MessageSquare,
+      unread: chatUnread,
+    },
+  ];
+  const card = panel && (
+    <PanelCard
+      tabs={tabs}
+      active={panel}
+      onSelect={onOpenPanel}
+      onClose={close}
+    >
+      {body}
+    </PanelCard>
+  );
+
   let sidePanel: ReactNode = null;
   if (body && phone) {
     sidePanel = (
       <Sheet open onOpenChange={(open) => !open && close()}>
         <SheetContent
+          data-mode="dark"
           side="bottom"
           showCloseButton={false}
-          className="h-[80dvh] gap-0"
+          className="h-[80dvh] gap-0 rounded-t-2xl"
         >
-          <PanelHeader
-            title={<SheetTitle>{title}</SheetTitle>}
-            onClose={close}
-          />
-          {body}
+          <SheetTitle className="sr-only">{title}</SheetTitle>
+          {card}
         </SheetContent>
       </Sheet>
     );
   } else if (body) {
     sidePanel = (
       <aside
-        className="bg-card text-card-foreground relative mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg"
+        className="bg-card text-card-foreground animate-in fade-in relative mb-2 flex shrink-0 flex-col overflow-hidden rounded-2xl duration-150 motion-reduce:animate-none"
         style={{ width }}
         aria-label={title}
       >
         <ResizeHandle width={width} onWidth={roomUi.setPanelWidth} />
-        <PanelHeader
-          title={<h2 className="text-base font-medium">{title}</h2>}
-          onClose={close}
-        />
-        {body}
+        {card}
       </aside>
     );
   }
@@ -167,28 +188,77 @@ export function RoomPanels({
   );
 }
 
-function PanelHeader({
-  title,
+interface PanelTab {
+  id: RoomPanel;
+  label: string;
+  Icon: LucideIcon;
+  /** A plain figure beside the label. */
+  count?: number;
+  /** A badge, shown only above zero. */
+  unread?: number;
+}
+
+/** The tab strip and the open panel, in the column or the phone sheet. */
+function PanelCard({
+  tabs,
+  active,
+  onSelect,
   onClose,
+  children,
 }: {
-  title: ReactNode;
+  tabs: readonly PanelTab[];
+  active: RoomPanel;
+  onSelect: (panel: RoomPanel) => void;
   onClose: () => void;
+  children: ReactNode;
 }) {
   const t = useTranslations('MeetingRoom.panels');
   return (
-    <div className="flex items-center gap-2 py-2 pr-2 pl-4">
-      <div className="min-w-0 flex-1 truncate">{title}</div>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant="ghost"
-        onClick={onClose}
-        aria-label={t('close')}
-        title={t('close')}
-      >
-        <X />
-      </Button>
-    </div>
+    <Tabs
+      value={active}
+      onValueChange={(v) => onSelect(v as RoomPanel)}
+      className="min-h-0 flex-1 gap-0"
+    >
+      <div className="flex items-center gap-2 p-2">
+        <TabsList className="min-w-0 flex-1">
+          {tabs.map(({ id, label, Icon, count, unread = 0 }) => (
+            <TabsTrigger
+              key={id}
+              value={id}
+              aria-label={
+                unread > 0 ? t('tabs.unread', { label, count: unread }) : label
+              }
+            >
+              <Icon aria-hidden />
+              <span className="truncate">{label}</span>
+              {count !== undefined && (
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  {count}
+                </span>
+              )}
+              {unread > 0 && (
+                <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-xs font-medium tabular-nums">
+                  {unread}
+                </span>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          onClick={onClose}
+          aria-label={t('close')}
+          title={t('close')}
+        >
+          <X />
+        </Button>
+      </div>
+      <TabsContent value={active} className="flex min-h-0 flex-col">
+        {children}
+      </TabsContent>
+    </Tabs>
   );
 }
 

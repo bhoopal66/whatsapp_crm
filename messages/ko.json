@@ -6604,9 +6604,48 @@
     "panels": {
       "close": "패널 닫기",
       "resize": "패널 크기 조절",
+      "tabs": {
+        "people": "참여자",
+        "chat": "채팅",
+        "unread": "{label}, 읽지 않음 {count}개"
+      },
+      "host": {
+        "muteAll": "모두 음소거",
+        "muteAllTitle": "모두 음소거할까요?",
+        "muteAllBody": "다른 모든 사람이 지금 음소거됩니다. 각자 다시 음소거를 해제할 수 있습니다.",
+        "muted": "모두 음소거되었습니다",
+        "lowerAll": "모든 손 내리기",
+        "handsLowered": "모든 손을 내렸습니다",
+        "lock": "회의 잠그기",
+        "unlock": "회의 잠금 해제",
+        "lockedState": "잠김: 새로운 사람이 참여할 수 없습니다",
+        "failed": "처리되지 않았습니다.",
+        "lockFailed": "회의 잠금을 변경하지 못했습니다."
+      },
+      "invite": {
+        "open": "사람 초대",
+        "title": "사람 초대",
+        "search": "사람 검색",
+        "nobody": "초대할 사람이 없습니다",
+        "send": "{count, plural, =0 {초대 보내기} other {#명 초대}}",
+        "sent": "{count, plural, =0 {이미 초대된 사람입니다} other {#명을 초대했습니다}}",
+        "failed": "초대를 보내지 못했습니다.",
+        "copyLink": "회의 링크 복사",
+        "linkCopied": "회의 링크를 복사했습니다",
+        "copyFailed": "링크를 복사하지 못했습니다."
+      },
       "people": {
         "title": "참여자",
-        "count": "{count, plural, other {통화 중 #명}}",
+        "search": "사람 검색",
+        "noMatch": "일치하는 사람이 없습니다",
+        "hands": "손 든 사람",
+        "here": "이 회의 참여 중",
+        "invited": "초대됨",
+        "organiser": "주최자",
+        "speaking": "말하는 중",
+        "lower": "내리기",
+        "lowerHandOf": "{name}님의 손 내리기",
+        "queuePosition": "대기 순서 {position}번",
         "micOn": "마이크 켜짐",
         "cameraOn": "카메라 켜짐",
         "cameraOff": "카메라 꺼짐",
@@ -6649,6 +6688,7 @@
     "removedPeople": {
       "removedSection": "내보낸 사람",
       "letBackIn": "다시 들어오게 하기",
+      "letBackInName": "{name}님 다시 들어오게 하기",
       "letBackInFailed": "다시 들어오게 하지 못했습니다. 다시 시도하세요."
     }
   },
