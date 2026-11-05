@@ -375,7 +375,12 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
           <div className="min-w-0 space-y-6">
             {sections.live.length > 0 && (
               <Section title={t('happeningNow')}>
-                <ul className="grid gap-3 xl:grid-cols-2">
+                <ul
+                  className={cn(
+                    'grid grid-cols-1 gap-3',
+                    sections.live.length > 1 && 'xl:grid-cols-2'
+                  )}
+                >
                   {sections.live.map((m) => (
                     <LiveCard key={m.id} meeting={m} shared={shared} />
                   ))}
@@ -546,7 +551,7 @@ function LiveCard({
   return (
     <li
       ref={ref}
-      className="bg-card border-success/40 relative flex flex-col gap-3 rounded-xl border p-4"
+      className="bg-card border-success/40 relative flex min-w-0 flex-col gap-3 rounded-xl border p-4"
     >
       <div className="flex items-start gap-2">
         <span className="mt-1.5">
@@ -632,9 +637,9 @@ function UpcomingRow({
       ref={ref}
       className="bg-card hover:border-primary/40 relative flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-3 transition-colors sm:flex-nowrap"
     >
-      <div className="w-16 shrink-0 text-center">
+      <div className="w-20 shrink-0 text-center">
         {m.scheduledStart ? (
-          <p className="text-lg leading-tight font-semibold tabular-nums">
+          <p className="text-base leading-tight font-semibold whitespace-nowrap tabular-nums">
             {clock.format(new Date(m.scheduledStart))}
           </p>
         ) : (
@@ -646,7 +651,7 @@ function UpcomingRow({
           </p>
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-40 flex-1">
         <Link
           href={`/meetings/${m.id}`}
           className="block truncate font-medium after:absolute after:inset-0"
@@ -765,7 +770,7 @@ function PastRow({
       ref={ref}
       className="bg-card flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border p-3"
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-40 flex-1">
         <p className="truncate font-medium">{m.title}</p>
         <p className="text-muted-foreground truncate text-sm">
           {facts.join(' · ')}
