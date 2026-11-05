@@ -7,7 +7,10 @@ export interface Ticker {
   stop(): void;
 }
 
-const SOURCE = `let t;onmessage=(e)=>{clearInterval(t);t=setInterval(()=>postMessage(0),e.data)}`;
+// One tick in flight: the page acks with 0 when its frame is done. A plain
+// interval queued ticks faster than a slow frame drained them, which starved
+// the page's own timers and UI for seconds (measured at 175 ms a frame).
+export const TICKER_SOURCE = `let t,b;onmessage=(e)=>{b=0;if(!e.data)return;clearInterval(t);t=setInterval(()=>{if(!b){b=1;postMessage(0)}},e.data)}`;
 
 export function createTicker(onTick: () => void, fps: number): Ticker {
   let periodMs = 1000 / fps;
@@ -23,9 +26,14 @@ export function createTicker(onTick: () => void, fps: number): Ticker {
   };
 
   try {
-    url = URL.createObjectURL(new Blob([SOURCE], { type: 'text/javascript' }));
+    url = URL.createObjectURL(
+      new Blob([TICKER_SOURCE], { type: 'text/javascript' })
+    );
     worker = new Worker(url);
-    worker.onmessage = onTick;
+    worker.onmessage = () => {
+      onTick();
+      worker?.postMessage(0);
+    };
     worker.onerror = fallBack; // a CSP refusal arrives here, not as a throw
     worker.postMessage(periodMs);
   } catch {

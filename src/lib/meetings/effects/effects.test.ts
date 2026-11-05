@@ -14,7 +14,8 @@ import {
   parseEffectPref,
   serializeEffectPref,
 } from './prefs';
-import { createTicker } from './ticker';
+import { isSoftwareRenderer } from './processor';
+import { TICKER_SOURCE, createTicker } from './ticker';
 import { isBackdropPreset } from './types';
 
 function feed(s0: BudgetState, ms: number, from: number, to: number) {
@@ -86,6 +87,13 @@ describe('prefs', () => {
   });
 });
 
+it('isSoftwareRenderer spots a GL that runs on the CPU', () => {
+  expect(isSoftwareRenderer('ANGLE (Google, Vulkan (SwiftShader))')).toBe(true);
+  expect(isSoftwareRenderer('llvmpipe (LLVM 15.0.7)')).toBe(true);
+  expect(isSoftwareRenderer('ANGLE (Intel, UHD Graphics 620)')).toBe(false);
+  expect(isSoftwareRenderer('')).toBe(false);
+});
+
 it('writeMaskAlpha thresholds softly and smooths against the last mask', () => {
   const smoothed = new Float32Array(3);
   const rgba = new Uint8ClampedArray(12);
@@ -98,6 +106,21 @@ it('writeMaskAlpha thresholds softly and smooths against the last mask', () => {
 
 describe('createTicker', () => {
   afterEach(() => vi.useRealTimers());
+  it('keeps one tick in flight until the page acks', () => {
+    vi.useFakeTimers();
+    const post = vi.fn();
+    const scope = new Function(
+      'postMessage',
+      `${TICKER_SOURCE};return onmessage`
+    );
+    const onmessage = scope(post) as (e: { data: number }) => void;
+    onmessage({ data: 40 });
+    vi.advanceTimersByTime(400); // a slow frame: ten periods, no ack
+    expect(post).toHaveBeenCalledTimes(1);
+    onmessage({ data: 0 });
+    vi.advanceTimersByTime(40);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
   it('falls back to a plain timer when no worker can start', () => {
     vi.useFakeTimers();
     const onTick = vi.fn();

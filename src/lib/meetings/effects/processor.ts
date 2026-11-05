@@ -58,12 +58,29 @@ function paintPreset(c: HTMLCanvasElement, preset: BackdropPreset) {
   ctx.fillRect(0, 0, c.width, c.height);
 }
 
+/** A GL that runs on the CPU: 175 ms a frame here, against ~60 for the CPU delegate. */
+export const isSoftwareRenderer = (name: string) =>
+  /swiftshader|llvmpipe|software/i.test(name);
+
+function glRenderer(): string {
+  const gl = document.createElement('canvas').getContext('webgl2');
+  const info = gl?.getExtension('WEBGL_debug_renderer_info');
+  const name = info
+    ? String(gl?.getParameter(info.UNMASKED_RENDERER_WEBGL))
+    : '';
+  gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  return name;
+}
+
 async function openSegmenter(probe: HTMLCanvasElement) {
   const { FilesetResolver, ImageSegmenter } =
     await import('@mediapipe/tasks-vision');
   const fileset = await FilesetResolver.forVisionTasks(`${ASSETS}/wasm`);
   let failure: unknown;
-  for (const delegate of ['GPU', 'CPU'] as const) {
+  const delegates = isSoftwareRenderer(glRenderer())
+    ? (['CPU'] as const)
+    : (['GPU', 'CPU'] as const);
+  for (const delegate of delegates) {
     let made: ImageSegmenter | undefined;
     try {
       made = await ImageSegmenter.createFromOptions(fileset, {
@@ -236,10 +253,12 @@ export function createVideoEffectProcessor(): VideoEffectProcessor {
     }
   }
 
-  function load(mine: number): Promise<void> {
+  function load(): Promise<void> {
     loading ??= openSegmenter(seg)
       .then((opened) => {
-        if (mine !== run) return opened.segmenter.close();
+        // `video`, not the caller's run: a restart during the load shares
+        // this promise, and closing here would leave it sending raw video.
+        if (!video) return opened.segmenter.close();
         segmenter = opened.segmenter;
         delegate = opened.delegate;
       })
@@ -290,7 +309,7 @@ export function createVideoEffectProcessor(): VideoEffectProcessor {
         await playInput(v, input);
         fit(v);
         if (first.kind !== 'none') {
-          await load(mine).catch((err) => {
+          await load().catch((err) => {
             throw new EffectsError('load_failed', String(err));
           });
         }
@@ -312,7 +331,7 @@ export function createVideoEffectProcessor(): VideoEffectProcessor {
       budget = initialBudget();
       ticker?.setFps(budget.fps);
       paintStatic();
-      if (next.kind !== 'none' && !segmenter && output) load(run).catch(giveUp);
+      if (next.kind !== 'none' && !segmenter && output) load().catch(giveUp);
     },
     async setInput(input) {
       if (video) await playInput(video, input);
