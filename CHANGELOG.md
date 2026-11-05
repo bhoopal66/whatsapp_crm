@@ -17,11 +17,14 @@ and polish.
 - In WhatsApp groups and submission groups, a case's Conversation tab
   included, every staff member and every phone number now has a colour of
   their own, on the name and on a stripe down the bubble's outer edge, so
-  you can follow who is talking without reading each name. Nobody in a
-  chat shares a colour until it has more than twelve senders, and a person
-  keeps theirs from chat to chat unless it would clash. Automatic messages
-  stay grey. This replaces the coordinator's blue edge; the Coordinator
-  label beside the name stays.
+  you can follow who is talking without reading each name. Nobody on
+  screen shares a colour until a chat has more than ten senders, the same
+  people keep the same colours, and a person usually has one colour from
+  chat to chat. Automatic messages stay grey. This replaces the
+  coordinator's blue edge; the Coordinator label beside the name stays.
+- On an open case, the Conversation tab now shows the sender's phone
+  number on customer and coordinator messages. It used to say "Someone".
+- Opening an ended submission group's archive no longer crashes the page.
 
 ### Video meetings: a proper meeting room
 

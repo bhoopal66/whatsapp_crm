@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -8,13 +11,15 @@ import {
   senderKey,
 } from './sender-colors';
 
+const COLORS = SENDER_COLORS.length;
+
 const slotOf = (color: unknown) =>
   SENDER_COLORS.indexOf(color as (typeof SENDER_COLORS)[number]);
 
 /** How far apart two slots sit on the wheel. */
 const wheelGap = (a: number, b: number) => {
   const d = Math.abs(a - b);
-  return Math.min(d, SENDER_COLORS.length - d);
+  return Math.min(d, COLORS - d);
 };
 
 /** A chat's senders as the data holds them: UUIDs and phone numbers. */
@@ -27,6 +32,94 @@ function people(seed: number, count: number): string[] {
 }
 
 const CHATS = 2000;
+
+/** A colour's own slot: what it gets in a chat nobody else is in. */
+const ownColor = (key: string) => assignSenderColors([key]).get(key);
+
+// Colour maths for the measurements below (OKLab, then WCAG luminance).
+type Lab = { L: number; a: number; b: number };
+
+const theme = readFileSync(
+  join(process.cwd(), 'node_modules/tailwindcss/theme.css'),
+  'utf8'
+);
+const globals = readFileSync(
+  join(process.cwd(), 'src/app/globals.css'),
+  'utf8'
+);
+
+const oklch = (L: number, C: number, h: number): Lab => ({
+  L,
+  a: C * Math.cos((h * Math.PI) / 180),
+  b: C * Math.sin((h * Math.PI) / 180),
+});
+
+/** `red-700` from Tailwind's theme. */
+function tailwindColor(name: string): Lab {
+  const m = new RegExp(
+    `--color-${name}: oklch\\(([\\d.]+)% ([\\d.]+) ([\\d.]+)\\)`
+  ).exec(theme);
+  if (!m) throw new Error(`no ${name} in Tailwind's theme`);
+  return oklch(Number(m[1]) / 100, Number(m[2]), Number(m[3]));
+}
+
+/** A class string's colours, light mode first. */
+const shades = (classes: string) =>
+  [...classes.matchAll(/(?:text|border)-([a-z]+-\d+)/g)].map((m) =>
+    tailwindColor(m[1])
+  );
+
+function luminanceOfLab({ L, a, b }: Lab): number {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  return (
+    0.2126 * clamp(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) +
+    0.7152 * clamp(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) +
+    0.0722 * clamp(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)
+  );
+}
+
+/** A `--wa-bubble-*` value: a hex, or oklch with a plain lightness. */
+function luminanceOfToken(value: string): number {
+  const m = /^oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)$/.exec(value);
+  if (m) return luminanceOfLab(oklch(Number(m[1]), Number(m[2]), Number(m[3])));
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(value.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** A bubble's luminance, light mode first (globals.css declares dark first). */
+function bubble(side: 'in' | 'out'): number[] {
+  const values = [
+    ...globals.matchAll(new RegExp(`--wa-bubble-${side}: ([^;]+);`, 'g')),
+  ].map((m) => luminanceOfToken(m[1]));
+  expect(values).toHaveLength(2);
+  return values.reverse();
+}
+
+const contrast = (a: number, b: number) =>
+  (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+const distance = (p: Lab, q: Lab) =>
+  Math.hypot(p.L - q.L, p.a - q.a, p.b - q.b);
+
+/** The two closest colours of the palette, in one mode of one class string. */
+function closestPair(pick: 'text' | 'stripe', mode: 0 | 1): number {
+  let closest = Infinity;
+  SENDER_COLORS.forEach((x, i) =>
+    SENDER_COLORS.slice(i + 1).forEach((y) => {
+      closest = Math.min(
+        closest,
+        distance(shades(x[pick])[mode], shades(y[pick])[mode])
+      );
+    })
+  );
+  return closest;
+}
 
 describe('SENDER_COLORS', () => {
   it('writes every class out whole, with a pair for dark mode', () => {
@@ -46,8 +139,37 @@ describe('SENDER_COLORS', () => {
       expect(hueOf(textOut)).toBe(hueOf(stripe));
       return hueOf(text);
     });
-    expect(new Set(hues).size).toBe(SENDER_COLORS.length);
+    expect(new Set(hues).size).toBe(COLORS);
     expect(hues).not.toContain(hueOf(NEUTRAL_SENDER_COLOR.text));
+  });
+
+  it('keeps every name readable on its bubble, in both modes', () => {
+    const incoming = bubble('in');
+    const outgoing = bubble('out');
+    for (const color of [...SENDER_COLORS, NEUTRAL_SENDER_COLOR]) {
+      shades(color.text).forEach((shade, mode) =>
+        expect(
+          contrast(luminanceOfLab(shade), incoming[mode]),
+          color.text
+        ).toBeGreaterThanOrEqual(4.5)
+      );
+      shades(color.textOut).forEach((shade, mode) =>
+        expect(
+          contrast(luminanceOfLab(shade), outgoing[mode]),
+          color.textOut
+        ).toBeGreaterThanOrEqual(4.5)
+      );
+    }
+  });
+
+  // Any two senders can draw any two colours, so the worst pair decides how
+  // quickly a chat reads. For scale: emerald and teal, cut from the palette
+  // as too alike, are 0.056 apart as stripes and 0.044 as names.
+  it('keeps every pair of colours clearly apart', () => {
+    expect(closestPair('stripe', 0)).toBeGreaterThanOrEqual(0.09);
+    expect(closestPair('stripe', 1)).toBeGreaterThanOrEqual(0.1);
+    expect(closestPair('text', 0)).toBeGreaterThanOrEqual(0.06);
+    expect(closestPair('text', 1)).toBeGreaterThanOrEqual(0.1);
   });
 });
 
@@ -89,51 +211,67 @@ describe('senderKey', () => {
 describe('assignSenderColors', () => {
   it('gives everyone a colour of their own while the palette lasts', () => {
     for (let seed = 1; seed <= CHATS; seed++) {
-      const colors = assignSenderColors(people(seed, SENDER_COLORS.length));
-      expect(colors.size).toBe(SENDER_COLORS.length);
-      expect(new Set(colors.values()).size).toBe(SENDER_COLORS.length);
+      const colors = assignSenderColors(people(seed, COLORS));
+      expect(colors.size).toBe(COLORS);
+      expect(new Set(colors.values()).size).toBe(COLORS);
     }
   });
 
-  it('never puts the first four senders on neighbouring hues', () => {
+  // Which messages are loaded decides the order senders first appear in, so
+  // the same people must not be repainted when that order changes.
+  it('gives the same people the same colours whoever wrote first', () => {
     for (let seed = 1; seed <= CHATS; seed++) {
-      const slots = [...assignSenderColors(people(seed, 4)).values()].map(
-        slotOf
-      );
-      for (let i = 0; i < slots.length; i++)
-        for (let j = i + 1; j < slots.length; j++)
-          expect(wheelGap(slots[i], slots[j])).toBeGreaterThanOrEqual(2);
+      const everyone = people(seed, 6);
+      const colors = assignSenderColors(everyone);
+      const reversed = assignSenderColors([...everyone].reverse());
+      const rotated = assignSenderColors([
+        ...everyone.slice(2),
+        ...everyone.slice(0, 2),
+      ]);
+      for (const [key, color] of colors) {
+        expect(reversed.get(key)).toBe(color);
+        expect(rotated.get(key)).toBe(color);
+      }
     }
   });
 
-  it('never moves a sender when someone new writes', () => {
+  it('moves nobody when a sender arrives with a free colour', () => {
+    let arrivals = 0;
     for (let seed = 1; seed <= CHATS; seed++) {
-      const everyone = people(seed, 9);
-      const before = assignSenderColors(everyone.slice(0, 5));
-      const after = assignSenderColors(everyone);
+      const [newcomer, ...others] = people(seed, 6);
+      const before = assignSenderColors(others);
+      if ([...before.values()].includes(ownColor(newcomer)!)) continue;
+      arrivals++;
+      const after = assignSenderColors([...others, newcomer]);
       for (const [key, color] of before) expect(after.get(key)).toBe(color);
     }
+    expect(arrivals).toBeGreaterThan(CHATS / 4);
   });
 
-  it('gives a person the same colour in every chat where nothing clashes', () => {
+  it('gives a person the same colour in every chat where nobody clashes', () => {
     const [sara] = people(1, 1);
-    const alone = assignSenderColors([sara]).get(sara);
-    for (let seed = 2; seed <= 50; seed++) {
+    let chats = 0;
+    for (let seed = 2; seed <= 200; seed++) {
       const other = people(seed, 2)[1];
-      const gap = wheelGap(
-        slotOf(assignSenderColors([other]).get(other)),
-        slotOf(alone)
-      );
-      if (gap < 2) continue;
-      expect(assignSenderColors([other, sara]).get(sara)).toBe(alone);
+      if (ownColor(other) === ownColor(sara)) continue;
+      chats++;
+      expect(assignSenderColors([other, sara]).get(sara)).toBe(ownColor(sara));
     }
+    expect(chats).toBeGreaterThan(100);
   });
 
-  it('answers the same for the same chat every time', () => {
-    const everyone = people(3, 7);
-    expect([...assignSenderColors(everyone)]).toEqual([
-      ...assignSenderColors(everyone),
-    ]);
+  it('sends one of two clashing senders across the wheel', () => {
+    let clashes = 0;
+    for (let seed = 1; seed <= CHATS; seed++) {
+      const [a, b] = people(seed, 2);
+      if (ownColor(a) !== ownColor(b)) continue;
+      clashes++;
+      const colors = assignSenderColors([a, b]);
+      expect(
+        wheelGap(slotOf(colors.get(a)), slotOf(colors.get(b)))
+      ).toBeGreaterThan(1);
+    }
+    expect(clashes).toBeGreaterThan(50);
   });
 
   it('counts a sender once however often they write', () => {
@@ -142,11 +280,11 @@ describe('assignSenderColors', () => {
   });
 
   it('shares the palette out evenly in a chat bigger than it', () => {
-    const colors = assignSenderColors(people(5, SENDER_COLORS.length * 2 + 6));
+    const colors = assignSenderColors(people(5, COLORS * 2 + 6));
     const uses = new Map<unknown, number>();
     for (const color of colors.values())
       uses.set(color, (uses.get(color) ?? 0) + 1);
-    expect(uses.size).toBe(SENDER_COLORS.length);
+    expect(uses.size).toBe(COLORS);
     expect(Math.max(...uses.values())).toBe(3);
   });
 

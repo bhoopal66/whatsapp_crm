@@ -5,7 +5,9 @@ import { NextIntlClientProvider } from 'next-intl';
 
 import en from '../../../messages/en.json';
 import { NEUTRAL_SENDER_COLOR, senderColors } from '@/lib/groups/sender-colors';
+import type { GroupMessage } from '@/lib/submission-groups/store';
 import type { SgMessage } from '@/lib/submission-groups/ui';
+import { toMessageView } from '@/lib/submission-groups/views';
 
 import { MessageList } from './message-list';
 
@@ -75,7 +77,7 @@ describe('MessageList', () => {
         m.direction === 'out' ? color.textOut : color.text
       );
     });
-    expect(new Set(shown.map((b) => b.name)).size).toBe(4);
+    expect(new Set(messages.map(colorOf)).size).toBe(4);
   });
 
   it('keeps a person in one colour across their messages', () => {
@@ -94,6 +96,52 @@ describe('MessageList', () => {
     ]);
     expect(ours.bubble).toContain('border-e-4');
     expect(theirs.bubble).toContain('border-s-4');
+  });
+
+  // What the read routes answer, not a hand-made view: that is the shape
+  // every screen gets, and a sender it loses turns grey on all of them.
+  it('colours the messages the read routes answer', () => {
+    const stored: GroupMessage = {
+      id: '1',
+      direction: 'in',
+      senderUserId: null,
+      senderWaId: '971500000001',
+      senderKind: 'customer',
+      type: 'text',
+      body: 'Hello',
+      prefixedBody: null,
+      media: null,
+      waMessageId: 'wamid.1',
+      sendStatus: null,
+      postEnd: false,
+      createdAt: new Date('2026-11-05T09:00:00.000Z'),
+      waTimestamp: null,
+    };
+    const answered = JSON.parse(
+      JSON.stringify([
+        toMessageView(stored, new Map()),
+        toMessageView(
+          {
+            ...stored,
+            id: '2',
+            direction: 'out',
+            senderUserId: 'user-1',
+            senderWaId: null,
+            senderKind: null,
+            prefixedBody: 'Sara (Agent): Hello',
+            sendStatus: 'sent',
+          },
+          new Map([['user-1', 'Sara']])
+        ),
+      ])
+    ) as SgMessage[];
+
+    const shown = bubbles(answered);
+    const colorOf = senderColors(answered);
+    expect(colorOf(answered[0])).not.toBe(NEUTRAL_SENDER_COLOR);
+    expect(colorOf(answered[1])).not.toBe(NEUTRAL_SENDER_COLOR);
+    expect(shown[0].bubble).toContain(colorOf(answered[0]).stripe);
+    expect(shown[1].bubble).toContain(colorOf(answered[1]).stripe);
   });
 
   it('leaves an automatic message out of the people’s colours', () => {

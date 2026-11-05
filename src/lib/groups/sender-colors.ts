@@ -20,15 +20,15 @@ export interface SenderColor {
 }
 
 /**
- * Twelve hues in wheel order, so a colour's neighbours are the two most
- * like it (emerald and teal are the closest pair). `assignSenderColors`
- * relies on that order.
+ * Ten hues, in wheel order. Any two senders can draw any two of them, so
+ * the worst pair is what counts: this is the set of ten that sits furthest
+ * apart, and twelve only brought near-twins (teal beside emerald).
  *
- * Names are measured at 4.5:1 or better on their bubbles (`--wa-bubble-in`
- * / `--wa-bubble-out`, both modes). The green outgoing bubble in dark mode
- * is the hard one: it needs shades so pale that they barely differ, which
- * is why incoming names don't share them, and why `stripe` is the stronger
- * signal. Don't drop it for the name alone.
+ * The green outgoing bubble in dark mode is the hard one: it needs shades
+ * so pale that they barely differ, which is why incoming names don't share
+ * them, and why the stripe is the stronger signal. Don't drop it for the
+ * name alone. sender-colors.test.ts measures the contrast and the distances
+ * from Tailwind's theme and the bubble tokens.
  */
 export const SENDER_COLORS: readonly SenderColor[] = [
   {
@@ -42,9 +42,9 @@ export const SENDER_COLORS: readonly SenderColor[] = [
     stripe: 'border-orange-600 dark:border-orange-400',
   },
   {
-    text: 'text-amber-700 dark:text-amber-400',
-    textOut: 'text-amber-700 dark:text-amber-400',
-    stripe: 'border-amber-600 dark:border-amber-400',
+    text: 'text-yellow-800 dark:text-yellow-400',
+    textOut: 'text-yellow-800 dark:text-yellow-400',
+    stripe: 'border-yellow-700 dark:border-yellow-400',
   },
   {
     text: 'text-lime-800 dark:text-lime-400',
@@ -57,19 +57,9 @@ export const SENDER_COLORS: readonly SenderColor[] = [
     stripe: 'border-emerald-600 dark:border-emerald-400',
   },
   {
-    text: 'text-teal-700 dark:text-teal-400',
-    textOut: 'text-teal-700 dark:text-teal-300',
-    stripe: 'border-teal-600 dark:border-teal-400',
-  },
-  {
     text: 'text-cyan-700 dark:text-cyan-400',
     textOut: 'text-cyan-700 dark:text-cyan-300',
     stripe: 'border-cyan-600 dark:border-cyan-400',
-  },
-  {
-    text: 'text-sky-700 dark:text-sky-400',
-    textOut: 'text-sky-700 dark:text-sky-300',
-    stripe: 'border-sky-600 dark:border-sky-400',
   },
   {
     text: 'text-blue-600 dark:text-blue-400',
@@ -93,11 +83,19 @@ export const SENDER_COLORS: readonly SenderColor[] = [
   },
 ];
 
+/**
+ * How far round the wheel a sender moves on a clash: across it, so two
+ * senders who clash don't end up on neighbouring hues. It must share no
+ * factor with the palette's length, or the walk misses colours and two
+ * senders share one with others free.
+ */
+const CLASH_STEP = 3;
+
 /** No person to tell apart: an automatic message, a sender nothing names. */
 export const NEUTRAL_SENDER_COLOR: SenderColor = {
   text: 'text-slate-600 dark:text-slate-200',
   textOut: 'text-slate-600 dark:text-slate-200',
-  stripe: 'border-slate-400 dark:border-slate-500',
+  stripe: 'border-slate-500 dark:border-slate-400',
 };
 
 /** The sender columns the two group message tables have in common. */
@@ -122,7 +120,7 @@ export function senderKey(m: SenderIdentity): string | null {
   return name ? `name:${name}` : null;
 }
 
-/** The colour a sender gets when nothing else in the chat is in the way. */
+/** The colour a sender gets when nobody in the chat clashes with them. */
 function preferredSlot(key: string): number {
   let h = 0x811c9dc5; // FNV-1a
   for (let i = 0; i < key.length; i++) {
@@ -133,41 +131,30 @@ function preferredSlot(key: string): number {
 }
 
 /**
- * The first slot from `preferred` round the wheel with free neighbours as
- * well, else the first free one. `taken` must not be full.
- */
-function pickSlot(preferred: number, taken: ReadonlySet<number>): number {
-  const n = SENDER_COLORS.length;
-  const isTaken = (slot: number) => taken.has((slot + n) % n);
-  const wheel = Array.from({ length: n }, (_, i) => (preferred + i) % n);
-  const clear = wheel.find(
-    (s) => !isTaken(s) && !isTaken(s - 1) && !isTaken(s + 1)
-  );
-  return clear ?? wheel.find((s) => !isTaken(s)) ?? preferred;
-}
-
-/**
- * Colours for one chat's senders, given in the order they first wrote.
+ * Colours for the senders of one chat.
  *
- * A hash alone would give two people the same colour in about one
- * three-person chat in four; numbering them in order would repaint everyone
- * as the loaded messages slide. So each sender has a colour of their own,
- * the same in every chat, and gives way only to someone who wrote before
- * them. That makes colours differ for as long as the palette lasts, and at
- * least the first four senders never sit on neighbouring hues. A newcomer
- * never moves anyone who already wrote; only loading older messages can,
- * and only someone who clashes with the sender that reveals. A chat with
- * more senders than colours starts round the palette again, evenly.
+ * A hash alone would give two people the same colour in nearly one
+ * three-person chat in three. So each sender has a colour of their own,
+ * the same in every chat, and a clash is settled by the order of the keys.
+ * Never the order they wrote in: that shifts as the loaded messages slide,
+ * and it would repaint the same people from one day to the next. The same
+ * senders always get the same colours. Someone coming into or dropping out
+ * of the loaded messages can only move the senders they clash with, and a
+ * chat with more senders than colours starts round the palette again.
  */
 export function assignSenderColors(
   keys: Iterable<string | null>
 ): Map<string, SenderColor> {
+  const senders = [...new Set(keys)]
+    .filter((key): key is string => key !== null)
+    .sort();
   const colors = new Map<string, SenderColor>();
   let taken = new Set<number>();
-  for (const key of keys) {
-    if (key === null || colors.has(key)) continue;
+  for (const key of senders) {
     if (taken.size === SENDER_COLORS.length) taken = new Set();
-    const slot = pickSlot(preferredSlot(key), taken);
+    let slot = preferredSlot(key);
+    for (let i = 0; i < SENDER_COLORS.length && taken.has(slot); i++)
+      slot = (slot + CLASH_STEP) % SENDER_COLORS.length;
     taken.add(slot);
     colors.set(key, SENDER_COLORS[slot]);
   }

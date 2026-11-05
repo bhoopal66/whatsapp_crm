@@ -136,13 +136,15 @@ CRM, and each phone number, the group's own number included when someone
 sends from the phone. A hidden number (`@lid`) counts as a number of its
 own. Automatic messages, and a message nothing identifies, stay grey.
 
-There are twelve colours. No two senders of a chat share one until it has
-more than twelve, and the first four never get neighbouring hues. A person
-has the same colour in every chat unless it would clash with someone who
-wrote there before them. Only the messages on screen count, so loading
-older ones can change the colour of someone who clashes with a sender they
-reveal. The colours are worked out in the browser (`lib/groups/sender-colors.ts`):
-nothing is stored.
+There are ten colours, and no two senders on screen share one until a chat
+has more than ten. A person's colour comes from their id, so they usually
+have the same one in every chat. It moves only to settle a clash with
+someone else in that chat, and the same people always settle it the same
+way, whoever wrote first. Only the messages on screen count: someone coming
+into them or dropping out of them, for example when older messages are
+loaded, can change the colour of a sender they clash with. The colours are
+worked out in the browser (`lib/groups/sender-colors.ts`): nothing is
+stored.
 
 ## Limits
 
