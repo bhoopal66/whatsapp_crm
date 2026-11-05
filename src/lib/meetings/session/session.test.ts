@@ -129,6 +129,31 @@ describe('MeetingSession', () => {
     expect(session.getSnapshot().claimed).toBe(true);
   });
 
+  it('reports a call that ends as the room page goes', () => {
+    const { engine, create } = engineFor('a');
+    session.open('a', create);
+    engine.set({ phase: 'live' });
+    session.release('a');
+    engine.set({ phase: 'ended' });
+    tick();
+    expect(ended).toEqual([
+      expect.objectContaining({ meetingId: 'a', phase: 'ended' }),
+    ]);
+    expect(engine.detach).toHaveBeenCalledTimes(1);
+    expect(session.getSnapshot().engine).toBeNull();
+  });
+
+  it('says nothing of a call already over when its page goes', () => {
+    const { engine, create } = engineFor('a');
+    session.open('a', create);
+    engine.set({ phase: 'live' });
+    engine.set({ phase: 'left' });
+    session.release('a');
+    tick();
+    expect(ended).toEqual([]);
+    expect(session.getSnapshot().engine).toBeNull();
+  });
+
   it('reports a call that ends off the room once, then detaches', () => {
     const { engine, create } = engineFor('a');
     session.open('a', create);

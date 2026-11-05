@@ -134,10 +134,14 @@ export class MeetingSession<E extends SessionEngine> {
     const held = this.held;
     if (!held || held.engine.meetingId !== meetingId || !held.claimed) return;
     this.stopRelease();
+    // In a call now and not a tick later: it ended as the page went, and
+    // no room is left to show that. One already over was seen ending.
+    const wasLive = isInCall(held.engine.getSnapshot().phase);
     this.cancelRelease = this.defer(() => {
       this.cancelRelease = null;
       held.claimed = false;
       if (isInCall(held.engine.getSnapshot().phase)) this.publish();
+      else if (wasLive && !held.replaced) this.finish(held);
       else this.drop(held);
     });
   }
@@ -175,12 +179,17 @@ export class MeetingSession<E extends SessionEngine> {
     if (isInCall(snap.phase)) {
       held.wasInCall = true;
     } else if (!held.claimed && held.wasInCall) {
-      const finished = heldMeeting(held.engine);
-      this.onEnded?.({ ...finished, phase: snap.phase, error: snap.error });
-      this.drop(held);
+      this.finish(held);
       return;
     }
     this.publish();
+  }
+
+  /** The call ended with no room page to show it. */
+  private finish(held: Held<E>) {
+    const { phase, error } = held.engine.getSnapshot();
+    this.onEnded?.({ ...heldMeeting(held.engine), phase, error });
+    this.drop(held);
   }
 
   private drop(held: Held<E>) {
