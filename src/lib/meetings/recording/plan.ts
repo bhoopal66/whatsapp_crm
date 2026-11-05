@@ -131,6 +131,45 @@ export interface RecorderSink {
   abort(): void;
 }
 
+/** Our own flag must read back within this, or nobody can be told. */
+export const FLAG_SEEN_WITHIN_MS = 10_000;
+
+/** How long a recorder that stopped itself gets to hand over its last data. */
+export const LAST_DATA_WAIT_MS = 2_000;
+
+/**
+ * Ends a recording and closes its file. The file closes on every path: a
+ * recorder that stopped itself on an error is already `inactive`, and
+ * skipping the close there lost the file while the screen said saved. A
+ * failed write or close rejects, so the caller can't report a save.
+ */
+export async function finishRecording(input: {
+  recorder: { readonly state: string; stop(): void };
+  /** Settles on the recorder's `stop` event. */
+  ended: Promise<void>;
+  /** Settles once every chunk reached the sink. */
+  flushed: () => Promise<void>;
+  sink: { close(): Promise<void> };
+}): Promise<void> {
+  const { recorder, ended, flushed, sink } = input;
+  if (recorder.state !== 'inactive') {
+    recorder.stop();
+    await ended;
+  } else {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, LAST_DATA_WAIT_MS);
+    });
+    await Promise.race([ended, late]);
+    clearTimeout(timer);
+  }
+  try {
+    await flushed();
+  } finally {
+    await sink.close();
+  }
+}
+
 export interface RecorderDeps<S extends RecorderSink> {
   setFlag(on: boolean): Promise<RecordingFlagResult>;
   /** Null: the person cancelled the save dialog. */
@@ -141,6 +180,8 @@ export interface RecorderDeps<S extends RecorderSink> {
   onRefused(reason: RecorderRefusal): void;
   onSaved(fileName: string | null): void;
   onSaveFailed(): void;
+  /** It ended by itself and the file is safe, but nobody chose to stop. */
+  onInterrupted(): void;
   now(): number;
 }
 
@@ -150,7 +191,9 @@ export interface RecorderMachine {
   request(): void;
   cancel(): void;
   confirm(): Promise<void>;
-  stop(opts?: { clearFlag?: boolean }): Promise<void>;
+  stop(opts?: { clearFlag?: boolean; interrupted?: boolean }): Promise<void>;
+  /** The capture failed by itself: stop, save and say so. */
+  interrupted(): void;
   /** Every change of who `call.recording` names, while we may record. */
   flagIs(holder: 'us' | 'nobody' | 'other'): void;
 }
@@ -164,6 +207,7 @@ export function createRecorderMachine<S extends RecorderSink>(
   let flagSeen = false;
   let savedName: string | null = null;
   let stopWhileStarting = false;
+  let flagCheck: ReturnType<typeof setTimeout> | undefined;
   const go = (next: RecorderState) => {
     state = next;
     deps.onChange();
@@ -174,6 +218,7 @@ export function createRecorderMachine<S extends RecorderSink>(
     if (state === 'starting') stopWhileStarting = true;
     if (state === 'confirming') go('idle');
     if (state !== 'recording') return;
+    clearTimeout(flagCheck);
     go('stopping');
     let saved = true;
     try {
@@ -186,8 +231,9 @@ export function createRecorderMachine<S extends RecorderSink>(
     capture = null;
     startedAt = null;
     go('idle');
-    if (saved) deps.onSaved(savedName);
-    else deps.onSaveFailed();
+    if (!saved) deps.onSaveFailed();
+    else if (opts?.interrupted) deps.onInterrupted();
+    else deps.onSaved(savedName);
   };
 
   return {
@@ -240,10 +286,18 @@ export function createRecorderMachine<S extends RecorderSink>(
       }
       flagSeen = false;
       startedAt = deps.now();
+      // A flag cleared while the capture was starting never reads as
+      // ours, and a vanished flag only stops a recording once it was seen.
+      flagCheck = setTimeout(() => {
+        if (!flagSeen) void stop({ interrupted: true });
+      }, FLAG_SEEN_WITHIN_MS);
       go('recording');
       if (stopWhileStarting) await stop();
     },
     stop,
+    interrupted() {
+      void stop({ interrupted: true });
+    },
     flagIs(holder) {
       if (state !== 'recording') return;
       if (holder === 'us') {

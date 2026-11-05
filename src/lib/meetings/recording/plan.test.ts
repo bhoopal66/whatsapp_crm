@@ -4,6 +4,9 @@ import type { RecordingFlagResult } from '@/lib/meetings/room/recording';
 
 import {
   createRecorderMachine,
+  finishRecording,
+  FLAG_SEEN_WITHIN_MS,
+  LAST_DATA_WAIT_MS,
   pickMimeType,
   recordEntry,
   recordingFileName,
@@ -24,6 +27,7 @@ function rig(answer: RecordingFlagResult = 'ok') {
     onRefused: vi.fn(),
     onSaved: vi.fn(),
     onSaveFailed: vi.fn(),
+    onInterrupted: vi.fn(),
     now: () => 5,
   };
   return { deps, sink, captureStop, m: createRecorderMachine(deps) };
@@ -34,6 +38,136 @@ async function recording(r: ReturnType<typeof rig>) {
   await r.m.confirm();
   r.m.flagIs('us');
 }
+
+describe('a recording that ends by itself', () => {
+  it('stops, clears the flag and never reports a plain save', async () => {
+    const r = rig();
+    await recording(r);
+    r.m.interrupted();
+    await vi.waitFor(() => expect(r.m.state).toBe('idle'));
+    expect(r.captureStop).toHaveBeenCalledTimes(1);
+    expect(r.deps.setFlag).toHaveBeenLastCalledWith(false);
+    expect(r.deps.onInterrupted).toHaveBeenCalledTimes(1);
+    expect(r.deps.onSaved).not.toHaveBeenCalled();
+  });
+
+  it('says the file was lost when closing it fails', async () => {
+    const r = rig();
+    await recording(r);
+    r.captureStop.mockRejectedValueOnce(new Error('disk'));
+    r.m.interrupted();
+    await vi.waitFor(() => expect(r.m.state).toBe('idle'));
+    expect(r.deps.onSaveFailed).toHaveBeenCalledTimes(1);
+    expect(r.deps.onInterrupted).not.toHaveBeenCalled();
+    expect(r.deps.onSaved).not.toHaveBeenCalled();
+    expect(r.deps.setFlag).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe('a flag that never reads back', () => {
+  it('stops once the bound passes, though nothing announced a change', async () => {
+    vi.useFakeTimers();
+    try {
+      const r = rig();
+      r.m.request();
+      await r.m.confirm();
+      r.m.flagIs('nobody'); // cleared during the start: no stop on its own
+      expect(r.m.state).toBe('recording');
+      await vi.advanceTimersByTimeAsync(FLAG_SEEN_WITHIN_MS);
+      expect(r.m.state).toBe('idle');
+      expect(r.deps.onInterrupted).toHaveBeenCalledTimes(1);
+      expect(r.deps.setFlag).toHaveBeenLastCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves a recording alone once the flag was seen', async () => {
+    vi.useFakeTimers();
+    try {
+      const r = rig();
+      await recording(r);
+      await vi.advanceTimersByTimeAsync(FLAG_SEEN_WITHIN_MS * 2);
+      expect(r.m.state).toBe('recording');
+      expect(r.captureStop).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('finishRecording', () => {
+  const sinkRig = () => ({ close: vi.fn(async () => {}) });
+  const recorderIn = (state: string) => ({ state, stop: vi.fn() });
+
+  it('closes the file when the recorder already stopped itself', async () => {
+    const sink = sinkRig();
+    const recorder = recorderIn('inactive');
+    await finishRecording({
+      recorder,
+      ended: Promise.resolve(),
+      flushed: async () => {},
+      sink,
+    });
+    expect(sink.close).toHaveBeenCalledTimes(1);
+    expect(recorder.stop).not.toHaveBeenCalled();
+  });
+
+  it('closes it even if the stop event never comes', async () => {
+    vi.useFakeTimers();
+    try {
+      const sink = sinkRig();
+      const done = finishRecording({
+        recorder: recorderIn('inactive'),
+        ended: new Promise(() => {}),
+        flushed: async () => {},
+        sink,
+      });
+      await vi.advanceTimersByTimeAsync(LAST_DATA_WAIT_MS);
+      await done;
+      expect(sink.close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the last chunk before closing', async () => {
+    const order: string[] = [];
+    await finishRecording({
+      recorder: recorderIn('recording'),
+      ended: Promise.resolve().then(() => void order.push('ended')),
+      flushed: async () => void order.push('flushed'),
+      sink: { close: async () => void order.push('closed') },
+    });
+    expect(order).toEqual(['ended', 'flushed', 'closed']);
+  });
+
+  it('still closes after a failed write, and rejects', async () => {
+    const sink = sinkRig();
+    await expect(
+      finishRecording({
+        recorder: recorderIn('recording'),
+        ended: Promise.resolve(),
+        flushed: async () => {
+          throw new Error('disk');
+        },
+        sink,
+      })
+    ).rejects.toThrow('disk');
+    expect(sink.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects when the close fails', async () => {
+    await expect(
+      finishRecording({
+        recorder: recorderIn('inactive'),
+        ended: Promise.resolve(),
+        flushed: async () => {},
+        sink: { close: () => Promise.reject(new Error('disk')) },
+      })
+    ).rejects.toThrow('disk');
+  });
+});
 
 describe('consent rules', () => {
   it('raises the flag before any capture starts', async () => {

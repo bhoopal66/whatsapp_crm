@@ -6447,6 +6447,7 @@
       "saved": "Recording saved",
       "savedDownloads": "Recording saved to your downloads",
       "saveFailed": "The recording could not be saved",
+      "interrupted": "Recording stopped unexpectedly. What was captured has been saved.",
       "refused": {
         "already_recording": "Someone else is already recording this meeting.",
         "unavailable": "Recording isn't available yet: people in the meeting couldn't be told, so nothing was recorded.",

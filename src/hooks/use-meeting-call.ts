@@ -381,6 +381,11 @@ export class MeetingCallEngine {
 
   getSnapshot = () => this.snap;
 
+  /** The live mic: a mute is `enabled = false` on this same track. */
+  get micTrack(): MediaStreamTrack | null {
+    return this.audio;
+  }
+
   /** A snapshot with the actions: the shape the screens work from. */
   toCall(snap: CallSnapshot): MeetingCall {
     return {

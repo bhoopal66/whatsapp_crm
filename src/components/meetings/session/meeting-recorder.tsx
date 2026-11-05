@@ -32,7 +32,6 @@ function createLive() {
   let say: Say = (key) => key;
   let redraw: (() => void) | undefined;
   let capture0: MeetingCapture | null = null;
-  let mic0: MediaStreamTrack | null = null;
   const machine: RecorderMachine = createRecorderMachine<SaveSink>({
     setFlag: (on) => call.setRecordingFlag(on),
     pickSink: () =>
@@ -43,19 +42,13 @@ function createLive() {
     begin: async (sink) => {
       const mime = pickMimeType((m) => MediaRecorder.isTypeSupported(m));
       if (!mime) throw new Error('no supported format');
-      const id = call.selectedDevices.audioinput;
-      const mic = await navigator.mediaDevices
-        .getUserMedia({ audio: id ? { deviceId: id } : true })
-        .then((s) => s.getAudioTracks()[0] ?? null)
-        .catch(() => null);
-      const capture = await startCapture(sink, mime);
-      mic0 = mic;
+      const capture = await startCapture(sink, mime, () =>
+        machine.interrupted()
+      );
       capture0 = capture;
       return {
         stop: async () => {
           capture0 = null;
-          mic0 = null;
-          mic?.stop();
           await capture.stop();
         },
       };
@@ -67,12 +60,12 @@ function createLive() {
         ? toast.success(say('saved'), { description: name })
         : toast.success(say('savedDownloads')),
     onSaveFailed: () => toast.error(say('saveFailed')),
+    onInterrupted: () => toast.error(say('interrupted')),
     now: () => Date.now(),
   });
   return {
     machine,
     capture: () => capture0,
-    mic: () => mic0,
     sync(next: ActiveCall['call'], nextSay: Say, nextRedraw: () => void) {
       call = next;
       say = nextSay;
@@ -83,11 +76,11 @@ function createLive() {
 
 /**
  * Records the call to this computer. Lives in the layer, so it survives a
- * page change. Our mic is a second capture of the same device: the engine
- * keeps its track private, and `enabled` follows `call.micOn`.
+ * page change. Our voice is the engine's own mic track, so a mute reaches
+ * the file as silence with no code here.
  */
 export function MeetingRecorder({ active }: { active: ActiveCall }) {
-  const { call, roomUi } = active;
+  const { call, engine, roomUi } = active;
   const t = useTranslations('MeetingRoom.recording');
   const { user } = useAuth();
   const { nameOf } = useWorkspaceMembers();
@@ -130,13 +123,14 @@ export function MeetingRecorder({ active }: { active: ActiveCall }) {
     return () => window.removeEventListener('pagehide', onHide);
   }, [machine]);
 
-  // A reconnect brings new tracks: this re-reads them from the snapshot.
-  const { remote, localVideo, localScreen, participants, participantId } = call;
-  const { activeSpeakerId, micOn } = call;
+  // A reconnect or a device switch brings new tracks: every new snapshot
+  // re-reads them.
   useEffect(() => {
     const capture = live.capture();
-    const mic = live.mic();
     if (state !== 'recording' || !capture) return;
+    const { remote, localVideo, localScreen, participants } = call;
+    const { participantId, activeSpeakerId } = call;
+    const mic = engine.micTrack;
     const people = participants.map((p) => {
       const self = p.id === participantId;
       return {
@@ -147,23 +141,11 @@ export function MeetingRecorder({ active }: { active: ActiveCall }) {
       };
     });
     capture.setBoxes(recordingLayout({ people, activeSpeakerId }));
-    if (mic) mic.enabled = micOn;
     capture.setAudio([
       ...(mic ? [mic] : []),
       ...Object.values(remote).flatMap((r) => (r.audio ? [r.audio] : [])),
     ]);
-  }, [
-    state,
-    remote,
-    localVideo,
-    localScreen,
-    participants,
-    participantId,
-    activeSpeakerId,
-    micOn,
-    nameOf,
-    live,
-  ]);
+  }, [state, call, engine, nameOf, live]);
 
   return (
     <ConfirmDialog

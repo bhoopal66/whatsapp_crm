@@ -7,6 +7,7 @@ import {
   FRAME_FPS,
   FRAME_HEIGHT,
   FRAME_WIDTH,
+  finishRecording,
   type LayoutBox,
   type RecorderSink,
 } from './plan';
@@ -39,7 +40,12 @@ function downloadSink(fileName: string, type: string): SaveSink {
   };
 }
 
-/** Null: the person cancelled the dialog. Call it inside the click. */
+/**
+ * Null: the person cancelled the dialog. Call it inside the click.
+ * Neither sink survives a crash: the picker's stream writes to a temporary
+ * file the browser moves into place on `close()`, and the download sink
+ * holds everything in memory until then.
+ */
 export async function pickSaveSink(
   fileName: string,
   type: string
@@ -107,10 +113,14 @@ export interface MeetingCapture {
   stop(): Promise<void>;
 }
 
-/** Throws if the browser cannot record: the caller clears the flag. */
+/**
+ * Throws if the browser cannot record: the caller clears the flag.
+ * `onInterrupted` runs when the recorder or the file fails by itself.
+ */
 export async function startCapture(
   sink: SaveSink,
-  mimeType: string
+  mimeType: string,
+  onInterrupted: () => void
 ): Promise<MeetingCapture> {
   const canvas = document.createElement('canvas');
   canvas.width = FRAME_WIDTH;
@@ -161,9 +171,21 @@ export async function startCapture(
     { mimeType, videoBitsPerSecond: 1_500_000 }
   );
   let writes: Promise<void> = Promise.resolve();
+  let writeError: unknown = null;
   recorder.ondataavailable = (e) => {
-    if (e.data.size) writes = writes.then(() => sink.write(e.data));
+    if (!e.data.size) return;
+    writes = writes
+      .then(() => (writeError ? undefined : sink.write(e.data)))
+      .catch((err) => {
+        writeError = err;
+        onInterrupted();
+      });
   };
+  const ended = new Promise<void>((resolve) => {
+    recorder.onstop = () => resolve();
+  });
+  // It stops itself on an error, and nothing else would notice.
+  recorder.onerror = () => onInterrupted();
   recorder.start(2000);
 
   return {
@@ -192,17 +214,21 @@ export async function startCapture(
     },
     async stop() {
       ticker.stop();
-      const done = new Promise<void>((resolve) => {
-        recorder.onstop = () => resolve();
-      });
-      if (recorder.state !== 'inactive') recorder.stop();
-      else return;
-      await done;
-      await writes;
-      await sink.close();
-      videoTrack.stop();
-      for (const v of videos.values()) v.srcObject = null;
-      await audio.close().catch(() => {});
+      try {
+        await finishRecording({
+          recorder,
+          ended,
+          sink,
+          flushed: async () => {
+            await writes;
+            if (writeError) throw writeError;
+          },
+        });
+      } finally {
+        videoTrack.stop();
+        for (const v of videos.values()) v.srcObject = null;
+        await audio.close().catch(() => {});
+      }
     },
   };
 }
