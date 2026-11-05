@@ -18,7 +18,7 @@ import { isInCall } from '@/lib/meetings/session/session';
 import { notificationRow } from '@/lib/notifications/target';
 import type { Notification } from '@/types';
 
-import { startRingTone } from './invite-ring-tone';
+import { holdRingSilent, startRingTone } from './invite-ring-tone';
 import { useActiveCall } from './session/meeting-session-provider';
 import { useWorkspaceMembers } from './use-workspace-members';
 
@@ -157,6 +157,8 @@ export function MeetingInviteCard() {
   useEffect(() => {
     ringer.setContext({ activeWorkspaceId, pathname, heldMeetingId, busy });
   });
+
+  useEffect(() => (busy ? holdRingSilent() : undefined), [busy]);
 
   useEffect(() => {
     const stopListening = onChange((change) => ringer.handle(change));

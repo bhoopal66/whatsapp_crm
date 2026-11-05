@@ -1441,7 +1441,8 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   tone is laid on the audio clock up front and is finite, so a frozen tab
   can't ring on. Not now marks the row read, which is what closes the
   card on other tabs. A row of another workspace is never checked against
-  `/api/meetings/[id]`: it would answer 404.
+  `/api/meetings/[id]`: it would answer 404. One Web Lock decides who
+  rings, and a tab in a call holds it, because a meeting lives in one tab.
 
 ### Calendar and web push (`lib/calendar/*`, `lib/push/*`, migrations 108–110)
 

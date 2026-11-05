@@ -80,3 +80,32 @@ export function startRingTone(): () => void {
     return noop;
   }
 }
+
+/**
+ * While this tab is in a meeting or on a call it sits on the ring's lock,
+ * so no other tab of the browser rings either: a meeting lives in one tab,
+ * and the others cannot see it. Answers how to let go.
+ */
+export function holdRingSilent(): () => void {
+  try {
+    if (!navigator.locks) return noop;
+    const queued = new AbortController();
+    let release = noop;
+    void navigator.locks
+      .request(
+        LOCK_NAME,
+        { signal: queued.signal },
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          })
+      )
+      .catch(noop);
+    return () => {
+      queued.abort();
+      release();
+    };
+  } catch {
+    return noop;
+  }
+}
