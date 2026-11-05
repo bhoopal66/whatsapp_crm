@@ -174,7 +174,9 @@ server or to Cloudflare.
   starts. If the server cannot set the mark, nothing is recorded.
 - **Consent.** Everyone in the meeting gets a toast and a tone, on every
   page, and a REC chip shows in the room. The lobby warns before
-  joining a meeting that is being recorded.
+  joining a meeting that is being recorded. It reads the meeting again
+  every 5 seconds, so a recording that starts while someone waits is
+  shown, and a lock that lifts lets them in with no reload.
 - **Reconnects.** A reconnect keeps the mark (the leave carries
   `reconnecting: true`). A real leave by the recorder clears it.
 - **Stops** when the recorder leaves, is removed, the meeting ends, or

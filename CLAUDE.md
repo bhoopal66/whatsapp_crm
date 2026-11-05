@@ -1426,6 +1426,9 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   failure there means nothing is recorded. A reconnect leaves with
   `reconnecting: true` and keeps the flag; a real leave by the recorder
   clears it.
+- **The lobby has no realtime channel.** It opens on joining, so the lobby
+  re-reads the row every 5 s (`refreshLobby`). Quietly: notices wait for the
+  room, so a lobby row that queued them would play them all on joining.
 - **Pre-176 tolerance.** Without migration 176 the room still works; lock,
   recording and notes answer as unavailable and the UI says so. Keep that
   fallback when touching those routes. `verify-meeting-host-tools.sql`.

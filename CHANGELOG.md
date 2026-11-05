@@ -31,7 +31,8 @@ and polish.
 - Host tools: Mute everyone, Lower all hands, Lock meeting, and Invite
   people (organiser only). Raised hands are a numbered queue. A locked
   meeting lets in only managers and people who dropped out within 5
-  minutes.
+  minutes, and someone waiting in the lobby gets in when it unlocks, with
+  no reload.
 - Background effects: blur, colour backdrops or your own image, in the
   lobby and in the room. If an effect cannot run, the camera turns off
   rather than send the raw picture. An uploaded image stays in that
@@ -39,7 +40,8 @@ and polish.
 - Recording: a host records to their own computer. Nothing is uploaded.
   Everyone gets a notice and a REC chip, and the lobby warns before
   joining. The file is WebM; a crash, or closing the tab while recording,
-  can lose it, so stop recording first.
+  can lose it, so stop recording first. If a recorder's browser crashes,
+  another host can record 90 seconds later.
 - Shared notes per meeting that two people can edit without losing text.
   Hosts can finish them after the meeting.
 - Meetings page: Start now in one click, Happening now, Coming up, a Next
