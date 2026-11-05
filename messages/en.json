@@ -6606,6 +6606,7 @@
       "sharingBanner": "You are sharing your screen",
       "stopSharing": "Stop sharing",
       "aloneBodyInvite": "Only people you invite can join this meeting",
+      "aloneBodyWaiting": "Waiting for others to join",
       "invitePeople": "Invite people"
     },
     "topBar": {

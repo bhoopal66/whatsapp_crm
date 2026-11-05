@@ -9,7 +9,6 @@ import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  NO_NOTES,
   notesSaveOutcome,
   notesTooLong,
   parseNotesRead,
@@ -272,7 +271,7 @@ export function MeetingNotesView({
           <p className="text-sm break-words whitespace-pre-wrap">
             {notes.body}
           </p>
-          {notes.updatedAt && notes !== NO_NOTES && (
+          {notes.updatedAt && (
             <p className="text-muted-foreground text-xs">
               {td('notesUpdated', {
                 name: notes.updatedBy

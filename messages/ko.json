@@ -6606,6 +6606,7 @@
       "sharingBanner": "화면을 공유하는 중입니다",
       "stopSharing": "공유 중지",
       "aloneBodyInvite": "초대받은 사람만 이 회의에 참여할 수 있습니다",
+      "aloneBodyWaiting": "다른 사람이 참여하기를 기다리는 중입니다",
       "invitePeople": "사람 초대"
     },
     "topBar": {

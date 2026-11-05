@@ -516,6 +516,7 @@ export function LiveRoom({
             onStopShare={() => void call.toggleScreen()}
             onTileSizes={call.setTileSizes}
             openToWorkspace={!!call.meeting?.open_to_workspace}
+            isOrganiser={!!user?.id && call.meeting?.host_user_id === user.id}
             onInvite={() => onOpenPanel('people')}
           />
           <FloatingReactions

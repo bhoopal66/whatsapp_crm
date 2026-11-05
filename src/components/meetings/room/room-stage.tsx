@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { ParticipantId, TileSize } from '@/lib/meetings/room/contract';
 import {
+  emptyRoomAction,
   tileSizes,
   type StageArrangement,
   type StageTile,
@@ -25,20 +26,22 @@ import { cn } from '@/lib/utils';
 const GLASS = 'bg-black/55 text-white ring-1 ring-white/10 backdrop-blur-md';
 
 /**
- * Alone in the room: how to bring someone in. A link only lets a
- * colleague in when the meeting is open to the workspace; otherwise they
- * have to be invited, so that is what the card offers.
+ * Alone in the room: how to bring someone in, if we can
+ * (`emptyRoomAction`).
  */
 function EmptyRoomCard({
   meetingId,
   openToWorkspace,
+  isOrganiser,
   onInvite,
 }: {
   meetingId: string;
   openToWorkspace: boolean;
+  isOrganiser: boolean;
   onInvite: () => void;
 }) {
   const t = useTranslations('MeetingRoom.stage');
+  const action = emptyRoomAction({ openToWorkspace, isOrganiser });
   const link =
     typeof window === 'undefined'
       ? ''
@@ -60,9 +63,13 @@ function EmptyRoomCard({
       <div className={cn('w-full max-w-sm rounded-xl p-4', GLASS)}>
         <p className="text-sm font-medium">{t('aloneTitle')}</p>
         <p className="mt-0.5 text-xs text-white/70">
-          {openToWorkspace ? t('aloneBody') : t('aloneBodyInvite')}
+          {action === 'link'
+            ? t('aloneBody')
+            : action === 'invite'
+              ? t('aloneBodyInvite')
+              : t('aloneBodyWaiting')}
         </p>
-        {openToWorkspace ? (
+        {action === 'link' && (
           <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pr-1 pl-3">
             <span className="min-w-0 flex-1 truncate text-xs text-white/80">
               {link}
@@ -78,7 +85,8 @@ function EmptyRoomCard({
               {t('copyLink')}
             </Button>
           </div>
-        ) : (
+        )}
+        {action === 'invite' && (
           <Button type="button" className="mt-3 w-full" onClick={onInvite}>
             <UserPlus />
             {t('invitePeople')}
@@ -133,6 +141,7 @@ export function RoomStage({
   onStopShare,
   onTileSizes,
   openToWorkspace,
+  isOrganiser,
   onInvite,
 }: {
   arrangement: StageArrangement;
@@ -150,6 +159,8 @@ export function RoomStage({
   onTileSizes: (sizes: Record<ParticipantId, TileSize>) => void;
   /** A copied link lets colleagues in; otherwise they need an invite. */
   openToWorkspace: boolean;
+  /** Only the organiser can invite, even an admin can't. */
+  isOrganiser: boolean;
   onInvite: () => void;
 }) {
   const t = useTranslations('MeetingRoom.stage');
@@ -339,6 +350,7 @@ export function RoomStage({
         <EmptyRoomCard
           meetingId={meetingId}
           openToWorkspace={openToWorkspace}
+          isOrganiser={isOrganiser}
           onInvite={onInvite}
         />
       )}

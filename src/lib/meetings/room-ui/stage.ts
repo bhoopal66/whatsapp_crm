@@ -52,6 +52,22 @@ export type StageArrangement =
       self: StageTile;
     };
 
+/**
+ * What the alone card can offer. A link admits a colleague only when the
+ * meeting is open to the workspace; a closed meeting needs an invite, and
+ * the server lets only the organiser send one, even an admin can't.
+ */
+export function emptyRoomAction({
+  openToWorkspace,
+  isOrganiser,
+}: {
+  openToWorkspace: boolean;
+  isOrganiser: boolean;
+}): 'link' | 'invite' | 'wait' {
+  if (openToWorkspace) return 'link';
+  return isOrganiser ? 'invite' : 'wait';
+}
+
 export function arrangeStage(input: StageInput): StageArrangement {
   const tiles = withoutHiddenSelf(input.tiles, input.hideSelf);
   const spotlight = (
