@@ -132,6 +132,29 @@ describe('otherPeople and speakerLine', () => {
 });
 
 describe('float geometry', () => {
+  it('moves one axis only from an edge', () => {
+    const start = { left: 300, top: 200, width: 400, height: 300 };
+    const vp = { width: 1440, height: 900 };
+    expect(resizeFromCorner(start, 'e', 50, 80, vp)).toEqual({
+      ...start,
+      width: 450,
+    });
+    expect(resizeFromCorner(start, 's', 50, 80, vp)).toEqual({
+      ...start,
+      height: 380,
+    });
+    expect(resizeFromCorner(start, 'w', -50, 80, vp)).toEqual({
+      ...start,
+      left: 250,
+      width: 450,
+    });
+    expect(resizeFromCorner(start, 'n', 50, -80, vp)).toEqual({
+      ...start,
+      top: 120,
+      height: 380,
+    });
+  });
+
   const vp = { width: 1280, height: 800 };
   const start: Rect = { left: 500, top: 300, width: 360, height: 270 };
   const fixed = (r: Rect, c: FloatCorner) => ({

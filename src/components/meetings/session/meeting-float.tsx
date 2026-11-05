@@ -43,11 +43,20 @@ import { useResizableWindow } from './use-resizable-window';
 const ANCHOR: Anchor = { h: 'right', v: 'bottom', dx: 16, dy: 16 };
 /** Header and controls, and the stage's padding: all but the stage. */
 const CHROME_HEIGHT = 36 + 48;
-const CORNERS: Record<FloatCorner, string> = {
-  nw: 'top-0 left-0 cursor-nwse-resize',
-  ne: 'top-0 right-0 cursor-nesw-resize',
-  sw: 'bottom-0 left-0 cursor-nesw-resize',
-  se: 'bottom-0 right-0 cursor-nwse-resize',
+// Grab areas larger than they look, reaching past the rounded edge: a
+// small target missed by a few pixels starts a text selection in the
+// page behind instead. Corners sit above the edges and take the keyboard.
+const CORNERS: Partial<Record<FloatCorner, string>> = {
+  nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
+  ne: '-top-1.5 -right-1.5 cursor-nesw-resize',
+  sw: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
+  se: '-right-1.5 -bottom-1.5 cursor-nwse-resize',
+};
+const EDGES: Partial<Record<FloatCorner, string>> = {
+  n: 'inset-x-4 -top-1 h-2 cursor-ns-resize',
+  s: 'inset-x-4 -bottom-1 h-2 cursor-ns-resize',
+  w: 'inset-y-4 -left-1 w-2 cursor-ew-resize',
+  e: 'inset-y-4 -right-1 w-2 cursor-ew-resize',
 };
 
 const callWindowRect = (): Rect | null => {
@@ -276,7 +285,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
       aria-label={t('region')}
       style={collapsed ? undefined : size}
       className={cn(
-        'bg-card text-foreground border-border group fixed z-40 flex flex-col rounded-2xl border shadow-2xl',
+        'bg-card text-foreground border-border group fixed z-40 flex flex-col rounded-2xl border shadow-2xl select-none',
         mobile && 'inset-x-2 bottom-2 flex-row items-center gap-2 p-2',
         !mobile && minimized && 'h-11 w-80 flex-row items-center gap-2 px-3'
       )}
@@ -385,9 +394,20 @@ function FloatWindow({ active }: { active: ActiveCall }) {
               {...gripProps(corner)}
               style={{ touchAction: 'none' }}
               className={cn(
-                'focus-visible:bg-ring/60 group-hover:bg-foreground/25 absolute size-3.5 rounded-full outline-none',
+                'focus-visible:bg-ring/60 absolute z-20 flex size-6 items-center justify-center rounded-md outline-none',
                 CORNERS[corner]
               )}
+            >
+              <span className="group-hover:bg-foreground/30 size-1.5 rounded-full" />
+            </span>
+          ))}
+          {(Object.keys(EDGES) as FloatCorner[]).map((edge) => (
+            <span
+              key={edge}
+              aria-hidden
+              {...gripProps(edge)}
+              style={{ touchAction: 'none' }}
+              className={cn('absolute z-10', EDGES[edge])}
             />
           ))}
         </>

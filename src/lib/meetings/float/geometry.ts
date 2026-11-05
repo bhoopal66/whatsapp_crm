@@ -17,7 +17,8 @@ export const FLOAT_MIN_SIZE: Size = { width: 280, height: 210 };
 const MAX_W = 760;
 const MAX_H = 600;
 
-export type FloatCorner = 'nw' | 'ne' | 'sw' | 'se';
+/** A corner, or an edge (which moves one axis only). */
+export type FloatCorner = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w';
 
 const within = (v: number, min: number, max: number) =>
   Math.min(Math.max(v, min), Math.max(min, max));
@@ -75,7 +76,7 @@ export function resizeFromCorner(
   const x = axis(
     start.left,
     start.width,
-    dx,
+    corner === 'n' || corner === 's' ? 0 : dx,
     west,
     minW,
     max.width,
@@ -84,7 +85,7 @@ export function resizeFromCorner(
   const y = axis(
     start.top,
     start.height,
-    dy,
+    corner === 'e' || corner === 'w' ? 0 : dy,
     north,
     minH,
     max.height,
