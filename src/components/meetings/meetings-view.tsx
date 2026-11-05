@@ -272,7 +272,7 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
       </header>
 
       {inCall && (
-        <div className="border-success/40 bg-success-soft flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
+        <div className="border-success/40 bg-card dark:bg-success-soft flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
           <LiveDot />
           <p className="min-w-0 flex-1 truncate text-sm font-medium">
             {t('inCallBanner', { title: inCall.call.meeting?.title ?? '' })}
