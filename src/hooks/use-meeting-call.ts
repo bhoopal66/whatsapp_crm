@@ -231,6 +231,8 @@ const DISCONNECTED_GRACE_MS = 15_000;
 const REPLAN_TICK_MS = 5_000;
 /** Speaker and mic-meter sampling: at most 5 snapshot changes a second. */
 const LEVEL_TICK_MS = 200;
+/** How often the lobby reads the meeting again; see `refreshLobby`. */
+const LOBBY_REFRESH_MS = 5_000;
 /** Tile sizes settle (a resize drags through many) before a layer switch. */
 const LAYER_DEBOUNCE_MS = 300;
 /** A shared screen is text: one layer, enough bits to stay legible. */
@@ -315,6 +317,7 @@ export class MeetingCallEngine {
   private tileSizes: Record<ParticipantId, TileSize> = {};
   private layerTimer: ReturnType<typeof setTimeout> | null = null;
   private levelTimer: ReturnType<typeof setInterval> | null = null;
+  private lobbyTimer: ReturnType<typeof setInterval> | null = null;
   private speaker = INITIAL_SPEAKER_STATE;
   private audioCtx: AudioContext | null = null;
   private analyser: {
@@ -468,6 +471,10 @@ export class MeetingCallEngine {
       this.onDeviceChange
     );
     this.levelTimer = setInterval(() => this.sampleLevels(), LEVEL_TICK_MS);
+    this.lobbyTimer = setInterval(
+      () => void this.refreshLobby(),
+      LOBBY_REFRESH_MS
+    );
     void this.loadMeeting();
     void this.startPreview();
   }
@@ -482,6 +489,8 @@ export class MeetingCallEngine {
     this.stopMedia();
     if (this.levelTimer) clearInterval(this.levelTimer);
     this.levelTimer = null;
+    if (this.lobbyTimer) clearInterval(this.lobbyTimer);
+    this.lobbyTimer = null;
     navigator.mediaDevices?.removeEventListener?.(
       'devicechange',
       this.onDeviceChange
@@ -1195,6 +1204,24 @@ export class MeetingCallEngine {
     }
     // From here a new face is a join; before, everyone would be.
     this.rowsLoaded = true;
+  }
+
+  /**
+   * The realtime channel opens on joining, so the lobby would keep what
+   * it read on arrival: someone held out by a lock would stay out after
+   * it lifted, and a recording started meanwhile would go unmentioned. A
+   * failed read says nothing about the meeting, so it changes nothing;
+   * no row is an answer, and `loadMeeting` says what it means.
+   */
+  private async refreshLobby() {
+    const waiting = () =>
+      this.snap.phase === 'lobby' && this.snap.meetingState === 'ready';
+    if (!waiting()) return;
+    const writes = this.meetingWrites;
+    const { data, error } = await this.readMeeting();
+    if (error || !waiting() || writes !== this.meetingWrites) return;
+    if (data) this.onMeetingRow(data as MeetingSummary);
+    else await this.loadMeeting();
   }
 
   private async refreshMeeting(channel: RealtimeChannel) {
