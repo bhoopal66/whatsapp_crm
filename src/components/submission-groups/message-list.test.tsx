@@ -52,11 +52,11 @@ function bubbles(messages: SgMessage[]) {
   );
   const found = [
     ...html.matchAll(
-      /<div class="([^"]*max-w-\[85%\][^"]*)"><p class="([^"]*)"/g
+      /<div class="([^"]*max-w-\[85%\][^"]*)"><p class="([^"]*)"><span dir="auto">([^<]*)</g
     ),
   ];
   expect(found).toHaveLength(messages.length);
-  return found.map(([, bubble, name]) => ({ bubble, name }));
+  return found.map(([, bubble, name, sender]) => ({ bubble, name, sender }));
 }
 
 describe('MessageList', () => {
@@ -154,5 +154,19 @@ describe('MessageList', () => {
     ]);
     expect(automatic.bubble).toContain(NEUTRAL_SENDER_COLOR.stripe);
     expect(automatic.name).toContain(NEUTRAL_SENDER_COLOR.textOut);
+    expect(automatic.sender).toBe(en.SubmissionGroups.chat.automatic);
+  });
+
+  // sg_read_archive has no system_kind, and these rows have no sender.
+  it('still names an automatic message from the archive', () => {
+    const [automatic] = bubbles([
+      message({
+        direction: 'out',
+        prefixed_body: 'Hello',
+        send_status: 'sent',
+      }),
+    ]);
+    expect(automatic.sender).toBe(en.SubmissionGroups.chat.automatic);
+    expect(automatic.bubble).toContain(NEUTRAL_SENDER_COLOR.stripe);
   });
 });

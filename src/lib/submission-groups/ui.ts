@@ -176,6 +176,17 @@ export function bubbleKind(
   return 'other';
 }
 
+/**
+ * An automatic message (170). The archive read has no `system_kind`, but
+ * 170's CHECK makes every other outgoing row name its staff sender, so an
+ * outgoing row without one is automatic there too.
+ */
+export function isAutomatic(
+  m: Pick<SgMessage, 'direction' | 'sender_user_id' | 'system_kind'>
+): boolean {
+  return !!m.system_kind || (m.direction === 'out' && !m.sender_user_id);
+}
+
 /** The send status shown under a staff bubble; inbound messages have none. */
 export function sendStatusOf(
   m: Pick<SgMessage, 'direction' | 'send_status'>

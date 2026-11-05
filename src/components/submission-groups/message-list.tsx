@@ -8,6 +8,7 @@ import { groupMessagesByDay } from '@/lib/groups/group-page';
 import { senderColors } from '@/lib/groups/sender-colors';
 import {
   bubbleKind,
+  isAutomatic,
   sendStatusOf,
   staffSenderLine,
   type SgMessage,
@@ -49,7 +50,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const status = sendStatusOf(m);
             const out = kind === 'staff';
             const color = colorOf(m);
-            const sender = m.system_kind
+            const sender = isAutomatic(m)
               ? t('automatic')
               : out
                 ? staffSenderLine(m)
