@@ -271,6 +271,16 @@ jobs:
       - name: Verify meetings
         run: supabase db query --local --file supabase/ci/verify-meetings.sql
 
+      # Meeting host tools (176): the lock and recording columns are the
+      # service role's alone, on INSERT too, and a manager's edit is
+      # unchanged; a meeting that is not scheduled shows no recording, for
+      # every writer. Notes read as the meeting is and are saved only
+      # through meeting_save_notes (compare-and-set, MN001 STALE; a manager
+      # only after the end). Deleting a host's login that stamped its own
+      # meeting succeeds: those uuids have no foreign key (117).
+      - name: Verify meeting host tools
+        run: supabase db query --local --file supabase/ci/verify-meeting-host-tools.sql
+
       # Web push (109): no client reads the outbox and the dispatcher's
       # functions are the service role's; a person manages only their own
       # devices and preferences; every writer skips a person with no
