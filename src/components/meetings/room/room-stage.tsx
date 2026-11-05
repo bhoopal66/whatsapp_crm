@@ -1,8 +1,9 @@
 'use client';
 
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, MonitorUp } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import type { ParticipantId, TileSize } from '@/lib/meetings/room/contract';
@@ -11,8 +12,83 @@ import {
   type StageArrangement,
   type StageTile,
 } from '@/lib/meetings/room-ui/stage';
+import { meetingLink } from '@/lib/meetings/room-ui/tile-view';
 import { STAGE_GAP, stageMetrics } from '@/lib/meetings/room-ui/tiles';
 import { cn } from '@/lib/utils';
+
+const GLASS = 'bg-black/55 text-white ring-1 ring-white/10 backdrop-blur-md';
+
+/** Alone in the room: how to bring someone in. */
+function EmptyRoomCard({ meetingId }: { meetingId: string }) {
+  const t = useTranslations('MeetingRoom.stage');
+  const link =
+    typeof window === 'undefined'
+      ? ''
+      : meetingLink(window.location.origin, meetingId);
+  const copy = () => {
+    if (!navigator.clipboard) return void toast.error(t('linkCopyFailed'));
+    navigator.clipboard.writeText(link).then(
+      () => toast.success(t('linkCopied')),
+      () => toast.error(t('linkCopyFailed'))
+    );
+  };
+  return (
+    // The delay: on joining a busy room, the other rows land a moment
+    // after we go live, and this must not flash up in between.
+    <div
+      data-room-empty
+      className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both absolute inset-x-3 bottom-6 z-20 flex justify-center delay-1000 duration-300 ease-out motion-reduce:animate-none"
+    >
+      <div className={cn('w-full max-w-sm rounded-xl p-4', GLASS)}>
+        <p className="text-sm font-medium">{t('aloneTitle')}</p>
+        <p className="mt-0.5 text-xs text-white/70">{t('aloneBody')}</p>
+        <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pr-1 pl-3">
+          <span className="min-w-0 flex-1 truncate text-xs text-white/80">
+            {link}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+            onClick={copy}
+          >
+            <Copy />
+            {t('copyLink')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** We are sharing: say so, and offer the way out. */
+function SharingBanner({ onStop }: { onStop: () => void }) {
+  const t = useTranslations('MeetingRoom.stage');
+  return (
+    <div className="pointer-events-none absolute inset-x-3 top-2 z-20 flex justify-center">
+      <div
+        role="status"
+        className={cn(
+          'pointer-events-auto flex min-w-0 items-center gap-2 rounded-xl py-1 pr-1 pl-3 text-xs',
+          GLASS
+        )}
+      >
+        <MonitorUp className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{t('sharingBanner')}</span>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="shrink-0 bg-red-500/20 text-red-200 hover:bg-red-500/30 hover:text-red-100"
+          onClick={onStop}
+        >
+          {t('stopSharing')}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Draws an arrangement into whatever box it is given: the gallery grid
@@ -23,18 +99,25 @@ export function RoomStage({
   arrangement,
   participantIds,
   selfId,
+  meetingId,
+  selfSharing,
   renderTile,
   onPage,
+  onStopShare,
   onTileSizes,
 }: {
   arrangement: StageArrangement;
   participantIds: readonly ParticipantId[];
   selfId: ParticipantId | null;
+  meetingId: string;
+  /** We are sharing our screen. */
+  selfSharing: boolean;
   renderTile: (
     tile: StageTile,
     box: { width: number; height: number; compact: boolean }
   ) => React.ReactNode;
   onPage: (page: number) => void;
+  onStopShare: () => void;
   onTileSizes: (sizes: Record<ParticipantId, TileSize>) => void;
 }) {
   const t = useTranslations('MeetingRoom.stage');
@@ -77,7 +160,11 @@ export function RoomStage({
   }, [sizesKey, onTileSizes]);
 
   return (
-    <div ref={ref} className="relative min-h-0 flex-1">
+    <div
+      ref={ref}
+      data-mode="dark"
+      className="relative min-h-0 min-w-0 flex-1 px-3 pb-1"
+    >
       {size.width > 0 && arrangement.kind === 'gallery' && metrics.grid && (
         <div
           className="flex h-full flex-wrap content-center items-center justify-center"
@@ -104,33 +191,42 @@ export function RoomStage({
       {size.width > 0 &&
         arrangement.kind === 'gallery' &&
         arrangement.pageCount > 1 && (
-          <div className="absolute inset-x-0 bottom-1 flex items-center justify-center gap-2 text-xs text-white">
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="secondary"
-              disabled={arrangement.page === 0}
-              onClick={() => onPage(arrangement.page - 1)}
-              aria-label={t('prevPage')}
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+            <div
+              className={cn(
+                'pointer-events-auto flex items-center gap-1 rounded-full p-0.5 text-xs tabular-nums',
+                GLASS
+              )}
             >
-              <ChevronLeft />
-            </Button>
-            <span>
-              {t('page', {
-                page: arrangement.page + 1,
-                count: arrangement.pageCount,
-              })}
-            </span>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="secondary"
-              disabled={arrangement.page >= arrangement.pageCount - 1}
-              onClick={() => onPage(arrangement.page + 1)}
-              aria-label={t('nextPage')}
-            >
-              <ChevronRight />
-            </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="rounded-full text-white hover:bg-white/15 hover:text-white"
+                disabled={arrangement.page === 0}
+                onClick={() => onPage(arrangement.page - 1)}
+                aria-label={t('prevPage')}
+              >
+                <ChevronLeft />
+              </Button>
+              <span>
+                {t('page', {
+                  page: arrangement.page + 1,
+                  count: arrangement.pageCount,
+                })}
+              </span>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="rounded-full text-white hover:bg-white/15 hover:text-white"
+                disabled={arrangement.page >= arrangement.pageCount - 1}
+                onClick={() => onPage(arrangement.page + 1)}
+                aria-label={t('nextPage')}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
           </div>
         )}
       {size.width > 0 && arrangement.kind === 'duo' && metrics.selfBox && (
@@ -143,7 +239,7 @@ export function RoomStage({
             })}
           </div>
           <div
-            className="absolute right-3 bottom-3 flex overflow-hidden rounded-xl shadow-lg shadow-black/40"
+            className="absolute right-6 bottom-4 z-20 flex rounded-xl shadow-lg ring-1 shadow-black/40 ring-white/10"
             style={metrics.selfBox}
           >
             {renderTile(arrangement.self, {
@@ -205,6 +301,10 @@ export function RoomStage({
             </div>
           )}
         </div>
+      )}
+      {size.width > 0 && selfSharing && <SharingBanner onStop={onStopShare} />}
+      {size.width > 0 && participantIds.length <= 1 && !selfSharing && (
+        <EmptyRoomCard meetingId={meetingId} />
       )}
     </div>
   );

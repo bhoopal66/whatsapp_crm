@@ -6463,7 +6463,9 @@
       "removeTitle": "Remove {name} from the meeting?",
       "removeBody": "They leave the call at once and can't rejoin it.",
       "handRaised": "Hand raised",
-      "moderateFailed": "That didn't work. Try again."
+      "moderateFailed": "That didn't work. Try again.",
+      "handRank": "Hand raised, number {rank} in the queue",
+      "videoLoading": "Video is connecting"
     },
     "devices": {
       "audio": {
@@ -6503,7 +6505,14 @@
     "stage": {
       "prevPage": "Previous page",
       "nextPage": "Next page",
-      "page": "{page} / {count}"
+      "page": "{page} / {count}",
+      "aloneTitle": "You're the only one here",
+      "aloneBody": "Share the link to invite people",
+      "copyLink": "Copy",
+      "linkCopied": "Link copied",
+      "linkCopyFailed": "Couldn't copy the link",
+      "sharingBanner": "You are sharing your screen",
+      "stopSharing": "Stop sharing"
     },
     "topBar": {
       "copyLink": "Copy invite link",

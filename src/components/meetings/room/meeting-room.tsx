@@ -28,6 +28,7 @@ import type {
 import { shortcutFor } from '@/lib/meetings/room-ui/keys';
 import { formatElapsed } from '@/lib/meetings/room-ui/people';
 import { arrangeStage, type StageTile } from '@/lib/meetings/room-ui/stage';
+import { handQueueRank } from '@/lib/meetings/room-ui/tile-view';
 import {
   buildStageTiles,
   nextRemoteSpeaker,
@@ -369,7 +370,10 @@ export function LiveRoom({
       toast.error(t('tile.moderateFailed'));
   };
 
-  const renderTile = (tile: StageTile) => {
+  const renderTile = (
+    tile: StageTile,
+    box: { width: number; height: number; compact: boolean }
+  ) => {
     const row = byId.get(tile.participantId);
     const remote = call.remote[tile.participantId];
     const userId = tile.isSelf ? (user?.id ?? '') : (row?.user_id ?? '');
@@ -387,16 +391,22 @@ export function LiveRoom({
           : row?.video_off
             ? null
             : (remote?.video ?? null);
+    const cameraOn = tile.isSelf
+      ? call.cameraOn
+      : !!row && !row.video_off && row.tracks.some((x) => x.kind === 'video');
     return (
       <RoomTile
+        participantId={tile.participantId}
         name={name}
         userId={userId}
         isSelf={tile.isSelf}
         kind={tile.kind}
         track={track}
+        videoLoading={tile.kind === 'camera' && !track && cameraOn}
         muted={tile.isSelf ? !call.micOn : (row?.audio_muted ?? false)}
         speaking={!!call.speaking[tile.participantId]}
         handRaised={tile.isSelf ? call.handRaised : !!row?.hand_raised_at}
+        handRank={handQueueRank(rows, tile.participantId, me, call.handRaised)}
         quality={
           tile.isSelf
             ? call.quality.self
@@ -412,6 +422,8 @@ export function LiveRoom({
             ? (a) => void moderate(tile.participantId, a)
             : undefined
         }
+        box={box}
+        compact={box.compact}
         className="h-full w-full"
       />
     );
@@ -444,8 +456,11 @@ export function LiveRoom({
             arrangement={arrangement}
             participantIds={rows.map((r) => r.id)}
             selfId={me}
+            meetingId={meetingId}
+            selfSharing={call.sharing}
             renderTile={renderTile}
             onPage={roomUi.setPage}
+            onStopShare={() => void call.toggleScreen()}
             onTileSizes={call.setTileSizes}
           />
           <FloatingReactions

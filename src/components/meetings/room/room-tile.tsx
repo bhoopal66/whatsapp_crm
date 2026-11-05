@@ -2,6 +2,7 @@
 
 import {
   Hand,
+  Loader2,
   MicOff,
   MonitorUp,
   MoreHorizontal,
@@ -9,7 +10,13 @@ import {
   PinOff,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -18,14 +25,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ModerationAction, Quality } from '@/lib/meetings/room/contract';
+import type {
+  ModerationAction,
+  ParticipantId,
+  Quality,
+} from '@/lib/meetings/room/contract';
 import {
   avatarColor,
   initials,
   qualityBars,
 } from '@/lib/meetings/room-ui/people';
+import { avatarTint, tileAvatarSize } from '@/lib/meetings/room-ui/tile-view';
 import { cn } from '@/lib/utils';
 
+import { useWorkspaceMembers } from '../use-workspace-members';
 import { ConfirmDialog } from './confirm-dialog';
 import { VideoTrack } from './video-track';
 
@@ -62,23 +75,105 @@ export function QualityBars({ quality }: { quality: Quality }) {
   );
 }
 
+function SpeakingBars() {
+  return (
+    <span aria-hidden className="flex h-2.5 shrink-0 items-end gap-px">
+      {[0, 0.2, 0.4].map((delay) => (
+        <span
+          key={delay}
+          className="meeting-eq-bar h-full w-0.5 rounded-full bg-emerald-400"
+          style={{ animationDelay: `${delay}s` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Camera off, or no picture yet: the person, on their own soft tint. */
+function TileAvatar({
+  userId,
+  name,
+  photo,
+  size,
+  compact,
+  loading,
+  loadingLabel,
+}: {
+  userId: string;
+  name: string;
+  photo: string | null;
+  size: number;
+  compact: boolean;
+  loading: boolean;
+  loadingLabel: string;
+}) {
+  const key = userId || name;
+  return (
+    <div
+      className={cn(
+        'absolute inset-0 flex items-center justify-center',
+        avatarTint(key),
+        // A filmstrip tile is short: lift the avatar clear of the name.
+        compact && 'pb-4'
+      )}
+    >
+      <div className="relative">
+        <div
+          className={cn(
+            'flex items-center justify-center overflow-hidden rounded-full font-medium text-white',
+            avatarColor(key)
+          )}
+          style={{
+            width: size,
+            height: size,
+            fontSize: Math.round(size * 0.38),
+          }}
+          aria-hidden
+        >
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="" className="size-full object-cover" />
+          ) : (
+            initials(name) || '?'
+          )}
+        </div>
+        {loading && (
+          <span className="absolute -right-1 -bottom-1 flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+            <Loader2
+              className="size-3.5 animate-spin motion-reduce:animate-none"
+              aria-label={loadingLabel}
+            />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export interface RoomTileProps {
+  participantId: ParticipantId;
   name: string;
   userId: string;
   isSelf: boolean;
   kind: 'camera' | 'screen';
   /** null: camera off, or not received yet. */
   track: MediaStreamTrack | null;
+  /** The camera is on but its track has not reached us yet. */
+  videoLoading: boolean;
   muted: boolean;
   speaking: boolean;
   handRaised: boolean;
+  /** Place in the raised-hands queue, from 1. */
+  handRank: number | null;
   quality: Quality;
   pinned: boolean;
   onTogglePin: () => void;
   /** Host tools on someone else's camera; omitted otherwise. */
   onModerate?: (action: ModerationAction) => void;
   videoRef?: (el: HTMLVideoElement | null) => void;
-  /** Filmstrip: a smaller avatar. */
+  /** The tile's drawn size; the avatar scales with it. */
+  box: { width: number; height: number };
+  /** Filmstrip: smaller chips, and the pin alone on hover. */
   compact?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -87,14 +182,47 @@ export interface RoomTileProps {
 /** One person's camera, or one screen share. */
 export function RoomTile(p: RoomTileProps) {
   const t = useTranslations('MeetingRoom.tile');
-  const box = useRef<HTMLDivElement>(null);
+  const { avatarOf } = useWorkspaceMembers();
+  const root = useRef<HTMLDivElement>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const label = p.isSelf ? t('you', { name: p.name }) : p.name;
-  const overlayBtn = 'bg-black/60 text-white hover:bg-black/80';
+  const compact = !!p.compact;
+  const overlayBtn = cn(
+    'text-white hover:bg-white/15 hover:text-white',
+    compact && 'size-6'
+  );
+
+  // A track can arrive well before its first frame: the avatar stays up
+  // until the <video> has a picture, so nobody sits on a black box.
+  const { track, videoRef } = p;
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [paintedTrack, setPaintedTrack] = useState<MediaStreamTrack | null>(
+    null
+  );
+  // Follows the prop's identity on purpose: a reused tile that now shows
+  // someone else has to re-register its element under the new tile key.
+  const attachVideo = useCallback(
+    (el: HTMLVideoElement | null) => {
+      setVideoEl(el);
+      videoRef?.(el);
+    },
+    [videoRef]
+  );
+  useEffect(() => {
+    if (!videoEl || !track) return;
+    const painted = () => setPaintedTrack(track);
+    videoEl.addEventListener('loadeddata', painted);
+    if (videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA)
+      queueMicrotask(painted);
+    return () => videoEl.removeEventListener('loadeddata', painted);
+  }, [videoEl, track]);
+
+  const showAvatar = p.kind === 'camera' && (!track || paintedTrack !== track);
+  const speaking = p.speaking && !p.muted && p.kind === 'camera';
 
   // Double-click: this tile alone fills the screen; again to come back.
   const onDoubleClick = () => {
-    const el = box.current;
+    const el = root.current;
     if (!el) return;
     if (document.fullscreenElement === el)
       void document.exitFullscreen().catch(() => {});
@@ -103,52 +231,77 @@ export function RoomTile(p: RoomTileProps) {
 
   return (
     <div
-      ref={box}
+      ref={root}
       onDoubleClick={onDoubleClick}
+      data-tile-participant={p.participantId}
+      data-tile-kind={p.kind}
+      data-tile-speaking={speaking ? 'true' : 'false'}
       className={cn(
-        'group/tile relative flex min-h-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-800',
+        'group/tile relative flex min-h-0 items-center justify-center overflow-hidden rounded-xl transition-shadow duration-150 ease-out motion-reduce:transition-none',
+        p.kind === 'screen' ? 'bg-black' : 'bg-card',
+        speaking && 'shadow-[0_0_0_3px_rgb(52_211_153/0.25)]',
         p.className
       )}
       style={p.style}
     >
-      {p.track ? (
+      {track && (
         <VideoTrack
-          track={p.track}
+          track={track}
           mirrored={p.isSelf && p.kind === 'camera'}
           fit={p.kind === 'screen' ? 'contain' : 'cover'}
-          videoRef={p.videoRef}
+          videoRef={attachVideo}
         />
-      ) : (
-        <div
-          className={cn(
-            'flex items-center justify-center rounded-full font-medium text-white',
-            avatarColor(p.userId || p.name),
-            p.compact ? 'size-10 text-sm' : 'size-20 text-2xl'
-          )}
-          aria-hidden
-        >
-          {initials(p.name) || '?'}
-        </div>
+      )}
+      {showAvatar && (
+        <TileAvatar
+          userId={p.userId}
+          name={p.name}
+          photo={p.userId ? avatarOf(p.userId) : null}
+          size={tileAvatarSize(p.box)}
+          compact={compact}
+          loading={p.videoLoading || !!track}
+          loadingLabel={t('videoLoading')}
+        />
       )}
 
-      {p.speaking && !p.muted && p.kind === 'camera' && (
-        <div className="pointer-events-none absolute inset-0 animate-pulse rounded-lg ring-3 ring-emerald-400 ring-inset" />
-      )}
+      <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/[0.06] ring-inset" />
+      {/* Inside the tile, so a scrolling filmstrip cannot clip it. */}
+      <div
+        className={cn(
+          'pointer-events-none absolute inset-0 z-10 rounded-xl shadow-[inset_0_0_18px_rgb(52_211_153/0.35)] ring-3 ring-emerald-400 transition-opacity duration-150 ease-out ring-inset motion-reduce:transition-none',
+          speaking ? 'opacity-100' : 'opacity-0'
+        )}
+      />
 
       {p.handRaised && p.kind === 'camera' && (
         <span
-          className="absolute top-2 left-2 flex items-center rounded-md bg-amber-400 p-1 text-black"
+          role="img"
+          className={cn(
+            'absolute z-20 flex items-center gap-1 rounded-md bg-amber-400 font-semibold text-black tabular-nums shadow-sm',
+            compact
+              ? 'top-1 left-1 px-1 py-0.5 text-[11px]'
+              : 'top-2 left-2 px-1.5 py-1 text-xs'
+          )}
+          aria-label={
+            p.handRank ? t('handRank', { rank: p.handRank }) : t('handRaised')
+          }
           title={t('handRaised')}
         >
-          <Hand className="size-3.5" aria-label={t('handRaised')} />
+          <Hand className={compact ? 'size-3' : 'size-3.5'} aria-hidden />
+          {p.handRank}
         </span>
       )}
 
-      <div className="absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity group-focus-within/tile:opacity-100 group-hover/tile:opacity-100">
+      <div
+        className={cn(
+          'absolute z-20 flex gap-0.5 rounded-lg bg-black/55 p-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-out group-focus-within/tile:opacity-100 group-hover/tile:opacity-100 motion-reduce:transition-none',
+          compact ? 'top-1 right-1' : 'top-2 right-2'
+        )}
+      >
         <Button
           type="button"
           size="icon-sm"
-          variant="secondary"
+          variant="ghost"
           className={overlayBtn}
           onClick={p.onTogglePin}
           aria-label={p.pinned ? t('unpin') : t('pin')}
@@ -156,14 +309,14 @@ export function RoomTile(p: RoomTileProps) {
         >
           {p.pinned ? <PinOff /> : <Pin />}
         </Button>
-        {p.onModerate && (
+        {p.onModerate && !compact && (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <Button
                   type="button"
                   size="icon-sm"
-                  variant="secondary"
+                  variant="ghost"
                   className={overlayBtn}
                   aria-label={t('hostMenu')}
                 />
@@ -171,7 +324,7 @@ export function RoomTile(p: RoomTileProps) {
             >
               <MoreHorizontal />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent data-mode="dark" align="end" className="w-44">
               <DropdownMenuItem
                 disabled={p.muted}
                 onClick={() => p.onModerate?.('mute')}
@@ -194,7 +347,14 @@ export function RoomTile(p: RoomTileProps) {
         )}
       </div>
 
-      <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-xs text-white">
+      <div
+        className={cn(
+          'absolute z-20 flex items-center gap-1.5 rounded-md bg-black/55 text-white backdrop-blur-sm',
+          compact
+            ? 'bottom-1 left-1 max-w-[calc(100%-0.5rem)] px-1.5 py-0.5 text-[11px]'
+            : 'bottom-2 left-2 max-w-[calc(100%-1rem)] px-2 py-1 text-xs'
+        )}
+      >
         {p.kind === 'screen' ? (
           <MonitorUp className="size-3.5 shrink-0" aria-hidden />
         ) : p.muted ? (
@@ -206,6 +366,7 @@ export function RoomTile(p: RoomTileProps) {
         <span className="truncate">
           {p.kind === 'screen' ? t('screen', { name: label }) : label}
         </span>
+        {speaking && <SpeakingBars />}
         {p.kind === 'camera' &&
           (p.quality === 'poor' || p.quality === 'fair') && (
             <QualityBars quality={p.quality} />
