@@ -6680,7 +6680,8 @@
       "shortcuts": "Keyboard shortcuts",
       "handsRaised": "{count, plural, one {# hand raised} other {# hands raised}}",
       "leaveOptions": "Leave options",
-      "leaveMeeting": "Leave meeting"
+      "leaveMeeting": "Leave meeting",
+      "background": "Background effects"
     },
     "shortcuts": {
       "title": "Keyboard shortcuts",
@@ -6783,7 +6784,8 @@
         "recordingStarted": "{name} started recording. Everyone in this meeting is being recorded.",
         "recordingStopped": "Recording stopped. This meeting is no longer being recorded.",
         "meetingLocked": "The meeting is locked. Nobody new can join.",
-        "meetingUnlocked": "The meeting is unlocked. People can join again."
+        "meetingUnlocked": "The meeting is unlocked. People can join again.",
+        "backgroundFailed": "Your computer couldn't keep up with the background effect, so your camera was turned off."
       },
       "notes": {
         "title": "Meeting notes",
@@ -6813,6 +6815,24 @@
       "letBackIn": "Let back in",
       "letBackInName": "Let {name} back in",
       "letBackInFailed": "Couldn't let them back in. Try again."
+    },
+    "background": {
+      "title": "Background effects",
+      "open": "Background",
+      "none": "None",
+      "light": "Light blur",
+      "strong": "Strong blur",
+      "upload": "Upload image",
+      "yourImage": "Your image",
+      "cameraOff": "Turn your camera on to see your background.",
+      "tooLarge": "That image is too large. Try a smaller one.",
+      "stored": "An uploaded image stays on this browser and is never sent anywhere.",
+      "preset": {
+        "navy": "Navy",
+        "slate": "Slate",
+        "sand": "Sand",
+        "mist": "Mist"
+      }
     }
   },
   "MeetingSession": {

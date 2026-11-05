@@ -6680,7 +6680,8 @@
       "shortcuts": "키보드 단축키",
       "handsRaised": "손 든 사람 {count, plural, other {#명}}",
       "leaveOptions": "나가기 옵션",
-      "leaveMeeting": "회의 나가기"
+      "leaveMeeting": "회의 나가기",
+      "background": "배경 효과"
     },
     "shortcuts": {
       "title": "키보드 단축키",
@@ -6783,7 +6784,8 @@
         "recordingStarted": "{name}님이 녹화를 시작했습니다. 이 회의의 모든 참가자가 녹화되고 있습니다.",
         "recordingStopped": "녹화가 중지되었습니다. 이 회의는 더 이상 녹화되지 않습니다.",
         "meetingLocked": "회의가 잠겼습니다. 새로운 참가자는 입장할 수 없습니다.",
-        "meetingUnlocked": "회의 잠금이 해제되었습니다. 다시 입장할 수 있습니다."
+        "meetingUnlocked": "회의 잠금이 해제되었습니다. 다시 입장할 수 있습니다.",
+        "backgroundFailed": "컴퓨터가 배경 효과를 처리하지 못해 카메라를 껐습니다."
       },
       "notes": {
         "title": "회의 메모",
@@ -6813,6 +6815,24 @@
       "letBackIn": "다시 들어오게 하기",
       "letBackInName": "{name}님 다시 들어오게 하기",
       "letBackInFailed": "다시 들어오게 하지 못했습니다. 다시 시도하세요."
+    },
+    "background": {
+      "title": "배경 효과",
+      "open": "배경",
+      "none": "없음",
+      "light": "약한 흐림",
+      "strong": "강한 흐림",
+      "upload": "이미지 업로드",
+      "yourImage": "내 이미지",
+      "cameraOff": "배경을 보려면 카메라를 켜세요.",
+      "tooLarge": "이미지가 너무 큽니다. 더 작은 이미지를 사용해 보세요.",
+      "stored": "업로드한 이미지는 이 브라우저에만 저장되며 어디에도 전송되지 않습니다.",
+      "preset": {
+        "navy": "네이비",
+        "slate": "슬레이트",
+        "sand": "샌드",
+        "mist": "미스트"
+      }
     }
   },
   "MeetingSession": {

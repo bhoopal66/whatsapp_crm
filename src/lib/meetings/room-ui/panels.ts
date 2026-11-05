@@ -258,6 +258,7 @@ export type NoticeToastKey =
   | 'micLost'
   | 'cameraLost'
   | 'qualityPoor'
+  | 'backgroundFailed'
   | 'recordingStarted'
   | 'recordingStopped'
   | 'meetingLocked'
@@ -299,6 +300,13 @@ export function noticeToast(n: RoomNotice): NoticeToast {
       };
     case 'quality_poor':
       return { key: 'qualityPoor', tone: 'warning', userId: null, sound: null };
+    case 'background_failed':
+      return {
+        key: 'backgroundFailed',
+        tone: 'warning',
+        userId: null,
+        sound: null,
+      };
     case 'recording_started':
       return {
         key: 'recordingStarted',

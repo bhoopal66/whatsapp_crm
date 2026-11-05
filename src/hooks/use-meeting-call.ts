@@ -45,10 +45,27 @@
 // API; what the host did to our seat arrives on our own row
 // (notices.ts). Every decision is a pure function under
 // lib/meetings/room, tested there; this file only wires them.
+//
+// Background effects fail closed. `video` stays the raw camera and
+// `processed` is what the effect makes of it. With a background chosen,
+// only `processed` may reach a sender (`sendable`): while it loads,
+// nothing is sent, and if it gives up the camera goes off, because the
+// processor passes raw frames until someone acts.
 
 import { useMemo, useSyncExternalStore } from 'react';
 
 import type { AccountRole } from '@/lib/auth/roles';
+import {
+  EFFECT_PREF_KEY,
+  parseEffectPref,
+  serializeEffectPref,
+} from '@/lib/meetings/effects/prefs';
+import {
+  createVideoEffectProcessor,
+  effectsSupported,
+  type VideoEffectProcessor,
+} from '@/lib/meetings/effects/processor';
+import type { BackgroundEffect } from '@/lib/meetings/effects/types';
 import {
   addReaction,
   mergeChat,
@@ -214,6 +231,10 @@ const LAYER_DEBOUNCE_MS = 300;
 /** A shared screen is text: one layer, enough bits to stay legible. */
 const SCREEN_MAX_BITRATE = 2_500_000;
 const CHAT_MAX = 2000;
+/** Joining or turning the camera on with a background still loading. */
+const EFFECT_WAIT_MS = 8_000;
+/** Picking one: the raw camera is already on, and a cold load is slow. */
+const EFFECT_PICK_WAIT_MS = 30_000;
 
 interface Pulled {
   mid: string;
@@ -242,7 +263,17 @@ export class MeetingCallEngine {
   private pulled = new Map<string, Pulled>();
   private pending = new Set<string>();
   private audio: MediaStreamTrack | null = null;
+  /** The raw camera, always; `outgoing()` is what others get. */
   private video: MediaStreamTrack | null = null;
+  private effect: BackgroundEffect = { kind: 'none' };
+  /** One per start; set exactly while a background runs on the camera. */
+  private processor: VideoEffectProcessor | null = null;
+  private processed: MediaStreamTrack | null = null;
+  /** Set while the processor starts; settles early if it is stopped. */
+  private effectLoading: Promise<void> | null = null;
+  private settleEffect: (() => void) | null = null;
+  /** Bumped by stopEffect: a late answer from an old start is ignored. */
+  private effectRun = 0;
   private screen: MediaStreamTrack | null = null;
   private audioSender: RTCRtpSender | null = null;
   private videoSender: RTCRtpSender | null = null;
@@ -362,6 +393,7 @@ export class MeetingCallEngine {
       toggleCamera: this.toggleCamera,
       toggleScreen: this.toggleScreen,
       selectDevice: this.selectDevice,
+      setBackground: this.setBackground,
       toggleHand: this.toggleHand,
       sendChat: this.sendChat,
       sendReaction: this.sendReaction,
@@ -385,8 +417,10 @@ export class MeetingCallEngine {
       micOn: !!this.audio && this.audio.enabled,
       cameraOn: !!this.video,
       sharing: !!this.screen,
-      localVideo: this.video,
+      localVideo: this.outgoing(),
       localScreen: this.screen,
+      background: this.effect,
+      backgroundBusy: !!this.effectLoading,
       participantId: this.participantId,
       remote,
       ...patch,
@@ -407,11 +441,13 @@ export class MeetingCallEngine {
     this.attached = true;
     this.epoch += 1;
     this.prefs = readDevicePrefs();
+    this.effect = readEffectPref();
     this.emit({
       selectedDevices: { ...this.prefs },
       canSelectOutput:
         typeof HTMLMediaElement !== 'undefined' &&
         'setSinkId' in HTMLMediaElement.prototype,
+      backgroundsSupported: effectsSupported(),
     });
     navigator.mediaDevices?.addEventListener?.(
       'devicechange',
@@ -589,6 +625,8 @@ export class MeetingCallEngine {
     this.audio = audio;
     this.video = video;
     this.emit();
+    // Started here, so the lobby shows it and a join rarely has to wait.
+    void this.ensureEffect();
     // Labels and ids are only listed once a permission is granted.
     void this.refreshDevices();
   }
@@ -603,9 +641,116 @@ export class MeetingCallEngine {
   };
 
   private stopMedia() {
+    this.stopEffect();
     for (const t of [this.audio, this.video, this.screen]) t?.stop();
     this.audio = this.video = this.screen = null;
   }
+
+  // --- background effects ----------------------------------------------
+
+  /** What our self-view shows: raw only until a chosen background loads. */
+  private outgoing() {
+    return this.processed ?? this.video;
+  }
+
+  /** What a sender may carry. Null while a chosen background is not ready. */
+  private sendable() {
+    return this.effect.kind === 'none' ? this.video : this.processed;
+  }
+
+  private stopEffect() {
+    this.effectRun += 1;
+    this.processor?.stop();
+    this.processor = null;
+    this.processed = null;
+    this.effectLoading = null;
+    this.settleEffect?.();
+    this.settleEffect = null;
+  }
+
+  /** Brings the chosen background up on the raw camera, if it is not yet. */
+  private ensureEffect(): Promise<void> {
+    const raw = this.video;
+    if (!raw || this.effect.kind === 'none' || this.processed)
+      return Promise.resolve();
+    if (this.effectLoading) return this.effectLoading;
+    const run = ++this.effectRun;
+    const processor = createVideoEffectProcessor();
+    this.processor = processor;
+    processor.onGiveUp(() => {
+      if (run === this.effectRun) this.effectFailed();
+    });
+    this.effectLoading = new Promise<void>((settle) => {
+      this.settleEffect = settle;
+      processor.start(raw, this.effect).then(
+        (out) => {
+          if (run !== this.effectRun) return; // stopEffect stopped it
+          this.processed = out;
+          this.effectLoading = null;
+          this.settleEffect = null;
+          this.emit();
+          settle();
+        },
+        () => {
+          if (run === this.effectRun) this.effectFailed();
+        }
+      );
+    });
+    this.emit();
+    return this.effectLoading;
+  }
+
+  /** `ensureEffect`, or the camera off once `ms` have passed. */
+  private async awaitEffect(ms: number) {
+    const loading = this.ensureEffect();
+    const processor = this.processor;
+    if (!this.effectLoading) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = await Promise.race([
+      loading.then(() => false),
+      new Promise<boolean>((done) => {
+        timer = setTimeout(() => done(true), ms);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (expired && processor === this.processor) this.effectFailed();
+  }
+
+  /**
+   * Fail closed, in the tick it happened: the processor passes raw frames
+   * from here on. The choice stays, so the camera's next turn tries again.
+   */
+  private effectFailed() {
+    void this.videoSender?.replaceTrack(null).catch(() => {});
+    this.stopEffect();
+    this.video?.stop();
+    this.video = null;
+    this.emit({ notices: this.withNotices([{ kind: 'background_failed' }]) });
+    void this.pushState();
+  }
+
+  setBackground = async (next: BackgroundEffect) => {
+    this.effect = next;
+    try {
+      const saved = serializeEffectPref(next);
+      if (saved) localStorage.setItem(EFFECT_PREF_KEY, saved);
+    } catch {
+      // Private mode or full storage: the choice lasts this visit only.
+    }
+    const raw = this.video;
+    if (!raw) return this.emit(); // off: applies when it is next turned on
+    if (next.kind === 'none') {
+      this.stopEffect();
+      this.emit();
+      await this.videoSender?.replaceTrack(raw).catch(() => {});
+      return;
+    }
+    this.processor?.setEffect(next);
+    this.emit();
+    await this.awaitEffect(EFFECT_PICK_WAIT_MS);
+    const out = this.processed;
+    if (out) await this.videoSender?.replaceTrack(out).catch(() => {});
+  };
 
   toggleMic = async () => {
     if (this.opening.has('audio')) return;
@@ -631,6 +776,7 @@ export class MeetingCallEngine {
   toggleCamera = async () => {
     if (this.opening.has('video')) return;
     if (this.video) {
+      this.stopEffect();
       this.video.stop();
       this.video = null;
       this.emit();
@@ -643,9 +789,13 @@ export class MeetingCallEngine {
       if (!track) return;
       this.video = track;
       this.emit();
+      await this.awaitEffect(EFFECT_WAIT_MS);
+      // Null if the background failed: effectFailed said why.
+      const out = this.sendable();
+      if (!out) return;
       if (this.isLive()) {
-        if (this.videoSender) await this.videoSender.replaceTrack(track);
-        else await this.publish([{ track, kind: 'video' }]);
+        if (this.videoSender) await this.videoSender.replaceTrack(out);
+        else await this.publish([{ track: out, kind: 'video' }]);
       }
     }
     void this.pushState();
@@ -766,9 +916,12 @@ export class MeetingCallEngine {
 
     await this.subscribeRows();
     if (!current()) return;
+    await this.awaitEffect(EFFECT_WAIT_MS);
+    if (!current()) return;
     const local: { track: MediaStreamTrack; kind: TrackKind }[] = [];
+    const camera = this.sendable();
     if (this.audio) local.push({ track: this.audio, kind: 'audio' });
-    if (this.video) local.push({ track: this.video, kind: 'video' });
+    if (camera) local.push({ track: camera, kind: 'video' });
     if (this.screen) local.push({ track: this.screen, kind: 'screen' });
     if (local.length) await this.publish(local);
     if (!current()) return;
@@ -1242,7 +1395,13 @@ export class MeetingCallEngine {
         });
         for (const a of added) {
           if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
-          if (a.kind === 'video') this.videoSender = a.transceiver.sender;
+          if (a.kind === 'video') {
+            this.videoSender = a.transceiver.sender;
+            // The background changed while this was in flight.
+            const camera = this.sendable();
+            if (camera !== a.track)
+              void this.videoSender.replaceTrack(camera).catch(() => {});
+          }
           if (a.kind === 'screen') {
             this.screenPub = { transceiver: a.transceiver, name: a.name };
           }
@@ -1271,11 +1430,12 @@ export class MeetingCallEngine {
         if (this.screenPub) published.add('screen');
         const released = afterFailedPublish(
           added,
-          { audio: this.audio, video: this.video, screen: this.screen },
+          { audio: this.audio, video: this.outgoing(), screen: this.screen },
           published
         );
         const devices = { ...this.snap.devices };
         for (const { kind, error } of released) {
+          if (kind === 'video') this.stopEffect();
           this[kind]?.stop();
           this[kind] = null;
           if (error) devices[kind] = error;
@@ -1478,6 +1638,7 @@ export class MeetingCallEngine {
   /** A mic or camera unplugged mid-call: off, and the default next time. */
   private onTrackEnded(kind: 'audio' | 'video', track: MediaStreamTrack) {
     if (this[kind] !== track) return; // replaced or turned off meanwhile
+    if (kind === 'video') this.stopEffect();
     this[kind] = null;
     const sender = kind === 'audio' ? this.audioSender : this.videoSender;
     void sender?.replaceTrack(null).catch(() => {});
@@ -1533,6 +1694,7 @@ export class MeetingCallEngine {
     const release = () => {
       if (this.video !== current) return false;
       released = true;
+      this.stopEffect();
       this.video = null;
       current.stop();
       void this.videoSender?.replaceTrack(null).catch(() => {});
@@ -1549,7 +1711,9 @@ export class MeetingCallEngine {
       if (track && !this.video) {
         this.video = track;
         this.emit();
-        await this.videoSender?.replaceTrack(track).catch(() => {});
+        await this.awaitEffect(EFFECT_WAIT_MS);
+        const out = this.sendable();
+        if (out) await this.videoSender?.replaceTrack(out).catch(() => {});
       } else track?.stop();
       void this.pushState();
       return;
@@ -1560,9 +1724,24 @@ export class MeetingCallEngine {
       return;
     }
     if (k === 'audio') track.enabled = current.enabled;
-    // Same sender, new source: no renegotiation, nobody re-pulls.
-    const sender = k === 'audio' ? this.audioSender : this.videoSender;
-    if (sender) await sender.replaceTrack(track).catch(() => {});
+    // A background keeps its output track: only what feeds it changes.
+    const processor = k === 'video' ? this.processor : null;
+    if (processor) {
+      const fed = await processor.setInput(track).then(
+        () => true,
+        () => false
+      );
+      // Its <video> now holds the new camera, which sent nothing.
+      if (!fed && processor === this.processor) this.effectFailed();
+      if (!fed || processor !== this.processor) {
+        track.stop();
+        return;
+      }
+    } else {
+      // Same sender, new source: no renegotiation, nobody re-pulls.
+      const sender = k === 'audio' ? this.audioSender : this.videoSender;
+      if (sender) await sender.replaceTrack(track).catch(() => {});
+    }
     if (this[k] !== current) {
       track.stop();
       return;
@@ -1934,6 +2113,14 @@ export function useCallOf(engine: MeetingCallEngine): MeetingCall {
     engine.getSnapshot
   );
   return useMemo(() => engine.toCall(snap), [engine, snap]);
+}
+
+function readEffectPref(): BackgroundEffect {
+  try {
+    return parseEffectPref(localStorage.getItem(EFFECT_PREF_KEY));
+  } catch {
+    return { kind: 'none' };
+  }
 }
 
 function readDevicePrefs(): DevicePrefs {

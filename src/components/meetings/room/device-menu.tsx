@@ -67,7 +67,7 @@ export function DeviceMenu({
             aria-label={label}
             title={label}
             className={cn(
-              'bg-card-2 text-muted-foreground hover:bg-muted dark:hover:bg-muted h-11 w-6 rounded-l-none rounded-r-xl border-l border-white/[0.06] px-0 transition-colors duration-150 ease-out motion-reduce:transition-none',
+              'bg-card-2 text-muted-foreground hover:bg-muted dark:hover:bg-muted h-11 w-6 rounded-l-none rounded-r-xl border-y-0 border-r-0 border-l border-white/[0.06] px-0 transition-colors duration-150 ease-out motion-reduce:transition-none',
               className
             )}
           />

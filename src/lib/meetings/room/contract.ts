@@ -3,6 +3,7 @@
 // (components/meetings/room/*). The engine owns every value here; the
 // screen only reads them and calls the actions. Change both together.
 
+import type { BackgroundEffect } from '../effects/types';
 import type { BulkModerationAction } from '../types';
 import type { RecordingFlag, RecordingFlagResult } from './recording';
 
@@ -57,6 +58,8 @@ export type RoomNotice =
   | { id: string; kind: 'hand_lowered_by_host' }
   | { id: string; kind: 'device_lost'; device: 'audio' | 'video' }
   | { id: string; kind: 'quality_poor' }
+  /** The background effect stopped, so the camera was turned off. */
+  | { id: string; kind: 'background_failed' }
   | { id: string; kind: 'recording_started'; userId: string }
   | { id: string; kind: 'recording_stopped' }
   | { id: string; kind: 'meeting_locked' }
@@ -97,11 +100,18 @@ export interface CallSnapshotV2 {
    * for the whole grace is hidden (`stepRecordingView`).
    */
   recording: RecordingFlag | null;
+  /** The chosen background, kept even while the camera is off. */
+  background: BackgroundEffect;
+  /** The chosen background is still loading. */
+  backgroundBusy: boolean;
+  backgroundsSupported: boolean;
 }
 
 /** What v2 adds to the engine's actions. */
 export interface CallActionsV2 {
   selectDevice: (kind: MediaDeviceKind, deviceId: string) => Promise<void>;
+  /** Saved on this browser only; with the camera off, only remembered. */
+  setBackground: (effect: BackgroundEffect) => Promise<void>;
   toggleHand: () => Promise<void>;
   sendChat: (body: string) => Promise<boolean>;
   sendReaction: (emoji: MeetingReaction) => Promise<void>;
@@ -137,4 +147,7 @@ export const V2_SNAPSHOT_DEFAULTS: CallSnapshotV2 = {
   canModerate: false,
   locked: false,
   recording: null,
+  background: { kind: 'none' },
+  backgroundBusy: false,
+  backgroundsSupported: false,
 };

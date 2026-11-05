@@ -17,6 +17,7 @@ import {
   PictureInPicture2,
   Settings,
   Smile,
+  Sparkles,
   Users,
   Video,
   VideoOff,
@@ -81,6 +82,7 @@ import { cn } from '@/lib/utils';
 import { ConfirmDialog } from './confirm-dialog';
 import { DeviceMenu } from './device-menu';
 import { MoreDropdownItems, MoreSheet, type MoreItem } from './dock-more';
+import { useBackgroundDialog } from './room-background-dialog';
 
 const MOTION =
   'transition-colors duration-150 ease-out motion-reduce:transition-none';
@@ -254,6 +256,8 @@ export function moreItems(
     fullscreen: { supported: boolean; active: boolean };
     recordLabels?: { start: string; stop: string; taken: string };
     popoutLabels?: { open: string; close: string };
+    /** Absent where backgrounds are not offered. */
+    onBackground?: () => void;
   }
 ): MoreItem[] {
   const { t, fullscreen } = o;
@@ -368,6 +372,15 @@ export function moreItems(
       onClick: stops ? recorder.stop : recorder.request,
     });
   }
+  if (o.onBackground) {
+    items.push({
+      kind: 'action',
+      id: 'background',
+      label: t('background'),
+      icon: <Sparkles />,
+      onClick: o.onBackground,
+    });
+  }
   items.push(
     {
       kind: 'action',
@@ -427,6 +440,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
   const tRec = useTranslations('MeetingRoom.recording');
   const holderName = p.recorder?.holderName;
   const tFloat = useTranslations('MeetingSession.float');
+  const background = useBackgroundDialog(call);
   const more = moreItems(p, {
     t: t as MoreLabels,
     compact,
@@ -439,6 +453,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
         : tRec('takenNoName'),
     },
     popoutLabels: { open: tFloat('popOut'), close: tFloat('bringBack') },
+    onBackground: background.offered ? background.show : undefined,
   });
   /** A caption, in the one form that shows them. */
   const caption = (text: string | null) => (full ? text : undefined);
@@ -650,7 +665,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
                       aria-label={t('leaveOptions')}
                       title={t('leaveOptions')}
                       className={cn(
-                        'h-11 w-6 rounded-l-none rounded-r-xl border-l border-white/20 px-0',
+                        'h-11 w-6 rounded-l-none rounded-r-xl border-y-0 border-r-0 border-l border-white/20 px-0',
                         OFF,
                         MOTION
                       )}
@@ -702,6 +717,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
         destructive
         onConfirm={() => void end()}
       />
+      {background.dialog}
     </div>
   );
 }

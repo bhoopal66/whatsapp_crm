@@ -4,6 +4,7 @@
 // input: 720p would mean a 921,600-float readback per frame for a model
 // that looks at 256x256. Upscaling the small mask also softens the edge.
 import type { ImageSegmenter } from '@mediapipe/tasks-vision';
+import { blockMediaPipeLogging } from './block-logging';
 import { initialBudget, stepBudget } from './frame-budget';
 import { writeMaskAlpha } from './mask';
 import { createTicker, type Ticker } from './ticker';
@@ -37,12 +38,17 @@ export interface VideoEffectProcessor {
   stats(): { fps: number; frameMs: number | null; delegate: string | null };
 }
 
+let supported: boolean | null = null;
+
+/** Cached: each check would cost a WebGL context, and pages hold few. */
 export function effectsSupported(): boolean {
   if (typeof document === 'undefined' || typeof WebAssembly === 'undefined')
     return false;
+  if (supported !== null) return supported;
   const c = document.createElement('canvas');
   // The runtime uploads frames through WebGL2 even on its CPU delegate.
-  return typeof c.captureStream === 'function' && !!c.getContext('webgl2');
+  supported = typeof c.captureStream === 'function' && !!c.getContext('webgl2');
+  return supported;
 }
 
 const ctx2d = (c: HTMLCanvasElement) =>
@@ -73,6 +79,8 @@ function glRenderer(): string {
 }
 
 async function openSegmenter(probe: HTMLCanvasElement) {
+  // Before the library exists: it reports usage to Google otherwise.
+  blockMediaPipeLogging();
   const { FilesetResolver, ImageSegmenter } =
     await import('@mediapipe/tasks-vision');
   const fileset = await FilesetResolver.forVisionTasks(`${ASSETS}/wasm`);
