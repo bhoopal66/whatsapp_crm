@@ -1407,7 +1407,7 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   `components/meetings/session/*`, pure `lib/meetings/session/*`). No route
   or page may detach or tear down a live call; moving between pages must
   not leave it. One meeting per tab. Only one tile-size reporter feeds the
-  engine at a time (the room or the float, never both).
+  engine at a time (the room, the float or the pop-out, never two).
 - **Speaker levels come from `getStats`** (`inbound-rtp.audioLevel`).
   Cloudflare's SFU negotiates no ssrc-audio-level header, so
   `getSynchronizationSources()` carries no level. Don't go back to it.

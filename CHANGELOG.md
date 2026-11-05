@@ -38,7 +38,8 @@ and polish.
   browser.
 - Recording: a host records to their own computer. Nothing is uploaded.
   Everyone gets a notice and a REC chip, and the lobby warns before
-  joining. The file is WebM; a crash during recording can lose it.
+  joining. The file is WebM; a crash, or closing the tab while recording,
+  can lose it, so stop recording first.
 - Shared notes per meeting that two people can edit without losing text.
   Hosts can finish them after the meeting.
 - Meetings page: Start now in one click, Happening now, Coming up, a Next

@@ -181,8 +181,9 @@ server or to Cloudflare.
   the mark is cleared.
 - Viewers stop seeing a stale mark 90 seconds after the recorder
   disappears.
-- **Limit.** The file is WebM. A browser crash during recording can lose
-  it.
+- **Limit.** The file is WebM, and it is only complete once recording stops.
+  A browser crash, or closing the tab while recording, can lose it: stop
+  recording first. The browser asks before the tab closes.
 
 ## Notes
 
