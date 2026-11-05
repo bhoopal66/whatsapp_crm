@@ -1441,10 +1441,12 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   tone is laid on the audio clock up front and is finite, so a frozen tab
   can't ring on. Not now marks the row read, which is what closes the
   card on other tabs. A row of another workspace is never checked against
-  `/api/meetings/[id]`: it would answer 404. One Web Lock decides who
-  rings: tabs queue for it, never `ifAvailable` (a release is async, so a
-  restart would lose to its own lock), and a tab in a call steals it,
-  because a meeting lives in one tab.
+  `/api/meetings/[id]`: it would answer 404. Two Web Locks: tabs queue for
+  an exclusive ring lock, never `ifAvailable` (a release is async, so a
+  restart would lose to its own lock), and a meeting lives in one tab, so
+  every tab in a call holds a shared busy lock a ring must get past. Only
+  the ring lock is ever stolen, to cut off a ring already going: tabs
+  stealing the busy lock from each other left a live call unprotected.
 
 ### Calendar and web push (`lib/calendar/*`, `lib/push/*`, migrations 108–110)
 
