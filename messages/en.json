@@ -6263,17 +6263,9 @@
   },
   "Meetings": {
     "title": "Meetings",
-    "subtitle": "Video calls with your colleagues.",
-    "newMeeting": "New meeting",
     "tabs": {
-      "live": "Live now",
-      "upcoming": "Upcoming",
+      "schedule": "Schedule",
       "past": "Past"
-    },
-    "empty": {
-      "live": "No meeting is live right now.",
-      "upcoming": "Nothing is scheduled.",
-      "past": "No past meetings yet."
     },
     "loadFailed": "Couldn't load meetings.",
     "instant": "Instant meeting",
@@ -6367,14 +6359,39 @@
     "noMatches": "No meetings match “{query}”.",
     "join": "Join",
     "more": "+{count}",
-    "whoIsIn": "{more, plural, =0 {{names} in the call} other {{names} and # more in the call}}",
-    "inCallNow": "{count, plural, =1 {1 person in the call} other {# people in the call}}",
     "duration": "{hours, plural, =0 {{minutes} min} other {{minutes, plural, =0 {{hours} h} other {{hours} h {minutes} min}}}}",
     "groups": {
       "unscheduled": "Any time",
       "today": "Today",
       "tomorrow": "Tomorrow"
-    }
+    },
+    "startNow": "Start now",
+    "schedule": "Schedule",
+    "instantTitle": "Meeting with {name}",
+    "instantTitlePlain": "Quick meeting",
+    "startFailed": "Couldn't start the meeting.",
+    "inCallBanner": "You're in {title}",
+    "returnToMeeting": "Return to meeting",
+    "return": "Return",
+    "alreadyInCall": "You're already in a meeting",
+    "inAMeeting": "In a meeting",
+    "linkPlaceholder": "Paste a meeting link",
+    "linkInvalid": "That isn't a meeting link.",
+    "happeningNow": "Happening now",
+    "comingUp": "Coming up",
+    "nextUp": "Next up",
+    "nothingNext": "Nothing else is scheduled.",
+    "open": "Open",
+    "due": "Due",
+    "span": "{days, plural, =0 {{hours, plural, =0 {{minutes} min} other {{minutes, plural, =0 {{hours} h} other {{hours} h {minutes} min}}}}} other {{hours, plural, =0 {{days} d} other {{days} d {hours} h}}}}",
+    "countdown": "in {span}",
+    "startsIn": "Starts in {span}",
+    "attended": "{count, plural, =1 {1 attended} other {# attended}}",
+    "viewSummary": "View summary",
+    "emptyPast": "No past meetings yet.",
+    "welcomeTitle": "Your meetings live here",
+    "welcomeBody": "Start a call now, or schedule one and invite your colleagues.",
+    "welcomeGuest": "Meetings you're invited to will appear here."
   },
   "MeetingRoom": {
     "loading": "Loading the meeting…",

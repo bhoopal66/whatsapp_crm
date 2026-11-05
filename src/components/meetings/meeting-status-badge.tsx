@@ -14,6 +14,16 @@ const TONE: Record<MeetingDisplayStatus, string> = {
   cancelled: 'bg-muted text-muted-foreground line-through',
 };
 
+/** The pulsing live dot; still under prefers-reduced-motion. */
+export function LiveDot() {
+  return (
+    <span className="relative flex size-2 shrink-0" aria-hidden>
+      <span className="bg-success absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:animate-none" />
+      <span className="bg-success relative inline-flex size-2 rounded-full" />
+    </span>
+  );
+}
+
 export function MeetingStatusBadge({
   status,
 }: {
@@ -27,12 +37,7 @@ export function MeetingStatusBadge({
         TONE[status]
       )}
     >
-      {status === 'live' && (
-        <span className="relative flex size-2" aria-hidden>
-          <span className="bg-success absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:animate-none" />
-          <span className="bg-success relative inline-flex size-2 rounded-full" />
-        </span>
-      )}
+      {status === 'live' && <LiveDot />}
       {t(status)}
     </span>
   );

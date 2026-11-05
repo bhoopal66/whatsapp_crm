@@ -6263,17 +6263,9 @@
   },
   "Meetings": {
     "title": "회의",
-    "subtitle": "동료와 화상 통화를 합니다.",
-    "newMeeting": "새 회의",
     "tabs": {
-      "live": "진행 중",
-      "upcoming": "예정",
+      "schedule": "일정",
       "past": "지난 회의"
-    },
-    "empty": {
-      "live": "지금 진행 중인 회의가 없습니다.",
-      "upcoming": "예정된 회의가 없습니다.",
-      "past": "지난 회의가 아직 없습니다."
     },
     "loadFailed": "회의를 불러오지 못했습니다.",
     "instant": "즉시 회의",
@@ -6367,14 +6359,39 @@
     "noMatches": "“{query}”와(과) 일치하는 회의가 없습니다.",
     "join": "참여",
     "more": "+{count}",
-    "whoIsIn": "{more, plural, =0 {{names} 통화 중} other {{names} 외 #명 통화 중}}",
-    "inCallNow": "{count, plural, other {#명 통화 중}}",
     "duration": "{hours, plural, =0 {{minutes}분} other {{minutes, plural, =0 {{hours}시간} other {{hours}시간 {minutes}분}}}}",
     "groups": {
       "unscheduled": "시간 미정",
       "today": "오늘",
       "tomorrow": "내일"
-    }
+    },
+    "startNow": "지금 시작",
+    "schedule": "예약",
+    "instantTitle": "{name}님과의 회의",
+    "instantTitlePlain": "빠른 회의",
+    "startFailed": "회의를 시작하지 못했습니다.",
+    "inCallBanner": "{title} 회의 중입니다",
+    "returnToMeeting": "회의로 돌아가기",
+    "return": "돌아가기",
+    "alreadyInCall": "이미 회의 중입니다",
+    "inAMeeting": "회의 중",
+    "linkPlaceholder": "회의 링크 붙여넣기",
+    "linkInvalid": "회의 링크가 아닙니다.",
+    "happeningNow": "진행 중",
+    "comingUp": "예정된 회의",
+    "nextUp": "다음 회의",
+    "nothingNext": "예약된 다른 회의가 없습니다.",
+    "open": "열기",
+    "due": "시작 시간",
+    "span": "{days, plural, =0 {{hours, plural, =0 {{minutes}분} other {{minutes, plural, =0 {{hours}시간} other {{hours}시간 {minutes}분}}}}} other {{hours, plural, =0 {{days}일} other {{days}일 {hours}시간}}}}",
+    "countdown": "{span} 후",
+    "startsIn": "{span} 후 시작",
+    "attended": "{count}명 참석",
+    "viewSummary": "요약 보기",
+    "emptyPast": "지난 회의가 없습니다.",
+    "welcomeTitle": "회의는 여기에서 관리합니다",
+    "welcomeBody": "지금 통화를 시작하거나 회의를 예약해 동료를 초대하세요.",
+    "welcomeGuest": "초대받은 회의가 여기에 표시됩니다."
   },
   "MeetingRoom": {
     "loading": "회의를 불러오는 중…",

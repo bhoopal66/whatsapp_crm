@@ -5,6 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useId } from 'react';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
+import { LiveDot } from '@/components/meetings/meeting-status-badge';
+import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
+import { isInCall } from '@/lib/meetings/session/session';
 import { useAuth } from '@/hooks/use-auth';
 import { useUnreadChats } from '@/hooks/use-total-unread';
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
@@ -97,6 +100,9 @@ interface SidebarProps {
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations('Sidebar');
+  const tMeetings = useTranslations('Meetings');
+  const activeCall = useActiveCall();
+  const inMeeting = !!activeCall && isInCall(activeCall.call.phase);
   const pathname = usePathname();
   const {
     profile,
@@ -241,6 +247,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         >
           <item.icon className="h-4 w-4" />
           <span className="flex-1">{t(item.labelKey)}</span>
+          {item.href === '/meetings' && inMeeting && (
+            <span role="img" aria-label={tMeetings('inAMeeting')}>
+              <LiveDot />
+            </span>
+          )}
           {item.beta && (
             <span
               aria-label={t('beta')}
