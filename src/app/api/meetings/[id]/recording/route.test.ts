@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   filters: [] as string[],
   /** Whose flag a stop was confined to. */
   owners: [] as string[],
+  /** Which flag a takeover was confined to. */
+  replaced: [] as string[],
+  /** The recorder's open seat, as the caller's client reads it. */
+  seats: { data: [{ id: 'seat' }] as unknown, error: null as unknown },
   meeting: null as unknown,
   /** Successive reads, when a test needs the row to change between them. */
   reads: [] as unknown[],
@@ -28,6 +32,7 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
       q.update = (v: unknown) => (mocks.update(v), q);
       q.eq = (c: string, v: string) => {
         if (c === 'recording_by') mocks.owners.push(v);
+        if (c === 'recording_started_at') mocks.replaced.push(v);
         return q;
       };
       q.is = (c: string) => (mocks.filters.push(c), q);
@@ -49,6 +54,9 @@ function from() {
   const q: Record<string, unknown> = {};
   q.select = () => q;
   q.eq = () => q;
+  q.is = () => q;
+  q.gt = () => q;
+  q.limit = async () => mocks.seats;
   q.maybeSingle = async () => ({
     data: mocks.reads.length ? mocks.reads.shift() : mocks.meeting,
     error: null,
@@ -68,6 +76,8 @@ describe('POST /api/meetings/[id]/recording', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.filters = [];
     mocks.owners = [];
+    mocks.replaced = [];
+    mocks.seats = { data: [{ id: 'seat' }], error: null };
     mocks.reads = [];
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -105,6 +115,61 @@ describe('POST /api/meetings/[id]/recording', () => {
     const res = await record({ recording: true });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'already_recording' });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('takes over the flag of a recorder gone from the call', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'admin-2',
+    };
+    mocks.seats = { data: [], error: null };
+    const res = await record({ recording: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ recording_by: 'host-1' });
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({ recording_by: 'host-1' })
+    );
+    // Confined to the flag it read, not to an empty one.
+    expect(mocks.replaced).toEqual([ON]);
+    expect(mocks.filters).toEqual([]);
+  });
+
+  it('takes over a flag that names nobody', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: null,
+    };
+    mocks.seats = { data: [{ id: 'never-read' }], error: null };
+    const res = await record({ recording: true });
+    expect(res.status).toBe(200);
+    expect(mocks.replaced).toEqual([ON]);
+  });
+
+  it('lets one of two managers take over an abandoned flag', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'admin-2',
+    };
+    mocks.seats = { data: [], error: null };
+    mocks.written = { data: null, error: null };
+    const res = await record({ recording: true });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'already_recording' });
+  });
+
+  it('keeps the flag when it cannot tell who is in the call', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'admin-2',
+    };
+    mocks.seats = { data: null, error: { code: '57014' } };
+    const res = await record({ recording: true });
+    expect(res.status).toBe(503);
     expect(mocks.update).not.toHaveBeenCalled();
   });
 

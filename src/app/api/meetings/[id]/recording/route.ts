@@ -4,8 +4,9 @@
 // Starting is for the host, an owner or an admin (`meeting_can_manage`,
 // caller's client); stopping also for the person recording, who may have
 // lost that since. One recording at a time: starting over someone else's
-// answers 409 `already_recording`, and starting your own again changes
-// nothing. `{ recording: false }` stops the caller's own recording and
+// answers 409 `already_recording`, unless they have gone from the call,
+// and starting your own again changes nothing. `{ recording: false }`
+// stops the caller's own recording and
 // nobody else's: a save can finish long after the flag was cleared and
 // another manager started, so a late stop must find nothing to clear.
 // That answers ok with the row as it stands. `force` is a manager
@@ -16,7 +17,7 @@
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
-import { isUuid } from '@/lib/meetings/requests';
+import { isUuid, presenceCutoff } from '@/lib/meetings/requests';
 import {
   jsonError,
   loadMeeting,
@@ -31,6 +32,30 @@ import {
 } from '@/lib/meetings/server';
 
 const CLOSED = 'This meeting has ended or was cancelled';
+
+/**
+ * Is the person a recording flag names still in the call? A crashed
+ * browser cannot clear its flag, and its recording died with it. The
+ * same presence rule as everywhere: gone means not left and not seen
+ * inside the window, which is shorter than the room's 90 s grace, so
+ * Record is never offered back before this agrees it may be taken.
+ */
+async function recorderInCall(
+  supabase: Awaited<ReturnType<typeof requireMeetingsUser>>['supabase'],
+  meetingId: string,
+  recorder: string | null | undefined
+) {
+  if (!recorder) return { present: false, error: null };
+  const { data, error } = await supabase
+    .from('meeting_participants')
+    .select('id')
+    .eq('meeting_id', meetingId)
+    .eq('user_id', recorder)
+    .is('left_at', null)
+    .gt('last_seen_at', presenceCutoff(Date.now()))
+    .limit(1);
+  return { present: (data?.length ?? 0) > 0, error };
+}
 
 export async function POST(request: Request, { params }: Params) {
   try {
@@ -62,15 +87,22 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
     if (meeting.status !== 'scheduled') return jsonError(CLOSED, 409);
+    // The flag of a recorder gone from the call, which this start replaces.
+    // If they were only cut off and come back, their recorder reads the row
+    // naming someone else and stops.
+    let abandoned: string | null = null;
     if (recording && meeting.recording_started_at) {
-      if (meeting.recording_by !== userId) {
-        return jsonError('already_recording', 409);
+      if (meeting.recording_by === userId) {
+        return NextResponse.json({
+          ok: true,
+          recording_started_at: meeting.recording_started_at,
+          recording_by: userId,
+        });
       }
-      return NextResponse.json({
-        ok: true,
-        recording_started_at: meeting.recording_started_at,
-        recording_by: userId,
-      });
+      const seen = await recorderInCall(supabase, id, meeting.recording_by);
+      if (seen.error) return readErrorResponse(seen.error);
+      if (seen.present) return jsonError('already_recording', 409);
+      abandoned = meeting.recording_started_at;
     }
 
     const values = recording
@@ -82,13 +114,16 @@ export async function POST(request: Request, { params }: Params) {
       .eq('id', id)
       .eq('account_id', accountId)
       .eq('status', 'scheduled');
-    // Compare-and-set on a start: of two racing managers, one wins. A stop
-    // clears only the caller's own, so a newer recording by someone else
-    // keeps its indicator, unless a manager forces it.
+    // Compare-and-set on a start: of two racing managers, one wins, over an
+    // empty flag or the abandoned one read above. A stop clears only the
+    // caller's own, so a newer recording by someone else keeps its
+    // indicator, unless a manager forces it.
     const forced = body.force === true && canManage.allowed;
     const { data, error } = await (
       recording
-        ? write.is('recording_started_at', null)
+        ? abandoned
+          ? write.eq('recording_started_at', abandoned)
+          : write.is('recording_started_at', null)
         : forced
           ? write
           : write.eq('recording_by', userId)
