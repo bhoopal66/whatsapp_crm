@@ -28,17 +28,25 @@ import {
   formatMeetingWhen,
   linkifyText,
   meetingDisplayStatus,
-  meetingDurationMs,
   parseChatMessages,
   parseMeetingDetail,
   type ChatLine,
   type MeetingDetailData,
 } from '@/lib/meetings/schedule';
+import { isInCall } from '@/lib/meetings/session/session';
+import { meetingRanMs, parseAttendance } from '@/lib/meetings/summary';
 import { cn } from '@/lib/utils';
 
+import {
+  MeetingInvited,
+  MeetingSummaryCard,
+  type AttendanceRead,
+} from './meeting-attendance';
 import { MeetingFormDialog } from './meeting-form-dialog';
-import { MeetingStatusBadge } from './meeting-status-badge';
+import { MeetingNotesView } from './meeting-notes-view';
+import { LiveDot, MeetingStatusBadge } from './meeting-status-badge';
 import { PersonAvatar, type AvatarPerson } from './person-avatars';
+import { useActiveCall } from './session/meeting-session-provider';
 import {
   useMeetingTimeZone,
   useWorkspaceMembers,
@@ -70,6 +78,11 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
   const { nameOf, avatarOf } = useWorkspaceMembers();
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [chat, setChat] = useState<Chat>({ kind: 'idle' });
+  const [attendance, setAttendance] = useState<AttendanceRead>({
+    kind: 'idle',
+  });
+  const [attendanceTry, setAttendanceTry] = useState(0);
+  const active = useActiveCall();
   const [editKey, setEditKey] = useState(0);
   const [editOpen, setEditOpen] = useState(false);
   const [confirm, setConfirm] = useState<'cancel' | 'end' | null>(null);
@@ -126,6 +139,28 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
     };
   }, [meetingId, chatCount]);
 
+  // Attendance only matters once it is over: read then, on a status
+  // change and on a retry, never on the 20 s poll.
+  const rowStatus = state.kind === 'ready' ? state.meeting.status : null;
+  useEffect(() => {
+    if (!rowStatus || rowStatus === 'scheduled') return;
+    let cancelled = false;
+    fetch(`/api/meetings/${meetingId}/attendance`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        const data = parseAttendance(await r.json());
+        if (!data) throw new Error('shape');
+        if (!cancelled) setAttendance({ kind: 'ready', data });
+      })
+      .catch(() => {
+        if (!cancelled)
+          setAttendance((a) => (a.kind === 'ready' ? a : { kind: 'failed' }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meetingId, rowStatus, attendanceTry]);
+
   const act = async (kind: 'cancel' | 'end') => {
     setBusy(true);
     try {
@@ -167,7 +202,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
 
   if (state.kind !== 'ready') {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6">
+      <div className="mx-auto w-full max-w-5xl space-y-5">
         {back}
         {state.kind === 'loading' ? (
           <div className="bg-muted h-40 animate-pulse rounded-xl" aria-hidden />
@@ -206,9 +241,15 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
     hour: '2-digit',
     minute: '2-digit',
   });
-  const lasted = meetingDurationMs(m);
-  const lastedLabel =
-    lasted === null ? null : t('duration', durationParts(lasted));
+  const timeOf = (iso: string) => clock.format(new Date(iso));
+  const inThisCall = active?.meetingId === m.id && isInCall(active.call.phase);
+  const canEditNotes =
+    state.canManage ?? canManageMeeting(accountRole, user?.id, m);
+  const record = attendance.kind === 'ready' ? attendance.data : null;
+  // A cancelled meeting has a record only if someone did come.
+  const showSummary =
+    m.status === 'ended' ||
+    (m.status === 'cancelled' && (record?.people ?? 0) > 0);
 
   const downloadIcs = () => {
     const ics = buildMeetingIcs(m, {
@@ -229,50 +270,44 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-5">
       {back}
 
       <section
         className={cn(
-          'border-border bg-card space-y-4 rounded-xl border p-4 md:p-6',
+          'bg-card space-y-4 rounded-xl border p-4 md:p-6',
           status === 'live' && 'border-success/40'
         )}
       >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <MeetingStatusBadge status={status} />
-            <h1 className="text-2xl font-bold break-words">{m.title}</h1>
-            <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
-              <Clock className="size-4 shrink-0" aria-hidden />
-              {formatMeetingWhen(m, { locale, timeZone }) ?? t('instant')}
-            </p>
-            <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
-              <PersonAvatar person={personOf(m.hostUserId)} size="sm" />
-              {t('hostedBy', { name: nameFor(m.hostUserId) })}
-            </p>
-          </div>
+        <div className="min-w-0 space-y-1">
+          <MeetingStatusBadge status={status} />
+          <h1 className="text-2xl font-bold tracking-tight break-words">
+            {m.title}
+          </h1>
+          <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
+            <Clock className="size-4 shrink-0" aria-hidden />
+            {formatMeetingWhen(m, { locale, timeZone }) ?? t('instant')}
+          </p>
+          <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
+            <PersonAvatar person={personOf(m.hostUserId)} size="sm" />
+            {t('hostedBy', { name: nameFor(m.hostUserId) })}
+          </p>
+        </div>
+
+        {m.status === 'cancelled' && (
+          <p className="text-muted-foreground text-sm">{td('over')}</p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
           {joinable && (
             <Link
               href={`/meetings/${m.id}/room`}
-              className={cn(buttonVariants({ size: 'lg' }), 'shrink-0')}
+              className={buttonVariants({ size: 'lg' })}
             >
               <Video className="size-4" aria-hidden />
-              {td('joinNow')}
+              {inThisCall ? t('returnToMeeting') : td('joinNow')}
             </Link>
           )}
-        </div>
-
-        {m.description && (
-          <p className="text-sm whitespace-pre-wrap">{m.description}</p>
-        )}
-
-        {!joinable && (
-          <p className="text-muted-foreground text-sm">
-            {lastedLabel ? td('lasted', { duration: lastedLabel }) : td('over')}
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void copyLink()}>
             <Link2 className="size-4" aria-hidden />
             {td('copyLink')}
@@ -319,124 +354,155 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
         </div>
       </section>
 
-      {joinable && (
-        <section className="border-border bg-card space-y-3 rounded-xl border p-4 md:p-6">
-          <h2 className="text-sm font-semibold">
-            {td('inCall')}{' '}
-            <span className="text-muted-foreground font-normal tabular-nums">
-              {t('inCall', { count: m.presentCount })}
-            </span>
-          </h2>
-          {m.present.length > 0 && (
-            <ul className="flex flex-wrap gap-2">
-              {m.present.map((p) => (
-                <li
-                  key={p.userId}
-                  className="bg-muted/60 flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-sm"
-                >
-                  <PersonAvatar person={personOf(p.userId)} size="sm" />
-                  {nameFor(p.userId)}
-                  {p.handRaisedAt && (
-                    <Hand
-                      className="text-warning size-4"
-                      aria-label={td('handRaised')}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="min-w-0 space-y-5">
+          {m.description && (
+            <section className="bg-card space-y-2 rounded-xl border p-4 md:p-6">
+              <h2 className="font-semibold">{td('description')}</h2>
+              <p className="text-sm break-words whitespace-pre-wrap">
+                {m.description}
+              </p>
+            </section>
           )}
-        </section>
-      )}
 
-      <section className="border-border bg-card space-y-3 rounded-xl border p-4 md:p-6">
-        <h2 className="text-sm font-semibold">{td('invitees')}</h2>
-        {m.inviteeUserIds.length === 0 ? (
-          <p className="text-muted-foreground text-sm">{td('noInvitees')}</p>
-        ) : (
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {m.inviteeUserIds.map((id) => (
-              <li key={id} className="flex min-w-0 items-center gap-2 text-sm">
-                <PersonAvatar person={personOf(id)} />
-                <span className="truncate">{nameFor(id)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {m.openToWorkspace && (
-          <p className="text-muted-foreground text-xs">
-            {t('openToWorkspace')}
-          </p>
-        )}
-      </section>
-
-      {/* Before the meeting is over, an empty chat is not worth a section. */}
-      {chatCount !== null && (chatCount > 0 || !joinable) && (
-        <section className="border-border bg-card space-y-3 rounded-xl border p-4 md:p-6">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-            <MessageSquare className="size-4" aria-hidden />
-            {td('chat')}
-          </h2>
-          {chatCount === 0 ? (
-            <p className="text-muted-foreground text-sm">{td('chatEmpty')}</p>
-          ) : chat.kind === 'failed' ? (
-            <p className="text-destructive text-sm">{td('chatFailed')}</p>
-          ) : chat.kind === 'idle' ? (
-            <div
-              className="bg-muted h-16 animate-pulse rounded-lg"
-              aria-hidden
-            />
-          ) : (
-            <>
-              {chat.count > chat.lines.length && (
-                <p className="text-muted-foreground text-xs">
-                  {td('chatPartial', {
-                    shown: chat.lines.length,
-                    total: chat.count,
-                  })}
-                </p>
+          {(status === 'live' || status === 'due') && (
+            <section className="bg-card space-y-3 rounded-xl border p-4 md:p-6">
+              <h2 className="flex items-center gap-2 font-semibold">
+                {status === 'live' && <LiveDot />}
+                {td('inCall')}{' '}
+                <span className="text-muted-foreground text-sm font-normal tabular-nums">
+                  {t('inCall', { count: m.presentCount })}
+                </span>
+              </h2>
+              {m.present.length > 0 && (
+                <ul className="flex flex-wrap gap-2">
+                  {m.present.map((p) => (
+                    <li
+                      key={p.userId}
+                      className="bg-card-2 flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-sm"
+                    >
+                      <PersonAvatar person={personOf(p.userId)} size="sm" />
+                      {nameFor(p.userId)}
+                      {p.handRaisedAt && (
+                        <Hand
+                          className="text-warning size-4"
+                          aria-label={td('handRaised')}
+                        />
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
-              <ol className="max-h-96 space-y-3 overflow-y-auto">
-                {chat.lines.map((line) => (
-                  <li key={line.id} className="flex gap-2">
-                    <PersonAvatar person={personOf(line.userId)} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs">
-                        <span className="font-medium">
-                          {nameFor(line.userId)}
-                        </span>{' '}
-                        <time
-                          dateTime={line.createdAt}
-                          className="text-muted-foreground tabular-nums"
-                        >
-                          {clock.format(new Date(line.createdAt))}
-                        </time>
-                      </p>
-                      <p className="text-sm break-words whitespace-pre-wrap">
-                        {linkifyText(line.body).map((seg, i) =>
-                          seg.kind === 'link' ? (
-                            <a
-                              key={i}
-                              href={seg.href}
-                              target="_blank"
-                              rel="noopener noreferrer nofollow"
-                              className="text-primary underline underline-offset-2"
-                            >
-                              {seg.text}
-                            </a>
-                          ) : (
-                            <span key={i}>{seg.text}</span>
-                          )
-                        )}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </>
+            </section>
           )}
-        </section>
-      )}
+
+          {showSummary && (
+            <MeetingSummaryCard
+              read={attendance}
+              onRetry={() => {
+                setAttendance({ kind: 'idle' });
+                setAttendanceTry((n) => n + 1);
+              }}
+              ranMs={meetingRanMs(record, m)}
+              chatCount={chatCount}
+              title={m.title}
+              nameFor={nameFor}
+              recordNameOf={(id) => nameOf(id) ?? t('unknownPerson')}
+              personOf={personOf}
+              timeOf={timeOf}
+            />
+          )}
+
+          <MeetingNotesView
+            key={m.id}
+            meetingId={m.id}
+            status={status}
+            canEdit={canEditNotes}
+            nameFor={nameFor}
+            timeOf={timeOf}
+          />
+
+          {/* Before the meeting is over, an empty chat is not worth a section. */}
+          {chatCount !== null && (chatCount > 0 || !joinable) && (
+            <section className="bg-card space-y-3 rounded-xl border p-4 md:p-6">
+              <h2 className="flex items-center gap-1.5 font-semibold">
+                <MessageSquare className="size-4" aria-hidden />
+                {td('chat')}
+              </h2>
+              {chatCount === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  {td('chatEmpty')}
+                </p>
+              ) : chat.kind === 'failed' ? (
+                <p className="text-destructive text-sm">{td('chatFailed')}</p>
+              ) : chat.kind === 'idle' ? (
+                <div
+                  className="bg-muted h-16 animate-pulse rounded-lg"
+                  aria-hidden
+                />
+              ) : (
+                <>
+                  {chat.count > chat.lines.length && (
+                    <p className="text-muted-foreground text-xs">
+                      {td('chatPartial', {
+                        shown: chat.lines.length,
+                        total: chat.count,
+                      })}
+                    </p>
+                  )}
+                  <ol className="max-h-96 space-y-3 overflow-y-auto">
+                    {chat.lines.map((line) => (
+                      <li key={line.id} className="flex gap-2">
+                        <PersonAvatar
+                          person={personOf(line.userId)}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs">
+                            <span className="font-medium">
+                              {nameFor(line.userId)}
+                            </span>{' '}
+                            <time
+                              dateTime={line.createdAt}
+                              className="text-muted-foreground tabular-nums"
+                            >
+                              {timeOf(line.createdAt)}
+                            </time>
+                          </p>
+                          <p className="text-sm break-words whitespace-pre-wrap">
+                            {linkifyText(line.body).map((seg, i) =>
+                              seg.kind === 'link' ? (
+                                <a
+                                  key={i}
+                                  href={seg.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer nofollow"
+                                  className="text-primary underline underline-offset-2"
+                                >
+                                  {seg.text}
+                                </a>
+                              ) : (
+                                <span key={i}>{seg.text}</span>
+                              )
+                            )}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+            </section>
+          )}
+        </div>
+
+        <MeetingInvited
+          inviteeUserIds={m.inviteeUserIds}
+          openToWorkspace={m.openToWorkspace}
+          read={joinable ? null : attendance}
+          personOf={personOf}
+        />
+      </div>
 
       {manage && (
         <MeetingFormDialog
