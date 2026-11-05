@@ -105,7 +105,7 @@ describe('nextRemoteSpeaker', () => {
 describe('stageMetrics', () => {
   it('fits the gallery into the stage', () => {
     const arr = arrangeStage({
-      tiles: [cam('me', true), cam('a')],
+      tiles: [cam('me', true), cam('a'), cam('b')],
       mode: 'auto',
       pinnedKey: null,
       activeSpeakerId: null,
@@ -113,7 +113,7 @@ describe('stageMetrics', () => {
       page: 0,
     });
     const m = stageMetrics(arr, 1000, 400);
-    expect(m.grid?.columns).toBe(2);
+    expect(m.grid?.columns).toBe(3);
     expect(m.heights.gallery).toBe(m.grid?.tileHeight);
     expect(m.heights.gallery).toBeGreaterThan(0);
     expect(m.stripHeight).toBe(0);

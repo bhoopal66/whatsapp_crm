@@ -13,10 +13,15 @@ export interface GridFit {
 /** Tiles per gallery page; beyond this the gallery paginates. */
 export const GALLERY_PAGE_SIZE = 16;
 
+/** More columns win while their tile keeps this share of the best width. */
+export const SIDE_BY_SIDE_BIAS = 0.85;
+
 /**
  * The column count that gives the largest tiles: for each candidate,
  * the tile is as wide as a column allows, or as tall as a row allows,
- * whichever is smaller at `aspect` (width / height).
+ * whichever is smaller at `aspect` (width / height). Among candidates
+ * within SIDE_BY_SIDE_BIAS of the largest, the most columns win: two
+ * people belong side by side, even if stacking is 10% bigger.
  */
 export function fitGrid(
   count: number,
@@ -34,16 +39,18 @@ export function fitGrid(
       tileHeight: 0,
     };
   }
-  let best: GridFit = { columns: 1, rows: n, tileWidth: 0, tileHeight: 0 };
+  const fits: GridFit[] = [];
   for (let columns = 1; columns <= n; columns++) {
     const rows = Math.ceil(n / columns);
     const byWidth = (width - gap * (columns - 1)) / columns;
     const byHeight = ((height - gap * (rows - 1)) / rows) * aspect;
     const tileWidth = Math.max(0, Math.min(byWidth, byHeight));
-    if (tileWidth > best.tileWidth) {
-      best = { columns, rows, tileWidth, tileHeight: tileWidth / aspect };
-    }
+    fits.push({ columns, rows, tileWidth, tileHeight: tileWidth / aspect });
   }
+  const largest = Math.max(...fits.map((f) => f.tileWidth));
+  const best = fits.findLast(
+    (f) => f.tileWidth >= largest * SIDE_BY_SIDE_BIAS
+  )!;
   return {
     ...best,
     tileWidth: Math.floor(best.tileWidth),

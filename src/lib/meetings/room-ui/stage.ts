@@ -6,7 +6,8 @@ import type { ParticipantId, TileSize } from '@/lib/meetings/room/contract';
 
 import { paginate } from './grid';
 
-export type LayoutMode = 'auto' | 'speaker';
+/** Gallery, Speaker (main + filmstrip), Focus (main only). */
+export type LayoutMode = 'auto' | 'speaker' | 'focus';
 
 export interface StageTile {
   /** `${participantId}:camera` or `${participantId}:screen`. */
@@ -27,6 +28,8 @@ export interface StageInput {
   lastRemoteSpeakerId: ParticipantId | null;
   page: number;
   perPage?: number;
+  /** Leave our camera out, unless it is alone or we are sharing. */
+  hideSelf?: boolean;
 }
 
 export type StageArrangement =
@@ -41,10 +44,16 @@ export type StageArrangement =
       reason: 'pinned' | 'screen' | 'speaker';
       main: StageTile;
       strip: StageTile[];
+    }
+  | {
+      /** The other person fills the stage; our camera floats in a corner. */
+      kind: 'duo';
+      main: StageTile;
+      self: StageTile;
     };
 
 export function arrangeStage(input: StageInput): StageArrangement {
-  const { tiles } = input;
+  const tiles = withoutHiddenSelf(input.tiles, input.hideSelf);
   const spotlight = (
     main: StageTile,
     reason: 'pinned' | 'screen' | 'speaker'
@@ -52,21 +61,24 @@ export function arrangeStage(input: StageInput): StageArrangement {
     kind: 'spotlight',
     reason,
     main,
-    strip: tiles.filter((t) => t.key !== main.key),
+    // Focus draws the main tile and nobody else.
+    strip:
+      input.mode === 'focus' ? [] : tiles.filter((t) => t.key !== main.key),
   });
   const pinned = input.pinnedKey
     ? tiles.find((t) => t.key === input.pinnedKey)
     : undefined;
   if (pinned) return spotlight(pinned, 'pinned');
-  // Someone else's screen ahead of our own: our own, blown up, shows
-  // us nothing new.
+  // Our own screen, blown up, shows us nothing new: it is the main tile
+  // only when nobody else is here.
+  const cameras = tiles.filter((t) => t.kind === 'camera');
+  const remote = cameras.filter((t) => !t.isSelf);
+  const ownScreen = tiles.find((t) => t.kind === 'screen' && t.isSelf);
   const screen =
     tiles.find((t) => t.kind === 'screen' && !t.isSelf) ??
-    tiles.find((t) => t.kind === 'screen');
+    (remote.length ? undefined : ownScreen);
   if (screen) return spotlight(screen, 'screen');
-  const cameras = tiles.filter((t) => t.kind === 'camera');
-  if (input.mode === 'speaker' && cameras.length >= 2) {
-    const remote = cameras.filter((t) => !t.isSelf);
+  if ((input.mode !== 'auto' || ownScreen) && cameras.length >= 2) {
     const pick = (id: ParticipantId | null) =>
       id ? remote.find((t) => t.participantId === id) : undefined;
     const main =
@@ -75,6 +87,10 @@ export function arrangeStage(input: StageInput): StageArrangement {
       remote[0];
     if (main) return spotlight(main, 'speaker');
   }
+  const self = tiles.find((t) => t.isSelf);
+  if (tiles.length === 2 && remote.length === 1 && self) {
+    return { kind: 'duo', main: remote[0], self };
+  }
   const page = paginate(tiles, input.page, input.perPage);
   return {
     kind: 'gallery',
@@ -82,6 +98,16 @@ export function arrangeStage(input: StageInput): StageArrangement {
     page: page.page,
     pageCount: page.pageCount,
   };
+}
+
+/** hideSelf: our camera stays when it is alone or while we are sharing. */
+function withoutHiddenSelf(
+  tiles: readonly StageTile[],
+  hideSelf: boolean | undefined
+): readonly StageTile[] {
+  if (!hideSelf || tiles.length < 2) return tiles;
+  if (tiles.some((t) => t.isSelf && t.kind === 'screen')) return tiles;
+  return tiles.filter((t) => !(t.isSelf && t.kind === 'camera'));
 }
 
 /** CSS height × devicePixelRatio → layer: ≥ 360 px full, ≥ 180 half. */
@@ -111,6 +137,8 @@ export function tileSizes(
   };
   if (arrangement.kind === 'gallery') {
     for (const tile of arrangement.tiles) put(tile, heights.gallery);
+  } else if (arrangement.kind === 'duo') {
+    put(arrangement.main, heights.main);
   } else {
     put(arrangement.main, heights.main);
     for (const tile of arrangement.strip) put(tile, heights.strip);

@@ -10,6 +10,8 @@ export type RoomPanel = 'chat' | 'people';
 
 export interface RoomUiState {
   layout: LayoutMode;
+  /** Leave our own camera tile out of the stage. */
+  hideSelf: boolean;
   pinnedKey: string | null;
   page: number;
   panel: RoomPanel | null;
@@ -22,6 +24,7 @@ export interface RoomUi {
   subscribe: (fn: () => void) => () => void;
   getSnapshot: () => RoomUiState;
   setLayout: (layout: LayoutMode) => void;
+  setHideSelf: (hide: boolean) => void;
   setPinnedKey: (key: string | null) => void;
   setPage: (page: number) => void;
   setPanel: (panel: RoomPanel | null) => void;
@@ -32,6 +35,7 @@ export interface RoomUi {
 export function createRoomUi(): RoomUi {
   let state: RoomUiState = {
     layout: 'auto',
+    hideSelf: false,
     pinnedKey: null,
     page: 0,
     panel: null,
@@ -53,6 +57,7 @@ export function createRoomUi(): RoomUi {
     },
     getSnapshot: () => state,
     setLayout: (layout) => set('layout', layout),
+    setHideSelf: (hide) => set('hideSelf', hide),
     setPinnedKey: (key) => set('pinnedKey', key),
     setPage: (page) => set('page', page),
     setPanel: (panel) => set('panel', panel),

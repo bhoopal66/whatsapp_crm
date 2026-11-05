@@ -76,10 +76,35 @@ export interface StageMetrics {
   grid: GridFit | null;
   /** Height of the spotlight's main box, 0 in the gallery. */
   mainHeight: number;
+  /** Width of the main box; the stage's, less a right-hand strip. */
+  mainWidth: number;
   /** Height of one filmstrip tile, 0 when there is no strip. */
   stripHeight: number;
+  /** Width of one filmstrip tile, 0 when there is no strip. */
+  stripWidth: number;
+  stripPlacement: StripPlacement;
+  /** Duo: our floating camera's box; null otherwise. */
+  selfBox: { width: number; height: number } | null;
   /** For tileSizes(). */
   heights: { gallery: number; main: number; strip: number };
+}
+
+export type StripPlacement = 'right' | 'bottom';
+
+/** A wide stage gives the height to the main tile: a shared screen gains. */
+export function stripPlacementFor(
+  width: number,
+  height: number
+): StripPlacement {
+  return height > 0 && width / height > 1.6 && width >= 900
+    ? 'right'
+    : 'bottom';
+}
+
+/** The duo's floating camera: about 22% of the stage, at least 160 px. */
+export function duoSelfBox(width: number): { width: number; height: number } {
+  const w = Math.max(160, Math.round(width * 0.22));
+  return { width: w, height: Math.round((w * 9) / 16) };
 }
 
 /** Filmstrip tile height: smaller on a phone. */
@@ -104,28 +129,55 @@ export function stageMetrics(
     return {
       grid,
       mainHeight: 0,
+      mainWidth: 0,
       stripHeight: 0,
+      stripWidth: 0,
+      stripPlacement: 'bottom',
+      selfBox: null,
       heights: { gallery: grid.tileHeight, main: 0, strip: 0 },
     };
   }
+  if (arrangement.kind === 'duo') {
+    return {
+      grid: null,
+      mainHeight: height,
+      mainWidth: width,
+      stripHeight: 0,
+      stripWidth: 0,
+      stripPlacement: 'bottom',
+      selfBox: duoSelfBox(width),
+      heights: { gallery: 0, main: height, strip: 0 },
+    };
+  }
+  const stripPlacement = stripPlacementFor(width, height);
   const stripHeight = arrangement.strip.length ? stripTileHeight(width) : 0;
+  const stripWidth = Math.round((stripHeight * 16) / 9);
+  const right = stripPlacement === 'right';
   const mainHeight = Math.max(
     0,
-    Math.floor(height - (stripHeight ? stripHeight + STAGE_GAP : 0))
+    Math.floor(height - (stripHeight && !right ? stripHeight + STAGE_GAP : 0))
+  );
+  const mainWidth = Math.max(
+    0,
+    Math.floor(width - (stripWidth && right ? stripWidth + STAGE_GAP : 0))
   );
   return {
     grid: null,
     mainHeight,
+    mainWidth,
     stripHeight,
+    stripWidth,
+    stripPlacement,
+    selfBox: null,
     heights: { gallery: 0, main: mainHeight, strip: stripHeight },
   };
 }
 
 /** The tiles an arrangement actually draws. */
 export function visibleTiles(arrangement: StageArrangement): StageTile[] {
-  return arrangement.kind === 'gallery'
-    ? arrangement.tiles
-    : [arrangement.main, ...arrangement.strip];
+  if (arrangement.kind === 'gallery') return arrangement.tiles;
+  if (arrangement.kind === 'duo') return [arrangement.main, arrangement.self];
+  return [arrangement.main, ...arrangement.strip];
 }
 
 /**

@@ -1,7 +1,15 @@
 // Keyboard shortcuts in the room, and Enter in the chat box.
 
 export type RoomShortcut =
-  'mic' | 'camera' | 'share' | 'hand' | 'chat' | 'people' | 'closePanel';
+  | 'mic'
+  | 'camera'
+  | 'share'
+  | 'hand'
+  | 'chat'
+  | 'people'
+  | 'fullscreen'
+  | 'shortcuts'
+  | 'closePanel';
 
 const BY_KEY: Record<string, RoomShortcut> = {
   m: 'mic',
@@ -10,6 +18,8 @@ const BY_KEY: Record<string, RoomShortcut> = {
   h: 'hand',
   c: 'chat',
   p: 'people',
+  f: 'fullscreen',
+  '?': 'shortcuts',
   escape: 'closePanel',
 };
 
@@ -24,6 +34,8 @@ export const SHORTCUT_KEYS: Record<
   hand: 'H',
   chat: 'C',
   people: 'P',
+  fullscreen: 'F',
+  shortcuts: '?',
 };
 
 export interface KeyLike {
@@ -57,6 +69,35 @@ export function shortcutFor(
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (isTypingTarget(target)) return null;
   return BY_KEY[e.key.toLowerCase()] ?? null;
+}
+
+/** A focused control answers Space itself: it would click, not talk. */
+function ownsSpace(target: TargetLike | null | undefined): boolean {
+  const tag = (target?.tagName ?? '').toUpperCase();
+  return isTypingTarget(target) || tag === 'BUTTON' || tag === 'A';
+}
+
+/**
+ * Hold Space to talk: whether this keydown starts it. Only while muted,
+ * and `held` swallows the key's auto-repeat. The release is talkReleased.
+ */
+export function talkStarts(
+  e: KeyLike,
+  target: TargetLike | null | undefined,
+  state: { micOn: boolean; held: boolean }
+): boolean {
+  if (e.key !== ' ' || state.micOn || state.held) return false;
+  if (e.defaultPrevented || e.repeat || e.isComposing) return false;
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  return !ownsSpace(target);
+}
+
+/**
+ * Whether to mute again. A keyup of Space, or (`key` null) a blur or tab
+ * switch: the keyup then lands elsewhere, and nobody may be left unmuted.
+ */
+export function talkReleased(key: string | null, held: boolean): boolean {
+  return held && (key === null || key === ' ');
 }
 
 /** Enter sends, Shift+Enter is a newline; never mid-IME (Korean). */

@@ -9,6 +9,18 @@ import { reactionOffset } from './people';
 /** At or below this width the bar collapses to its phone form. */
 export const COMPACT_BAR_QUERY = '(max-width: 640px)';
 
+export type DockMode = 'full' | 'icons' | 'compact';
+
+/**
+ * The dock's form, from the room's measured width (never the viewport:
+ * the sidebar and side panel take their share): labels and the left
+ * group, then icons only, then Share, Reactions and Hand move into More.
+ */
+export function dockMode(width: number): DockMode {
+  if (width >= 980) return 'full';
+  return width >= 620 ? 'icons' : 'compact';
+}
+
 /** The Chat button's badge: nothing at 0, capped at 99+. */
 export function unreadBadge(count: number): string | null {
   if (!Number.isFinite(count) || count < 1) return null;

@@ -12,6 +12,7 @@ import {
   type StageTile,
 } from '@/lib/meetings/room-ui/stage';
 import { STAGE_GAP, stageMetrics } from '@/lib/meetings/room-ui/tiles';
+import { cn } from '@/lib/utils';
 
 /**
  * Draws an arrangement into whatever box it is given: the gallery grid
@@ -132,36 +133,75 @@ export function RoomStage({
             </Button>
           </div>
         )}
-      {size.width > 0 && arrangement.kind === 'spotlight' && (
-        <div className="flex h-full flex-col" style={{ gap: STAGE_GAP }}>
-          <div className="flex min-h-0" style={{ height: metrics.mainHeight }}>
+      {size.width > 0 && arrangement.kind === 'duo' && metrics.selfBox && (
+        <>
+          <div className="flex h-full">
             {renderTile(arrangement.main, {
               width: size.width,
               height: metrics.mainHeight,
               compact: false,
             })}
           </div>
+          <div
+            className="absolute right-3 bottom-3 flex overflow-hidden rounded-xl shadow-lg shadow-black/40"
+            style={metrics.selfBox}
+          >
+            {renderTile(arrangement.self, {
+              ...metrics.selfBox,
+              compact: true,
+            })}
+          </div>
+        </>
+      )}
+      {size.width > 0 && arrangement.kind === 'spotlight' && (
+        <div
+          className={cn(
+            'flex h-full',
+            metrics.stripPlacement === 'bottom' && 'flex-col'
+          )}
+          style={{ gap: STAGE_GAP }}
+        >
+          <div
+            className="flex min-h-0 min-w-0"
+            style={{ width: metrics.mainWidth, height: metrics.mainHeight }}
+          >
+            {renderTile(arrangement.main, {
+              width: metrics.mainWidth,
+              height: metrics.mainHeight,
+              compact: false,
+            })}
+          </div>
           {metrics.stripHeight > 0 && (
             <div
-              className="flex shrink-0 justify-center overflow-x-auto"
-              style={{ gap: STAGE_GAP, height: metrics.stripHeight }}
+              className={cn(
+                'flex shrink-0',
+                metrics.stripPlacement === 'right'
+                  ? 'flex-col overflow-y-auto'
+                  : 'justify-center overflow-x-auto'
+              )}
+              style={{
+                gap: STAGE_GAP,
+                ...(metrics.stripPlacement === 'right'
+                  ? { width: metrics.stripWidth }
+                  : { height: metrics.stripHeight }),
+              }}
             >
-              {arrangement.strip.map((tile) => {
-                const width = Math.round((metrics.stripHeight * 16) / 9);
-                return (
-                  <div
-                    key={tile.key}
-                    className="flex shrink-0"
-                    style={{ width, height: metrics.stripHeight }}
-                  >
-                    {renderTile(tile, {
-                      width,
-                      height: metrics.stripHeight,
-                      compact: true,
-                    })}
-                  </div>
-                );
-              })}
+              {arrangement.strip.map((tile) => (
+                <div
+                  key={tile.key}
+                  className="flex shrink-0"
+                  style={{
+                    width: metrics.stripWidth,
+                    height: metrics.stripHeight,
+                  }}
+                >
+                  {renderTile(tile, {
+                    width: metrics.stripWidth,
+                    height: metrics.stripHeight,
+                    compact: true,
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>

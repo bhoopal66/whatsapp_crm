@@ -8,6 +8,7 @@ describe('createRoomUi', () => {
   it('starts on the defaults the room had', () => {
     expect(createRoomUi().getSnapshot()).toEqual({
       layout: 'auto',
+      hideSelf: false,
       pinnedKey: null,
       page: 0,
       panel: null,
@@ -20,21 +21,23 @@ describe('createRoomUi', () => {
     const ui = createRoomUi();
     const fn = vi.fn();
     ui.subscribe(fn);
-    ui.setLayout('speaker');
+    ui.setLayout('focus');
+    ui.setHideSelf(true);
     ui.setPinnedKey('p1:camera');
     ui.setPage(2);
     ui.setPanel('chat');
     ui.setPanelWidth(400);
     ui.setChatSeenAt('2026-11-05T10:00:00Z');
     expect(ui.getSnapshot()).toEqual({
-      layout: 'speaker',
+      layout: 'focus',
+      hideSelf: true,
       pinnedKey: 'p1:camera',
       page: 2,
       panel: 'chat',
       panelWidth: 400,
       chatSeenAt: '2026-11-05T10:00:00Z',
     });
-    expect(fn).toHaveBeenCalledTimes(6);
+    expect(fn).toHaveBeenCalledTimes(7);
   });
 
   it('keeps the snapshot identical when nothing changed', () => {

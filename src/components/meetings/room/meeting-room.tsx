@@ -266,7 +266,7 @@ export function LiveRoom({
     roomUi.getSnapshot,
     roomUi.getSnapshot
   );
-  const { layout: mode, pinnedKey, page } = ui;
+  const { layout: mode, pinnedKey, page, hideSelf } = ui;
   const fullscreen = useFullscreen();
   // The last remote speaker, so Speaker mode keeps them on screen while
   // we talk. State adjusted during render, not a ref: refs may not be
@@ -294,6 +294,7 @@ export function LiveRoom({
     activeSpeakerId: call.activeSpeakerId,
     lastRemoteSpeakerId: remoteSpeaker,
     page,
+    hideSelf,
   });
 
   // Picture-in-picture: every drawn <video>, by tile key, read only when
@@ -355,7 +356,9 @@ export function LiveRoom({
       else if (s === 'camera') void c.toggleCamera();
       else if (s === 'share') void c.toggleScreen();
       else if (s === 'hand') void c.toggleHand();
-      else onTogglePanel(s);
+      else if (s === 'chat' || s === 'people' || s === 'closePanel') {
+        onTogglePanel(s);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
