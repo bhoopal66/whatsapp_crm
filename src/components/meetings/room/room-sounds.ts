@@ -6,7 +6,7 @@ type SinkAudio = HTMLAudioElement & {
   setSinkId?: (id: string) => Promise<void>;
 };
 
-function audioContextClass(): typeof AudioContext | null {
+export function audioContextClass(): typeof AudioContext | null {
   if (typeof window === 'undefined') return null;
   return (
     window.AudioContext ??

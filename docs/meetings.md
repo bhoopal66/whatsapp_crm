@@ -91,6 +91,33 @@ Inviting someone other than yourself rings their bell
 (`meeting_invite`, `meta.meeting_id`). A meeting has at most 100
 invitees.
 
+## The invite pop-up
+
+An invite to a meeting that is happening now also pops up on the
+person's screen with a ringtone, over whatever page of the CRM they have
+open.
+
+- **When.** An instant meeting (the bell row says "Starting now"), or a
+  scheduled meeting someone is already in. An invite to a meeting later
+  on only rings the bell.
+- **Join** opens the meeting's lobby, switching workspace if it is
+  another one's, and marks the bell row read. **Not now** marks it read
+  and closes the pop-up on all the person's tabs and devices.
+- Left alone it rings for a minute and closes, and the bell row stays
+  unread. It also closes when the meeting ends, is cancelled or locked,
+  when the person is removed, or when they open the invite from the bell.
+- **Silent** while they are in a meeting or on a phone call: the pop-up
+  still shows.
+- **Sound.** Browsers only play sound in a tab the person has clicked in
+  since it loaded; without that the pop-up still shows. With several
+  tabs open, one rings.
+- It needs the CRM open in a browser tab. With it closed, the bell and
+  push are all they get. Quiet hours hold push only, not the pop-up.
+
+`src/lib/meetings/invite-ring.ts` holds these rules. The body it matches,
+"Starting now", is written by migration 106's trigger, and a test pins
+the two together.
+
 ## The meetings page
 
 - **Start now** opens an instant meeting in one click. It is not open to

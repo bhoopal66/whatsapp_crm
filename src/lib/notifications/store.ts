@@ -30,6 +30,11 @@ export type NotificationsAction =
   | { type: 'markRead'; id: string; at: string }
   | { type: 'markAllRead'; at: string };
 
+/** One realtime event on the reader's rows. A DELETE carries only the key. */
+export type NotificationChange =
+  | { event: 'INSERT' | 'UPDATE'; row: Notification }
+  | { event: 'DELETE'; row: Partial<Notification> };
+
 export const INITIAL_NOTIFICATIONS_STATE: NotificationsState = {
   rows: null,
   outsideUnread: 0,

@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Video meetings: invites pop up and ring
+
+- When you're invited to a meeting that's happening now, a pop-up with a
+  ringtone appears on whatever CRM page you have open, with **Join** and
+  **Not now**. **Join** takes you to the meeting's lobby. It rings for up
+  to a minute, and if you miss it the invite stays in the bell. An invite
+  to a meeting later on only goes to the bell, as before.
+- The pop-up needs the CRM open in a browser tab, and browsers only play
+  the sound in a tab you've clicked in since it loaded. It stays silent
+  while you're already in a meeting or on a call.
+
 ### A colour for each sender in group chats
 
 - In WhatsApp groups and submission groups, a case's Conversation tab

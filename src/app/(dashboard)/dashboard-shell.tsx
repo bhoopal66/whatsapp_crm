@@ -11,6 +11,7 @@ import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isChatPath } from "@/lib/chat/view";
 import { isMeetingRoomPath } from "@/lib/meetings/session/paths";
+import { MeetingInviteCard } from "@/components/meetings/meeting-invite-card";
 import { MeetingSessionProvider } from "@/components/meetings/session/meeting-session-provider";
 import { CallProvider } from "@/components/pbx/call-provider";
 import { IncomingCallCard } from "@/components/pbx/incoming-call-card";
@@ -107,6 +108,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <IncomingCallCard />
+      <MeetingInviteCard />
       <InCallPanel />
       <SoftphoneMount />
       {/* The app's own right-click menu, for every screen of the shell. */}

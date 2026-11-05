@@ -6434,6 +6434,13 @@
     "welcomeBody": "지금 통화를 시작하거나 회의를 예약해 동료를 초대하세요.",
     "welcomeGuest": "초대받은 회의가 여기에 표시됩니다."
   },
+  "MeetingInvite": {
+    "title": "회의 초대",
+    "byPerson": "{name}님이 지금 회의에 초대했습니다",
+    "generic": "지금 회의에 초대되었습니다",
+    "join": "참여",
+    "notNow": "나중에"
+  },
   "MeetingRoom": {
     "recording": {
       "record": "이 회의 녹화",

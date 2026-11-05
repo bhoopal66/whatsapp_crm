@@ -24,6 +24,7 @@ import {
   INITIAL_NOTIFICATIONS_STATE,
   notificationsReducer,
   unreadCount,
+  type NotificationChange,
 } from '@/lib/notifications/store';
 
 /** How many of the latest rows the bell and the page list. */
@@ -48,6 +49,8 @@ interface NotificationsContextValue {
     n: Notification,
     plan: NotificationRowPlan
   ) => Promise<void>;
+  /** Hears every realtime change, after the list has; answers how to stop. */
+  onChange: (fn: (change: NotificationChange) => void) => () => void;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(
@@ -78,6 +81,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const loadSeq = useRef(0);
   // A switch to another workspace is in flight (it ends in a page load).
   const switchingRef = useRef(false);
+  const listenersRef = useRef(new Set<(change: NotificationChange) => void>());
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -145,20 +149,26 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const bindings = scopedChangeBindings('notifications', 'user_id', userId);
     if (!bindings) return;
     const supabase = createClient();
+    const tell = (change: NotificationChange) => {
+      for (const fn of listenersRef.current) fn(change);
+    };
     // The topic names the user: removeChannel is async, and a re-run on
     // the same topic would be handed the channel still leaving.
     let channel = supabase.channel(`notifications-bell:${userId}`);
     for (const binding of bindings) {
       channel = channel.on('postgres_changes', binding, (payload) => {
         if (payload.eventType === 'INSERT') {
-          dispatch({ type: 'insert', row: payload.new as Notification });
+          const row = payload.new as Notification;
+          dispatch({ type: 'insert', row });
+          tell({ event: 'INSERT', row });
         } else if (payload.eventType === 'UPDATE') {
-          dispatch({ type: 'update', row: payload.new as Notification });
+          const row = payload.new as Notification;
+          dispatch({ type: 'update', row });
+          tell({ event: 'UPDATE', row });
         } else if (payload.eventType === 'DELETE') {
-          dispatch({
-            type: 'delete',
-            row: payload.old as Partial<Notification>,
-          });
+          const row = payload.old as Partial<Notification>;
+          dispatch({ type: 'delete', row });
+          tell({ event: 'DELETE', row });
         }
       });
     }
@@ -232,6 +242,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     [markRead, router, switchWorkspace, tSidebar]
   );
 
+  const onChange = useCallback((fn: (change: NotificationChange) => void) => {
+    const listeners = listenersRef.current;
+    listeners.add(fn);
+    return () => {
+      listeners.delete(fn);
+    };
+  }, []);
+
   const value = useMemo<NotificationsContextValue>(
     () => ({
       notifications: state.rows,
@@ -243,6 +261,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       markRead,
       markAllRead,
       openNotification,
+      onChange,
     }),
     [
       state,
@@ -253,6 +272,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       markRead,
       markAllRead,
       openNotification,
+      onChange,
     ]
   );
 

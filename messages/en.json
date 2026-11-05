@@ -6434,6 +6434,13 @@
     "welcomeBody": "Start a call now, or schedule one and invite your colleagues.",
     "welcomeGuest": "Meetings you're invited to will appear here."
   },
+  "MeetingInvite": {
+    "title": "Meeting invite",
+    "byPerson": "{name} is inviting you to join now",
+    "generic": "You're invited to join now",
+    "join": "Join",
+    "notNow": "Not now"
+  },
   "MeetingRoom": {
     "recording": {
       "record": "Record this meeting",

@@ -1434,6 +1434,14 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   fallback when touching those routes. `verify-meeting-host-tools.sql`.
 - **Instant meetings lapse** after 10 minutes empty
   (`lib/meetings/lapse.ts`, the automations cron).
+- **Invite pop-up.** `InviteRinger` (`lib/meetings/invite-ring.ts`, pure)
+  turns a realtime `meeting_invite` row into the shell's ringing card
+  (`meeting-invite-card.tsx`): instant meetings (106's "Starting now"
+  body, pinned by a test) and meetings someone is in, nothing else. The
+  tone is laid on the audio clock up front and is finite, so a frozen tab
+  can't ring on. Not now marks the row read, which is what closes the
+  card on other tabs. A row of another workspace is never checked against
+  `/api/meetings/[id]`: it would answer 404.
 
 ### Calendar and web push (`lib/calendar/*`, `lib/push/*`, migrations 108–110)
 
