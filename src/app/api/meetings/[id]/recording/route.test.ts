@@ -180,18 +180,17 @@ describe('POST /api/meetings/[id]/recording', () => {
     expect(await res.json()).toEqual({ error: 'already_recording' });
   });
 
-  it('leaves your own running recording as it is', async () => {
+  it('makes a restart over your own old flag a new recording', async () => {
     mocks.meeting = {
       ...OPEN,
       recording_started_at: ON,
       recording_by: 'host-1',
     };
-    expect(await (await record({ recording: true })).json()).toEqual({
-      ok: true,
-      recording_started_at: ON,
-      recording_by: 'host-1',
-    });
-    expect(mocks.update).not.toHaveBeenCalled();
+    const answer = await (await record({ recording: true })).json();
+    expect(answer.recording_by).toBe('host-1');
+    // A new instant is what tells everyone: same flag, no notice.
+    expect(answer.recording_started_at).not.toBe(ON);
+    expect(mocks.replaced).toEqual([ON]);
   });
 
   it('lets a manager force someone else’s flag clear', async () => {

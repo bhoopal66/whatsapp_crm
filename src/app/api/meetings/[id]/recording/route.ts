@@ -4,9 +4,10 @@
 // Starting is for the host, an owner or an admin (`meeting_can_manage`,
 // caller's client); stopping also for the person recording, who may have
 // lost that since. One recording at a time: starting over someone else's
-// answers 409 `already_recording`, unless they have gone from the call,
-// and starting your own again changes nothing. `{ recording: false }`
-// stops the caller's own recording and
+// answers 409 `already_recording`, unless they have gone from the call.
+// Starting over your own old flag is a new recording too: only a browser
+// that lost its recorder can ask, and everyone must hear of it again.
+// `{ recording: false }` stops the caller's own recording and
 // nobody else's: a save can finish long after the flag was cleared and
 // another manager started, so a late stop must find nothing to clear.
 // That answers ok with the row as it stands. `force` is a manager
@@ -87,22 +88,17 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
     if (meeting.status !== 'scheduled') return jsonError(CLOSED, 409);
-    // The flag of a recorder gone from the call, which this start replaces.
-    // If they were only cut off and come back, their recorder reads the row
-    // naming someone else and stops.
-    let abandoned: string | null = null;
+    // The flag this start replaces: our own, or that of a recorder gone from
+    // the call. If they were only cut off and come back, their recorder
+    // reads the row naming someone else and stops.
+    let replaced: string | null = null;
     if (recording && meeting.recording_started_at) {
-      if (meeting.recording_by === userId) {
-        return NextResponse.json({
-          ok: true,
-          recording_started_at: meeting.recording_started_at,
-          recording_by: userId,
-        });
+      if (meeting.recording_by !== userId) {
+        const seen = await recorderInCall(supabase, id, meeting.recording_by);
+        if (seen.error) return readErrorResponse(seen.error);
+        if (seen.present) return jsonError('already_recording', 409);
       }
-      const seen = await recorderInCall(supabase, id, meeting.recording_by);
-      if (seen.error) return readErrorResponse(seen.error);
-      if (seen.present) return jsonError('already_recording', 409);
-      abandoned = meeting.recording_started_at;
+      replaced = meeting.recording_started_at;
     }
 
     const values = recording
@@ -115,14 +111,14 @@ export async function POST(request: Request, { params }: Params) {
       .eq('account_id', accountId)
       .eq('status', 'scheduled');
     // Compare-and-set on a start: of two racing managers, one wins, over an
-    // empty flag or the abandoned one read above. A stop clears only the
+    // empty flag or the one read above. A stop clears only the
     // caller's own, so a newer recording by someone else keeps its
     // indicator, unless a manager forces it.
     const forced = body.force === true && canManage.allowed;
     const { data, error } = await (
       recording
-        ? abandoned
-          ? write.eq('recording_started_at', abandoned)
+        ? replaced
+          ? write.eq('recording_started_at', replaced)
           : write.is('recording_started_at', null)
         : forced
           ? write
