@@ -9,7 +9,12 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
 
 import { ForbiddenError } from '@/lib/auth/account';
 
-import { requireMeetingsUser, sfuErrorResponse } from './server';
+import {
+  loadMeeting,
+  migrationRequiredResponse,
+  requireMeetingsUser,
+  sfuErrorResponse,
+} from './server';
 import { SfuError } from './sfu';
 
 describe('requireMeetingsUser', () => {
@@ -74,5 +79,37 @@ describe('sfuErrorResponse', () => {
 
   it('leaves anything else to the caller', () => {
     expect(sfuErrorResponse(new Error('x'))).toBeNull();
+  });
+});
+
+describe('migrationRequiredResponse', () => {
+  it.each(['42703', 'PGRST204'])('answers 503 for %s', async (code) => {
+    const res = migrationRequiredResponse({ code });
+    expect(res?.status).toBe(503);
+    expect(await res?.json()).toEqual({ error: 'migration_required' });
+  });
+
+  it('leaves every other failure to the caller', () => {
+    expect(migrationRequiredResponse({ code: '23514' })).toBeNull();
+    expect(migrationRequiredResponse({})).toBeNull();
+    expect(migrationRequiredResponse(null)).toBeNull();
+  });
+});
+
+describe('loadMeeting', () => {
+  // A list naming 176's columns would fail every read before 176.
+  it('reads the whole row, so a missing column is only undefined', async () => {
+    const select = vi.fn();
+    const q = {
+      select: (cols: string) => (select(cols), q),
+      eq: () => q,
+      maybeSingle: async () => ({ data: { id: 'm' }, error: null }),
+    };
+    const db = { from: () => q } as unknown as Parameters<
+      typeof loadMeeting
+    >[0];
+    const { meeting } = await loadMeeting(db, 'acct-1', 'm');
+    expect(select).toHaveBeenCalledWith('*');
+    expect(meeting?.locked_at).toBeUndefined();
   });
 });

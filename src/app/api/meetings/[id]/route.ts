@@ -111,7 +111,9 @@ async function evictSeatsWithoutAccess(
  * chat_count, removed? }`. `participants` are the present seats
  * (hand_raised_at included); `chat_count` counts the chat lines (not
  * reactions). `removed` (`[{ user_id, removed_at }]`, 110) is there only
- * for a caller who can manage the meeting.
+ * for a caller who can manage the meeting. `meeting` is the whole row, so
+ * it carries `locked_at`, `recording_started_at` and `recording_by` once
+ * 176 is applied, and leaves them out before that.
  */
 export async function GET(_request: Request, { params }: Params) {
   try {

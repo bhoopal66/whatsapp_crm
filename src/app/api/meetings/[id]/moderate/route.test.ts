@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   calls: [] as string[],
   removedRows: [{ user_id: 'user-2' }] as unknown[],
   adminEq: [] as [string, unknown][],
+  adminFilters: [] as unknown[][],
+  adminError: null as unknown,
   adminRows: [{ id: 'x' }] as unknown[],
   seatEq: [] as [string, unknown][],
   profileFilters: [] as unknown[][],
@@ -75,8 +77,22 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
           q
         ),
         eq: (c: string, v: unknown) => (mocks.adminEq.push([c, v]), q),
-        is: () => q,
-        select: async () => ({ data: mocks.adminRows, error: null }),
+        neq: (c: string, v: unknown) => (
+          mocks.adminFilters.push(['neq', c, v]),
+          q
+        ),
+        not: (c: string, o: string, v: unknown) => (
+          mocks.adminFilters.push(['not', c, o, v]),
+          q
+        ),
+        is: (c: string, v: unknown) => (
+          mocks.adminFilters.push(['is', c, v]),
+          q
+        ),
+        select: async () => ({
+          data: mocks.adminError ? null : mocks.adminRows,
+          error: mocks.adminError,
+        }),
       };
       return q;
     },
@@ -117,6 +133,8 @@ describe('POST /api/meetings/[id]/moderate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.adminEq = [];
+    mocks.adminFilters = [];
+    mocks.adminError = null;
     mocks.seatEq = [];
     mocks.adminRows = [{ id: T, cf_session_id: 'sess-2' }];
     mocks.profileFilters = [];
@@ -377,5 +395,83 @@ describe('POST /api/meetings/[id]/moderate', () => {
       error: 'Video meetings are for staff only',
     });
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  describe('bulk actions', () => {
+    it('mute_all stamps every open seat but the caller’s own', async () => {
+      mocks.adminRows = [{ id: 'a' }, { id: 'b' }];
+      const res = await moderate({ action: 'mute_all' });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, count: 2 });
+      expect(mocks.adminUpdate).toHaveBeenCalledWith({
+        mute_requested_at: expect.any(String),
+      });
+      expect(mocks.adminFilters).toEqual([
+        ['neq', 'user_id', 'host-1'],
+        ['is', 'left_at', null],
+      ]);
+      expect(mocks.adminEq).toEqual([['meeting_id', M]]);
+    });
+
+    it('lower_all_hands clears only the hands that are up', async () => {
+      mocks.adminRows = [{ id: 'a' }];
+      expect(
+        await (await moderate({ action: 'lower_all_hands' })).json()
+      ).toEqual({ ok: true, count: 1 });
+      expect(mocks.adminUpdate).toHaveBeenCalledWith({ hand_raised_at: null });
+      expect(mocks.adminFilters).toEqual([
+        ['not', 'hand_raised_at', 'is', null],
+        ['is', 'left_at', null],
+      ]);
+      expect(mocks.adminEq).toEqual([['meeting_id', M]]);
+    });
+
+    it('answers a count of 0 when nobody matched', async () => {
+      mocks.adminRows = [];
+      expect(await (await moderate({ action: 'mute_all' })).json()).toEqual({
+        ok: true,
+        count: 0,
+      });
+    });
+
+    it('refuses a stray target, reading nothing', async () => {
+      for (const target of [T, null]) {
+        const res = await moderate({ action: 'mute_all', target });
+        expect(res.status).toBe(400);
+      }
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    });
+
+    it('answers 403 to a non-manager', async () => {
+      mocks.rpc.mockResolvedValue({ data: false, error: null });
+      expect((await moderate({ action: 'mute_all' })).status).toBe(403);
+      expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for a meeting the caller cannot see', async () => {
+      mocks.meeting = null;
+      expect((await moderate({ action: 'lower_all_hands' })).status).toBe(404);
+      expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 on a closed meeting', async () => {
+      mocks.meeting = { id: M, account_id: 'acct-1', status: 'ended' };
+      expect((await moderate({ action: 'mute_all' })).status).toBe(409);
+      expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    });
+
+    it('answers 503, not 403, when the manage check fails', async () => {
+      mocks.rpc.mockResolvedValue({ data: null, error: { code: '57014' } });
+      const res = await moderate({ action: 'mute_all' });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
+      expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    });
+
+    it('answers 500 when the write fails', async () => {
+      mocks.adminError = { code: 'XX000' };
+      expect((await moderate({ action: 'mute_all' })).status).toBe(500);
+    });
   });
 });

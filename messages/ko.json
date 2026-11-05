@@ -6403,7 +6403,8 @@
       "meeting_closed": "이 회의는 종료되었습니다.",
       "forbidden": "이 회의에 참여할 수 없습니다.",
       "retry": "다시 시도",
-      "removed_from_meeting": "호스트가 회의에서 회원님을 내보냈습니다."
+      "removed_from_meeting": "호스트가 회의에서 회원님을 내보냈습니다.",
+      "meeting_locked": "호스트가 이 회의를 잠갔습니다."
     },
     "lobby": {
       "subtitle": "카메라와 마이크를 확인한 후 참여하세요.",

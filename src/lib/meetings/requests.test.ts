@@ -8,6 +8,7 @@ import {
   parseMeetingPatch,
   parseMessagePost,
   parseMessageQuery,
+  parseBulkModeration,
   parseModeration,
   parseScope,
   parseSeatState,
@@ -259,5 +260,31 @@ describe('parseModeration', () => {
     });
     expect(parseModeration({ target: U2, action: 'ban' }).ok).toBe(false);
     expect(parseModeration({ target: 'x', action: 'mute' }).ok).toBe(false);
+  });
+});
+
+describe('parseBulkModeration', () => {
+  it('takes the two bulk actions', () => {
+    expect(parseBulkModeration({ action: 'mute_all' })).toEqual({
+      ok: true,
+      values: { action: 'mute_all' },
+    });
+    expect(parseBulkModeration({ action: 'lower_all_hands' })).toEqual({
+      ok: true,
+      values: { action: 'lower_all_hands' },
+    });
+  });
+
+  it('refuses one with a target', () => {
+    expect(parseBulkModeration({ action: 'mute_all', target: U2 })?.ok).toBe(
+      false
+    );
+  });
+
+  it('leaves everything else to parseModeration, which is unchanged', () => {
+    expect(parseBulkModeration({ action: 'mute', target: U2 })).toBeNull();
+    expect(parseBulkModeration(null)).toBeNull();
+    expect(parseModeration({ action: 'mute_all' }).ok).toBe(false);
+    expect(parseModeration({ action: 'mute_all', target: U2 }).ok).toBe(false);
   });
 });

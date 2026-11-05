@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   cutSeats: vi.fn(),
   meeting: null as unknown,
+  canManage: { data: false, error: null } as unknown,
+  seats: { data: [], error: null } as unknown,
+  seatEq: [] as [string, unknown][],
   removal: null as unknown,
   removalEq: [] as [string, unknown][],
   adminCalls: [] as string[],
@@ -61,8 +64,12 @@ function meetings(table = 'meetings') {
   q.select = () => q;
   q.eq = (c: string, v: unknown) => {
     if (table === 'meeting_removed_users') mocks.removalEq.push([c, v]);
+    if (table === 'meeting_participants') mocks.seatEq.push([c, v]);
     return q;
   };
+  if (table === 'meeting_participants') {
+    q.then = (resolve: (v: unknown) => void) => resolve(mocks.seats);
+  }
   q.maybeSingle = async () => ({
     data: table === 'meeting_removed_users' ? mocks.removal : mocks.meeting,
     error: null,
@@ -79,6 +86,9 @@ describe('POST /api/meetings/[id]/join', () => {
     mocks.removal = null;
     mocks.removalEq = [];
     mocks.insertResults = [];
+    mocks.canManage = { data: false, error: null };
+    mocks.seats = { data: [], error: null };
+    mocks.seatEq = [];
     mocks.configured.mockReturnValue(true);
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -213,5 +223,110 @@ describe('POST /api/meetings/[id]/join', () => {
     });
     expect((await join()).status).toBe(403);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  describe('a locked meeting', () => {
+    const ago = (minutes: number) =>
+      new Date(Date.now() - minutes * 60_000).toISOString();
+    const LOCKED = {
+      id: M,
+      account_id: 'acct-1',
+      status: 'scheduled',
+      locked_at: '2026-11-05T10:00:00.000Z',
+    };
+
+    beforeEach(() => {
+      mocks.meeting = LOCKED;
+      mocks.rpc.mockImplementation(async (fn: string) =>
+        fn === 'meeting_can_manage'
+          ? mocks.canManage
+          : { data: true, error: null }
+      );
+    });
+
+    it('refuses a newcomer with 423 before any Cloudflare call', async () => {
+      const res = await join();
+      expect(res.status).toBe(423);
+      expect(await res.json()).toEqual({ error: 'meeting_locked' });
+      expect(mocks.createSession).not.toHaveBeenCalled();
+      expect(mocks.meetingIceServers).not.toHaveBeenCalled();
+      expect(mocks.adminCalls).toEqual([]);
+      expect(mocks.seatEq).toEqual([
+        ['meeting_id', M],
+        ['user_id', 'user-1'],
+      ]);
+    });
+
+    it('lets someone who can manage it in', async () => {
+      mocks.canManage = { data: true, error: null };
+      expect((await join()).status).toBe(200);
+      expect(mocks.createSession).toHaveBeenCalled();
+    });
+
+    it('lets someone with an open seat back in', async () => {
+      mocks.seats = {
+        data: [{ left_at: null, last_seen_at: ago(1) }],
+        error: null,
+      };
+      expect((await join()).status).toBe(200);
+    });
+
+    it('lets a seat closed within 5 minutes back in', async () => {
+      mocks.seats = {
+        data: [{ left_at: ago(4), last_seen_at: ago(4) }],
+        error: null,
+      };
+      expect((await join()).status).toBe(200);
+    });
+
+    it('refuses a seat closed 6 minutes ago', async () => {
+      mocks.seats = {
+        data: [{ left_at: ago(6), last_seen_at: ago(6) }],
+        error: null,
+      };
+      expect((await join()).status).toBe(423);
+      expect(mocks.createSession).not.toHaveBeenCalled();
+    });
+
+    it('still answers a removal as a removal', async () => {
+      mocks.removal = { user_id: 'user-1' };
+      expect(await (await join()).json()).toEqual({
+        error: 'removed_from_meeting',
+      });
+    });
+
+    it('answers 503, not 423, when the manage check fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.canManage = { data: null, error: { code: '57014' } };
+      const res = await join();
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
+      expect(mocks.createSession).not.toHaveBeenCalled();
+    });
+
+    it('answers 503, not 423, when the seat read fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.seats = { data: null, error: { code: '57014' } };
+      expect((await join()).status).toBe(503);
+      expect(mocks.createSession).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['unlocked', { locked_at: null }],
+      ['on a database without 176', {}],
+    ])('joins as ever when %s', async (_name, extra) => {
+      mocks.meeting = {
+        id: M,
+        account_id: 'acct-1',
+        status: 'scheduled',
+        ...extra,
+      };
+      expect((await join()).status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalledWith(
+        'meeting_can_manage',
+        expect.anything()
+      );
+      expect(mocks.seatEq).toEqual([]);
+    });
   });
 });

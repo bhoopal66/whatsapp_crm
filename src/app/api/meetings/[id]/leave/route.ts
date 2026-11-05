@@ -2,6 +2,7 @@
 // POST /api/meetings/[id]/leave — `{ participantId }` → left_at = now().
 // Idempotent: leaving a seat already closed answers ok. Either way the
 // seat's Cloudflare session is cut, so its media stops at the SFU too.
+// Closing the seat of the person recording also clears the recording.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -10,6 +11,7 @@ import { toErrorResponse } from '@/lib/auth/account';
 import { cutSeats } from '@/lib/meetings/cut';
 import { isUuid } from '@/lib/meetings/requests';
 import {
+  isMissingColumn,
   jsonError,
   loadOwnParticipant,
   meetingDbErrorResponse,
@@ -19,6 +21,26 @@ import {
   supabaseAdmin,
   type Params,
 } from '@/lib/meetings/server';
+
+/**
+ * Best effort, and it must never fail the leave. One filtered write, so
+ * nobody else's recording is touched; a database without 176 refuses it
+ * on every leave, which is not worth a log line.
+ */
+async function stopOwnRecording(meetingId: string, userId: string) {
+  try {
+    const { error } = await supabaseAdmin()
+      .from('meetings')
+      .update({ recording_started_at: null, recording_by: null })
+      .eq('id', meetingId)
+      .eq('recording_by', userId);
+    if (error && !isMissingColumn(error)) {
+      console.error('[meetings] clearing the recording failed', error);
+    }
+  } catch (err) {
+    console.error('[meetings] clearing the recording failed', err);
+  }
+}
 
 export async function POST(request: Request, { params }: Params) {
   try {
@@ -46,6 +68,9 @@ export async function POST(request: Request, { params }: Params) {
         .eq('id', own.id)
         .is('left_at', null);
       if (error) return meetingDbErrorResponse(error, 'Failed to leave');
+      // Only when this call closed the seat: a seat already closed may be
+      // a stale tab of someone recording from their new seat.
+      await stopOwnRecording(id, ctx.userId);
     }
     await cutSeats([own]);
     return NextResponse.json({ ok: true });

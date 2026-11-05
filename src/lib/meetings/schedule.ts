@@ -433,6 +433,10 @@ export interface MeetingDetailData {
   canManage: boolean | null;
   /** Chat messages sent in it; null from an API that predates chat. */
   chatCount: number | null;
+  /** 176: unset by an API that predates it, null when off. */
+  lockedAt?: string | null;
+  recordingStartedAt?: string | null;
+  recordingBy?: string | null;
 }
 
 /**
@@ -464,6 +468,9 @@ export function parseMeetingDetail(json: unknown): MeetingDetailData | null {
       typeof chat === 'number' && Number.isFinite(chat) && chat >= 0
         ? Math.floor(chat)
         : null,
+    lockedAt: str(row?.locked_at),
+    recordingStartedAt: str(row?.recording_started_at),
+    recordingBy: str(row?.recording_by),
   };
 }
 

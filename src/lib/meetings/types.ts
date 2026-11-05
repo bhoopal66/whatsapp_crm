@@ -23,6 +23,12 @@ export interface MeetingRow {
   ended_at: string | null;
   created_at: string;
   updated_at: string;
+  /** 176, service role only. Undefined on a database without 176, and
+   *  only `loadMeeting` reads them. */
+  locked_at?: string | null;
+  locked_by?: string | null;
+  recording_started_at?: string | null;
+  recording_by?: string | null;
 }
 
 export const TRACK_KINDS = ['audio', 'video', 'screen'] as const;
@@ -80,6 +86,10 @@ export const MODERATION_ACTIONS = [
   'readmit',
 ] as const;
 export type ModerationAction = (typeof MODERATION_ACTIONS)[number];
+
+/** Every open seat at once: these take no `target`. */
+export const BULK_MODERATION_ACTIONS = ['mute_all', 'lower_all_hands'] as const;
+export type BulkModerationAction = (typeof BULK_MODERATION_ACTIONS)[number];
 
 /** Present = not left and heard from within this window (clients beat every 20 s). */
 export const PRESENCE_WINDOW_MS = 60_000;

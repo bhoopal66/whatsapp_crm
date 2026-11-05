@@ -6403,7 +6403,8 @@
       "meeting_closed": "This meeting has ended.",
       "forbidden": "You can't join this meeting.",
       "retry": "Try again",
-      "removed_from_meeting": "The host removed you from this meeting."
+      "removed_from_meeting": "The host removed you from this meeting.",
+      "meeting_locked": "The host has locked this meeting."
     },
     "lobby": {
       "subtitle": "Check your camera and microphone, then join.",

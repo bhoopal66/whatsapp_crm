@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   cutSeats: vi.fn(),
   own: { data: null as unknown, error: null as unknown },
   log: [] as string[],
+  recordingUpdate: vi.fn(),
+  recordingEq: [] as [string, unknown][],
+  recordingResult: (async () => ({ error: null })) as () => Promise<unknown>,
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -23,8 +26,21 @@ vi.mock('@/lib/meetings/cut', () => ({
 vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/meetings/server')>()),
   supabaseAdmin: () => ({
-    from: () => {
+    from: (table: string) => {
       const q: Record<string, unknown> = {};
+      if (table === 'meetings') {
+        q.update = (v: unknown) => (
+          mocks.log.push('stop recording'),
+          mocks.recordingUpdate(v),
+          q
+        );
+        q.eq = (c: string, v: unknown) => (mocks.recordingEq.push([c, v]), q);
+        q.then = (
+          resolve: (v: unknown) => void,
+          reject: (e: unknown) => void
+        ) => mocks.recordingResult().then(resolve, reject);
+        return q;
+      }
       q.update = () => (mocks.log.push('close'), q);
       q.eq = () => q;
       q.is = async () => ({ error: null });
@@ -61,6 +77,8 @@ describe('POST /api/meetings/[id]/leave', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.log = [];
+    mocks.recordingEq = [];
+    mocks.recordingResult = async () => ({ error: null });
     mocks.own = { data: SEAT, error: null };
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -72,7 +90,7 @@ describe('POST /api/meetings/[id]/leave', () => {
 
   it('closes the seat, then cuts its session', async () => {
     expect((await leave()).status).toBe(200);
-    expect(mocks.log).toEqual(['close', 'cut']);
+    expect(mocks.log).toEqual(['close', 'stop recording', 'cut']);
     expect(mocks.cutSeats).toHaveBeenCalledWith([SEAT]);
   });
 
@@ -89,5 +107,46 @@ describe('POST /api/meetings/[id]/leave', () => {
     mocks.own = { data: null, error: null };
     expect((await leave()).status).toBe(404);
     expect(mocks.log).toEqual([]);
+  });
+
+  it('clears only a recording the caller holds', async () => {
+    await leave();
+    expect(mocks.recordingUpdate).toHaveBeenCalledWith({
+      recording_started_at: null,
+      recording_by: null,
+    });
+    expect(mocks.recordingEq).toEqual([
+      ['id', M],
+      ['recording_by', 'user-1'],
+    ]);
+  });
+
+  // A stale tab's seat: the person may be recording from their new seat.
+  it('leaves the recording alone when the seat was already closed', async () => {
+    mocks.own = {
+      data: { ...SEAT, left_at: '2026-10-15T10:00:00Z' },
+      error: null,
+    };
+    await leave();
+    expect(mocks.recordingUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a missing column', async () => ({ error: { code: '42703' } })],
+    ['a failed write', async () => ({ error: { code: 'XX000' } })],
+    ['a thrown error', () => Promise.reject(new Error('network'))],
+  ])('never fails the leave on %s', async (_name, result) => {
+    mocks.recordingResult = result;
+    expect((await leave()).status).toBe(200);
+    expect(mocks.log).toEqual(['close', 'stop recording', 'cut']);
+  });
+
+  it('stays quiet about a missing column, not another failure', async () => {
+    mocks.recordingResult = async () => ({ error: { code: 'PGRST204' } });
+    await leave();
+    expect(console.error).not.toHaveBeenCalled();
+    mocks.recordingResult = async () => ({ error: { code: 'XX000' } });
+    await leave();
+    expect(console.error).toHaveBeenCalled();
   });
 });

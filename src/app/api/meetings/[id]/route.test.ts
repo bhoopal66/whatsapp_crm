@@ -246,6 +246,23 @@ describe('GET /api/meetings/[id]', () => {
     expect('removed' in other).toBe(false);
   });
 
+  it('carries the lock and the recording once 176 is there', async () => {
+    const before = await (await GET(new Request('http://x'), params)).json();
+    expect('locked_at' in before.meeting).toBe(false);
+    mocks.meeting = {
+      ...mocks.meeting,
+      locked_at: '2026-11-05T10:00:00.000Z',
+      recording_started_at: '2026-11-05T10:01:00.000Z',
+      recording_by: HOST,
+    };
+    const after = await (await GET(new Request('http://x'), params)).json();
+    expect(after.meeting).toMatchObject({
+      locked_at: '2026-11-05T10:00:00.000Z',
+      recording_started_at: '2026-11-05T10:01:00.000Z',
+      recording_by: HOST,
+    });
+  });
+
   it('lists the invitees', async () => {
     const res = await GET(new Request('http://x'), params);
     expect(res.status).toBe(200);

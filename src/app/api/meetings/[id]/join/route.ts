@@ -3,11 +3,15 @@
 // (TURN + STUN when a Cloudflare TURN key is set, else STUN; lib/meetings/turn.ts).
 // Access is `meeting_can_view` through the caller's client; only then
 // does the service role write the participant row (no client policy).
+// A locked meeting (176) answers 423 `meeting_locked`, before any
+// Cloudflare call, unless the caller can manage it or is mid-call: a
+// dropped connection rejoins from scratch, so they get back in.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { mayEnterLocked } from '@/lib/meetings/attendance';
 import { cutSeats } from '@/lib/meetings/cut';
 import { isUuid } from '@/lib/meetings/requests';
 import {
@@ -56,6 +60,23 @@ export async function POST(_request: Request, { params }: Params) {
       return jsonError('Meeting not found', 404);
     if (meeting.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);
+    }
+    if (meeting.locked_at) {
+      const [canManage, seats] = await Promise.all([
+        rpcFlag(supabase, 'meeting_can_manage', id),
+        supabase
+          .from('meeting_participants')
+          .select('left_at, last_seen_at')
+          .eq('meeting_id', id)
+          .eq('user_id', userId),
+      ]);
+      if (canManage.error) return readErrorResponse(canManage.error);
+      if (!canManage.allowed) {
+        if (seats.error) return readErrorResponse(seats.error);
+        if (!mayEnterLocked(seats.data ?? [], Date.now())) {
+          return jsonError('meeting_locked', 423);
+        }
+      }
     }
 
     // TURN credentials are minted alongside the session; meetingIceServers

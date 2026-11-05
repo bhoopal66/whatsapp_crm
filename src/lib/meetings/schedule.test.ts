@@ -404,6 +404,22 @@ describe('parsing', () => {
       canManage: null,
       chatCount: null,
     });
+    expect(
+      parseMeetingDetail({
+        meeting: {
+          ...row,
+          locked_at: '2026-11-05T10:00:00.000Z',
+          recording_started_at: '2026-11-05T10:01:00.000Z',
+          recording_by: 'u-host',
+        },
+      })
+    ).toMatchObject({
+      lockedAt: '2026-11-05T10:00:00.000Z',
+      recordingStartedAt: '2026-11-05T10:01:00.000Z',
+      recordingBy: 'u-host',
+    });
+    // An API without 176, whose row has none of them.
+    expect(parseMeetingDetail({ meeting: row })?.lockedAt ?? null).toBeNull();
     expect(parseMeetingDetail({ error: 'Meeting not found' })).toBeNull();
     expect(parseMeetingDetail(null)).toBeNull();
   });

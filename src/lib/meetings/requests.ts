@@ -7,12 +7,14 @@
 import { MEETING_REACTIONS } from './room/contract';
 import {
   MEETING_SCOPES,
+  BULK_MODERATION_ACTIONS,
   MESSAGE_KINDS,
   MODERATION_ACTIONS,
   PRESENCE_WINDOW_MS,
   type MeetingRow,
   type MeetingScope,
   type MessageKind,
+  type BulkModerationAction,
   type ModerationAction,
 } from './types';
 
@@ -378,5 +380,27 @@ export function parseModeration(
   return {
     ok: true,
     values: { target: raw.target, action: raw.action as ModerationAction },
+  };
+}
+
+/**
+ * `{ action: 'mute_all' | 'lower_all_hands' }`, with no `target`. Null
+ * when the action is not a bulk one, which is `parseModeration`'s to judge.
+ */
+export function parseBulkModeration(
+  raw: unknown
+): Parsed<{ action: BulkModerationAction }> | null {
+  if (
+    !isObject(raw) ||
+    !(BULK_MODERATION_ACTIONS as readonly unknown[]).includes(raw.action)
+  ) {
+    return null;
+  }
+  if (raw.target !== undefined) {
+    return { ok: false, error: 'This action applies to everyone: no target' };
+  }
+  return {
+    ok: true,
+    values: { action: raw.action as BulkModerationAction },
   };
 }

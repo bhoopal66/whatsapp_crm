@@ -21,7 +21,6 @@ import { serverSupabaseUrl } from '@/lib/supabase/urls';
 
 import { isMeetingsConfigured, SfuError } from './sfu';
 import {
-  MEETING_COLUMNS,
   PARTICIPANT_COLUMNS,
   type MeetingRow,
   type ParticipantRow,
@@ -124,9 +123,25 @@ export function meetingDbErrorResponse(
   }
 }
 
+/** Postgres (42703) or PostgREST (PGRST204) naming a column this
+ *  database does not have yet. */
+export function isMissingColumn(error: { code?: string } | null): boolean {
+  return error?.code === '42703' || error?.code === 'PGRST204';
+}
+
+/** The build can run ahead of migration 176: a write to its columns
+ *  answers this instead of a 500. Null for any other failure. */
+export function migrationRequiredResponse(
+  error: { code?: string } | null
+): NextResponse | null {
+  return isMissingColumn(error) ? jsonError('migration_required', 503) : null;
+}
+
 type Db = SupabaseClient;
 
-/** The meeting, if the caller's RLS lets them see it. */
+/** The meeting, if the caller's RLS lets them see it. `*`, never a
+ *  column list: on a database without 176 a named `locked_at` would fail
+ *  every read, where `*` leaves it undefined. */
 export async function loadMeeting(
   supabase: Db,
   accountId: string,
@@ -134,7 +149,7 @@ export async function loadMeeting(
 ): Promise<{ meeting: MeetingRow | null; error: unknown }> {
   const { data, error } = await supabase
     .from('meetings')
-    .select(MEETING_COLUMNS)
+    .select('*')
     .eq('account_id', accountId)
     .eq('id', id)
     .maybeSingle();
