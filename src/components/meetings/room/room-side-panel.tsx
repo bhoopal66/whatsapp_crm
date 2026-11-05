@@ -234,8 +234,13 @@ interface PanelTab {
   unread?: number;
 }
 
-/** The tab strip and the open panel, in the column or the phone sheet. */
-function PanelCard({
+/**
+ * The tab strip and the open panel, in the column or the phone sheet.
+ * Three tabs with icons and counts need about 330px: below that the strip
+ * overflowed both ends and ran under the close button, so a narrow panel
+ * drops the icons, and each tab sizes to its words rather than a third.
+ */
+export function PanelCard({
   tabs,
   active,
   onSelect,
@@ -255,17 +260,18 @@ function PanelCard({
       onValueChange={(v) => onSelect(v as RoomPanel)}
       className="min-h-0 flex-1 gap-0"
     >
-      <div className="flex items-center gap-2 p-2">
+      <div className="@container flex items-center gap-2 p-2">
         <TabsList className="min-w-0 flex-1">
           {tabs.map(({ id, label, Icon, count, unread = 0 }) => (
             <TabsTrigger
               key={id}
               value={id}
+              className="@max-[21rem]:min-w-0 @max-[21rem]:flex-auto"
               aria-label={
                 unread > 0 ? t('tabs.unread', { label, count: unread }) : label
               }
             >
-              <Icon aria-hidden />
+              <Icon aria-hidden className="@max-[21rem]:hidden" />
               <span className="truncate">{label}</span>
               {count !== undefined && (
                 <span className="text-muted-foreground text-xs tabular-nums">
