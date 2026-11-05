@@ -233,7 +233,7 @@ const SCREEN_MAX_BITRATE = 2_500_000;
 const CHAT_MAX = 2000;
 /** Joining or turning the camera on with a background still loading. */
 const EFFECT_WAIT_MS = 8_000;
-/** Picking one: the raw camera is already on, and a cold load is slow. */
+/** Picking one: a cold load is slow, and the sender is empty meanwhile. */
 const EFFECT_PICK_WAIT_MS = 30_000;
 
 interface Pulled {
@@ -750,9 +750,18 @@ export class MeetingCallEngine {
       await this.videoSender?.replaceTrack(raw).catch(() => {});
       return;
     }
+    // Once a background is chosen the raw camera is never sent: the sender
+    // goes empty now, not when the effect is ready. Tiles hold their last
+    // frame meanwhile, so this is no `video_off`. A running effect is
+    // already what the sender carries.
+    const cleared = this.processed
+      ? undefined
+      : this.videoSender?.replaceTrack(null).catch(() => {});
     this.processor?.setEffect(next);
     this.emit();
-    await this.awaitEffect(EFFECT_PICK_WAIT_MS);
+    const ready = this.awaitEffect(EFFECT_PICK_WAIT_MS);
+    await cleared;
+    await ready;
     const out = this.processed;
     if (out) await this.videoSender?.replaceTrack(out).catch(() => {});
   };
@@ -1371,7 +1380,16 @@ export class MeetingCallEngine {
         const me = this.participantId;
         if (!pc || !me) return;
         const conn = pc;
-        added = entries.map((e) => ({
+        // A toggle can land inside a join's wait, and both publish. This
+        // queue is serial, so whichever runs second finds the sender here,
+        // and the first one's landing already put the current track on it.
+        const fresh = entries.filter(
+          (e) =>
+            !(e.kind === 'video' && this.videoSender) &&
+            !(e.kind === 'audio' && this.audioSender)
+        );
+        if (!fresh.length) return;
+        added = fresh.map((e) => ({
           ...e,
           transceiver: conn.addTransceiver(e.track, {
             direction: 'sendonly',

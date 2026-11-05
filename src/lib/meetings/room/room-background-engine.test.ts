@@ -137,9 +137,9 @@ describe('a background that fails', () => {
   it('turns the camera off in the tick the processor gives up', async () => {
     const s = setup();
     const processor = await running(s);
-    expect(sent(s.sender)).toEqual([s.out]);
+    expect(sent(s.sender)).toEqual([null, s.out]);
     processor.giveUp();
-    expect(sent(s.sender)).toEqual([s.out, null]);
+    expect(sent(s.sender)).toEqual([null, s.out, null]);
     expectCameraOffAfterFailure(s, processor);
     expect(s.inner.api).toHaveBeenCalledWith(
       'state',
@@ -154,7 +154,7 @@ describe('a background that fails', () => {
     expect(snap(s.engine).backgroundBusy).toBe(true);
     lastProcessor().refused();
     await picked;
-    expect(sent(s.sender)).toEqual([null]);
+    expect(sent(s.sender)).toEqual([null, null]);
     expectCameraOffAfterFailure(s, lastProcessor());
     expect(snap(s.engine).backgroundBusy).toBe(false);
   });
@@ -297,7 +297,86 @@ describe('the camera with a background set', () => {
   });
 });
 
+describe('one publication per kind', () => {
+  function racing() {
+    const s = setup({ live: false, camera: false });
+    const addTransceiver = vi.fn((t: MediaStreamTrack) => ({
+      mid: t.id,
+      sender: { replaceTrack: vi.fn(async () => {}) },
+    }));
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      class {
+        addTransceiver = addTransceiver;
+        addEventListener() {}
+        close() {}
+      }
+    );
+    const raw = s.raw;
+    const inner = s.inner as unknown as Inner & {
+      open: () => Promise<MediaStreamTrack>;
+      offer: () => Promise<void>;
+      publish: unknown;
+    };
+    inner.open = async () => raw;
+    inner.offer = async () => {};
+    inner.api = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: { participantId: 'seat', sessionId: 's', iceServers: [] },
+    }));
+    inner.subscribeRows = async () => {};
+    inner.loadChat = async () => {};
+    inner.heartbeat = async () => {};
+    inner.replan = () => {};
+    return { ...s, addTransceiver };
+  }
+
+  it('publishes the camera once when a toggle and a join both wait on the effect', async () => {
+    const s = racing();
+    await s.engine.setBackground(BLUR);
+    const toggled = s.engine.toggleCamera();
+    await flush();
+    const joined = s.engine.join();
+    await flush();
+    lastProcessor().started(s.out);
+    await Promise.all([toggled, joined]);
+    expect(s.addTransceiver).toHaveBeenCalledTimes(1);
+    expect(s.addTransceiver.mock.calls[0][0]).toBe(s.out);
+    s.engine.detach();
+  });
+
+  it('publishes the mic once when it opens during a join', async () => {
+    const s = racing();
+    const mic = track('mic');
+    const inner = s.inner as unknown as { audio: MediaStreamTrack | null };
+    await s.engine.setBackground(BLUR);
+    s.inner.video = s.raw;
+    const joined = s.engine.join();
+    await flush();
+    (s.inner as unknown as { open: () => Promise<unknown> }).open = async () =>
+      mic;
+    await s.engine.toggleMic();
+    expect(inner.audio).toBe(mic);
+    lastProcessor().started(s.out);
+    await joined;
+    const tracks = s.addTransceiver.mock.calls.map((c) => c[0]);
+    expect(tracks.filter((t) => t === mic)).toHaveLength(1);
+    s.engine.detach();
+  });
+});
+
 describe('choosing and stopping', () => {
+  it('never leaves the raw camera on the sender while the effect loads', async () => {
+    const s = setup();
+    const picked = s.engine.setBackground(BLUR);
+    await flush();
+    expect(sent(s.sender)).toEqual([null]);
+    lastProcessor().started(s.out);
+    await picked;
+    expect(sent(s.sender)).toEqual([null, s.out]);
+  });
+
   it('shows the output as our self-view once it is ready', async () => {
     const s = setup();
     await running(s);
@@ -312,7 +391,7 @@ describe('choosing and stopping', () => {
     await s.engine.setBackground(next);
     expect(processor.setEffect).toHaveBeenCalledWith(next);
     expect(fx.made).toHaveLength(1);
-    expect(sent(s.sender)).toEqual([s.out, s.out]);
+    expect(sent(s.sender)).toEqual([null, s.out, s.out]);
   });
 
   it('goes back to the raw camera only when none is chosen', async () => {
@@ -320,7 +399,7 @@ describe('choosing and stopping', () => {
     const processor = await running(s);
     await s.engine.setBackground({ kind: 'none' });
     expect(processor.stop).toHaveBeenCalled();
-    expect(sent(s.sender)).toEqual([s.out, s.raw]);
+    expect(sent(s.sender)).toEqual([null, s.out, s.raw]);
     expect(snap(s.engine).localVideo).toBe(s.raw);
   });
 
@@ -338,7 +417,7 @@ describe('choosing and stopping', () => {
     const processor = await running(s);
     s.inner.onTrackEnded('video', s.raw);
     expect(processor.stop).toHaveBeenCalled();
-    expect(sent(s.sender)).toEqual([s.out, null]);
+    expect(sent(s.sender)).toEqual([null, s.out, null]);
   });
 
   it('stops a processor still loading with the media', async () => {
