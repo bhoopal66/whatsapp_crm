@@ -43,6 +43,9 @@ vi.mock('@/components/pbx/call-provider', () => ({
 vi.mock('@/components/pbx/incoming-call-card', () => ({
   IncomingCallCard: () => null,
 }));
+vi.mock('@/components/meetings/meeting-invite-card', () => ({
+  MeetingInviteCard: () => null,
+}));
 vi.mock('@/components/pbx/in-call-panel', () => ({ InCallPanel: () => null }));
 vi.mock('@/components/pbx/softphone-mount', () => ({
   SoftphoneMount: () => null,
