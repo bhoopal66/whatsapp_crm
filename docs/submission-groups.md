@@ -225,6 +225,10 @@ list at the end) stay listed, without an audit entry, for the same people
 who may open its archive. Messages that
 arrive after the end are kept but hidden from every live read.
 
+Each staff member and each phone number has a colour of their own in the
+chat, here and on the case's Conversation tab. The rules are in
+[WhatsApp groups](whatsapp-groups.md#telling-senders-apart).
+
 ## Unread and the bell
 
 Each person has their own read marker per group (173), so opening a group

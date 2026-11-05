@@ -1,9 +1,11 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { AlertCircle, Ban, Check, Clock } from 'lucide-react';
 
 import { groupMessagesByDay } from '@/lib/groups/group-page';
+import { senderColors } from '@/lib/groups/sender-colors';
 import {
   bubbleKind,
   sendStatusOf,
@@ -13,10 +15,14 @@ import {
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
-/** A submission group's messages by day: staff right, customer and coordinator left. */
+/**
+ * A submission group's messages by day: staff right, customer and
+ * coordinator left, every sender in a colour of their own.
+ */
 export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
   const t = useTranslations('SubmissionGroups.chat');
   const locale = useLocale();
+  const colorOf = useMemo(() => senderColors(messages), [messages]);
   const dayLabel = (day: string) =>
     day
       ? new Intl.DateTimeFormat(locale, {
@@ -42,6 +48,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const kind = bubbleKind(m);
             const status = sendStatusOf(m);
             const out = kind === 'staff';
+            const color = colorOf(m);
             const sender = m.system_kind
               ? t('automatic')
               : out
@@ -55,17 +62,16 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                 <div
                   className={cn(
                     'text-foreground max-w-[85%] rounded-xl px-3 py-1.5 text-sm shadow-sm sm:max-w-[70%]',
-                    out ? 'bg-wa-bubble-out rounded-tr-sm' : 'rounded-tl-sm',
-                    kind === 'customer' && 'bg-wa-bubble-in',
-                    kind === 'coordinator' &&
-                      'bg-wa-bubble-in border-info border-l-2',
-                    kind === 'other' && 'bg-wa-bubble-in'
+                    color.stripe,
+                    out
+                      ? 'bg-wa-bubble-out rounded-tr-sm border-e-4'
+                      : 'bg-wa-bubble-in rounded-tl-sm border-s-4'
                   )}
                 >
                   <p
                     className={cn(
                       'flex flex-wrap items-center gap-1.5 text-xs font-medium',
-                      kind === 'coordinator' ? 'text-info' : 'text-primary'
+                      out ? color.textOut : color.text
                     )}
                   >
                     <span dir="auto">{sender ?? t('someone')}</span>

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -23,6 +24,7 @@ import {
   statusTick,
 } from '@/lib/groups/group-page';
 import { markGroupRead } from '@/lib/groups/mark-read';
+import { senderColors } from '@/lib/groups/sender-colors';
 import type { WhatsappGroupMessageRow } from '@/lib/groups/types';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -61,6 +63,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   const olderRef = useRef(false);
 
   const sendBlock = detail.blocks.send;
+  const colorOf = useMemo(() => senderColors(messages), [messages]);
 
   const load = useCallback(
     async (before?: string) => {
@@ -291,6 +294,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
               const out = m.direction === 'out';
               const tick = statusTick(m.direction, m.status);
               const sender = groupMessageSender(m, user?.id ?? null);
+              const color = colorOf(m);
               return (
                 <div
                   key={m.id}
@@ -299,17 +303,16 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
                   <div
                     className={cn(
                       'max-w-[85%] rounded-lg px-3 py-1.5 text-sm shadow-sm sm:max-w-[70%]',
+                      color.stripe,
                       out
-                        ? 'bg-wa-bubble-out text-foreground'
-                        : 'bg-wa-bubble-in text-foreground'
+                        ? 'bg-wa-bubble-out text-foreground border-e-4'
+                        : 'bg-wa-bubble-in text-foreground border-s-4'
                     )}
                   >
                     <p
                       className={cn(
                         'truncate text-xs font-medium',
-                        out
-                          ? 'text-emerald-800 dark:text-emerald-200'
-                          : 'text-primary'
+                        out ? color.textOut : color.text
                       )}
                     >
                       {sender.name

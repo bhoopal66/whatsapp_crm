@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### A colour for each sender in group chats
+
+- In WhatsApp groups and submission groups, a case's Conversation tab
+  included, every staff member and every phone number now has a colour of
+  their own, on the name and on a stripe down the bubble's outer edge, so
+  you can follow who is talking without reading each name. Nobody in a
+  chat shares a colour until it has more than twelve senders, and a person
+  keeps theirs from chat to chat unless it would clash. Automatic messages
+  stay grey. This replaces the coordinator's blue edge; the Coordinator
+  label beside the name stays.
+
 ### Video meetings: a proper meeting room
 
 - The room is now a page, and the call lives in the dashboard, so it

@@ -128,6 +128,22 @@ A group's messages live in the group's own log. They never reach the
 inbox, flows, automations, journeys, the AI or outbound webhooks, and
 they do not count as customer conversations.
 
+## Telling senders apart
+
+Every sender in a group chat has a colour of their own, on the name and on
+a stripe down the bubble's outer edge: each staff member who sends from the
+CRM, and each phone number, the group's own number included when someone
+sends from the phone. A hidden number (`@lid`) counts as a number of its
+own. Automatic messages, and a message nothing identifies, stay grey.
+
+There are twelve colours. No two senders of a chat share one until it has
+more than twelve, and the first four never get neighbouring hues. A person
+has the same colour in every chat unless it would clash with someone who
+wrote there before them. Only the messages on screen count, so loading
+older ones can change the colour of someone who clashes with a sender they
+reveal. The colours are worked out in the browser (`lib/groups/sender-colors.ts`):
+nothing is stored.
+
 ## Limits
 
 Only the group's number sends; staff cannot send as themselves. Text
