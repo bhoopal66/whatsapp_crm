@@ -12,6 +12,49 @@ and polish.
 
 ## [Unreleased]
 
+### Video meetings: a proper meeting room
+
+- The room is now a page, and the call lives in the dashboard, so it
+  carries on while you move between pages. On any other page a floating
+  window shows it: drag it, resize it, minimise it to a pill, double-click
+  to return. It highlights whoever is speaking. Reloading or closing the
+  tab still leaves the call; the browser asks first, and a Rejoin card
+  offers the way back for two hours. Only one meeting at a time per tab.
+- Pop out (Chrome and Edge) puts the call in an always-on-top window that
+  follows you to other tabs and apps. Other browsers keep the plain video
+  picture-in-picture.
+- Speaker detection works for remote people. Before, nobody but you ever
+  showed as speaking.
+- New room: dark in both themes, with Gallery, Speaker and Focus layouts,
+  Hide self view, keyboard shortcuts (`?` lists them; hold Space to talk),
+  and a side panel with People, Chat and Notes.
+- Host tools: Mute everyone, Lower all hands, Lock meeting, and Invite
+  people (organiser only). Raised hands are a numbered queue. A locked
+  meeting lets in only managers and people who dropped out within 5
+  minutes.
+- Background effects: blur, colour backdrops or your own image, in the
+  lobby and in the room. If an effect cannot run, the camera turns off
+  rather than send the raw picture. An uploaded image stays in that
+  browser.
+- Recording: a host records to their own computer. Nothing is uploaded.
+  Everyone gets a notice and a REC chip, and the lobby warns before
+  joining. The file is WebM; a crash during recording can lose it.
+- Shared notes per meeting that two people can edit without losing text.
+  Hosts can finish them after the meeting.
+- Meetings page: Start now in one click, Happening now, Coming up, a Next
+  up countdown, a Past tab, and join by link. After a meeting: duration,
+  an attendance report with CSV, notes, chat and who did not join.
+- Instant meetings close themselves after 10 minutes with nobody in them.
+- Operators: new routes `POST /api/meetings/[id]/lock`, `/recording`,
+  `/invite`, `GET .../attendance`, `GET`/`PUT .../notes`; `moderate` takes
+  `mute_all` and `lower_all_hands`; `join` answers 423 `meeting_locked`.
+  The build now copies MediaPipe's wasm to `public/meeting-effects/wasm`
+  (`prebuild`/`predev`). Details in `docs/meetings.md`.
+- **Migration required:**
+  `supabase/migrations/176_meeting_host_tools.sql` (superuser or BYPASSRLS
+  role). Without it the room works; lock, recording and notes are
+  unavailable and say so.
+
 ### Play a call recording at 2x
 
 Call recordings have a 1x / 2x button next to the time, on Team

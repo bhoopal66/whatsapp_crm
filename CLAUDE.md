@@ -578,7 +578,7 @@ SQL invariants of most recent migrations are asserted by a
 `supabase/ci/verify-*.sql` file of their own (chat tags, opt-out,
 partner banks, pipeline deals, approved answers, and 082–089's
 workspaces, edge security, tasks, journeys, internal chat (two files),
-deal rooms and PBX, then 106's meetings), each a step in `.github/workflows/migrations.yml`
+deal rooms and PBX, then 106's meetings and 176's host tools), each a step in `.github/workflows/migrations.yml`
 and each one statement (the pinned CLI rejects more). A migration that
 changes one of those rules updates its verify file; a new verify file must
 be wired in there. In a plpgsql verify block, assign a writing function's
@@ -1362,7 +1362,7 @@ is the contract.
   fails closed (`PromptCacheError`). The provider mapping of
   `cacheControl` is UNVERIFIED. `agent_run` audit rows hold counts only.
 
-### Video meetings (`lib/meetings/*`, migration 106)
+### Video meetings (`lib/meetings/*`, migrations 106, 176)
 
 Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 `docs/meetings.md` is the contract.
@@ -1402,6 +1402,35 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Network.** STUN only (`MEETING_ICE_SERVERS`); `Permissions-Policy` and the
   CSP `connect-src` (`rtc.live.cloudflare.com`) carry the camera, microphone,
   display-capture and Cloudflare origins. `verify-meetings.sql`.
+- **The session owns the call (meetings v3).** The room is a page, but the
+  engine lives in the dashboard shell (`MeetingSessionProvider`,
+  `components/meetings/session/*`, pure `lib/meetings/session/*`). No route
+  or page may detach or tear down a live call; moving between pages must
+  not leave it. One meeting per tab. Only one tile-size reporter feeds the
+  engine at a time (the room or the float, never both).
+- **Speaker levels come from `getStats`** (`inbound-rtp.audioLevel`).
+  Cloudflare's SFU negotiates no ssrc-audio-level header, so
+  `getSynchronizationSources()` carries no level. Don't go back to it.
+- **Fullscreen is on `document.documentElement`**: element fullscreen hides
+  every portal. The room root goes `fixed inset-0` while fullscreen. The
+  room is dark in both themes (`data-mode="dark"` on the root and on
+  portalled content).
+- **Background effects fail closed** (`lib/meetings/effects`, MediaPipe,
+  loaded only on pick). If the effect cannot run the camera turns off; the
+  raw camera is never sent. Keep `sendable()` (may this track go out) apart
+  from `outgoing()` (what goes out), both in `hooks/use-meeting-call.ts`. Wasm is copied by
+  `scripts/copy-meeting-effects.mjs` (`prebuild`/`predev`); MediaPipe's
+  logging is blocked (`block-logging.ts`).
+- **Recording flag first.** A host records locally; nothing is uploaded.
+  The recording flag is set on the server before recording starts, and a
+  failure there means nothing is recorded. A reconnect leaves with
+  `reconnecting: true` and keeps the flag; a real leave by the recorder
+  clears it.
+- **Pre-176 tolerance.** Without migration 176 the room still works; lock,
+  recording and notes answer as unavailable and the UI says so. Keep that
+  fallback when touching those routes. `verify-meeting-host-tools.sql`.
+- **Instant meetings lapse** after 10 minutes empty
+  (`lib/meetings/lapse.ts`, the automations cron).
 
 ### Calendar and web push (`lib/calendar/*`, `lib/push/*`, migrations 108–110)
 
@@ -1534,6 +1563,7 @@ Cron / GitHub Actions / any pinger):
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders and the assist pending sweep (1 min),
+  closing empty instant meetings (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and
   the unsent-attachment sweep (24 h). An install that pings
   only this one is covered. A new background job joins this list.

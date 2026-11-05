@@ -1,13 +1,16 @@
 # Video meetings
 
 Staff-only video meetings at `/meetings`: schedule one for later, or
-press **Start now** for an instant one. Inside the call there is a
-participant grid, microphone, camera and screen share, and the host (or
-an admin) can **End for everyone**. Media runs through Cloudflare's
-Realtime SFU (formerly "Cloudflare Calls"); the database only holds who
-may join and who is in the room. Migration `106_meetings.sql`; the rules
-below are enforced in Postgres (RLS and triggers) and asserted by
-`supabase/ci/verify-meetings.sql`.
+press **Start now** for an instant one. The room is a page with a
+participant grid, microphone, camera, screen share, chat, shared notes
+and host tools, and the host (or an admin) can **End for everyone**. The
+call lives in the dashboard shell, so it carries on while you move to
+other pages. Media runs through Cloudflare's Realtime SFU (formerly
+"Cloudflare Calls"); the database only holds who may join and who is in
+the room. Migrations `106_meetings.sql` and `176_meeting_host_tools.sql`;
+the rules below are enforced in Postgres (RLS and triggers) and asserted
+by `supabase/ci/verify-meetings.sql` and
+`supabase/ci/verify-meeting-host-tools.sql`.
 
 ## Setup
 
@@ -25,6 +28,10 @@ below are enforced in Postgres (RLS and triggers) and asserted by
    needed.
 4. Apply `supabase/migrations/106_meetings.sql` (superuser or
    BYPASSRLS role, as 087).
+
+   Also apply `supabase/migrations/176_meeting_host_tools.sql` (same
+   kind of role). Without it the room works, but locking, recording and
+   shared notes are unavailable and say so.
 
 5. Optional, recommended: a **TURN** relay, so people behind strict
    corporate networks or UDP-blocking firewalls still connect (relayed
@@ -75,7 +82,7 @@ Every rule applies inside the caller's active workspace.
   (migration 111; the API answers 403 "Only team leaders and admins can
   create meetings" below that). Agents and viewers only attend: the
   meetings they are invited to and the ones open to the workspace. The
-  *New meeting* buttons on /meetings and the calendar are hidden for them.
+  _New meeting_ buttons on /meetings and the calendar are hidden for them.
 - **Bank guests:** never. They see and write nothing here, and the API
   answers 403 "Video meetings are for staff only".
 
@@ -83,6 +90,114 @@ An invitee must be a live, non-guest member of the meeting's workspace.
 Inviting someone other than yourself rings their bell
 (`meeting_invite`, `meta.meeting_id`). A meeting has at most 100
 invitees.
+
+## The meetings page
+
+- **Start now** opens an instant meeting in one click. It is not open to
+  the workspace: invite people from inside the room.
+- The page lists **Happening now**, **Coming up** (with a **Next up**
+  countdown) and a **Past** tab. You can also join by pasting a link.
+- Instant meetings close themselves after 10 minutes with nobody in them
+  (`src/lib/meetings/lapse.ts`, run by the automations cron every 5
+  minutes).
+
+## The room and the floating window
+
+The room is a page. The call itself belongs to the dashboard shell
+(`MeetingSessionProvider`, `src/components/meetings/session/*`, with pure
+logic in `src/lib/meetings/session/*`), so moving between dashboard pages
+does not drop it. A full reload or closing the tab does leave the call:
+the browser asks first, and a **Rejoin** card offers the way back for two
+hours. A tab holds one meeting at a time.
+
+**Room.** It is dark in both themes and responds to its own width. The
+top bar shows status chips (REC, Locked). A dock holds the controls, and
+a side panel has People, Chat and Notes tabs.
+
+- Layouts: Gallery, Speaker and Focus. A two-person call shows the other
+  person large with yourself in a corner. **Hide self view** is available.
+- Shortcuts: `M` mic, `V` camera, `S` share, `H` hand, `C` chat, `P`
+  people, `N` notes, `F` fullscreen, `?` help. Hold `Space` to talk.
+- Fullscreen uses the whole page (`document.documentElement`), because
+  fullscreening one element hides every menu and dialog.
+- Whoever is speaking gets a highlight. Levels come from the browser's
+  `inbound-rtp.audioLevel` statistics: Cloudflare's SFU does not
+  negotiate the audio-level header, so the per-source level the browser
+  would otherwise offer is empty.
+
+**On any other page** a floating window shows the call
+(`meeting-float.tsx`, `float-stage.tsx`, `float-controls.tsx`). Drag it,
+resize from the corners and edges, minimise it to a pill, and
+double-click to go back to the room. On a phone it is a bar. It shows
+whoever is speaking large with a green ring; when you speak it stays on
+the last other speaker. Its position and size are kept in the browser.
+
+**Pop out** (Chrome and Edge, Document Picture-in-Picture) shows the same
+view in an always-on-top window that follows you to other tabs and apps.
+Other browsers keep the plain video picture-in-picture. Chrome may open
+the pop-out by itself when you switch tabs; that is not guaranteed.
+
+## Host tools
+
+In the **People** panel:
+
+- **Mute everyone.** People can unmute themselves.
+- **Lower all hands.** Raised hands are a numbered queue.
+- **Lock meeting.** Nobody new joins, except managers and people who
+  dropped out within the last 5 minutes. A refused join answers 423
+  `meeting_locked`.
+- **Invite people.** The organiser only, which is the database's
+  host-only rule for invitees.
+
+## Background effects
+
+Blur, colour backdrops or your own image, chosen in the lobby, in the
+room's More menu or in Settings. They use MediaPipe selfie segmentation,
+which loads only when someone picks an effect. The wasm files are copied
+to `public/meeting-effects/wasm` by `scripts/copy-meeting-effects.mjs`
+(run by `prebuild` and `predev`); the model file is committed.
+
+- **Fails closed.** If the effect cannot run, the camera turns off and
+  the person is told. The unprocessed camera is never sent.
+- A slow machine first drops to 15 frames per second, then reuses the
+  mask for three frames, and gives up only after 10 seconds over budget.
+- MediaPipe's usage logging to `odml.pa.googleapis.com` is blocked
+  (`src/lib/meetings/effects/block-logging.ts`).
+- An uploaded image stays in that browser.
+
+## Recording
+
+A host records to their own computer. Nothing is uploaded to the
+server or to Cloudflare.
+
+- **Flag first.** The meeting is marked as recording before recording
+  starts. If the server cannot set the mark, nothing is recorded.
+- **Consent.** Everyone in the meeting gets a toast and a tone, on every
+  page, and a REC chip shows in the room. The lobby warns before
+  joining a meeting that is being recorded.
+- **Reconnects.** A reconnect keeps the mark (the leave carries
+  `reconnecting: true`). A real leave by the recorder clears it.
+- **Stops** when the recorder leaves, is removed, the meeting ends, or
+  the mark is cleared.
+- Viewers stop seeing a stale mark 90 seconds after the recorder
+  disappears.
+- **Limit.** The file is WebM. A browser crash during recording can lose
+  it.
+
+## Notes
+
+Each meeting has one set of shared minutes (`meeting_notes`, written by
+`meeting_save_notes`, migration 176). A save is compare-and-set on a
+version, so two people editing never lose each other's text: a stale save
+is refused and the editor merges. Hosts can finish the notes after the
+meeting ends. Read and write through `GET`/`PUT /api/meetings/[id]/notes`.
+
+## After the meeting
+
+The meeting page shows the duration, an attendance report with CSV
+export, the notes, the chat, and who was invited but did not join.
+Attendance merges a person's rejoined seats into one line. It is read
+from `GET /api/meetings/[id]/attendance`.
 
 ## Statuses and "live"
 
@@ -195,7 +310,12 @@ All routes are staff only (`requireMeetingsUser`). Errors are
 | `GET /api/meetings/[id]/messages`              | Chat or reaction history                                               |
 | `POST /api/meetings/[id]/messages`             | Send a chat line or a reaction                                         |
 | `POST /api/meetings/[id]/state`                | Raise/lower the caller's hand; publish mic/camera at once              |
-| `POST /api/meetings/[id]/moderate`             | Mute, lower a hand or remove someone (host/admin)                      |
+| `POST /api/meetings/[id]/moderate`             | Mute, lower a hand or remove someone; `mute_all`, `lower_all_hands`    |
+| `POST /api/meetings/[id]/lock`                 | Lock or unlock the meeting (manager)                                   |
+| `POST /api/meetings/[id]/recording`            | Set or clear the recording mark                                        |
+| `POST /api/meetings/[id]/invite`               | Add invitees from the room (organiser only)                            |
+| `GET /api/meetings/[id]/attendance`            | Attendance report, rejoined seats merged                               |
+| `GET`/`PUT /api/meetings/[id]/notes`           | Read or save the shared notes (compare-and-set)                        |
 
 A Cloudflare failure is answered 502 (refused) or 504 (no answer);
 Cloudflare's own status is never passed through.
