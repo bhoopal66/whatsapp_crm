@@ -63,11 +63,11 @@ function from() {
   return q;
 }
 
-const leave = () =>
+const leave = (extra: Record<string, unknown> = {}) =>
   POST(
     new Request('http://x', {
       method: 'POST',
-      body: JSON.stringify({ participantId: P }),
+      body: JSON.stringify({ participantId: P, ...extra }),
     }),
     params
   );
@@ -120,6 +120,23 @@ describe('POST /api/meetings/[id]/leave', () => {
       ['recording_by', 'user-1'],
     ]);
   });
+
+  // A dropped network: the local recording carries on, so the room must
+  // keep being told. The seat still closes and its media is still cut.
+  it('keeps the recording when the leave is a reconnect', async () => {
+    expect((await leave({ reconnecting: true })).status).toBe(200);
+    expect(mocks.recordingUpdate).not.toHaveBeenCalled();
+    expect(mocks.log).toEqual(['close', 'cut']);
+    expect(mocks.cutSeats).toHaveBeenCalledWith([SEAT]);
+  });
+
+  it.each([[false], ['true'], [1]])(
+    'clears the recording for reconnecting: %j, which is not a reconnect',
+    async (reconnecting) => {
+      await leave({ reconnecting });
+      expect(mocks.recordingUpdate).toHaveBeenCalledTimes(1);
+    }
+  );
 
   // A stale tab's seat: the person may be recording from their new seat.
   it('leaves the recording alone when the seat was already closed', async () => {

@@ -1,8 +1,11 @@
 // ============================================================
-// POST /api/meetings/[id]/leave — `{ participantId }` → left_at = now().
+// POST /api/meetings/[id]/leave — `{ participantId, reconnecting? }` →
+// left_at = now().
 // Idempotent: leaving a seat already closed answers ok. Either way the
 // seat's Cloudflare session is cut, so its media stops at the SFU too.
-// Closing the seat of the person recording also clears the recording.
+// Closing the seat of the person recording also clears the recording,
+// unless `reconnecting`: they are coming straight back and their local
+// recording never stopped, so the room must keep being told about it.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -48,6 +51,7 @@ export async function POST(request: Request, { params }: Params) {
     const { id } = await params;
     const body = (await readJson(request)) as {
       participantId?: unknown;
+      reconnecting?: unknown;
     } | null;
     if (!isUuid(id) || !isUuid(body?.participantId)) {
       return jsonError('Invalid meeting or participant id', 400);
@@ -70,7 +74,7 @@ export async function POST(request: Request, { params }: Params) {
       if (error) return meetingDbErrorResponse(error, 'Failed to leave');
       // Only when this call closed the seat: a seat already closed may be
       // a stale tab of someone recording from their new seat.
-      await stopOwnRecording(id, ctx.userId);
+      if (body.reconnecting !== true) await stopOwnRecording(id, ctx.userId);
     }
     await cutSeats([own]);
     return NextResponse.json({ ok: true });

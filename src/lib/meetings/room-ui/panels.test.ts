@@ -160,6 +160,20 @@ describe('noticeToast', () => {
         null,
       ],
       [{ id: '7', kind: 'quality_poor' }, 'qualityPoor', 'warning', null],
+      [
+        { id: '8', kind: 'recording_started', userId: 'u' },
+        'recordingStarted',
+        'warning',
+        'record',
+      ],
+      [
+        { id: '9', kind: 'recording_stopped' },
+        'recordingStopped',
+        'info',
+        'record',
+      ],
+      [{ id: '10', kind: 'meeting_locked' }, 'meetingLocked', 'info', null],
+      [{ id: '11', kind: 'meeting_unlocked' }, 'meetingUnlocked', 'info', null],
     ];
     for (const [n, key, tone, sound] of cases)
       expect(noticeToast(n)).toMatchObject({ key, tone, sound });

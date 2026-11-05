@@ -3,6 +3,9 @@
 // (components/meetings/room/*). The engine owns every value here; the
 // screen only reads them and calls the actions. Change both together.
 
+import type { BulkModerationAction } from '../types';
+import type { RecordingFlag, RecordingFlagResult } from './recording';
+
 /** A participant's id is `meeting_participants.id`; 'self' is never used. */
 export type ParticipantId = string;
 
@@ -53,7 +56,11 @@ export type RoomNotice =
   | { id: string; kind: 'muted_by_host' }
   | { id: string; kind: 'hand_lowered_by_host' }
   | { id: string; kind: 'device_lost'; device: 'audio' | 'video' }
-  | { id: string; kind: 'quality_poor' };
+  | { id: string; kind: 'quality_poor' }
+  | { id: string; kind: 'recording_started'; userId: string }
+  | { id: string; kind: 'recording_stopped' }
+  | { id: string; kind: 'meeting_locked' }
+  | { id: string; kind: 'meeting_unlocked' };
 
 export type ModerationAction = 'mute' | 'remove' | 'lower_hand';
 
@@ -83,6 +90,13 @@ export interface CallSnapshotV2 {
   liveSince: string | null;
   /** Whether the viewer may moderate (host or owner/admin). */
   canModerate: boolean;
+  /** The host has locked the meeting (176). */
+  locked: boolean;
+  /**
+   * Who is recording. Not the bare flag: a recorder gone from the room
+   * for the whole grace is hidden (`stepRecordingView`).
+   */
+  recording: RecordingFlag | null;
 }
 
 /** What v2 adds to the engine's actions. */
@@ -95,6 +109,12 @@ export interface CallActionsV2 {
     target: ParticipantId,
     action: ModerationAction
   ) => Promise<boolean>;
+  moderateAll: (action: BulkModerationAction) => Promise<boolean>;
+  setLocked: (locked: boolean) => Promise<boolean>;
+  /** The user ids invited, or null when the server refused. */
+  invite: (userIds: string[]) => Promise<string[] | null>;
+  /** `unavailable`: the database does not have migration 176 yet. */
+  setRecordingFlag: (on: boolean) => Promise<RecordingFlagResult>;
   /** The screen reports how big each participant is drawn. */
   setTileSizes: (sizes: Record<ParticipantId, TileSize>) => void;
   /** Drop notices the screen has shown. */
@@ -115,4 +135,6 @@ export const V2_SNAPSHOT_DEFAULTS: CallSnapshotV2 = {
   notices: [],
   liveSince: null,
   canModerate: false,
+  locked: false,
+  recording: null,
 };

@@ -129,6 +129,13 @@ import {
   type RoomError,
   type TracksResult,
 } from '@/lib/meetings/room/sfu';
+import {
+  meetingFlagNotices,
+  recordingFailure,
+  recordingFlagOf,
+  stepRecordingView,
+  type RecordingMemo,
+} from '@/lib/meetings/room/recording';
 import { planSubscriptions } from '@/lib/meetings/room/subscriptions';
 import { parseParticipantRow, trackNameFor } from '@/lib/meetings/room/tracks';
 import {
@@ -149,6 +156,7 @@ import {
   type RoomNotice,
   type TileSize,
 } from '@/lib/meetings/room/contract';
+import type { BulkModerationAction } from '@/lib/meetings/types';
 import { createClient } from '@/lib/supabase/client';
 
 export type CallPhase =
@@ -167,6 +175,14 @@ export interface MeetingSummary {
   title: string;
   status: string;
   host_user_id: string;
+  description?: string | null;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  open_to_workspace?: boolean;
+  /** These three are absent on a database without migration 176. */
+  locked_at?: string | null;
+  recording_started_at?: string | null;
+  recording_by?: string | null;
 }
 
 export interface CallSnapshot extends CallSnapshotV2 {
@@ -287,6 +303,13 @@ export class MeetingCallEngine {
   private handWanted = false;
   private reactionsHeld: HeldReaction[] = [];
   private noticeSeq = 0;
+  /**
+   * Kept across a rejoin: the grace of a recorder already gone runs on,
+   * rather than restarting each time our own network drops.
+   */
+  private recordingMemo: RecordingMemo | null = null;
+  /** Bumped per newer view of the row, so an older read cannot undo it. */
+  private meetingWrites = 0;
   private onDeviceChange = () => void this.refreshDevices();
   // Bumped whenever the person stops wanting to be in the call (leave,
   // end, a give-up, unmount). A join whose POST was in flight then — a
@@ -343,6 +366,10 @@ export class MeetingCallEngine {
       sendChat: this.sendChat,
       sendReaction: this.sendReaction,
       moderate: this.moderate,
+      moderateAll: this.moderateAll,
+      setLocked: this.setLocked,
+      invite: this.invite,
+      setRecordingFlag: this.setRecordingFlag,
       setTileSizes: this.setTileSizes,
       dismissNotices: this.dismissNotices,
     };
@@ -435,19 +462,32 @@ export class MeetingCallEngine {
     if (this.participantId) this.leaveSeat(this.participantId);
   }
 
-  private leaveSeat(participantId: string) {
-    void this.api('leave', 'POST', { participantId }, true);
+  private leaveSeat(participantId: string, reconnecting = false) {
+    const body = reconnecting
+      ? { participantId, reconnecting: true }
+      : { participantId };
+    void this.api('leave', 'POST', body, true);
+  }
+
+  // Every column, not a list: naming 176's would fail the read, and so
+  // the room, on a database without it.
+  private readMeeting() {
+    return this.supabase
+      .from('meetings')
+      .select('*')
+      .eq('id', this.meetingId)
+      .maybeSingle();
   }
 
   private async loadMeeting() {
-    const { data, error } = await this.supabase
-      .from('meetings')
-      .select('id, title, status, host_user_id')
-      .eq('id', this.meetingId)
-      .maybeSingle();
+    const writes = this.meetingWrites;
+    const { data, error } = await this.readMeeting();
     // An error reads as missing too: the room cannot be shown either way.
     if (data && !error) {
-      this.emit({ meetingState: 'ready', meeting: data as MeetingSummary });
+      if (writes === this.meetingWrites) {
+        this.applyMeeting(data as MeetingSummary);
+      }
+      this.emit({ meetingState: 'ready' });
     } else {
       // Since 112 a removal hides the meeting: say so rather than "not found".
       const removed = !error && (await this.isRemoved(null));
@@ -836,7 +876,9 @@ export class MeetingCallEngine {
   private async reconnect() {
     if (this.attempts >= RECONNECT_TRIES) return this.connectionFailed();
     this.attempts += 1;
-    this.leaveQuietly();
+    // Says so, or the server clears the recording flag while the local
+    // recording carries on: nobody would be told they are being recorded.
+    if (this.participantId) this.leaveSeat(this.participantId, true);
     this.teardown();
     this.emit({ phase: 'reconnecting' });
     await new Promise((r) => setTimeout(r, 1000 * 2 ** (this.attempts - 1)));
@@ -901,9 +943,8 @@ export class MeetingCallEngine {
           table: 'meetings',
           filter: `id=eq.${id}`,
         },
-        (payload: { new: { status?: string } }) => {
-          if (payload.new?.status && payload.new.status !== 'scheduled')
-            this.ended();
+        (payload: { new: Partial<MeetingSummary> }) => {
+          if (this.channel === channel) this.onMeetingRow(payload.new);
         }
       )
       .on(
@@ -942,9 +983,12 @@ export class MeetingCallEngine {
       .subscribe((status) => {
         // A line written between join's chat read and the subscription
         // going live reaches neither; read again once it is live (and
-        // after the channel resubscribes). Merging dedupes by id.
+        // after the channel resubscribes). Merging dedupes by id. The
+        // same goes for the meeting row, read in the lobby and blind
+        // through a blip: a recording begun meanwhile must still be told.
         if (status === 'SUBSCRIBED' && this.channel === channel) {
           void this.loadChat();
+          void this.refreshMeeting(channel);
         }
       });
     this.channel = channel;
@@ -961,6 +1005,59 @@ export class MeetingCallEngine {
     }
     // From here a new face is a join; before, everyone would be.
     this.rowsLoaded = true;
+  }
+
+  private async refreshMeeting(channel: RealtimeChannel) {
+    const writes = this.meetingWrites;
+    const { data } = await this.readMeeting();
+    if (!data || this.channel !== channel) return;
+    if (writes === this.meetingWrites) {
+      this.onMeetingRow(data as MeetingSummary);
+    }
+  }
+
+  private onMeetingRow(row: Partial<MeetingSummary>) {
+    if (row.status && row.status !== 'scheduled') return this.ended();
+    this.applyMeeting(row);
+  }
+
+  /**
+   * A newer view of the meeting row: a read, a realtime event or the
+   * answer to an action of ours. The last two overlap, and
+   * `meetingFlagNotices` announces whichever lands first.
+   */
+  private applyMeeting(row: Partial<MeetingSummary>) {
+    this.meetingWrites += 1;
+    const before = this.snap.meeting;
+    const meeting = { ...before, ...row } as MeetingSummary;
+    this.emit({
+      meeting,
+      locked: !!meeting.locked_at,
+      recording: this.viewRecording(
+        meeting,
+        this.rowsLoaded ? this.snap.participants : null
+      ),
+      notices: this.withNotices(meetingFlagNotices(before, meeting)),
+    });
+  }
+
+  /**
+   * `present` null: the rows are not read yet (lobby, mid-join), so
+   * nobody can say the recorder is gone and the flag stands.
+   */
+  private viewRecording(
+    meeting: MeetingSummary | null,
+    present: readonly ParticipantRow[] | null
+  ) {
+    const flag = recordingFlagOf(meeting);
+    const step = stepRecordingView(this.recordingMemo, {
+      flag,
+      recorderPresent:
+        !present || present.some((r) => r.user_id === flag?.userId),
+      nowMs: Date.now(),
+    });
+    this.recordingMemo = step.memo;
+    return step.recording;
   }
 
   private onRow(row: ParticipantRow) {
@@ -1016,6 +1113,10 @@ export class MeetingCallEngine {
       participants: present,
       liveSince: liveSince(present),
       notices: this.withNotices(drafts),
+      recording: this.viewRecording(
+        this.snap.meeting,
+        this.rowsLoaded ? present : null
+      ),
     });
     const inFlight = new Set([...this.pulled.keys(), ...this.pending]);
     const plan = planSubscriptions(
@@ -1512,6 +1613,39 @@ export class MeetingCallEngine {
   moderate = async (target: ParticipantId, action: ModerationAction) => {
     const res = await this.api('moderate', 'POST', { target, action });
     return res.ok;
+  };
+
+  moderateAll = async (action: BulkModerationAction) => {
+    const res = await this.api('moderate', 'POST', { action });
+    return res.ok;
+  };
+
+  setLocked = async (locked: boolean) => {
+    const res = await this.api('lock', 'POST', { locked });
+    if (!res.ok) return false;
+    const answer = res.body as { locked_at?: string | null } | null;
+    this.applyMeeting({ locked_at: answer?.locked_at ?? null });
+    return true;
+  };
+
+  invite = async (userIds: string[]) => {
+    const res = await this.api('invite', 'POST', { userIds });
+    const invited = (res.body as { invited?: unknown } | null)?.invited;
+    return res.ok && Array.isArray(invited) ? (invited as string[]) : null;
+  };
+
+  setRecordingFlag = async (on: boolean) => {
+    const res = await this.api('recording', 'POST', { recording: on });
+    if (!res.ok) return recordingFailure(res.status, res.body);
+    const answer = res.body as {
+      recording_started_at?: string | null;
+      recording_by?: string | null;
+    } | null;
+    this.applyMeeting({
+      recording_started_at: answer?.recording_started_at ?? null,
+      recording_by: answer?.recording_by ?? null,
+    });
+    return 'ok' as const;
   };
 
   private async loadChat() {

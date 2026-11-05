@@ -135,15 +135,22 @@ export type NoticeToastKey =
   | 'handLoweredByHost'
   | 'micLost'
   | 'cameraLost'
-  | 'qualityPoor';
+  | 'qualityPoor'
+  | 'recordingStarted'
+  | 'recordingStopped'
+  | 'meetingLocked'
+  | 'meetingUnlocked';
 
 export interface NoticeToast {
   key: NoticeToastKey;
   tone: 'info' | 'warning';
-  /** Whose name the message carries (join / leave). */
+  /** Whose name the message carries (join, leave, recording started). */
   userId: string | null;
-  /** The optional soft sound; only join and leave have one. */
-  sound: 'join' | 'leave' | null;
+  /**
+   * join and leave are the optional soft sounds; record is a consent
+   * notice, so neither that switch nor the page silences it.
+   */
+  sound: 'join' | 'leave' | 'record' | null;
 }
 
 export function noticeToast(n: RoomNotice): NoticeToast {
@@ -170,7 +177,48 @@ export function noticeToast(n: RoomNotice): NoticeToast {
       };
     case 'quality_poor':
       return { key: 'qualityPoor', tone: 'warning', userId: null, sound: null };
+    case 'recording_started':
+      return {
+        key: 'recordingStarted',
+        tone: 'warning',
+        userId: n.userId,
+        sound: 'record',
+      };
+    case 'recording_stopped':
+      return {
+        key: 'recordingStopped',
+        tone: 'info',
+        userId: null,
+        sound: 'record',
+      };
+    case 'meeting_locked':
+      return { key: 'meetingLocked', tone: 'info', userId: null, sound: null };
+    case 'meeting_unlocked':
+      return {
+        key: 'meetingUnlocked',
+        tone: 'info',
+        userId: null,
+        sound: null,
+      };
   }
+}
+
+/** Off the room page join and leave stay quiet; nothing else does. */
+export function showsToast(nt: NoticeToast, quietPresence: boolean): boolean {
+  return !(quietPresence && (nt.sound === 'join' || nt.sound === 'leave'));
+}
+
+/**
+ * The one tone a batch of notices plays, so a crowd arriving at once is
+ * not a chord. A recording tone wins, and plays with the switch off.
+ */
+export function batchTone(
+  toasts: readonly NoticeToast[],
+  soundsOn: boolean
+): NoticeToast['sound'] {
+  const sounds = toasts.flatMap((nt) => (nt.sound ? [nt.sound] : []));
+  if (sounds.includes('record')) return 'record';
+  return soundsOn ? (sounds.at(-1) ?? null) : null;
 }
 
 /** localStorage key of the join/leave sound switch; off unless '1'. */

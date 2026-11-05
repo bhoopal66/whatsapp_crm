@@ -6593,7 +6593,11 @@
         "handLoweredByHost": "The host lowered your hand",
         "micLost": "Your microphone was disconnected",
         "cameraLost": "Your camera was disconnected",
-        "qualityPoor": "Your connection is poor. Video quality may drop."
+        "qualityPoor": "Your connection is poor. Video quality may drop.",
+        "recordingStarted": "{name} started recording. Everyone in this meeting is being recorded.",
+        "recordingStopped": "Recording stopped. This meeting is no longer being recorded.",
+        "meetingLocked": "The meeting is locked. Nobody new can join.",
+        "meetingUnlocked": "The meeting is unlocked. People can join again."
       }
     },
     "removedPeople": {

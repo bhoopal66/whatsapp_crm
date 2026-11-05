@@ -23,6 +23,8 @@ function render(opts: { canModerate: boolean; chatUnread: number }) {
     deviceOptions: { audioinput: [], videoinput: [], audiooutput: [] },
     selectedDevices: {},
     canModerate: opts.canModerate,
+    locked: false,
+    recording: null,
   } as unknown as MeetingCall;
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">

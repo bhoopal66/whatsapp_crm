@@ -1,5 +1,5 @@
-// Short tones for the room: the speaker test and the optional join/leave
-// sound. Browser-only; every failure is swallowed (a missing sound must
+// Short tones for the room: the speaker test, the optional join/leave
+// sound and the recording notice, which is not optional. Browser-only; every failure is swallowed (a missing sound must
 // never break the call).
 
 type SinkAudio = HTMLAudioElement & {
@@ -77,4 +77,5 @@ export async function playTones(
 
 export const JOIN_TONE = [660, 880] as const;
 export const LEAVE_TONE = [880, 660] as const;
+export const RECORD_TONE = [988, 740, 988] as const;
 export const TEST_TONE = [523.25, 659.25, 783.99, 1046.5] as const;
