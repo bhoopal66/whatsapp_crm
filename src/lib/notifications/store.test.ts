@@ -4,6 +4,7 @@ import type { Notification } from '@/types';
 
 import {
   INITIAL_NOTIFICATIONS_STATE,
+  changeFromPayload,
   notificationsReducer as reduce,
   unreadCount,
   type NotificationsState,
@@ -123,5 +124,30 @@ describe('once the list is loaded', () => {
     });
     expect(state.outsideUnread).toBe(0);
     expect(unreadCount(state)).toBe(2);
+  });
+});
+
+describe('changeFromPayload', () => {
+  const row = { id: 'a' };
+
+  it('turns each realtime event into the action that applies it', () => {
+    expect(
+      changeFromPayload({ eventType: 'INSERT', new: row, old: {} })
+    ).toEqual({ type: 'insert', row });
+    expect(
+      changeFromPayload({ eventType: 'UPDATE', new: row, old: {} })
+    ).toEqual({ type: 'update', row });
+  });
+
+  it('a DELETE carries the old row, which is only its key', () => {
+    expect(
+      changeFromPayload({ eventType: 'DELETE', new: {}, old: row })
+    ).toEqual({ type: 'delete', row });
+  });
+
+  it('ignores anything else', () => {
+    expect(
+      changeFromPayload({ eventType: 'TRUNCATE', new: {}, old: {} })
+    ).toBeNull();
   });
 });

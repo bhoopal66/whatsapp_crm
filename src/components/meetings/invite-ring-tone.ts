@@ -6,6 +6,12 @@ import { RING_GAIN, ringNotes } from '@/lib/meetings/invite-ring';
 import { audioContextClass } from './room/room-sounds';
 
 const LOCK_NAME = 'meeting-invite-ring';
+/**
+ * How long a tab keeps the lock after it stops ringing. The tabs waiting
+ * behind it hear the same answer a moment later, over realtime, and must
+ * not play a note in between.
+ */
+export const LINGER_MS = 1_500;
 const SILENT = 0.0001;
 const ATTACK_S = 0.02;
 
@@ -51,30 +57,48 @@ function play(): () => void {
   return stop;
 }
 
-/** Starts the ring in this tab, if it may; answers how to stop it. */
+/**
+ * Starts the ring, if this tab may; answers how to stop it. One tab of the
+ * browser rings and the others wait in line, so the ring moves on if that
+ * tab closes, and comes back when a call ends (holdRingSilent).
+ */
 export function startRingTone(): () => void {
   try {
-    // The browser would block the sound, and holding the lock would then
-    // silence a tab that could ring.
+    // The browser would block the sound, and a place in the line would
+    // then silence a tab that could ring.
     if (navigator.userActivation?.hasBeenActive === false) return noop;
-    if (!navigator.locks) return play();
-    // One tab of the browser rings: the rest find the lock taken.
+    const { locks } = navigator;
+    if (!locks) return play();
+    const waiting = new AbortController();
     let stopped = false;
     let stopPlaying = noop;
-    let release = noop;
-    void navigator.locks
-      .request(LOCK_NAME, { ifAvailable: true }, (lock) => {
-        if (!lock || stopped) return;
-        stopPlaying = play();
-        return new Promise<void>((resolve) => {
-          release = resolve;
+    let release: (() => void) | null = null;
+    const takeTurn = () => {
+      locks
+        .request(LOCK_NAME, { signal: waiting.signal }, () => {
+          if (stopped) return;
+          stopPlaying = play();
+          return new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        })
+        .catch((err: unknown) => {
+          stopPlaying();
+          stopPlaying = noop;
+          release = null;
+          // Only a steal comes back: a tab went into a call. Anything else
+          // would fail the same way again.
+          const stolen = (err as Error | null)?.name === 'AbortError';
+          if (stolen && !stopped) takeTurn();
         });
-      })
-      .catch(noop);
+    };
+    takeTurn();
     return () => {
       stopped = true;
+      waiting.abort();
       stopPlaying();
-      release();
+      stopPlaying = noop;
+      if (release) setTimeout(release, LINGER_MS);
     };
   } catch {
     return noop;
@@ -82,27 +106,27 @@ export function startRingTone(): () => void {
 }
 
 /**
- * While this tab is in a meeting or on a call it sits on the ring's lock,
- * so no other tab of the browser rings either: a meeting lives in one tab,
- * and the others cannot see it. Answers how to let go.
+ * While this tab is in a meeting or on a call it holds the ring's lock, so
+ * no tab of the browser rings: a meeting lives in one tab, and the others
+ * cannot see it. It steals the lock, which stops a ring already going in
+ * another tab; that ring takes its place in line again. Answers how to let
+ * go.
  */
 export function holdRingSilent(): () => void {
   try {
     if (!navigator.locks) return noop;
-    const queued = new AbortController();
+    let done = false;
     let release = noop;
     void navigator.locks
-      .request(
-        LOCK_NAME,
-        { signal: queued.signal },
-        () =>
-          new Promise<void>((resolve) => {
-            release = resolve;
-          })
-      )
+      .request(LOCK_NAME, { steal: true }, () => {
+        if (done) return;
+        return new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      })
       .catch(noop);
     return () => {
-      queued.abort();
+      done = true;
       release();
     };
   } catch {

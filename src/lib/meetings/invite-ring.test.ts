@@ -9,6 +9,8 @@ import {
   RING_CHECK_MS,
   RING_MS,
   STARTING_NOW_BODY,
+  isRingerBusy,
+  meetingRoomPath,
   ringNotes,
   type MeetingRead,
   type RingerContext,
@@ -94,7 +96,7 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting, startTone } = setup();
     readMeeting.mockReturnValue(new Promise(() => {}));
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     expect(ringer.getSnapshot()).toBe(row);
     expect(startTone).toHaveBeenCalledTimes(1);
   });
@@ -107,7 +109,7 @@ describe('InviteRinger', () => {
   ])('R2: ignores %s', async (_name, over) => {
     const { ringer, readMeeting, startTone } = setup();
     ringer.handle({
-      event: 'INSERT',
+      type: 'insert',
       row: invite(over as Partial<Notification>),
     });
     await settle();
@@ -121,7 +123,7 @@ describe('InviteRinger', () => {
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
     const row = invite({ body: SCHEDULED_BODY });
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     expect(ringer.getSnapshot()).toBeNull();
     expect(readMeeting).toHaveBeenCalledWith(MEETING);
     held.answer(detail());
@@ -140,7 +142,7 @@ describe('InviteRinger', () => {
   ])('R3: a scheduled invite stays silent when %s', async (_name, read) => {
     const { ringer, readMeeting, startTone } = setup();
     readMeeting.mockResolvedValue(read);
-    ringer.handle({ event: 'INSERT', row: invite({ body: SCHEDULED_BODY }) });
+    ringer.handle({ type: 'insert', row: invite({ body: SCHEDULED_BODY }) });
     await settle();
     expect(ringer.getSnapshot()).toBeNull();
     expect(startTone).not.toHaveBeenCalled();
@@ -151,9 +153,9 @@ describe('InviteRinger', () => {
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
     const row = invite({ body: SCHEDULED_BODY });
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     ringer.handle({
-      event: 'UPDATE',
+      type: 'update',
       row: { ...row, read_at: '2026-11-05T12:00:01Z' },
     });
     held.answer(detail());
@@ -166,11 +168,11 @@ describe('InviteRinger', () => {
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
     ringer.handle({
-      event: 'INSERT',
+      type: 'insert',
       row: invite({ id: 'older', body: SCHEDULED_BODY }),
     });
     const newer = invite({ id: 'newer', meta: { meeting_id: MEETING_2 } });
-    ringer.handle({ event: 'INSERT', row: newer });
+    ringer.handle({ type: 'insert', row: newer });
     held.answer(detail());
     await settle();
     expect(ringer.getSnapshot()).toBe(newer);
@@ -179,7 +181,7 @@ describe('InviteRinger', () => {
   it('R4: another workspace rings instantly and never reads', async () => {
     const { ringer, readMeeting, startTone } = setup();
     const row = invite({ account_id: OTHER });
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     await vi.advanceTimersByTimeAsync(RING_CHECK_MS * 3);
     expect(ringer.getSnapshot()).toBe(row);
     expect(startTone).toHaveBeenCalledTimes(1);
@@ -189,7 +191,7 @@ describe('InviteRinger', () => {
   it('R4: a scheduled invite of another workspace is ignored unread', async () => {
     const { ringer, readMeeting } = setup();
     ringer.handle({
-      event: 'INSERT',
+      type: 'insert',
       row: invite({ account_id: OTHER, body: SCHEDULED_BODY }),
     });
     await settle();
@@ -199,7 +201,7 @@ describe('InviteRinger', () => {
 
   it('R4: an unknown active workspace counts as the same one', async () => {
     const { ringer, readMeeting } = setup({ activeWorkspaceId: null });
-    ringer.handle({ event: 'INSERT', row: invite({ account_id: OTHER }) });
+    ringer.handle({ type: 'insert', row: invite({ account_id: OTHER }) });
     await settle();
     expect(readMeeting).toHaveBeenCalledWith(MEETING);
   });
@@ -209,14 +211,14 @@ describe('InviteRinger', () => {
     ['on its room page', { pathname: `/meetings/${MEETING}/room` }],
   ])('R5: no ring when already there, %s', (_name, ctx) => {
     const { ringer, startTone } = setup(ctx);
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     expect(ringer.getSnapshot()).toBeNull();
     expect(startTone).not.toHaveBeenCalled();
   });
 
   it('R5: arriving at the meeting while it rings stops it', () => {
     const { ringer, stopTone } = setup();
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     ringer.setContext({ ...CTX, pathname: `/meetings/${MEETING}/room` });
     expect(ringer.getSnapshot()).toBeNull();
     expect(stopTone).toHaveBeenCalledTimes(1);
@@ -226,7 +228,7 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting } = setup();
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
-    ringer.handle({ event: 'INSERT', row: invite({ body: SCHEDULED_BODY }) });
+    ringer.handle({ type: 'insert', row: invite({ body: SCHEDULED_BODY }) });
     ringer.setContext({ ...CTX, heldMeetingId: MEETING });
     held.answer(detail());
     await settle();
@@ -236,7 +238,7 @@ describe('InviteRinger', () => {
   it('R6: busy shows the card without the tone', () => {
     const { ringer, startTone } = setup({ busy: true });
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     expect(ringer.getSnapshot()).toBe(row);
     expect(startTone).not.toHaveBeenCalled();
   });
@@ -244,7 +246,7 @@ describe('InviteRinger', () => {
   it('R6: busy mid-ring stops the tone only, and back restarts it', () => {
     const { ringer, startTone, stopTone } = setup();
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     ringer.setContext({ ...CTX, busy: true });
     expect(stopTone).toHaveBeenCalledTimes(1);
     expect(ringer.getSnapshot()).toBe(row);
@@ -256,7 +258,7 @@ describe('InviteRinger', () => {
   it('setContext stays quiet when nothing changed', () => {
     const { ringer, startTone } = setup();
     const heard = vi.fn();
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     ringer.subscribe(heard);
     ringer.setContext({ ...CTX });
     ringer.setContext({ ...CTX, pathname: '/contacts' });
@@ -268,7 +270,7 @@ describe('InviteRinger', () => {
     const { ringer, stopTone } = setup();
     const heard = vi.fn();
     ringer.subscribe(heard);
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     await vi.advanceTimersByTimeAsync(RING_MS - 1);
     expect(ringer.getSnapshot()).not.toBeNull();
     expect(stopTone).not.toHaveBeenCalled();
@@ -281,7 +283,7 @@ describe('InviteRinger', () => {
 
   it('R8: checks at once and then every RING_CHECK_MS', async () => {
     const { ringer, readMeeting } = setup();
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     expect(readMeeting).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(RING_CHECK_MS);
     expect(readMeeting).toHaveBeenCalledTimes(2);
@@ -297,7 +299,7 @@ describe('InviteRinger', () => {
   ])('R8: stops when the meeting %s', async (_name, read) => {
     const { ringer, readMeeting, stopTone } = setup();
     readMeeting.mockResolvedValue(read);
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     await settle();
     expect(ringer.getSnapshot()).toBeNull();
     expect(stopTone).toHaveBeenCalledTimes(1);
@@ -307,7 +309,7 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting } = setup();
     readMeeting.mockResolvedValue(null);
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     await vi.advanceTimersByTimeAsync(RING_CHECK_MS * 2);
     expect(ringer.getSnapshot()).toBe(row);
   });
@@ -316,7 +318,7 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting, stopTone } = setup();
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     ringer.close();
     const heard = vi.fn();
     ringer.subscribe(heard);
@@ -330,9 +332,9 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting } = setup();
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     const newer = invite({ id: 'row-2', meta: { meeting_id: MEETING_2 } });
-    ringer.handle({ event: 'INSERT', row: newer });
+    ringer.handle({ type: 'insert', row: newer });
     held.answer('gone');
     await settle();
     expect(ringer.getSnapshot()).toBe(newer);
@@ -341,9 +343,9 @@ describe('InviteRinger', () => {
   it('R9: an UPDATE setting read_at on the ringing row stops it', () => {
     const { ringer, stopTone } = setup();
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     ringer.handle({
-      event: 'UPDATE',
+      type: 'update',
       row: { ...row, read_at: '2026-11-05T12:00:01Z' },
     });
     expect(ringer.getSnapshot()).toBeNull();
@@ -353,12 +355,12 @@ describe('InviteRinger', () => {
   it('R9: an UPDATE of another row, or with no read_at, does nothing', () => {
     const { ringer, stopTone } = setup();
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     ringer.handle({
-      event: 'UPDATE',
+      type: 'update',
       row: { ...row, id: 'row-2', read_at: '2026-11-05T12:00:01Z' },
     });
-    ringer.handle({ event: 'UPDATE', row: { ...row } });
+    ringer.handle({ type: 'update', row: { ...row } });
     expect(ringer.getSnapshot()).toBe(row);
     expect(stopTone).not.toHaveBeenCalled();
   });
@@ -366,19 +368,19 @@ describe('InviteRinger', () => {
   it('R9: a DELETE of the ringing id stops it; another id does not', () => {
     const { ringer } = setup();
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
-    ringer.handle({ event: 'DELETE', row: { id: 'row-2' } });
+    ringer.handle({ type: 'insert', row });
+    ringer.handle({ type: 'delete', row: { id: 'row-2' } });
     expect(ringer.getSnapshot()).toBe(row);
-    ringer.handle({ event: 'DELETE', row: { id: row.id } });
+    ringer.handle({ type: 'delete', row: { id: row.id } });
     expect(ringer.getSnapshot()).toBeNull();
   });
 
   it('R10: a newer invite replaces the ring and restarts the clock', async () => {
     const { ringer, startTone, stopTone } = setup();
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     await vi.advanceTimersByTimeAsync(RING_MS - 1_000);
     const newer = invite({ id: 'row-2', meta: { meeting_id: MEETING_2 } });
-    ringer.handle({ event: 'INSERT', row: newer });
+    ringer.handle({ type: 'insert', row: newer });
     expect(ringer.getSnapshot()).toBe(newer);
     expect(stopTone).toHaveBeenCalledTimes(1);
     expect(startTone).toHaveBeenCalledTimes(2);
@@ -390,7 +392,7 @@ describe('InviteRinger', () => {
 
   it('R11: close stops the tone and leaves no timer', () => {
     const { ringer, stopTone } = setup();
-    ringer.handle({ event: 'INSERT', row: invite() });
+    ringer.handle({ type: 'insert', row: invite() });
     expect(vi.getTimerCount()).toBeGreaterThan(0);
     ringer.close();
     expect(stopTone).toHaveBeenCalledTimes(1);
@@ -402,7 +404,7 @@ describe('InviteRinger', () => {
     const { ringer, startTone } = setup();
     ringer.close();
     const row = invite();
-    ringer.handle({ event: 'INSERT', row });
+    ringer.handle({ type: 'insert', row });
     expect(ringer.getSnapshot()).toBe(row);
     expect(startTone).toHaveBeenCalledTimes(1);
   });
@@ -411,7 +413,7 @@ describe('InviteRinger', () => {
     const { ringer, readMeeting } = setup();
     const held = heldRead();
     readMeeting.mockReturnValueOnce(held.promise);
-    ringer.handle({ event: 'INSERT', row: invite({ body: SCHEDULED_BODY }) });
+    ringer.handle({ type: 'insert', row: invite({ body: SCHEDULED_BODY }) });
     ringer.close();
     held.answer(detail());
     await settle();
@@ -444,5 +446,33 @@ describe('the body the ring matches', () => {
       'utf8'
     );
     expect(sql).toContain(`ELSE '${STARTING_NOW_BODY}' END`);
+  });
+});
+
+describe('meetingRoomPath', () => {
+  it('is the lobby and room page', () => {
+    expect(meetingRoomPath('abc')).toBe('/meetings/abc/room');
+  });
+});
+
+describe('isRingerBusy', () => {
+  it('a meeting counts only while it holds a seat', () => {
+    expect(isRingerBusy('live', null)).toBe(true);
+    expect(isRingerBusy('joining', null)).toBe(true);
+    expect(isRingerBusy('reconnecting', null)).toBe(true);
+    expect(isRingerBusy('lobby', null)).toBe(false);
+    expect(isRingerBusy('left', null)).toBe(false);
+    expect(isRingerBusy(null, null)).toBe(false);
+  });
+
+  it('a phone call counts while it rings and until it ends', () => {
+    expect(isRingerBusy(null, { ringing: {}, panel: null })).toBe(true);
+    expect(
+      isRingerBusy(null, { ringing: null, panel: { endedAt: null } })
+    ).toBe(true);
+    expect(
+      isRingerBusy(null, { ringing: null, panel: { endedAt: 1234 } })
+    ).toBe(false);
+    expect(isRingerBusy(null, { ringing: null, panel: null })).toBe(false);
   });
 });

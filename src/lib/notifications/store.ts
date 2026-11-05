@@ -31,9 +31,28 @@ export type NotificationsAction =
   | { type: 'markAllRead'; at: string };
 
 /** One realtime event on the reader's rows. A DELETE carries only the key. */
-export type NotificationChange =
-  | { event: 'INSERT' | 'UPDATE'; row: Notification }
-  | { event: 'DELETE'; row: Partial<Notification> };
+export type NotificationChange = Extract<
+  NotificationsAction,
+  { type: 'insert' | 'update' | 'delete' }
+>;
+
+/** A realtime payload as the action that applies it. */
+export function changeFromPayload(payload: {
+  eventType: string;
+  new: unknown;
+  old: unknown;
+}): NotificationChange | null {
+  switch (payload.eventType) {
+    case 'INSERT':
+      return { type: 'insert', row: payload.new as Notification };
+    case 'UPDATE':
+      return { type: 'update', row: payload.new as Notification };
+    case 'DELETE':
+      return { type: 'delete', row: payload.old as Partial<Notification> };
+    default:
+      return null;
+  }
+}
 
 export const INITIAL_NOTIFICATIONS_STATE: NotificationsState = {
   rows: null,

@@ -9,6 +9,7 @@ import type { Notification } from '@/types';
 
 import { isUuid } from './requests';
 import { canJoinMeeting, type MeetingDetailData } from './schedule';
+import { isInCall } from './session/session';
 
 /** Rings this long, then leaves the invite to the bell. */
 export const RING_MS = 60_000;
@@ -66,6 +67,21 @@ export function inviteMeetingId(row: Notification): string | null {
   return isUuid(id) ? id : null;
 }
 
+/** Where Join goes: the lobby, never straight into the call. */
+export function meetingRoomPath(meetingId: string): string {
+  return `/meetings/${meetingId}/room`;
+}
+
+/** In a meeting or on a phone call, as this tab can see. */
+export function isRingerBusy(
+  meetingPhase: string | null,
+  phone: { ringing: unknown; panel: { endedAt: unknown } | null } | null
+): boolean {
+  if (meetingPhase !== null && isInCall(meetingPhase)) return true;
+  if (!phone) return false;
+  return !!phone.ringing || (!!phone.panel && phone.panel.endedAt === null);
+}
+
 function canEnter(read: MeetingRead): read is MeetingDetailData {
   return (
     read !== null &&
@@ -114,11 +130,11 @@ export class InviteRinger {
   }
 
   handle(change: NotificationChange): void {
-    if (change.event === 'INSERT') {
+    if (change.type === 'insert') {
       this.invited(change.row);
       return;
     }
-    if (change.event === 'UPDATE' && !change.row.read_at) return;
+    if (change.type === 'update' && !change.row.read_at) return;
     const { id } = change.row;
     if (!id) return;
     this.pending.delete(id);
@@ -199,7 +215,7 @@ export class InviteRinger {
   private alreadyThere(meetingId: string): boolean {
     return (
       this.ctx.heldMeetingId === meetingId ||
-      this.ctx.pathname === `/meetings/${meetingId}/room`
+      this.ctx.pathname === meetingRoomPath(meetingId)
     );
   }
 

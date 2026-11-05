@@ -11,10 +11,11 @@ import { useCalls } from '@/components/pbx/call-provider';
 import {
   InviteRinger,
   inviteMeetingId,
+  isRingerBusy,
+  meetingRoomPath,
   type MeetingRead,
 } from '@/lib/meetings/invite-ring';
 import { parseMeetingDetail } from '@/lib/meetings/schedule';
-import { isInCall } from '@/lib/meetings/session/session';
 import { notificationRow } from '@/lib/notifications/target';
 import type { Notification } from '@/types';
 
@@ -95,7 +96,7 @@ export function MeetingInviteCardView({
 }
 
 /** Mounted only while ringing, so no page pays for the member list. */
-function RingingCard({
+export function RingingCard({
   row,
   onDone,
 }: {
@@ -118,7 +119,8 @@ function RingingCard({
       inviter={!other && row.actor_user_id ? nameOf(row.actor_user_id) : null}
       workspace={other ? (other.name ?? tBell('unknown')) : null}
       onJoin={() => {
-        const href = `/meetings/${inviteMeetingId(row)}/room`;
+        const meetingId = inviteMeetingId(row);
+        const href = meetingId ? meetingRoomPath(meetingId) : plan.href;
         void openNotification(row, { ...plan, href });
         onDone();
       }}
@@ -149,10 +151,7 @@ export function MeetingInviteCard() {
   );
 
   const heldMeetingId = active?.meetingId ?? null;
-  const busy =
-    (active !== null && isInCall(active.call.phase)) ||
-    !!calls?.ringing ||
-    (!!calls?.panel && calls.panel.endedAt === null);
+  const busy = isRingerBusy(active?.call.phase ?? null, calls);
 
   useEffect(() => {
     ringer.setContext({ activeWorkspaceId, pathname, heldMeetingId, busy });

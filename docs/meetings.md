@@ -105,12 +105,18 @@ open.
   and closes the pop-up on all the person's tabs and devices.
 - Left alone it rings for a minute and closes, and the bell row stays
   unread. It also closes when the meeting ends, is cancelled or locked,
-  when the person is removed, or when they open the invite from the bell.
-- **Silent** while they are in a meeting or on a phone call: the pop-up
-  still shows.
+  when the person loses access to it, or when they open the invite from
+  the bell.
+- **Silent** while they are in a meeting or on a phone call, in any tab:
+  the pop-up still shows. If it is still up when the call ends, the ring
+  comes back.
 - **Sound.** Browsers only play sound in a tab the person has clicked in
   since it loaded; without that the pop-up still shows. With several
   tabs open, one rings.
+- **Another workspace.** The meeting can only be looked up in the
+  workspace the person is in. So an instant meeting elsewhere rings its
+  full minute even if it ends, and Join can land on a finished meeting. A
+  scheduled meeting elsewhere only rings the bell.
 - It needs the CRM open in a browser tab. With it closed, the bell and
   push are all they get. Quiet hours hold push only, not the pop-up.
 

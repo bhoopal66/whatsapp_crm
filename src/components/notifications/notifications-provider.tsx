@@ -22,6 +22,7 @@ import type { Notification } from '@/types';
 import type { NotificationRowPlan } from '@/lib/notifications/target';
 import {
   INITIAL_NOTIFICATIONS_STATE,
+  changeFromPayload,
   notificationsReducer,
   unreadCount,
   type NotificationChange,
@@ -149,27 +150,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const bindings = scopedChangeBindings('notifications', 'user_id', userId);
     if (!bindings) return;
     const supabase = createClient();
-    const tell = (change: NotificationChange) => {
-      for (const fn of listenersRef.current) fn(change);
-    };
     // The topic names the user: removeChannel is async, and a re-run on
     // the same topic would be handed the channel still leaving.
     let channel = supabase.channel(`notifications-bell:${userId}`);
     for (const binding of bindings) {
       channel = channel.on('postgres_changes', binding, (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const row = payload.new as Notification;
-          dispatch({ type: 'insert', row });
-          tell({ event: 'INSERT', row });
-        } else if (payload.eventType === 'UPDATE') {
-          const row = payload.new as Notification;
-          dispatch({ type: 'update', row });
-          tell({ event: 'UPDATE', row });
-        } else if (payload.eventType === 'DELETE') {
-          const row = payload.old as Partial<Notification>;
-          dispatch({ type: 'delete', row });
-          tell({ event: 'DELETE', row });
-        }
+        const change = changeFromPayload(payload);
+        if (!change) return;
+        dispatch(change);
+        for (const fn of listenersRef.current) fn(change);
       });
     }
     channel.subscribe();

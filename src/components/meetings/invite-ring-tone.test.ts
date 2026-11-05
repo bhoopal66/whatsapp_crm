@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ringNotes } from '@/lib/meetings/invite-ring';
 
-import { holdRingSilent, startRingTone } from './invite-ring-tone';
+import { LINGER_MS, holdRingSilent, startRingTone } from './invite-ring-tone';
 
 const param = () => ({
   value: 0,
@@ -38,48 +38,85 @@ type Grant = (lock: object | null) => unknown;
 interface LockOptions {
   ifAvailable?: boolean;
   signal?: AbortSignal;
+  steal?: boolean;
+}
+interface LockRequest {
+  grant: Grant;
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
 }
 
-/** One named lock, as Web Locks treats it: held, or queued for. */
+const abortError = () =>
+  Object.assign(new Error('aborted'), { name: 'AbortError' });
+
+/** One named lock, as Web Locks treats it: held, queued for, stolen. */
 function fakeLocks() {
-  let held = false;
-  const queue: (() => void)[] = [];
-  const release = () => {
-    held = false;
-    queue.shift()?.();
+  let holder: LockRequest | null = null;
+  const queue: LockRequest[] = [];
+  const free = (request: LockRequest) => {
+    // Stolen: the lock is someone else's now, not this request's to free.
+    if (holder !== request) return;
+    holder = null;
+    const next = queue.shift();
+    if (next) start(next);
   };
-  const run = async (grant: Grant) => {
-    held = true;
-    try {
-      await grant({});
-    } finally {
-      release();
-    }
+  const start = (request: LockRequest) => {
+    holder = request;
+    void Promise.resolve()
+      .then(() => request.grant({}))
+      .then(
+        (value) => {
+          free(request);
+          request.resolve(value);
+        },
+        (err: Error) => {
+          free(request);
+          request.reject(err);
+        }
+      );
   };
   return {
     get held() {
-      return held;
+      return holder !== null;
     },
-    request: vi.fn(async (_: string, opts: LockOptions, grant: Grant) => {
-      if (!held) return run(grant);
-      if (opts.ifAvailable) return grant(null);
-      return new Promise<void>((resolve, reject) => {
-        const turn = () => void run(grant).then(resolve);
-        queue.push(turn);
-        opts.signal?.addEventListener('abort', () => {
-          queue.splice(queue.indexOf(turn), 1);
-          reject(new Error('aborted'));
-        });
-      });
-    }),
+    get waiting() {
+      return queue.length;
+    },
+    request: vi.fn(
+      (_: string, opts: LockOptions, grant: Grant) =>
+        new Promise((resolve, reject) => {
+          const request = { grant, resolve, reject };
+          if (opts.steal) {
+            holder?.reject(abortError());
+            start(request);
+          } else if (holder && opts.ifAvailable) {
+            void Promise.resolve()
+              .then(() => grant(null))
+              .then(resolve, reject);
+          } else if (holder) {
+            queue.push(request);
+            opts.signal?.addEventListener('abort', () => {
+              const at = queue.indexOf(request);
+              if (at < 0) return;
+              queue.splice(at, 1);
+              reject(abortError());
+            });
+          } else {
+            start(request);
+          }
+        })
+    ),
   };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = () => vi.advanceTimersByTimeAsync(0);
+const linger = () => vi.advanceTimersByTimeAsync(LINGER_MS);
+const made = () => FakeContext.made;
 
 let locks: ReturnType<typeof fakeLocks>;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   FakeContext.made = [];
   locks = fakeLocks();
   vi.stubGlobal('window', { AudioContext: FakeContext });
@@ -90,26 +127,30 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('startRingTone', () => {
-  it('takes the lock and rings; stopping closes the sound and frees the lock', async () => {
+  it('rings; stopping cuts the sound at once and frees the lock a moment later', async () => {
     const stop = startRingTone();
     await settle();
-    expect(FakeContext.made).toHaveLength(1);
+    expect(made()).toHaveLength(1);
     expect(locks.held).toBe(true);
 
     stop();
+    expect(made()[0].close).toHaveBeenCalledTimes(1);
     await settle();
-    expect(FakeContext.made[0].close).toHaveBeenCalledTimes(1);
+    expect(locks.held).toBe(true);
+
+    await linger();
     expect(locks.held).toBe(false);
   });
 
   it('lays the whole ring on the audio clock once, so it ends by itself', async () => {
     startRingTone();
     await settle();
-    const { osc } = FakeContext.made[0];
+    const { osc } = made()[0];
     const notes = ringNotes();
     const last = notes[notes.length - 1];
 
@@ -120,16 +161,46 @@ describe('startRingTone', () => {
     expect(end).toBeCloseTo((last.atMs + last.ms) / 1000, 1);
   });
 
-  it('stays silent when another tab already rings', async () => {
+  it('one tab rings; the next waits in line and takes over when it stops', async () => {
     const first = startRingTone();
     await settle();
     const second = startRingTone();
     await settle();
-    expect(FakeContext.made).toHaveLength(1);
-    second();
-    await settle();
-    expect(locks.held).toBe(true);
+    expect(made()).toHaveLength(1);
+    expect(locks.waiting).toBe(1);
+
     first();
+    await settle();
+    expect(made()).toHaveLength(1);
+    await linger();
+    expect(made()).toHaveLength(2);
+    second();
+  });
+
+  it('a tab told to stop while it waits leaves the line and plays nothing', async () => {
+    const first = startRingTone();
+    await settle();
+    const second = startRingTone();
+    await settle();
+
+    first();
+    second();
+    await linger();
+    expect(made()).toHaveLength(1);
+    expect(locks.held).toBe(false);
+    expect(locks.waiting).toBe(0);
+  });
+
+  it('a new invite straight after the last one still rings', async () => {
+    const stop = startRingTone();
+    await settle();
+    stop();
+    const again = startRingTone();
+    await linger();
+    expect(made()).toHaveLength(2);
+    expect(made()[1].close).not.toHaveBeenCalled();
+    again();
+    expect(made()[1].close).toHaveBeenCalledTimes(1);
   });
 
   it('asks for nothing in a tab the browser would keep silent', async () => {
@@ -140,14 +211,10 @@ describe('startRingTone', () => {
     startRingTone();
     await settle();
     expect(locks.request).not.toHaveBeenCalled();
-    expect(FakeContext.made).toHaveLength(0);
+    expect(made()).toHaveLength(0);
   });
 
-  it('never plays once stopped, even if the lock comes later', async () => {
-    const hold = holdRingSilent();
-    await settle();
-    // Queued by hand: a real ring asks with ifAvailable, so only a slow
-    // grant can land after its stop.
+  it('never plays once stopped, even if the lock is on its way', async () => {
     let grant: Grant = () => undefined;
     locks.request.mockImplementationOnce(async (_, __, g) => {
       grant = g;
@@ -155,20 +222,18 @@ describe('startRingTone', () => {
     const stop = startRingTone();
     stop();
     await grant({});
-    expect(FakeContext.made).toHaveLength(0);
-    hold();
+    expect(made()).toHaveLength(0);
   });
 
-  it('rings without Web Locks, and stops', async () => {
+  it('rings without Web Locks, and stops', () => {
     vi.stubGlobal('navigator', {});
     const stop = startRingTone();
-    expect(FakeContext.made).toHaveLength(1);
+    expect(made()).toHaveLength(1);
     stop();
-    await settle();
-    expect(FakeContext.made[0].close).toHaveBeenCalledTimes(1);
+    expect(made()[0].close).toHaveBeenCalledTimes(1);
   });
 
-  it('survives a browser that refuses the sound', async () => {
+  it('gives up on a browser that refuses the sound, and does not retry', async () => {
     vi.stubGlobal('window', {
       AudioContext: class {
         constructor() {
@@ -179,45 +244,78 @@ describe('startRingTone', () => {
     const stop = startRingTone();
     await settle();
     expect(() => stop()).not.toThrow();
+    await linger();
+    expect(locks.request).toHaveBeenCalledTimes(1);
     expect(locks.held).toBe(false);
+  });
+
+  it('does not retry a lock request that failed', async () => {
+    locks.request.mockRejectedValueOnce(new Error('denied'));
+    startRingTone();
+    await settle();
+    expect(locks.request).toHaveBeenCalledTimes(1);
+    expect(made()).toHaveLength(0);
   });
 });
 
 describe('holdRingSilent', () => {
-  it('keeps every other tab from ringing until it lets go', async () => {
+  it('keeps every tab from ringing, and a waiting ring plays once it lets go', async () => {
     const letGo = holdRingSilent();
     await settle();
-    startRingTone();
+    const ring = startRingTone();
     await settle();
-    expect(FakeContext.made).toHaveLength(0);
+    expect(made()).toHaveLength(0);
 
     letGo();
     await settle();
-    expect(locks.held).toBe(false);
-    startRingTone();
-    await settle();
-    expect(FakeContext.made).toHaveLength(1);
+    expect(made()).toHaveLength(1);
+    ring();
   });
 
-  it('waits its turn behind a ring, and can give up while it waits', async () => {
-    const stopRing = startRingTone();
+  it('stops a ring already going in another tab, which comes back after', async () => {
+    const ring = startRingTone();
     await settle();
+    const letGo = holdRingSilent();
+    await settle();
+    expect(made()[0].close).toHaveBeenCalledTimes(1);
+    expect(locks.waiting).toBe(1);
+
+    letGo();
+    await settle();
+    expect(made()).toHaveLength(2);
+
+    ring();
+    expect(made()[1].close).toHaveBeenCalledTimes(1);
+    await linger();
+    expect(locks.held).toBe(false);
+  });
+
+  it('a call ending and the ring starting in one tick still rings', async () => {
     const letGo = holdRingSilent();
     await settle();
     letGo();
-    stopRing();
+    const ring = startRingTone();
     await settle();
-    expect(locks.held).toBe(false);
+    expect(made()).toHaveLength(1);
+    ring();
   });
 
-  it('takes the lock when a ring ends while it waits', async () => {
-    const stopRing = startRingTone();
+  it('a ring that ends as the call starts leaves the lock with the call', async () => {
+    const ring = startRingTone();
     await settle();
+    ring();
     const letGo = holdRingSilent();
-    await settle();
-    stopRing();
-    await settle();
+    await linger();
     expect(locks.held).toBe(true);
+    expect(locks.request).toHaveBeenCalledTimes(2);
+
+    letGo();
+    await settle();
+    expect(locks.held).toBe(false);
+  });
+
+  it('letting go at once leaves nothing held', async () => {
+    const letGo = holdRingSilent();
     letGo();
     await settle();
     expect(locks.held).toBe(false);
