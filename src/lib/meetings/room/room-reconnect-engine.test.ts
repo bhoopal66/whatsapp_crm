@@ -195,6 +195,25 @@ describe('a recording already running when we arrive', () => {
   });
 });
 
+describe('a rejoin refused with a reason', () => {
+  it('releases the camera and mic, and refuses a late open', async () => {
+    const closed = { ok: false, status: 409, body: { error: 'closed' } };
+    const { engine, inner } = setup([closed]);
+    const camera = track('camera');
+    const mic = track('mic');
+    inner.video = camera;
+    inner.audio = mic;
+    const before = inner.session;
+    void inner.reconnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(engine.getSnapshot().error).toBe('meeting_closed');
+    expect(camera.stop).toHaveBeenCalled();
+    expect(mic.stop).toHaveBeenCalled();
+    expect(inner.session).toBeGreaterThan(before);
+    engine.detach();
+  });
+});
+
 describe('running out of tries', () => {
   it('releases the camera and mic, and refuses a late open', async () => {
     const { engine, inner } = setup([]);

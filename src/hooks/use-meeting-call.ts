@@ -920,6 +920,13 @@ export class MeetingCallEngine {
       const error = classifyRoomFailure(res.status, res.body);
       // A refusal with a reason (ended, forbidden, not configured) stands.
       if (rejoin && error === 'join_failed') return true;
+      // The call is over, however it ended: release the camera and mic,
+      // as ended() and connectionFailed() do. A first join keeps its
+      // preview, since the lobby stays on screen.
+      if (rejoin) {
+        this.session += 1;
+        this.stopMedia();
+      }
       this.emit({ phase: 'error', error });
       return false;
     }
