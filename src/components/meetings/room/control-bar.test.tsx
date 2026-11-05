@@ -184,6 +184,17 @@ describe('moreItems', () => {
       .filter((i) => i.kind !== 'separator')
       .map((i) => i.id);
 
+  it('offers backgrounds before settings, only when it is told how', () => {
+    const items = moreItems(props(), {
+      t,
+      compact: false,
+      fullscreen: noFullscreen,
+      onBackground: () => {},
+    }).map((i) => i.id);
+    expect(items.indexOf('background')).toBe(items.indexOf('settings') - 1);
+    expect(ids(props())).not.toContain('background');
+  });
+
   it('lists the view options, then settings and the shortcuts', () => {
     expect(ids(props())).toEqual([
       'layout',
