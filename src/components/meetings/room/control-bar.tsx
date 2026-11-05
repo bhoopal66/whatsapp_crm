@@ -76,7 +76,7 @@ import { cn } from '@/lib/utils';
 
 import { ConfirmDialog } from './confirm-dialog';
 import { DeviceMenu } from './device-menu';
-import type { RoomPanel } from './meeting-room';
+import type { RoomPanel } from '@/lib/meetings/session/room-ui';
 
 const BTN = 'size-10 rounded-full bg-white/10 text-white hover:bg-white/20';
 const OFF = 'bg-red-600 text-white hover:bg-red-500';
@@ -96,7 +96,7 @@ function useMediaQuery(query: string): boolean {
 }
 
 /** Whether something is fullscreen, and whether this page can be. */
-function useFullscreen() {
+export function useFullscreen() {
   const active = useSyncExternalStore(
     (cb) => {
       document.addEventListener('fullscreenchange', cb);

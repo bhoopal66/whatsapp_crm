@@ -6602,6 +6602,32 @@
       "letBackInFailed": "Couldn't let them back in. Try again."
     }
   },
+  "MeetingSession": {
+    "float": {
+      "region": "Meeting in progress",
+      "return": "Return to meeting",
+      "leave": "Leave"
+    },
+    "busy": {
+      "title": "You're in {title}",
+      "body": "You can only be in one meeting at a time.",
+      "back": "Back to {title}",
+      "takeOver": "Leave it and join this one"
+    },
+    "ended": {
+      "left": "You left {title}",
+      "ended": "{title} has ended",
+      "removed": "The host removed you from {title}",
+      "elsewhere": "You joined {title} from another device or tab",
+      "lost": "Connection to {title} was lost",
+      "rejoin": "Rejoin"
+    },
+    "rejoin": {
+      "title": "You were in {title}",
+      "rejoin": "Rejoin",
+      "dismiss": "Dismiss"
+    }
+  },
   "PushNotifications": {
     "title": "Notifications",
     "description": "Get notified on this device when a customer writes, a meeting starts or a task comes your way, even with the app closed.",

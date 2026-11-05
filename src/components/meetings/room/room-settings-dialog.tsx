@@ -2,7 +2,7 @@
 
 import { Camera, Mic, Volume2, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -29,36 +29,9 @@ import {
   deviceSelectValue,
   meterBars,
 } from '@/lib/meetings/room-ui/lobby';
-import {
-  JOIN_LEAVE_SOUNDS_KEY,
-  parseSoundPref,
-} from '@/lib/meetings/room-ui/panels';
 import { cn } from '@/lib/utils';
 
 import { canPlayTones, playTones, TEST_TONE } from './room-sounds';
-
-function readSoundPref(): boolean {
-  try {
-    return parseSoundPref(localStorage.getItem(JOIN_LEAVE_SOUNDS_KEY));
-  } catch {
-    return false;
-  }
-}
-
-/** The join/leave sound switch, kept in localStorage; off by default. */
-export function useJoinLeaveSounds(): [boolean, (on: boolean) => void] {
-  // Only the live room mounts this, never the server render.
-  const [on, setOn] = useState(readSoundPref);
-  const set = useCallback((next: boolean) => {
-    setOn(next);
-    try {
-      localStorage.setItem(JOIN_LEAVE_SOUNDS_KEY, next ? '1' : '0');
-    } catch {
-      // Private mode or full storage: the choice lasts this visit only.
-    }
-  }, []);
-  return [on, set];
-}
 
 const KINDS: {
   kind: MediaDeviceKind;

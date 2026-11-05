@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -22,16 +23,16 @@ import {
   dragPanelWidth,
   latestChatAt,
   nextPanel,
-  PANEL_DEFAULT_WIDTH,
   PANEL_KEY_STEP,
   PHONE_MEDIA_QUERY,
 } from '@/lib/meetings/room-ui/panels';
+import type { RoomPanel, RoomUi } from '@/lib/meetings/session/room-ui';
 
-import type { LiveRoomProps, RoomPanel } from './meeting-room';
+import type { LiveRoomProps } from './meeting-room';
 import { RoomChatPanel } from './room-chat-panel';
 import { RoomPeoplePanel } from './room-people-panel';
-import { RoomSettingsDialog, useJoinLeaveSounds } from './room-settings-dialog';
-import { useRoomNotices } from './use-room-notices';
+import { RoomSettingsDialog } from './room-settings-dialog';
+import { useJoinLeaveSounds } from './use-join-leave-sounds';
 
 const subscribePhone = (onChange: () => void) => {
   const mq = window.matchMedia(PHONE_MEDIA_QUERY);
@@ -58,40 +59,51 @@ export type RoomPanelSeams = Pick<
 >;
 
 /**
- * The live room's panels, settings dialog and notice toasts. It owns
- * which panel is open and hands the room its seams through `children`.
+ * The live room's panels and settings dialog. Which panel is open lives
+ * in `roomUi`, so it is still open on the way back from another page;
+ * this hands the room its seams through `children`.
  */
 export function RoomPanels({
   call,
+  roomUi,
   children,
 }: {
   call: MeetingCall;
+  roomUi: RoomUi;
   children: (seams: RoomPanelSeams) => ReactNode;
 }) {
   const t = useTranslations('MeetingRoom.panels');
   const { user } = useAuth();
   const phone = useIsPhone();
-  const [panel, setPanel] = useState<RoomPanel | null>(null);
-  const [width, setWidth] = useState(PANEL_DEFAULT_WIDTH);
+  const ui = useSyncExternalStore(
+    roomUi.subscribe,
+    roomUi.getSnapshot,
+    roomUi.getSnapshot
+  );
+  const { panel, panelWidth: width, chatSeenAt: seenAt } = ui;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sounds, setSounds] = useJoinLeaveSounds();
-  useRoomNotices(call, sounds, call.selectedDevices.audiooutput);
 
-  // Everything is read while the chat is open. State adjusted during
-  // render, not a ref (refs may not be read while rendering).
-  const [seenAt, setSeenAt] = useState<string | null>(null);
+  // Everything is read while the chat is open. An effect: the store has
+  // other subscribers, and they may not be told during this render.
   const latest = latestChatAt(call.chat);
-  if (panel === 'chat' && latest !== seenAt) setSeenAt(latest);
+  useEffect(() => {
+    if (panel === 'chat') roomUi.setChatSeenAt(latest);
+  }, [panel, latest, roomUi]);
   const chatUnread =
     panel === 'chat' ? 0 : unreadCount(call.chat, seenAt, user?.id ?? null);
 
-  const onOpenPanel = useCallback((p: RoomPanel) => setPanel(p), []);
+  const onOpenPanel = useCallback(
+    (p: RoomPanel) => roomUi.setPanel(p),
+    [roomUi]
+  );
   const onTogglePanel = useCallback(
-    (s: RoomPanel | 'closePanel') => setPanel((p) => nextPanel(p, s)),
-    []
+    (s: RoomPanel | 'closePanel') =>
+      roomUi.setPanel(nextPanel(roomUi.getSnapshot().panel, s)),
+    [roomUi]
   );
   const onOpenSettings = useCallback(() => setSettingsOpen(true), []);
-  const close = useCallback(() => setPanel(null), []);
+  const close = useCallback(() => roomUi.setPanel(null), [roomUi]);
 
   const title = panel === 'chat' ? t('chat.title') : t('people.title');
   const body =
@@ -125,7 +137,7 @@ export function RoomPanels({
         style={{ width }}
         aria-label={title}
       >
-        <ResizeHandle width={width} onWidth={setWidth} />
+        <ResizeHandle width={width} onWidth={roomUi.setPanelWidth} />
         <PanelHeader
           title={<h2 className="text-base font-medium">{title}</h2>}
           onClose={close}

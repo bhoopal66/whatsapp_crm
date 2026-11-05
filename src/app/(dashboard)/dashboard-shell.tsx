@@ -10,6 +10,8 @@ import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isChatPath } from "@/lib/chat/view";
+import { isMeetingRoomPath } from "@/lib/meetings/session/paths";
+import { MeetingSessionProvider } from "@/components/meetings/session/meeting-session-provider";
 import { CallProvider } from "@/components/pbx/call-provider";
 import { IncomingCallCard } from "@/components/pbx/incoming-call-card";
 import { InCallPanel } from "@/components/pbx/in-call-panel";
@@ -21,6 +23,11 @@ import { BackNavTracker } from "@/components/layout/back-nav-tracker";
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
+
+/** Team chat and the meeting room scroll their own panes. */
+function isFullBleedPath(pathname: string): boolean {
+  return isChatPath(pathname) || isMeetingRoomPath(pathname);
+}
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
   const { user, loading, profileLoading, accountRole } = useAuth();
@@ -67,8 +74,11 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (guestRedirect) return null;
 
   return (
-    // The call screens (module 015): one incoming-call card and one
-    // in-call panel for the whole app, over whatever page is open.
+    // The video call: inside the gate so sign-out ends it, above the
+    // pages so moving between them does not.
+    <MeetingSessionProvider>
+    {/* The call screens (module 015): one incoming-call card and one
+        in-call panel for the whole app, over whatever page is open. */}
     <CallProvider>
       {/* The bell: one list, count and realtime subscription for the
           top bar's dropdown and the /notifications page. */}
@@ -81,10 +91,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        {/* Team chat is full-bleed: its panes scroll on their own. */}
         <main
           className={
-            isChatPath(pathname)
+            isFullBleedPath(pathname)
               ? "flex min-h-0 flex-1 flex-col overflow-hidden"
               : "flex-1 overflow-y-auto p-4 sm:p-6"
           }
@@ -105,6 +114,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       </div>
       </NotificationsProvider>
     </CallProvider>
+    </MeetingSessionProvider>
   );
 }
 

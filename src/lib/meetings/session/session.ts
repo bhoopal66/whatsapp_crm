@@ -34,8 +34,7 @@ export interface HeldMeeting {
 }
 
 export type OpenResult<E> =
-  | { kind: 'ready'; engine: E }
-  | { kind: 'busy'; held: HeldMeeting };
+  { kind: 'ready'; engine: E } | { kind: 'busy'; held: HeldMeeting };
 
 /** How a call off the room page finished. */
 export interface SessionEnded extends HeldMeeting {
@@ -219,11 +218,7 @@ function heldMeeting(engine: SessionEngine): HeldMeeting {
 }
 
 export type EndedNoticeKey =
-  | 'left'
-  | 'ended'
-  | 'removed'
-  | 'elsewhere'
-  | 'lost';
+  'left' | 'ended' | 'removed' | 'elsewhere' | 'lost';
 
 /** The toast for a call that finished off the room page. */
 export function endedNotice(ended: Pick<SessionEnded, 'phase' | 'error'>): {

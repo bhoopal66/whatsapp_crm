@@ -102,3 +102,13 @@ describe('DashboardShell guest gating', () => {
     expect(render(null, '/inbox', true)).toContain('PAGE');
   });
 });
+
+describe('DashboardShell main', () => {
+  it('is full-bleed in the meeting room and team chat only', () => {
+    const fullBleed = 'flex min-h-0 flex-1 flex-col overflow-hidden';
+    expect(render('agent', '/meetings/m1/room')).toContain(fullBleed);
+    expect(render('agent', '/chat')).toContain(fullBleed);
+    expect(render('agent', '/meetings/m1')).toContain('overflow-y-auto');
+    expect(render('agent', '/meetings')).not.toContain(fullBleed);
+  });
+});

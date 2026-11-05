@@ -44,9 +44,8 @@
 // (notices.ts). Every decision is a pure function under
 // lib/meetings/room, tested there; this file only wires them.
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 
-import { useAuth } from '@/hooks/use-auth';
 import type { AccountRole } from '@/lib/auth/roles';
 import {
   addReaction,
@@ -214,7 +213,7 @@ interface ApiAnswer {
   body: unknown;
 }
 
-class MeetingCallEngine {
+export class MeetingCallEngine {
   private listeners = new Set<() => void>();
   private snap: CallSnapshot;
   private queue = createSerialQueue();
@@ -294,7 +293,7 @@ class MeetingCallEngine {
     return createClient();
   }
 
-  constructor(private readonly meetingId: string) {
+  constructor(readonly meetingId: string) {
     this.snap = {
       ...V2_SNAPSHOT_DEFAULTS,
       phase: 'lobby',
@@ -321,6 +320,27 @@ class MeetingCallEngine {
   };
 
   getSnapshot = () => this.snap;
+
+  /** A snapshot with the actions: the shape the screens work from. */
+  toCall(snap: CallSnapshot): MeetingCall {
+    return {
+      ...snap,
+      join: this.join,
+      returnToLobby: this.returnToLobby,
+      leave: this.leave,
+      end: this.end,
+      toggleMic: this.toggleMic,
+      toggleCamera: this.toggleCamera,
+      toggleScreen: this.toggleScreen,
+      selectDevice: this.selectDevice,
+      toggleHand: this.toggleHand,
+      sendChat: this.sendChat,
+      sendReaction: this.sendReaction,
+      moderate: this.moderate,
+      setTileSizes: this.setTileSizes,
+      dismissNotices: this.dismissNotices,
+    };
+  }
 
   private emit(patch: Partial<CallSnapshot> = {}) {
     const remote: CallSnapshot['remote'] = {};
@@ -1745,47 +1765,14 @@ export interface MeetingCall extends CallSnapshot, CallActionsV2 {
   toggleScreen: () => Promise<void>;
 }
 
-/** The call for one meeting, owned by the room screen (lobby and room alike). */
-export function useMeetingCall(meetingId: string): MeetingCall {
-  const [engine] = useState(() => new MeetingCallEngine(meetingId));
-  const { user, accountRole } = useAuth();
-  const userId = user?.id ?? null;
-  useEffect(() => {
-    engine.setViewer(userId, accountRole);
-  }, [engine, userId, accountRole]);
+/** A held engine's call. The session decides how long the engine lives. */
+export function useCallOf(engine: MeetingCallEngine): MeetingCall {
   const snap = useSyncExternalStore(
     engine.subscribe,
     engine.getSnapshot,
     engine.getSnapshot
   );
-
-  useEffect(() => {
-    engine.attach();
-    const onHide = () => engine.leaveQuietly();
-    window.addEventListener('pagehide', onHide);
-    return () => {
-      window.removeEventListener('pagehide', onHide);
-      engine.detach();
-    };
-  }, [engine]);
-
-  return {
-    ...snap,
-    join: engine.join,
-    returnToLobby: engine.returnToLobby,
-    leave: engine.leave,
-    end: engine.end,
-    toggleMic: engine.toggleMic,
-    toggleCamera: engine.toggleCamera,
-    toggleScreen: engine.toggleScreen,
-    selectDevice: engine.selectDevice,
-    toggleHand: engine.toggleHand,
-    sendChat: engine.sendChat,
-    sendReaction: engine.sendReaction,
-    moderate: engine.moderate,
-    setTileSizes: engine.setTileSizes,
-    dismissNotices: engine.dismissNotices,
-  };
+  return useMemo(() => engine.toCall(snap), [engine, snap]);
 }
 
 function readDevicePrefs(): DevicePrefs {
