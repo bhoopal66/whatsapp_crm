@@ -147,10 +147,12 @@ import {
   type TracksResult,
 } from '@/lib/meetings/room/sfu';
 import {
+  lateRecordingNotices,
   meetingFlagNotices,
   recordingFailure,
   recordingFlagOf,
   stepRecordingView,
+  type RecordingFlag,
   type RecordingMemo,
 } from '@/lib/meetings/room/recording';
 import { planSubscriptions } from '@/lib/meetings/room/subscriptions';
@@ -339,6 +341,8 @@ export class MeetingCallEngine {
    * rather than restarting each time our own network drops.
    */
   private recordingMemo: RecordingMemo | null = null;
+  /** The last recording we raised a notice for; kept across a rejoin. */
+  private recordingAnnounced: RecordingFlag | null = null;
   /** Bumped per newer view of the row, so an older read cannot undo it. */
   private meetingWrites = 0;
   private onDeviceChange = () => void this.refreshDevices();
@@ -958,6 +962,7 @@ export class MeetingCallEngine {
     this.emit({ phase: 'live' });
     void this.heartbeat();
     this.replan();
+    this.announceRunningRecording();
     return false;
   }
 
@@ -1203,6 +1208,10 @@ export class MeetingCallEngine {
     this.meetingWrites += 1;
     const before = this.snap.meeting;
     const meeting = { ...before, ...row } as MeetingSummary;
+    const drafts = meetingFlagNotices(before, meeting);
+    if (drafts.some((d) => d.kind === 'recording_started')) {
+      this.recordingAnnounced = recordingFlagOf(meeting);
+    }
     this.emit({
       meeting,
       locked: !!meeting.locked_at,
@@ -1210,8 +1219,19 @@ export class MeetingCallEngine {
         meeting,
         this.rowsLoaded ? this.snap.participants : null
       ),
-      notices: this.withNotices(meetingFlagNotices(before, meeting)),
+      notices: this.withNotices(drafts),
     });
+  }
+
+  /** Reaching the room with a recording under way is hearing of it. */
+  private announceRunningRecording() {
+    const late = lateRecordingNotices(
+      this.recordingAnnounced,
+      this.snap.recording,
+      this.viewer.userId
+    );
+    this.recordingAnnounced = late.announced;
+    this.notice(late.drafts);
   }
 
   /**

@@ -69,6 +69,27 @@ export function meetingFlagNotices(
 }
 
 /**
+ * The notice for a recording already running when we reached the room,
+ * which the first load leaves unannounced. Everyone hears about a
+ * recording once: `announced` survives a reconnect, and our own needs no
+ * telling.
+ */
+export function lateRecordingNotices(
+  announced: RecordingFlag | null,
+  recording: RecordingFlag | null,
+  selfId: string | null
+): { announced: RecordingFlag | null; drafts: NoticeDraft<RoomNotice>[] } {
+  if (!recording || (announced && sameRecording(announced, recording))) {
+    return { announced, drafts: [] };
+  }
+  if (recording.userId === selfId) return { announced: recording, drafts: [] };
+  return {
+    announced: recording,
+    drafts: [{ kind: 'recording_started', userId: recording.userId }],
+  };
+}
+
+/**
  * How long a recording stays on screen once its recorder is out of the
  * room. A reconnect comes back well inside it, so the indicator never
  * flickers off; a crashed browser cannot clear the flag, so without this

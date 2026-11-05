@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeetingCallEngine } from '@/hooks/use-meeting-call';
 
 import {
+  lateRecordingNotices,
   meetingFlagNotices,
   RECORDING_ABSENT_GRACE_MS as GRACE,
   recordingFailure,
@@ -165,6 +166,38 @@ describe('meetingFlagNotices', () => {
         recording_by: 'v',
       })
     ).toEqual([{ kind: 'recording_started', userId: 'v' }]);
+  });
+});
+
+describe('lateRecordingNotices', () => {
+  const draft = { kind: 'recording_started', userId: 'u' };
+
+  it('announces a recording nobody told us about', () => {
+    expect(lateRecordingNotices(null, flag, 'me')).toEqual({
+      announced: flag,
+      drafts: [draft],
+    });
+  });
+
+  it('stays quiet for one already announced, by instant', () => {
+    const same = { ...flag, startedAt: '2026-11-05T14:00:00.000+04:00' };
+    expect(lateRecordingNotices(flag, same, 'me').drafts).toEqual([]);
+  });
+
+  it('announces a newer recording after an older one', () => {
+    const next = { userId: 'u', startedAt: '2026-11-05T11:00:00.000Z' };
+    expect(lateRecordingNotices(flag, next, 'me').drafts).toEqual([draft]);
+  });
+
+  it('stays quiet for our own, and with nothing recording', () => {
+    expect(lateRecordingNotices(null, flag, 'u')).toEqual({
+      announced: flag,
+      drafts: [],
+    });
+    expect(lateRecordingNotices(flag, null, 'me')).toEqual({
+      announced: flag,
+      drafts: [],
+    });
   });
 });
 

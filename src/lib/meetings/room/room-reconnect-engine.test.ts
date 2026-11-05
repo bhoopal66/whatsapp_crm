@@ -39,6 +39,8 @@ interface Inner {
   heartbeat: () => Promise<void>;
   replan: () => void;
   reconnect: () => Promise<void>;
+  applyMeeting: (row: Record<string, unknown>) => void;
+  viewer: { userId: string | null; role: null };
   session: number;
 }
 
@@ -137,6 +139,58 @@ describe('a rejoin the network refuses', () => {
       error: 'join_failed',
     });
     expect(joinCalls(inner)).toBe(1);
+    engine.detach();
+  });
+});
+
+describe('a recording already running when we arrive', () => {
+  const FLAG = {
+    id: 'm',
+    status: 'scheduled',
+    recording_by: 'someone',
+    recording_started_at: '2026-11-05T10:00:00.000Z',
+  };
+  const started = (e: MeetingCallEngine) =>
+    e.getSnapshot().notices.filter((n) => n.kind === 'recording_started');
+
+  function arriving() {
+    const s = setup([JOINED, JOINED]);
+    s.inner.pc = null;
+    s.inner.participantId = null;
+    s.inner.applyMeeting(FLAG);
+    return s;
+  }
+
+  it('is announced once on going live, not again on a rejoin', async () => {
+    const { engine, inner } = arriving();
+    expect(started(engine)).toHaveLength(0);
+    await engine.join();
+    expect(engine.getSnapshot().phase).toBe('live');
+    expect(started(engine)).toHaveLength(1);
+    void inner.reconnect();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(engine.getSnapshot().phase).toBe('live');
+    expect(started(engine)).toHaveLength(1);
+    engine.detach();
+  });
+
+  it('is not announced twice when the row already announced it', async () => {
+    const { engine, inner } = setup([JOINED]);
+    inner.pc = null;
+    inner.participantId = null;
+    inner.applyMeeting({ ...FLAG, recording_started_at: null });
+    inner.applyMeeting(FLAG);
+    expect(started(engine)).toHaveLength(1);
+    await engine.join();
+    expect(started(engine)).toHaveLength(1);
+    engine.detach();
+  });
+
+  it('is not announced to the person recording', async () => {
+    const { engine, inner } = arriving();
+    inner.viewer = { userId: 'someone', role: null };
+    await engine.join();
+    expect(started(engine)).toHaveLength(0);
     engine.detach();
   });
 });
