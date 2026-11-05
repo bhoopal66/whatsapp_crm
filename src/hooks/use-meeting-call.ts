@@ -879,7 +879,16 @@ export class MeetingCallEngine {
   }
 
   join = async () => {
-    if (this.snap.phase === 'joining' || this.isLive()) return;
+    await this.enter(false);
+  };
+
+  /**
+   * True when a rejoin should be tried again: the network refused it, and
+   * nothing was emitted. An `error` phase here would read as the call
+   * ending, to the session and the recorder, with tries still left.
+   */
+  private async enter(rejoin: boolean): Promise<boolean> {
+    if (this.snap.phase === 'joining' || this.isLive()) return false;
     this.emit({
       phase: this.attempts > 0 ? 'reconnecting' : 'joining',
       error: null,
@@ -892,14 +901,14 @@ export class MeetingCallEngine {
       // nothing else knows the seat, so leave it or we show as present
       // for 60 s (or, after Leave, go live again).
       if (join) this.leaveSeat(join.participantId);
-      return;
+      return false;
     }
     if (!join) {
-      this.emit({
-        phase: 'error',
-        error: classifyRoomFailure(res.status, res.body),
-      });
-      return;
+      const error = classifyRoomFailure(res.status, res.body);
+      // A refusal with a reason (ended, forbidden, not configured) stands.
+      if (rejoin && error === 'join_failed') return true;
+      this.emit({ phase: 'error', error });
+      return false;
     }
     this.queue = createSerialQueue();
     void this.loadChat();
@@ -920,16 +929,16 @@ export class MeetingCallEngine {
       this.attached && session === this.session && this.pc === pc;
 
     await this.subscribeRows();
-    if (!current()) return;
+    if (!current()) return false;
     await this.awaitEffect(EFFECT_WAIT_MS);
-    if (!current()) return;
+    if (!current()) return false;
     const local: { track: MediaStreamTrack; kind: TrackKind }[] = [];
     const camera = this.sendable();
     if (this.audio) local.push({ track: this.audio, kind: 'audio' });
     if (camera) local.push({ track: camera, kind: 'video' });
     if (this.screen) local.push({ track: this.screen, kind: 'screen' });
     if (local.length) await this.publish(local);
-    if (!current()) return;
+    if (!current()) return false;
 
     this.timers.push(
       setInterval(() => void this.heartbeat(), HEARTBEAT_INTERVAL_MS),
@@ -940,7 +949,8 @@ export class MeetingCallEngine {
     this.emit({ phase: 'live' });
     void this.heartbeat();
     this.replan();
-  };
+    return false;
+  }
 
   leave = async () => {
     this.session += 1;
@@ -1041,20 +1051,16 @@ export class MeetingCallEngine {
     this.emit({ phase: 'reconnecting' });
     await new Promise((r) => setTimeout(r, 1000 * 2 ** (this.attempts - 1)));
     if (!this.attached || this.snap.phase !== 'reconnecting') return;
-    await this.join();
-    // A rejoin the network refused is another attempt; a refusal with a
-    // reason (ended, not configured, forbidden) stands. (Re-read: join
-    // changed the snapshot, which TS cannot see through the await.)
-    const after: CallSnapshot = this.getSnapshot();
-    if (after.phase === 'error' && after.error === 'join_failed') {
-      void this.reconnect();
-    }
+    // A rejoin the network refused is another attempt, and stays
+    // `reconnecting` until the tries run out.
+    if (await this.enter(true)) void this.reconnect();
   }
 
   private connectionFailed() {
     this.session += 1;
     this.leaveQuietly();
     this.teardown();
+    this.stopMedia();
     this.emit({ phase: 'error', error: 'connection_failed' });
   }
 
