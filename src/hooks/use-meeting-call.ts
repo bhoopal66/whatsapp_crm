@@ -1211,16 +1211,21 @@ export class MeetingCallEngine {
    * it read on arrival: someone held out by a lock would stay out after
    * it lifted, and a recording started meanwhile would go unmentioned. A
    * failed read says nothing about the meeting, so it changes nothing;
-   * no row is an answer, and `loadMeeting` says what it means.
+   * no row is an answer, and `loadMeeting` says what it means. Quiet:
+   * notices wait for the room, so a lock that came and went or a
+   * recording already over would all land on joining, tone included. A
+   * recording still running is told then, by `announceRunningRecording`.
    */
   private async refreshLobby() {
     const waiting = () =>
-      this.snap.phase === 'lobby' && this.snap.meetingState === 'ready';
+      this.attached &&
+      this.snap.phase === 'lobby' &&
+      this.snap.meetingState === 'ready';
     if (!waiting()) return;
     const writes = this.meetingWrites;
     const { data, error } = await this.readMeeting();
     if (error || !waiting() || writes !== this.meetingWrites) return;
-    if (data) this.onMeetingRow(data as MeetingSummary);
+    if (data) this.onMeetingRow(data as MeetingSummary, true);
     else await this.loadMeeting();
   }
 
@@ -1233,9 +1238,9 @@ export class MeetingCallEngine {
     }
   }
 
-  private onMeetingRow(row: Partial<MeetingSummary>) {
+  private onMeetingRow(row: Partial<MeetingSummary>, quiet = false) {
     if (row.status && row.status !== 'scheduled') return this.ended();
-    this.applyMeeting(row);
+    this.applyMeeting(row, quiet);
   }
 
   /**
@@ -1243,11 +1248,11 @@ export class MeetingCallEngine {
    * answer to an action of ours. The last two overlap, and
    * `meetingFlagNotices` announces whichever lands first.
    */
-  private applyMeeting(row: Partial<MeetingSummary>) {
+  private applyMeeting(row: Partial<MeetingSummary>, quiet = false) {
     this.meetingWrites += 1;
     const before = this.snap.meeting;
     const meeting = { ...before, ...row } as MeetingSummary;
-    const drafts = meetingFlagNotices(before, meeting);
+    const drafts = quiet ? [] : meetingFlagNotices(before, meeting);
     if (drafts.some((d) => d.kind === 'recording_started')) {
       this.recordingAnnounced = recordingFlagOf(meeting);
     }

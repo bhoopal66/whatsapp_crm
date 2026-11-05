@@ -43,7 +43,14 @@ const ROW = {
   locked_at: '2026-11-05T10:00:00.000Z',
 };
 
+const RECORDING = {
+  recording_started_at: '2026-11-05T10:01:00.000Z',
+  recording_by: 'h',
+};
+
 interface Inner {
+  attached: boolean;
+  announceRunningRecording: () => void;
   loadMeeting: () => Promise<void>;
   refreshLobby: () => Promise<void>;
   emit: (patch: Record<string, unknown>) => void;
@@ -53,6 +60,7 @@ interface Inner {
 async function waiting() {
   const e = new MeetingCallEngine('m');
   const inner = e as unknown as Inner;
+  inner.attached = true;
   await inner.loadMeeting();
   expect(e.getSnapshot().meetingState).toBe('ready');
   db.count = 0;
@@ -78,18 +86,39 @@ describe('the lobby keeps up with the meeting', () => {
   it('shows a recording that started while they wait', async () => {
     const { e, inner } = await waiting();
     expect(e.getSnapshot().recording).toBeNull();
-    db.reads = [
-      {
-        data: {
-          ...ROW,
-          recording_started_at: '2026-11-05T10:01:00.000Z',
-          recording_by: 'h',
-        },
-        error: null,
-      },
-    ];
+    db.reads = [{ data: { ...ROW, ...RECORDING }, error: null }];
     await inner.refreshLobby();
     expect(e.getSnapshot().recording?.userId).toBe('h');
+  });
+
+  it('saves nothing up to play on joining', async () => {
+    const { e, inner } = await waiting();
+    db.reads = [
+      { data: { ...ROW, locked_at: null, ...RECORDING }, error: null },
+      { data: { ...ROW, locked_at: null }, error: null },
+    ];
+    await inner.refreshLobby();
+    await inner.refreshLobby();
+    expect(e.getSnapshot().locked).toBe(false);
+    expect(e.getSnapshot().notices).toEqual([]);
+  });
+
+  it('tells them of a running recording once, on reaching the room', async () => {
+    const { e, inner } = await waiting();
+    db.reads = [{ data: { ...ROW, ...RECORDING }, error: null }];
+    await inner.refreshLobby();
+    const kinds = () => e.getSnapshot().notices.map((n) => n.kind);
+    expect(kinds()).toEqual([]);
+    inner.announceRunningRecording();
+    inner.announceRunningRecording();
+    expect(kinds()).toEqual(['recording_started']);
+  });
+
+  it('reads nothing once the engine let go', async () => {
+    const { inner } = await waiting();
+    inner.attached = false;
+    await inner.refreshLobby();
+    expect(db.count).toBe(0);
   });
 
   it('ends the lobby of a meeting that ended', async () => {

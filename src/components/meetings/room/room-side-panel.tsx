@@ -94,6 +94,11 @@ export function RoomPanels({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sounds, setSounds] = useJoinLeaveSounds();
 
+  // A request is for this visit: the room can go with the dialog open, and
+  // the store outlives it. Here, not in the panel: this stays mounted from
+  // before any request, so React's dev remount cannot clear a fresh one.
+  useEffect(() => () => roomUi.setInviting(false), [roomUi]);
+
   // Everything is read while the chat is open. An effect: the store has
   // other subscribers, and they may not be told during this render.
   const latest = latestChatAt(call.chat);
