@@ -8,6 +8,8 @@ export interface AvatarPerson {
   userId: string;
   name: string;
   avatarUrl: string | null;
+  /** Who the initials are of, when `name` is a label like "You". */
+  initialsName?: string;
 }
 
 /** Up to two initials: "Sara Ahmed" → "SA". */
@@ -38,7 +40,7 @@ export function PersonAvatar({
       {/* The person's team chat tint, so a colleague looks the same in
           both places. */}
       <AvatarFallback className={avatarTint(person.userId)}>
-        {initials(person.name)}
+        {initials(person.initialsName ?? person.name)}
       </AvatarFallback>
     </Avatar>
   );

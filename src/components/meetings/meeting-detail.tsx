@@ -24,7 +24,6 @@ import { buildMeetingIcs, icsFileName } from '@/lib/meetings/ics';
 import {
   canJoinMeeting,
   canManageMeeting,
-  durationParts,
   formatMeetingWhen,
   linkifyText,
   meetingDisplayStatus,
@@ -235,6 +234,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
     userId,
     name: nameFor(userId),
     avatarUrl: avatarOf(userId),
+    initialsName: nameOf(userId) ?? undefined,
   });
   const clock = new Intl.DateTimeFormat(locale, {
     timeZone,

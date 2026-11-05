@@ -172,8 +172,8 @@ export function saveAnswer(status: number, json: unknown): NotesEvent {
     unknown
   >;
   if (status >= 200 && status < 300 && typeof r.version === 'number') {
-    const { body: _body, ...doc } = parseNotes(r);
-    return { type: 'saved', doc };
+    const { version, updatedBy, updatedAt } = parseNotes(r);
+    return { type: 'saved', doc: { version, updatedBy, updatedAt } };
   }
   if (status === 409 && r.error === 'stale') {
     return { type: 'stale', doc: parseNotes(r.notes) };
