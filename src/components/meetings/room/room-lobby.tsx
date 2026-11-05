@@ -14,6 +14,7 @@ import {
   useMeetingTimeZone,
   useWorkspaceMembers,
 } from '../use-workspace-members';
+import { BackgroundButton } from './room-background-dialog';
 import { DeviceNotices } from './device-notices';
 import { LobbyDevicePickers, SpeakerTestButton } from './lobby-device-pickers';
 import { LobbyPeople } from './lobby-people';
@@ -69,7 +70,10 @@ export function RoomLobby({
               <LobbyDevicePickers call={call} />
               <div className="flex flex-wrap items-center gap-2">
                 <SpeakerTestButton call={call} />
-                {/* BackgroundButton goes here (parallel job). */}
+                <BackgroundButton
+                  call={call}
+                  className="border-input h-8 border px-3 text-sm"
+                />
               </div>
             </div>
 

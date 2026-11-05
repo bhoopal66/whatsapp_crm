@@ -31,6 +31,7 @@ import {
 } from '@/lib/meetings/room-ui/lobby';
 import { cn } from '@/lib/utils';
 
+import { BackgroundButton } from './room-background-dialog';
 import { canPlayTones, playTones, TEST_TONE } from './room-sounds';
 import { VideoTrack } from './video-track';
 
@@ -199,7 +200,10 @@ export function RoomSettingsDialog({
                 </p>
               )}
             </div>
-            {/* BACKGROUND EFFECTS: the background picker goes here. */}
+            <BackgroundButton
+              call={call}
+              className="bg-card-2 h-9 self-start px-3 text-sm"
+            />
           </Section>
           <Section title={t('general')}>
             <div className="flex items-center justify-between gap-3">
