@@ -5,6 +5,8 @@ import {
   deviceIdFromValue,
   deviceSelectItems,
   deviceSelectValue,
+  lobbyDeviceLine,
+  lobbyJoinState,
   meterBars,
   presentOthers,
 } from './lobby';
@@ -73,6 +75,68 @@ describe('presentOthers', () => {
         count: null,
       });
     }
+  });
+});
+
+describe('lobbyDeviceLine', () => {
+  it('says exactly what will be on', () => {
+    expect(lobbyDeviceLine(true, true)).toBe('joinMicCamera');
+    expect(lobbyDeviceLine(true, false)).toBe('joinMicOnly');
+    expect(lobbyDeviceLine(false, true)).toBe('joinCameraOnly');
+    expect(lobbyDeviceLine(false, false)).toBe('joinMuted');
+  });
+});
+
+describe('lobbyJoinState', () => {
+  const open = {
+    phase: 'lobby',
+    error: null,
+    locked: false,
+    canModerate: false,
+    recording: null,
+  };
+
+  it('lets anyone into an open meeting', () => {
+    expect(lobbyJoinState(open)).toEqual({
+      canJoin: true,
+      blockedBy: null,
+      recordingNotice: false,
+    });
+  });
+
+  it('refuses a locked meeting to non-managers only', () => {
+    const locked = { ...open, locked: true };
+    expect(lobbyJoinState(locked)).toMatchObject({
+      canJoin: false,
+      blockedBy: 'locked',
+    });
+    expect(lobbyJoinState({ ...locked, canModerate: true })).toMatchObject({
+      canJoin: true,
+      blockedBy: null,
+    });
+  });
+
+  it('shows the recording notice whatever else is true', () => {
+    const recording = { userId: 'u1' };
+    for (const state of [
+      { ...open, recording },
+      { ...open, recording, locked: true },
+      { ...open, recording, phase: 'joining' },
+      { ...open, recording, error: 'removed_from_meeting' },
+    ]) {
+      expect(lobbyJoinState(state).recordingNotice).toBe(true);
+    }
+  });
+
+  it('holds Join while joining, and for a removed person', () => {
+    expect(lobbyJoinState({ ...open, phase: 'joining' }).canJoin).toBe(false);
+    expect(
+      lobbyJoinState({
+        ...open,
+        canModerate: true,
+        error: 'removed_from_meeting',
+      })
+    ).toMatchObject({ canJoin: false, blockedBy: 'removed' });
   });
 });
 

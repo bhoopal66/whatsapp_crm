@@ -55,7 +55,7 @@ function usePresentSeats(meetingId: string): unknown {
 export function LobbyPeople({ meetingId }: { meetingId: string }) {
   const t = useTranslations('MeetingRoom.lobbyV2');
   const { user } = useAuth();
-  const { nameOf } = useWorkspaceMembers();
+  const { nameOf, avatarOf } = useWorkspaceMembers();
   const body = usePresentSeats(meetingId);
   const { people, count } = useMemo(
     () => presentOthers(body, user?.id ?? null, nameOf),
@@ -72,7 +72,7 @@ export function LobbyPeople({ meetingId }: { meetingId: string }) {
   const extraFaces = people.length - faces.length;
 
   return (
-    <section className="space-y-2" aria-live="polite">
+    <section className="bg-card-2 space-y-2 rounded-xl p-3" aria-live="polite">
       <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
         {t('whoIsHere')}
       </h2>
@@ -84,23 +84,33 @@ export function LobbyPeople({ meetingId }: { meetingId: string }) {
             <ul className="flex -space-x-2">
               {faces.map((p) => {
                 const name = p.name ?? t('someone');
+                const photo = avatarOf(p.userId);
                 return (
                   <li
                     key={p.userId}
                     title={name}
                     className={cn(
-                      'ring-background flex size-9 items-center justify-center rounded-full text-xs font-medium text-white ring-2',
+                      'ring-card-2 flex size-9 items-center justify-center overflow-hidden rounded-full text-xs font-medium text-white ring-2',
                       avatarColor(p.userId)
                     )}
                   >
-                    <span aria-hidden>{initials(p.name ?? '') || '?'}</span>
+                    {photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={photo}
+                        alt=""
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <span aria-hidden>{initials(p.name ?? '') || '?'}</span>
+                    )}
                     <span className="sr-only">{name}</span>
                   </li>
                 );
               })}
               {extraFaces > 0 && (
                 <li
-                  className="bg-muted text-muted-foreground ring-background flex size-9 items-center justify-center rounded-full text-xs font-medium ring-2"
+                  className="bg-muted text-muted-foreground ring-card-2 flex size-9 items-center justify-center rounded-full text-xs font-medium ring-2"
                   aria-hidden
                 >
                   +{extraFaces}

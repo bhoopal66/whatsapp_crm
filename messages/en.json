@@ -6405,12 +6405,16 @@
       "title": "This meeting doesn't exist, or you aren't invited to it."
     },
     "ended": {
-      "title": "This meeting has ended."
+      "title": "This meeting has ended",
+      "viewSummary": "View summary"
     },
     "left": {
-      "title": "You left the meeting.",
-      "elsewhere": "You joined this meeting from another tab or window, so this one was disconnected.",
-      "rejoin": "Rejoin"
+      "title": "You left the meeting",
+      "elsewhere": "You joined from another tab or device",
+      "rejoin": "Rejoin",
+      "elsewhereBody": "This window was disconnected. You can carry on here instead.",
+      "rejoinHere": "Rejoin here",
+      "backToMeetings": "Back to meetings"
     },
     "error": {
       "join_failed": "Couldn't join the meeting. Check your connection and try again.",
@@ -6431,7 +6435,6 @@
     },
     "lobbyV2": {
       "ready": "Ready to join?",
-      "joiningAs": "Joining as {name}",
       "join": "Join now",
       "joining": "Joining…",
       "cameraOff": "Camera is off",
@@ -6450,10 +6453,21 @@
       "unnamedSpeaker": "Speaker {n}",
       "whoIsHere": "Who's already in the call",
       "peopleInCall": "{count, plural, one {# person is in the call} other {# people are in the call}}",
-      "nobodyYet": "No one else is here yet",
+      "nobodyYet": "You'll be the first one here",
       "someone": "Someone",
       "morePeople": "and {count} more",
-      "removed": "The host removed you from this meeting. Ask them to let you back in."
+      "removed": "The host removed you from this meeting. Ask them to let you back in.",
+      "organisedBy": "Organised by {name}",
+      "organisedByYou": "You're the organiser",
+      "joinMicCamera": "You'll join with your mic and camera on",
+      "joinMicOnly": "You'll join with your mic on and camera off",
+      "joinCameraOnly": "You'll join with your camera on and mic off",
+      "joinMuted": "You'll join with your mic and camera off",
+      "recordingNotice": "This meeting is being recorded. By joining, you'll be recorded.",
+      "locked": "The host has locked this meeting",
+      "testSpeakers": "Test speakers",
+      "testingSpeakers": "Playing…",
+      "testSpeakersFailed": "Couldn't play the test sound"
     },
     "controls": {
       "mute": "Mute",
@@ -6511,7 +6525,8 @@
       "cancel": "Cancel"
     },
     "removed": {
-      "title": "The host removed you from this meeting."
+      "title": "You're no longer in this meeting",
+      "body": "Ask the host if you need to come back."
     },
     "quality": {
       "good": "Good connection",
@@ -6529,7 +6544,9 @@
       "linkCopied": "Link copied",
       "linkCopyFailed": "Couldn't copy the link",
       "sharingBanner": "You are sharing your screen",
-      "stopSharing": "Stop sharing"
+      "stopSharing": "Stop sharing",
+      "aloneBodyInvite": "Only people you invite can join this meeting",
+      "invitePeople": "Invite people"
     },
     "topBar": {
       "copied": "Link copied",

@@ -2,7 +2,10 @@
 
 import { Camera, Mic, Volume2, type LucideIcon } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
+import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -17,6 +20,8 @@ import {
   deviceSelectItems,
   deviceSelectValue,
 } from '@/lib/meetings/room-ui/lobby';
+
+import { playTones, TEST_TONE } from './room-sounds';
 
 const KINDS: {
   kind: MediaDeviceKind;
@@ -82,5 +87,31 @@ export function LobbyDevicePickers({ call }: { call: MeetingCall }) {
         );
       })}
     </div>
+  );
+}
+
+/** Plays a short tone on the chosen speaker. */
+export function SpeakerTestButton({ call }: { call: MeetingCall }) {
+  const t = useTranslations('MeetingRoom.lobbyV2');
+  const [playing, setPlaying] = useState(false);
+  const test = async () => {
+    setPlaying(true);
+    const played = await playTones(TEST_TONE, {
+      sinkId: call.selectedDevices.audiooutput,
+    });
+    setPlaying(false);
+    if (!played) toast.error(t('testSpeakersFailed'));
+  };
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={playing}
+      onClick={() => void test()}
+    >
+      <Volume2 aria-hidden />
+      {playing ? t('testingSpeakers') : t('testSpeakers')}
+    </Button>
   );
 }

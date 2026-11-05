@@ -6405,12 +6405,16 @@
       "title": "존재하지 않는 회의이거나 초대받지 않은 회의입니다."
     },
     "ended": {
-      "title": "이 회의는 종료되었습니다."
+      "title": "이 회의는 종료되었습니다",
+      "viewSummary": "요약 보기"
     },
     "left": {
-      "title": "회의에서 나왔습니다.",
-      "elsewhere": "다른 탭이나 창에서 이 회의에 참여하여 이 창의 연결이 끊어졌습니다.",
-      "rejoin": "다시 참여"
+      "title": "회의에서 나왔습니다",
+      "elsewhere": "다른 탭이나 기기에서 참여했습니다",
+      "rejoin": "다시 참여",
+      "elsewhereBody": "이 창의 연결은 끊어졌습니다. 대신 여기에서 계속할 수 있습니다.",
+      "rejoinHere": "여기에서 다시 참여",
+      "backToMeetings": "회의 목록으로 돌아가기"
     },
     "error": {
       "join_failed": "회의에 참여하지 못했습니다. 연결을 확인한 후 다시 시도하세요.",
@@ -6431,7 +6435,6 @@
     },
     "lobbyV2": {
       "ready": "참여할 준비가 되셨나요?",
-      "joiningAs": "{name}(으)로 참여",
       "join": "지금 참여",
       "joining": "참여하는 중…",
       "cameraOff": "카메라가 꺼져 있습니다",
@@ -6450,10 +6453,21 @@
       "unnamedSpeaker": "스피커 {n}",
       "whoIsHere": "이미 통화 중인 사람",
       "peopleInCall": "{count, plural, other {#명이 통화 중입니다}}",
-      "nobodyYet": "아직 아무도 없습니다",
+      "nobodyYet": "가장 먼저 입장하게 됩니다",
       "someone": "알 수 없는 사용자",
       "morePeople": "외 {count}명",
-      "removed": "호스트가 회의에서 회원님을 내보냈습니다. 다시 들어갈 수 있도록 호스트에게 요청하세요."
+      "removed": "호스트가 회의에서 회원님을 내보냈습니다. 다시 들어갈 수 있도록 호스트에게 요청하세요.",
+      "organisedBy": "주최자: {name}",
+      "organisedByYou": "내가 주최한 회의입니다",
+      "joinMicCamera": "마이크와 카메라를 켠 상태로 참여합니다",
+      "joinMicOnly": "마이크는 켜고 카메라는 끈 상태로 참여합니다",
+      "joinCameraOnly": "카메라는 켜고 마이크는 끈 상태로 참여합니다",
+      "joinMuted": "마이크와 카메라를 끈 상태로 참여합니다",
+      "recordingNotice": "이 회의는 녹화되고 있습니다. 참여하면 회원님도 녹화됩니다.",
+      "locked": "호스트가 이 회의를 잠갔습니다",
+      "testSpeakers": "스피커 테스트",
+      "testingSpeakers": "재생하는 중…",
+      "testSpeakersFailed": "테스트 소리를 재생하지 못했습니다"
     },
     "controls": {
       "mute": "음소거",
@@ -6511,7 +6525,8 @@
       "cancel": "취소"
     },
     "removed": {
-      "title": "호스트가 회의에서 회원님을 내보냈습니다."
+      "title": "이제 이 회의에 참여하고 있지 않습니다",
+      "body": "다시 참여해야 하면 호스트에게 문의하세요."
     },
     "quality": {
       "good": "연결 상태 좋음",
@@ -6529,7 +6544,9 @@
       "linkCopied": "링크를 복사했습니다",
       "linkCopyFailed": "링크를 복사하지 못했습니다",
       "sharingBanner": "화면을 공유하는 중입니다",
-      "stopSharing": "공유 중지"
+      "stopSharing": "공유 중지",
+      "aloneBodyInvite": "초대받은 사람만 이 회의에 참여할 수 있습니다",
+      "invitePeople": "사람 초대"
     },
     "topBar": {
       "copied": "링크를 복사했습니다",

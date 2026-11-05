@@ -1,6 +1,12 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Copy, MonitorUp } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  MonitorUp,
+  UserPlus,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -18,8 +24,20 @@ import { cn } from '@/lib/utils';
 
 const GLASS = 'bg-black/55 text-white ring-1 ring-white/10 backdrop-blur-md';
 
-/** Alone in the room: how to bring someone in. */
-function EmptyRoomCard({ meetingId }: { meetingId: string }) {
+/**
+ * Alone in the room: how to bring someone in. A link only lets a
+ * colleague in when the meeting is open to the workspace; otherwise they
+ * have to be invited, so that is what the card offers.
+ */
+function EmptyRoomCard({
+  meetingId,
+  openToWorkspace,
+  onInvite,
+}: {
+  meetingId: string;
+  openToWorkspace: boolean;
+  onInvite: () => void;
+}) {
   const t = useTranslations('MeetingRoom.stage');
   const link =
     typeof window === 'undefined'
@@ -41,22 +59,31 @@ function EmptyRoomCard({ meetingId }: { meetingId: string }) {
     >
       <div className={cn('w-full max-w-sm rounded-xl p-4', GLASS)}>
         <p className="text-sm font-medium">{t('aloneTitle')}</p>
-        <p className="mt-0.5 text-xs text-white/70">{t('aloneBody')}</p>
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pr-1 pl-3">
-          <span className="min-w-0 flex-1 truncate text-xs text-white/80">
-            {link}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="shrink-0 text-white hover:bg-white/15 hover:text-white"
-            onClick={copy}
-          >
-            <Copy />
-            {t('copyLink')}
+        <p className="mt-0.5 text-xs text-white/70">
+          {openToWorkspace ? t('aloneBody') : t('aloneBodyInvite')}
+        </p>
+        {openToWorkspace ? (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pr-1 pl-3">
+            <span className="min-w-0 flex-1 truncate text-xs text-white/80">
+              {link}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0 text-white hover:bg-white/15 hover:text-white"
+              onClick={copy}
+            >
+              <Copy />
+              {t('copyLink')}
+            </Button>
+          </div>
+        ) : (
+          <Button type="button" className="mt-3 w-full" onClick={onInvite}>
+            <UserPlus />
+            {t('invitePeople')}
           </Button>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -105,6 +132,8 @@ export function RoomStage({
   onPage,
   onStopShare,
   onTileSizes,
+  openToWorkspace,
+  onInvite,
 }: {
   arrangement: StageArrangement;
   participantIds: readonly ParticipantId[];
@@ -119,6 +148,9 @@ export function RoomStage({
   onPage: (page: number) => void;
   onStopShare: () => void;
   onTileSizes: (sizes: Record<ParticipantId, TileSize>) => void;
+  /** A copied link lets colleagues in; otherwise they need an invite. */
+  openToWorkspace: boolean;
+  onInvite: () => void;
 }) {
   const t = useTranslations('MeetingRoom.stage');
   const ref = useRef<HTMLDivElement>(null);
@@ -304,7 +336,11 @@ export function RoomStage({
       )}
       {size.width > 0 && selfSharing && <SharingBanner onStop={onStopShare} />}
       {size.width > 0 && participantIds.length <= 1 && !selfSharing && (
-        <EmptyRoomCard meetingId={meetingId} />
+        <EmptyRoomCard
+          meetingId={meetingId}
+          openToWorkspace={openToWorkspace}
+          onInvite={onInvite}
+        />
       )}
     </div>
   );

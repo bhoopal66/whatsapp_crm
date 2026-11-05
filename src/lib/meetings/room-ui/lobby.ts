@@ -60,6 +60,51 @@ export function presentOthers(
   return { people, count: people.length };
 }
 
+/** The `MeetingRoom.lobbyV2` key of the line saying how we will join. */
+export function lobbyDeviceLine(
+  micOn: boolean,
+  cameraOn: boolean
+): 'joinMicCamera' | 'joinMicOnly' | 'joinCameraOnly' | 'joinMuted' {
+  if (micOn) return cameraOn ? 'joinMicCamera' : 'joinMicOnly';
+  return cameraOn ? 'joinCameraOnly' : 'joinMuted';
+}
+
+/**
+ * What the lobby offers. A lock stops everyone but the people who can
+ * moderate, who may always get in; the server still decides, and answers
+ * `meeting_locked` to anyone this let through on a stale snapshot. The
+ * recording notice never yields to anything: it is consent, not a hint.
+ */
+export function lobbyJoinState({
+  phase,
+  error,
+  locked,
+  canModerate,
+  recording,
+}: {
+  phase: string;
+  error: string | null;
+  locked: boolean;
+  canModerate: boolean;
+  recording: unknown;
+}): {
+  canJoin: boolean;
+  blockedBy: 'removed' | 'locked' | null;
+  recordingNotice: boolean;
+} {
+  const blockedBy =
+    error === 'removed_from_meeting'
+      ? 'removed'
+      : locked && !canModerate
+        ? 'locked'
+        : null;
+  return {
+    canJoin: phase !== 'joining' && blockedBy === null,
+    blockedBy,
+    recordingNotice: !!recording,
+  };
+}
+
 /**
  * Lit bars for a mic level (0..1 RMS, as the engine reports it). Speech
  * sits around 0.05–0.3 RMS, so the scale is a square root that fills

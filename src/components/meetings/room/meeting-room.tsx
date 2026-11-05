@@ -1,6 +1,15 @@
 'use client';
 
-import Link from 'next/link';
+import {
+  CalendarCheck,
+  LogOut,
+  MonitorSmartphone,
+  SearchX,
+  TriangleAlert,
+  UserMinus,
+  Video,
+  VideoOff,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
@@ -13,7 +22,6 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
-import { Button, buttonVariants } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import {
   MeetingCallEngine,
@@ -45,6 +53,7 @@ import {
   useFullscreen,
   usePictureInPicture,
 } from './control-bar';
+import { RoomEndScreen, type EndAction } from './room-end-screen';
 import { RoomLobby } from './room-lobby';
 import { RoomPanels } from './room-side-panel';
 import { RoomStage } from './room-stage';
@@ -98,31 +107,25 @@ function BusyScreen({
   const t = useTranslations('MeetingSession.busy');
   const [leaving, setLeaving] = useState(false);
   return (
-    <RoomPage>
-      <div className="mx-auto flex max-w-md flex-col items-center gap-3 p-10 text-center">
-        <h1 className="text-lg font-semibold">
-          {t('title', { title: held.title })}
-        </h1>
-        <p className="text-muted-foreground text-sm">{t('body')}</p>
-        <Link
-          href={`/meetings/${held.meetingId}/room`}
-          className={buttonVariants({ variant: 'default' })}
-        >
-          {t('back', { title: held.title })}
-        </Link>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={leaving}
-          onClick={() => {
+    <RoomEndScreen
+      icon={Video}
+      title={t('title', { title: held.title })}
+      body={t('body')}
+      actions={[
+        {
+          label: t('back', { title: held.title }),
+          href: `/meetings/${held.meetingId}/room`,
+        },
+        {
+          label: t('takeOver'),
+          disabled: leaving,
+          onClick: () => {
             setLeaving(true);
             void onTakeOver();
-          }}
-        >
-          {t('takeOver')}
-        </Button>
-      </div>
-    </RoomPage>
+          },
+        },
+      ]}
+    />
   );
 }
 
@@ -140,21 +143,21 @@ function ClaimedRoom({
   const call = useCallOf(engine);
   const readMicOn = useCallback(() => engine.getSnapshot().micOn, [engine]);
   const back = `/meetings/${meetingId}`;
-  const rejoin = (
-    <Button
-      type="button"
-      className="mt-4"
-      onClick={() => void call.returnToLobby()}
-    >
-      {t('left.rejoin')}
-    </Button>
-  );
+  const backToMeeting: EndAction = { label: t('back'), href: back };
+  const toMeetings: EndAction = {
+    label: t('left.backToMeetings'),
+    href: '/meetings',
+  };
 
   if (call.error === 'not_configured') {
     return (
-      <EndScreen title={t('notConfigured.title')} back={back}>
-        {t('notConfigured.body')}
-      </EndScreen>
+      <RoomEndScreen
+        icon={VideoOff}
+        tone="warning"
+        title={t('notConfigured.title')}
+        body={t('notConfigured.body')}
+        actions={[backToMeeting]}
+      />
     );
   }
   if (call.meetingState === 'loading') {
@@ -167,42 +170,70 @@ function ClaimedRoom({
   // Before "missing": since 112 a removal hides the meeting too.
   // Back to the list: the meeting's own page is hidden from them too.
   if (call.phase === 'removed') {
-    return <EndScreen title={t('removed.title')} back="/meetings" />;
+    return (
+      <RoomEndScreen
+        icon={UserMinus}
+        title={t('removed.title')}
+        body={t('removed.body')}
+        actions={[toMeetings]}
+      />
+    );
   }
   if (call.meetingState === 'missing' || call.error === 'forbidden') {
-    return <EndScreen title={t('missing.title')} back="/meetings" />;
+    return (
+      <RoomEndScreen
+        icon={SearchX}
+        title={t('missing.title')}
+        actions={[toMeetings]}
+      />
+    );
   }
   if (
     call.phase === 'ended' ||
     call.error === 'meeting_closed' ||
     (call.phase === 'lobby' && call.meeting?.status !== 'scheduled')
   ) {
-    return <EndScreen title={t('ended.title')} back={back} />;
+    return (
+      <RoomEndScreen
+        icon={CalendarCheck}
+        title={t('ended.title')}
+        body={call.meeting?.title}
+        actions={[{ label: t('ended.viewSummary'), href: back }, toMeetings]}
+      />
+    );
   }
   if (call.phase === 'left') {
+    const elsewhere = call.error === 'seat_closed';
     return (
-      <EndScreen
-        title={
-          call.error === 'seat_closed' ? t('left.elsewhere') : t('left.title')
-        }
-        back={back}
-      >
-        {rejoin}
-      </EndScreen>
+      <RoomEndScreen
+        icon={elsewhere ? MonitorSmartphone : LogOut}
+        title={elsewhere ? t('left.elsewhere') : t('left.title')}
+        body={elsewhere ? t('left.elsewhereBody') : call.meeting?.title}
+        actions={[
+          {
+            label: elsewhere ? t('left.rejoinHere') : t('left.rejoin'),
+            onClick: () => void call.returnToLobby(),
+          },
+          toMeetings,
+        ]}
+      />
     );
   }
   // Removed by the host: the lobby says so, with Join disabled.
   if (call.phase === 'error' && call.error !== 'removed_from_meeting') {
     return (
-      <EndScreen title={t(`error.${call.error ?? 'join_failed'}`)} back={back}>
-        <Button
-          type="button"
-          className="mt-4"
-          onClick={() => void call.returnToLobby()}
-        >
-          {t('error.retry')}
-        </Button>
-      </EndScreen>
+      <RoomEndScreen
+        icon={TriangleAlert}
+        tone="warning"
+        title={t(`error.${call.error ?? 'join_failed'}`)}
+        actions={[
+          {
+            label: t('error.retry'),
+            onClick: () => void call.returnToLobby(),
+          },
+          backToMeeting,
+        ]}
+      />
     );
   }
   if (
@@ -211,13 +242,11 @@ function ClaimedRoom({
     call.phase === 'error'
   ) {
     return (
-      <RoomPage>
-        <RoomLobby
-          call={call}
-          meetingId={meetingId}
-          title={call.meeting?.title ?? ''}
-        />
-      </RoomPage>
+      <RoomLobby
+        call={call}
+        meetingId={meetingId}
+        title={call.meeting?.title ?? ''}
+      />
     );
   }
   // The chat/people panels and the settings dialog.
@@ -486,6 +515,8 @@ export function LiveRoom({
             onPage={roomUi.setPage}
             onStopShare={() => void call.toggleScreen()}
             onTileSizes={call.setTileSizes}
+            openToWorkspace={!!call.meeting?.open_to_workspace}
+            onInvite={() => onOpenPanel('people')}
           />
           <FloatingReactions
             reactions={call.reactions}
@@ -523,30 +554,5 @@ export function LiveRoom({
       </div>
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
-  );
-}
-
-function EndScreen({
-  title,
-  back,
-  children,
-}: {
-  title: string;
-  back: string;
-  children?: ReactNode;
-}) {
-  const t = useTranslations('MeetingRoom');
-  return (
-    <RoomPage>
-      <div className="mx-auto flex max-w-md flex-col items-center gap-2 p-10 text-center">
-        <h1 className="text-lg font-semibold">{title}</h1>
-        {children && (
-          <div className="text-muted-foreground text-sm">{children}</div>
-        )}
-        <Link href={back} className={buttonVariants({ variant: 'outline' })}>
-          {t('back')}
-        </Link>
-      </div>
-    </RoomPage>
   );
 }
