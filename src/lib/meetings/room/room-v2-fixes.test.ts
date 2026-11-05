@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { isBusyDeviceError, keepOpenedTrack } from './devices';
 import { LEFT_GRACE_MS, stepPresence, type PresenceMemo } from './notices';
 import { landedPull, planLayerUpdates, pullSimulcast } from './simulcast';
-import { remoteLevel, SOURCE_MAX_AGE_MS } from './speaker';
+import { inboundAudioLevels, remoteLevel, SOURCE_MAX_AGE_MS } from './speaker';
 import { parseParticipantRow } from './tracks';
 import type { ParticipantRow } from './types';
 
@@ -200,5 +200,48 @@ describe('remote voice level (L6)', () => {
         origin
       )
     ).toBe(0);
+  });
+});
+
+describe('inboundAudioLevels', () => {
+  const byMid = { '1': 'ana', '2': 'omar' };
+
+  it('reads each person by mid, the only level the SFU leaves us', () => {
+    expect(
+      inboundAudioLevels(
+        [
+          { type: 'inbound-rtp', kind: 'audio', mid: '1', audioLevel: 0.25 },
+          { type: 'inbound-rtp', kind: 'audio', mid: '2', audioLevel: 0.01 },
+        ],
+        byMid
+      )
+    ).toEqual({ ana: 0.25, omar: 0.01 });
+  });
+
+  it('ignores video, other reports, unknown mids and missing levels', () => {
+    expect(
+      inboundAudioLevels(
+        [
+          { type: 'inbound-rtp', kind: 'video', mid: '1', audioLevel: 1 },
+          { type: 'media-source', kind: 'audio', mid: '1', audioLevel: 1 },
+          { type: 'inbound-rtp', kind: 'audio', mid: '9', audioLevel: 1 },
+          { type: 'inbound-rtp', kind: 'audio', mid: '2' },
+          { type: 'inbound-rtp', kind: 'audio', audioLevel: 1 },
+        ],
+        byMid
+      )
+    ).toEqual({});
+  });
+
+  it('keeps the louder of two streams from one person', () => {
+    expect(
+      inboundAudioLevels(
+        [
+          { type: 'inbound-rtp', kind: 'audio', mid: '1', audioLevel: 0.1 },
+          { type: 'inbound-rtp', kind: 'audio', mid: '3', audioLevel: 0.4 },
+        ],
+        { '1': 'ana', '3': 'ana' }
+      )
+    ).toEqual({ ana: 0.4 });
   });
 });

@@ -1,7 +1,7 @@
 // Who is speaking, and who the active speaker is, from audio levels the
-// engine samples every ~200 ms: `RTCRtpReceiver.getSynchronizationSources()`
-// for each remote voice, an AnalyserNode for our own microphone. Both are
-// linear 0..1 (1.0 is 0 dBov), so one floor serves both.
+// engine samples every ~200 ms: getStats (and any RTP source that carries
+// a level) for each remote voice, an AnalyserNode for our own microphone.
+// All are linear 0..1 (1.0 is 0 dBov), so one floor serves them all.
 
 import type { ParticipantId } from './contract';
 
@@ -142,6 +142,29 @@ export function remoteLevel(
     level = Math.max(level, s.audioLevel ?? 0);
   }
   return level;
+}
+
+/**
+ * Each remote person's level from getStats. Cloudflare's SFU does not
+ * negotiate the ssrc-audio-level header extension, so
+ * getSynchronizationSources() carries no audioLevel at all and
+ * `remoteLevel` reads 0 for everyone: without this nobody else ever
+ * lights up as speaking. inbound-rtp's audioLevel is measured at playout,
+ * so it needs no header, and it is matched to a person by transceiver mid.
+ */
+export function inboundAudioLevels(
+  reports: Iterable<Record<string, unknown>>,
+  participantByMid: Readonly<Record<string, ParticipantId>>
+): Record<ParticipantId, number> {
+  const levels: Record<ParticipantId, number> = {};
+  for (const r of reports) {
+    if (r.type !== 'inbound-rtp' || r.kind !== 'audio') continue;
+    const pid = typeof r.mid === 'string' ? participantByMid[r.mid] : undefined;
+    const level = r.audioLevel;
+    if (!pid || typeof level !== 'number' || !Number.isFinite(level)) continue;
+    levels[pid] = Math.max(levels[pid] ?? 0, level);
+  }
+  return levels;
 }
 
 /** Root mean square of time-domain samples (-1..1), clamped to 0..1. */

@@ -39,7 +39,9 @@
 // speaker and the mic meter, but the snapshot changes only when what
 // it shows changes (speaker.ts levelPatch), or the whole room
 // re-renders five times a second; getStats every 2 s grades the links
-// (quality.ts). Chat, reactions, hands and moderation go through the
+// (quality.ts). Remote levels come from getStats too: the SFU negotiates
+// no audio-level header, so RTP sources report nothing (speaker.ts).
+// Chat, reactions, hands and moderation go through the
 // API; what the host did to our seat arrives on our own row
 // (notices.ts). Every decision is a pure function under
 // lib/meetings/room, tested there; this file only wires them.
@@ -81,6 +83,7 @@ import {
   type Rid,
 } from '@/lib/meetings/room/simulcast';
 import {
+  inboundAudioLevels,
   INITIAL_SPEAKER_STATE,
   levelPatch,
   remoteLevel,
@@ -270,6 +273,9 @@ export class MeetingCallEngine {
   } | null = null;
   private lossCounters: Record<string, LossCounters> = {};
   private poor = INITIAL_POOR_TRACKER;
+  /** The latest getStats reading of each remote person's level. */
+  private remoteLevels: Record<ParticipantId, number> = {};
+  private remoteLevelsBusy = false;
   /**
    * Who was present at the last plan, and departures still in their
    * grace (notices.ts); null until the initial read lands.
@@ -782,6 +788,7 @@ export class MeetingCallEngine {
     if (this.layerTimer) clearTimeout(this.layerTimer);
     this.layerTimer = null;
     this.speaker = INITIAL_SPEAKER_STATE;
+    this.remoteLevels = {};
     this.lossCounters = {};
     this.poor = INITIAL_POOR_TRACKER;
     // Departures still held are dropped with it: nothing fires later.
@@ -1647,7 +1654,25 @@ export class MeetingCallEngine {
     return rmsLevel(this.analyser.buf);
   }
 
+  /** One reading at a time: getStats can outlast a level tick. */
+  private async readRemoteLevels() {
+    const pc = this.pc;
+    if (!pc || this.remoteLevelsBusy) return;
+    this.remoteLevelsBusy = true;
+    const stats = await pc.getStats().catch(() => null);
+    this.remoteLevelsBusy = false;
+    if (!stats || pc !== this.pc) return;
+    const byMid: Record<string, ParticipantId> = {};
+    for (const p of this.pulled.values()) {
+      if (p.kind === 'audio') byMid[p.mid] = p.participantId;
+    }
+    const reports: StatLike[] = [];
+    stats.forEach((r) => reports.push(r as StatLike));
+    this.remoteLevels = inboundAudioLevels(reports, byMid);
+  }
+
   private sampleLevels() {
+    void this.readRemoteLevels();
     const now = Date.now();
     const local = this.localLevel();
     let { activeSpeakerId, speaking } = this.snap;
@@ -1662,14 +1687,16 @@ export class MeetingCallEngine {
       const perfNow = performance.now();
       for (const p of this.pulled.values()) {
         if (p.kind !== 'audio' || !(p.participantId in levels)) continue;
+        const silent = muted.has(p.participantId);
         levels[p.participantId] = Math.max(
           levels[p.participantId],
           remoteLevel(
             p.receiver.getSynchronizationSources(),
-            muted.has(p.participantId),
+            silent,
             perfNow,
             performance.timeOrigin
-          )
+          ),
+          silent ? 0 : (this.remoteLevels[p.participantId] ?? 0)
         );
       }
       const step = stepSpeaker(this.speaker, levels, now);
