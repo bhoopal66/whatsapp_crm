@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   viewArchive: vi.fn(),
   service: vi.fn(),
+  loadNames: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -14,6 +15,10 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
 vi.mock('@/lib/submission-groups/server', () => ({
   submissionGroupStore: () => ({ get: mocks.get }),
   submissionGroupService: mocks.service,
+  supabaseAdmin: () => 'admin-client',
+}));
+vi.mock('@/lib/submission-groups/view-refs', () => ({
+  loadNames: mocks.loadNames,
 }));
 
 import { UnauthorizedError } from '@/lib/auth/account';
@@ -21,6 +26,25 @@ import { UnauthorizedError } from '@/lib/auth/account';
 import { POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
+
+/** The row shape the store's `toMessage` hands the service. */
+const stored = (over: Record<string, unknown>) => ({
+  id: '1',
+  direction: 'in',
+  senderUserId: null,
+  senderWaId: null,
+  senderKind: null,
+  type: 'text',
+  body: 'hello',
+  prefixedBody: null,
+  media: null,
+  waMessageId: 'wamid.1',
+  sendStatus: null,
+  postEnd: false,
+  createdAt: new Date('2026-11-01T09:00:00.000Z'),
+  waTimestamp: null,
+  ...over,
+});
 const post = () =>
   POST(new Request('http://x', { method: 'POST' }), {
     params: Promise.resolve({ id: G }),
@@ -37,20 +61,53 @@ beforeEach(() => {
   mocks.service.mockReturnValue({ viewArchive: mocks.viewArchive });
   mocks.viewArchive.mockResolvedValue({
     allowed: true,
-    messages: [{ id: '1', body: 'hello' }],
+    messages: [
+      stored({ senderWaId: '971501234567', senderKind: 'customer' }),
+      stored({
+        id: '2',
+        direction: 'out',
+        senderUserId: 'user-1',
+        prefixedBody: 'Sara (Agent): hello',
+        sendStatus: 'sent',
+      }),
+    ],
   });
+  mocks.loadNames.mockResolvedValue(new Map([['user-1', 'Sara']]));
 });
 
 describe('POST archive', () => {
   it('answers the archive when the service allows it', async () => {
     const res = await post();
     expect(res.status).toBe(200);
-    expect((await res.json()).messages).toEqual([{ id: '1', body: 'hello' }]);
+    const { messages } = await res.json();
+    expect(messages.map((m: { id: string }) => m.id)).toEqual(['1', '2']);
     expect(mocks.service).toHaveBeenCalledWith('acct-1');
     expect(mocks.viewArchive).toHaveBeenCalledWith({
       groupId: G,
       userId: 'lead-1',
     });
+  });
+
+  // The page renders these through the same list as the live messages: a
+  // raw row has no `created_at`, and formatting that crashes the page.
+  it('answers the message view the page renders', async () => {
+    const { messages } = await (await post()).json();
+    expect(messages[0]).toMatchObject({
+      direction: 'in',
+      sender_wa_id: '971501234567',
+      sender_kind: 'customer',
+      created_at: '2026-11-01T09:00:00.000Z',
+    });
+    expect(messages[1]).toMatchObject({
+      direction: 'out',
+      sender_user_id: 'user-1',
+      sender_name: 'Sara',
+      send_status: 'sent',
+    });
+    expect(mocks.loadNames).toHaveBeenCalledWith('admin-client', 'acct-1', [
+      null,
+      'user-1',
+    ]);
   });
 
   it('answers 403 when the service refuses', async () => {
