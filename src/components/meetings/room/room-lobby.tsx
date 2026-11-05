@@ -115,10 +115,10 @@ export function RoomLobby({
                   <p
                     role="alert"
                     data-lobby-recording
-                    className="bg-warning-soft flex items-start gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+                    className="border-destructive bg-destructive-soft flex items-start gap-2 rounded-lg border-2 px-3 py-2.5 text-sm font-semibold"
                   >
                     <CircleDot
-                      className="text-destructive mt-0.5 size-4 shrink-0"
+                      className="fill-destructive text-destructive mt-0.5 size-4 shrink-0 motion-safe:animate-pulse"
                       aria-hidden
                     />
                     {t('recordingNotice')}

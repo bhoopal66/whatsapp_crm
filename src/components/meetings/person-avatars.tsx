@@ -60,7 +60,7 @@ export function AvatarStack({
   const hidden = people.length - shown.length;
   return (
     <div
-      className="flex items-center -space-x-2"
+      className="flex items-center -space-x-1"
       title={people.map((p) => p.name).join(', ')}
     >
       {shown.map((p) => (

@@ -102,7 +102,7 @@ export function MeetingSummaryCard({
     <section className="bg-card space-y-5 rounded-xl border p-4 md:p-6">
       <div className="space-y-3">
         <h2 className="font-semibold">{td('summary')}</h2>
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
           <Tile
             label={td('statDuration')}
             value={ranMs === null ? '–' : t('duration', durationParts(ranMs))}
