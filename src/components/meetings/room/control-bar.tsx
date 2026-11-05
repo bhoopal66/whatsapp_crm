@@ -13,6 +13,7 @@ import {
   Minimize,
   MonitorUp,
   MonitorX,
+  NotebookPen,
   PhoneOff,
   PictureInPicture2,
   Settings,
@@ -230,6 +231,8 @@ export interface ControlBarProps {
   /** The open side panel: its button reads as on, and closes it. */
   panel: RoomPanel | null;
   onTogglePanel: (panel: RoomPanel) => void;
+  /** False on a database without notes (176): no way in is offered. */
+  notesOn?: boolean;
   onOpenSettings: () => void;
   onOpenShortcuts: () => void;
   onFullscreen: () => void;
@@ -379,6 +382,17 @@ export function moreItems(
       label: t('background'),
       icon: <Sparkles />,
       onClick: o.onBackground,
+    });
+  }
+  if (p.notesOn) {
+    items.push({
+      kind: 'action',
+      id: 'notes',
+      label: t('notes'),
+      icon: <NotebookPen />,
+      pressed: p.panel === 'notes',
+      shortcut: SHORTCUT_KEYS.notes,
+      onClick: () => p.onTogglePanel('notes'),
     });
   }
   items.push(
@@ -637,6 +651,19 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
             <Users />
           </BarButton>
         </DockCell>
+        {full && p.notesOn && (
+          <DockCell caption={caption(t('notes'))}>
+            <BarButton
+              label={t('notes')}
+              shortcut={SHORTCUT_KEYS.notes}
+              className={cn(p.panel === 'notes' && ON)}
+              aria-pressed={p.panel === 'notes'}
+              onClick={() => p.onTogglePanel('notes')}
+            >
+              <NotebookPen />
+            </BarButton>
+          </DockCell>
+        )}
         <DockCell caption={caption(null)}>
           <span className="flex">
             <Button

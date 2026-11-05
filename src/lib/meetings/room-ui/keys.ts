@@ -7,6 +7,7 @@ export type RoomShortcut =
   | 'hand'
   | 'chat'
   | 'people'
+  | 'notes'
   | 'fullscreen'
   | 'shortcuts'
   | 'closePanel';
@@ -18,6 +19,7 @@ const BY_KEY: Record<string, RoomShortcut> = {
   h: 'hand',
   c: 'chat',
   p: 'people',
+  n: 'notes',
   f: 'fullscreen',
   '?': 'shortcuts',
   escape: 'closePanel',
@@ -34,6 +36,7 @@ export const SHORTCUT_KEYS: Record<
   hand: 'H',
   chat: 'C',
   people: 'P',
+  notes: 'N',
   fullscreen: 'F',
   shortcuts: '?',
 };

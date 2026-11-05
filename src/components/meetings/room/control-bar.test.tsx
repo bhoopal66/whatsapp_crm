@@ -7,7 +7,7 @@ import en from '../../../../messages/en.json';
 import ko from '../../../../messages/ko.json';
 import type { MeetingCall } from '@/hooks/use-meeting-call';
 import type { DockMode } from '@/lib/meetings/room-ui/controls';
-import { SHORTCUT_KEYS } from '@/lib/meetings/room-ui/keys';
+import { SHORTCUT_KEYS, shortcutFor } from '@/lib/meetings/room-ui/keys';
 
 import {
   ControlBar,
@@ -169,6 +169,41 @@ describe('Dock forms', () => {
     const html = renderDock('icons', { panel: 'people' });
     expect(html).toMatch(/aria-label="People"[^>]*aria-pressed="true"/);
     expect(html).toMatch(/aria-label="Chat"[^>]*aria-pressed="false"/);
+  });
+});
+
+describe('Notes in the dock', () => {
+  const noted = (mode: DockMode, notesOn: boolean) =>
+    renderDock(mode, { notesOn, panel: 'notes' });
+
+  it('sits beside Chat and People only in the full dock', () => {
+    expect(noted('full', true)).toMatch(
+      /aria-label="Notes"[^>]*aria-pressed="true"/
+    );
+    expect(noted('icons', true)).not.toContain('aria-label="Notes"');
+  });
+
+  it('is not offered on a database without notes', () => {
+    expect(noted('full', false)).not.toContain('aria-label="Notes"');
+  });
+
+  it('has a More entry that toggles the panel, and the N key', () => {
+    const onTogglePanel = vi.fn();
+    const items = moreItems(
+      { ...props(), notesOn: true, onTogglePanel },
+      {
+        t: (k: string) => k,
+        compact: false,
+        fullscreen: { supported: false, active: false },
+      }
+    );
+    const entry = items.find((i) => i.id === 'notes');
+    expect(entry).toMatchObject({ kind: 'action', shortcut: 'N' });
+    if (entry?.kind === 'action') entry.onClick();
+    expect(onTogglePanel).toHaveBeenCalledWith('notes');
+    expect(shortcutFor({ key: 'n' }, { tagName: 'DIV' })).toBe('notes');
+    expect(shortcutFor({ key: 'n' }, { tagName: 'TEXTAREA' })).toBeNull();
+    expect(SHORTCUT_ROWS.some((r) => r.id === 'notes')).toBe(true);
   });
 });
 

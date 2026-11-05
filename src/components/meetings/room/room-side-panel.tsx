@@ -61,6 +61,7 @@ export function useIsPhone(): boolean {
 export type RoomPanelSeams = Pick<
   LiveRoomProps,
   | 'chatUnread'
+  | 'notesOn'
   | 'onOpenPanel'
   | 'onTogglePanel'
   | 'onOpenSettings'
@@ -106,17 +107,19 @@ export function RoomPanels({
     (p: RoomPanel) => roomUi.setPanel(p),
     [roomUi]
   );
-  const onTogglePanel = useCallback(
-    (s: RoomPanel | 'closePanel') =>
-      roomUi.setPanel(nextPanel(roomUi.getSnapshot().panel, s)),
-    [roomUi]
-  );
   const onOpenSettings = useCallback(() => setSettingsOpen(true), []);
   const close = useCallback(() => roomUi.setPanel(null), [roomUi]);
 
   const meetingId = call.meeting?.id ?? null;
   const notesAvailable = useNotesAvailable(meetingId);
   const notesOn = notesAvailable !== false && meetingId !== null;
+  const onTogglePanel = useCallback(
+    (s: RoomPanel | 'closePanel') => {
+      if (s === 'notes' && !notesOn) return;
+      roomUi.setPanel(nextPanel(roomUi.getSnapshot().panel, s));
+    },
+    [roomUi, notesOn]
+  );
 
   const title =
     panel === 'chat'
@@ -204,6 +207,7 @@ export function RoomPanels({
     <>
       {children({
         chatUnread,
+        notesOn,
         onOpenPanel,
         onTogglePanel,
         onOpenSettings,

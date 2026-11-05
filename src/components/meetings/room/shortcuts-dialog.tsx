@@ -19,6 +19,7 @@ export const SHORTCUT_ROWS: readonly { id: string; keycap: string | null }[] = [
   { id: 'hand', keycap: SHORTCUT_KEYS.hand },
   { id: 'chat', keycap: SHORTCUT_KEYS.chat },
   { id: 'people', keycap: SHORTCUT_KEYS.people },
+  { id: 'notes', keycap: SHORTCUT_KEYS.notes },
   { id: 'fullscreen', keycap: SHORTCUT_KEYS.fullscreen },
   { id: 'closePanel', keycap: 'Esc' },
   { id: 'shortcuts', keycap: SHORTCUT_KEYS.shortcuts },

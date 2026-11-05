@@ -273,6 +273,7 @@ export interface LiveRoomProps {
   readMicOn: () => boolean;
   /** Unread chat lines, for the Chat button's badge. */
   chatUnread: number;
+  notesOn: boolean;
   onOpenPanel: (panel: RoomPanel) => void;
   /** Keyboard: C, P and Esc ('closePanel'). */
   onTogglePanel: (shortcut: RoomPanel | 'closePanel') => void;
@@ -288,6 +289,7 @@ export function LiveRoom({
   readMicOn,
   sidePanel,
   chatUnread,
+  notesOn,
   onOpenPanel,
   onTogglePanel,
   onOpenSettings,
@@ -406,7 +408,12 @@ export function LiveRoom({
       else if (s === 'fullscreen') {
         if (canFullscreen(document)) toggleFullscreen();
       } else if (s === 'shortcuts') setShortcutsOpen((open) => !open);
-      else if (s === 'chat' || s === 'people' || s === 'closePanel') {
+      else if (
+        s === 'chat' ||
+        s === 'people' ||
+        s === 'notes' ||
+        s === 'closePanel'
+      ) {
         onTogglePanel(s);
       }
     };
@@ -544,6 +551,7 @@ export function LiveRoom({
             hideSelf={hideSelf}
             onHideSelf={roomUi.setHideSelf}
             chatUnread={chatUnread}
+            notesOn={notesOn}
             panel={panel}
             onTogglePanel={onTogglePanel}
             onOpenSettings={onOpenSettings}
