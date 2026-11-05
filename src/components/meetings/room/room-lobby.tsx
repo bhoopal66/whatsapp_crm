@@ -43,6 +43,11 @@ export function RoomLobby({
   const name = profile?.full_name?.trim() ?? '';
   const joining = call.phase === 'joining';
   const { canJoin, blockedBy, recordingNotice } = lobbyJoinState(call);
+  const deviceLine = lobbyDeviceLine(
+    call.micOn,
+    call.cameraOn,
+    blockedBy !== null
+  );
 
   const hostId = call.meeting?.host_user_id;
   const hostName = hostId ? nameOf(hostId) : null;
@@ -111,9 +116,11 @@ export function RoomLobby({
                     {t('locked')}
                   </p>
                 )}
-                <p className="text-muted-foreground text-sm">
-                  {t(lobbyDeviceLine(call.micOn, call.cameraOn))}
-                </p>
+                {deviceLine && (
+                  <p className="text-muted-foreground text-sm">
+                    {t(deviceLine)}
+                  </p>
+                )}
                 {/* Consent to being recorded: never dismissible. */}
                 {recordingNotice && (
                   <p

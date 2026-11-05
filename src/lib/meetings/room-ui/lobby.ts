@@ -60,11 +60,16 @@ export function presentOthers(
   return { people, count: people.length };
 }
 
-/** The `MeetingRoom.lobbyV2` key of the line saying how we will join. */
+/**
+ * The `MeetingRoom.lobbyV2` key of the line saying how we will join; null
+ * when a lock or a removal means we won't.
+ */
 export function lobbyDeviceLine(
   micOn: boolean,
-  cameraOn: boolean
-): 'joinMicCamera' | 'joinMicOnly' | 'joinCameraOnly' | 'joinMuted' {
+  cameraOn: boolean,
+  blocked = false
+): 'joinMicCamera' | 'joinMicOnly' | 'joinCameraOnly' | 'joinMuted' | null {
+  if (blocked) return null;
   if (micOn) return cameraOn ? 'joinMicCamera' : 'joinMicOnly';
   return cameraOn ? 'joinCameraOnly' : 'joinMuted';
 }

@@ -87,6 +87,13 @@ describe('lobbyDeviceLine', () => {
   });
 });
 
+describe('lobbyDeviceLine when the join is blocked', () => {
+  it('says nothing about joining', () => {
+    expect(lobbyDeviceLine(true, true, true)).toBeNull();
+    expect(lobbyDeviceLine(false, false, true)).toBeNull();
+  });
+});
+
 describe('lobbyJoinState', () => {
   const open = {
     phase: 'lobby',
