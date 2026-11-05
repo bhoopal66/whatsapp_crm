@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GIVE_UP_AFTER_MS,
+  MASK_EVERY_BUSY,
   REDUCED_FPS,
   TARGET_FPS,
   initialBudget,
@@ -46,6 +47,28 @@ describe('stepBudget', () => {
     const eased = feed(over(5000).state, 5, 5040, 6000).state;
     expect(eased.overSince).toBeNull();
     expect(feed(eased, 120, 6040, 9000).giveUp).toBe(false);
+  });
+});
+
+describe('stepBudget on a slow machine', () => {
+  it('reuses the mask well before it would give up', () => {
+    const slow = feed(initialBudget(), 70, 0, 1000);
+    expect(slow.state.maskEvery).toBe(MASK_EVERY_BUSY);
+    expect(feed(slow.state, 70, 1040, 60_000).giveUp).toBe(false);
+  });
+  it('keeps reusing it while that is what holds the cost down', () => {
+    const slow = feed(initialBudget(), 70, 0, 1000).state;
+    expect(feed(slow, 22, 1040, 30_000).state.maskEvery).toBe(MASK_EVERY_BUSY);
+  });
+  it('goes back to a fresh mask on every frame once truly calm', () => {
+    const slow = feed(initialBudget(), 70, 0, 1000).state;
+    expect(feed(slow, 6, 1040, 9000).state.maskEvery).toBe(1);
+  });
+  it('runs the give-up clock only once the cheaper way is in use', () => {
+    const first = stepBudget(initialBudget(), 120, 0);
+    expect(first.state.overSince).toBeNull();
+    expect(first.state.maskEvery).toBe(MASK_EVERY_BUSY);
+    expect(stepBudget(first.state, 120, 40).state.overSince).toBe(40);
   });
 });
 

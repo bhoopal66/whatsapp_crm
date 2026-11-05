@@ -122,6 +122,7 @@ export function createVideoEffectProcessor(): VideoEffectProcessor {
   let effect: BackgroundEffect = { kind: 'none' };
   let gaveUp = false;
   let budget = initialBudget();
+  let framesSinceMask = 0;
   let clock = 1;
   const listeners: (() => void)[] = [];
 
@@ -222,7 +223,11 @@ export function createVideoEffectProcessor(): VideoEffectProcessor {
       return;
     }
     ctx2d(seg).drawImage(v, 0, 0, seg.width, seg.height);
-    readMask(segmenter);
+    // A slow machine reuses the last mask for a few frames (frame-budget).
+    if (!maskImage || ++framesSinceMask >= budget.maskEvery) {
+      framesSinceMask = 0;
+      readMask(segmenter);
+    }
     if (effect.kind === 'blur') paintBlur(effect.strength);
     ctx.drawImage(maskCanvas, 0, 0, w, h);
     ctx.globalCompositeOperation = 'source-in';
