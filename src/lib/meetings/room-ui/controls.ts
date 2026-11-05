@@ -6,9 +6,6 @@ import type { DeviceOption } from '@/lib/meetings/room/contract';
 
 import { reactionOffset } from './people';
 
-/** At or below this width the bar collapses to its phone form. */
-export const COMPACT_BAR_QUERY = '(max-width: 640px)';
-
 export type DockMode = 'full' | 'icons' | 'compact';
 
 /**
@@ -19,6 +16,42 @@ export type DockMode = 'full' | 'icons' | 'compact';
 export function dockMode(width: number): DockMode {
   if (width >= 980) return 'full';
   return width >= 620 ? 'icons' : 'compact';
+}
+
+/**
+ * Hands up in the call. Our own comes from the local state, which leads
+ * our row by a round trip.
+ */
+export function handsRaised(
+  rows: readonly { id: string; hand_raised_at: string | null }[],
+  selfId: string | null,
+  selfRaised: boolean
+): number {
+  const others = rows.filter((r) => r.id !== selfId && r.hand_raised_at);
+  return others.length + (selfRaised ? 1 : 0);
+}
+
+/**
+ * For a click on a room button: a mouse or touch leaves it focused, and
+ * Space would then click it instead of talking. A keyboard click (detail
+ * 0) keeps its focus, or a keyboard user loses their place.
+ */
+export function releasePointerFocus(e: {
+  detail: number;
+  target: EventTarget | null;
+}): void {
+  if (e.detail === 0) return;
+  const el = e.target as Partial<Element> | null;
+  const button = el?.closest?.('button') as HTMLElement | null | undefined;
+  button?.blur();
+}
+
+/**
+ * finalFocus for a room menu: same reason, for the trigger the menu would
+ * hand focus back to. Only a keyboard close gets it back.
+ */
+export function returnFocusOnClose(closeType: string): boolean {
+  return closeType === 'keyboard';
 }
 
 /** The Chat button's badge: nothing at 0, capped at 99+. */

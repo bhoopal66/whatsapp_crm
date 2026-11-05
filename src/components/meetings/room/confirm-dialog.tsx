@@ -33,7 +33,7 @@ export function ConfirmDialog({
   const t = useTranslations('MeetingRoom.confirm');
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false}>
+      <DialogContent data-mode="dark" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}

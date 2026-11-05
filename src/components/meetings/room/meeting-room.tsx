@@ -1,6 +1,5 @@
 'use client';
 
-import { Copy, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import {
@@ -25,8 +24,8 @@ import type {
   ModerationAction,
   ParticipantId,
 } from '@/lib/meetings/room/contract';
+import { canFullscreen } from '@/lib/meetings/room-ui/controls';
 import { shortcutFor } from '@/lib/meetings/room-ui/keys';
-import { formatElapsed } from '@/lib/meetings/room-ui/people';
 import { arrangeStage, type StageTile } from '@/lib/meetings/room-ui/stage';
 import { handQueueRank } from '@/lib/meetings/room-ui/tile-view';
 import {
@@ -49,7 +48,10 @@ import {
 import { RoomLobby } from './room-lobby';
 import { RoomPanels } from './room-side-panel';
 import { RoomStage } from './room-stage';
-import { QualityBars, RoomTile } from './room-tile';
+import { RoomTile } from './room-tile';
+import { RoomTopBar } from './room-top-bar';
+import { ShortcutsDialog } from './shortcuts-dialog';
+import { useHoldToTalk } from './use-hold-to-talk';
 
 /** Main has no padding on this path: every screen but the call brings its own. */
 function RoomPage({ children }: { children: ReactNode }) {
@@ -136,6 +138,7 @@ function ClaimedRoom({
 }) {
   const t = useTranslations('MeetingRoom');
   const call = useCallOf(engine);
+  const readMicOn = useCallback(() => engine.getSnapshot().micOn, [engine]);
   const back = `/meetings/${meetingId}`;
   const rejoin = (
     <Button
@@ -225,6 +228,7 @@ function ClaimedRoom({
           call={call}
           roomUi={roomUi}
           meetingId={meetingId}
+          readMicOn={readMicOn}
           {...seams}
         />
       )}
@@ -236,6 +240,8 @@ export interface LiveRoomProps {
   call: MeetingCall;
   roomUi: RoomUi;
   meetingId: string;
+  /** The engine's mic state now, for hold-to-talk. Must be stable. */
+  readMicOn: () => boolean;
   /** Unread chat lines, for the Chat button's badge. */
   chatUnread: number;
   onOpenPanel: (panel: RoomPanel) => void;
@@ -250,6 +256,7 @@ export function LiveRoom({
   call,
   roomUi,
   meetingId,
+  readMicOn,
   sidePanel,
   chatUnread,
   onOpenPanel,
@@ -267,8 +274,9 @@ export function LiveRoom({
     roomUi.getSnapshot,
     roomUi.getSnapshot
   );
-  const { layout: mode, pinnedKey, page, hideSelf } = ui;
+  const { layout: mode, pinnedKey, page, hideSelf, panel } = ui;
   const fullscreen = useFullscreen();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // The last remote speaker, so Speaker mode keeps them on screen while
   // we talk. State adjusted during render, not a ref: refs may not be
   // read while rendering.
@@ -343,7 +351,16 @@ export function LiveRoom({
     };
   }, []);
 
-  // Keyboard: M, V, S, H here; C, P and Esc belong to the panels.
+  const toggleFullscreen = useCallback(() => {
+    const done = document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen();
+    done.catch(() => toast.error(t('controlBar.fullscreenFailed')));
+  }, [t]);
+
+  useHoldToTalk(call.toggleMic, readMicOn);
+
+  // Keyboard: M, V, S, H, F and ? here; C, P and Esc belong to the panels.
   const callRef = useRef(call);
   useEffect(() => {
     callRef.current = call;
@@ -357,13 +374,16 @@ export function LiveRoom({
       else if (s === 'camera') void c.toggleCamera();
       else if (s === 'share') void c.toggleScreen();
       else if (s === 'hand') void c.toggleHand();
+      else if (s === 'fullscreen') {
+        if (canFullscreen(document)) toggleFullscreen();
+      } else if (s === 'shortcuts') setShortcutsOpen((open) => !open);
       else if (s === 'chat' || s === 'people' || s === 'closePanel') {
         onTogglePanel(s);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onTogglePanel]);
+  }, [onTogglePanel, toggleFullscreen]);
 
   const moderate = async (pid: ParticipantId, action: ModerationAction) => {
     if (!(await call.moderate(pid, action)))
@@ -435,10 +455,11 @@ export function LiveRoom({
     // under element fullscreen. So the room stretches itself over the
     // shell for as long as the document is fullscreen.
     <div
+      data-mode="dark"
       className={
         fullscreen.active
-          ? 'fixed inset-0 z-40 flex flex-col bg-neutral-950 text-white'
-          : 'relative flex h-full min-h-0 flex-col bg-neutral-950 text-white'
+          ? 'bg-background text-foreground fixed inset-0 z-40 flex flex-col'
+          : 'bg-background text-foreground relative flex h-full min-h-0 flex-col'
       }
     >
       {call.phase === 'reconnecting' && (
@@ -449,9 +470,12 @@ export function LiveRoom({
           {t('reconnecting')}
         </p>
       )}
-      <TopBar call={call} meetingId={meetingId} />
-      <div className="flex min-h-0 flex-1 gap-2 px-2">
-        <div className="relative flex min-w-0 flex-1">
+      <RoomTopBar call={call} meetingId={meetingId} onOpenPanel={onOpenPanel} />
+      {/* A grid, not a column beside the panel: the panel runs the full
+          height and the dock sits under the stage alone, so an open panel
+          narrows the dock and the dock's measured width says so. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(0,1fr)_auto] px-2">
+        <div className="relative col-start-1 row-start-1 flex min-h-0 min-w-0">
           <RoomStage
             arrangement={arrangement}
             participantIds={rows.map((r) => r.id)}
@@ -472,62 +496,32 @@ export function LiveRoom({
             }
           />
         </div>
-        {sidePanel}
+        {/* On a phone the panel is a sheet in a portal: nothing lands here. */}
+        <div className="col-start-2 row-span-2 row-start-1 ml-2 flex min-h-0 empty:hidden">
+          {sidePanel}
+        </div>
+        <div className="col-start-1 row-start-2 min-w-0">
+          <div className="px-2">
+            <DeviceNotices devices={call.devices} />
+          </div>
+          <ControlBar
+            call={call}
+            layout={mode}
+            onLayout={roomUi.setLayout}
+            hideSelf={hideSelf}
+            onHideSelf={roomUi.setHideSelf}
+            chatUnread={chatUnread}
+            panel={panel}
+            onTogglePanel={onTogglePanel}
+            onOpenSettings={onOpenSettings}
+            onOpenShortcuts={() => setShortcutsOpen(true)}
+            onFullscreen={toggleFullscreen}
+            pip={{ ...pip, available: !!pipTile }}
+            onPip={togglePip}
+          />
+        </div>
       </div>
-      <div className="px-4">
-        <DeviceNotices devices={call.devices} />
-      </div>
-      <ControlBar
-        call={call}
-        layout={mode}
-        onLayout={roomUi.setLayout}
-        chatUnread={chatUnread}
-        onOpenPanel={onOpenPanel}
-        onOpenSettings={onOpenSettings}
-        pip={{ ...pip, available: !!pipTile }}
-        onPip={togglePip}
-      />
-    </div>
-  );
-}
-
-function TopBar({ call, meetingId }: { call: MeetingCall; meetingId: string }) {
-  const t = useTranslations('MeetingRoom.topBar');
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const copy = useCallback(() => {
-    const url = `${window.location.origin}/meetings/${meetingId}`;
-    navigator.clipboard?.writeText(url).then(
-      () => toast.success(t('copied')),
-      () => toast.error(t('copyFailed'))
-    );
-  }, [meetingId, t]);
-  const since = call.liveSince ? Date.parse(call.liveSince) : NaN;
-  return (
-    <div className="flex items-center gap-3 px-4 py-2 text-sm">
-      <h1 className="min-w-0 truncate font-medium">{call.meeting?.title}</h1>
-      {Number.isFinite(since) && (
-        <span className="text-white/70 tabular-nums" aria-label={t('elapsed')}>
-          {formatElapsed(now - since)}
-        </span>
-      )}
-      <span
-        className="flex items-center gap-1 text-white/70"
-        title={t('people')}
-      >
-        <Users className="size-4" aria-hidden />
-        {Math.max(1, call.participants.length)}
-      </span>
-      <span className="ml-auto flex items-center gap-2">
-        <QualityBars quality={call.quality.self} />
-        <Button type="button" size="sm" variant="secondary" onClick={copy}>
-          <Copy />
-          {t('copyLink')}
-        </Button>
-      </span>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }

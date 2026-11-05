@@ -6515,11 +6515,20 @@
       "stopSharing": "Stop sharing"
     },
     "topBar": {
-      "copyLink": "Copy invite link",
-      "copied": "Invite link copied",
+      "copied": "Link copied",
       "copyFailed": "Couldn't copy the link",
       "elapsed": "Time in call",
-      "people": "People in the call"
+      "people": "People in the call",
+      "copy": "Copy",
+      "info": "Meeting details",
+      "organiser": "Organiser",
+      "link": "Meeting link"
+    },
+    "status": {
+      "recording": "Recording",
+      "recordingTitle": "This meeting is being recorded",
+      "locked": "Locked",
+      "lockedTitle": "Nobody new can join this meeting"
     },
     "controlBar": {
       "bar": "Call controls",
@@ -6544,7 +6553,6 @@
       "reactions": "Send a reaction",
       "react": "React with {emoji}",
       "layout": "Layout",
-      "layoutAuto": "Auto",
       "layoutSpeaker": "Speaker",
       "chat": "Chat",
       "chatUnread": "Chat, {count, plural, one {# unread message} other {# unread messages}}",
@@ -6562,7 +6570,36 @@
       "endForEveryone": "End for everyone",
       "endConfirm": "End this meeting for everyone in it?",
       "endBody": "Everyone is disconnected and the meeting closes.",
-      "endFailed": "Couldn't end the meeting. Try again."
+      "endFailed": "Couldn't end the meeting. Try again.",
+      "clock": "Local time",
+      "labelCamera": "Camera",
+      "labelShare": "Share",
+      "labelStopShare": "Stop share",
+      "labelReact": "React",
+      "labelRaise": "Raise",
+      "labelLower": "Lower",
+      "labelMore": "More",
+      "layoutGallery": "Gallery",
+      "layoutFocus": "Focus",
+      "hideSelf": "Hide self view",
+      "shortcuts": "Keyboard shortcuts",
+      "handsRaised": "{count, plural, one {# hand raised} other {# hands raised}}",
+      "leaveOptions": "Leave options",
+      "leaveMeeting": "Leave meeting"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "mic": "Mute or unmute",
+      "talk": "Hold to talk while muted",
+      "camera": "Turn the camera on or off",
+      "share": "Share your screen",
+      "hand": "Raise or lower your hand",
+      "chat": "Open or close chat",
+      "people": "Open or close people",
+      "fullscreen": "Full screen",
+      "closePanel": "Close the side panel",
+      "shortcuts": "Show this list",
+      "space": "Space"
     },
     "panels": {
       "close": "Close panel",

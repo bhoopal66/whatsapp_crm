@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { REACTION_TTL_MS } from '@/lib/meetings/room/chat';
 
@@ -9,10 +9,73 @@ import {
   deviceChoices,
   deviceIdFor,
   deviceValue,
+  handsRaised,
   REACTION_FLOAT_MS,
   reactionMotion,
+  releasePointerFocus,
+  returnFocusOnClose,
   unreadBadge,
 } from './controls';
+
+describe('handsRaised', () => {
+  const up = '2026-11-05T10:00:00Z';
+
+  it('counts the others from their rows', () => {
+    const rows = [
+      { id: 'me', hand_raised_at: null },
+      { id: 'a', hand_raised_at: up },
+      { id: 'b', hand_raised_at: null },
+      { id: 'c', hand_raised_at: up },
+    ];
+    expect(handsRaised(rows, 'me', false)).toBe(2);
+  });
+
+  it('counts ours from the local state, never twice', () => {
+    expect(handsRaised([{ id: 'me', hand_raised_at: null }], 'me', true)).toBe(
+      1
+    );
+    expect(handsRaised([{ id: 'me', hand_raised_at: up }], 'me', true)).toBe(1);
+    expect(handsRaised([{ id: 'me', hand_raised_at: up }], 'me', false)).toBe(
+      0
+    );
+  });
+});
+
+describe('focus after a click', () => {
+  const button = () => {
+    const blur = vi.fn();
+    return {
+      blur,
+      target: { closest: () => ({ blur }) } as unknown as Element,
+    };
+  };
+
+  it('drops focus after a pointer click', () => {
+    const { blur, target } = button();
+    releasePointerFocus({ detail: 1, target });
+    expect(blur).toHaveBeenCalled();
+  });
+
+  it('keeps it after a keyboard click', () => {
+    const { blur, target } = button();
+    releasePointerFocus({ detail: 0, target });
+    expect(blur).not.toHaveBeenCalled();
+  });
+
+  it('ignores a click on no button', () => {
+    const target = { closest: () => null } as unknown as Element;
+    expect(() => releasePointerFocus({ detail: 1, target })).not.toThrow();
+    expect(() =>
+      releasePointerFocus({ detail: 1, target: null })
+    ).not.toThrow();
+  });
+
+  it('gives a closing menu focus back only for a keyboard close', () => {
+    expect(returnFocusOnClose('keyboard')).toBe(true);
+    expect(returnFocusOnClose('mouse')).toBe(false);
+    expect(returnFocusOnClose('touch')).toBe(false);
+  });
+});
 
 describe('unreadBadge', () => {
   it('shows nothing at zero and caps at 99+', () => {

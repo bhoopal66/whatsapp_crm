@@ -6515,11 +6515,20 @@
       "stopSharing": "공유 중지"
     },
     "topBar": {
-      "copyLink": "초대 링크 복사",
-      "copied": "초대 링크를 복사했습니다",
+      "copied": "링크를 복사했습니다",
       "copyFailed": "링크를 복사하지 못했습니다",
       "elapsed": "통화 시간",
-      "people": "통화 참여자"
+      "people": "통화 참여자",
+      "copy": "복사",
+      "info": "회의 정보",
+      "organiser": "주최자",
+      "link": "회의 링크"
+    },
+    "status": {
+      "recording": "녹화 중",
+      "recordingTitle": "이 회의는 녹화되고 있습니다",
+      "locked": "잠김",
+      "lockedTitle": "새 참가자가 이 회의에 참여할 수 없습니다"
     },
     "controlBar": {
       "bar": "통화 컨트롤",
@@ -6544,7 +6553,6 @@
       "reactions": "반응 보내기",
       "react": "{emoji} 반응 보내기",
       "layout": "레이아웃",
-      "layoutAuto": "자동",
       "layoutSpeaker": "발표자",
       "chat": "채팅",
       "chatUnread": "채팅, 읽지 않은 메시지 {count, plural, other {#개}}",
@@ -6562,7 +6570,36 @@
       "endForEveryone": "모두에게 회의 종료",
       "endConfirm": "참여 중인 모든 사람에게 이 회의를 종료할까요?",
       "endBody": "모든 참여자의 연결이 끊기고 회의가 종료됩니다.",
-      "endFailed": "회의를 종료하지 못했습니다. 다시 시도하세요."
+      "endFailed": "회의를 종료하지 못했습니다. 다시 시도하세요.",
+      "clock": "현재 시각",
+      "labelCamera": "카메라",
+      "labelShare": "공유",
+      "labelStopShare": "공유 중지",
+      "labelReact": "반응",
+      "labelRaise": "손 들기",
+      "labelLower": "손 내리기",
+      "labelMore": "더보기",
+      "layoutGallery": "갤러리",
+      "layoutFocus": "포커스",
+      "hideSelf": "내 화면 숨기기",
+      "shortcuts": "키보드 단축키",
+      "handsRaised": "손 든 사람 {count, plural, other {#명}}",
+      "leaveOptions": "나가기 옵션",
+      "leaveMeeting": "회의 나가기"
+    },
+    "shortcuts": {
+      "title": "키보드 단축키",
+      "mic": "음소거 또는 해제",
+      "talk": "음소거 중 누르고 있는 동안 말하기",
+      "camera": "카메라 켜기 또는 끄기",
+      "share": "화면 공유",
+      "hand": "손 들기 또는 내리기",
+      "chat": "채팅 열기 또는 닫기",
+      "people": "참여자 열기 또는 닫기",
+      "fullscreen": "전체 화면",
+      "closePanel": "사이드 패널 닫기",
+      "shortcuts": "이 목록 보기",
+      "space": "Space"
     },
     "panels": {
       "close": "패널 닫기",
