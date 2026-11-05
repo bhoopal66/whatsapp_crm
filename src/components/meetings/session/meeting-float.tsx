@@ -43,7 +43,9 @@ const ANCHOR: Anchor = { h: 'right', v: 'bottom', dx: 16, dy: 16 };
 const CHROME_HEIGHT = 36 + 48;
 // Grab areas larger than they look, reaching past the rounded edge: a
 // small target missed by a few pixels starts a text selection in the
-// page behind instead. Corners sit above the edges and take the keyboard.
+// page behind instead. Square until focused, because hit-testing honours
+// a radius: the very corner, where people aim, would otherwise be dead.
+// Corners sit above the edges and take the keyboard.
 const CORNERS: Partial<Record<FloatCorner, string>> = {
   nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
   ne: '-top-1.5 -right-1.5 cursor-nesw-resize',
@@ -407,7 +409,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
               {...gripProps(corner)}
               style={{ touchAction: 'none' }}
               className={cn(
-                'focus-visible:bg-ring/60 absolute z-20 flex size-6 items-center justify-center rounded-md outline-none',
+                'focus-visible:bg-ring/60 absolute z-20 flex size-6 items-center justify-center outline-none focus-visible:rounded-md',
                 CORNERS[corner]
               )}
             >
