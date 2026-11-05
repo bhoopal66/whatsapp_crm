@@ -166,10 +166,23 @@ export async function startCapture(
   draw();
   const ticker = createTicker(draw, FRAME_FPS);
   const [videoTrack] = canvas.captureStream(FRAME_FPS).getVideoTracks();
-  const recorder = new MediaRecorder(
-    new MediaStream([videoTrack, ...mix.stream.getAudioTracks()]),
-    { mimeType, videoBitsPerSecond: 1_500_000 }
-  );
+  // Past this point nothing stops these but `stop()`, which a throw never
+  // reaches: the ticker would draw and the context run for the whole visit.
+  const abandon = () => {
+    ticker.stop();
+    videoTrack.stop();
+    void audio.close().catch(() => {});
+  };
+  let recorder: MediaRecorder;
+  try {
+    recorder = new MediaRecorder(
+      new MediaStream([videoTrack, ...mix.stream.getAudioTracks()]),
+      { mimeType, videoBitsPerSecond: 1_500_000 }
+    );
+  } catch (err) {
+    abandon();
+    throw err;
+  }
   let writes: Promise<void> = Promise.resolve();
   let writeError: unknown = null;
   recorder.ondataavailable = (e) => {
@@ -186,7 +199,12 @@ export async function startCapture(
   });
   // It stops itself on an error, and nothing else would notice.
   recorder.onerror = () => onInterrupted();
-  recorder.start(2000);
+  try {
+    recorder.start(2000);
+  } catch (err) {
+    abandon();
+    throw err;
+  }
 
   return {
     setBoxes(next) {
