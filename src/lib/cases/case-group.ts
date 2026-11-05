@@ -26,7 +26,7 @@ export interface CaseGroup {
 }
 
 const MESSAGE_COLUMNS =
-  'id, group_id, direction, sender_user_id, sender_kind, type, body, prefixed_body, media, wa_message_id, wa_timestamp, send_status, post_end, created_at, system_kind';
+  'id, group_id, direction, sender_user_id, sender_wa_id, sender_kind, type, body, prefixed_body, media, wa_message_id, wa_timestamp, send_status, post_end, created_at, system_kind';
 
 /** The case's group in the case's own account, or null. */
 export async function loadCaseGroup(
