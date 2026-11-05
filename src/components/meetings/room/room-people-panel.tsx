@@ -38,7 +38,15 @@ import { InvitePeople } from './invite-people';
 import { RoomHostTools } from './room-host-tools';
 
 /** Everyone in the call, who is still expected, and the host's tools. */
-export function RoomPeoplePanel({ call }: { call: MeetingCall }) {
+export function RoomPeoplePanel({
+  call,
+  inviting,
+  onInviteDone,
+}: {
+  call: MeetingCall;
+  inviting: boolean;
+  onInviteDone: () => void;
+}) {
   const t = useTranslations('MeetingRoom');
   const { nameOf, avatarOf } = useWorkspaceMembers();
   const { profile, user } = useAuth();
@@ -150,7 +158,13 @@ export function RoomPeoplePanel({ call }: { call: MeetingCall }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="space-y-2 px-3 pb-2">
-        <InvitePeople call={call} taken={taken} onInvited={loadDetail} />
+        <InvitePeople
+          call={call}
+          taken={taken}
+          onInvited={loadDetail}
+          requested={inviting}
+          onRequestDone={onInviteDone}
+        />
         {call.canModerate && (
           <RoomHostTools
             call={call}

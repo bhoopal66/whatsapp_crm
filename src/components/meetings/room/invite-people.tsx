@@ -31,11 +31,16 @@ export function InvitePeople({
   call,
   taken,
   onInvited,
+  requested,
+  onRequestDone,
 }: {
   call: MeetingCall;
   /** Who can't be picked: present, invited, removed or the organiser. */
   taken: readonly string[];
   onInvited: () => void;
+  /** The empty room's own Invite button was pressed. */
+  requested: boolean;
+  onRequestDone: () => void;
 }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -54,11 +59,14 @@ export function InvitePeople({
         <UserPlus />
         {t('open')}
       </Button>
-      {open && (
+      {(open || requested) && (
         <InviteDialog
           call={call}
           taken={taken}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            onRequestDone();
+          }}
           onInvited={onInvited}
         />
       )}

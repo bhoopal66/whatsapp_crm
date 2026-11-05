@@ -32,6 +32,8 @@ export interface RoomUiState {
   /** The newest chat line read, for the Chat button's unread badge. */
   chatSeenAt: string | null;
   recorder: RecorderView | null;
+  /** Someone asked for the invite dialog from outside the People panel. */
+  inviting: boolean;
 }
 
 /** The meeting's pop-out window, offered by the layer that holds it. */
@@ -55,6 +57,7 @@ export interface RoomUi {
   setChatSeenAt: (at: string | null) => void;
   setRecorder: (recorder: RecorderView | null) => void;
   setPopout: (popout: RoomPopout | null) => void;
+  setInviting: (inviting: boolean) => void;
 }
 
 export function createRoomUi(): RoomUi {
@@ -68,6 +71,7 @@ export function createRoomUi(): RoomUi {
     chatSeenAt: null,
     recorder: null,
     popout: null,
+    inviting: false,
   };
   const listeners = new Set<() => void>();
   const set = <K extends keyof RoomUiState>(key: K, value: RoomUiState[K]) => {
@@ -87,10 +91,16 @@ export function createRoomUi(): RoomUi {
     setHideSelf: (hide) => set('hideSelf', hide),
     setPinnedKey: (key) => set('pinnedKey', key),
     setPage: (page) => set('page', page),
-    setPanel: (panel) => set('panel', panel),
+    setPanel: (panel) => {
+      set('panel', panel);
+      // The dialog lives in the People panel: a request must not outlive
+      // it and open by itself the next time the panel does.
+      if (panel !== 'people') set('inviting', false);
+    },
     setPanelWidth: (width) => set('panelWidth', width),
     setChatSeenAt: (at) => set('chatSeenAt', at),
     setRecorder: (recorder) => set('recorder', recorder),
     setPopout: (popout) => set('popout', popout),
+    setInviting: (inviting) => set('inviting', inviting),
   };
 }

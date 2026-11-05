@@ -16,8 +16,29 @@ describe('createRoomUi', () => {
       chatSeenAt: null,
       recorder: null,
       popout: null,
+      inviting: false,
     });
   });
+
+  it('holds an invite request while the People panel is open', () => {
+    const ui = createRoomUi();
+    ui.setPanel('people');
+    ui.setInviting(true);
+    expect(ui.getSnapshot().inviting).toBe(true);
+    ui.setPanel('people');
+    expect(ui.getSnapshot().inviting).toBe(true);
+  });
+
+  it.each(['chat', null] as const)(
+    'forgets an invite request when the panel moves to %s',
+    (panel) => {
+      const ui = createRoomUi();
+      ui.setPanel('people');
+      ui.setInviting(true);
+      ui.setPanel(panel);
+      expect(ui.getSnapshot().inviting).toBe(false);
+    }
+  );
 
   it('keeps every field and tells subscribers', () => {
     const ui = createRoomUi();
@@ -40,6 +61,7 @@ describe('createRoomUi', () => {
       chatSeenAt: '2026-11-05T10:00:00Z',
       recorder: null,
       popout: null,
+      inviting: false,
     });
     expect(fn).toHaveBeenCalledTimes(7);
   });

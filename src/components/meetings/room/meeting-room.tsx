@@ -524,7 +524,10 @@ export function LiveRoom({
             onTileSizes={call.setTileSizes}
             openToWorkspace={!!call.meeting?.open_to_workspace}
             isOrganiser={!!user?.id && call.meeting?.host_user_id === user.id}
-            onInvite={() => onOpenPanel('people')}
+            onInvite={() => {
+              onOpenPanel('people');
+              roomUi.setInviting(true);
+            }}
           />
           <FloatingReactions
             reactions={call.reactions}

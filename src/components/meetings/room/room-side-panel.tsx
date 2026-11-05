@@ -90,7 +90,7 @@ export function RoomPanels({
     roomUi.getSnapshot,
     roomUi.getSnapshot
   );
-  const { panel, panelWidth: width, chatSeenAt: seenAt } = ui;
+  const { panel, panelWidth: width, chatSeenAt: seenAt, inviting } = ui;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sounds, setSounds] = useJoinLeaveSounds();
 
@@ -136,7 +136,11 @@ export function RoomPanels({
         seenAt={seenAt}
       />
     ) : panel === 'people' ? (
-      <RoomPeoplePanel call={call} />
+      <RoomPeoplePanel
+        call={call}
+        inviting={inviting}
+        onInviteDone={() => roomUi.setInviting(false)}
+      />
     ) : panel === 'notes' && notesOn ? (
       <RoomNotesPanel meetingId={meetingId} onClose={close} />
     ) : null;
