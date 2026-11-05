@@ -139,8 +139,9 @@ function preferredSlot(key: string): number {
  * Never the order they wrote in: that shifts as the loaded messages slide,
  * and it would repaint the same people from one day to the next. The same
  * senders always get the same colours. Someone coming into or dropping out
- * of the loaded messages can only move the senders they clash with, and a
- * chat with more senders than colours starts round the palette again.
+ * of the loaded messages moves only the senders they clash with and, rarely,
+ * whoever those displace in turn. A chat with more senders than colours
+ * starts round the palette again.
  */
 export function assignSenderColors(
   keys: Iterable<string | null>
