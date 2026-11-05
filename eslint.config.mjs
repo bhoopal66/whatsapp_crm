@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Vendored minified opus-recorder encoder worker (served statically).
     "public/opus/**",
+    // MediaPipe runtime, copied at prebuild (never committed).
+    "public/meeting-effects/wasm/**",
   ]),
 ]);
 

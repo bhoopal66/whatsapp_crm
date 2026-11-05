@@ -191,6 +191,15 @@ const nextConfig: NextConfig = {
         source: '/sw.js',
         headers: [{ key: 'Cache-Control', value: 'no-cache' }],
       },
+      {
+        // Meeting effects: ~15 MB of runtime and model behind a slow
+        // tunnel, which the page rule above would refetch on every use.
+        // A day, not immutable: the names carry no hash. Last so it wins.
+        // Outside the middleware's matcher, so a rotated auth cookie can
+        // never ride on a publicly cacheable response.
+        source: '/meeting-effects/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400' }],
+      },
     ];
   },
 };

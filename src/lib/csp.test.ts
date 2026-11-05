@@ -9,7 +9,8 @@ describe('contentSecurityPolicy', () => {
     expect(contentSecurityPolicy({})).toBe(
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+        "worker-src 'self' blob:",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "media-src 'self' blob: https://*.supabase.co",
@@ -29,7 +30,7 @@ describe('contentSecurityPolicy', () => {
       pbxOrigin: 'pbx.example.com:8088',
     });
     expect(directive(csp, 'script-src')).toBe(
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.example.com"
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.example.com"
     );
     expect(directive(csp, 'connect-src')).toBe(
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rtc.live.cloudflare.com https://db.example.com wss://db.example.com https://pbx.example.com:8088 wss://pbx.example.com:8088"

@@ -133,6 +133,6 @@ export const config = {
   matcher: [
     // sw.js and the web app manifest are fetched by the browser itself
     // (service-worker update checks, install prompts): no session work.
-    '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|meeting-effects/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

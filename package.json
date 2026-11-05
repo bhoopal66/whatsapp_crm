@@ -21,7 +21,9 @@
   },
   "packageManager": "npm@10.9.9",
   "scripts": {
+    "predev": "node scripts/copy-meeting-effects.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-meeting-effects.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

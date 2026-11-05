@@ -51,6 +51,9 @@ next-env.d.ts
 /*.zip
 /bot/
 
+# Copied from node_modules by scripts/copy-meeting-effects.mjs
+public/meeting-effects/wasm/
+
 # TypeSafe Phase 3 eval outputs (scripts/typesafe-eval)
 scripts/typesafe-eval/*.answers*.jsonl
 calibration/

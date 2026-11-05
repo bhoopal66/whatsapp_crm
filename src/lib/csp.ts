@@ -54,7 +54,15 @@ export function contentSecurityPolicy(env: CspEnv): string {
     // Next.js needs 'unsafe-inline' for its inline hydration script
     // and 'unsafe-eval' in dev + some production optimisations.
     // Nonce-based CSP is a later project.
-    join("script-src 'self' 'unsafe-inline' 'unsafe-eval'", sdk),
+    // 'wasm-unsafe-eval': the meeting effects compile WebAssembly, and
+    // must survive a future removal of 'unsafe-eval'.
+    join(
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+      sdk
+    ),
+    // The push worker, and the effects' frame clock: a Blob URL worker,
+    // because a hidden tab throttles every page timer.
+    "worker-src 'self' blob:",
     // Tailwind + inline style attributes on lots of components.
     "style-src 'self' 'unsafe-inline'",
     // Supabase public-bucket avatars, contact avatars (arbitrary
