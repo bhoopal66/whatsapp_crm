@@ -93,6 +93,18 @@ export function unreadCount(
   ).length;
 }
 
+/** The first line a "New messages" divider goes above, or null. */
+export function firstUnreadId(
+  messages: readonly MeetingChatMessage[],
+  seenAt: string | null,
+  selfUserId: string | null
+): string | null {
+  const first = messages.find(
+    (m) => m.userId !== selfUserId && (!seenAt || m.createdAt > seenAt)
+  );
+  return first?.id ?? null;
+}
+
 /** Autoscroll only while the reader is at (or near) the bottom. */
 export function isNearBottom(
   scrollTop: number,

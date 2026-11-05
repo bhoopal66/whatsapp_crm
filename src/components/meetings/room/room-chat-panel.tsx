@@ -12,6 +12,7 @@ import type { MeetingCall } from '@/hooks/use-meeting-call';
 import {
   CHAT_MAX_CHARS,
   chatBodyToSend,
+  firstUnreadId,
   groupChat,
   isNearBottom,
   splitLinks,
@@ -20,6 +21,7 @@ import { chatKeyAction } from '@/lib/meetings/room-ui/keys';
 import { chatCounter } from '@/lib/meetings/room-ui/panels';
 import { cn } from '@/lib/utils';
 
+import { PersonAvatar } from '../person-avatars';
 import { useWorkspaceMembers } from '../use-workspace-members';
 
 /** In-call messages: grouped by author, links made safe, Enter sends. */
@@ -27,14 +29,17 @@ export function RoomChatPanel({
   call,
   onClose,
   autoFocus,
+  seenAt,
 }: {
   call: MeetingCall;
   onClose: () => void;
   autoFocus: boolean;
+  /** The newest line read when the panel opened; it moves on at once. */
+  seenAt: string | null;
 }) {
   const t = useTranslations('MeetingRoom');
   const format = useFormatter();
-  const { nameOf } = useWorkspaceMembers();
+  const { nameOf, avatarOf } = useWorkspaceMembers();
   const { user } = useAuth();
   const selfId = user?.id ?? null;
   const [draft, setDraft] = useState('');
@@ -43,7 +48,17 @@ export function RoomChatPanel({
   const [atBottom, setAtBottom] = useState(true);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
-  const groups = groupChat(call.chat);
+  // Read once: the panel marks everything seen as soon as it opens.
+  const [dividerId] = useState(() => firstUnreadId(call.chat, seenAt, selfId));
+  // Split there, so a run from one person does not hide the divider.
+  const unreadAt = call.chat.findIndex((m) => m.id === dividerId);
+  const groups =
+    unreadAt < 0
+      ? groupChat(call.chat)
+      : [
+          ...groupChat(call.chat.slice(0, unreadAt)),
+          ...groupChat(call.chat.slice(unreadAt)),
+        ];
   const counter = chatCounter(draft.length, CHAT_MAX_CHARS);
 
   const scrollToEnd = () => {
@@ -102,6 +117,11 @@ export function RoomChatPanel({
     userId === selfId
       ? t('panels.chat.you')
       : nameOf(userId) || t('tile.unknown');
+  const personFor = (userId: string) => ({
+    userId,
+    name: nameOf(userId) || t('tile.unknown'),
+    avatarUrl: avatarOf(userId),
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -109,11 +129,11 @@ export function RoomChatPanel({
         <div
           ref={list}
           onScroll={onScroll}
-          className="h-full overflow-y-auto px-4 pb-2"
+          className="h-full overflow-y-auto px-2 pb-2"
           role="log"
           aria-live="polite"
         >
-          <p className="bg-muted text-muted-foreground mb-3 rounded-md p-2 text-center text-xs">
+          <p className="text-muted-foreground mb-2 px-2 text-center text-[11px]">
             {t('panels.chat.hint')}
           </p>
           {groups.length === 0 && (
@@ -122,42 +142,63 @@ export function RoomChatPanel({
             </p>
           )}
           {groups.map((g) => (
-            <div key={g.key} className="mb-3">
-              <div className="flex items-baseline gap-2 text-xs">
-                <span className="truncate font-medium">
-                  {nameFor(g.userId)}
-                </span>
-                <time
-                  dateTime={g.startedAt}
-                  className="text-muted-foreground shrink-0"
+            <div key={g.key}>
+              {g.key === dividerId && (
+                <div
+                  className="text-primary my-2 flex items-center gap-2 px-2 text-[11px] font-medium"
+                  role="separator"
                 >
-                  {format.dateTime(new Date(g.startedAt), {
-                    timeStyle: 'short',
-                  })}
-                </time>
+                  <span className="bg-primary/40 h-px flex-1" />
+                  {t('panels.chat.newMessages')}
+                  <span className="bg-primary/40 h-px flex-1" />
+                </div>
+              )}
+              <div
+                className={cn(
+                  'mb-1 flex gap-2 rounded-xl p-2',
+                  g.userId === selfId && 'bg-primary/10'
+                )}
+                data-chat-group
+              >
+                <PersonAvatar person={personFor(g.userId)} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2 text-xs">
+                    <span className="truncate font-medium">
+                      {nameFor(g.userId)}
+                    </span>
+                    <time
+                      dateTime={g.startedAt}
+                      className="text-muted-foreground shrink-0"
+                    >
+                      {format.dateTime(new Date(g.startedAt), {
+                        timeStyle: 'short',
+                      })}
+                    </time>
+                  </div>
+                  {g.messages.map((m) => (
+                    <p
+                      key={m.id}
+                      className="mt-0.5 text-sm break-words whitespace-pre-wrap"
+                    >
+                      {splitLinks(m.body).map((part, i) =>
+                        part.type === 'link' ? (
+                          <a
+                            key={i}
+                            href={part.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary break-all underline"
+                          >
+                            {part.text}
+                          </a>
+                        ) : (
+                          <span key={i}>{part.text}</span>
+                        )
+                      )}
+                    </p>
+                  ))}
+                </div>
               </div>
-              {g.messages.map((m) => (
-                <p
-                  key={m.id}
-                  className="mt-0.5 text-sm break-words whitespace-pre-wrap"
-                >
-                  {splitLinks(m.body).map((part, i) =>
-                    part.type === 'link' ? (
-                      <a
-                        key={i}
-                        href={part.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary break-all underline"
-                      >
-                        {part.text}
-                      </a>
-                    ) : (
-                      <span key={i}>{part.text}</span>
-                    )
-                  )}
-                </p>
-              ))}
             </div>
           ))}
         </div>

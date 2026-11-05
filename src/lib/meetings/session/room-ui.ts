@@ -6,7 +6,7 @@ import { PANEL_DEFAULT_WIDTH } from '@/lib/meetings/room-ui/panels';
 import type { LayoutMode } from '@/lib/meetings/room-ui/stage';
 
 /** The side panels the room opens and toggles. */
-export type RoomPanel = 'chat' | 'people';
+export type RoomPanel = 'chat' | 'people' | 'notes';
 
 export interface RoomUiState {
   layout: LayoutMode;

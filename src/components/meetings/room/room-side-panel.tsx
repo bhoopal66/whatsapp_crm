@@ -1,6 +1,12 @@
 'use client';
 
-import { MessageSquare, Users, X, type LucideIcon } from 'lucide-react';
+import {
+  MessageSquare,
+  NotebookPen,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   useCallback,
@@ -32,6 +38,7 @@ import type { RoomPanel, RoomUi } from '@/lib/meetings/session/room-ui';
 
 import type { LiveRoomProps } from './meeting-room';
 import { RoomChatPanel } from './room-chat-panel';
+import { RoomNotesPanel, useNotesAvailable } from './room-notes-panel';
 import { RoomPeoplePanel } from './room-people-panel';
 import { RoomSettingsDialog } from './room-settings-dialog';
 import { useJoinLeaveSounds } from './use-join-leave-sounds';
@@ -107,12 +114,28 @@ export function RoomPanels({
   const onOpenSettings = useCallback(() => setSettingsOpen(true), []);
   const close = useCallback(() => roomUi.setPanel(null), [roomUi]);
 
-  const title = panel === 'chat' ? t('chat.title') : t('people.title');
+  const meetingId = call.meeting?.id ?? null;
+  const notesAvailable = useNotesAvailable(meetingId);
+  const notesOn = notesAvailable !== false && meetingId !== null;
+
+  const title =
+    panel === 'chat'
+      ? t('chat.title')
+      : panel === 'notes'
+        ? t('notes.title')
+        : t('people.title');
   const body =
     panel === 'chat' ? (
-      <RoomChatPanel call={call} onClose={close} autoFocus={!phone} />
+      <RoomChatPanel
+        call={call}
+        onClose={close}
+        autoFocus={!phone}
+        seenAt={seenAt}
+      />
     ) : panel === 'people' ? (
       <RoomPeoplePanel call={call} />
+    ) : panel === 'notes' && notesOn ? (
+      <RoomNotesPanel meetingId={meetingId} onClose={close} />
     ) : null;
 
   const tabs: PanelTab[] = [
@@ -128,6 +151,15 @@ export function RoomPanels({
       Icon: MessageSquare,
       unread: chatUnread,
     },
+    ...(notesOn
+      ? [
+          {
+            id: 'notes' as const,
+            label: t('tabs.notes'),
+            Icon: NotebookPen,
+          },
+        ]
+      : []),
   ];
   const card = panel && (
     <PanelCard

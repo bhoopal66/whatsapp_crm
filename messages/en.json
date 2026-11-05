@@ -6624,7 +6624,8 @@
       "tabs": {
         "people": "People",
         "chat": "Chat",
-        "unread": "{label}, {count} unread"
+        "unread": "{label}, {count} unread",
+        "notes": "Notes"
       },
       "host": {
         "muteAll": "Mute everyone",
@@ -6677,7 +6678,8 @@
         "sendFailed": "Your message wasn't sent. If you're sending quickly, wait a moment and try again.",
         "you": "You",
         "jump": "Jump to latest",
-        "counter": "{count} / {max}"
+        "counter": "{count} / {max}",
+        "newMessages": "New messages"
       },
       "settings": {
         "title": "Settings",
@@ -6686,7 +6688,11 @@
         "testing": "Playing…",
         "testFailed": "Couldn't play the test sound in this browser.",
         "sounds": "Join and leave sounds",
-        "soundsHint": "Play a soft sound when someone joins or leaves."
+        "soundsHint": "Play a soft sound when someone joins or leaves.",
+        "audio": "Audio",
+        "video": "Video",
+        "general": "General",
+        "cameraOff": "Your camera is off"
       },
       "notices": {
         "joined": "{name} joined",
@@ -6700,6 +6706,28 @@
         "recordingStopped": "Recording stopped. This meeting is no longer being recorded.",
         "meetingLocked": "The meeting is locked. Nobody new can join.",
         "meetingUnlocked": "The meeting is unlocked. People can join again."
+      },
+      "notes": {
+        "title": "Meeting notes",
+        "placeholder": "Agenda, decisions, action items…",
+        "saved": "Saved",
+        "saving": "Saving…",
+        "retrying": "Couldn't save, retrying",
+        "loading": "Loading…",
+        "closed": "This meeting has ended, so changes can’t be saved. Copy them to keep them.",
+        "tooLong": "Too long to save. Shorten the notes to go on.",
+        "editedBy": "Edited by {name} {when}",
+        "someone": "Someone",
+        "updatedBy": "{name} updated these notes",
+        "seeTheirs": "See their version",
+        "keepMine": "Keep mine",
+        "confirmTitle": "Replace your text with their version?",
+        "confirmBody": "What you typed since the last save will be gone.",
+        "confirmAction": "Show their version",
+        "copy": "Copy all notes",
+        "copied": "Notes copied",
+        "copyFailed": "Couldn't copy the notes.",
+        "counter": "{count} / {max}"
       }
     },
     "removedPeople": {

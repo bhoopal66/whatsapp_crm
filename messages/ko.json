@@ -6624,7 +6624,8 @@
       "tabs": {
         "people": "참여자",
         "chat": "채팅",
-        "unread": "{label}, 읽지 않음 {count}개"
+        "unread": "{label}, 읽지 않음 {count}개",
+        "notes": "메모"
       },
       "host": {
         "muteAll": "모두 음소거",
@@ -6677,7 +6678,8 @@
         "sendFailed": "메시지를 보내지 못했습니다. 빠르게 보내는 중이라면 잠시 후 다시 시도하세요.",
         "you": "나",
         "jump": "최신 메시지로 이동",
-        "counter": "{count} / {max}"
+        "counter": "{count} / {max}",
+        "newMessages": "새 메시지"
       },
       "settings": {
         "title": "설정",
@@ -6686,7 +6688,11 @@
         "testing": "재생 중…",
         "testFailed": "이 브라우저에서 테스트 소리를 재생할 수 없습니다.",
         "sounds": "입장 및 퇴장 알림음",
-        "soundsHint": "누군가 입장하거나 퇴장하면 부드러운 소리를 재생합니다."
+        "soundsHint": "누군가 입장하거나 퇴장하면 부드러운 소리를 재생합니다.",
+        "audio": "오디오",
+        "video": "비디오",
+        "general": "일반",
+        "cameraOff": "카메라가 꺼져 있습니다"
       },
       "notices": {
         "joined": "{name}님이 참여했습니다",
@@ -6700,6 +6706,28 @@
         "recordingStopped": "녹화가 중지되었습니다. 이 회의는 더 이상 녹화되지 않습니다.",
         "meetingLocked": "회의가 잠겼습니다. 새로운 참가자는 입장할 수 없습니다.",
         "meetingUnlocked": "회의 잠금이 해제되었습니다. 다시 입장할 수 있습니다."
+      },
+      "notes": {
+        "title": "회의 메모",
+        "placeholder": "안건, 결정 사항, 할 일…",
+        "saved": "저장됨",
+        "saving": "저장 중…",
+        "retrying": "저장하지 못했습니다. 다시 시도하는 중",
+        "loading": "불러오는 중…",
+        "closed": "회의가 종료되어 변경 내용을 저장할 수 없습니다. 보관하려면 복사하세요.",
+        "tooLong": "너무 길어서 저장할 수 없습니다. 메모를 줄여 주세요.",
+        "editedBy": "{name}님이 {when} 수정함",
+        "someone": "다른 사용자",
+        "updatedBy": "{name}님이 이 메모를 수정했습니다",
+        "seeTheirs": "상대방 버전 보기",
+        "keepMine": "내 버전 유지",
+        "confirmTitle": "내 글을 상대방 버전으로 바꿀까요?",
+        "confirmBody": "마지막 저장 이후 입력한 내용은 사라집니다.",
+        "confirmAction": "상대방 버전 표시",
+        "copy": "메모 전체 복사",
+        "copied": "메모를 복사했습니다",
+        "copyFailed": "메모를 복사하지 못했습니다.",
+        "counter": "{count} / {max}"
       }
     },
     "removedPeople": {

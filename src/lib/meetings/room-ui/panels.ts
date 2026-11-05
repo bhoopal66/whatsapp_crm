@@ -10,7 +10,7 @@ import type {
 import { clampPanelWidth } from './keys';
 import { handRaisedAtOf, orderPeople } from './people';
 
-export type RoomPanelKind = 'chat' | 'people';
+export type RoomPanelKind = 'chat' | 'people' | 'notes';
 
 /** Phones get the panel as a bottom sheet instead of a column. */
 export const PHONE_MEDIA_QUERY = '(max-width: 640px)';
