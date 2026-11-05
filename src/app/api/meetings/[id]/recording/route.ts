@@ -1,11 +1,16 @@
 // ============================================================
-// POST /api/meetings/[id]/recording — `{ recording }` →
+// POST /api/meetings/[id]/recording — `{ recording, force? }` →
 // `{ ok, recording_started_at, recording_by }` (176).
 // Starting is for the host, an owner or an admin (`meeting_can_manage`,
 // caller's client); stopping also for the person recording, who may have
 // lost that since. One recording at a time: starting over someone else's
 // answers 409 `already_recording`, and starting your own again changes
-// nothing. The service role writes.
+// nothing. `{ recording: false }` stops the caller's own recording and
+// nobody else's: a save can finish long after the flag was cleared and
+// another manager started, so a late stop must find nothing to clear.
+// That answers ok with the row as it stands. `force` is a manager
+// clearing someone else's flag, a crashed recorder's. The service role
+// writes.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -32,7 +37,10 @@ export async function POST(request: Request, { params }: Params) {
     const { supabase, accountId, userId } = await requireMeetingsUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
-    const body = (await readJson(request)) as { recording?: unknown } | null;
+    const body = (await readJson(request)) as {
+      recording?: unknown;
+      force?: unknown;
+    } | null;
     if (typeof body?.recording !== 'boolean') {
       return jsonError('recording must be true or false', 400);
     }
@@ -74,13 +82,14 @@ export async function POST(request: Request, { params }: Params) {
       .eq('id', id)
       .eq('account_id', accountId)
       .eq('status', 'scheduled');
-    // Compare-and-set on a start: of two racing managers, one wins. Someone
-    // stopping their own, without manage rights, clears only their own:
-    // a newer recording by someone else must keep its indicator.
+    // Compare-and-set on a start: of two racing managers, one wins. A stop
+    // clears only the caller's own, so a newer recording by someone else
+    // keeps its indicator, unless a manager forces it.
+    const forced = body.force === true && canManage.allowed;
     const { data, error } = await (
       recording
         ? write.is('recording_started_at', null)
-        : canManage.allowed
+        : forced
           ? write
           : write.eq('recording_by', userId)
     )
@@ -92,8 +101,18 @@ export async function POST(request: Request, { params }: Params) {
         meetingDbErrorResponse(error, 'Failed to change the recording')
       );
     }
+    if (!data && recording) return jsonError('already_recording', 409);
     if (!data) {
-      return jsonError(recording ? 'already_recording' : CLOSED, 409);
+      // Nothing of ours to clear, or the meeting closed meanwhile. The
+      // client takes this answer as the row, so it says what stands now.
+      const now = await loadMeeting(supabase, accountId, id);
+      if (now.error) return readErrorResponse(now.error);
+      if (now.meeting?.status !== 'scheduled') return jsonError(CLOSED, 409);
+      return NextResponse.json({
+        ok: true,
+        recording_started_at: now.meeting.recording_started_at ?? null,
+        recording_by: now.meeting.recording_by ?? null,
+      });
     }
     return NextResponse.json({ ok: true, ...values });
   } catch (err) {

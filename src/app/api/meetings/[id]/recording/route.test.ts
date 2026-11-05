@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   update: vi.fn(),
   filters: [] as string[],
+  /** Whose flag a stop was confined to. */
+  owners: [] as string[],
   meeting: null as unknown,
+  /** Successive reads, when a test needs the row to change between them. */
+  reads: [] as unknown[],
   written: { data: { id: 'm' } as unknown, error: null as unknown },
 }));
 
@@ -22,7 +26,10 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
     from: () => {
       const q: Record<string, unknown> = {};
       q.update = (v: unknown) => (mocks.update(v), q);
-      q.eq = () => q;
+      q.eq = (c: string, v: string) => {
+        if (c === 'recording_by') mocks.owners.push(v);
+        return q;
+      };
       q.is = (c: string) => (mocks.filters.push(c), q);
       q.select = () => q;
       q.maybeSingle = async () => mocks.written;
@@ -42,7 +49,10 @@ function from() {
   const q: Record<string, unknown> = {};
   q.select = () => q;
   q.eq = () => q;
-  q.maybeSingle = async () => ({ data: mocks.meeting, error: null });
+  q.maybeSingle = async () => ({
+    data: mocks.reads.length ? mocks.reads.shift() : mocks.meeting,
+    error: null,
+  });
   return q;
 }
 
@@ -57,6 +67,8 @@ describe('POST /api/meetings/[id]/recording', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.filters = [];
+    mocks.owners = [];
+    mocks.reads = [];
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
       userId: 'host-1',
@@ -117,13 +129,14 @@ describe('POST /api/meetings/[id]/recording', () => {
     expect(mocks.update).not.toHaveBeenCalled();
   });
 
-  it('lets any manager stop someone else’s recording', async () => {
+  it('lets a manager force someone else’s flag clear', async () => {
     mocks.meeting = {
       ...OPEN,
       recording_started_at: ON,
       recording_by: 'admin-2',
     };
-    expect(await (await record({ recording: false })).json()).toEqual({
+    const res = await record({ recording: false, force: true });
+    expect(await res.json()).toEqual({
       ok: true,
       recording_started_at: null,
       recording_by: null,
@@ -133,6 +146,56 @@ describe('POST /api/meetings/[id]/recording', () => {
       recording_by: null,
     });
     expect(mocks.filters).toEqual([]);
+    expect(mocks.owners).toEqual([]);
+  });
+
+  it('a stop clears only the caller’s own recording', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'host-1',
+    };
+    expect((await record({ recording: false })).status).toBe(200);
+    expect(mocks.owners).toEqual(['host-1']);
+  });
+
+  it('a late stop leaves a newer recording standing, and says so', async () => {
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'admin-2',
+    };
+    mocks.written = { data: null, error: null };
+    const res = await record({ recording: false });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      recording_started_at: ON,
+      recording_by: 'admin-2',
+    });
+    expect(mocks.owners).toEqual(['host-1']);
+  });
+
+  it('a stop with nothing to clear is ok', async () => {
+    mocks.written = { data: null, error: null };
+    const res = await record({ recording: false });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      recording_started_at: null,
+      recording_by: null,
+    });
+  });
+
+  it('ignores force from someone who cannot manage', async () => {
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    mocks.meeting = {
+      ...OPEN,
+      recording_started_at: ON,
+      recording_by: 'host-1',
+    };
+    await record({ recording: false, force: true });
+    expect(mocks.owners).toEqual(['host-1']);
   });
 
   it('lets the person recording stop after losing manage rights', async () => {
@@ -176,6 +239,7 @@ describe('POST /api/meetings/[id]/recording', () => {
 
   it('answers 409 when a stop finds the meeting closed by then', async () => {
     mocks.written = { data: null, error: null };
+    mocks.reads = [OPEN, { ...OPEN, status: 'ended' }];
     const res = await record({ recording: false });
     expect(res.status).toBe(409);
     expect((await res.json()).error).not.toBe('already_recording');
