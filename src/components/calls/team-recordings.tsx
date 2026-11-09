@@ -36,7 +36,7 @@ import { canViewAllCalls } from '@/lib/auth/roles';
 import { checkCustomDays } from '@/lib/pbx/call-report';
 import { formatDuration } from '@/lib/pbx/call-stats';
 import { mergeCalls, periodButtons } from '@/lib/pbx/call-stats-ui';
-import { OUTCOMES, maskPhone } from '@/lib/pbx/call-ui';
+import { OUTCOMES, newContactPhone } from '@/lib/pbx/call-ui';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import { clock, dayKey } from '@/lib/pbx/timeline';
 import {
@@ -653,10 +653,12 @@ export function TeamRecordings() {
         : kind === 'outbound'
           ? PhoneOutgoing
           : ArrowLeftRight;
-    const who =
-      c.contactName?.trim() ||
-      maskPhone(c.remoteNumber) ||
-      t('list.unknownNumber');
+    // The customer's number is shown whole, beside their name when known.
+    const name = c.contactName?.trim() || null;
+    const number = c.remoteNumber?.trim()
+      ? newContactPhone(c.remoteNumber.trim())
+      : null;
+    const who = name || number || t('list.unknownNumber');
     const outcome =
       c.disposition && (OUTCOMES as readonly string[]).includes(c.disposition)
         ? tOutcome(c.disposition)
@@ -692,6 +694,12 @@ export function TeamRecordings() {
                 </Link>
               ) : (
                 <span>{who}</span>
+              )}
+              {name && number && (
+                <span className="text-muted-foreground tabular-nums">
+                  {' '}
+                  · {number}
+                </span>
               )}
             </p>
             {c.notes && (

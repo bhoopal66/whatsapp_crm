@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Team recordings show the customer's number
+
+- The Team recordings page (`/calls/recordings`) now shows each call's
+  full phone number, after the customer's name when the number belongs
+  to a contact. It used to show a contact's name only, and a masked
+  number (`+971 •••• 4567`) otherwise.
+
 ### Contacts list no longer fails to load for agents and team leaders
 
 - **Migration required:** apply `supabase/migrations/177_contacts_select_set_based.sql`.
