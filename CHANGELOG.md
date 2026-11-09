@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Contacts list no longer fails to load for agents and team leaders
+
+- **Migration required:** apply `supabase/migrations/177_contacts_select_set_based.sql`.
+- The Contacts screen often said "Failed to load contacts" for anyone
+  below admin, more often the bigger the workspace's contact list: the
+  database checked who may see each contact one at a time and ran out of
+  time. It now works that out once per request. Who sees which contact
+  has not changed.
+
 ### Video meetings: invites pop up and ring
 
 - When you're invited to a meeting that's happening now, a pop-up with a

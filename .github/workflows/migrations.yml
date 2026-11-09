@@ -786,3 +786,11 @@ jobs:
       # backfill skips ENDED and 'absent' rows and is idempotent.
       - name: Verify submission group membership
         run: supabase db query --local --file supabase/ci/verify-submission-group-membership.sql
+
+      # Migration 177: contacts_select computes visibility as sets
+      # (contact_visibility_people / _chat_contact_ids) and shows each
+      # role exactly what can_view_contact allows, compared per person
+      # and against a hand-written expectation; an agent's INSERT ...
+      # RETURNING of their own contact still passes.
+      - name: Verify contacts select set-based
+        run: supabase db query --local --file supabase/ci/verify-contacts-select-set-based.sql
