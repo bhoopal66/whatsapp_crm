@@ -619,6 +619,27 @@ export class SubmissionGroupStore {
     );
   }
 
+  /**
+   * The bigint id of an inbound row, read after `recordInbound` (whose
+   * RPC answers only true/false). A read, never a write: the service
+   * role only reads this RLS-forced table. Null if there is no such row.
+   */
+  async inboundMessageId(
+    groupId: string,
+    waMessageId: string
+  ): Promise<number | null> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('wa_message_id', waMessageId)
+      .eq('direction', 'in')
+      .maybeSingle();
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    const id = Number((data as Row | null)?.id);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+
   /** True if this call ended the group. */
   async end(groupId: string, reason: string): Promise<boolean> {
     return (

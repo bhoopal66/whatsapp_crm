@@ -46,6 +46,7 @@ function fakeStore(over: Partial<InboundStore> = {}) {
     hasWaMessage: vi.fn(async () => false),
     pendingOutMatching: vi.fn(async (): Promise<string[]> => ['41']),
     settleSend: vi.fn(async () => true),
+    inboundMessageId: vi.fn(async (): Promise<number | null> => 9001),
     ...over,
   } satisfies InboundStore;
 }
@@ -305,6 +306,135 @@ describe('recordSubmissionGroupInbound', () => {
       );
       err.mockRestore();
       expect(out).toMatchObject({ recorded: 1, failed: 0 });
+    });
+  });
+
+  describe('customer document hook', () => {
+    const pdf = {
+      id: 'media-1',
+      link: 'https://gate.whapi.cloud/media/media-1',
+      mime_type: 'application/pdf',
+      filename: 'salary.pdf',
+      file_size: 1234,
+    };
+    const docMsg = (over: Partial<GroupInboundMessage> = {}) =>
+      msg({ type: 'document', body: 'my salary', media: pdf, ...over });
+    const slaHook = () => ({
+      caseIdForGroup: vi.fn(async () => 'case-1'),
+      customerMessage: vi.fn(async () => 'on_track'),
+    });
+
+    it("files a customer's document once with the new row's id", async () => {
+      const store = fakeStore();
+      const customerDocument = vi.fn(async () => 'TC-000001');
+      const out = await recordSubmissionGroupInbound(
+        store,
+        channel,
+        [docMsg()],
+        { customerDocument }
+      );
+      expect(out).toMatchObject({ recorded: 1, duplicates: 0, failed: 0 });
+      expect(store.inboundMessageId).toHaveBeenCalledWith('sg-1', 'm-1');
+      expect(customerDocument).toHaveBeenCalledTimes(1);
+      expect(customerDocument).toHaveBeenCalledWith({
+        accountId: 'acc-1',
+        contactId: 'contact-1',
+        groupId: 'sg-1',
+        groupMessageId: 9001,
+        waMessageId: 'm-1',
+        kind: 'document',
+        media: pdf,
+        caption: 'my salary',
+        sentAt: '2026-10-16T10:00:00.000Z',
+      });
+    });
+
+    it("files a customer's photo", async () => {
+      const customerDocument = vi.fn(async () => 'TC-000001');
+      const photo = {
+        id: 'media-2',
+        link: 'https://x/p.jpg',
+        mime_type: 'image/jpeg',
+      };
+      await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [msg({ type: 'image', body: null, media: photo })],
+        { customerDocument }
+      );
+      expect(customerDocument).toHaveBeenCalledTimes(1);
+      expect(customerDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'image', media: photo, caption: null })
+      );
+    });
+
+    it('files nothing for a sticker, an audio, staff, a duplicate or a group without a contact', async () => {
+      const customerDocument = vi.fn(async () => 'TC-000001');
+      await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [
+          docMsg({ id: 's', type: 'sticker' }),
+          docMsg({ id: 'a', type: 'audio' }),
+          docMsg({ id: 'n', media: null }),
+          docMsg({ id: 'c', senderWaId: '971550000002' }),
+          docMsg({ id: 'o', senderWaId: '971509999999' }),
+        ],
+        { customerDocument }
+      );
+      await recordSubmissionGroupInbound(
+        fakeStore({ recordInbound: vi.fn(async () => false) }),
+        channel,
+        [docMsg()],
+        { customerDocument }
+      );
+      await recordSubmissionGroupInbound(
+        fakeStore({
+          findByWaGroupId: vi.fn(async () => ({ ...group, contactId: null })),
+        }),
+        channel,
+        [docMsg()],
+        { customerDocument }
+      );
+      expect(customerDocument).not.toHaveBeenCalled();
+    });
+
+    it('a throwing or rejecting hook changes no count and no SLA call', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const throwing = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const rejecting = vi.fn(async () => {
+        throw new Error('storage down');
+      });
+      const lookupFails = fakeStore({
+        inboundMessageId: vi.fn(async () => {
+          throw new Error('db down');
+        }),
+      });
+      for (const [store, customerDocument] of [
+        [fakeStore(), throwing],
+        [fakeStore(), rejecting],
+        [lookupFails, rejecting],
+      ] as const) {
+        const caseSla = slaHook();
+        const out = await recordSubmissionGroupInbound(
+          store,
+          channel,
+          [docMsg(), docMsg({ id: 'm-2' })],
+          { caseSla, customerDocument }
+        );
+        expect(out).toEqual({
+          recorded: 2,
+          reconciled: 0,
+          duplicates: 0,
+          failed: 0,
+        });
+        expect(caseSla.customerMessage).toHaveBeenCalledTimes(2);
+      }
+      expect(throwing).toHaveBeenCalledTimes(2);
+      expect(rejecting).toHaveBeenCalledTimes(2);
+      err.mockRestore();
     });
   });
 });

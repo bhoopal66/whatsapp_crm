@@ -19,13 +19,9 @@ export function customerDocumentKind(
   return null;
 }
 
-export interface CustomerDocumentInput {
+interface CustomerDocumentFields {
   accountId: string;
   contactId: string;
-  conversationId: string;
-  /** The `messages` row id, not the WhatsApp message id. */
-  messageRowId: string;
-  source: 'chat';
   kind: CustomerDocumentKind | null;
   /** The durable URL stored on the message row. */
   mediaUrl: string | null;
@@ -34,6 +30,48 @@ export interface CustomerDocumentInput {
   caption: string | null;
   /** ISO timestamp, the same one written to the row's `created_at`. */
   receivedAt: string;
+}
+
+/** A document from the customer's 1:1 chat. */
+export interface ChatCustomerDocumentInput extends CustomerDocumentFields {
+  source: 'chat';
+  conversationId: string;
+  /** The `messages` row id, not the WhatsApp message id. */
+  messageRowId: string;
+}
+
+/** A document the customer sent into their submission group (115). */
+export interface GroupCustomerDocumentInput extends CustomerDocumentFields {
+  source: 'submission_group';
+  /** The `submission_group_messages` row id (bigint identity). */
+  groupMessageId: number;
+}
+
+export type CustomerDocumentInput =
+  ChatCustomerDocumentInput | GroupCustomerDocumentInput;
+
+/** The ids the RPC takes for this source, and the one the log line names. */
+function sourceArgs(input: CustomerDocumentInput): {
+  ids: Record<string, string | number | null>;
+  label: string;
+} {
+  if (input.source === 'submission_group') {
+    return {
+      ids: {
+        p_conversation_id: null,
+        p_message_id: null,
+        p_group_message_id: input.groupMessageId,
+      },
+      label: `group message ${input.groupMessageId}`,
+    };
+  }
+  return {
+    ids: {
+      p_conversation_id: input.conversationId,
+      p_message_id: input.messageRowId,
+    },
+    label: `message ${input.messageRowId}`,
+  };
 }
 
 function blankToNull(value: string | null): string | null {
@@ -56,6 +94,7 @@ export async function recordCustomerDocument(
   if (!input.kind) return null;
   const mediaUrl = blankToNull(input.mediaUrl);
   if (!mediaUrl) return null;
+  const { ids, label } = sourceArgs(input);
 
   try {
     const { data, error } = await admin.rpc('customer_documents_record', {
@@ -65,22 +104,21 @@ export async function recordCustomerDocument(
       p_kind: input.kind,
       p_media_url: mediaUrl,
       p_received_at: input.receivedAt,
-      p_conversation_id: input.conversationId,
-      p_message_id: input.messageRowId,
+      ...ids,
       p_mime: blankToNull(input.mime),
       p_original_name: blankToNull(input.originalName),
       p_caption: blankToNull(input.caption),
     });
     if (error) {
       console.error(
-        `[customer-docs] record failed for message ${input.messageRowId}: ${error.message}`
+        `[customer-docs] record failed for ${label}: ${error.message}`
       );
       return null;
     }
     return typeof data === 'string' ? data : null;
   } catch (err) {
     console.error(
-      `[customer-docs] record failed for message ${input.messageRowId}: ${
+      `[customer-docs] record failed for ${label}: ${
         err instanceof Error ? err.message : String(err)
       }`
     );

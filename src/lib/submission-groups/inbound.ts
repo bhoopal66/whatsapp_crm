@@ -36,7 +36,33 @@ export type InboundStore = Pick<
   | 'hasWaMessage'
   | 'pendingOutMatching'
   | 'settleSend'
+  | 'inboundMessageId'
 >;
+
+/**
+ * A document or photo the customer sent into their submission group, to
+ * be filed in their documents folder (migration 178). `groupMessageId`
+ * is the new `submission_group_messages` row's id.
+ */
+export interface GroupCustomerDocument {
+  accountId: string;
+  contactId: string;
+  groupId: string;
+  groupMessageId: number;
+  /** WhatsApp's message id (the mirror's fallback object name). */
+  waMessageId: string;
+  kind: 'document' | 'image';
+  /** `{ id, link, mime_type, filename, file_size }` as the webhook carried it. */
+  media: Record<string, unknown>;
+  caption: string | null;
+  /** ISO time WhatsApp stamped the message with. */
+  sentAt: string;
+}
+
+/** Files one customer document; the caller isolates its failures. */
+export type GroupCustomerDocumentHook = (
+  doc: GroupCustomerDocument
+) => Promise<unknown>;
 
 /**
  * The case SLA hook (module 018c): a NEW message from the customer is the
@@ -89,7 +115,11 @@ export async function recordSubmissionGroupInbound(
   store: InboundStore,
   channel: Pick<GroupChannel, 'id' | 'accountId'>,
   messages: readonly GroupInboundMessage[],
-  opts: { now?: () => Date; caseSla?: CaseSlaHook } = {}
+  opts: {
+    now?: () => Date;
+    caseSla?: CaseSlaHook;
+    customerDocument?: GroupCustomerDocumentHook;
+  } = {}
 ): Promise<InboundOutcome> {
   const out: InboundOutcome = {
     recorded: 0,
@@ -146,6 +176,27 @@ export async function recordSubmissionGroupInbound(
       else out.duplicates++;
       if (recorded && senderKind === 'customer' && opts.caseSla)
         await customerMessageSla(opts.caseSla, caseIds, group.id, m.id);
+      // Only a NEW customer message files a document, so a redelivery
+      // files nothing twice. Exactly 'document' or 'image': a sticker is
+      // not a photo.
+      if (
+        recorded &&
+        senderKind === 'customer' &&
+        contactId &&
+        m.media &&
+        (m.type === 'document' || m.type === 'image') &&
+        opts.customerDocument
+      )
+        await fileCustomerDocument(store, opts.customerDocument, {
+          accountId: channel.accountId,
+          contactId,
+          groupId: group.id,
+          waMessageId: m.id,
+          kind: m.type,
+          media: m.media,
+          caption: m.body,
+          sentAt: m.sentAt,
+        });
     } catch (error) {
       out.failed++;
       console.error(
@@ -210,6 +261,31 @@ export async function recordSubmissionGroupMembership(
     }
   }
   return failed;
+}
+
+/**
+ * Hands a customer's document to the filing hook; never throws, so it
+ * never changes the delivery's counts. The log line names ids only: no
+ * URL, file name or customer text.
+ */
+async function fileCustomerDocument(
+  store: InboundStore,
+  hook: GroupCustomerDocumentHook,
+  doc: Omit<GroupCustomerDocument, 'groupMessageId'>
+): Promise<void> {
+  try {
+    const groupMessageId = await store.inboundMessageId(
+      doc.groupId,
+      doc.waMessageId
+    );
+    if (groupMessageId === null) return;
+    await hook({ ...doc, groupMessageId });
+  } catch (error) {
+    console.error(
+      `[customer-docs] group document for inbound ${doc.waMessageId} of group ${doc.groupId} failed:`,
+      error instanceof Error ? error.message : 'unknown error'
+    );
+  }
 }
 
 /** The customer_message SLA event on the group's case, if any; never throws. */

@@ -154,3 +154,75 @@ describe('recordCustomerDocument', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 });
+
+describe('recordCustomerDocument for a submission group', () => {
+  const groupInput: CustomerDocumentInput = {
+    source: 'submission_group',
+    accountId: 'acct-1',
+    contactId: 'contact-1',
+    groupMessageId: 4321,
+    kind: 'image',
+    mediaUrl: 'https://db.example.com/storage/v1/object/public/p.jpg',
+    mime: 'image/jpeg',
+    originalName: null,
+    caption: 'front of my ID',
+    receivedAt: '2025-10-09T08:53:20.000Z',
+  };
+
+  it('sends the group message id and null chat ids', async () => {
+    const { rpc, admin } = fakeAdmin(async () => ({
+      data: 'TC-000124',
+      error: null,
+    }));
+
+    await expect(recordCustomerDocument(admin, groupInput)).resolves.toBe(
+      'TC-000124'
+    );
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls[0]).toStrictEqual([
+      'customer_documents_record',
+      {
+        p_account_id: 'acct-1',
+        p_contact_id: 'contact-1',
+        p_source: 'submission_group',
+        p_kind: 'image',
+        p_media_url: 'https://db.example.com/storage/v1/object/public/p.jpg',
+        p_received_at: '2025-10-09T08:53:20.000Z',
+        p_conversation_id: null,
+        p_message_id: null,
+        p_group_message_id: 4321,
+        p_mime: 'image/jpeg',
+        p_original_name: null,
+        p_caption: 'front of my ID',
+      },
+    ]);
+  });
+
+  it('never sends a group message id on the chat path', async () => {
+    const { rpc, admin } = fakeAdmin(async () => ({
+      data: 'TC-000123',
+      error: null,
+    }));
+
+    await recordCustomerDocument(admin, input);
+
+    expect(Object.keys(rpc.mock.calls[0][1] as object)).not.toContain(
+      'p_group_message_id'
+    );
+  });
+
+  it('logs the group message id only when the RPC fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { admin } = fakeAdmin(async () => ({
+      data: null,
+      error: { message: 'contact not found' },
+    }));
+
+    await expect(recordCustomerDocument(admin, groupInput)).resolves.toBeNull();
+
+    expect(log).toHaveBeenCalledWith(
+      '[customer-docs] record failed for group message 4321: contact not found'
+    );
+  });
+});

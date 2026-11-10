@@ -34,6 +34,7 @@ import {
   recordSubmissionGroupMembership,
 } from '@/lib/submission-groups/inbound'
 import { caseSlaInboundHook } from '@/lib/cases/server'
+import { groupCustomerDocumentHook } from '@/lib/customer-docs/group-documents'
 import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
   clientIp,
@@ -510,7 +511,15 @@ async function processWhapiGroups(
       new SubmissionGroupStore(admin),
       channel,
       messages,
-      { caseSla: caseSlaInboundHook(admin) },
+      {
+        caseSla: caseSlaInboundHook(admin),
+        // A customer's document or photo is filed in their documents
+        // folder (178), mirrored first so the NAS worker can fetch it.
+        customerDocument: groupCustomerDocumentHook({
+          admin,
+          accessToken: () => decrypt(config.access_token),
+        }),
+      },
     )
     if (sg.failed > 0) ok = false
   } catch (error) {
