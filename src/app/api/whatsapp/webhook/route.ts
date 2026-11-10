@@ -34,7 +34,10 @@ import {
   recordSubmissionGroupMembership,
 } from '@/lib/submission-groups/inbound'
 import { caseSlaInboundHook } from '@/lib/cases/server'
-import { groupCustomerDocumentHook } from '@/lib/customer-docs/group-documents'
+import {
+  groupDocumentFiler,
+  type GroupDocumentFiler,
+} from '@/lib/customer-docs/group-documents'
 import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
   clientIp,
@@ -208,6 +211,15 @@ export async function POST(request: Request) {
   after(async () => {
     const screened = applyScreen(event, groupMessages, screen.decisions)
     let groupsOk = true
+    // A customer's document or photo in a submission group is filed in
+    // their documents folder (178). The group loop only collects it; the
+    // copy (gateway download + storage upload) runs in the finally below,
+    // after the 1:1 messages, so a slow gateway never holds them past
+    // this callback's budget, and it still runs when processing threw.
+    const filer = groupDocumentFiler({
+      admin: supabaseAdmin(),
+      channel: () => whapiChannel(config),
+    })
     try {
       if (screened.duplicates + screened.ipLimited > 0) {
         console.warn(
@@ -223,6 +235,7 @@ export async function POST(request: Request) {
           screened.groupMessages,
           screened.ipLimited > 0 ? [] : groupEvents,
           screened.event.statuses,
+          filer,
         )
         await processWhapiWebhook(screened.event, config, screened.overLimit)
       }
@@ -232,6 +245,11 @@ export async function POST(request: Request) {
       // rather than skipped as a duplicate.
       console.error('[whapi-webhook] processing failed:', error)
       return
+    } finally {
+      // Never throws. Runs after the return above too: the documents'
+      // group messages are already stored, and a redelivery would not
+      // file them again (only a newly recorded message is collected).
+      await filer.run()
     }
     // Group messages whose write failed keep their claims unconfirmed,
     // so a redelivery stores them (the insert is idempotent anyway).
@@ -488,6 +506,7 @@ async function processWhapiGroups(
   messages: GroupInboundMessage[],
   events: WhapiGroupEvent[],
   statuses: NormalizedWhapiWebhook['statuses'],
+  filer: Pick<GroupDocumentFiler, 'hook'>,
 ): Promise<boolean> {
   const channel: GroupChannel = {
     id: config.id,
@@ -513,12 +532,9 @@ async function processWhapiGroups(
       messages,
       {
         caseSla: caseSlaInboundHook(admin),
-        // A customer's document or photo is filed in their documents
-        // folder (178), mirrored first so the NAS worker can fetch it.
-        customerDocument: groupCustomerDocumentHook({
-          admin,
-          accessToken: () => decrypt(config.access_token),
-        }),
+        // A customer's document or photo is only collected here; the
+        // route files it after the 1:1 messages (178).
+        customerDocument: filer.hook,
       },
     )
     if (sg.failed > 0) ok = false
@@ -569,24 +585,7 @@ async function processWhapiWebhook(
 
   if (event.messages.length === 0) return
 
-  // The pipeline is provider-agnostic and takes a resolved channel, so
-  // shape the matched config row into one. Built by hand rather than
-  // via `loadChannels` because this route runs on the service role with
-  // the row already in hand — one fewer query on the hot inbound path.
-  const channel: WhatsAppChannel = {
-    id: config.id,
-    accountId: config.account_id,
-    provider: 'whapi',
-    label: config.label ?? null,
-    phoneNumberId: config.phone_number_id,
-    wabaId: config.waba_id ?? null,
-    accessToken: decrypt(config.access_token),
-    appSecret: null,
-    isPrimary: config.is_primary !== false,
-    // Per-channel opt-out for the inbound-media mirror (migration 039).
-    mirrorInboundMedia: config.mirror_inbound_media !== false,
-    status: config.status ?? 'connected',
-  }
+  const channel = whapiChannel(config)
 
   // Background work of each message (TypeSafe's watch), awaited once
   // the whole delivery is processed — still inside after().
@@ -607,4 +606,30 @@ async function processWhapiWebhook(
     )
   }
   await Promise.all(later)
+}
+
+/**
+ * The pipeline is provider-agnostic and takes a resolved channel, so
+ * shape the matched config row into one. Built by hand rather than via
+ * `loadChannels` because this route runs on the service role with the
+ * row already in hand — one fewer query on the hot inbound path. Also
+ * the submission-group document filer's channel. Decrypts the token, so
+ * it can throw.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function whapiChannel(config: any): WhatsAppChannel {
+  return {
+    id: config.id,
+    accountId: config.account_id,
+    provider: 'whapi',
+    label: config.label ?? null,
+    phoneNumberId: config.phone_number_id,
+    wabaId: config.waba_id ?? null,
+    accessToken: decrypt(config.access_token),
+    appSecret: null,
+    isPrimary: config.is_primary !== false,
+    // Per-channel opt-out for the inbound-media mirror (migration 039).
+    mirrorInboundMedia: config.mirror_inbound_media !== false,
+    status: config.status ?? 'connected',
+  }
 }

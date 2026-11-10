@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   dispatchInboundToFlows: vi.fn(),
   persistGroupSnapshot: vi.fn(),
   rpc: vi.fn(),
+  mirror: vi.fn(),
 }));
 
 let seq = 0;
@@ -120,6 +121,12 @@ vi.mock('@/lib/edge', () => ({
 vi.mock('@/lib/whatsapp/inbound-pipeline', () => ({
   processMessage: h.processMessage,
   handleStatusUpdate: h.handleStatusUpdate,
+}));
+vi.mock('@/lib/whatsapp/mirror-inbound-media', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/whatsapp/mirror-inbound-media')
+  >()),
+  mirrorInboundMedia: h.mirror,
 }));
 vi.mock('@/lib/flows/engine', () => ({
   dispatchInboundToFlows: h.dispatchInboundToFlows,
@@ -409,6 +416,91 @@ describe('Whapi webhook: submission groups (018a)', () => {
       expect.arrayContaining(['whapi:group:cfg-1:s-1'])
     );
     expect(confirmed.length).toBeGreaterThan(0);
+  });
+
+  describe("a customer's document (178)", () => {
+    const STORED =
+      'https://crm.test/storage/v1/object/public/chat-media/account-acc-1/inbound/d.pdf';
+    const groupDocument = () =>
+      groupText('s-doc', {
+        chat_id: SG_GROUP,
+        type: 'document',
+        text: undefined,
+        document: {
+          id: 'media-9',
+          link: 'https://gate.whapi.cloud/media/media-9',
+          mime_type: 'application/pdf',
+          file_name: 'salary.pdf',
+          file_size: 10,
+        },
+      });
+    const oneToOne = {
+      id: 'p-1',
+      type: 'text',
+      chat_id: '971501234567@s.whatsapp.net',
+      from: '971501234567',
+      text: { body: 'hi' },
+    };
+    const filed = () =>
+      h.rpc.mock.calls.filter((c) => c[0] === 'customer_documents_record');
+
+    beforeEach(() => {
+      h.db.submission_group_messages = [
+        { id: 501, group_id: 'sg-1', wa_message_id: 's-doc', direction: 'in' },
+      ];
+      h.rpc.mockImplementation(async (fn: string) =>
+        fn === 'sg_record_inbound'
+          ? { data: true, error: null }
+          : { data: 'TC-000001', error: null }
+      );
+    });
+
+    it('is copied only after the 1:1 messages of the delivery are processed', async () => {
+      const order: string[] = [];
+      h.processMessage.mockImplementation(async (m: { id: string }) => {
+        order.push(`1:1 ${m.id}`);
+      });
+      h.mirror.mockImplementation(async () => {
+        order.push('mirror');
+        return STORED;
+      });
+
+      await post(messages(groupDocument(), oneToOne));
+
+      expect(order).toEqual(['1:1 p-1', 'mirror']);
+      expect(h.mirror).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountId: 'acc-1',
+          mediaId: 'media-9',
+          downloadUrl: 'https://gate.whapi.cloud/media/media-9',
+          accessToken: 'token',
+        })
+      );
+      expect(filed()).toEqual([
+        [
+          'customer_documents_record',
+          expect.objectContaining({
+            p_source: 'submission_group',
+            p_group_message_id: 501,
+            p_media_url: STORED,
+          }),
+        ],
+      ]);
+    });
+
+    it('is still filed when the 1:1 processing throws', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      h.processMessage.mockRejectedValue(new Error('boom'));
+      h.mirror.mockResolvedValue(STORED);
+
+      await post(messages(groupDocument(), oneToOne));
+      err.mockRestore();
+
+      expect(h.mirror).toHaveBeenCalledTimes(1);
+      expect(filed()).toHaveLength(1);
+      // The catch still returns before confirming any claim.
+      expect(h.confirmAccepted).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -137,6 +137,13 @@ describe('isCredentialFreeLink', () => {
     expect(isCredentialFreeLink(LOOKASIDE, 'meta')).toBe(false);
   });
 
+  it('refuses every Meta link, whatever its host: Cloud API media needs the token', () => {
+    expect(isCredentialFreeLink(S3, 'meta')).toBe(false);
+    expect(
+      isCredentialFreeLink('https://graph.facebook.com/v21.0/media-1', 'meta')
+    ).toBe(false);
+  });
+
   it('refuses a Whapi /media/ link', () => {
     expect(isCredentialFreeLink(`${WHAPI_BASE_URL}/media/abc`, 'whapi')).toBe(
       false
