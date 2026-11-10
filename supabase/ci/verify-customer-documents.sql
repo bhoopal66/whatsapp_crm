@@ -19,12 +19,33 @@ DECLARE
   u_admin  UUID := '00000000-0000-4000-8000-000000178004';
   u_gone   UUID := '00000000-0000-4000-8000-000000178005'; -- deactivated admin
   u_far    UUID := '00000000-0000-4000-8000-000000178006'; -- owner of another account
+  u_view   UUID := '00000000-0000-4000-8000-000000178007'; -- viewer
+  u_lead   UUID := '00000000-0000-4000-8000-000000178008'; -- leads u_agent's team
+  u_lead2  UUID := '00000000-0000-4000-8000-000000178009'; -- leads u_other's team
+  u_guest  UUID := '00000000-0000-4000-8000-000000178010'; -- bank guest
+  u_coord  UUID := '00000000-0000-4000-8000-000000178011'; -- agent, ADCB coordinator
+  u_multi  UUID := '00000000-0000-4000-8000-000000178012'; -- admin here, active elsewhere
   sha_a    TEXT := repeat('a', 64);
   sha_b    TEXT := repeat('b', 64);
   sig_rec  TEXT := 'public.customer_documents_record(uuid,uuid,text,text,text,timestamptz,uuid,uuid,bigint,text,text,text)';
   sig_clm  TEXT := 'public.customer_documents_claim(integer)';
   sig_ext  TEXT := 'public.customer_documents_existing(uuid,text)';
-  sig_stl  TEXT := 'public.customer_documents_settle(uuid,text,text,bigint,text,text)';
+  sig_stl  TEXT := 'public.customer_documents_settle(uuid,text,timestamptz,text,bigint,text,text)';
+  team1    UUID;
+  team2    UUID;
+  m6       UUID;
+  d6       UUID;
+  dx       UUID;
+  gm2      BIGINT;
+  tc       TIMESTAMPTZ;
+  t0       TIMESTAMPTZ;
+  t1       TIMESTAMPTZ;
+  t2       TIMESTAMPTZ;
+  i2       INT;
+  r2       TEXT;
+  r3       TEXT;
+  snap     JSONB;
+  alld     UUID[];
   sig_rty  TEXT := 'public.customer_documents_retry(uuid)';
   a_acct   UUID;
   b_acct   UUID;
@@ -121,16 +142,30 @@ BEGIN
   INSERT INTO auth.users (id, email) VALUES
     (u_owner, 'cd-owner@example.invalid'), (u_agent, 'cd-agent@example.invalid'),
     (u_other, 'cd-other@example.invalid'), (u_admin, 'cd-admin@example.invalid'),
-    (u_gone,  'cd-gone@example.invalid'),  (u_far,   'cd-far@example.invalid')
+    (u_gone,  'cd-gone@example.invalid'),  (u_far,   'cd-far@example.invalid'),
+    (u_view,  'cd-view@example.invalid'),  (u_lead,  'cd-lead@example.invalid'),
+    (u_lead2, 'cd-lead2@example.invalid'), (u_guest, 'cd-guest@example.invalid'),
+    (u_coord, 'cd-coord@example.invalid'), (u_multi, 'cd-multi@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_far;
   IF a_acct IS NULL OR b_acct IS NULL OR a_acct = b_acct THEN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision two accounts';
   END IF;
-  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_agent, u_other);
+  INSERT INTO case_banks (account_id, code, name) VALUES (a_acct, 'ADCB', 'ADCB Bank');
+  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_agent, u_other, u_coord);
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id IN (u_admin, u_gone);
+  UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_view;
+  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id IN (u_lead, u_lead2);
+  UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_gone;
+  -- u_multi stays active in their own account; an inactive admin row here.
+  INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+  VALUES (u_multi, '', 'cd-multi@example.invalid', a_acct, 'admin', false);
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'CD Team 1', u_lead) RETURNING id INTO team1;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (team1, u_agent, a_acct);
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'CD Team 2', u_lead2) RETURNING id INTO team2;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (team2, u_other, a_acct);
 
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, status, is_primary)
   VALUES (u_owner, a_acct, 'whapi', 'CD-178-A1', 'x', 'connected', true) RETURNING id INTO w1;
@@ -154,6 +189,8 @@ BEGIN
     VALUES (cv2, 'customer', 'document', 'https://x.invalid/4.pdf') RETURNING id INTO m4;
   INSERT INTO messages (conversation_id, sender_type, content_type, media_url)
     VALUES (cv2, 'customer', 'document', 'https://x.invalid/5.pdf') RETURNING id INTO m5;
+  INSERT INTO messages (conversation_id, sender_type, content_type, media_url)
+    VALUES (cv1, 'customer', 'document', 'https://x.invalid/6.pdf') RETURNING id INTO m6;
 
   acc := jsonb_build_array(jsonb_build_object('user_id', u_agent, 'label', 'agent'));
   g1 := (SELECT o.group_id FROM sg_open(a_acct, 'CD-178-G', c1, w1, 'g', NULL, acc, NULL, 'group') o);
@@ -165,6 +202,12 @@ BEGIN
   SELECT id INTO gm1 FROM submission_group_messages WHERE group_id = g1 AND wa_message_id = 'cd-178-1';
   IF gm1 IS NULL THEN
     RAISE EXCEPTION 'fixture: sg_record_inbound stored no message';
+  END IF;
+  b := sg_record_inbound(g1, 'cd-178-2', '971500178999', 'coordinator', 'document', NULL,
+                         '{"url": "https://x.invalid/gc.pdf"}'::jsonb, now());
+  SELECT id INTO gm2 FROM submission_group_messages WHERE group_id = g1 AND wa_message_id = 'cd-178-2';
+  IF gm2 IS NULL THEN
+    RAISE EXCEPTION 'fixture: sg_record_inbound stored no coordinator message';
   END IF;
 
   -- ---------- (a) reference formatting ----------
@@ -233,7 +276,13 @@ BEGIN
     a_acct, c1, cv1, m3));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
     format('record accepted an unknown source (%s)', r));
-  n := n + 1; failed := failed || pg_temp.cd_ok(NOT EXISTS (SELECT 1 FROM customer_documents WHERE message_id IN (ma, m3)),
+  r := pg_temp.cd_try(NULL, NULL, format(
+    'SELECT public.customer_documents_record(%L, %L, ''submission_group'', ''document'', ''https://x.invalid/gc.pdf'', now(), NULL, NULL, %L)',
+    a_acct, c1, gm2));
+  n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [NOT_FOUND]%',
+    format('record accepted a group message the customer did not send (%s)', r));
+  n := n + 1; failed := failed || pg_temp.cd_ok(NOT EXISTS (SELECT 1 FROM customer_documents WHERE message_id IN (ma, m3))
+    AND NOT EXISTS (SELECT 1 FROM customer_documents WHERE group_message_id = gm2),
     'a refused record call wrote a row');
 
   SELECT id INTO d1 FROM customer_documents WHERE message_id = m1;
@@ -249,19 +298,19 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%', format('claim(0) was accepted (%s)', r));
   r := pg_temp.cd_try(NULL, NULL, 'SELECT count(*)::text FROM public.customer_documents_claim(51)');
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%', format('claim(51) was accepted (%s)', r));
-  SELECT array_agg(c.id) INTO ids FROM customer_documents_claim(50) c
+  SELECT array_agg(c.id), min(c.claimed_at), max(c.claimed_at) INTO ids, tc, x FROM customer_documents_claim(50) c
    WHERE c.id = ANY (docs) AND c.attempts = 1
      AND c.ref = CASE WHEN c.folder_id = f1 THEN ref1 ELSE ref2 END;
   n := n + 1; failed := failed || pg_temp.cd_ok(coalesce(cardinality(ids), 0) = 5,
     format('claim returned %s of the 5 pending rows with attempts 1 and their ref', coalesce(cardinality(ids), 0)));
-  n := n + 1; failed := failed || pg_temp.cd_ok(
-    (SELECT count(*) FROM customer_documents WHERE id = ANY (docs) AND attempts = 1 AND claimed_at = now()) = 5,
-    'claim did not stamp claimed_at and bump attempts');
+  n := n + 1; failed := failed || pg_temp.cd_ok(tc = x AND tc >= now()
+    AND (SELECT count(*) FROM customer_documents WHERE id = ANY (docs) AND attempts = 1 AND claimed_at = tc) = 5,
+    format('claim did not stamp the claimed_at it returned and bump attempts (%s, %s)', tc, x));
   SELECT count(*) INTO i FROM customer_documents_claim(50) c WHERE c.id = ANY (docs);
   n := n + 1; failed := failed || pg_temp.cd_ok(i = 0, format('a second claim returned %s just-claimed rows', i));
 
   -- ---------- (d) settle, existing ----------
-  r := customer_documents_settle(d1, 'stored', sha_a, 100, '1.pdf');
+  r := customer_documents_settle(d1, 'stored', tc, sha_a, 100, '1.pdf');
   SELECT * INTO doc FROM customer_documents WHERE id = d1;
   n := n + 1; failed := failed || pg_temp.cd_ok(r = 'stored' AND doc.status = 'stored' AND doc.sha256 = sha_a
     AND doc.size_bytes = 100 AND doc.nas_name = '1.pdf' AND doc.stored_at = now() AND doc.claimed_at IS NULL,
@@ -275,52 +324,98 @@ BEGIN
   r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_existing(%L, ''ABC'')', f1));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%', format('existing() accepted a bad sha (%s)', r));
 
-  r := customer_documents_settle(d2, 'duplicate', sha_a, 100);
+  r := customer_documents_settle(d2, 'duplicate', tc, sha_a, 100);
   SELECT * INTO doc FROM customer_documents WHERE id = d2;
   n := n + 1; failed := failed || pg_temp.cd_ok(r = 'duplicate' AND doc.status = 'duplicate'
     AND doc.duplicate_of = d1 AND doc.nas_name = '1.pdf' AND doc.sha256 = sha_a AND doc.claimed_at IS NULL,
     format('settle duplicate did not link duplicate_of and copy nas_name (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''duplicate'', %L, 5)', d4, sha_b));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''duplicate'', %L, %L, 5)', d4, tc, sha_b));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [NOT_FOUND]%',
     format('settle duplicate with no stored original was accepted (%s)', r));
 
-  r := customer_documents_settle(dg, 'retry', p_error => 'boom');
+  r := customer_documents_settle(dg, 'retry', tc, p_error => 'boom');
   SELECT * INTO doc FROM customer_documents WHERE id = dg;
   n := n + 1; failed := failed || pg_temp.cd_ok(r = 'pending' AND doc.status = 'pending'
     AND doc.next_attempt_at = now() + interval '2 minutes' AND doc.claimed_at IS NULL AND doc.last_error = 'boom',
     format('settle retry did not move next_attempt_at forward and stay pending (%s, %s)', r, doc.next_attempt_at - now()));
 
   UPDATE customer_documents SET attempts = 10 WHERE id = d5;
-  r := customer_documents_settle(d5, 'retry', p_error => 'still down');
+  r := customer_documents_settle(d5, 'retry', tc, p_error => 'still down');
   n := n + 1; failed := failed || pg_temp.cd_ok(r = 'failed'
     AND (SELECT status FROM customer_documents WHERE id = d5) = 'failed',
     format('a retry at attempts 10 did not fail the row (%s)', r));
 
-  r := customer_documents_settle(d4, 'failed', p_error => repeat('e', 600));
+  r := customer_documents_settle(d4, 'failed', tc, p_error => repeat('e', 600));
   n := n + 1; failed := failed || pg_temp.cd_ok(r = 'failed'
     AND (SELECT status = 'failed' AND char_length(last_error) = 500 FROM customer_documents WHERE id = d4),
     format('settle failed did not fail the row with a 500-character error (%s)', r));
 
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, 1, ''x'')', d1, sha_b));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 1, ''x'')', d1, tc, sha_b));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [STATE]%',
     format('settling a stored row was not refused STATE (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, 1, ''a/b'')', dg, sha_b));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 1, ''a/b'')', dg, tc, sha_b));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
     format('settle accepted nas_name a/b (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, 1, ''..'')', dg, sha_b));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 1, ''..'')', dg, tc, sha_b));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
     format('settle accepted nas_name .. (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, 1, ''a\b'')', dg, sha_b));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 1, ''a\b'')', dg, tc, sha_b));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
     format('settle accepted a nas_name with a backslash (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''lost'')', dg));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''lost'', %L)', dg, tc));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
     format('settle accepted an unknown outcome (%s)', r));
-  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''failed'')', gen_random_uuid()));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''failed'', %L)', gen_random_uuid(), tc));
   n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [NOT_FOUND]%',
     format('settle of an unknown id was not NOT_FOUND (%s)', r));
   n := n + 1; failed := failed || pg_temp.cd_ok((SELECT status FROM customer_documents WHERE id = dg) = 'pending',
     'a refused settle changed the row');
+
+  -- ---------- (d2) the claim token, expiry and the backoff cap ----------
+  r := customer_documents_record(a_acct, c1, 'chat', 'document', 'https://x.invalid/6.pdf', now(), cv1, m6);
+  SELECT id INTO d6 FROM customer_documents WHERE message_id = m6;
+  SELECT c.claimed_at INTO t1 FROM customer_documents_claim(50) c WHERE c.id = d6;
+  n := n + 1; failed := failed || pg_temp.cd_ok(t1 IS NOT NULL
+    AND t1 = (SELECT claimed_at FROM customer_documents WHERE id = d6),
+    format('claim did not return the claimed_at it set (%s)', t1));
+  SELECT count(*) INTO i FROM customer_documents_claim(50) c WHERE c.id = d6;
+  UPDATE customer_documents SET claimed_at = t1 - interval '14 minutes' WHERE id = d6;
+  SELECT count(*) INTO i2 FROM customer_documents_claim(50) c WHERE c.id = d6;
+  n := n + 1; failed := failed || pg_temp.cd_ok(i = 0 AND i2 = 0,
+    format('a claim younger than 15 minutes was taken again (%s, %s)', i, i2));
+  -- The first run's claim, 16 minutes old: another run takes the row.
+  t0 := t1 - interval '16 minutes';
+  UPDATE customer_documents SET claimed_at = t0 WHERE id = d6;
+  SELECT c.claimed_at, c.attempts INTO t2, i FROM customer_documents_claim(50) c WHERE c.id = d6;
+  n := n + 1; failed := failed || pg_temp.cd_ok(t2 IS NOT NULL AND t2 <> t0 AND t2 <> t1 AND i = 2,
+    format('a claim older than 15 minutes was not taken again (%s, attempts %s)', t2, i));
+  SELECT to_jsonb(d) INTO snap FROM customer_documents d WHERE d.id = d6;
+  r := pg_temp.cd_try(NULL, NULL, format(
+    'SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 1, ''6.pdf'')', d6, t0, sha_b));
+  r2 := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''retry'', %L)', d6, t1));
+  r3 := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''failed'', %L)', d6, t0));
+  n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [STALE_CLAIM]%' AND r2 LIKE 'ERROR % [STALE_CLAIM]%'
+    AND r3 LIKE 'ERROR % [STALE_CLAIM]%',
+    format('STALE_CLAIM: a stale claim could settle the row (%s | %s | %s)', r, r2, r3));
+  n := n + 1; failed := failed || pg_temp.cd_ok(
+    (SELECT to_jsonb(d) FROM customer_documents d WHERE d.id = d6) = snap,
+    'STALE_CLAIM: a refused stale settle changed the row');
+  r := pg_temp.cd_try(NULL, NULL, format(
+    'SELECT public.customer_documents_settle(%L, ''stored'', %L, %L, 10, ''6.pdf'')', d6, t2, sha_b));
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = 'stored'
+    AND (SELECT status FROM customer_documents WHERE id = d6) = 'stored',
+    format('settle with the current claim did not store the row (%s)', r));
+  r := pg_temp.cd_try(NULL, NULL, format('SELECT public.customer_documents_settle(%L, ''failed'', NULL)', dg));
+  n := n + 1; failed := failed || pg_temp.cd_ok(r LIKE 'ERROR % [INVALID]%',
+    format('settle accepted a missing claimed_at (%s)', r));
+  -- Backoff cap: 2^9 = 512 minutes is capped at 360.
+  x := now() - interval '1 minute';
+  UPDATE customer_documents SET attempts = 9, claimed_at = x WHERE id = dg;
+  r := customer_documents_settle(dg, 'retry', x, p_error => 'cap');
+  SELECT * INTO doc FROM customer_documents WHERE id = dg;
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = 'pending'
+    AND doc.next_attempt_at = now() + interval '360 minutes',
+    format('backoff cap: a retry at attempts 9 is due in %s, not 360 minutes', doc.next_attempt_at - now()));
 
   -- ---------- (e) privileges ----------
   n := n + 1; failed := failed || pg_temp.cd_ok(
@@ -363,6 +458,34 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cd_ok(r = '0/0', format('an admin of another account sees documents/folders (%s)', r));
   r := pg_temp.cd_sees(u_gone, 'customer_documents', docs);
   n := n + 1; failed := failed || pg_temp.cd_ok(r = '0', format('a deactivated admin sees documents (%s)', r));
+
+  -- dx: a document of c1 from another chat (cv2), as when a chat moves
+  -- between contacts after a document was recorded.
+  INSERT INTO customer_documents (account_id, folder_id, contact_id, conversation_id, source, kind, media_url, received_at)
+  VALUES (a_acct, f1, c1, cv2, 'chat', 'document', 'https://x.invalid/x.pdf', now()) RETURNING id INTO dx;
+  alld := docs || ARRAY[d6, dx];
+  r := pg_temp.cd_sees(u_view, 'customer_documents', alld) || '/' || pg_temp.cd_sees(u_view, 'customer_doc_folders', folders);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '0/0', format('RLS: a viewer with no chats sees documents/folders (%s)', r));
+  r := pg_temp.cd_sees(u_lead, 'customer_documents', alld) || '/' || pg_temp.cd_sees(u_lead, 'customer_doc_folders', folders);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '5/1', format('RLS: the owner''s team leader does not see c1''s 5 documents and 1 folder (%s)', r));
+  r := pg_temp.cd_sees(u_lead2, 'customer_documents', alld) || '/' || pg_temp.cd_sees(u_lead2, 'customer_doc_folders', folders);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '0/0', format('RLS: another team''s leader sees documents/folders (%s)', r));
+  r := pg_temp.cd_sees(u_guest, 'customer_documents', alld) || '/' || pg_temp.cd_sees(u_guest, 'customer_doc_folders', folders);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '0/0', format('RLS: a bank guest sees documents/folders (%s)', r));
+  r := pg_temp.cd_sees(u_multi, 'customer_documents', alld) || '/' || pg_temp.cd_sees(u_multi, 'customer_doc_folders', folders);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '0/0', format('RLS: an admin whose active workspace is another sees documents/folders (%s)', r));
+
+  -- Coordinator share of cv1 only: its documents, not the rest of c1's.
+  r := pg_temp.cd_try('authenticated', u_admin, format('SELECT set_coordinator_banks(%L, ''{ADCB}'')::text', u_coord));
+  r2 := pg_temp.cd_sees(u_coord, 'customer_documents', alld);
+  r3 := pg_temp.cd_try('authenticated', u_agent,
+    format('SELECT share_conversation_with_coordinator(%L, %L, ''ADCB'')::text', cv1, u_coord));
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '{ADCB}' AND r2 = '0' AND r3 ~ '^[0-9a-f-]{36}$',
+    format('coordinator share fixture failed (banks %s, saw %s before, share %s)', r, r2, r3));
+  r := pg_temp.cd_sees(u_coord, 'customer_documents', ARRAY[d1, d2, d6])
+    || '/' || pg_temp.cd_sees(u_coord, 'customer_documents', ARRAY[dg, dx, d4, d5]);
+  n := n + 1; failed := failed || pg_temp.cd_ok(r = '3/0',
+    format('coordinator share: shared-chat documents / other documents seen %s, want 3/0', r));
 
   -- ---------- (g) retry() by a person ----------
   r := pg_temp.cd_try('authenticated', u_agent, format('SELECT public.customer_documents_retry(%L)', d5));

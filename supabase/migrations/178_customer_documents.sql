@@ -22,11 +22,13 @@
 -- past 999999 (lpad would truncate). A race between two first
 -- documents of one contact may burn a number; gaps are fine.
 --
--- Who sees. A person sees a customer's folder and documents exactly
--- when they can see the customer: the SELECT policies test the contact
--- with an EXISTS that runs under the caller's own contacts policy
--- (177). Admins and owners see the whole workspace. A row whose contact
--- was deleted (contact_id NULL) is admin-only. No client role writes
+-- Who sees. A person sees a customer's folder when they can see the
+-- customer (an EXISTS under the caller's own contacts policy, 177). A
+-- document is narrower: the customer under the normal rule
+-- (can_view_contact, which leaves coordinator shares out), or a
+-- document from a chat shared with the caller (133). Admins and owners
+-- see the whole workspace. A row whose contact was deleted (contact_id
+-- NULL) is admin-only, unless its chat is shared. No client role writes
 -- either table; every write is a SECURITY DEFINER function, granted to
 -- the service role (the webhook side and the NAS worker), except
 -- customer_documents_retry(), which an owner/admin calls to send a
@@ -148,6 +150,11 @@ CREATE INDEX IF NOT EXISTS customer_documents_stored_sha_idx
   ON public.customer_documents (folder_id, sha256) WHERE status = 'stored';
 CREATE INDEX IF NOT EXISTS customer_doc_folders_account_idx
   ON public.customer_doc_folders (account_id);
+-- For the ON DELETE SET NULL of a conversation and of an original.
+CREATE INDEX IF NOT EXISTS customer_documents_conversation_idx
+  ON public.customer_documents (conversation_id) WHERE conversation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS customer_documents_duplicate_of_idx
+  ON public.customer_documents (duplicate_of) WHERE duplicate_of IS NOT NULL;
 
 -- ------------------------------------------------------------
 -- 3. Row level security: read only, as the customer is
@@ -156,8 +163,9 @@ ALTER TABLE public.customer_doc_folders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customer_documents ENABLE ROW LEVEL SECURITY;
 
 -- The EXISTS runs under the caller's contacts policy (177), so a person
--- below admin sees a folder or document exactly when they can see the
--- customer. Rank 4 is admin (083's current_role_rank).
+-- below admin sees a folder exactly when they can see the customer.
+-- That includes 133's coordinator branch; the reference number alone
+-- is fine to show. Rank 4 is admin (083's current_role_rank).
 DROP POLICY IF EXISTS customer_doc_folders_select ON public.customer_doc_folders;
 CREATE POLICY customer_doc_folders_select ON public.customer_doc_folders
   FOR SELECT TO authenticated
@@ -166,13 +174,24 @@ CREATE POLICY customer_doc_folders_select ON public.customer_doc_folders
               OR EXISTS (SELECT 1 FROM public.contacts c
                           WHERE c.id = customer_doc_folders.contact_id)));
 
+-- Not the contacts policy: it carries 133's contacts_coordinator_select
+-- branch, so a coordinator shared ONE chat would see every document of
+-- the customer (other chats, submission group files). 133 kept
+-- can_view_contact unchanged precisely so that a share hands over only
+-- the shared chat. So: the customer under the normal rule
+-- (can_view_contact, 072's three-argument form), or the document's own
+-- chat shared with the caller (coordinator_share_grants, the predicate
+-- 133 puts in the messages policies).
 DROP POLICY IF EXISTS customer_documents_select ON public.customer_documents;
 CREATE POLICY customer_documents_select ON public.customer_documents
   FOR SELECT TO authenticated
   USING (account_id = (SELECT public.current_account_id())
          AND ((SELECT public.current_role_rank()) >= 4
               OR EXISTS (SELECT 1 FROM public.contacts c
-                          WHERE c.id = customer_documents.contact_id)));
+                          WHERE c.id = customer_documents.contact_id
+                            AND public.can_view_contact(c.account_id, c.id, c.user_id))
+              OR (customer_documents.conversation_id IS NOT NULL
+                  AND public.coordinator_share_grants(customer_documents.conversation_id))));
 
 REVOKE ALL ON public.customer_doc_folders FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON public.customer_documents FROM PUBLIC, anon, authenticated, service_role;
@@ -248,6 +267,7 @@ BEGIN
        JOIN public.submission_groups g ON g.id = gm.group_id
       WHERE gm.id = p_group_message_id
         AND gm.direction = 'in'
+        AND gm.sender_kind = 'customer'
         AND gm.account_id = p_account_id
         AND g.contact_id = p_contact_id;
   END IF;
@@ -293,16 +313,25 @@ $$;
 -- ------------------------------------------------------------
 -- Claims up to p_limit due rows, oldest received first. A claim older
 -- than 15 minutes is taken as abandoned (the worker died mid-copy).
-CREATE OR REPLACE FUNCTION public.customer_documents_claim(p_limit integer DEFAULT 10)
+-- claimed_at is the claim's token: settle() takes it back and refuses
+-- any other, so a run whose claim expired and was taken by another run
+-- can no longer settle the row. clock_timestamp(), not now(), so two
+-- claims in one transaction still get different tokens.
+-- An earlier draft of 178 returned no claimed_at (and settle took no
+-- token); a changed result type needs a DROP.
+DROP FUNCTION IF EXISTS public.customer_documents_claim(integer);
+CREATE FUNCTION public.customer_documents_claim(p_limit integer DEFAULT 10)
 RETURNS TABLE (id uuid, folder_id uuid, ref text, kind text, mime text,
                original_name text, caption text, media_url text,
-               received_at timestamptz, attempts integer)
+               received_at timestamptz, attempts integer, claimed_at timestamptz)
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
 #variable_conflict use_column
+DECLARE
+  v_at timestamptz := clock_timestamp();
 BEGIN
   IF p_limit IS NULL OR p_limit < 1 OR p_limit > 50 THEN
     RAISE EXCEPTION 'customer_documents_claim: limit % is outside 1..50', p_limit
@@ -313,21 +342,21 @@ BEGIN
     SELECT d.id
       FROM public.customer_documents d
      WHERE d.status = 'pending'
-       AND d.next_attempt_at <= now()
-       AND (d.claimed_at IS NULL OR d.claimed_at < now() - interval '15 minutes')
+       AND d.next_attempt_at <= v_at
+       AND (d.claimed_at IS NULL OR d.claimed_at < v_at - interval '15 minutes')
      ORDER BY d.received_at, d.id
      LIMIT p_limit
        FOR UPDATE SKIP LOCKED
   ), upd AS (
     UPDATE public.customer_documents d
-       SET claimed_at = now(), attempts = d.attempts + 1
+       SET claimed_at = v_at, attempts = d.attempts + 1
       FROM picked
      WHERE d.id = picked.id
     RETURNING d.id, d.folder_id, d.kind, d.mime, d.original_name, d.caption,
-              d.media_url, d.received_at, d.attempts
+              d.media_url, d.received_at, d.attempts, d.claimed_at
   )
   SELECT upd.id, upd.folder_id, f.ref, upd.kind, upd.mime, upd.original_name,
-         upd.caption, upd.media_url, upd.received_at, upd.attempts
+         upd.caption, upd.media_url, upd.received_at, upd.attempts, upd.claimed_at
     FROM upd
     JOIN public.customer_doc_folders f ON f.id = upd.folder_id
    ORDER BY upd.received_at, upd.id;
@@ -360,10 +389,15 @@ END;
 $$;
 
 -- Settles a pending row: 'stored', 'duplicate', 'retry' or 'failed'.
--- Returns the resulting status.
+-- Returns the resulting status. p_claimed_at is the claimed_at that
+-- claim() returned for this row (the worker passes back PostgREST's
+-- string as is): a row claimed since by another run, or not claimed,
+-- answers STALE_CLAIM and is left untouched. The arguments are checked
+-- before the row is read. An earlier draft took no token.
+DROP FUNCTION IF EXISTS public.customer_documents_settle(uuid, text, text, bigint, text, text);
 CREATE OR REPLACE FUNCTION public.customer_documents_settle(
-  p_id uuid, p_outcome text, p_sha256 text DEFAULT NULL, p_size bigint DEFAULT NULL,
-  p_nas_name text DEFAULT NULL, p_error text DEFAULT NULL)
+  p_id uuid, p_outcome text, p_claimed_at timestamptz, p_sha256 text DEFAULT NULL,
+  p_size bigint DEFAULT NULL, p_nas_name text DEFAULT NULL, p_error text DEFAULT NULL)
 RETURNS text
 LANGUAGE plpgsql
 VOLATILE
@@ -378,15 +412,9 @@ BEGIN
     RAISE EXCEPTION 'customer_documents_settle: outcome % is not valid', p_outcome
       USING ERRCODE = 'invalid_parameter_value', HINT = 'INVALID';
   END IF;
-
-  SELECT * INTO v_doc FROM public.customer_documents d WHERE d.id = p_id FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'customer_documents_settle: document % not found', p_id
-      USING ERRCODE = 'no_data_found', HINT = 'NOT_FOUND';
-  END IF;
-  IF v_doc.status <> 'pending' THEN
-    RAISE EXCEPTION 'customer_documents_settle: document % is %, not pending', p_id, v_doc.status
-      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'STATE';
+  IF p_claimed_at IS NULL THEN
+    RAISE EXCEPTION 'customer_documents_settle: claimed_at is missing'
+      USING ERRCODE = 'invalid_parameter_value', HINT = 'INVALID';
   END IF;
 
   IF p_outcome IN ('stored', 'duplicate') THEN
@@ -400,15 +428,31 @@ BEGIN
     END IF;
   END IF;
 
+  IF p_outcome = 'stored'
+     AND (p_nas_name IS NULL
+          OR octet_length(p_nas_name) NOT BETWEEN 1 AND 255
+          OR p_nas_name IN ('.', '..')
+          OR strpos(p_nas_name, '/') > 0
+          OR strpos(p_nas_name, '\') > 0) THEN
+    RAISE EXCEPTION 'customer_documents_settle: nas_name is not a plain file name'
+      USING ERRCODE = 'invalid_parameter_value', HINT = 'INVALID';
+  END IF;
+
+  SELECT * INTO v_doc FROM public.customer_documents d WHERE d.id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'customer_documents_settle: document % not found', p_id
+      USING ERRCODE = 'no_data_found', HINT = 'NOT_FOUND';
+  END IF;
+  IF v_doc.status <> 'pending' THEN
+    RAISE EXCEPTION 'customer_documents_settle: document % is %, not pending', p_id, v_doc.status
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'STATE';
+  END IF;
+  IF v_doc.claimed_at IS DISTINCT FROM p_claimed_at THEN
+    RAISE EXCEPTION 'customer_documents_settle: document % is not held by this claim', p_id
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'STALE_CLAIM';
+  END IF;
+
   IF p_outcome = 'stored' THEN
-    IF p_nas_name IS NULL
-       OR octet_length(p_nas_name) NOT BETWEEN 1 AND 255
-       OR p_nas_name IN ('.', '..')
-       OR strpos(p_nas_name, '/') > 0
-       OR strpos(p_nas_name, '\') > 0 THEN
-      RAISE EXCEPTION 'customer_documents_settle: nas_name is not a plain file name'
-        USING ERRCODE = 'invalid_parameter_value', HINT = 'INVALID';
-    END IF;
     UPDATE public.customer_documents d
        SET status = 'stored', sha256 = p_sha256, size_bytes = p_size, nas_name = p_nas_name,
            stored_at = now(), claimed_at = NULL, last_error = NULL
@@ -509,9 +553,9 @@ GRANT EXECUTE ON FUNCTION public.customer_documents_claim(integer) TO service_ro
 REVOKE ALL ON FUNCTION public.customer_documents_existing(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.customer_documents_existing(uuid, text) TO service_role;
 
-REVOKE ALL ON FUNCTION public.customer_documents_settle(uuid, text, text, bigint, text, text)
+REVOKE ALL ON FUNCTION public.customer_documents_settle(uuid, text, timestamptz, text, bigint, text, text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.customer_documents_settle(uuid, text, text, bigint, text, text)
+GRANT EXECUTE ON FUNCTION public.customer_documents_settle(uuid, text, timestamptz, text, bigint, text, text)
   TO service_role;
 
 REVOKE ALL ON FUNCTION public.customer_documents_retry(uuid) FROM PUBLIC, anon;
