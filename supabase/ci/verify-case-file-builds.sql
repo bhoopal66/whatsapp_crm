@@ -7,7 +7,8 @@
 -- content-addressed, reservation expired / used / of another actor or
 -- case / not newer than a recorded build), each writing nothing; one
 -- ready build per case; stale builds (a reclassified file, a newer
--- failed version); downloads (audit row, url_issued flip, FILE_NOT_FOUND
+-- failed version, a file spec change but not a re-save); downloads (audit
+-- row, url_issued flip, FILE_NOT_FOUND
 -- without an existence oracle, BUILD_STALE, append-only for the table
 -- owner too); privileges and the builds RLS.
 --
@@ -30,7 +31,7 @@ DECLARE
   k1 UUID; k2 UUID; k3 UUID; k4 UUID; kx UUID;
   fp UUID; fe UUID; fs UUID; fold UUID; fx UUID;
   r1 UUID; r2 UUID; r3 UUID; r4 UUID; r5 UUID; r6 UUID;
-  b1 UUID; b3 UUID; b4 UUID; b5 UUID;
+  b1 UUID; b3 UUID; b4 UUID; b5 UUID; b6 UUID; r7 UUID;
   v1 INT; v3 INT; v5 INT;
   m1       JSONB;
   m4       JSONB;
@@ -380,6 +381,26 @@ BEGIN
     AND (SELECT status FROM case_file_builds WHERE build_id = b4) = 'superseded'
     AND NOT EXISTS (SELECT 1 FROM case_file_build_current(u_coord, k4)),
     'a newer failed version of a file in the ready build left it ready');
+  -- a spec change for the case's bank and product (a re-save of the same
+  -- rows changes nothing)
+  fx := pg_temp.cf_file(u_agent, k4, 'passport', true);
+  SELECT x.reservation_id INTO r7 FROM case_file_build_reserve(u_coord, k4, now()) x;
+  SELECT x.build_id INTO b6
+    FROM case_file_build_record(u_coord, k4, r7, pg_temp.cfb_man(k4), false,
+                                'cases/' || k4::text || '/index-' || repeat('c', 64) || '.pdf', repeat('c', 64), now()) x;
+  ok := case_file_ready(k4) AND (SELECT status FROM case_file_builds WHERE build_id = b6) = 'ready';
+  PERFORM case_file_spec_set(u_owner, 'ADCB', 'Loan', spec);
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    ok AND (SELECT status FROM case_file_builds WHERE build_id = b6) = 'ready',
+    're-saving an unchanged file spec superseded the ready build');
+  PERFORM case_file_spec_set(u_owner, 'ADCB', 'Loan', jsonb_set(spec, '{2,required}', 'true'::jsonb));
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    (SELECT status FROM case_file_builds WHERE build_id = b6) = 'superseded'
+    AND NOT EXISTS (SELECT 1 FROM case_file_build_current(u_coord, k4)),
+    'a file spec change left the ready build current');
+  n := n + 1; failed := failed || pg_temp.cf_check('a build stale by a spec change was downloadable', NULL, NULL,
+    format('SELECT download_id::text FROM case_build_download_record(%L, %L, now())', u_agent, k4),
+    'ERROR 23514 BUILD_STALE:%');
 
   -- ---------- 7. privileges and RLS ----------
   FOREACH fn IN ARRAY ARRAY['case_file_build_gate(uuid, uuid)', 'case_file_build_reserve(uuid, uuid, timestamptz)',

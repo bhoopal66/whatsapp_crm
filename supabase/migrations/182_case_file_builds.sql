@@ -42,8 +42,12 @@
 -- STALE when a file stops being 'passed' (a newer pass superseded it, or it
 --   was reclassified), or a newer version of its doc_key fails (181 leaves
 --   the older pass 'passed' but the case no longer File ready), every ready
---   build whose manifest lists it becomes 'superseded' (trigger), so a
---   stale PDF is never current.
+--   build whose manifest lists it becomes 'superseded' (trigger); and when
+--   the file spec of a (bank, product) changes (case_file_spec_set: a
+--   required doc_key, a pattern, merged ...), every ready build of a case
+--   of that bank and product is superseded (trigger on the spec audit row,
+--   one per set; a re-save of the same rows changes nothing). So a stale
+--   PDF is never current.
 -- DOWNLOADS case_file_downloads: one audit row per download of a file or of
 --   the ready build, written before the signed URL is minted
 --   (url_issued false); case_file_download_issued flips it once the URL
@@ -346,6 +350,36 @@ CREATE TRIGGER case_file_builds_stale
                      OR (NEW.status = 'failed' AND OLD.status <> 'failed'))
   EXECUTE FUNCTION public.case_file_builds_stale_hook();
 
+-- A spec change (a doc_key added or made required, a pattern, merged ...)
+-- changes what the case's PDF must hold, so the ready builds of every case
+-- of that bank and product go stale. case_file_spec_set is the specs' only
+-- writer and inserts one audit row per call, holding the rows it replaced
+-- and the rows it stored: equal (a re-save) supersedes nothing. A first
+-- spec (rows_before '[]') replaces 181's requirements fallback, a change.
+CREATE OR REPLACE FUNCTION public.case_file_builds_spec_hook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF NEW.rows IS NOT DISTINCT FROM NEW.rows_before THEN
+    RETURN NULL;
+  END IF;
+  UPDATE public.case_file_builds b SET status = 'superseded'
+    FROM public.cases c
+   WHERE b.case_id = c.id AND b.status = 'ready'
+     AND c.account_id = NEW.account_id AND c.bank_code = NEW.bank_code
+     AND lower(btrim(c.product)) = lower(btrim(NEW.product));
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS case_file_builds_spec_stale ON public.case_file_spec_audit;
+CREATE TRIGGER case_file_builds_spec_stale
+  AFTER INSERT ON public.case_file_spec_audit
+  FOR EACH ROW EXECUTE FUNCTION public.case_file_builds_spec_hook();
+
 -- ---------- 8. Download audit ----------
 
 CREATE TABLE IF NOT EXISTS public.case_file_downloads (
@@ -481,6 +515,7 @@ GRANT SELECT ON public.case_file_build_reservations, public.case_file_downloads 
 REVOKE ALL ON FUNCTION
   public.case_file_builds_guard(),
   public.case_file_builds_stale_hook(),
+  public.case_file_builds_spec_hook(),
   public.case_file_downloads_guard(),
   public.case_file_build_gate(uuid, uuid),
   public.case_file_build_reserve(uuid, uuid, timestamptz),

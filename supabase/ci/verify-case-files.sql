@@ -6,7 +6,7 @@
 -- of the case's own account, idempotent, a case with no contact, a
 -- stranger); classify (versions per doc_key, classify_seq, who may);
 -- check results (CHECK_MISMATCH, CASE_CLOSED, CHECKS_INVALID, a pass
--- supersedes, File ready); every automatic behaviour off by default;
+-- supersedes an older pass but never a newer one, File ready); every automatic behaviour off by default;
 -- the checklist sync, its coordinator note and the managed-externally
 -- lock; the File ready stage move and its setter; the render-name
 -- vectors shared with src/lib/case-files/render-name.vectors.json
@@ -31,7 +31,7 @@ DECLARE
   cb       UUID;
   co       UUID;
   k1 UUID; k2 UUID; k3 UUID; k4 UUID; k5 UUID; k6 UUID; k7 UUID;
-  f1 UUID; f2 UUID; f3 UUID; f4 UUID; f5 UUID; fx UUID;
+  f1 UUID; f2 UUID; f3 UUID; f4 UUID; f5 UUID; fx UUID; fa UUID; fb UUID;
   d_other  UUID;
   d_cb     UUID;
   spec     JSONB := '[{"doc_key": "passport", "name_pattern": "{{case}}_{{doc}}", "position": 1},
@@ -266,6 +266,17 @@ BEGIN
     AND (SELECT stage FROM cases WHERE id = k1) = 'Submitted'
     AND NOT EXISTS (SELECT 1 FROM case_stage_history WHERE case_id = k1 AND actor_role = 'system:files'),
     'with every switch off a result touched case_documents, case_notes or the stage');
+  -- an older version passing after a newer one never displaces it
+  fa := pg_temp.cf_file(u_agent, k1, 'emirates_id', NULL);
+  fb := pg_temp.cf_file(u_agent, k1, 'emirates_id', NULL);
+  r := case_document_file_check_result(fb, 'emirates_id', 1, '[{"name": "size", "ok": true}]', 1, NULL);
+  r := case_document_file_check_result(fa, 'emirates_id', 1, '[{"name": "size", "ok": true}]', 1, NULL);
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    r = 'passed'
+    AND (SELECT status FROM case_document_files WHERE id = fb) = 'passed'
+    AND (SELECT status FROM case_document_files WHERE id = fa) = 'superseded'
+    AND (SELECT version FROM case_document_files WHERE id = fa) < (SELECT version FROM case_document_files WHERE id = fb),
+    'an older version passing after a newer one superseded the newer pass');
   -- a closed case refuses a result
   f5 := pg_temp.cf_file(u_agent2, k2, 'passport', NULL);
   UPDATE cases SET stage = 'Approved', closed_at = now() WHERE id = k2;

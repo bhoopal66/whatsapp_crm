@@ -24,8 +24,9 @@
 --   case_document_file_register -> 'unclassified' (idempotent);
 --   case_document_file_classify -> 'pending_checks' (bumps classify_seq);
 --   case_document_file_check_result -> 'passed' | 'failed' (names the
---     doc_key and classify_seq it answers; a pass supersedes the previous
---     passed file of that doc_key).
+--     doc_key and classify_seq it answers; a pass supersedes the older
+--     passed file of that doc_key, and a pass of a version older than the
+--     passed one is itself 'superseded').
 --   A NULL actor is the system intake (WhatsApp media): it registers only a
 --   customer-sent document, and classifies only a file it registered, once,
 --   while files_intake_prompts is on.
@@ -98,13 +99,14 @@ CREATE TABLE IF NOT EXISTS public.case_file_spec_audit (
   product    text NOT NULL,
   actor_id   uuid NOT NULL,
   rows       jsonb NOT NULL,
+  rows_before jsonb NOT NULL DEFAULT '[]'::jsonb,
   at         timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS case_file_spec_audit_account_idx
   ON public.case_file_spec_audit (account_id, at);
 
 COMMENT ON TABLE public.case_file_spec_audit IS
-  'Append-only: every case_file_spec_set call with the rows it stored. Migration 181.';
+  'Append-only: every case_file_spec_set call with the rows it stored (rows) and the rows it replaced (rows_before). Migration 181.';
 
 DROP TRIGGER IF EXISTS case_file_spec_audit_append_only ON public.case_file_spec_audit;
 CREATE TRIGGER case_file_spec_audit_append_only
@@ -407,6 +409,7 @@ SET search_path = ''
 AS $$
 DECLARE
   v_account uuid;
+  v_before  jsonb;
   v_after   jsonb;
   v_id      uuid;
 BEGIN
@@ -458,6 +461,11 @@ BEGIN
     RAISE EXCEPTION 'every doc_key of the file spec must be a document requirement of bank % / %', p_bank_code, p_product
       USING ERRCODE = 'check_violation', HINT = 'DOCS_INVALID';
   END IF;
+  SELECT coalesce(jsonb_agg(to_jsonb(s) - 'account_id' - 'bank_code' - 'product' ORDER BY s.position, s.doc_key), '[]'::jsonb)
+    INTO v_before
+    FROM public.case_file_specs s
+   WHERE s.account_id = v_account AND s.bank_code = p_bank_code
+     AND lower(btrim(s.product)) = lower(btrim(p_product));
   DELETE FROM public.case_file_specs s
    WHERE s.account_id = v_account AND s.bank_code = p_bank_code
      AND lower(btrim(s.product)) = lower(btrim(p_product));
@@ -474,8 +482,8 @@ BEGIN
     FROM public.case_file_specs s
    WHERE s.account_id = v_account AND s.bank_code = p_bank_code
      AND lower(btrim(s.product)) = lower(btrim(p_product));
-  INSERT INTO public.case_file_spec_audit (account_id, bank_code, product, actor_id, rows)
-  VALUES (v_account, p_bank_code, btrim(p_product), p_actor, v_after)
+  INSERT INTO public.case_file_spec_audit (account_id, bank_code, product, actor_id, rows, rows_before)
+  VALUES (v_account, p_bank_code, btrim(p_product), p_actor, v_after, v_before)
   RETURNING id INTO v_id;
   RETURN v_id;
 END;
@@ -550,6 +558,16 @@ BEGIN
   IF p_actor IS NULL AND d.source NOT IN ('chat', 'submission_group') THEN
     RAISE EXCEPTION 'the intake registers only documents the customer sent'
       USING ERRCODE = 'check_violation', HINT = 'FILE_INVALID';
+  END IF;
+  -- A 1:1 chat document is the contact's, not the case's: a staff actor
+  -- registers it only if they could see the contact (129's explicit-user
+  -- form of can_view_contact), or registering then downloading it through
+  -- the case would hand it to anyone who may write the case. The other
+  -- sources are case-side (a submission group, a staff upload, a build).
+  IF p_actor IS NOT NULL AND d.source = 'chat'
+     AND NOT coalesce(public.memory_can_read(p_actor, c.account_id, 'contact', d.contact_id), false) THEN
+    RAISE EXCEPTION 'document % not found', p_customer_document_id
+      USING ERRCODE = 'no_data_found', HINT = 'FILE_NOT_FOUND';
   END IF;
   INSERT INTO public.case_document_files (account_id, case_id, customer_document_id, registered_by)
   VALUES (c.account_id, p_case, p_customer_document_id, p_actor)
@@ -722,6 +740,18 @@ BEGIN
   v_status := CASE WHEN v_ok THEN 'passed' ELSE 'failed' END;
   v_sync := (SELECT st.files_checklist_sync FROM public.case_files_settings(c.account_id) st)
             AND NOT public.case_managed_externally(c.account_id);
+  -- A pass for a version older than the doc_key's passed file (a v1
+  -- checked after v2 passed) never displaces it: the older file is
+  -- superseded instead, and the checklist is left alone. Still 'passed'
+  -- to the checker: its checks did pass.
+  IF v_ok AND EXISTS (SELECT 1 FROM public.case_document_files p
+                       WHERE p.case_id = f.case_id AND p.doc_key = f.doc_key AND p.status = 'passed'
+                         AND p.version > f.version) THEN
+    UPDATE public.case_document_files x SET checks = p_checks, pages = p_pages, expires_on = p_expires_on,
+           status = 'superseded'
+     WHERE x.id = f.id;
+    RETURN 'passed';
+  END IF;
   IF v_ok THEN
     UPDATE public.case_document_files x SET status = 'superseded'
      WHERE x.case_id = f.case_id AND x.doc_key = f.doc_key AND x.status = 'passed' AND x.id <> f.id;
