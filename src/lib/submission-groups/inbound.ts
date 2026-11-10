@@ -59,10 +59,12 @@ export interface GroupCustomerDocument {
   sentAt: string;
 }
 
-/** Files one customer document; the caller isolates its failures. */
-export type GroupCustomerDocumentHook = (
-  doc: GroupCustomerDocument
-) => Promise<unknown>;
+/**
+ * Takes one customer document; the caller isolates its failures. The
+ * webhook's hook only collects it (synchronously) and files it after the
+ * delivery's 1:1 messages.
+ */
+export type GroupCustomerDocumentHook = (doc: GroupCustomerDocument) => unknown;
 
 /**
  * The case SLA hook (module 018c): a NEW message from the customer is the

@@ -40,17 +40,18 @@ export function isOwnStorageUrl(url: string): boolean {
 
 /**
  * A link the NAS worker, which holds no gateway credentials, can still
- * download: https, and not a gateway media host. A Meta lookaside URL
- * needs the bearer token and expires in minutes; a Whapi `/media/` link
- * needs the channel token; an OpenWA link is a loopback endpoint behind
- * an API key, whatever its shape. What is left is a public link such as
- * the storage URL Whapi's auto-download hands out.
+ * download: https, and not a gateway media host. No Meta link
+ * qualifies, whatever its host: Cloud API media is always fetched with
+ * the access token (a lookaside URL also expires in minutes). A Whapi
+ * `/media/` link needs the channel token; an OpenWA link is a loopback
+ * endpoint behind an API key, whatever its shape. What is left is a
+ * public link such as the storage URL Whapi's auto-download hands out.
  */
 export function isCredentialFreeLink(
   url: string,
   provider: WhatsAppProvider
 ): boolean {
-  if (provider === 'openwa') return false;
+  if (provider === 'openwa' || provider === 'meta') return false;
   let parsed: URL;
   try {
     parsed = new URL(url);
