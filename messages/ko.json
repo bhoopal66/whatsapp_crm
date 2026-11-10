@@ -9031,6 +9031,149 @@
       "generic": "저장하지 못했습니다: {error}"
     }
   },
+  "CaseRules": {
+    "settings": {
+      "title": "자동화 규칙",
+      "description": "케이스에 어떤 일이 생기면 대신 작업을 수행합니다. 규칙은 이 순서대로 실행됩니다.",
+      "note": "규칙은 고객에게 메시지를 보내지 않습니다. Compass가 관리하는 케이스는 규칙으로 변경되지 않습니다.",
+      "add": "규칙 추가",
+      "empty": "아직 규칙이 없습니다. 규칙이 없으면 자동으로 아무 일도 일어나지 않습니다.",
+      "loadFailed": "규칙을 불러오지 못했습니다.",
+      "readOnly": "소유자와 관리자만 규칙을 변경할 수 있습니다.",
+      "toggle": "{name} 켜기 또는 끄기",
+      "edit": "편집",
+      "delete": "삭제",
+      "deleteTitle": "이 규칙을 삭제할까요?",
+      "deleteBody": "\"{name}\" 규칙이 더 이상 실행되지 않습니다. 지난 실행 기록은 각 케이스에 남습니다.",
+      "deleteConfirm": "규칙 삭제",
+      "saved": "규칙을 저장했습니다",
+      "deleted": "규칙을 삭제했습니다",
+      "turnedOn": "규칙을 켰습니다",
+      "turnedOff": "규칙을 껐습니다",
+      "off": "꺼짐"
+    },
+    "dialog": {
+      "newTitle": "새 규칙",
+      "editTitle": "규칙 편집",
+      "name": "이름",
+      "enabled": "켜짐",
+      "trigger": "실행 시점",
+      "conditions": "적용 대상 케이스",
+      "conditionsHelp": "비워 두면 모든 케이스에 적용됩니다.",
+      "bank": "은행",
+      "stage": "단계",
+      "product": "상품",
+      "any": "전체",
+      "amountMin": "최소 금액 (AED)",
+      "amountMax": "최대 금액 (AED)",
+      "preSubmission": "제출 여부",
+      "preAny": "전체",
+      "preYes": "제출 전",
+      "preNo": "제출됨",
+      "days": "활동 없는 일수",
+      "actions": "수행할 작업",
+      "addAction": "작업 추가",
+      "removeAction": "작업 제거",
+      "kind": "작업",
+      "person": "담당자",
+      "pickPerson": "담당자 선택",
+      "note": "메모",
+      "noteHelp": "{{customer}}와 {{bank}}는 고객 이름과 은행 이름으로 바뀝니다.",
+      "priority": "우선순위",
+      "save": "규칙 저장",
+      "cancel": "취소"
+    },
+    "trigger": {
+      "case_opened": "케이스가 열릴 때",
+      "stage_changed": "단계가 바뀔 때",
+      "sla_overdue": "SLA 타이머가 기한을 넘길 때",
+      "no_activity": "며칠 동안 활동이 없을 때",
+      "submission_attached": "제출이 연결될 때"
+    },
+    "kind": {
+      "assign_agent": "에이전트 배정",
+      "assign_coordinator": "코디네이터 배정",
+      "add_note": "메모 추가",
+      "set_priority": "우선순위 설정"
+    },
+    "priority": {
+      "low": "낮음",
+      "normal": "보통",
+      "high": "높음",
+      "urgent": "긴급"
+    },
+    "problem": {
+      "name_required": "규칙 이름을 입력하세요.",
+      "name_too_long": "이름은 최대 60자입니다.",
+      "trigger_invalid": "규칙이 실행될 시점을 선택하세요.",
+      "days_required": "활동이 없는 일수를 입력하세요.",
+      "days_invalid": "일수는 1에서 365 사이의 정수여야 합니다.",
+      "condition_too_long": "조건은 최대 200자입니다.",
+      "amount_invalid": "금액은 0 이상의 숫자여야 합니다.",
+      "amount_range": "최소 금액이 최대 금액보다 큽니다.",
+      "actions_none": "작업을 하나 이상 추가하세요.",
+      "actions_too_many": "규칙에는 작업을 최대 5개까지 넣을 수 있습니다.",
+      "person_required": "배정 작업마다 담당자를 선택하세요.",
+      "note_required": "메모를 입력하세요.",
+      "note_too_long": "메모는 최대 4000자입니다.",
+      "priority_invalid": "우선순위를 선택하세요."
+    },
+    "describe": {
+      "sentence": "{when}, {actions}",
+      "trigger": {
+        "case_opened": "케이스가 열릴 때",
+        "stage_changed": "케이스 단계가 바뀔 때",
+        "sla_overdue": "케이스 SLA 타이머가 기한을 넘길 때",
+        "no_activity": "케이스에 {days}일 동안 활동이 없을 때",
+        "submission_attached": "케이스에 제출이 연결될 때",
+        "other": "어떤 일이 생길 때"
+      },
+      "bank": "(은행: {bank})",
+      "stage": "(단계: {stage})",
+      "product": "(상품: {product})",
+      "amountMin": "(금액 AED {amount} 이상)",
+      "amountMax": "(금액 AED {amount} 이하)",
+      "preSubmission": "(제출 전)",
+      "submitted": "(제출 후)",
+      "action": {
+        "assign_agent": "{person}님을 에이전트로 배정",
+        "assign_coordinator": "{person}님을 코디네이터로 배정",
+        "add_note": "메모 추가",
+        "set_priority": "우선순위를 {priority}(으)로 설정",
+        "none": "아무 작업도 하지 않음"
+      }
+    },
+    "run": {
+      "matched": "일치",
+      "notMatched": "일치하지 않음",
+      "stopped": "중단: {reason}",
+      "done": {
+        "assign_agent": "에이전트 배정됨",
+        "assign_coordinator": "코디네이터 배정됨",
+        "add_note": "메모 추가됨",
+        "set_priority": "우선순위 설정됨",
+        "other": "완료"
+      }
+    },
+    "refusal": {
+      "MANAGED_EXTERNALLY": "Compass에서 관리됨",
+      "CASE_CLOSED": "종료된 케이스",
+      "ASSIGNEE_INVALID": "해당 담당자는 케이스를 맡을 수 없습니다",
+      "other": "거부됨"
+    },
+    "caseTab": {
+      "title": "자동화",
+      "loadFailed": "자동화 기록을 불러오지 못했습니다.",
+      "deletedRule": "삭제된 규칙",
+      "line": "{trigger} · {when}"
+    },
+    "errors": {
+      "RULE_INVALID": "유효하지 않은 규칙입니다.",
+      "NOT_ALLOWED": "소유자와 관리자만 규칙을 변경할 수 있습니다.",
+      "RULE_NOT_FOUND": "이 규칙은 더 이상 존재하지 않습니다.",
+      "generic": "문제가 발생했습니다. 다시 시도하세요."
+    }
+  },
   "CaseFilesSettings": {
     "title": "케이스 파일",
     "description": "고객 서류 파일을 검사하면서 자동으로 처리되는 작업입니다. 모든 스위치는 꺼진 상태로 시작합니다.",

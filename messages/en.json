@@ -9031,6 +9031,149 @@
       "generic": "Could not save: {error}"
     }
   },
+  "CaseRules": {
+    "settings": {
+      "title": "Automation rules",
+      "description": "When something happens to a case, do something for you. Rules run in this order.",
+      "note": "Rules never message customers. Cases managed by Compass are never changed by a rule.",
+      "add": "Add rule",
+      "empty": "No rules yet. With no rules, nothing happens automatically.",
+      "loadFailed": "Couldn't load the rules.",
+      "readOnly": "Only owners and admins can change rules.",
+      "toggle": "Turn {name} on or off",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteTitle": "Delete this rule?",
+      "deleteBody": "\"{name}\" stops running. Its past runs stay on each case.",
+      "deleteConfirm": "Delete rule",
+      "saved": "Rule saved",
+      "deleted": "Rule deleted",
+      "turnedOn": "Rule turned on",
+      "turnedOff": "Rule turned off",
+      "off": "Off"
+    },
+    "dialog": {
+      "newTitle": "New rule",
+      "editTitle": "Edit rule",
+      "name": "Name",
+      "enabled": "On",
+      "trigger": "When",
+      "conditions": "Only for cases",
+      "conditionsHelp": "Leave a field empty to match any case.",
+      "bank": "Bank",
+      "stage": "Stage",
+      "product": "Product",
+      "any": "Any",
+      "amountMin": "Amount at least (AED)",
+      "amountMax": "Amount at most (AED)",
+      "preSubmission": "Submission",
+      "preAny": "Any",
+      "preYes": "Before submission",
+      "preNo": "Submitted",
+      "days": "Days without activity",
+      "actions": "Then",
+      "addAction": "Add action",
+      "removeAction": "Remove action",
+      "kind": "Action",
+      "person": "Person",
+      "pickPerson": "Pick a person",
+      "note": "Note",
+      "noteHelp": "{{customer}} and {{bank}} are replaced with the customer's and the bank's names.",
+      "priority": "Priority",
+      "save": "Save rule",
+      "cancel": "Cancel"
+    },
+    "trigger": {
+      "case_opened": "A case is opened",
+      "stage_changed": "The stage changes",
+      "sla_overdue": "An SLA timer is overdue",
+      "no_activity": "No activity for some days",
+      "submission_attached": "A submission is attached"
+    },
+    "kind": {
+      "assign_agent": "Assign the agent",
+      "assign_coordinator": "Assign the coordinator",
+      "add_note": "Add a note",
+      "set_priority": "Set the priority"
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "problem": {
+      "name_required": "Give the rule a name.",
+      "name_too_long": "The name can be at most 60 characters.",
+      "trigger_invalid": "Pick when the rule runs.",
+      "days_required": "Say how many days without activity.",
+      "days_invalid": "Days must be a whole number from 1 to 365.",
+      "condition_too_long": "A condition can be at most 200 characters.",
+      "amount_invalid": "Amounts must be numbers of 0 or more.",
+      "amount_range": "The lowest amount is above the highest.",
+      "actions_none": "Add at least one action.",
+      "actions_too_many": "A rule can have at most 5 actions.",
+      "person_required": "Pick a person for each assign action.",
+      "note_required": "Write the note.",
+      "note_too_long": "A note can be at most 4000 characters.",
+      "priority_invalid": "Pick a priority."
+    },
+    "describe": {
+      "sentence": "{when}, {actions}",
+      "trigger": {
+        "case_opened": "When a case is opened",
+        "stage_changed": "When a case's stage changes",
+        "sla_overdue": "When a case's SLA timer is overdue",
+        "no_activity": "When a case has no activity for {days, plural, one {# day} other {# days}}",
+        "submission_attached": "When a submission is attached to a case",
+        "other": "When something happens"
+      },
+      "bank": "at {bank}",
+      "stage": "in {stage}",
+      "product": "for {product}",
+      "amountMin": "of at least AED {amount}",
+      "amountMax": "of at most AED {amount}",
+      "preSubmission": "before submission",
+      "submitted": "after submission",
+      "action": {
+        "assign_agent": "assign {person} as agent",
+        "assign_coordinator": "assign {person} as coordinator",
+        "add_note": "add a note",
+        "set_priority": "set the priority to {priority}",
+        "none": "do nothing"
+      }
+    },
+    "run": {
+      "matched": "Matched",
+      "notMatched": "Not matched",
+      "stopped": "stopped: {reason}",
+      "done": {
+        "assign_agent": "agent assigned",
+        "assign_coordinator": "coordinator assigned",
+        "add_note": "note added",
+        "set_priority": "priority set",
+        "other": "done"
+      }
+    },
+    "refusal": {
+      "MANAGED_EXTERNALLY": "Managed in Compass",
+      "CASE_CLOSED": "Case closed",
+      "ASSIGNEE_INVALID": "That person can't take cases",
+      "other": "Refused"
+    },
+    "caseTab": {
+      "title": "Automation",
+      "loadFailed": "Couldn't load the automation history.",
+      "deletedRule": "A deleted rule",
+      "line": "{trigger} · {when}"
+    },
+    "errors": {
+      "RULE_INVALID": "That rule is not valid.",
+      "NOT_ALLOWED": "Only owners and admins can change rules.",
+      "RULE_NOT_FOUND": "That rule no longer exists.",
+      "generic": "Something went wrong. Try again."
+    }
+  },
   "CaseFilesSettings": {
     "title": "Case files",
     "description": "What happens automatically as customers' document files are checked. Every switch starts off.",

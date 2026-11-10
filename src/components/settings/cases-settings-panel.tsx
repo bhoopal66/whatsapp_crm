@@ -61,6 +61,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { CaseFilesSettingsCard, FileSpecEditor } from './case-files-settings';
+import { CaseRulesSettingsCard } from './case-rules-settings';
 import { CaseStatusMapCard } from './case-status-map-card';
 import { SettingsPanelHead } from './settings-panel-head';
 import { TABS_TRIGGER_DARK } from './tab-styles';
@@ -369,6 +370,8 @@ export function CasesSettingsPanel() {
       <CaseFilesSettingsCard />
 
       <CaseStatusMapCard />
+
+      <CaseRulesSettingsCard />
 
       {loadFailed ? (
         <p className="text-destructive text-sm" role="alert">

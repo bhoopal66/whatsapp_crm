@@ -35,6 +35,8 @@ import {
   type TimelineIconName,
 } from '@/lib/cases/case-tabs';
 
+import { CaseRuleRuns } from './case-rule-runs';
+
 const ICONS: Record<TimelineIconName, LucideIcon> = {
   ArrowRightLeft,
   ListPlus,
@@ -153,6 +155,8 @@ export function TimelineTab({ caseId }: CaseTabProps) {
           {t('timeline.messagesNote')}
         </p>
       </div>
+
+      <CaseRuleRuns caseId={caseId} />
 
       {state === 'loading' ? (
         <p className="text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm">
