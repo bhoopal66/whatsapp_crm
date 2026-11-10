@@ -1,0 +1,307 @@
+import { describe, expect, it } from 'vitest';
+
+import { CASE_FILE_MIME } from './checks';
+import { MAX_UPLOAD_BYTES } from './intake-file';
+import {
+  CASE_FILE_MAX_BYTES,
+  CASE_FILE_UPLOAD_MIME,
+  buildCaseFilesView,
+  caseFileErrorKey,
+  checkFailureKey,
+  checkFailures,
+  formatFileSize,
+  isAttachableDocument,
+  parseCaseFiles,
+  uploadProblem,
+  validExpiry,
+} from './view';
+
+const file = (over: Record<string, unknown> = {}) => ({
+  id: 'f1',
+  caseId: 'c1',
+  customerDocumentId: 'd1',
+  docKey: 'passport',
+  version: 1,
+  status: 'passed',
+  classifySeq: 1,
+  checks: [{ name: 'mime', ok: true, detail: null }],
+  pages: 2,
+  expiresOn: null,
+  renamedName: 'PASSPORT_v1.pdf',
+  registeredAt: '2026-11-01T10:00:00.000Z',
+  document: {
+    originalName: 'scan.pdf',
+    mime: 'application/pdf',
+    sizeBytes: 2048,
+    source: 'chat',
+  },
+  ...over,
+});
+
+const spec = (docKey: string, position: number, over = {}) => ({
+  docKey,
+  position,
+  namePattern: null,
+  required: true,
+  maxMb: null,
+  allowedMime: null,
+  minValidDays: null,
+  merged: false,
+  fromSpec: true,
+  ...over,
+});
+
+const view = (files: unknown[], specs: unknown[], ready = false) => {
+  const data = parseCaseFiles({ files, ready, spec: specs });
+  if (!data) throw new Error('unparsed');
+  return buildCaseFilesView(data);
+};
+
+describe('parseCaseFiles', () => {
+  it('refuses a body without a files list', () => {
+    expect(parseCaseFiles(null)).toBeNull();
+    expect(parseCaseFiles('x')).toBeNull();
+    expect(parseCaseFiles({ files: 'nope' })).toBeNull();
+    expect(parseCaseFiles([])).toBeNull();
+  });
+
+  it('drops junk rows and keeps good ones', () => {
+    const data = parseCaseFiles({
+      files: [
+        null,
+        42,
+        { id: 'x' },
+        file({ status: 'archived' }),
+        file({ id: '' }),
+        file({
+          id: 'ok',
+          checks: [{ name: 'size', ok: false, detail: 'too_large' }, { ok: 1 }],
+          document: null,
+          version: 'two',
+        }),
+      ],
+      ready: 'yes',
+      spec: [spec('b', 2), { docKey: 7 }, spec('a', 1), 'junk'],
+    });
+    expect(data?.ready).toBe(false);
+    expect(data?.files.map((f) => f.id)).toEqual(['ok']);
+    const f = data!.files[0];
+    expect(f.checks).toEqual([
+      { name: 'size', ok: false, detail: 'too_large' },
+    ]);
+    expect(f.version).toBeNull();
+    expect(f.originalName).toBeNull();
+    expect(f.sizeBytes).toBeNull();
+    expect(data?.spec.map((s) => s.docKey)).toEqual(['a', 'b']);
+  });
+
+  it('reads ready and a missing spec list', () => {
+    const data = parseCaseFiles({ files: [], ready: true });
+    expect(data).toEqual({ files: [], ready: true, spec: [] });
+  });
+});
+
+describe('buildCaseFilesView', () => {
+  it('shows a spec document with no file as missing', () => {
+    const v = view([], [spec('passport', 1)]);
+    expect(v.rows[0]).toMatchObject({
+      chip: 'missing',
+      current: null,
+      history: [],
+      failures: [],
+    });
+  });
+
+  it('takes the newest non-superseded version as current', () => {
+    const v = view(
+      [
+        file({ id: 'v1', version: 1, status: 'superseded' }),
+        file({ id: 'v2', version: 2, status: 'passed' }),
+      ],
+      [spec('passport', 1)]
+    );
+    expect(v.rows[0].current?.id).toBe('v2');
+    expect(v.rows[0].chip).toBe('passed');
+    expect(v.rows[0].history.map((f) => f.id)).toEqual(['v1']);
+  });
+
+  it('lets a newer failed version outrank an older passed one', () => {
+    const v = view(
+      [
+        file({ id: 'v1', version: 1, status: 'passed' }),
+        file({
+          id: 'v2',
+          version: 2,
+          status: 'failed',
+          checks: [
+            { name: 'mime', ok: true, detail: null },
+            { name: 'resolution', ok: false, detail: 'low_resolution' },
+          ],
+        }),
+      ],
+      [spec('passport', 1)]
+    );
+    const row = v.rows[0];
+    expect(row.current?.id).toBe('v2');
+    expect(row.chip).toBe('failed');
+    expect(row.failures).toEqual([
+      { name: 'resolution', ok: false, detail: 'low_resolution' },
+    ]);
+    expect(row.history.map((f) => f.id)).toEqual(['v1']);
+  });
+
+  it('keeps a newer passed version current over an older failed one', () => {
+    const v = view(
+      [
+        file({ id: 'v1', version: 1, status: 'failed' }),
+        file({ id: 'v2', version: 2, status: 'passed' }),
+      ],
+      [spec('passport', 1)]
+    );
+    expect(v.rows[0].current?.id).toBe('v2');
+    expect(v.rows[0].failures).toEqual([]);
+  });
+
+  it('shows a version still being checked as checking', () => {
+    const v = view(
+      [
+        file({ id: 'v1', version: 1, status: 'passed' }),
+        file({ id: 'p', version: null, status: 'pending_checks' }),
+      ],
+      [spec('passport', 1)]
+    );
+    expect(v.rows[0].current?.id).toBe('p');
+    expect(v.rows[0].chip).toBe('checking');
+  });
+
+  it('shows only superseded files as missing', () => {
+    const v = view([file({ status: 'superseded' })], [spec('passport', 1)]);
+    expect(v.rows[0].chip).toBe('missing');
+    expect(v.rows[0].history).toHaveLength(1);
+  });
+
+  it('lists unclassified files apart, newest first, in spec order', () => {
+    const v = view(
+      [
+        file({ id: 'u1', docKey: null, status: 'unclassified', version: null }),
+        file({
+          id: 'u2',
+          docKey: null,
+          status: 'unclassified',
+          version: null,
+          registeredAt: '2026-11-02T10:00:00.000Z',
+        }),
+        file({ id: 'e', docKey: 'emirates_id' }),
+      ],
+      [spec('passport', 2), spec('emirates_id', 1, { required: false })]
+    );
+    expect(v.unclassified.map((f) => f.id)).toEqual(['u2', 'u1']);
+    expect(v.rows.map((r) => r.spec.docKey)).toEqual([
+      'emirates_id',
+      'passport',
+    ]);
+    expect(v.rows[0].spec.required).toBe(false);
+    expect(v.rows[1].chip).toBe('missing');
+  });
+
+  it('passes ready through', () => {
+    expect(view([], [], true).ready).toBe(true);
+  });
+});
+
+describe('check failures', () => {
+  it('keeps only failed checks', () => {
+    expect(checkFailures(null)).toEqual([]);
+    expect(
+      checkFailures([
+        { name: 'mime', ok: true, detail: null },
+        { name: 'size', ok: false, detail: 'too_large' },
+      ])
+    ).toEqual([{ name: 'size', ok: false, detail: 'too_large' }]);
+  });
+
+  it('names a failure by detail, then check, then generically', () => {
+    for (const d of [
+      'too_large',
+      'low_resolution',
+      'magic_mismatch',
+      'unreadable',
+      'expiring',
+      'not_allowed',
+    ])
+      expect(checkFailureKey({ name: 'x', ok: false, detail: d })).toBe(
+        `checks.detail.${d}`
+      );
+    expect(checkFailureKey({ name: 'expiry', ok: false, detail: 'odd' })).toBe(
+      'checks.name.expiry'
+    );
+    expect(checkFailureKey({ name: 'novel', ok: false, detail: null })).toBe(
+      'checks.other'
+    );
+  });
+});
+
+describe('sizes and uploads', () => {
+  it('formats sizes', () => {
+    expect(formatFileSize(null)).toBeNull();
+    expect(formatFileSize(-1)).toBeNull();
+    expect(formatFileSize(Number.NaN)).toBeNull();
+    expect(formatFileSize(512)).toBe('512 B');
+    expect(formatFileSize(2048)).toBe('2.0 KB');
+    expect(formatFileSize(10 * 1024 * 1024)).toBe('10 MB');
+  });
+
+  it('matches the server mime list and ceiling', () => {
+    expect([...CASE_FILE_UPLOAD_MIME]).toEqual([...CASE_FILE_MIME]);
+    expect(CASE_FILE_MAX_BYTES).toBe(MAX_UPLOAD_BYTES);
+  });
+
+  it('flags a wrong type or an oversize file before sending', () => {
+    expect(uploadProblem({ type: 'application/pdf', size: 10 })).toBeNull();
+    expect(uploadProblem({ type: 'IMAGE/PNG', size: 10 })).toBeNull();
+    expect(uploadProblem({ type: 'image/gif', size: 10 })).toBe('mime');
+    expect(uploadProblem({ type: '', size: 10 })).toBe('mime');
+    expect(
+      uploadProblem({ type: 'image/jpeg', size: CASE_FILE_MAX_BYTES + 1 })
+    ).toBe('size');
+    expect(
+      uploadProblem({ type: 'image/jpeg', size: CASE_FILE_MAX_BYTES })
+    ).toBeNull();
+  });
+
+  it('offers PDFs and images with stored bytes for attach', () => {
+    expect(
+      isAttachableDocument({ mime: 'application/pdf', status: 'stored' })
+    ).toBe(true);
+    expect(
+      isAttachableDocument({ mime: 'image/jpeg', status: 'pending' })
+    ).toBe(true);
+    expect(isAttachableDocument({ mime: 'image/png', status: 'failed' })).toBe(
+      false
+    );
+    expect(isAttachableDocument({ mime: 'audio/ogg', status: 'stored' })).toBe(
+      false
+    );
+    expect(isAttachableDocument({ mime: null, status: 'stored' })).toBe(false);
+  });
+
+  it('validates the optional expiry date', () => {
+    expect(validExpiry('')).toBe(true);
+    expect(validExpiry('2027-02-28')).toBe(true);
+    expect(validExpiry('2027-02-30')).toBe(false);
+    expect(validExpiry('28/02/2027')).toBe(false);
+  });
+});
+
+describe('caseFileErrorKey', () => {
+  it('maps known codes, then status, then generic', () => {
+    expect(caseFileErrorKey(409, 'CASE_CLOSED')).toBe('errors.CASE_CLOSED');
+    expect(caseFileErrorKey(422, 'MIME_NOT_ALLOWED')).toBe(
+      'errors.MIME_NOT_ALLOWED'
+    );
+    expect(caseFileErrorKey(403, undefined)).toBe('errors.NOT_ALLOWED');
+    expect(caseFileErrorKey(413, null)).toBe('errors.FILE_TOO_LARGE');
+    expect(caseFileErrorKey(500, 'SOMETHING')).toBe('errors.generic');
+    expect(caseFileErrorKey(0, undefined)).toBe('errors.generic');
+  });
+});

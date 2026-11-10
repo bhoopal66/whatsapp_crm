@@ -23,6 +23,7 @@ import { docStatusLocked, type CaseTabProps } from '@/lib/cases/case-page';
 import { toolErrorKey, validFileRef } from '@/lib/cases/case-tools-ui';
 import { cn } from '@/lib/utils';
 
+import { CaseFilesSection } from './case-files-section';
 import { sendCaseRequest } from './case-dialogs';
 import {
   asList,
@@ -141,125 +142,143 @@ export function DocumentsTab({ caseId, detail, onChanged }: CaseTabProps) {
     if (error) toast.error(error);
   };
 
+  const labels = new Map(data.items.map((i) => [i.docKey, i.label]));
+
   return (
-    <section className="bg-card space-y-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t('documents.title')}</h2>
-        {data.items.length > 0 && (
-          <Badge variant={data.missing > 0 ? 'outline' : 'secondary'}>
-            {t('documents.missing', { count: data.missing })}
-          </Badge>
-        )}
-      </div>
+    <div className="space-y-3">
+      <section className="bg-card space-y-3 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">{t('documents.title')}</h2>
+          {data.items.length > 0 && (
+            <Badge variant={data.missing > 0 ? 'outline' : 'secondary'}>
+              {t('documents.missing', { count: data.missing })}
+            </Badge>
+          )}
+        </div>
 
-      {data.items.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          {t('documents.noChecklist')}
-        </p>
-      ) : (
-        <ul className="divide-y">
-          {data.items.map((doc) => {
-            const updated = when(doc.updatedAt);
-            return (
-              <li
-                key={doc.docKey}
-                className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium break-words">
-                      {doc.label}
-                    </span>
-                    <Badge
-                      variant={
-                        doc.status === 'received'
-                          ? 'secondary'
-                          : doc.status === 'rejected'
-                            ? 'destructive'
-                            : 'outline'
-                      }
-                    >
-                      {t(`documents.status.${doc.status ?? 'none'}`)}
-                    </Badge>
+        {data.items.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            {t('documents.noChecklist')}
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {data.items.map((doc) => {
+              const updated = when(doc.updatedAt);
+              return (
+                <li
+                  key={doc.docKey}
+                  className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium break-words">
+                        {doc.label}
+                      </span>
+                      <Badge
+                        variant={
+                          doc.status === 'received'
+                            ? 'secondary'
+                            : doc.status === 'rejected'
+                              ? 'destructive'
+                              : 'outline'
+                        }
+                      >
+                        {t(`documents.status.${doc.status ?? 'none'}`)}
+                      </Badge>
+                    </div>
+                    {(doc.fileRef || updated) && (
+                      <p className="text-muted-foreground text-xs break-all">
+                        {[
+                          doc.fileRef
+                            ? t('documents.file', { ref: doc.fileRef })
+                            : null,
+                          updated
+                            ? t('documents.updated', {
+                                when: updated,
+                                name: doc.updatedBy
+                                  ? (nameOf(doc.updatedBy) ??
+                                    t('unknownPerson'))
+                                  : t('system'),
+                              })
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
                   </div>
-                  {(doc.fileRef || updated) && (
-                    <p className="text-muted-foreground text-xs break-all">
-                      {[
-                        doc.fileRef
-                          ? t('documents.file', { ref: doc.fileRef })
-                          : null,
-                        updated
-                          ? t('documents.updated', {
-                              when: updated,
-                              name: doc.updatedBy
-                                ? (nameOf(doc.updatedBy) ?? t('unknownPerson'))
-                                : t('system'),
-                            })
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {doc.status !== 'requested' && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {doc.status !== 'requested' && (
+                      <GatedButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={!canAct || busy !== null}
+                        title={gate}
+                        onClick={() => void quick(doc, 'requested')}
+                      >
+                        {busy === `${doc.docKey}:requested` && (
+                          <Loader2 className="size-4 animate-spin" />
+                        )}
+                        {t('documents.markRequested')}
+                      </GatedButton>
+                    )}
                     <GatedButton
                       size="sm"
                       variant="ghost"
-                      disabled={!canAct || busy !== null}
-                      title={gate}
-                      onClick={() => void quick(doc, 'requested')}
-                    >
-                      {busy === `${doc.docKey}:requested` && (
-                        <Loader2 className="size-4 animate-spin" />
-                      )}
-                      {t('documents.markRequested')}
-                    </GatedButton>
-                  )}
-                  <GatedButton
-                    size="sm"
-                    variant="ghost"
-                    disabled={!canAct || busy !== null || lockedTo('received')}
-                    title={gateFor('received')}
-                    onClick={() => setReceiving(doc)}
-                  >
-                    {t('documents.markReceived')}
-                  </GatedButton>
-                  {doc.status !== 'rejected' && (
-                    <GatedButton
-                      size="sm"
-                      variant="ghost"
-                      className={cn(
-                        canAct && !lockedTo('rejected') && 'text-destructive'
-                      )}
                       disabled={
-                        !canAct || busy !== null || lockedTo('rejected')
+                        !canAct || busy !== null || lockedTo('received')
                       }
-                      title={gateFor('rejected')}
-                      onClick={() => void quick(doc, 'rejected')}
+                      title={gateFor('received')}
+                      onClick={() => setReceiving(doc)}
                     >
-                      {busy === `${doc.docKey}:rejected` && (
-                        <Loader2 className="size-4 animate-spin" />
-                      )}
-                      {t('documents.markRejected')}
+                      {t('documents.markReceived')}
                     </GatedButton>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                    {doc.status !== 'rejected' && (
+                      <GatedButton
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          canAct && !lockedTo('rejected') && 'text-destructive'
+                        )}
+                        disabled={
+                          !canAct || busy !== null || lockedTo('rejected')
+                        }
+                        title={gateFor('rejected')}
+                        onClick={() => void quick(doc, 'rejected')}
+                      >
+                        {busy === `${doc.docKey}:rejected` && (
+                          <Loader2 className="size-4 animate-spin" />
+                        )}
+                        {t('documents.markRejected')}
+                      </GatedButton>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-      {receiving && (
-        <ReceiveDialog
-          doc={receiving}
-          onOpenChange={(o) => !o && setReceiving(null)}
-          onSave={(ref) => save(receiving, 'received', ref)}
-        />
-      )}
-    </section>
+        {receiving && (
+          <ReceiveDialog
+            doc={receiving}
+            onOpenChange={(o) => !o && setReceiving(null)}
+            onSave={(ref) => save(receiving, 'received', ref)}
+          />
+        )}
+      </section>
+      <CaseFilesSection
+        caseId={caseId}
+        contactId={detail.case.contactId}
+        closed={closed}
+        labelOf={(key) => labels.get(key) ?? key}
+        onChanged={() => {
+          // A passed file can mark its checklist row received (181).
+          void reload();
+          onChanged();
+        }}
+      />
+    </div>
   );
 }
 
