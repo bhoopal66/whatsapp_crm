@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { CaseMentionsButton } from '@/components/cases/case-mentions-sheet';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -169,6 +170,7 @@ export function CaseViewsMenu({
           {t(`errors.${error}`)}
         </span>
       )}
+      <CaseMentionsButton />
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button type="button" variant="outline" size="sm" />}

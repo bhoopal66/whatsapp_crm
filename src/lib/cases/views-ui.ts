@@ -229,3 +229,51 @@ export function canSnoozeCase(role: CaseRole): boolean {
     role === 'coordinator'
   );
 }
+
+/** One note that mentions the signed-in person, as GET /api/cases/mentions lists it. */
+export interface MentionItem {
+  noteId: string;
+  caseId: string;
+  stage: string | null;
+  /** null: an automatic note. */
+  authorId: string | null;
+  createdAt: string | null;
+  body: string;
+}
+
+/** Tolerant of junk: rows without a note id and case id are dropped. */
+export function parseMentions(payload: unknown): {
+  items: MentionItem[];
+  next: string | null;
+} {
+  if (typeof payload !== 'object' || payload === null)
+    return { items: [], next: null };
+  const p = payload as Record<string, unknown>;
+  const str = (v: unknown): string | null =>
+    typeof v === 'string' && v !== '' ? v : null;
+  const items: MentionItem[] = [];
+  if (Array.isArray(p.items))
+    for (const raw of p.items) {
+      if (typeof raw !== 'object' || raw === null) continue;
+      const r = raw as Record<string, unknown>;
+      const noteId = str(r.noteId);
+      const caseId = str(r.caseId);
+      if (!noteId || !caseId) continue;
+      items.push({
+        noteId,
+        caseId,
+        stage: str(r.stage),
+        authorId: str(r.authorId),
+        createdAt: str(r.createdAt),
+        body: typeof r.body === 'string' ? r.body : '',
+      });
+    }
+  return { items, next: str(p.next) };
+}
+
+/** A note on one line: trimmed, whitespace collapsed, cut with an ellipsis. */
+export function mentionPreview(body: string, max = 160): string {
+  const flat = body.replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return `${flat.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}

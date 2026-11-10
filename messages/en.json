@@ -8024,6 +8024,15 @@
       "all": "All"
     },
     "mentionsMe": "Mentions me",
+    "mentions": "Mentions",
+    "mentionsBody": "Case notes that mention you, newest first.",
+    "mentionsEmpty": "No notes mention you.",
+    "mentionsError": "Couldn't load your mentions.",
+    "mentionsRetry": "Try again",
+    "mentionsMore": "Load more",
+    "mentionsAutomatic": "Automatic",
+    "mentionsNoStage": "No stage",
+    "mentionsJustNow": "just now",
     "snoozedUntil": "Snoozed until {date}",
     "backFromSnooze": "Back from snooze",
     "errors": {

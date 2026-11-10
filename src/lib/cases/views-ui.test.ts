@@ -4,6 +4,8 @@ import {
   canSnoozeCase,
   inboxFiltersFromView,
   isValidSnoozeUntil,
+  mentionPreview,
+  parseMentions,
   parseViews,
   snoozeLabel,
   snoozePresets,
@@ -204,5 +206,49 @@ describe('canSnoozeCase', () => {
     expect(canSnoozeCase('team_lead')).toBe(true);
     expect(canSnoozeCase('coordinator')).toBe(true);
     expect(canSnoozeCase('agent')).toBe(false);
+  });
+});
+
+describe('parseMentions', () => {
+  it('reads items and the cursor', () => {
+    const item = {
+      noteId: 'n1',
+      caseId: 'c1',
+      stage: 'Interested',
+      authorId: null,
+      createdAt: '2026-11-01T00:00:00Z',
+      body: 'hi @you',
+    };
+    expect(parseMentions({ items: [item], next: 'cur' })).toEqual({
+      items: [item],
+      next: 'cur',
+    });
+  });
+
+  it('survives junk', () => {
+    expect(parseMentions(null)).toEqual({ items: [], next: null });
+    expect(parseMentions({ items: 'x', next: 5 })).toEqual({
+      items: [],
+      next: null,
+    });
+    const out = parseMentions({
+      items: [null, 3, { noteId: 'n' }, { noteId: 'n', caseId: 'c' }],
+    });
+    expect(out.items).toHaveLength(1);
+    expect(out.items[0].body).toBe('');
+  });
+});
+
+describe('mentionPreview', () => {
+  it('collapses whitespace and trims', () => {
+    expect(mentionPreview('  a \n\n b\t c  ')).toBe('a b c');
+  });
+  it('cuts long text with an ellipsis within max', () => {
+    const out = mentionPreview('word '.repeat(100), 20);
+    expect(out.length).toBeLessThanOrEqual(20);
+    expect(out.endsWith('…')).toBe(true);
+  });
+  it('leaves short text alone', () => {
+    expect(mentionPreview('short', 160)).toBe('short');
   });
 });

@@ -8024,6 +8024,15 @@
       "all": "전체"
     },
     "mentionsMe": "나를 멘션함",
+    "mentions": "멘션",
+    "mentionsBody": "나를 멘션한 케이스 메모입니다. 최신순.",
+    "mentionsEmpty": "나를 멘션한 메모가 없습니다.",
+    "mentionsError": "멘션을 불러오지 못했습니다.",
+    "mentionsRetry": "다시 시도",
+    "mentionsMore": "더 보기",
+    "mentionsAutomatic": "자동",
+    "mentionsNoStage": "단계 없음",
+    "mentionsJustNow": "방금",
     "snoozedUntil": "{date}까지 보류",
     "backFromSnooze": "보류 해제됨",
     "errors": {
