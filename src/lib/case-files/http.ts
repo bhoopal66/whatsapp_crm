@@ -13,14 +13,21 @@
  */
 import { NextResponse } from 'next/server';
 
-import { CaseHttpError, caseErrorResponse, isUuid } from '@/lib/cases/http';
+import {
+  badRequest,
+  CaseHttpError,
+  caseErrorResponse,
+  isUuid,
+} from '@/lib/cases/http';
 import { CustomerDocumentRecordError } from '@/lib/customer-docs/record';
 
 import { isRealDate } from './checks';
 import {
   CaseFilesRefusedError,
   CaseFilesStoreError,
+  type CaseFileSpecInput,
   type CaseFilesRefusal,
+  type CaseFilesSwitch,
 } from './store';
 
 /** Above this Content-Length an upload is refused before its body is read. */
@@ -213,4 +220,148 @@ export function parseUploadForm(form: FormData | null): {
 /** The current date in UTC, YYYY-MM-DD (the expiry rule's "today"). */
 export function todayUtc(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+/** 181's allowed_mime universe. */
+export const SPEC_MIME_TYPES: readonly string[] = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+];
+
+/** case_file_spec_rows' name pattern when no spec is stored. */
+export const DEFAULT_NAME_PATTERN = '{{case}}_{{doc}}_{{yyyymmdd}}';
+
+const SPEC_ROW_KEYS = new Set([
+  'docKey',
+  'position',
+  'namePattern',
+  'required',
+  'maxMb',
+  'allowedMime',
+  'minValidDays',
+  'merged',
+]);
+
+const isIntIn = (v: unknown, min: number, max: number): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+
+/** Not blank, at most 200 characters, only 181's four placeholders. */
+function isNamePattern(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    !/^\s*$/.test(v) &&
+    [...v].length <= 200 &&
+    !/\{\{|\}\}/.test(v.replace(/\{\{(case|company|doc|yyyymmdd)\}\}/g, ''))
+  );
+}
+
+function specRowOf(value: unknown): CaseFileSpecInput {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    throw refused('SPEC_INVALID');
+  const r = value as Record<string, unknown>;
+  const namePattern = r.namePattern ?? DEFAULT_NAME_PATTERN;
+  const minValidDays = r.minValidDays ?? null;
+  const mime = r.allowedMime;
+  if (
+    Object.keys(r).some((k) => !SPEC_ROW_KEYS.has(k)) ||
+    typeof r.docKey !== 'string' ||
+    !/^[a-z0-9_]{1,64}$/.test(r.docKey) ||
+    !isIntIn(r.position, 1, 999_999_999) ||
+    !isNamePattern(namePattern) ||
+    typeof r.required !== 'boolean' ||
+    !isIntIn(r.maxMb, 1, 100) ||
+    !Array.isArray(mime) ||
+    mime.length === 0 ||
+    mime.some((m) => typeof m !== 'string' || !SPEC_MIME_TYPES.includes(m)) ||
+    (minValidDays !== null && !isIntIn(minValidDays, 0, 3650)) ||
+    typeof r.merged !== 'boolean'
+  )
+    throw refused('SPEC_INVALID');
+  return {
+    doc_key: r.docKey,
+    name_pattern: namePattern,
+    position: r.position,
+    required: r.required,
+    max_mb: r.maxMb,
+    allowed_mime: mime as string[],
+    min_valid_days: minValidDays as number | null,
+    merged: r.merged,
+  };
+}
+
+/**
+ * PUT file-specs `rows`: the whole spec of one bank + product, checked
+ * here against every rule of case_file_spec_set (181) that a malformed
+ * value could otherwise turn into a cast error (22P02, a 500) instead of
+ * SPEC_INVALID. An empty array is valid: it removes the spec. Absent or
+ * null `namePattern` is the default pattern; absent or null
+ * `minValidDays` is no minimum.
+ */
+export function parseSpecRows(value: unknown): CaseFileSpecInput[] {
+  if (!Array.isArray(value)) throw refused('SPEC_INVALID');
+  const rows = value.map(specRowOf);
+  const distinct = (pick: (r: CaseFileSpecInput) => unknown) =>
+    new Set(rows.map(pick)).size;
+  if (
+    distinct((r) => r.doc_key) !== rows.length ||
+    distinct((r) => r.position) !== rows.length ||
+    distinct((r) => r.merged) > 1
+  )
+    throw refused('SPEC_INVALID');
+  return rows;
+}
+
+/** What PUT /api/cases/config/settings may change of the file settings. */
+export interface CaseFilesSettingsChange {
+  switches: [CaseFilesSwitch, boolean][];
+  stages: { from: string | null; to: string | null } | null;
+}
+
+const FILE_SWITCHES: Readonly<Record<string, CaseFilesSwitch>> = {
+  checklistSync: 'files_checklist_sync',
+  readyMove: 'files_ready_move',
+  intakePrompts: 'files_intake_prompts',
+};
+
+function stageOf(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || /^\s*$/.test(value) || value.length > 200)
+    throw badRequest(`caseFiles.${field} must be a stage name or null`);
+  return value;
+}
+
+/**
+ * The settings PUT's `caseFiles` object (the GET's shape): absent -> null;
+ * each switch a boolean; `readyFromStage` and `readyToStage` sent together
+ * (each a stage name or null; both null clears). Only the keys sent are
+ * changed. Anything else is a 400; the stage rules are 181's to judge.
+ */
+export function parseCaseFilesSettings(
+  value: unknown
+): CaseFilesSettingsChange | null {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    throw badRequest('caseFiles must be an object');
+  const body = value as Record<string, unknown>;
+  const switches: [CaseFilesSwitch, boolean][] = [];
+  for (const key of Object.keys(body)) {
+    if (key === 'readyFromStage' || key === 'readyToStage') continue;
+    const which = FILE_SWITCHES[key];
+    if (!which) throw badRequest(`caseFiles.${key} is not a setting`);
+    if (typeof body[key] !== 'boolean')
+      throw badRequest(`caseFiles.${key} must be true or false`);
+    switches.push([which, body[key]]);
+  }
+  const hasFrom = 'readyFromStage' in body;
+  if (hasFrom !== 'readyToStage' in body)
+    throw badRequest('caseFiles.readyFromStage and readyToStage go together');
+  const stages = hasFrom
+    ? {
+        from: stageOf(body.readyFromStage, 'readyFromStage'),
+        to: stageOf(body.readyToStage, 'readyToStage'),
+      }
+    : null;
+  if (switches.length === 0 && !stages) return null;
+  return { switches, stages };
 }

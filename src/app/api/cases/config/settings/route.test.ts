@@ -30,6 +30,15 @@ let admin: FakeClient;
 let setResult: { data?: unknown; error?: unknown };
 let groupsResult: { data?: unknown; error?: unknown };
 let stored: { managed: unknown; groups: unknown };
+let filesRow: Record<string, unknown>[];
+let filesStagesResult: { data?: unknown; error?: unknown };
+const OFF = {
+  checklistSync: false,
+  readyMove: false,
+  readyFromStage: null,
+  readyToStage: null,
+  intakePrompts: false,
+};
 const as = (role: string) => {
   m.ctx = { userId: 'u-1', accountId: 'acct-1', role, supabase: rls.client };
 };
@@ -51,7 +60,12 @@ beforeEach(() => {
   setResult = { data: true };
   groupsResult = { data: true };
   stored = { managed: true, groups: false };
+  filesRow = [];
+  filesStagesResult = { data: true };
   admin = new FakeClient('admin', [], {
+    case_files_settings: () => ({ data: filesRow }) as never,
+    case_settings_set_files_switch: (a) => ({ data: a.p_on }) as never,
+    case_settings_set_files_ready_stages: () => filesStagesResult as never,
     case_settings_set: () => setResult as never,
     case_settings_set_whatsapp_groups: () => groupsResult as never,
     case_managed_externally: () => ({ data: stored.managed }) as never,
@@ -67,6 +81,7 @@ describe('GET case settings', () => {
     const res = await GET();
     expect(await res.json()).toEqual({
       settings: { managedExternally: true, submissionWhatsappGroups: true },
+      caseFiles: OFF,
     });
     expect(rls.queries[0]!.filters).toContainEqual([
       'eq',
@@ -80,6 +95,7 @@ describe('GET case settings', () => {
     as('agent');
     expect(await (await GET()).json()).toEqual({
       settings: { managedExternally: false, submissionWhatsappGroups: false },
+      caseFiles: OFF,
     });
   });
 
@@ -157,5 +173,112 @@ describe('PUT case settings', () => {
   it('maps the SQL refusal NOT_ALLOWED to 403', async () => {
     setResult = { error: { hint: 'NOT_ALLOWED', code: '42501' } };
     expect((await put({ managed_externally: false })).status).toBe(403);
+  });
+});
+
+describe('case files settings', () => {
+  const writes = () =>
+    admin.rpcs
+      .map((r) => r.fn)
+      .filter((fn) => fn.startsWith('case_settings_set'));
+
+  it('GET answers the stored file settings', async () => {
+    filesRow = [
+      {
+        files_checklist_sync: true,
+        files_ready_move: true,
+        files_ready_from_stage: 'Submitted',
+        files_ready_to_stage: 'Under review',
+        files_intake_prompts: false,
+      },
+    ];
+    as('agent');
+    expect((await (await GET()).json()).caseFiles).toEqual({
+      checklistSync: true,
+      readyMove: true,
+      readyFromStage: 'Submitted',
+      readyToStage: 'Under review',
+      intakePrompts: false,
+    });
+    expect(admin.rpcs).toContainEqual({
+      fn: 'case_files_settings',
+      args: { p_account: 'acct-1' },
+    });
+  });
+
+  it('readyMove alone calls only that switch and answers caseFiles', async () => {
+    const res = await put({ caseFiles: { readyMove: true } });
+    expect(res.status).toBe(200);
+    expect(writes()).toEqual(['case_settings_set_files_switch']);
+    expect(admin.rpcs).toContainEqual({
+      fn: 'case_settings_set_files_switch',
+      args: {
+        p_actor: 'u-1',
+        p_account: 'acct-1',
+        p_switch: 'files_ready_move',
+        p_on: true,
+      },
+    });
+    const json = await res.json();
+    expect(json.caseFiles).toEqual(OFF);
+    expect(json.settings).toEqual({
+      managedExternally: true,
+      submissionWhatsappGroups: false,
+    });
+  });
+
+  it('a stage pair calls the stages setter once', async () => {
+    await put({
+      caseFiles: { readyFromStage: 'Submitted', readyToStage: 'Approved' },
+    });
+    expect(writes()).toEqual(['case_settings_set_files_ready_stages']);
+    expect(
+      admin.rpcs.find((r) => r.fn === 'case_settings_set_files_ready_stages')!
+        .args
+    ).toEqual({
+      p_actor: 'u-1',
+      p_account: 'acct-1',
+      p_from: 'Submitted',
+      p_to: 'Approved',
+    });
+  });
+
+  it('clears the pair with two nulls', async () => {
+    await put({ caseFiles: { readyFromStage: null, readyToStage: null } });
+    expect(
+      admin.rpcs.find((r) => r.fn === 'case_settings_set_files_ready_stages')!
+        .args
+    ).toMatchObject({ p_from: null, p_to: null });
+  });
+
+  it('leaves caseFiles out of a PUT that did not send it', async () => {
+    const json = await (await put({ managed_externally: true })).json();
+    expect(json).not.toHaveProperty('caseFiles');
+    expect(admin.rpcs.map((r) => r.fn)).not.toContain('case_files_settings');
+  });
+
+  it('answers 400 for a bad caseFiles, before any write', async () => {
+    for (const caseFiles of [
+      'on',
+      { readyMove: 'yes' },
+      { unknown: true },
+      { readyFromStage: 'Submitted' },
+      { readyFromStage: ' ', readyToStage: 'Approved' },
+      { readyFromStage: 3, readyToStage: 'Approved' },
+    ])
+      expect((await put({ caseFiles })).status).toBe(400);
+    expect((await put({ caseFiles: {} })).status).toBe(400);
+    expect(admin.rpcs).toEqual([]);
+  });
+
+  it('maps SETTING_INVALID to 422 and NOT_ALLOWED to 403', async () => {
+    filesStagesResult = { error: { hint: 'SETTING_INVALID', code: '23514' } };
+    const res = await put({
+      caseFiles: { readyFromStage: 'Approved', readyToStage: 'Submitted' },
+    });
+    expect(res.status).toBe(422);
+    expect((await res.json()).code).toBe('SETTING_INVALID');
+    as('agent');
+    expect((await put({ caseFiles: { readyMove: true } })).status).toBe(403);
   });
 });
