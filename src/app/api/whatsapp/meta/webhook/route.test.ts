@@ -49,6 +49,11 @@ vi.mock('next/server', async () => {
   };
 });
 
+const alert = vi.hoisted(() => ({ ring: vi.fn(async () => {}) }));
+vi.mock('@/lib/whatsapp/meta-health/alert', () => ({
+  ringMetaNumberAlert: alert.ring,
+}));
+
 vi.mock('@/lib/whatsapp/inbound-pipeline', () => ({
   processMessage: h.processMessage,
   handleStatusUpdate: h.handleStatusUpdate,
@@ -1438,6 +1443,17 @@ describe('POST — Meta number health (migration 188, watch-only)', () => {
     ]);
     expect(rpcNames()).not.toContain('meta_template_health_set');
     expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+    // NORMAL (no row) -> MARKETING_PAUSED is worse: owners and admins hear.
+    expect(alert.ring).toHaveBeenCalledTimes(1);
+    expect(alert.ring).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        accountId: 'acc-1',
+        configId: 'cfg-meta',
+        previous: null,
+        next: 'MARKETING_PAUSED',
+      })
+    );
   });
 
   it('retries the number state on a lost compare-and-set, against the re-read row', async () => {
@@ -1492,6 +1508,7 @@ describe('POST — Meta number health (migration 188, watch-only)', () => {
       'meta_health_event_record',
       'meta_health_event_record',
     ]);
+    expect(alert.ring).not.toHaveBeenCalled();
   });
 
   it('leaves the response and the template work alone when a health RPC fails', async () => {

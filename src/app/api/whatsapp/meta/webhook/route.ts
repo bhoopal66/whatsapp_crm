@@ -45,7 +45,6 @@ import {
   ingestMetaHealth,
   numberStateSetArgs,
   templateHealthSetArgs,
-  type AssessedState,
   type HealthEvent,
 } from '@/lib/whatsapp/meta-health/ingest';
 import {
@@ -54,6 +53,7 @@ import {
   numberStateFromRow,
   type NumberStateRow,
 } from '@/lib/whatsapp/meta-health/state';
+import { ringMetaNumberAlert } from '@/lib/whatsapp/meta-health/alert';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
@@ -806,19 +806,6 @@ interface HealthTarget {
   configId: string;
 }
 
-type AlarmHook = (
-  admin: ReturnType<typeof supabaseAdmin>,
-  alarm: {
-    accountId: string;
-    configId: string;
-    previous: AssessedState | null;
-    next: AssessedState;
-    reasons: string[];
-  }
-) => Promise<void>;
-// TODO(meta-alert): replace with ringMetaNumberAlert import
-const ringAlarm = null as AlarmHook | null;
-
 /** CAS tries on meta_number_state: the first plus three retries. */
 const NUMBER_STATE_TRIES = 4;
 
@@ -920,9 +907,9 @@ async function applyNumberState(
     if (at == null) continue;
 
     const previous = stored ? prev.assessedState : null;
-    if (ringAlarm && isAlarmTransition(previous, step.next.assessedState)) {
+    if (isAlarmTransition(previous, step.next.assessedState)) {
       try {
-        await ringAlarm(admin, {
+        await ringMetaNumberAlert(admin, {
           accountId: target.accountId,
           configId: target.configId,
           previous,
