@@ -8933,6 +8933,89 @@
       "generic": "Could not save: {error}"
     }
   },
+  "CaseFilesSettings": {
+    "title": "Case files",
+    "description": "What happens automatically as customers' document files are checked. Every switch starts off.",
+    "compassNote": "Cases managed by Compass are never moved or changed automatically, whatever these switches say.",
+    "loadFailed": "Couldn't load the case file settings.",
+    "readOnly": "Only owners and admins can change these settings.",
+    "save": "Save",
+    "discard": "Discard changes",
+    "saved": "Case file settings saved",
+    "fromStage": "Move from stage",
+    "toStage": "Move to stage",
+    "pickStage": "Pick a stage",
+    "checklistSync": {
+      "label": "Mark the checklist received when a file passes its checks",
+      "help": "The case's document checklist ticks a document as received once its file passes every check."
+    },
+    "readyMove": {
+      "label": "Move the case when every required file has passed",
+      "help": "A case at the first stage below moves to the second once all its required files have passed."
+    },
+    "intakePrompts": {
+      "label": "Ask customers to tap a number to classify documents they send in their case group",
+      "help": "Sends WhatsApp messages; stays off until the message wording is approved."
+    },
+    "stageProblems": {
+      "incomplete": "Pick both stages.",
+      "notSelectable": "Pick stages after submission that are not final.",
+      "same": "The two stages must be different.",
+      "order": "The first stage must come before the second."
+    },
+    "errors": {
+      "specInvalid": "That file spec is not valid. Check the highlighted values.",
+      "docsInvalid": "The spec names a document that is not on this product's list. Reload and try again.",
+      "bankUnknown": "That bank is not set up in this workspace.",
+      "settingInvalid": "Those stages can't be used for the move. Pick stages after submission, not final, in order.",
+      "notAllowed": "Only owners and admins can change this.",
+      "generic": "Couldn't save ({error})."
+    },
+    "spec": {
+      "title": "Document files",
+      "help": "How each required document's file is checked and named for this product, and how the case file is put together.",
+      "product": "Product",
+      "usesDefaults": "Using defaults",
+      "custom": "Custom",
+      "loadFailed": "Couldn't load the file spec.",
+      "empty": "This product has no required documents yet.",
+      "document": "Document",
+      "position": "Position",
+      "required": "Required",
+      "maxMb": "Max MB",
+      "types": "Allowed types",
+      "minValidDays": "Min valid days",
+      "noMinimum": "None",
+      "namePattern": "File name",
+      "positionOf": "Position of {doc}",
+      "requiredOf": "{doc} is required",
+      "maxMbOf": "Max MB for {doc}",
+      "minValidDaysOf": "Min valid days for {doc}",
+      "namePatternOf": "File name for {doc}",
+      "placeholders": "File names may use:",
+      "mergedLabel": "Case file",
+      "mergedOne": "Merged into one PDF",
+      "indexOnly": "Index only",
+      "save": "Save spec",
+      "saved": "File spec saved",
+      "reset": "Reset to defaults",
+      "resetTitle": "Reset to defaults?",
+      "resetBody": "The stored file spec for {product} is removed and its cases use the default checks and names.",
+      "resetDone": "File spec reset to defaults",
+      "readOnly": "Only owners and admins can change the file spec.",
+      "problems": {
+        "unknownDoc": "{doc} is not on this product's document list.",
+        "duplicateDoc": "{doc} appears twice.",
+        "position": "Position for {doc} must be a whole number from 1.",
+        "duplicatePosition": "Two documents share position {position}.",
+        "maxMb": "Max MB for {doc} must be a whole number from 1 to 100.",
+        "mime": "Allow at least one file type for {doc}.",
+        "minValidDays": "Min valid days for {doc} must be blank or a whole number from 0 to 3650.",
+        "namePattern": "The file name for {doc} must be 1–200 characters and use only the listed placeholders.",
+        "merged": "Every document must use the same case file choice."
+      }
+    }
+  },
   "Vault": {
     "title": "Vault",
     "description": "Sensitive customer numbers, who may see them, and every access to them.",

@@ -8933,6 +8933,89 @@
       "generic": "저장하지 못했습니다: {error}"
     }
   },
+  "CaseFilesSettings": {
+    "title": "케이스 파일",
+    "description": "고객 서류 파일을 검사하면서 자동으로 처리되는 작업입니다. 모든 스위치는 꺼진 상태로 시작합니다.",
+    "compassNote": "Compass가 관리하는 케이스는 이 스위치와 관계없이 자동으로 이동하거나 변경되지 않습니다.",
+    "loadFailed": "케이스 파일 설정을 불러오지 못했습니다.",
+    "readOnly": "소유자와 관리자만 이 설정을 변경할 수 있습니다.",
+    "save": "저장",
+    "discard": "변경 취소",
+    "saved": "케이스 파일 설정을 저장했습니다",
+    "fromStage": "이동 전 단계",
+    "toStage": "이동 후 단계",
+    "pickStage": "단계 선택",
+    "checklistSync": {
+      "label": "파일이 검사를 통과하면 체크리스트를 수령 완료로 표시",
+      "help": "파일이 모든 검사를 통과하면 케이스 서류 체크리스트에서 해당 서류를 수령 완료로 표시합니다."
+    },
+    "readyMove": {
+      "label": "필수 파일이 모두 통과하면 케이스 이동",
+      "help": "아래 첫 번째 단계에 있는 케이스는 필수 파일이 모두 통과하면 두 번째 단계로 이동합니다."
+    },
+    "intakePrompts": {
+      "label": "케이스 그룹에 보낸 서류를 고객이 번호를 눌러 분류하도록 요청",
+      "help": "WhatsApp 메시지를 보냅니다. 메시지 문구가 승인될 때까지 꺼 두세요."
+    },
+    "stageProblems": {
+      "incomplete": "두 단계를 모두 선택하세요.",
+      "notSelectable": "제출 이후의, 최종이 아닌 단계를 선택하세요.",
+      "same": "두 단계는 서로 달라야 합니다.",
+      "order": "첫 번째 단계가 두 번째 단계보다 앞서야 합니다."
+    },
+    "errors": {
+      "specInvalid": "파일 규격이 올바르지 않습니다. 입력값을 확인하세요.",
+      "docsInvalid": "이 상품의 서류 목록에 없는 서류가 규격에 있습니다. 새로고침 후 다시 시도하세요.",
+      "bankUnknown": "이 워크스페이스에 설정되지 않은 은행입니다.",
+      "settingInvalid": "이 단계는 이동에 사용할 수 없습니다. 제출 이후의, 최종이 아닌 단계를 순서대로 선택하세요.",
+      "notAllowed": "소유자와 관리자만 변경할 수 있습니다.",
+      "generic": "저장하지 못했습니다 ({error})."
+    },
+    "spec": {
+      "title": "서류 파일",
+      "help": "이 상품에서 필수 서류 파일을 검사하고 이름을 붙이는 방식과 케이스 파일을 구성하는 방식입니다.",
+      "product": "상품",
+      "usesDefaults": "기본값 사용 중",
+      "custom": "사용자 지정",
+      "loadFailed": "파일 규격을 불러오지 못했습니다.",
+      "empty": "이 상품에는 아직 필수 서류가 없습니다.",
+      "document": "서류",
+      "position": "순서",
+      "required": "필수",
+      "maxMb": "최대 MB",
+      "types": "허용 형식",
+      "minValidDays": "최소 유효 일수",
+      "noMinimum": "없음",
+      "namePattern": "파일 이름",
+      "positionOf": "{doc} 순서",
+      "requiredOf": "{doc} 필수 여부",
+      "maxMbOf": "{doc} 최대 MB",
+      "minValidDaysOf": "{doc} 최소 유효 일수",
+      "namePatternOf": "{doc} 파일 이름",
+      "placeholders": "파일 이름에 사용할 수 있는 항목:",
+      "mergedLabel": "케이스 파일",
+      "mergedOne": "하나의 PDF로 병합",
+      "indexOnly": "목록만",
+      "save": "규격 저장",
+      "saved": "파일 규격을 저장했습니다",
+      "reset": "기본값으로 재설정",
+      "resetTitle": "기본값으로 재설정할까요?",
+      "resetBody": "{product}에 저장된 파일 규격이 삭제되고 해당 케이스는 기본 검사와 이름을 사용합니다.",
+      "resetDone": "파일 규격을 기본값으로 재설정했습니다",
+      "readOnly": "소유자와 관리자만 파일 규격을 변경할 수 있습니다.",
+      "problems": {
+        "unknownDoc": "{doc}은(는) 이 상품의 서류 목록에 없습니다.",
+        "duplicateDoc": "{doc}이(가) 두 번 있습니다.",
+        "position": "{doc} 순서는 1 이상의 정수여야 합니다.",
+        "duplicatePosition": "두 서류의 순서가 {position}(으)로 같습니다.",
+        "maxMb": "{doc} 최대 MB는 1에서 100 사이의 정수여야 합니다.",
+        "mime": "{doc}에 허용할 파일 형식을 하나 이상 선택하세요.",
+        "minValidDays": "{doc} 최소 유효 일수는 비워 두거나 0에서 3650 사이의 정수여야 합니다.",
+        "namePattern": "{doc} 파일 이름은 1~200자여야 하며 표시된 항목만 사용할 수 있습니다.",
+        "merged": "모든 서류는 같은 케이스 파일 방식을 사용해야 합니다."
+      }
+    }
+  },
   "Vault": {
     "title": "보관소",
     "description": "민감한 고객 번호, 이를 볼 수 있는 사람, 그리고 모든 열람 기록입니다.",

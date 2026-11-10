@@ -60,6 +60,7 @@ import {
 } from '@/lib/cases/settings-ui';
 import { cn } from '@/lib/utils';
 
+import { CaseFilesSettingsCard, FileSpecEditor } from './case-files-settings';
 import { CaseStatusMapCard } from './case-status-map-card';
 import { SettingsPanelHead } from './settings-panel-head';
 import { TABS_TRIGGER_DARK } from './tab-styles';
@@ -364,6 +365,8 @@ export function CasesSettingsPanel() {
       />
 
       <CaseSwitchCards />
+
+      <CaseFilesSettingsCard />
 
       <CaseStatusMapCard />
 
@@ -1160,108 +1163,115 @@ function DocumentsTab({ code }: { code: string }) {
   const groups = groupByProduct(rows);
 
   return (
-    <Card>
-      <CardContent className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <p className="text-muted-foreground text-sm">{t('help')}</p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            onClick={() => setEditing({ product: '' })}
-          >
-            <Plus className="size-4" />
-            {t('add')}
-          </Button>
-        </div>
-        {groups.length === 0 ? (
-          <p className="text-muted-foreground py-4 text-center text-sm">
-            {t('empty')}
-          </p>
-        ) : (
-          groups.map((group) => (
-            <div key={group.product} className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-foreground text-sm font-semibold break-words">
-                  {group.product}
-                </h4>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setEditing({ product: group.product })}
-                >
-                  <Plus className="size-4" />
-                  {t('addToProduct')}
-                </Button>
-              </div>
-              <ul className="divide-border border-border divide-y rounded-lg border">
-                {group.documents.map((doc) => (
-                  <li
-                    key={doc.docKey}
-                    className="flex items-start gap-2 px-3 py-2"
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-muted-foreground text-sm">{t('help')}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => setEditing({ product: '' })}
+            >
+              <Plus className="size-4" />
+              {t('add')}
+            </Button>
+          </div>
+          {groups.length === 0 ? (
+            <p className="text-muted-foreground py-4 text-center text-sm">
+              {t('empty')}
+            </p>
+          ) : (
+            groups.map((group) => (
+              <div key={group.product} className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-foreground text-sm font-semibold break-words">
+                    {group.product}
+                  </h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditing({ product: group.product })}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-foreground text-sm break-words">
-                        {doc.label}
-                      </p>
-                      <code className="text-muted-foreground font-mono text-xs">
-                        {doc.docKey}
-                      </code>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t('editLabel', { label: doc.label })}
-                      onClick={() => setEditing(doc)}
+                    <Plus className="size-4" />
+                    {t('addToProduct')}
+                  </Button>
+                </div>
+                <ul className="divide-border border-border divide-y rounded-lg border">
+                  {group.documents.map((doc) => (
+                    <li
+                      key={doc.docKey}
+                      className="flex items-start gap-2 px-3 py-2"
                     >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t('deleteLabel', { label: doc.label })}
-                      onClick={() => setDeleting(doc)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        )}
-      </CardContent>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-foreground text-sm break-words">
+                          {doc.label}
+                        </p>
+                        <code className="text-muted-foreground font-mono text-xs">
+                          {doc.docKey}
+                        </code>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t('editLabel', { label: doc.label })}
+                        onClick={() => setEditing(doc)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t('deleteLabel', { label: doc.label })}
+                        onClick={() => setDeleting(doc)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </CardContent>
 
-      {editing ? (
-        <DocumentDialog
-          code={code}
-          row={'docKey' in editing ? editing : null}
-          product={editing.product}
-          rows={rows}
-          onClose={() => setEditing(null)}
-          onSaved={load}
+        {editing ? (
+          <DocumentDialog
+            code={code}
+            row={'docKey' in editing ? editing : null}
+            product={editing.product}
+            rows={rows}
+            onClose={() => setEditing(null)}
+            onSaved={load}
+          />
+        ) : null}
+        <ConfirmDialog
+          open={deleting !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleting(null);
+          }}
+          title={t('deleteTitle')}
+          description={t('deleteBody', {
+            label: deleting?.label ?? '',
+            product: deleting?.product ?? '',
+          })}
+          cancelLabel={tc('cancel')}
+          confirmLabel={tc('delete')}
+          onConfirm={() => {
+            const row = deleting;
+            setDeleting(null);
+            if (row) void remove(row);
+          }}
+          destructive
         />
-      ) : null}
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleting(null);
-        }}
-        title={t('deleteTitle')}
-        description={t('deleteBody', {
-          label: deleting?.label ?? '',
-          product: deleting?.product ?? '',
-        })}
-        cancelLabel={tc('cancel')}
-        confirmLabel={tc('delete')}
-        onConfirm={() => {
-          const row = deleting;
-          setDeleting(null);
-          if (row) void remove(row);
-        }}
-        destructive
+      </Card>
+      <FileSpecEditor
+        code={code}
+        products={groups.map((g) => g.product)}
+        version={JSON.stringify(rows)}
       />
-    </Card>
+    </div>
   );
 }
 
