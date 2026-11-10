@@ -7,12 +7,11 @@
 -- tracker, an API key holder) calls the new functions through the v1 API or
 -- an endpoint subscribes to case.file_ready.
 --
--- WHO case_file_downloads.api_key_id (-> api_keys ON DELETE SET NULL): a
+-- WHO case_file_downloads.api_key_id (-> api_keys ON DELETE RESTRICT): a
 --   download made by an API key. Exactly one of (actor, api_key_id) is set
---   (case_file_downloads_one_who). The append-only guard of 182 is unchanged
---   (only url_issued false -> true), so it and the CHECK refuse the SET NULL
---   of a hard-deleted key that has downloaded: the audit's "who" survives.
---   The app only ever revokes keys.
+--   (case_file_downloads_one_who). Keys are revoked, never deleted, so the
+--   audit row keeps its reference: deleting a key that has downloaded is
+--   refused by the FK itself. The append-only guard of 182 is unchanged.
 -- DOWNLOAD case_build_download_record_api(api_key, account, submission_ref,
 --   now) -> (download_id, object_path, sha256, version): the case is found
 --   through its submission group (submission_groups.submission_ref in that
@@ -72,11 +71,16 @@ END $$;
 
 ALTER TABLE public.case_file_downloads ADD COLUMN IF NOT EXISTS api_key_id uuid NULL;
 
+-- A constraint left by an earlier draft with another ON DELETE is replaced.
 DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'case_file_downloads_api_key_fkey'
+               AND conrelid = 'public.case_file_downloads'::regclass AND confdeltype <> 'r') THEN
+    ALTER TABLE public.case_file_downloads DROP CONSTRAINT case_file_downloads_api_key_fkey;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'case_file_downloads_api_key_fkey'
                    AND conrelid = 'public.case_file_downloads'::regclass) THEN
     ALTER TABLE public.case_file_downloads ADD CONSTRAINT case_file_downloads_api_key_fkey
-      FOREIGN KEY (api_key_id) REFERENCES public.api_keys (id) ON DELETE SET NULL;
+      FOREIGN KEY (api_key_id) REFERENCES public.api_keys (id) ON DELETE RESTRICT;
   END IF;
 END $$;
 
