@@ -134,22 +134,34 @@ async function loadCaseHeader(
   admin: CaseFilesDb,
   caseId: string
 ): Promise<CaseHeader> {
+  // The customer is the case's own contact (migration 130's
+  // `cases.contact_id`), which is also what
+  // `customer_documents_record_internal` checks a case build against; a
+  // case with no WhatsApp group still has one. The submission reference
+  // is read from the group separately (no named embed).
   const { data, error } = await admin
     .from('cases')
-    .select(
-      'id, account_id, bank_code, product, submission_groups!cases_group_fkey(submission_ref, contact_id)'
-    )
+    .select('id, account_id, bank_code, product, contact_id, group_id')
     .eq('id', caseId)
     .maybeSingle();
   if (error) throw new CaseFilesStoreError('cases', error.code ?? null);
   if (!data) throw new CaseFilesRefusedError('CASE_NOT_FOUND');
   const c = data as Row;
-  const g = (
-    Array.isArray(c.submission_groups)
-      ? c.submission_groups[0]
-      : c.submission_groups
-  ) as Row | null | undefined;
-  const contactId = g?.contact_id ? String(g.contact_id) : null;
+  const contactId = c.contact_id ? String(c.contact_id) : null;
+  let g: Row | null = null;
+  if (c.group_id) {
+    const group = await admin
+      .from('submission_groups')
+      .select('submission_ref')
+      .eq('id', String(c.group_id))
+      .maybeSingle();
+    if (group.error)
+      throw new CaseFilesStoreError(
+        'submission_groups',
+        group.error.code ?? null
+      );
+    g = (group.data as Row | null) ?? null;
+  }
 
   let customerRef: string | null = null;
   if (contactId) {

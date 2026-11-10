@@ -105,11 +105,16 @@ async function world(w: World = {}) {
         account_id: ACCOUNT,
         bank_code: w.bank ?? 'ADCB',
         product: w.product ?? 'Personal loan',
-        submission_groups: {
-          submission_ref:
-            w.submissionRef === undefined ? 'SUB-0042' : w.submissionRef,
-          contact_id: CONTACT,
-        },
+        contact_id: CONTACT,
+        group_id: 'group-1',
+      },
+    ],
+    submission_groups: [
+      {
+        id: 'group-1',
+        submission_ref:
+          w.submissionRef === undefined ? 'SUB-0042' : w.submissionRef,
+        contact_id: CONTACT,
       },
     ],
     customer_doc_folders: [{ contact_id: CONTACT, ref: 'TC-000123' }],
