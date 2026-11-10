@@ -82,7 +82,9 @@ export function utcDay(now: Date): string {
 
 export interface CostPerWonCase {
   wonCases: number;
-  wonSpendUsd: number;
+  /** Null when a won customer's message has no rate on file (051). */
+  wonSpendUsd: number | null;
+  /** Null with no won case, or when the won spend is unknown. */
   costPerWonCaseUsd: number | null;
   otherSpendUsd: number;
   unknownCostMessages: number;
@@ -102,11 +104,36 @@ export function parseCostPerWonCase(raw: unknown): CostPerWonCase | null {
   const o = raw as Record<string, unknown>;
   return {
     wonCases: num(o.won_cases) ?? 0,
-    wonSpendUsd: num(o.won_spend_usd) ?? 0,
+    wonSpendUsd: num(o.won_spend_usd),
     costPerWonCaseUsd: num(o.cost_per_won_case_usd),
     otherSpendUsd: num(o.other_spend_usd) ?? 0,
     unknownCostMessages: num(o.unknown_cost_messages) ?? 0,
   };
+}
+
+export type SpendFigure =
+  { kind: 'usd'; usd: number } | { kind: 'noRate' } | { kind: 'none' };
+
+/**
+ * What the card shows for the won spend and the cost per won case. An
+ * unknown rate is "no rate on file", never $0 or a dash (051's rule);
+ * a dash only when there is no won case to divide by.
+ */
+export function wonSpendFigures(c: CostPerWonCase): {
+  won: SpendFigure;
+  perCase: SpendFigure;
+} {
+  const won: SpendFigure =
+    c.wonSpendUsd === null
+      ? { kind: 'noRate' }
+      : { kind: 'usd', usd: c.wonSpendUsd };
+  const perCase: SpendFigure =
+    c.wonCases === 0
+      ? { kind: 'none' }
+      : c.costPerWonCaseUsd === null
+        ? { kind: 'noRate' }
+        : { kind: 'usd', usd: c.costPerWonCaseUsd };
+  return { won, perCase };
 }
 
 export interface MarketingUsage {

@@ -25,9 +25,11 @@ import {
   assessedTone,
   marketingUsage,
   qualityTone,
+  wonSpendFigures,
   type AssessedState,
   type CostPerWonCase,
   type HealthTone,
+  type SpendFigure,
 } from '@/lib/whatsapp/meta-health/view';
 
 /**
@@ -109,6 +111,12 @@ export function MetaHealthCard() {
     n === null || n === undefined
       ? t('none')
       : format.number(n, { style: 'currency', currency: 'USD' });
+  const figure = (f: SpendFigure) =>
+    f.kind === 'usd'
+      ? usd(f.usd)
+      : f.kind === 'noRate'
+        ? t('noRate')
+        : t('none');
 
   const state = data?.state ?? null;
   const usage = marketingUsage(
@@ -116,6 +124,7 @@ export function MetaHealthCard() {
     data?.marketing?.daily_cap ?? null
   );
   const spend = data?.spend?.figures ?? null;
+  const spendFigures = spend ? wonSpendFigures(spend) : null;
   const events = data?.events ?? [];
   const templates = data?.templates ?? [];
 
@@ -205,15 +214,15 @@ export function MetaHealthCard() {
                 <p className="text-muted-foreground text-sm">
                   {t('spendPerWon', { days: data.spend?.days ?? 30 })}
                 </p>
-                {spend ? (
+                {spend && spendFigures ? (
                   <>
                     <p className="text-lg font-semibold">
-                      {usd(spend.costPerWonCaseUsd)}
+                      {figure(spendFigures.perCase)}
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {t('spendDetail', {
                         cases: spend.wonCases,
-                        won: usd(spend.wonSpendUsd),
+                        won: figure(spendFigures.won),
                         other: usd(spend.otherSpendUsd),
                       })}
                     </p>
