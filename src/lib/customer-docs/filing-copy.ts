@@ -94,10 +94,13 @@ export interface FilingCopyDeps {
   timeoutMs: number;
 }
 
+// Bound lazily: reading an imported binding at module load breaks every
+// test that mocks `@/lib/whatsapp/provider` without these exports
+// (vitest throws on the missing export as soon as this module loads).
 const DEFAULT_DEPS: FilingCopyDeps = {
-  mirror: mirrorInboundMedia,
-  getMediaUrl,
-  download: downloadMedia,
+  mirror: (args) => mirrorInboundMedia(args),
+  getMediaUrl: (args) => getMediaUrl(args),
+  download: (args) => downloadMedia(args),
   timeoutMs: FILING_COPY_TIMEOUT_MS,
 };
 
