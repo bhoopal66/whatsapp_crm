@@ -417,8 +417,11 @@ ALTER TABLE public.case_macro_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.case_macro_log FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS case_macros_select ON public.case_macros;
+-- case_macro_list's audience (case_view_account: owner, admin, team
+-- leader, agent of the active account): a viewer reads no shared macro.
 CREATE POLICY case_macros_select ON public.case_macros FOR SELECT TO authenticated
   USING (account_id = (SELECT public.current_account_id())
+         AND public.is_account_member(account_id, 'agent')
          AND (owner_user_id = (SELECT auth.uid()) OR shared));
 
 DROP POLICY IF EXISTS case_macro_log_select ON public.case_macro_log;

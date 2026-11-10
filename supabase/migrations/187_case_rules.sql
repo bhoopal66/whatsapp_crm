@@ -26,7 +26,9 @@
 --   product, amount_min, amount_max, pre_submission (group_id IS NULL),
 --   days (1..365; required for and only allowed on no_activity: the
 --   inbox's last activity (185) not counting the rules' own writes, else
---   opened_at, at least that old).
+--   opened_at, at least that old). A no_activity rule fires once per
+--   idle episode: its run is keyed on that last-activity instant, so it
+--   fires again only after real activity and N more idle days.
 -- Actions: assign_coordinator {userId}, assign_agent {userId} (target:
 --   live non-guest staff of the account, case_reassign's rule),
 --   add_note {body} ({{customer}} = contact name,
@@ -518,6 +520,7 @@ DECLARE
   v_hint    text;
   v_prev    text := coalesce(current_setting('app.case_rules_firing', true), '');
   v_n       integer := 0;
+  v_idle    timestamptz;
 BEGIN
   IF p_now IS NULL OR NOT isfinite(p_now) THEN
     RAISE EXCEPTION 'case_rules_fire needs a finite clock' USING ERRCODE = 'null_value_not_allowed', HINT = 'NOW_REQUIRED';
@@ -526,11 +529,18 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
   END IF;
+  IF p_trigger = 'no_activity' THEN   -- the rules' own writes never move it
+    v_idle := coalesce(public.case_rule_last_activity(p_case), c.opened_at);
+  END IF;
   FOR r IN
     SELECT * FROM public.case_rules x
      WHERE x.account_id = c.account_id AND x.enabled AND x.trigger = p_trigger
      ORDER BY x.position, x.created_at, x.rule_id
   LOOP
+    -- A rule whose days have not passed yet is not due: no run row, so the
+    -- episode key below stays free for the sweep on which it is due.
+    CONTINUE WHEN p_trigger = 'no_activity'
+      AND v_idle > p_now - make_interval(days => (r.conditions ->> 'days')::int);
     IF p_key IS NOT NULL THEN
       PERFORM pg_advisory_xact_lock(hashtext('case_rules:' || r.rule_id::text || '/' || p_case::text || '/' || p_key));
       CONTINUE WHEN EXISTS (SELECT 1 FROM public.case_rule_runs x
@@ -628,7 +638,9 @@ CREATE TRIGGER case_rules_changed AFTER UPDATE OF stage, group_id ON public.case
 
 -- no_activity: open cases of accounts with an enabled no_activity rule,
 -- idle at least the smallest days of those rules (once per rule, case and
--- UTC day of p_now). sla_overdue: running overdue timers on open cases
+-- idle episode: the key is the last-activity instant the idle test
+-- compares, so the rule fires again only after real activity resets it
+-- and N more idle days pass). sla_overdue: running overdue timers on open cases
 -- (once per rule, case and timer run). Run after case_sla_evaluate.
 CREATE OR REPLACE FUNCTION public.case_rules_sweep(p_now timestamptz)
 RETURNS jsonb
@@ -641,21 +653,20 @@ DECLARE
   v       record;
   v_runs  integer;
   v_fired jsonb := '[]'::jsonb;
-  v_day   text;
 BEGIN
   IF p_now IS NULL OR NOT isfinite(p_now) THEN
     RAISE EXCEPTION 'case_rules_sweep needs a finite clock' USING ERRCODE = 'null_value_not_allowed', HINT = 'NOW_REQUIRED';
   END IF;
-  v_day := to_char(p_now AT TIME ZONE 'UTC', 'YYYY-MM-DD');
   FOR v IN
-    SELECT x.id FROM public.cases x
+    SELECT x.id, coalesce(public.case_rule_last_activity(x.id), x.opened_at) AS idle_since FROM public.cases x
       JOIN (SELECT r.account_id, min((r.conditions ->> 'days')::int) AS days FROM public.case_rules r
              WHERE r.enabled AND r.trigger = 'no_activity' GROUP BY r.account_id) m ON m.account_id = x.account_id
      WHERE x.closed_at IS NULL
        AND coalesce(public.case_rule_last_activity(x.id), x.opened_at) <= p_now - make_interval(days => m.days)
      ORDER BY x.id
   LOOP
-    v_runs := public.case_rules_fire('no_activity', v.id, p_now, v_day);
+    v_runs := public.case_rules_fire('no_activity', v.id, p_now,
+      'idle@' || to_char(v.idle_since AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'));
     IF v_runs > 0 THEN
       v_fired := v_fired || jsonb_build_array(jsonb_build_object('caseId', v.id, 'trigger', 'no_activity', 'runs', v_runs));
     END IF;
@@ -686,8 +697,11 @@ ALTER TABLE public.case_rule_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.case_rule_runs FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS case_rules_select ON public.case_rules;
+-- case_rule_list's audience (case_view_account: owner, admin, team
+-- leader, agent of the active account); viewers and guests read nothing.
 CREATE POLICY case_rules_select ON public.case_rules FOR SELECT TO authenticated
-  USING (account_id = (SELECT public.current_account_id()));
+  USING (account_id = (SELECT public.current_account_id())
+         AND public.is_account_member(account_id, 'agent'));
 
 DROP POLICY IF EXISTS case_rule_runs_select ON public.case_rule_runs;
 CREATE POLICY case_rule_runs_select ON public.case_rule_runs FOR SELECT TO authenticated

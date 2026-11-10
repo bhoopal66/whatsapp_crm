@@ -11,7 +11,8 @@
 -- case readable in the macro's account (CASE_NOT_FOUND), applied is
 -- 1..10 {kind, ok, refusal} objects, actor_role is case_role, the table
 -- is append-only for every writer (its owner included) and outlives the
--- macro. Grants: service_role only; RLS reads.
+-- macro. Grants: service_role only; RLS reads (case-role members only,
+-- so a viewer reads no shared macro).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The fixtures are
@@ -302,6 +303,8 @@ BEGIN
     array_to_string(pg_temp.cm_list(u_agent), ','));
   n := n + 1; failed := failed || pg_temp.cm_check('RLS: agent2 reads someone else''s private macro', 'authenticated',
     u_agent2, 'SELECT string_agg(macro_id::text, '','') FROM case_macros WHERE owner_user_id <> auth.uid()', s1::text);
+  n := n + 1; failed := failed || pg_temp.cm_check('RLS: a viewer reads the shared macro', 'authenticated',
+    u_viewer, 'SELECT count(*)::text FROM case_macros', '0');
   n := n + 1; failed := failed || pg_temp.cm_check('RLS: another account reads this one''s macros', 'authenticated',
     u_bown, 'SELECT string_agg(macro_id::text, '','') FROM case_macros', mb::text);
   FOREACH r IN ARRAY ARRAY['authenticated', 'service_role', 'anon'] LOOP

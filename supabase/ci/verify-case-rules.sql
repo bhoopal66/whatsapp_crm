@@ -12,8 +12,11 @@
 -- with no role in the workspace, writing nothing. A failing action stops
 -- its rule only; the next rule runs and the firing write stands. The loop
 -- guard (app.case_rules_firing) silences the hooks. The sweep: no_activity
--- once per rule, case and UTC day, never below `days`, and a rule's own
--- writes do not count as activity; sla_overdue once per timer run.
+-- once per rule, case and idle episode (not again the next day, nor 25
+-- days on; again after real activity and `days` more), never below
+-- `days`, and a rule's own writes do not count as activity; sla_overdue
+-- once per timer run. RLS: rules are read by case-role members only
+-- (not a viewer), runs per case.
 -- Privileges: service_role runs the staff functions, nobody the internal
 -- ones, no API role writes the tables, runs are read per case, and the
 -- run log is append-only.
@@ -447,9 +450,28 @@ BEGIN
     format('no_activity fired twice on one UTC day (%s)', v_out));
   v_out := case_rules_sweep(t1 + interval '1 day');
   n := n + 1; failed := failed || pg_temp.cr_ok(
+    pg_temp.cr_runs(r_idle, k_idle) = 1
+    AND NOT (v_out -> 'fired' @> jsonb_build_array(jsonb_build_object('caseId', k_idle))),
+    format('no_activity fired again the next day on the same idle case (%s)', v_out));
+  v_out := case_rules_sweep(t1 + interval '25 days');
+  n := n + 1; failed := failed || pg_temp.cr_ok(pg_temp.cr_runs(r_idle, k_idle) = 1,
+    format('no_activity fired again within one idle episode (%s)', v_out));
+  -- real activity (a person's note) restarts the clock; the rule's own
+  -- set_priority (above) did not
+  INSERT INTO case_notes (case_id, account_id, author_id, body, created_at)
+  VALUES (k_idle, a_acct, u_agent2, 'worked on it', t1 + interval '26 days');
+  v_out := case_rules_sweep(t1 + interval '28 days');
+  n := n + 1; failed := failed || pg_temp.cr_ok(pg_temp.cr_runs(r_idle, k_idle) = 1,
+    format('no_activity fired less than days after real activity (%s)', v_out));
+  v_out := case_rules_sweep(t1 + interval '29 days 1 hour');
+  n := n + 1; failed := failed || pg_temp.cr_ok(
     pg_temp.cr_runs(r_idle, k_idle) = 2
-    AND (SELECT count(*) FROM case_rule_runs WHERE rule_id = r_idle AND case_id = k_idle AND matched) = 2,
-    format('a no_activity rule''s own set_priority made the case active again: no run the next day (%s)', v_out));
+    AND (SELECT count(*) FROM case_rule_runs WHERE rule_id = r_idle AND case_id = k_idle AND matched) = 2
+    AND v_out -> 'fired' @> jsonb_build_array(jsonb_build_object('caseId', k_idle, 'trigger', 'no_activity')),
+    format('no_activity did not fire again after real activity and days more idle (%s)', v_out));
+  v_out := case_rules_sweep(t1 + interval '30 days 1 hour');
+  n := n + 1; failed := failed || pg_temp.cr_ok(pg_temp.cr_runs(r_idle, k_idle) = 2,
+    format('no_activity fired twice in the second idle episode (%s)', v_out));
 
   INSERT INTO case_sla_timers (case_id, account_id, timer, stage, started_at, due_soon_at, due_at, stopped_at, state)
   VALUES (k_sla, a_acct, 'customer_reply', 'Submitted', now() - interval '2 days', now() - interval '47 hours',
@@ -500,6 +522,12 @@ BEGIN
     n := n + 1; failed := failed || pg_temp.cr_check(format('RLS: %s reads account A''s runs', st), 'authenticated',
       st::uuid, format('SELECT count(*)::text FROM case_rule_runs WHERE account_id = %L', a_acct), '0');
   END LOOP;
+  n := n + 1; failed := failed || pg_temp.cr_check('RLS: a viewer reads the account''s rules', 'authenticated',
+    u_viewer, format('SELECT count(*)::text FROM case_rules WHERE account_id = %L', a_acct), '0');
+  n := n + 1; failed := failed || pg_temp.cr_check('RLS: the agent does not read what case_rule_list lists',
+    'authenticated', u_agent,
+    'SELECT string_agg(rule_id::text, '','' ORDER BY position, created_at, rule_id) FROM case_rules',
+    (SELECT string_agg(x.rule_id::text, ',' ORDER BY x.position, x.created_at, x.rule_id) FROM case_rule_list(u_agent) x));
   n := n + 1; failed := failed || pg_temp.cr_check('RLS: another workspace reads this one''s rules', 'authenticated',
     u_bown, format('SELECT count(*)::text FROM case_rules WHERE account_id = %L', a_acct), '0');
   n := n + 1; failed := failed || pg_temp.cr_check('anon read the run log', 'anon', NULL,
