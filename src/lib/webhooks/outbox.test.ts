@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const deliverSigned = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@/lib/webhooks/deliver', () => ({ deliverSigned }));
 
-import { WEBHOOK_EVENTS } from './events';
+import { OUTBOX_EVENTS, WEBHOOK_EVENTS } from './events';
 import {
   drainWebhookOutbox,
   OUTBOX_BATCH_SIZE,
@@ -180,5 +180,17 @@ describe('the vocabulary covers migration 134', () => {
     expect(enqueued).toHaveLength(6);
     for (const e of enqueued)
       expect(WEBHOOK_EVENTS as readonly string[]).toContain(e);
+  });
+
+  it('the event 184 enqueues is an outbox event', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/184_case_files_compass.sql'),
+      'utf8'
+    );
+    const enqueued = [
+      ...sql.matchAll(/webhook_enqueue\([^,]+,\s*'([a-z_.]+)'/g),
+    ].map((m) => m[1]);
+    expect(enqueued).toEqual(['case.file_ready']);
+    expect(OUTBOX_EVENTS as readonly string[]).toContain('case.file_ready');
   });
 });

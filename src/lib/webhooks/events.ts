@@ -16,6 +16,7 @@ export const OUTBOX_EVENTS = [
   'case.lead_created', // a lead (a case with no submission yet) was opened
   'case.stage_changed', // a case moved stage (in the CRM or from Compass)
   'contact.opted_out', // a contact opted out of messages
+  'case.file_ready', // migration 184: a case became File ready
 ] as const;
 
 export const WEBHOOK_EVENTS = [
@@ -41,6 +42,8 @@ export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEvent, string> = {
   'case.lead_created': 'A lead was opened (a case not yet submitted)',
   'case.stage_changed': 'A case moved to another stage',
   'contact.opted_out': 'A contact opted out of messages',
+  'case.file_ready':
+    'Every required document of a submitted case is received and checked',
 };
 
 /** Type-narrow an unknown value into a valid `WebhookEvent`. */
