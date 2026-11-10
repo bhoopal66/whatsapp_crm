@@ -3,7 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   rpc: vi.fn(),
+  maybeSingle: vi.fn(),
+  eqs: [] as Array<[string, unknown]>,
 }));
+
+const from = vi.fn(() => {
+  const chain = {
+    select: () => chain,
+    eq: (col: string, val: unknown) => {
+      m.eqs.push([col, val]);
+      return chain;
+    },
+    maybeSingle: m.maybeSingle,
+  };
+  return chain;
+});
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
@@ -15,8 +29,10 @@ const DOC = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.eqs.length = 0;
+  m.maybeSingle.mockResolvedValue({ data: { id: DOC }, error: null });
   m.getCurrentAccount.mockResolvedValue({
-    supabase: { rpc: m.rpc },
+    supabase: { rpc: m.rpc, from },
     userId: 'u-me',
     accountId: 'acct-1',
     role: 'admin',
@@ -39,6 +55,22 @@ describe('POST /api/contacts/[id]/documents/[docId]/retry', () => {
     expect(m.rpc).toHaveBeenCalledWith('customer_documents_retry', {
       p_id: DOC,
     });
+  });
+
+  it('checks the document belongs to the customer in the path', async () => {
+    await post();
+    expect(from).toHaveBeenCalledWith('customer_documents');
+    expect(m.eqs).toEqual([
+      ['id', DOC],
+      ['contact_id', ID],
+    ]);
+  });
+
+  it('is 404 without calling the RPC when the document is not that customer’s', async () => {
+    m.maybeSingle.mockResolvedValue({ data: null, error: null });
+    const res = await post();
+    expect(res.status).toBe(404);
+    expect(m.rpc).not.toHaveBeenCalled();
   });
 
   it.each([

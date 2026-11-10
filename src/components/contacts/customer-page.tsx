@@ -717,7 +717,7 @@ export function CustomerPage({
           )}
           <DealsCard contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
-          <DocumentsCard contactId={contactId} />
+          <DocumentsCard key={contactId} contactId={contactId} />
           <Card title={tl('openTasks')}>
             {sections.tasks === 'loading' ? (
               <div

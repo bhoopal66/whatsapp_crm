@@ -27,6 +27,22 @@ export async function POST(_request: Request, { params }: Params) {
     if (!isUuid(id) || !isUuid(docId))
       return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
+    // The document must belong to the customer in the path, read through
+    // the caller's RLS client: a mismatch (or a document they cannot see)
+    // is 404 rather than retrying it through another customer's URL.
+    const { data: doc, error: docError } = await ctx.supabase
+      .from('customer_documents')
+      .select('id')
+      .eq('id', docId)
+      .eq('contact_id', id)
+      .maybeSingle();
+    if (docError) throw new Error(`customer_documents read: ${docError.code}`);
+    if (!doc)
+      return NextResponse.json(
+        { error: REFUSALS.NOT_FOUND.error },
+        { status: 404 }
+      );
+
     const { data, error } = await ctx.supabase.rpc('customer_documents_retry', {
       p_id: docId,
     });
