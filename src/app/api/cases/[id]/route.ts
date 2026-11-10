@@ -11,6 +11,8 @@
 // Also the account's Compass setting (134) and whether it locks this
 // case; a missing settings row or a failed read is "not managed" (the
 // SQL lock still holds, so the page only shows a control that 409s).
+// And the case's snoozed_until (185) as `snoozedUntil`, read the same
+// soft way: any error, the column missing before 185 included, is null.
 //
 // PATCH: any of bank_code / product / amount (setDetails), priority,
 // due_at (ISO string, or null to clear). Applied in that order, each its
@@ -48,21 +50,38 @@ export async function GET(_request: Request, { params }: Params) {
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);
-    const [stages, history, timers, reason, settings] = await Promise.all([
-      store.stagesFor(c.accountId, c.bankCode),
-      store.history(c.id),
-      caseSlaStore().timers(c.id),
-      ctx.supabase
-        .from('case_outcome_reasons')
-        .select('reason_code, reason_text, created_at')
-        .eq('case_id', c.id)
-        .maybeSingle(),
-      ctx.supabase
-        .from('case_account_settings')
-        .select('managed_externally')
-        .eq('account_id', c.accountId)
-        .maybeSingle(),
-    ]);
+    const [stages, history, timers, reason, settings, snooze] =
+      await Promise.all([
+        store.stagesFor(c.accountId, c.bankCode),
+        store.history(c.id),
+        caseSlaStore().timers(c.id),
+        ctx.supabase
+          .from('case_outcome_reasons')
+          .select('reason_code, reason_text, created_at')
+          .eq('case_id', c.id)
+          .maybeSingle(),
+        ctx.supabase
+          .from('case_account_settings')
+          .select('managed_externally')
+          .eq('account_id', c.accountId)
+          .maybeSingle(),
+        // Soft, like the settings read: before 185 the column does not
+        // exist, and any error reads as "not snoozed". Deliberately not in
+        // the store's CASE_COLUMNS, which would fail the whole page then.
+        ctx.supabase
+          .from('cases')
+          .select('snoozed_until')
+          .eq('id', c.id)
+          .maybeSingle(),
+      ]);
+    const snoozedRaw = snooze.error
+      ? null
+      : (snooze.data as Record<string, unknown> | null)?.snoozed_until;
+    const snoozedUntil =
+      typeof snoozedRaw === 'string' &&
+      !Number.isNaN(new Date(snoozedRaw).getTime())
+        ? new Date(snoozedRaw).toISOString()
+        : null;
     if (settings.error)
       console.error(
         '[cases] case_account_settings read failed',
@@ -98,6 +117,7 @@ export async function GET(_request: Request, { params }: Params) {
         : null,
       managedExternally,
       locked: isManagedExternally({ managedExternally }, c),
+      snoozedUntil,
     });
   } catch (err) {
     return caseErrorResponse(err);

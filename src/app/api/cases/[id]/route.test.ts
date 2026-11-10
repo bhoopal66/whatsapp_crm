@@ -30,17 +30,26 @@ const aCase = (over: Record<string, unknown> = {}) => ({
 
 const reason = { data: null as unknown, error: null as unknown };
 const settings = { data: null as unknown, error: null as unknown };
+const snooze = { data: null as unknown, error: null as unknown };
 const eq = vi.fn();
+const select = vi.fn();
 const from = vi.fn((table: string) => ({
-  select: () => ({
-    eq: (col: string, val: unknown) => {
-      eq(col, val);
-      return {
-        maybeSingle: async () =>
-          table === 'case_account_settings' ? settings : reason,
-      };
-    },
-  }),
+  select: (cols: string) => {
+    select(table, cols);
+    return {
+      eq: (col: string, val: unknown) => {
+        eq(col, val);
+        return {
+          maybeSingle: async () =>
+            table === 'case_account_settings'
+              ? settings
+              : table === 'cases'
+                ? snooze
+                : reason,
+        };
+      },
+    };
+  },
 }));
 
 beforeEach(() => {
@@ -69,6 +78,8 @@ beforeEach(() => {
   reason.error = null;
   settings.data = null;
   settings.error = null;
+  snooze.data = null;
+  snooze.error = null;
 });
 
 const p = (id = ID) => ({ params: Promise.resolve({ id }) });
@@ -120,6 +131,7 @@ describe('GET /api/cases/[id]', () => {
       },
       managedExternally: false,
       locked: false,
+      snoozedUntil: null,
     });
     expect(m.store.stagesFor).toHaveBeenCalledWith('acct-1', 'ADCB');
     expect(m.timers).toHaveBeenCalledWith(ID);
@@ -162,6 +174,30 @@ describe('GET /api/cases/[id]', () => {
     });
     expect(log).toHaveBeenCalled();
     log.mockRestore();
+  });
+
+  it('answers the snooze end (185), read through the caller RLS client', async () => {
+    snooze.data = { snoozed_until: '2026-11-12T05:00:00+00:00' };
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect((await res.json()).snoozedUntil).toBe('2026-11-12T05:00:00.000Z');
+    expect(from).toHaveBeenCalledWith('cases');
+    expect(select).toHaveBeenCalledWith('cases', 'snoozed_until');
+    expect(eq).toHaveBeenCalledWith('id', ID);
+  });
+
+  it('reads a failed snooze read (185 not applied) as not snoozed', async () => {
+    snooze.data = { snoozed_until: '2026-11-12T05:00:00Z' };
+    snooze.error = {
+      code: '42703',
+      message: 'column cases.snoozed_until does not exist',
+    };
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      case: aCase(),
+      snoozedUntil: null,
+    });
   });
 
   it('gives an admin the audit permission', async () => {

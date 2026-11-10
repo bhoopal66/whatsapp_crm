@@ -105,6 +105,8 @@ export interface CaseDetail {
   managedExternally: boolean;
   /** 134: Compass owns stage, details and documents (isManagedExternally). */
   locked: boolean;
+  /** 185: cases.snoozed_until (ISO), null when none or unreadable. */
+  snoozedUntil: string | null;
 }
 
 /** What every tab component receives (the tab jobs build to this). */
@@ -261,6 +263,11 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
         : null,
     managedExternally: root.managedExternally === true,
     locked: root.locked === true,
+    snoozedUntil:
+      typeof root.snoozedUntil === 'string' &&
+      !Number.isNaN(new Date(root.snoozedUntil).getTime())
+        ? root.snoozedUntil
+        : null,
   };
 }
 
@@ -469,6 +476,28 @@ export function takeoverNotApproved(status: number, code: unknown): boolean {
 /** Roles that may take the conversation over (the server decides). */
 export function canTakeOver(role: CaseRole): boolean {
   return role === 'coordinator' || role === 'team_lead';
+}
+
+/** 185: the case is snoozed while snoozed_until is still ahead. */
+export function isSnoozed(snoozedUntil: string | null, now: Date): boolean {
+  if (!snoozedUntil) return false;
+  const t = new Date(snoozedUntil).getTime();
+  return Number.isFinite(t) && t > now.getTime();
+}
+
+/** 185's reason limit; the route refuses a longer one. */
+export const SNOOZE_REASON_MAX = 200;
+
+/** CaseSnooze.errors.* for a refused POST /api/cases/[id]/snooze. */
+export const snoozeErrorKey = pick({
+  NOT_ALLOWED: 'notAllowed',
+  CASE_CLOSED: 'caseClosed',
+  SNOOZE_INVALID: 'invalid',
+});
+
+/** Unsnooze's 422 means "not snoozed" (it ended or someone else lifted it). */
+export function unsnoozeAlreadyDone(status: number): boolean {
+  return status === 422;
 }
 
 // Tabs: `?tab=` holds the URL name; Overview is the bare URL.

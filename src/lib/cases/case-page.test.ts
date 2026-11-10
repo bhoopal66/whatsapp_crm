@@ -13,6 +13,10 @@ import {
   fromLocalInput,
   groupEndView,
   isFinalStage,
+  isSnoozed,
+  snoozeErrorKey,
+  SNOOZE_REASON_MAX,
+  unsnoozeAlreadyDone,
   normaliseAmount,
   OUTCOME_REASON_CODES,
   parseCaseDetail,
@@ -192,6 +196,43 @@ describe('parseCaseDetail', () => {
     expect(bare!.case.externalChangedAt).toBeNull();
     expect(bare!.managedExternally).toBe(false);
     expect(bare!.locked).toBe(false);
+  });
+
+  it('reads the snooze end (185), null when missing or not a time', () => {
+    expect(
+      parseCaseDetail({ ...detail, snoozedUntil: '2026-11-12T05:00:00.000Z' })!
+        .snoozedUntil
+    ).toBe('2026-11-12T05:00:00.000Z');
+    expect(parseCaseDetail(detail)!.snoozedUntil).toBeNull();
+    expect(
+      parseCaseDetail({ ...detail, snoozedUntil: 'soon' })!.snoozedUntil
+    ).toBeNull();
+    expect(
+      parseCaseDetail({ ...detail, snoozedUntil: 1 })!.snoozedUntil
+    ).toBeNull();
+  });
+});
+
+describe('snooze (185)', () => {
+  const now = new Date('2026-11-10T10:00:00.000Z');
+  it('is snoozed only while the end is ahead', () => {
+    expect(isSnoozed('2026-11-10T10:00:01.000Z', now)).toBe(true);
+    expect(isSnoozed('2026-11-10T10:00:00.000Z', now)).toBe(false);
+    expect(isSnoozed('2026-11-09T10:00:00.000Z', now)).toBe(false);
+    expect(isSnoozed(null, now)).toBe(false);
+    expect(isSnoozed('nope', now)).toBe(false);
+  });
+  it('maps the snooze refusals', () => {
+    expect(snoozeErrorKey(403, 'NOT_ALLOWED')).toBe('notAllowed');
+    expect(snoozeErrorKey(403, undefined)).toBe('notAllowed');
+    expect(snoozeErrorKey(409, 'CASE_CLOSED')).toBe('caseClosed');
+    expect(snoozeErrorKey(422, 'SNOOZE_INVALID')).toBe('invalid');
+    expect(snoozeErrorKey(500, null)).toBe('unknown');
+  });
+  it("treats unsnooze's 422 as already not snoozed", () => {
+    expect(unsnoozeAlreadyDone(422)).toBe(true);
+    expect(unsnoozeAlreadyDone(403)).toBe(false);
+    expect(SNOOZE_REASON_MAX).toBe(200);
   });
 });
 

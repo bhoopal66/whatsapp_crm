@@ -11,6 +11,8 @@ import {
   ExternalLink,
   FileQuestion,
   Hand,
+  AlarmClock,
+  AlarmClockOff,
   Lock,
   MessagesSquare,
   Pencil,
@@ -29,17 +31,21 @@ import {
   caseTabDisabled,
   canTakeOver,
   docRequestKey,
+  isSnoozed,
   parseCaseDetail,
+  snoozeErrorKey,
   resolveCaseTab,
   runningTimers,
   TAKEOVER_TEMPLATE_APPROVED,
   takeoverNotApproved,
+  unsnoozeAlreadyDone,
   visibleCaseTabs,
   type CaseDetail,
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
 import { caseStatusView, contactPersonLine, formatAed } from '@/lib/cases/ui';
+import { canSnoozeCase } from '@/lib/cases/views-ui';
 import { cn } from '@/lib/utils';
 
 import { AuditTab } from './audit-tab';
@@ -56,6 +62,7 @@ import { MemoryTab } from './memory-tab';
 import { NotesTab } from './notes-tab';
 import { OverviewTab } from './overview-tab';
 import { SlaChip } from './sla-chip';
+import { SnoozeDialog } from './snooze-dialog';
 import { TasksTab } from './tasks-tab';
 import { TimelineTab } from './timeline-tab';
 
@@ -63,7 +70,7 @@ import { TimelineTab } from './timeline-tab';
 const PRESENCE_POLL_MS = 20_000;
 
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
-type Open = 'move' | 'edit' | 'reassign' | 'docs' | null;
+type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | null;
 
 const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
   overview: OverviewTab,
@@ -80,6 +87,7 @@ const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
 /** /cases/[id] — header, actions, and the Overview plus the case's tabs. */
 export function CasePage({ caseId }: { caseId: string }) {
   const t = useTranslations('CasePage');
+  const ts = useTranslations('CaseSnooze');
   const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -210,6 +218,24 @@ export function CasePage({ caseId }: { caseId: string }) {
     } else toast.error(t('takeover.failed'));
   };
 
+  const unsnooze = async () => {
+    setActing(true);
+    const r = await sendCaseRequest(`/api/cases/${caseId}/unsnooze`, 'POST');
+    setActing(false);
+    if (r.ok) toast.success(ts('unsnoozed'));
+    else if (!unsnoozeAlreadyDone(r.status))
+      toast.error(
+        ts(
+          `errors.${snoozeErrorKey(
+            r.status,
+            (r.json as { code?: unknown } | null)?.code
+          )}`
+        )
+      );
+    // 422 is "not snoozed" (it ended, or someone lifted it): just refresh.
+    void reload();
+  };
+
   const back = (
     <BackLink
       fallbackHref="/cases"
@@ -275,6 +301,10 @@ export function CasePage({ caseId }: { caseId: string }) {
   const locks = caseLocks(detail);
   const compassGate = t('gate.compass');
   const synced = dateLabel(c.externalChangedAt);
+  // 185: shown to the roles that may snooze, on an open case only.
+  const showSnooze = canSnoozeCase(detail.role) && !closed;
+  const snoozed = isSnoozed(detail.snoozedUntil, new Date());
+  const snoozedLabel = snoozed ? dateLabel(detail.snoozedUntil) : null;
   const tabProps: CaseTabProps = {
     caseId,
     detail,
@@ -427,6 +457,15 @@ export function CasePage({ caseId }: { caseId: string }) {
                   : ''}
               </p>
             )}
+            {showSnooze && snoozedLabel && (
+              <p
+                role="status"
+                className="text-info mt-1 inline-flex items-center gap-1 text-xs font-medium"
+              >
+                <AlarmClock className="size-3.5" aria-hidden />
+                {ts('snoozedUntil', { when: snoozedLabel })}
+              </p>
+            )}
             {others.length > 0 && (
               <p className="text-muted-foreground mt-1 text-xs" role="status">
                 {t('alsoViewing', { names: others.join(', ') })}
@@ -520,6 +559,28 @@ export function CasePage({ caseId }: { caseId: string }) {
               {t('actions.takeover')}
             </GatedButton>
           )}
+          {showSnooze &&
+            (snoozed ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={acting}
+                onClick={() => void unsnooze()}
+              >
+                <AlarmClockOff className="size-4" aria-hidden />
+                {ts('unsnooze')}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={acting}
+                onClick={() => setOpen('snooze')}
+              >
+                <AlarmClock className="size-4" aria-hidden />
+                {ts('snooze')}
+              </Button>
+            ))}
         </div>
         {c.isLead && (
           <p className="text-muted-foreground -mt-1 text-xs">{noGroup}</p>
@@ -582,6 +643,14 @@ export function CasePage({ caseId }: { caseId: string }) {
           detail={detail}
           onChanged={() => void reload()}
           members={members}
+        />
+      )}
+      {open === 'snooze' && (
+        <SnoozeDialog
+          open={open === 'snooze'}
+          onOpenChange={(o) => !o && setOpen(null)}
+          caseId={caseId}
+          onChanged={() => void reload()}
         />
       )}
       <ConfirmDialog

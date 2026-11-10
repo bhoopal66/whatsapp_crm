@@ -10447,5 +10447,33 @@
       "FILE_INVALID": "That file cannot be used here.",
       "generic": "Something went wrong. Try again."
     }
+  },
+  "CaseSnooze": {
+    "snooze": "Snooze",
+    "unsnooze": "Unsnooze",
+    "snoozedUntil": "Snoozed until {when}",
+    "title": "Snooze this case",
+    "body": "Hide it from the Cases inbox until the time you pick, at most {days} days from now.",
+    "presets": "When it comes back",
+    "preset": {
+      "tomorrow": "Tomorrow",
+      "in3days": "In 3 days",
+      "nextWeek": "Next week"
+    },
+    "custom": "Or pick a date and time",
+    "customInvalid": "Pick a time in the future, at most {days} days from now.",
+    "reason": "Reason (optional)",
+    "reasonPlaceholder": "Waiting for the bank's reply",
+    "cancel": "Cancel",
+    "confirm": "Snooze",
+    "done": "Snoozed until {when}",
+    "unsnoozed": "Case unsnoozed",
+    "errors": {
+      "notAllowed": "You can't snooze this case.",
+      "caseClosed": "This case is closed.",
+      "invalid": "That time can't be used. Pick one within the next 30 days.",
+      "notFound": "This case no longer exists.",
+      "unknown": "Something went wrong. Try again."
+    }
   }
 }
