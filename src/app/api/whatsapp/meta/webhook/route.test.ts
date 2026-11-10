@@ -25,12 +25,16 @@ const h = vi.hoisted(() => ({
   recordMetaMessageCosts: vi.fn(),
   recordGroupMessageCosts: vi.fn(),
   handleGroupWebhook: vi.fn(),
+  /** Migration 188's RPCs (meta_health_event_record and friends). */
+  rpc: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   state: {
     /** Rows `whatsapp_config` returns for provider='meta' lookups. */
     metaConfigs: [] as Record<string, unknown>[],
     /** Make one lookup answer a database error instead of rows. */
     failLookup: null as null | 'waba' | 'phone',
+    /** The stored meta_number_state row, if any. */
+    numberState: null as null | Record<string, unknown>,
   },
 }));
 
@@ -90,7 +94,16 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    from: () => {
+    rpc: h.rpc,
+    from: (table: string) => {
+      if (table === 'meta_number_state') {
+        const s: Record<string, unknown> = {
+          select: () => s,
+          eq: () => s,
+          maybeSingle: async () => ({ data: h.state.numberState, error: null }),
+        };
+        return s;
+      }
       // Honours eq/in, so a lookup by phone_number_id or waba_id only
       // finds the rows that really match — the tenancy tests rely on it.
       let rows = [...h.state.metaConfigs];
@@ -224,6 +237,12 @@ beforeEach(() => {
   h.afterCallbacks.length = 0;
   h.state.metaConfigs = [CONFIG];
   h.state.failLookup = null;
+  h.state.numberState = null;
+  h.rpc.mockImplementation(async (fn: string) =>
+    fn === 'meta_number_state_set'
+      ? { data: '2026-11-10T00:00:00.000001Z', error: null }
+      : { data: true, error: null }
+  );
   h.screenWebhook.mockImplementation(screenAs(() => 'accept'));
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
   h.clientIp.mockReturnValue('203.0.113.7');
@@ -1336,5 +1355,196 @@ describe('POST — deal-room group traffic', () => {
     expect(res.status).toBe(200);
     await runAfterCallbacks();
     expect(h.handleGroupWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST — Meta number health (migration 188, watch-only)', () => {
+  const HEALTH_RPCS = [
+    'meta_health_event_record',
+    'meta_template_health_set',
+    'meta_number_state_set',
+  ];
+  const rpcNames = () => h.rpc.mock.calls.map((c) => c[0] as string);
+  const rpcArgs = (fn: string) =>
+    h.rpc.mock.calls.filter((c) => c[0] === fn).map((c) => c[1]);
+
+  function qualityPayload() {
+    return {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: CONFIG.waba_id,
+          time: 1762740000,
+          changes: [
+            {
+              field: 'phone_number_quality_update',
+              value: {
+                display_phone_number: '15550001111',
+                event: 'FLAGGED',
+                current_limit: 'TIER_1K',
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  function templatePayload() {
+    return {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: CONFIG.waba_id,
+          changes: [
+            {
+              field: 'message_template_status_update',
+              value: {
+                event: 'APPROVED',
+                message_template_name: 'order_update',
+                message_template_language: 'en',
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('records a signed phone_number_quality_update and sets the number state', async () => {
+    const payload = qualityPayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    // Exactly what the route answered before 188.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ignored' });
+    await runAfterCallbacks();
+
+    expect(rpcArgs('meta_health_event_record')).toEqual([
+      expect.objectContaining({
+        p_account: 'acc-1',
+        p_config: 'cfg-meta',
+        p_kind: 'phone_number_quality_update',
+      }),
+    ]);
+    expect(rpcArgs('meta_number_state_set')).toEqual([
+      expect.objectContaining({
+        p_config: 'cfg-meta',
+        p_expected_updated_at: null,
+        p_messaging_limit_tier: 'TIER_1K',
+        p_account_status: 'FLAGGED',
+        p_assessed_state: 'MARKETING_PAUSED',
+      }),
+    ]);
+    expect(rpcNames()).not.toContain('meta_template_health_set');
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('retries the number state on a lost compare-and-set, against the re-read row', async () => {
+    let sets = 0;
+    h.rpc.mockImplementation(async (fn: string) => {
+      if (fn !== 'meta_number_state_set') return { data: true, error: null };
+      sets += 1;
+      if (sets === 1) {
+        // Another writer won: the next read sees its row.
+        h.state.numberState = {
+          quality_rating: null,
+          messaging_limit_tier: 'TIER_250',
+          account_status: null,
+          assessed_state: 'NORMAL',
+          reasons: ['NO_SIGNAL'],
+          updated_at: '2026-11-10T00:00:00Z',
+        };
+        return { data: null, error: null };
+      }
+      return { data: '2026-11-10T00:00:01Z', error: null };
+    });
+    const payload = qualityPayload();
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    const sets2 = rpcArgs('meta_number_state_set');
+    expect(sets2).toHaveLength(2);
+    expect(sets2[1]).toMatchObject({
+      p_expected_updated_at: '2026-11-10T00:00:00Z',
+    });
+  });
+
+  it('records nothing for a bad signature and answers exactly as before', async () => {
+    const payload = qualityPayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign('{}', 'wrong')));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ignored' });
+    await runAfterCallbacks();
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('skips the state and template writes for a redelivered event', async () => {
+    h.rpc.mockResolvedValue({ data: false, error: null });
+    for (const payload of [qualityPayload(), templatePayload()]) {
+      const { POST } = await import('./route');
+      await POST(post(payload, sign(JSON.stringify(payload))));
+      await runAfterCallbacks();
+    }
+    expect(rpcNames()).toEqual([
+      'meta_health_event_record',
+      'meta_health_event_record',
+    ]);
+  });
+
+  it('leaves the response and the template work alone when a health RPC fails', async () => {
+    h.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'XX000', message: 'boom' },
+    });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const payload = templatePayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'received' });
+    await expect(runAfterCallbacks()).resolves.toBeUndefined();
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    expect(rpcNames()).toEqual(['meta_health_event_record']);
+    // A code, never Meta's text.
+    const logged = errors.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(logged).toContain('XX000');
+    expect(logged).not.toContain('order_update');
+  });
+
+  it('still does the template work for a template callback, and records it too', async () => {
+    const payload = templatePayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'received' });
+    await runAfterCallbacks();
+
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange.mock.calls[0][2]).toBe('acc-1');
+    expect(rpcArgs('meta_health_event_record')).toEqual([
+      expect.objectContaining({ p_kind: 'message_template_status_update' }),
+    ]);
+    expect(rpcArgs('meta_template_health_set')).toEqual([
+      expect.objectContaining({
+        p_account: 'acc-1',
+        p_template_name: 'order_update',
+        p_language: 'en',
+        p_status: 'APPROVED',
+      }),
+    ]);
+    expect(rpcNames()).not.toContain('meta_number_state_set');
+  });
+
+  it('never calls a 188 RPC for a messages-only callback', async () => {
+    const payload = messagePayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.processMessage).toHaveBeenCalled();
+    expect(rpcNames().filter((n) => HEALTH_RPCS.includes(n))).toEqual([]);
   });
 });
