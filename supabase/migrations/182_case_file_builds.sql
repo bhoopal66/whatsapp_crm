@@ -40,8 +40,10 @@
 -- READ case_file_build_current -> the ready build, or no row; anyone who
 --   can read the case (case_can_read, else NOT_ALLOWED) and the NULL actor.
 -- STALE when a file stops being 'passed' (a newer pass superseded it, or it
---   was reclassified), every ready build whose manifest lists it becomes
---   'superseded' (trigger), so a stale PDF is never current.
+--   was reclassified), or a newer version of its doc_key fails (181 leaves
+--   the older pass 'passed' but the case no longer File ready), every ready
+--   build whose manifest lists it becomes 'superseded' (trigger), so a
+--   stale PDF is never current.
 -- DOWNLOADS case_file_downloads: one audit row per download of a file or of
 --   the ready build, written before the signed URL is minted
 --   (url_issued false); case_file_download_issued flips it once the URL
@@ -318,9 +320,21 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-  UPDATE public.case_file_builds b SET status = 'superseded'
-   WHERE b.case_id = NEW.case_id AND b.status = 'ready'
-     AND b.manifest @> jsonb_build_array(jsonb_build_object('file_id', OLD.id::text));
+  IF OLD.status = 'passed' AND NEW.status <> 'passed' THEN
+    UPDATE public.case_file_builds b SET status = 'superseded'
+     WHERE b.case_id = NEW.case_id AND b.status = 'ready'
+       AND b.manifest @> jsonb_build_array(jsonb_build_object('file_id', OLD.id::text));
+  END IF;
+  -- A newer failed version leaves the older pass 'passed' (181), so the
+  -- branch above never sees it: the builds listing that pass are stale.
+  IF NEW.status = 'failed' AND NEW.doc_key IS NOT NULL THEN
+    UPDATE public.case_file_builds b SET status = 'superseded'
+     WHERE b.case_id = NEW.case_id AND b.status = 'ready'
+       AND EXISTS (SELECT 1 FROM public.case_document_files p
+                    WHERE p.case_id = NEW.case_id AND p.doc_key = NEW.doc_key AND p.status = 'passed'
+                      AND p.version < NEW.version
+                      AND b.manifest @> jsonb_build_array(jsonb_build_object('file_id', p.id::text)));
+  END IF;
   RETURN NULL;
 END;
 $$;
@@ -328,7 +342,8 @@ $$;
 DROP TRIGGER IF EXISTS case_file_builds_stale ON public.case_document_files;
 CREATE TRIGGER case_file_builds_stale
   AFTER UPDATE OF status ON public.case_document_files
-  FOR EACH ROW WHEN (OLD.status = 'passed' AND NEW.status <> 'passed')
+  FOR EACH ROW WHEN ((OLD.status = 'passed' AND NEW.status <> 'passed')
+                     OR (NEW.status = 'failed' AND OLD.status <> 'failed'))
   EXECUTE FUNCTION public.case_file_builds_stale_hook();
 
 -- ---------- 8. Download audit ----------
