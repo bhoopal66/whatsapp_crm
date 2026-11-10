@@ -835,3 +835,14 @@ jobs:
       # mentions are newest first over readable cases; service_role only.
       - name: Verify case views
         run: supabase db query --local --file supabase/ci/verify-case-views.sql
+
+      # Migration 182: case file builds and the download audit. The gate
+      # (version, who builds, CASE_CLOSED, FILE_NOT_READY); reserve ->
+      # record and every BUILD_INVALID refusal (manifest, merged flag,
+      # content-addressed path, reservation expired / used / of another
+      # actor or case / not newer than a recorded build); one ready build
+      # per case; stale builds (reclassified file, newer failed version);
+      # downloads (audit row, url_issued flip, FILE_NOT_FOUND, BUILD_STALE,
+      # append-only); privileges and the builds RLS.
+      - name: Verify case file builds
+        run: supabase db query --local --file supabase/ci/verify-case-file-builds.sql
