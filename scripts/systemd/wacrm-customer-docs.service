@@ -1,0 +1,25 @@
+# Customer documents NAS copier (scripts/customer-docs-worker.mjs).
+# Install: sudo cp scripts/systemd/wacrm-customer-docs.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now wacrm-customer-docs
+# Kept out of the Next.js process: the share is a `hard` CIFS mount, so a
+# NAS outage blocks file I/O here and never in the app.
+[Unit]
+Description=wacrm customer documents NAS copier
+After=network-online.target docker.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/nas-share
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/wacrm
+EnvironmentFile=/home/ubuntu/wacrm/.env.local
+Environment=CUSTOMER_DOCS_NAS_MOUNT=/mnt/nas-share
+Environment="CUSTOMER_DOCS_NAS_ROOT=/mnt/nas-share/Customer Documents"
+Environment=CUSTOMER_DOCS_TIME_ZONE=Asia/Dubai
+ExecStart=/usr/bin/node /home/ubuntu/wacrm/scripts/customer-docs-worker.mjs
+Restart=always
+RestartSec=15
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
