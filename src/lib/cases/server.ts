@@ -10,12 +10,22 @@ import {
 } from '@/lib/submission-groups/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CaseSlaHook } from '@/lib/submission-groups/inbound';
+import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
+import { SubmissionGroupStore } from '@/lib/submission-groups/store';
+import type { IntakePorts, IntakeTemplateKind } from '@/lib/case-files/intake';
+import { classifyAndCheck } from '@/lib/case-files/intake-file';
+import {
+  caseIntakeQueue,
+  type CaseIntakeQueue,
+} from '@/lib/case-files/intake-queue';
+import { CaseFilesStore } from '@/lib/case-files/store';
 
 import { CaseBankContactsStore } from './bank-contacts';
 import { BankWorkspaceStore } from './bank-workspaces';
 import { CaseConversations } from './conversations';
 import { BankDashboard } from './dashboard';
 import { HANDOVER_TEMPLATE_DRAFT } from './handover';
+import { assertUnderGroupSendLimit } from './http';
 import { CaseInbox } from './inbox';
 import { CaseMacroStore, type ApplyMacroDeps } from './macros';
 import { CaseNotesStore } from './notes';
@@ -87,6 +97,215 @@ export function caseSlaInboundHook(admin: SupabaseClient): CaseSlaHook {
     caseIdForGroup: (groupId) => cases.idForGroup(groupId),
     customerMessage: (caseId) => sla.customerMessageSystem(caseId),
   };
+}
+
+export interface CaseIntakeOverrides {
+  /** Defaults to `assertUnderGroupSendLimit` (throws `CaseHttpError`). */
+  assertSendLimit?: (
+    accountId: string,
+    groupId: string,
+    userId: string
+  ) => Promise<void>;
+  /** Defaults to `caseConversations(accountId).reply`. */
+  reply?: (
+    accountId: string,
+    actor: string,
+    caseId: string,
+    text: string
+  ) => Promise<unknown>;
+}
+
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' ? v : null;
+}
+
+function rpcError(fn: string, error: { code?: string; hint?: string }) {
+  // Thrown as an object carrying `hint`: the core reads the refusal from it.
+  return Object.assign(new Error(`${fn} failed`), {
+    hint: error.hint ?? null,
+    code: error.code ?? null,
+  });
+}
+
+/** The core's `'classify'` is the SQL's `'document_classify'`. */
+const SQL_TEMPLATE_KIND: Record<IntakeTemplateKind, string> = {
+  classify: 'document_classify',
+  document_rejected: 'document_rejected',
+  document_received_next: 'document_received_next',
+};
+
+/** A send failure's code: `reason`, then `extra.code`, then the error name. */
+function sendFailureCode(error: unknown): string {
+  const e = error as { reason?: unknown; extra?: { code?: unknown } } | null;
+  return (
+    str(e?.reason) ??
+    str(e?.extra?.code) ??
+    (error instanceof Error ? error.name : 'unknown_error')
+  );
+}
+
+/**
+ * The tap-to-classify intake's ports (migration 183) on the webhook's
+ * service-role client. The core decides; this only reads and writes.
+ */
+export function caseIntakePorts(
+  admin: SupabaseClient,
+  overrides: CaseIntakeOverrides = {}
+): IntakePorts {
+  const files = new CaseFilesStore(admin);
+  const assertSendLimit =
+    overrides.assertSendLimit ?? assertUnderGroupSendLimit;
+  const reply =
+    overrides.reply ??
+    ((accountId: string, actor: string, caseId: string, text: string) =>
+      caseConversations(accountId).reply(actor, caseId, text));
+  const rpc = async (fn: string, args: Record<string, unknown>) => {
+    const { data, error } = await admin.rpc(fn, args);
+    if (error) throw rpcError(fn, error);
+    return data as unknown;
+  };
+  return {
+    caseInfo: async (caseId) => {
+      const { data, error } = await admin
+        .from('cases')
+        .select('account_id, group_id, coordinator_id, closed_at')
+        .eq('id', caseId)
+        .maybeSingle();
+      if (error) throw rpcError('cases', error);
+      if (!data) return null;
+      const r = data as Record<string, unknown>;
+      return {
+        accountId: String(r.account_id),
+        groupId: str(r.group_id),
+        coordinatorId: str(r.coordinator_id),
+        closedAt: str(r.closed_at),
+      };
+    },
+    intakeEnabled: async (accountId) =>
+      (await files.settings(accountId)).intakePrompts,
+    approvedTemplate: async (accountId, kind) =>
+      str(
+        await rpc('case_intake_template_get', {
+          p_account: accountId,
+          p_kind: SQL_TEMPLATE_KIND[kind],
+        })
+      ),
+    groupMode: async (groupId) =>
+      (await new SubmissionGroupStore(admin).get(groupId))?.waMode ?? null,
+    register: (caseId, customerDocumentId) =>
+      files.register(null, caseId, customerDocumentId),
+    checklist: async (caseId) => {
+      const [spec, checklist] = await Promise.all([
+        files.specRows(caseId),
+        new CaseToolsStore(admin).checklist(caseId),
+      ]);
+      const labels = new Map(checklist.items.map((i) => [i.docKey, i.label]));
+      return spec.map((s) => ({
+        docKey: s.docKey,
+        position: s.position,
+        required: s.required,
+        label: labels.get(s.docKey) ?? null,
+      }));
+    },
+    passedDocKeys: async (caseId) =>
+      (await files.listFiles(caseId))
+        .filter((f) => f.status === 'passed' && f.docKey !== null)
+        .map((f) => f.docKey as string),
+    send: async ({ accountId, caseId, groupId, coordinatorId, text }) => {
+      try {
+        await assertSendLimit(accountId, groupId, coordinatorId);
+        await reply(accountId, coordinatorId, caseId, text);
+        return { sent: true, recorded: true };
+      } catch (error) {
+        if (error instanceof SubmissionGroupSentNotRecordedError)
+          return { sent: true, recorded: false };
+        return { sent: false, code: sendFailureCode(error) };
+      }
+    },
+    recordPrompt: async ({ caseId, fileId, options, now }) => {
+      await rpc('case_intake_prompt_record', {
+        p_case: caseId,
+        p_file: fileId,
+        p_options: options.map((o) => ({
+          n: o.n,
+          doc_key: o.docKey,
+          label: o.label,
+        })),
+        p_now: now.toISOString(),
+      });
+    },
+    openPrompt: async (caseId) => {
+      const data = await rpc('case_intake_open_prompt', { p_case: caseId });
+      const r = (Array.isArray(data) ? data[0] : null) as Record<
+        string,
+        unknown
+      > | null;
+      if (!r) return null;
+      const options = Array.isArray(r.options) ? r.options : [];
+      return {
+        id: String(r.prompt_id),
+        fileId: String(r.file_id),
+        options: options.map((o: Record<string, unknown>) => ({
+          n: Number(o.n),
+          docKey: String(o.doc_key),
+          label: String(o.label ?? ''),
+        })),
+      };
+    },
+    answerPrompt: async ({ promptId, choice, now }) => {
+      // The file id first: a failed read must not spend the answer.
+      const { data, error } = await admin
+        .from('case_intake_prompts')
+        .select('file_id')
+        .eq('prompt_id', promptId)
+        .maybeSingle();
+      if (error) throw rpcError('case_intake_prompts', error);
+      const fileId = str((data as Record<string, unknown> | null)?.file_id);
+      if (!fileId) throw rpcError('case_intake_prompts', {});
+      const docKey = str(
+        await rpc('case_intake_prompt_answer', {
+          p_prompt: promptId,
+          p_n: choice,
+          p_now: now.toISOString(),
+        })
+      );
+      if (!docKey) throw rpcError('case_intake_prompt_answer', {});
+      return { fileId, docKey };
+    },
+    classifyAndCheck: async ({ fileId, docKey, today }) => {
+      const out = await classifyAndCheck({
+        admin,
+        actor: null,
+        fileId,
+        docKey,
+        today,
+        deps: { storage: admin.storage },
+      });
+      return { status: out.status, checks: out.checks };
+    },
+    fileReady: (caseId) => files.fileReady(caseId),
+  };
+}
+
+/** One delivery's intake queue (183) on the webhook's service-role client. */
+export function caseIntakeQueueFor(
+  admin: SupabaseClient,
+  overrides: CaseIntakeOverrides = {}
+): CaseIntakeQueue {
+  const cases = new CaseStore(admin);
+  return caseIntakeQueue({
+    ports: caseIntakePorts(admin, overrides),
+    caseIdForGroup: (groupId) => cases.idForGroup(groupId),
+    documentIdFor: async (groupMessageId) => {
+      const { data, error } = await admin
+        .from('customer_documents')
+        .select('id')
+        .eq('group_message_id', groupMessageId)
+        .maybeSingle();
+      if (error) throw rpcError('customer_documents', error);
+      return str((data as Record<string, unknown> | null)?.id);
+    },
+  });
 }
 
 export function caseInbox(): CaseInbox {

@@ -33,7 +33,8 @@ import {
   recordSubmissionGroupInbound,
   recordSubmissionGroupMembership,
 } from '@/lib/submission-groups/inbound'
-import { caseSlaInboundHook } from '@/lib/cases/server'
+import { caseIntakeQueueFor, caseSlaInboundHook } from '@/lib/cases/server'
+import type { CaseIntakeQueue } from '@/lib/case-files/intake-queue'
 import {
   groupDocumentFiler,
   type GroupDocumentFiler,
@@ -220,6 +221,10 @@ export async function POST(request: Request) {
       admin: supabaseAdmin(),
       channel: () => whapiChannel(config),
     })
+    // Tap-to-classify (183): collected in the group loop like the filer,
+    // run after it, since a document's customer_documents row exists only
+    // once it has been filed. Off by default: the switch writes nothing.
+    const intake = caseIntakeQueueFor(supabaseAdmin())
     try {
       if (screened.duplicates + screened.ipLimited > 0) {
         console.warn(
@@ -236,6 +241,7 @@ export async function POST(request: Request) {
           screened.ipLimited > 0 ? [] : groupEvents,
           screened.event.statuses,
           filer,
+          intake,
         )
         await processWhapiWebhook(screened.event, config, screened.overLimit)
       }
@@ -250,6 +256,7 @@ export async function POST(request: Request) {
       // group messages are already stored, and a redelivery would not
       // file them again (only a newly recorded message is collected).
       await filer.run()
+      await intake.run()
     }
     // Group messages whose write failed keep their claims unconfirmed,
     // so a redelivery stores them (the insert is idempotent anyway).
@@ -507,6 +514,7 @@ async function processWhapiGroups(
   events: WhapiGroupEvent[],
   statuses: NormalizedWhapiWebhook['statuses'],
   filer: Pick<GroupDocumentFiler, 'hook'>,
+  intake: Pick<CaseIntakeQueue, 'document' | 'text'>,
 ): Promise<boolean> {
   const channel: GroupChannel = {
     id: config.id,
@@ -534,7 +542,11 @@ async function processWhapiGroups(
         caseSla: caseSlaInboundHook(admin),
         // A customer's document or photo is only collected here; the
         // route files it after the 1:1 messages (178).
-        customerDocument: filer.hook,
+        customerDocument: (doc) => {
+          filer.hook(doc)
+          intake.document(doc)
+        },
+        customerText: (m) => intake.text(m),
       },
     )
     if (sg.failed > 0) ok = false

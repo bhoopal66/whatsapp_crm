@@ -309,6 +309,64 @@ describe('recordSubmissionGroupInbound', () => {
     });
   });
 
+  describe('customer text hook (183)', () => {
+    it('hands on a new customer text with its body', async () => {
+      const customerText = vi.fn();
+      await recordSubmissionGroupInbound(fakeStore(), channel, [msg()], {
+        customerText,
+      });
+      expect(customerText).toHaveBeenCalledWith({
+        accountId: 'acc-1',
+        groupId: 'sg-1',
+        waMessageId: 'm-1',
+        body: 'hello',
+      });
+    });
+
+    it('skips staff texts, duplicates, empty texts and media', async () => {
+      const customerText = vi.fn();
+      // The coordinator writes; then a redelivered customer text.
+      await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [
+          msg({ id: 'c-1', senderWaId: '971550000002' }),
+          msg({ id: 'e-1', body: '' }),
+          msg({ id: 'd-1', type: 'image', body: '1', media: { id: 'x' } }),
+        ],
+        { customerText }
+      );
+      await recordSubmissionGroupInbound(
+        fakeStore({ recordInbound: vi.fn(async () => false) }),
+        channel,
+        [msg()],
+        { customerText }
+      );
+      expect(customerText).not.toHaveBeenCalled();
+    });
+
+    it('a throwing hook leaves the counts unchanged', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const customerText = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const out = await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [msg(), msg({ id: 'm-2' })],
+        { customerText }
+      );
+      err.mockRestore();
+      expect(customerText).toHaveBeenCalledTimes(2);
+      expect(out).toEqual({
+        recorded: 2,
+        reconciled: 0,
+        duplicates: 0,
+        failed: 0,
+      });
+    });
+  });
+
   describe('customer document hook', () => {
     const pdf = {
       id: 'media-1',

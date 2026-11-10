@@ -129,6 +129,8 @@ export async function recordSubmissionGroupInbound(
     now?: () => Date;
     caseSla?: CaseSlaHook;
     customerDocument?: GroupCustomerDocumentHook;
+    /** A NEW customer text with a body (183's intake); never changes the counts. */
+    customerText?: (msg: GroupCustomerText) => unknown;
   } = {}
 ): Promise<InboundOutcome> {
   const out: InboundOutcome = {
@@ -207,6 +209,27 @@ export async function recordSubmissionGroupInbound(
           caption: m.body,
           sentAt: m.sentAt,
         });
+      if (
+        recorded &&
+        senderKind === 'customer' &&
+        m.type === 'text' &&
+        m.body &&
+        opts.customerText
+      ) {
+        try {
+          await opts.customerText({
+            accountId: channel.accountId,
+            groupId: group.id,
+            waMessageId: m.id,
+            body: m.body,
+          });
+        } catch (error) {
+          console.error(
+            `[case-intake] text hook for inbound ${m.id} of group ${group.id} failed:`,
+            error instanceof Error ? error.name : 'unknown error'
+          );
+        }
+      }
     } catch (error) {
       out.failed++;
       console.error(

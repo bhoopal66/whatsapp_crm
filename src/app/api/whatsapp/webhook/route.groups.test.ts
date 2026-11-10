@@ -501,6 +501,58 @@ describe('Whapi webhook: submission groups (018a)', () => {
       // The catch still returns before confirming any claim.
       expect(h.confirmAccepted).not.toHaveBeenCalled();
     });
+
+    describe('tap-to-classify intake (183) with files_intake_prompts off', () => {
+      const INTAKE_WRITES = [
+        'case_document_file_register',
+        'case_intake_prompt_record',
+        'case_intake_prompt_answer',
+      ];
+      const reply = () =>
+        groupText('s-reply', { chat_id: SG_GROUP, text: { body: '1' } });
+
+      beforeEach(() => {
+        h.db.cases = [
+          {
+            id: 'case-1',
+            account_id: 'acc-1',
+            group_id: 'sg-1',
+            coordinator_id: 'user-1',
+            closed_at: null,
+          },
+        ];
+        h.db.customer_documents = [{ id: 'cdoc-1', group_message_id: 501 }];
+      });
+
+      it('writes and sends nothing, and runs after the filer', async () => {
+        const order: string[] = [];
+        h.mirror.mockImplementation(async () => {
+          order.push('filer');
+          return STORED;
+        });
+        h.rpc.mockImplementation(async (fn: string) => {
+          if (fn === 'sg_record_inbound') return { data: true, error: null };
+          if (fn === 'case_files_settings') {
+            order.push('intake');
+            return { data: [{ files_intake_prompts: false }], error: null };
+          }
+          return { data: 'TC-000001', error: null };
+        });
+
+        await post(messages(groupDocument(), reply()));
+
+        const called = h.rpc.mock.calls.map((c) => c[0]);
+        // The document and the "1" each reached the switch, and stopped there.
+        expect(called.filter((f) => f === 'case_files_settings')).toHaveLength(
+          2
+        );
+        expect(called.filter((f) => INTAKE_WRITES.includes(f))).toEqual([]);
+        expect(called.filter((f) => String(f).startsWith('sg_send'))).toEqual(
+          []
+        );
+        expect(order).toEqual(['filer', 'intake', 'intake']);
+      });
+    });
   });
 });
 
