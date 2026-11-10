@@ -497,7 +497,11 @@ actions.
   action runs on its own, so a failing action is recorded and stops only
   that rule; the next rule still runs. A rule can never stop the change that
   fired it. A rule's own changes do not fire rules and do not count as
-  activity, so "idle N days" is not reset by a rule.
+  activity, so "idle N days" is not reset by a rule. An idle rule fires
+  once per idle stretch: it fires again only after real activity and N more
+  idle days.
+- **Who reads rules:** owners, admins, team leaders and agents of the
+  workspace (the same people the rules list answers); viewers read none.
 - **History:** every rule evaluated on a case leaves a run row, matched or
   not (`/api/cases/[id]/rule-runs`), shown on the case.
 - The idle and overdue triggers are evaluated by a sweep in the automations
