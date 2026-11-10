@@ -805,6 +805,12 @@ jobs:
       - name: Verify customer documents
         run: supabase db query --local --file supabase/ci/verify-customer-documents.sql
 
+      # Migration 180: staff uploads and case builds in the private
+      # case-files bucket land in the customer's folder; one location per
+      # row; the claim returns the storage pair; service role only.
+      - name: Verify customer documents (internal)
+        run: supabase db query --local --file supabase/ci/verify-customer-documents-internal.sql
+
       # Migration 179: system-authored case notes. case_note_add_system
       # stores author_id NULL + system_author, resolves @<uuid> mentions
       # exactly as case_note_add, refuses an unknown system or case; no
