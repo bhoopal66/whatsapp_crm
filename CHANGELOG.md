@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Meta number health and spend (watch-only)
+
+- **Migration required:** apply `188_meta_number_health.sql` as a
+  superuser or BYPASSRLS role. `supabase/ci/verify-meta-number-health.sql`
+  is wired into the migrations workflow.
+- The database records what Meta reports about the Cloud API number and
+  its templates (quality, messaging tier, account status, template
+  quality and status), keeps the number's current health with an assessed
+  sending state, counts marketing templates sent per number per day, and
+  works out Meta spend per Approved case from the message-cost ledger.
+  Owners and admins can read it; nothing in the app writes or shows it yet.
+- **Nothing changes for sending.** This only records and assesses. A new
+  owner-only "enforce" setting is off by default, and nothing reads it
+  yet.
+
 ### Cases: case files, saved views and snooze, macros, automation rules
 
 - **Migration required:** apply, in this order and each as a superuser or

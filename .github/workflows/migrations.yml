@@ -872,3 +872,13 @@ jobs:
       # PROMPT_OPTION, a file staff classified); the guard; privileges.
       - name: Verify case intake
         run: supabase db query --local --file supabase/ci/verify-case-intake.sql
+
+      # Migration 188: Meta number health, watch-only. Event dedup and the
+      # append-only rule (disconnecting a number and deleting an account
+      # still work); the number state's compare-and-set (a stale write is
+      # refused); template health forward-only; enforce off by default and
+      # owner-only, the cap owner/admin; the ramp count and spend per won
+      # case over the 051 ledger; RLS (owners/admins of the account only);
+      # privileges (service role only).
+      - name: Verify Meta number health
+        run: supabase db query --local --file supabase/ci/verify-meta-number-health.sql
