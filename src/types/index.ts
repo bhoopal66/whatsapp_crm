@@ -439,7 +439,11 @@ export type NotificationType =
   // messages trigger to the case's agent and coordinators, at most one
   // unread bell per person per group; opening the group clears it. meta =
   // {group_id}.
-  | 'submission_group_message';
+  | 'submission_group_message'
+  // Meta number health (188): the Meta number's assessed sending state
+  // got worse (ringMetaNumberAlert). Sent to live owners and admins.
+  // meta = {config_id, previous, next, reasons}.
+  | 'meta_number_alert';
 
 export interface Notification {
   id: string;

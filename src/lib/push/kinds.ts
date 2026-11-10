@@ -25,6 +25,7 @@ export const PUSH_KINDS = [
   'deal_room_update',
   'channel_disconnected',
   'channel_reconnected',
+  'meta_number_alert',
   'pbx_connection_silent',
   'pbx_connection_restored',
   'team_activity_alert',

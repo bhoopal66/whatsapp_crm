@@ -53,6 +53,7 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   insight_attention: Siren,
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
+  meta_number_alert: ShieldAlert,
   team_activity_alert: ShieldAlert,
   ai_handoff: Bot,
   task_assigned: ListTodo,
@@ -90,6 +91,7 @@ const TYPE_ICON_CLASS: Partial<Record<Notification['type'], string>> = {
 const FULL_BODY: ReadonlySet<Notification['type']> = new Set([
   'channel_disconnected',
   'channel_reconnected',
+  'meta_number_alert',
   'team_activity_alert',
   'pbx_connection_silent',
   'pbx_connection_restored',
