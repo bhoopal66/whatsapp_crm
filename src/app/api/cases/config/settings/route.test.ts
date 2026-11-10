@@ -39,6 +39,7 @@ const OFF = {
   readyToStage: null,
   intakePrompts: false,
 };
+let filesFails = false;
 const as = (role: string) => {
   m.ctx = { userId: 'u-1', accountId: 'acct-1', role, supabase: rls.client };
 };
@@ -61,9 +62,13 @@ beforeEach(() => {
   groupsResult = { data: true };
   stored = { managed: true, groups: false };
   filesRow = [];
+  filesFails = false;
   filesStagesResult = { data: true };
   admin = new FakeClient('admin', [], {
-    case_files_settings: () => ({ data: filesRow }) as never,
+    case_files_settings: () =>
+      (filesFails
+        ? { data: null, error: { code: 'XX000', message: 'boom' } }
+        : { data: filesRow }) as never,
     case_settings_set_files_switch: (a) => ({ data: a.p_on }) as never,
     case_settings_set_files_ready_stages: () => filesStagesResult as never,
     case_settings_set: () => setResult as never,
@@ -203,6 +208,19 @@ describe('case files settings', () => {
     expect(admin.rpcs).toContainEqual({
       fn: 'case_files_settings',
       args: { p_account: 'acct-1' },
+    });
+  });
+
+  it('GET still answers the other switches when the case-files read fails', async () => {
+    filesFails = true;
+    as('agent');
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.caseFiles).toBeNull();
+    expect(body.settings).toEqual({
+      managedExternally: true,
+      submissionWhatsappGroups: true,
     });
   });
 

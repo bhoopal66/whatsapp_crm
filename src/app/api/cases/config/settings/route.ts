@@ -57,7 +57,12 @@ export async function GET() {
           .limit(1),
         'case_account_settings'
       ),
-      new CaseFilesStore(supabaseAdmin()).settings(ctx.accountId),
+      // Soft: a failed case-files read leaves caseFiles null (that card
+      // shows it could not load) and never blanks the older switches.
+      new CaseFilesStore(supabaseAdmin()).settings(ctx.accountId).catch(() => {
+        console.error('[cases settings] case files settings read failed');
+        return null;
+      }),
     ]);
     return NextResponse.json({
       settings: {
