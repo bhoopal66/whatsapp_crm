@@ -849,3 +849,6 @@ jobs:
 
       - name: Verify case macros
         run: supabase db query --local --file supabase/ci/verify-case-macros.sql
+
+      - name: Verify case rules
+        run: supabase db query --local --file supabase/ci/verify-case-rules.sql
