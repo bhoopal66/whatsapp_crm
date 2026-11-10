@@ -155,7 +155,7 @@ BEGIN
           case_id, bank_code, stage, agent_id, coordinator_id, priority, due_at, sla_state, overdue_rank,
           customer_waiting, documents_missing, bank_query_open, last_activity_at, last_touched_by,
           open_task_overdue_count, submission_ref, contact_id, contact_name, bank_name, product, amount,
-          opened_at, closed_at, cursor, o)
+          opened_at, closed_at, cursor, snoozed_until, snooze_expired, o)  -- 185 appended two columns
     $body$
   $fn$;
   -- The same rows re-sorted by a reference ORDER BY over the output.
@@ -458,7 +458,8 @@ BEGIN
                       WITH ORDINALITY AS x(case_id, bank_code, stage, agent_id, coordinator_id, priority, due_at,
                         sla_state, overdue_rank, customer_waiting, documents_missing, bank_query_open,
                         last_activity_at, last_touched_by, open_task_overdue_count, submission_ref, contact_id,
-                        contact_name, bank_name, product, amount, opened_at, closed_at, cursor, o));
+                        contact_name, bank_name, product, amount, opened_at, closed_at, cursor, snoozed_until,
+                        snooze_expired, o));
       EXIT WHEN cardinality(ids2) = 0;
       acc := acc || ids2;
       cur := (SELECT x.cursor FROM case_inbox(u_owner, a_acct, jsonb_build_object('sort', sorts[i], 'include_closed', true),
