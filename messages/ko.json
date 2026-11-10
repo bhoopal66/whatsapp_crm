@@ -6995,6 +6995,7 @@
       "deal_room_update": "딜룸 업데이트",
       "channel_disconnected": "WhatsApp 번호 연결 끊김",
       "channel_reconnected": "WhatsApp 번호 다시 연결됨",
+      "meta_number_alert": "Meta 번호 상태 악화",
       "pbx_connection_silent": "전화 시스템 응답 없음",
       "pbx_connection_restored": "전화 시스템 복구됨",
       "team_activity_alert": "팀 활동 알림",

@@ -13,8 +13,12 @@
 -- per won (Approved) case.
 --
 -- WATCH-ONLY BY DEFAULT. Nothing here blocks, defers or changes a
--- send. No trigger is added to any existing table and no existing
--- function is replaced: the send paths, the webhook routes, the cost
+-- send. No trigger is added to any existing table and the only
+-- existing objects restated are the bell's (section 10: 173's
+-- notifications_type_check and push_bell_url, plus one new type,
+-- meta_number_alert, which rings owners and admins when the assessed
+-- state gets worse — src/lib/whatsapp/meta-health/alert.ts). The send
+-- paths, the webhook routes, the cost
 -- ledger (051) and broadcasts behave exactly as before. The assessed
 -- state is a record, not a gate. meta_protection_settings.enforce is
 -- the switch a later change may read before it acts on any of this; it
@@ -601,3 +605,95 @@ GRANT EXECUTE ON FUNCTION
   public.meta_marketing_sent_today(uuid, date),
   public.meta_cost_per_won_case(uuid, timestamptz, timestamptz)
   TO service_role;
+
+-- ------------------------------------------------------------
+-- 10. The bell: meta_number_alert
+-- ------------------------------------------------------------
+-- Rung by ringMetaNumberAlert (src/lib/whatsapp/meta-health/alert.ts)
+-- to every live owner and admin when the number's assessed state gets
+-- worse. The body is the state and short reason codes, never Meta's
+-- text.
+
+-- 173's list plus meta_number_alert; a later type edits it here.
+-- One statement: each runs in its own transaction here, so a lock
+-- timeout between a DROP and an ADD would leave no check at all. NOT
+-- VALID keeps the table scan out of that lock.
+ALTER TABLE public.notifications
+  DROP CONSTRAINT IF EXISTS notifications_type_check,
+  ADD CONSTRAINT notifications_type_check
+  CHECK (type IN (
+    'conversation_assigned',
+    'channel_disconnected',
+    'channel_reconnected',
+    'team_activity_alert',
+    'ai_handoff',
+    'task_assigned',
+    'task_due',
+    'chat_mention',
+    'chat_dm',
+    'chat_thread_reply',
+    'chat_broadcast',
+    'call_missed',
+    'callback_requested',
+    'deal_room_join_request',
+    'deal_room_update',
+    'call_outcome_due',
+    'pbx_connection_silent',
+    'pbx_connection_restored',
+    'meeting_invite',
+    'calendar_invite',
+    'calendar_update',
+    'calendar_cancelled',
+    'calendar_response',
+    'event_reminder',
+    'meeting_reminder',
+    'group_join_request',
+    'conversation_shared',
+    'insight_attention',
+    'submission_group_message',
+    'meta_number_alert'
+  )) NOT VALID;
+ALTER TABLE public.notifications VALIDATE CONSTRAINT notifications_type_check;
+
+-- Restates 173's push_bell_url with meta_number_alert added beside the
+-- channel alerts (the WhatsApp settings tab, for owners and admins);
+-- change it together with hrefFor in src/lib/notifications/target.ts.
+CREATE OR REPLACE FUNCTION public.push_bell_url(n public.notifications)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_role    text;
+  v_chat    text := CASE WHEN n.conversation_id IS NOT NULL THEN '/inbox?c=' || n.conversation_id END;
+  v_contact text;
+BEGIN
+  SELECT p.account_role::text INTO v_role FROM public.profiles p
+   WHERE p.user_id = n.user_id AND p.account_id = n.account_id AND p.deactivated_at IS NULL;
+  CASE
+    WHEN n.type IN ('conversation_assigned', 'ai_handoff', 'conversation_shared',
+                    'insight_attention') THEN
+      RETURN coalesce(v_chat, '/notifications');
+    WHEN n.type IN ('task_assigned', 'task_due') THEN
+      RETURN coalesce('/contacts/' || n.contact_id, v_chat, '/calls');
+    WHEN n.type IN ('call_missed', 'callback_requested', 'call_outcome_due') THEN
+      v_contact := coalesce(n.contact_id::text, n.meta ->> 'contact_id');
+      RETURN CASE WHEN public.push_is_uuid(v_contact) THEN '/contacts/' || v_contact ELSE '/calls' END;
+    WHEN n.type IN ('deal_room_join_request', 'deal_room_update') THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'room_id')
+                  THEN '/chat/rooms/' || (n.meta ->> 'room_id') ELSE '/notifications' END;
+    WHEN n.type IN ('channel_disconnected', 'channel_reconnected', 'meta_number_alert') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=whatsapp' ELSE '/notifications' END;
+    WHEN n.type IN ('pbx_connection_silent', 'pbx_connection_restored') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=phone-system' ELSE '/notifications' END;
+    WHEN n.type = 'team_activity_alert' THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin', 'team_leader') THEN '/team-activity' ELSE '/notifications' END;
+    WHEN n.type = 'meeting_invite' THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'meeting_id')
+                  THEN '/meetings/' || (n.meta ->> 'meeting_id') ELSE '/notifications' END;
+    WHEN n.type = 'submission_group_message' THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'group_id')
+                  THEN '/submission-groups/' || (n.meta ->> 'group_id') ELSE '/notifications' END;
+    ELSE
+      RETURN '/notifications';
+  END CASE;
+END $$;
+
+REVOKE ALL ON FUNCTION public.push_bell_url(public.notifications) FROM PUBLIC, anon, authenticated;

@@ -1,5 +1,5 @@
 /**
- * Which screen a bell row opens. One case per type in 173's
+ * Which screen a bell row opens. One case per type in 188's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
@@ -23,7 +23,8 @@
  * - `deal_room_join_request` / `deal_room_update`
  *   (`lib/deal-rooms/webhook.ts`, `shared.ts`): `meta.room_id` → the room.
  * - `channel_disconnected` / `channel_reconnected`
- *   (`lib/whatsapp/channel-health.ts`): the WhatsApp settings tab, for
+ *   (`lib/whatsapp/channel-health.ts`) and `meta_number_alert` (188,
+ *   `lib/whatsapp/meta-health/alert.ts`): the WhatsApp settings tab, for
  *   those who can edit settings.
  * - `pbx_connection_silent` / `pbx_connection_restored` (104's
  *   `pbx_connection_silence`): the Phone system settings tab, the same
@@ -104,6 +105,7 @@ function hrefFor(
     }
     case 'channel_disconnected':
     case 'channel_reconnected':
+    case 'meta_number_alert':
       return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
     case 'pbx_connection_silent':
     case 'pbx_connection_restored':

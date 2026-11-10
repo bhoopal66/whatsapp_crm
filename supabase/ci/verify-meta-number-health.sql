@@ -408,6 +408,34 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM meta_health_events WHERE account_id = c_acct),
     format('deleting an account did not remove its events (%s)', r));
 
+  -- ---------- the bell: meta_number_alert (section 10) ----------
+  BEGIN
+    INSERT INTO notifications (account_id, user_id, type, title, body, meta) VALUES
+      (a_acct, u_owner, 'meta_number_alert', 'MNH bell', 'Meta number health: THROTTLED',
+       jsonb_build_object('config_id', wm)),
+      (a_acct, u_agent, 'meta_number_alert', 'MNH bell', NULL, '{}'::jsonb);
+    r := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    r := 'ERROR ' || SQLSTATE || ': ' || SQLERRM;
+  END;
+  n := n + 1; failed := failed || pg_temp.mnh_ok(r = 'ok',
+    format('notifications_type_check refused meta_number_alert (%s)', r));
+  n := n + 1; failed := failed || pg_temp.mnh_ok(
+    (SELECT push_bell_url(nn) FROM notifications nn
+      WHERE nn.user_id = u_owner AND nn.type = 'meta_number_alert') IS NOT DISTINCT FROM '/settings?tab=whatsapp',
+    'push_bell_url does not open WhatsApp settings for an owner''s meta_number_alert');
+  n := n + 1; failed := failed || pg_temp.mnh_ok(
+    (SELECT push_bell_url(nn) FROM notifications nn
+      WHERE nn.user_id = u_agent AND nn.type = 'meta_number_alert') IS NOT DISTINCT FROM '/notifications',
+    'push_bell_url opens settings for an agent''s meta_number_alert');
+  BEGIN
+    INSERT INTO notifications (account_id, user_id, type, title) VALUES (a_acct, u_owner, 'meta_number_bogus', 'MNH bell');
+    r := 'ok';
+  EXCEPTION WHEN check_violation THEN
+    r := 'refused';
+  END;
+  n := n + 1; failed := failed || pg_temp.mnh_ok(r = 'refused', 'notifications_type_check accepts an unlisted type');
+
   RAISE EXCEPTION USING ERRCODE = 'ZT188', MESSAGE = 'verify-meta-number-health rollback';
   EXCEPTION WHEN SQLSTATE 'ZT188' THEN
     NULL;

@@ -6995,6 +6995,7 @@
       "deal_room_update": "Deal room updates",
       "channel_disconnected": "A WhatsApp number disconnects",
       "channel_reconnected": "A WhatsApp number reconnects",
+      "meta_number_alert": "The Meta number's health gets worse",
       "pbx_connection_silent": "The phone system goes quiet",
       "pbx_connection_restored": "The phone system is back",
       "team_activity_alert": "Team activity alerts",
