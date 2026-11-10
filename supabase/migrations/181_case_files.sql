@@ -505,6 +505,12 @@ BEGIN
     PERFORM public.case_tools_lock_for_write(p_case, p_actor);
   END IF;
   SELECT * INTO c FROM public.cases x WHERE x.id = p_case;
+  -- The intake never acts on a case Compass manages (134's rule, as
+  -- isManagedExternally); staff are not refused here.
+  IF p_actor IS NULL AND c.group_id IS NOT NULL AND public.case_managed_externally(c.account_id) THEN
+    RAISE EXCEPTION 'MANAGED_EXTERNALLY: case % is managed in the submission app', p_case
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'MANAGED_EXTERNALLY';
+  END IF;
   IF c.closed_at IS NOT NULL THEN
     RAISE EXCEPTION 'case % is closed', p_case USING ERRCODE = 'check_violation', HINT = 'CASE_CLOSED';
   END IF;
@@ -602,6 +608,10 @@ BEGIN
   END IF;
   SELECT * INTO f FROM public.case_document_files x WHERE x.id = p_file FOR UPDATE;
   SELECT * INTO c FROM public.cases x WHERE x.id = v_case;
+  IF p_actor IS NULL AND c.group_id IS NOT NULL AND public.case_managed_externally(c.account_id) THEN
+    RAISE EXCEPTION 'MANAGED_EXTERNALLY: case % is managed in the submission app', c.id
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'MANAGED_EXTERNALLY';
+  END IF;
   IF p_actor IS NULL
      AND (f.status <> 'unclassified' OR f.registered_by IS NOT NULL
           OR NOT (SELECT st.files_intake_prompts FROM public.case_files_settings(c.account_id) st)) THEN

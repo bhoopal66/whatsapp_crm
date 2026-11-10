@@ -8,7 +8,9 @@
 -- audit); record (FILE_NOT_FOUND, FILE_STATE, PROMPT_INVALID,
 -- CASE_CLOSED, one open prompt per case, a new record supersedes);
 -- answer (once, PROMPT_STALE, PROMPT_OPTION, PROMPT_NOT_FOUND, a file
--- staff classified makes the prompt stale); the prompts guard; privileges.
+-- staff classified makes the prompt stale); MANAGED_EXTERNALLY (the
+-- intake neither registers, classifies, records nor answers on a case
+-- Compass manages); the prompts guard; privileges.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The fixtures are
@@ -278,6 +280,28 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.ci_check('a second open prompt for one case was inserted', NULL, NULL,
     format('INSERT INTO case_intake_prompts (account_id, case_id, file_id, options, sent_at) VALUES (%L, %L, %L, %L, now())',
            a_acct, k1, f3, opts), 'ERROR 23505 %');
+
+  -- ---------- 3b. never on a case Compass manages (181, 134) ----------
+  -- k1 has a group, so the account switch makes it managed; the intake is on
+  -- and the wording approved, so only the managed rule refuses here.
+  PERFORM case_settings_set(u_owner, a_acct, true);
+  n := n + 1; failed := failed || pg_temp.ci_check('managed externally, the intake could register', NULL, NULL,
+    format('SELECT case_document_file_can_register(NULL, %L)::text', k1), 'ERROR 55000 MANAGED_EXTERNALLY%');
+  n := n + 1; failed := failed || pg_temp.ci_check('managed externally, staff could not register', NULL, NULL,
+    format('SELECT case_document_file_can_register(%L, %L)::text', u_agent, k1), 'true');
+  n := n + 1; failed := failed || pg_temp.ci_check('managed externally, a prompt was answered', NULL, NULL,
+    format('SELECT case_intake_prompt_answer(%L, 3)', p2), 'ERROR 55000 MANAGED_EXTERNALLY%');
+  n := n + 1; failed := failed || pg_temp.ci_check('managed externally, a prompt was recorded', NULL, NULL,
+    format('SELECT case_intake_prompt_record(%L, %L, %L)::text', k1, f4, opts), 'ERROR 55000 MANAGED_EXTERNALLY%');
+  -- last: a classify that slipped through would make p2 stale for the checks above
+  n := n + 1; failed := failed || pg_temp.ci_check('managed externally, the intake could classify', NULL, NULL,
+    format('SELECT version::text FROM case_document_file_classify(NULL, %L, %L)', f2, 'emirates_id'),
+    'ERROR 55000 MANAGED_EXTERNALLY%');
+  PERFORM case_settings_set(u_owner, a_acct, false);
+  n := n + 1; failed := failed || pg_temp.ci_ok(
+    (SELECT prompt_id FROM case_intake_open_prompt(k1)) = p2
+    AND (SELECT status = 'unclassified' FROM case_document_files WHERE id = f2),
+    'a refusal while managed externally changed the open prompt or its file');
 
   -- ---------- 4. answer ----------
   n := n + 1; failed := failed || pg_temp.ci_check('a superseded prompt was answered', NULL, NULL,
