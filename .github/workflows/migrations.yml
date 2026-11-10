@@ -852,3 +852,13 @@ jobs:
 
       - name: Verify case rules
         run: supabase db query --local --file supabase/ci/verify-case-rules.sql
+
+      # Migration 184: case files for Compass. The API download (audit row
+      # with api_key_id; FILE_NOT_FOUND for another account's, a revoked or
+      # an expired key, an unknown or foreign ref; BUILD_STALE); exactly one
+      # of actor and api_key_id; a key that has downloaded cannot be deleted
+      # (RESTRICT); the status JSON; the case.file_ready latch (no event
+      # without a subscriber, one per becoming ready, none on a re-upload,
+      # none for a lead); privileges.
+      - name: Verify case files for Compass
+        run: supabase db query --local --file supabase/ci/verify-case-files-compass.sql
