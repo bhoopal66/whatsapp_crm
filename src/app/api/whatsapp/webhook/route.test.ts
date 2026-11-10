@@ -260,8 +260,12 @@ vi.mock('@supabase/supabase-js', () => ({
             h.state.storageUploads.push({ bucket, path, options })
             return Promise.resolve({ error: h.state.storageUploadError })
           },
+          // Storage's real public-URL shape: the customer-documents
+          // filing (migration 178) recognises our own copy by this path.
           getPublicUrl: (path: string) => ({
-            data: { publicUrl: `https://cdn.test/${bucket}/${path}` },
+            data: {
+              publicUrl: `https://cdn.test/storage/v1/object/public/${bucket}/${path}`,
+            },
           }),
         }
       },
@@ -838,7 +842,7 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
     )
     expect(h.state.upsertCalls[0].row).toMatchObject({
       media_url:
-        'https://cdn.test/chat-media/account-acc-1/inbound/1234567890123456-image-1700000000.jpg',
+        'https://cdn.test/storage/v1/object/public/chat-media/account-acc-1/inbound/1234567890123456-image-1700000000.jpg',
       media_type: 'image/jpeg',
     })
   })
@@ -946,8 +950,16 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
 
   it('does not mirror when the account has opted out', async () => {
     h.state.mirrorInboundMedia = false
+    // A video: photos and documents get a customer-documents copy even
+    // when opted out (next test), which is not the message's mirror.
+    const { image, ...rest } = IMAGE_MESSAGE
+    const VIDEO_MESSAGE = {
+      ...rest,
+      type: 'video',
+      video: { ...image, mime_type: 'video/mp4' },
+    }
 
-    await runWebhook(IMAGE_MESSAGE)
+    await runWebhook(VIDEO_MESSAGE)
 
     expect(mockDownloadMedia).not.toHaveBeenCalled()
     expect(h.state.storageUploads).toHaveLength(0)
@@ -955,8 +967,24 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
       media_url: WHAPI_IMAGE_LINK,
       // Still recorded — the MIME type costs nothing and makes the
       // download name right even for un-mirrored media.
+      media_type: 'video/mp4',
+    })
+  })
+
+  it('opted out, a photo keeps the gateway link on the row but is copied for the documents folder', async () => {
+    h.state.mirrorInboundMedia = false
+
+    await runWebhook(IMAGE_MESSAGE)
+
+    expect(h.state.upsertCalls[0].row).toMatchObject({
+      media_url: WHAPI_IMAGE_LINK,
       media_type: 'image/jpeg',
     })
+    // The one upload is the filing copy, made after the row was written.
+    expect(h.state.storageUploads).toHaveLength(1)
+    expect(h.state.storageUploads[0].path).toBe(
+      'account-acc-1/inbound/1234567890123456-image-1700000000.jpg',
+    )
   })
 
   it('mirrors when the column is absent, e.g. a row read before migration 039', async () => {

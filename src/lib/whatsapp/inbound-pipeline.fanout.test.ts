@@ -166,7 +166,10 @@ vi.mock('@/lib/pbx/assign-from-calls', () => ({
     return h.assignFromCalls(...args);
   },
 }));
-vi.mock('@/lib/whatsapp/provider', () => ({ getMediaUrl: vi.fn() }));
+vi.mock('@/lib/whatsapp/provider', () => ({
+  getMediaUrl: vi.fn(),
+  downloadMedia: vi.fn(),
+}));
 vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
   mirrorInboundMedia: vi.fn(),
 }));
@@ -174,6 +177,7 @@ vi.mock('@/lib/whatsapp/broadcast-core', () => ({
   settleBroadcastAfterLateFailure: vi.fn(),
 }));
 
+import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';
 import { processMessage } from './inbound-pipeline';
 
 const channel: WhatsAppChannel = {
@@ -644,8 +648,10 @@ describe('processMessage — campaign reply sorting', () => {
 // Customer documents (migration 178): a document or photo the customer
 // sends is filed through customer_documents_record, once per stored
 // message, after the idempotency boundary and before the fan-out cut.
+// These files are already in our own bucket, so they are recorded inline.
 describe('processMessage — customer documents', () => {
-  const FILE_URL = 'https://lookaside.example.com/media/abc';
+  const FILE_URL =
+    'https://crm.example.com/storage/v1/object/public/chat-media/account-acct-1/inbound/abc.pdf';
 
   function media(
     type: NormalizedInboundMessage['type'],
@@ -813,6 +819,122 @@ describe('processMessage — customer documents', () => {
         expect.anything()
       );
       expect(h.watch).toHaveBeenCalledTimes(1);
+    }
+  );
+});
+
+// A file that is NOT in our own bucket (the number opted out of
+// mirroring, the mirror failed, or it was too big) is stored on the row
+// as the gateway's link, which the credential-free NAS worker can never
+// download. It is filed by a deferred copy instead, never inline.
+describe('processMessage — customer documents without our own copy', () => {
+  const LOOKASIDE =
+    'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1';
+  const STORED =
+    'https://crm.example.com/storage/v1/object/public/chat-media/account-acct-1/inbound/media-1.pdf';
+  const mirror = vi.mocked(mirrorInboundMedia);
+
+  // A Meta number with mirroring off (039): the row keeps the lookaside URL.
+  const pdf: NormalizedInboundMessage = {
+    ...message,
+    id: 'wamid.pdf',
+    type: 'document',
+    text: null,
+    media: {
+      id: 'media-1',
+      mimeType: 'application/pdf',
+      link: LOOKASIDE,
+      filename: 'salary.pdf',
+      fileSize: 1,
+    },
+  };
+
+  const docUrls = () =>
+    h.rpcs.flatMap((fn, i) =>
+      fn === 'customer_documents_record'
+        ? [(h.rpcArgs[i] as { p_media_url: string }).p_media_url]
+        : []
+    );
+
+  beforeEach(() => {
+    mirror.mockReset().mockResolvedValue(STORED);
+  });
+
+  it('never records the lookaside URL inline', async () => {
+    await processMessage(pdf, 'acct-1', 'owner-1', channel);
+
+    expect(docUrls()).not.toContain(LOOKASIDE);
+    // The message row is not changed: it keeps the link it had.
+    const upsert = h.calls.find(
+      (c) => c.table === 'messages' && c.op === 'upsert'
+    );
+    expect(upsert?.payload).toMatchObject({ media_url: LOOKASIDE });
+  });
+
+  it('the deferred copy records the mirrored URL, after the fan-out', async () => {
+    await processMessage(pdf, 'acct-1', 'owner-1', channel);
+
+    expect(mirror).toHaveBeenCalledTimes(1);
+    expect(mirror).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acct-1',
+        mediaId: 'media-1',
+        downloadUrl: LOOKASIDE,
+        accessToken: 'token',
+        fileName: 'salary.pdf',
+      })
+    );
+    expect(docUrls()).toEqual([STORED]);
+    expect(h.rpcs.at(-1)).toBe('customer_documents_record');
+    expect(h.flows).toHaveBeenCalledTimes(1);
+    expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it('records nothing and logs one line when the copy fails', async () => {
+    mirror.mockResolvedValue(null);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await processMessage(pdf, 'acct-1', 'owner-1', channel);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    log.mockRestore();
+
+    expect(docUrls()).toEqual([]);
+    expect(lines).toEqual([
+      '[customer-docs] no durable copy for message row-1',
+    ]);
+  });
+
+  it('runs on fanOut: false too', async () => {
+    await processMessage(pdf, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+
+    expect(docUrls()).toEqual([STORED]);
+    expect(h.flows).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['fans out', {}],
+    ['stops at the fan-out cut', { fanOut: false }],
+  ] as const)(
+    'with a later list it is pushed, not awaited inline, when it %s',
+    async (_label, options) => {
+      let finishCopy: (url: string) => void = () => {};
+      mirror.mockImplementation(
+        () => new Promise<string | null>((r) => (finishCopy = r))
+      );
+      const later: Promise<unknown>[] = [];
+
+      await processMessage(pdf, 'acct-1', 'owner-1', channel, later, options);
+
+      // processMessage returned while the copy is still running.
+      expect(mirror).toHaveBeenCalledTimes(1);
+      expect(docUrls()).toEqual([]);
+      expect(later.length).toBeGreaterThan(0);
+
+      finishCopy(STORED);
+      await Promise.all(later);
+      expect(docUrls()).toEqual([STORED]);
     }
   );
 });

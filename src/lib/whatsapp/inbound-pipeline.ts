@@ -60,6 +60,10 @@ import {
   customerDocumentKind,
   recordCustomerDocument,
 } from '@/lib/customer-docs/record';
+import {
+  fileWithDurableCopy,
+  isOwnStorageUrl,
+} from '@/lib/customer-docs/filing-copy';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -904,22 +908,68 @@ export async function processMessage(
   // rate limit (fanOut: false) still sent us the file. Kind comes from
   // the normalised type, so a sticker (stored as 'image') is skipped.
   // Never throws.
-  await recordCustomerDocument(supabaseAdmin(), {
+  //
+  // The worker downloads the recorded URL with no credentials, so only a
+  // copy in our own bucket is recorded here. When the number opted out
+  // of mirroring (039), the mirror failed or the file is over its size
+  // cap, `mediaUrl` is the gateway's link: a Meta lookaside URL needs a
+  // bearer token and expires in minutes, a Whapi `/media/` link needs the
+  // channel token, so recording it files a document the NAS can never
+  // fetch. That case is filed by `fileWithDurableCopy`, which makes its
+  // own copy first (the message row keeps the link it has). It can take
+  // up to 20 s, so it runs on each exit below, after the inbox and the
+  // fan-out, and goes to `later` when the route collects it: awaited
+  // inside the same after(), never a floating promise (issue #301).
+  const documentKind = customerDocumentKind(message.type);
+  const documentRecord = {
     accountId,
     contactId: contactRecord.id,
     conversationId: conversation.id,
     messageRowId: insertedRows[0].id,
-    source: 'chat',
-    kind: customerDocumentKind(message.type),
-    mediaUrl,
+    source: 'chat' as const,
+    kind: documentKind,
     mime: mediaType,
     originalName: message.media?.filename ?? null,
     caption: message.text,
     receivedAt: messageAt,
-  });
+  };
+  let fileDocument: (() => Promise<void>) | null = null;
+  if (mediaUrl && isOwnStorageUrl(mediaUrl)) {
+    await recordCustomerDocument(supabaseAdmin(), {
+      ...documentRecord,
+      mediaUrl,
+    });
+  } else if (documentKind && mediaUrl && message.media) {
+    const media = message.media;
+    fileDocument = () =>
+      fileWithDurableCopy({
+        admin: supabaseAdmin(),
+        channel: () => channel,
+        media: {
+          // The link parseMessageContent already resolved (Meta's comes
+          // from getMediaUrl), still fresh this early in the after().
+          link: mediaUrl,
+          id: media.id,
+          objectId: media.id ?? message.id,
+          mimeType: media.mimeType,
+          fileSize: media.fileSize,
+          fileName: media.filename,
+          messageTimestamp: message.timestamp,
+        },
+        record: documentRecord,
+      });
+  }
+  const fileDocumentLater = async () => {
+    if (!fileDocument) return;
+    if (later) later.push(fileDocument());
+    else await fileDocument();
+  };
 
   // Everything above is the inbox; everything below reacts to it.
-  if (options.fanOut === false) return;
+  if (options.fanOut === false) {
+    await fileDocumentLater();
+    return;
+  }
 
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
@@ -1209,6 +1259,9 @@ export async function processMessage(
     .then((outcome) => autoTagFromInsights(insightsArgs, outcome));
   if (later) later.push(insights);
   else await insights;
+
+  // The customer document's own copy, if it needs one (see above).
+  await fileDocumentLater();
 }
 /**
  * Turn a normalised inbound message into the columns the `messages`
