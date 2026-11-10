@@ -846,3 +846,6 @@ jobs:
       # append-only); privileges and the builds RLS.
       - name: Verify case file builds
         run: supabase db query --local --file supabase/ci/verify-case-file-builds.sql
+
+      - name: Verify case macros
+        run: supabase db query --local --file supabase/ci/verify-case-macros.sql
