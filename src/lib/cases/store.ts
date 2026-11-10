@@ -637,7 +637,9 @@ export class CaseStore {
         field: h.field as 'agent' | 'coordinator',
         fromUser: str(h.from_user),
         toUser: String(h.to_user),
-        actorId: String(h.actor_id),
+        // NULL for an automation rule's reassignment (migration 187): it
+        // must stay null, never become the string "null".
+        actorId: str(h.actor_id),
         actorRole: String(h.actor_role),
         changedAt: date(h.changed_at)!,
       })),

@@ -97,7 +97,8 @@ export interface Reassignment {
   field: 'agent' | 'coordinator';
   fromUser: string | null;
   toUser: string;
-  actorId: string;
+  /** NULL for an automation rule's reassignment (migration 187). */
+  actorId: string | null;
   actorRole: string;
   changedAt: Date;
 }

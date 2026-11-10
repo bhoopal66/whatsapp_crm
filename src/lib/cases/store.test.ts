@@ -656,6 +656,42 @@ describe('openLead / listForContact (130)', () => {
   });
 });
 
+describe('history', () => {
+  it('keeps a rule reassignment actor null, never the string "null"', async () => {
+    const db = new FakeDb(
+      {},
+      {
+        case_stage_history: [],
+        case_detail_log: [],
+        case_reassign_history: [
+          {
+            id: 'r1',
+            case_id: CASE,
+            field: 'agent',
+            from_user: null,
+            to_user: ACTOR,
+            actor_id: null,
+            actor_role: 'system:rules',
+            changed_at: '2026-11-10T09:00:00+00:00',
+          },
+          {
+            id: 'r2',
+            case_id: CASE,
+            field: 'coordinator',
+            from_user: null,
+            to_user: ACTOR,
+            actor_id: ACTOR,
+            actor_role: 'admin',
+            changed_at: '2026-11-10T09:05:00+00:00',
+          },
+        ],
+      }
+    );
+    const h = await new CaseStore(db.client).history(CASE);
+    expect(h.reassignments.map((r) => r.actorId)).toEqual([null, ACTOR]);
+  });
+});
+
 describe('get', () => {
   it('a lead loads with isLead and never queries submission_groups', async () => {
     const db = new FakeDb(
