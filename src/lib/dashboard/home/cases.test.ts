@@ -32,6 +32,8 @@ function row(over: Partial<InboxRow> = {}): InboxRow {
     amount: null,
     openedAt: null,
     closedAt: null,
+    snoozedUntil: null,
+    snoozeExpired: false,
     ...over,
   };
 }

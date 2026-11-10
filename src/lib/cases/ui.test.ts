@@ -73,6 +73,8 @@ const ALL: InboxFilters = {
   bankQueryOpen: true,
   includeClosed: true,
   noActivityDays: 5,
+  snoozed: 'only',
+  mentionedMe: true,
   sort: 'stalest',
 };
 
@@ -88,11 +90,12 @@ describe('filters <-> URL', () => {
     expect(qs).toBe(
       'bank=ADCB&stage=Under+review&agent=u1&priority=urgent&sla_state=overdue' +
         '&customer_waiting=true&documents_missing=true&bank_query_open=true' +
-        '&include_closed=true&no_activity_days=5&sort=stalest'
+        '&include_closed=true&no_activity_days=5&snoozed=only&mentionedMe=true' +
+        '&sort=stalest'
     );
     expect(filtersFromSearch(search(qs))).toEqual(ALL);
     // The sort orders, it does not narrow.
-    expect(activeFilterCount(ALL)).toBe(10);
+    expect(activeFilterCount(ALL)).toBe(12);
   });
 
   it('drops unknown values instead of sending them', () => {
@@ -100,10 +103,27 @@ describe('filters <-> URL', () => {
       filtersFromSearch(
         search(
           'priority=asap&sla_state=late&sort=random&customer_waiting=yes' +
-            '&no_activity_days=0&bank=%20%20'
+            '&no_activity_days=0&bank=%20%20&snoozed=maybe&mentionedMe=1'
         )
       )
     ).toEqual(EMPTY_FILTERS);
+  });
+
+  it('leaves the new defaults out and writes each non-default by name', () => {
+    expect(filtersToSearch({ ...EMPTY_FILTERS, snoozed: 'hide' })).toBe('');
+    expect(filtersToSearch({ ...EMPTY_FILTERS, mentionedMe: false })).toBe('');
+    expect(filtersToSearch({ ...EMPTY_FILTERS, snoozed: 'all' })).toBe(
+      'snoozed=all'
+    );
+    expect(filtersToSearch({ ...EMPTY_FILTERS, mentionedMe: true })).toBe(
+      'mentionedMe=true'
+    );
+    expect(activeFilterCount({ ...EMPTY_FILTERS, snoozed: 'only' })).toBe(1);
+    expect(activeFilterCount({ ...EMPTY_FILTERS, mentionedMe: true })).toBe(1);
+    expect(filtersFromSearch(search('snoozed=all')).snoozed).toBe('all');
+    expect(filtersFromSearch(search('mentionedMe=true')).mentionedMe).toBe(
+      true
+    );
   });
 
   it('accepts 1..3650 whole days only', () => {
@@ -123,6 +143,9 @@ describe('inboxUrl', () => {
     expect(
       inboxUrl({ ...EMPTY_FILTERS, customerWaiting: true }, 'cur 1', 20)
     ).toBe('/api/cases?customer_waiting=true&limit=20&after=cur+1');
+    expect(
+      inboxUrl({ ...EMPTY_FILTERS, snoozed: 'only', mentionedMe: true }, null)
+    ).toBe('/api/cases?snoozed=only&mentionedMe=true&limit=50');
   });
 });
 
@@ -187,6 +210,8 @@ describe('parseInboxPage', () => {
         amount: 1250000.5,
         openedAt: '2026-10-01T00:00:00.000Z',
         closedAt: null,
+        snoozedUntil: null,
+        snoozeExpired: false,
       },
     ]);
   });
@@ -219,6 +244,23 @@ describe('parseInboxPage', () => {
       documentsMissing: 0,
       customerWaiting: false,
     });
+  });
+
+  it('reads the snooze fields, tolerating their absence', () => {
+    const [a, b] = parseInboxPage({
+      rows: [
+        {
+          caseId: 'c1',
+          snoozedUntil: '2026-10-20T05:00:00.000Z',
+          snoozeExpired: true,
+        },
+        { caseId: 'c2', snoozeExpired: 'yes' },
+      ],
+    }).rows;
+    expect(a.snoozedUntil).toBe('2026-10-20T05:00:00.000Z');
+    expect(a.snoozeExpired).toBe(true);
+    expect(b.snoozedUntil).toBeNull();
+    expect(b.snoozeExpired).toBe(false);
   });
 
   it('reads isLead only when it is literally true', () => {

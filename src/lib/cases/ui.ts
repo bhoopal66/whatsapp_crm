@@ -193,8 +193,15 @@ export interface InboxFilters {
   bankQueryOpen: boolean;
   includeClosed: boolean;
   noActivityDays: number | null;
+  /** Snoozed cases: hidden (default), only those, or mixed in. */
+  snoozed: InboxSnoozed;
+  /** Cases with a note that mentions me. */
+  mentionedMe: boolean;
   sort: InboxSort;
 }
+
+export const SNOOZED_MODES = ['hide', 'only', 'all'] as const;
+export type InboxSnoozed = (typeof SNOOZED_MODES)[number];
 
 export const EMPTY_FILTERS: InboxFilters = {
   bank: null,
@@ -207,6 +214,8 @@ export const EMPTY_FILTERS: InboxFilters = {
   bankQueryOpen: false,
   includeClosed: false,
   noActivityDays: null,
+  snoozed: 'hide',
+  mentionedMe: false,
   sort: 'most_overdue',
 };
 
@@ -248,6 +257,8 @@ export function filtersFromSearch(
     bankQueryOpen: get('bank_query_open') === 'true',
     includeClosed: get('include_closed') === 'true',
     noActivityDays: parseDays(get('no_activity_days')),
+    snoozed: oneOf(SNOOZED_MODES, get('snoozed')) ?? 'hide',
+    mentionedMe: get('mentionedMe') === 'true',
     sort: oneOf(INBOX_SORTS, get('sort')) ?? 'most_overdue',
   };
 }
@@ -270,6 +281,8 @@ export function filterParams(f: InboxFilters): URLSearchParams {
   if (f.includeClosed) qs.set('include_closed', 'true');
   if (f.noActivityDays !== null)
     qs.set('no_activity_days', String(f.noActivityDays));
+  if (f.snoozed !== 'hide') qs.set('snoozed', f.snoozed);
+  if (f.mentionedMe) qs.set('mentionedMe', 'true');
   if (f.sort !== 'most_overdue') qs.set('sort', f.sort);
   return qs;
 }
@@ -329,6 +342,10 @@ export interface InboxRow {
   amount: number | null;
   openedAt: string | null;
   closedAt: string | null;
+  /** End of the snooze (ISO); may be in the past (see `snoozeExpired`). */
+  snoozedUntil: string | null;
+  /** The snooze ran out and nobody has looked at the case since. */
+  snoozeExpired: boolean;
 }
 
 export interface InboxPage {
@@ -385,6 +402,8 @@ function parseRow(r: unknown): InboxRow | null {
     amount: money(r.amount),
     openedAt: optStr(r.openedAt),
     closedAt: optStr(r.closedAt),
+    snoozedUntil: optStr(r.snoozedUntil),
+    snoozeExpired: r.snoozeExpired === true,
   };
 }
 
