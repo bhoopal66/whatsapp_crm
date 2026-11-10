@@ -157,6 +157,16 @@ describe('uploadStaffFile', () => {
       'MIME_NOT_ALLOWED',
     ],
     [
+      'content that is not the declared type',
+      {
+        bytes: new TextEncoder().encode('<html><script>x</script></html>'),
+        mime: 'application/pdf',
+        originalName: 'a.pdf',
+      },
+      {},
+      'MIME_NOT_ALLOWED',
+    ],
+    [
       'oversize',
       {
         bytes: new Uint8Array(10 * 1024 * 1024 + 1),

@@ -25,6 +25,7 @@ import {
   CASE_FILE_MIME,
   DEFAULT_MAX_MB,
   isRealDate,
+  magicMatches,
   normalizeMime,
   runChecks,
   sanitizeOriginalName,
@@ -237,6 +238,11 @@ export async function uploadStaffFile(input: {
     throw new CaseFilesRefusedError('MIME_NOT_ALLOWED');
   if (input.file.bytes.byteLength > MAX_UPLOAD_BYTES)
     throw new CaseFilesRefusedError('FILE_TOO_LARGE');
+  // The browser's declared type is only a claim: the bytes must agree
+  // before anything is stored or reaches the customer's NAS folder, even
+  // when no required document is picked (and so no checks run yet).
+  if (!magicMatches(input.file.bytes, mime))
+    throw new CaseFilesRefusedError('MIME_NOT_ALLOWED');
 
   const store = new CaseFilesStore(admin);
   // The case's own refusals (role, closed, no contact) before any bytes land.

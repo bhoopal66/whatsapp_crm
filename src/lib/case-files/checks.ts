@@ -59,7 +59,8 @@ function isCaseFileMime(m: string): m is CaseFileMime {
   return (CASE_FILE_MIME as readonly string[]).includes(m);
 }
 
-function magicMatches(bytes: Uint8Array, mime: string): boolean {
+/** True when the bytes start with the signature of the declared type. */
+export function magicMatches(bytes: Uint8Array, mime: string): boolean {
   if (!isCaseFileMime(mime)) return false;
   const m = MAGIC[mime];
   return bytes.length >= m.length && m.every((b, i) => bytes[i] === b);
