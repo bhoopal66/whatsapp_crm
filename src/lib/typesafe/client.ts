@@ -70,8 +70,9 @@ export type CallResult<Q extends Questions> =
 /**
  * What the gateway calls on behalf of: one of the safety checks, or a
  * selection caller — the model-tier router (`route`, lib/ai/router.ts),
- * the approved-answers selection (`kb_select`, checks/kb-select.ts), and
- * the Smart insights judgments (docs/jev-insights.md). Selection callers
+ * the approved-answers selection (`kb_select`, checks/kb-select.ts), the
+ * Smart insights judgments (docs/jev-insights.md) and the assistant tool
+ * advisor (`tool_advice`, lib/assist/advisor.ts). Selection callers
  * are not safety checks — no account switch, policy or decision-log row —
  * so they are not `CheckName`s; each gets its own outage breaker and
  * content-failure keys here, so its traffic can never open a check's
@@ -86,6 +87,8 @@ export const SELECTION_CALLERS = [
   'intent_match',
   'status_map',
   'kb_gap',
+  // 019d tool advisor (lib/assist/advisor.ts). Idle: nothing calls it yet.
+  'tool_advice',
 ] as const;
 export type SelectionCaller = (typeof SELECTION_CALLERS)[number];
 export type GatewayCheck = CheckName | SelectionCaller;
