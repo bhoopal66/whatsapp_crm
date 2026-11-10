@@ -1411,6 +1411,13 @@ is the contract.
   model. `promptcache.ts` lays out STATIC, WORKSPACE, VOLATILE tiers and
   fails closed (`PromptCacheError`). The provider mapping of
   `cacheControl` is UNVERIFIED. `agent_run` audit rows hold counts only.
+- **Tool advisor (019d, `advisor.ts`).** Idle: nothing calls
+  `adviseTools`. It ranks registered tools for a piece of text through
+  the `tool_advice` selection caller: suggestions only, never
+  `execute()`. Text is vault-tokenised (when given) then
+  `redactClipped`; each tool goes as an ordinal noul (`t1 … tN`)
+  carrying its description, never its name. Model mismatch or any
+  failure is `unavailable`; no key or a disallowed account is `off`.
 
 ### Video meetings (`lib/meetings/*`, migrations 106, 176)
 
