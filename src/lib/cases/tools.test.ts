@@ -354,6 +354,33 @@ describe('notes, bank contacts and SLA', () => {
     });
   });
 
+  it('notes.list maps a staff note and a system note; NULL never becomes "null"', async () => {
+    const row = (id: string, author: string | null, sys: string | null) => ({
+      id,
+      case_id: CASE,
+      author_id: author,
+      system_author: sys,
+      body: id,
+      created_at: T0.toISOString(),
+    });
+    const db = new FakeDb(
+      {},
+      {
+        case_notes: [
+          row('n1', ACTOR, null),
+          row('n2', null, 'system:files'),
+          row('n3', null, 'system:other'),
+        ],
+      }
+    );
+    const notes = await new CaseNotesStore(db.client, clock).list(CASE);
+    expect(notes.map((n) => [n.authorId, n.systemAuthor])).toEqual([
+      [ACTOR, null],
+      [null, 'system:files'],
+      [null, null],
+    ]);
+  });
+
   it.each(['NOTE_EMPTY', 'NOTE_TOO_LONG'])(
     'notes: %s is refused',
     async (hint) => {

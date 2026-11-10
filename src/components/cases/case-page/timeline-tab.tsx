@@ -107,8 +107,12 @@ export function TimelineTab({ caseId }: CaseTabProps) {
     new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(
       new Date(iso)
     );
-  const who = (id: string | null) =>
-    id ? (nameOf(id) ?? t('unknownPerson')) : t('system');
+  const who = (e: TimelineEntry) =>
+    e.actor
+      ? (nameOf(e.actor) ?? t('unknownPerson'))
+      : e.kind === 'note'
+        ? t('automatic')
+        : t('system');
   const kindLabel = (kind: string) =>
     t.has(`timeline.kinds.${kind}`) ? t(`timeline.kinds.${kind}`) : kind;
 
@@ -187,7 +191,7 @@ export function TimelineTab({ caseId }: CaseTabProps) {
                     <span className="flex flex-wrap items-baseline gap-x-2">
                       <span className="font-medium">{kindLabel(e.kind)}</span>
                       <span className="text-muted-foreground text-xs">
-                        {timeLabel(e.at)} · {who(e.actor)}
+                        {timeLabel(e.at)} · {who(e)}
                       </span>
                     </span>
                     {summary && (

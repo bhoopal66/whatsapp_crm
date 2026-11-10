@@ -1,7 +1,9 @@
 // ============================================================
 // /api/cases/[id]/notes — internal case notes (018c, migration 123).
 // INTERNAL ONLY: a note never reaches the customer. GET (any case role):
-// `{ notes }`, each `{ id, caseId, authorId, body, mentions, createdAt }`.
+// `{ notes }`, each `{ id, caseId, authorId, systemAuthor, body, mentions, createdAt }`;
+// a system note (migration 179) has authorId null and systemAuthor
+// 'system:files' | 'system:rules'.
 // POST (case writers) `{ body }` (trimmed, 1–10000 characters) -> 201
 // `{ noteId, mentioned, ignored }`: `@<uuid>` mentions of people who may
 // act on the case are stored, every other handle is returned in ignored.

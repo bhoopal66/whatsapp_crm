@@ -12,10 +12,17 @@
 import { CaseRpc } from './rpc';
 import { date, rows } from './store';
 
+export type SystemAuthor = 'system:files' | 'system:rules';
+
+const systemAuthorOf = (v: unknown): SystemAuthor | null =>
+  v === 'system:files' || v === 'system:rules' ? v : null;
+
 export interface CaseNote {
   id: string;
   caseId: string;
-  authorId: string;
+  /** NULL for a system note (migration 179); never the string "null". */
+  authorId: string | null;
+  systemAuthor: SystemAuthor | null;
   body: string;
   mentions: string[];
   createdAt: Date;
@@ -49,7 +56,7 @@ export class CaseNotesStore extends CaseRpc {
     const [notes, mentions] = await Promise.all([
       this.select(
         'case_notes',
-        'id, case_id, author_id, body, created_at',
+        'id, case_id, author_id, system_author, body, created_at',
         { case_id: caseId },
         ['created_at', 'id']
       ),
@@ -68,7 +75,8 @@ export class CaseNotesStore extends CaseRpc {
     return notes.map((n) => ({
       id: String(n.id),
       caseId: String(n.case_id),
-      authorId: String(n.author_id),
+      authorId: n.author_id == null ? null : String(n.author_id),
+      systemAuthor: systemAuthorOf(n.system_author),
       body: String(n.body),
       mentions: byNote.get(String(n.id)) ?? [],
       createdAt: date(n.created_at)!,

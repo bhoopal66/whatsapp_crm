@@ -36,6 +36,7 @@ const NOTE_MAX = 10000;
 interface Note {
   id: string;
   authorId: string | null;
+  systemAuthor: string | null;
   body: string;
   createdAt: string;
 }
@@ -51,6 +52,7 @@ function parse(json: unknown): Note[] {
         {
           id,
           authorId: asStr(r.authorId),
+          systemAuthor: asStr(r.systemAuthor),
           body,
           createdAt: asStr(r.createdAt) ?? '',
         },
@@ -243,9 +245,11 @@ export function NotesTab({ caseId, detail }: CaseTabProps) {
             {data.map((n) => (
               <li key={n.id} className="py-2">
                 <p className="text-muted-foreground text-xs">
-                  {n.authorId
-                    ? (nameOf(n.authorId) ?? t('unknownPerson'))
-                    : t('system')}
+                  {n.systemAuthor
+                    ? t('automatic')
+                    : n.authorId
+                      ? (nameOf(n.authorId) ?? t('unknownPerson'))
+                      : t('system')}
                   {' · '}
                   {when(n.createdAt) ?? '—'}
                 </p>
