@@ -19,6 +19,7 @@
 
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
+import { BlockList, isIP } from 'node:net';
 import {
   copyFile,
   link,
@@ -63,6 +64,12 @@ export type ClaimedDoc = {
   media_url: string;
   received_at: string;
   attempts: number;
+  /**
+   * The claim's token, handed back to settle exactly as received: the
+   * JSON string carries microseconds, which a Date round trip drops, and
+   * settle compares it for equality (STALE_CLAIM otherwise).
+   */
+  claimed_at: string;
 };
 
 export type WorkerConfig = {
@@ -404,11 +411,61 @@ export function fileNameFor(
 
 // ------------------------------------------------------------ download
 
+const PUBLIC_CHAT_MEDIA = '/storage/v1/object/public/chat-media/';
+const MAX_REDIRECTS = 3;
+
+// Private, loopback, link-local and unique-local ranges (plus "this
+// network", CGNAT and the deprecated site-local block). BlockList also
+// matches an IPv4-mapped IPv6 literal against the IPv4 subnets.
+const PRIVATE_IPS = new BlockList();
+for (const [net, bits] of [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.168.0.0', 16],
+] as const) {
+  PRIVATE_IPS.addSubnet(net, bits, 'ipv4');
+}
+for (const [net, bits] of [
+  ['::', 128],
+  ['::1', 128],
+  ['fe80::', 10],
+  ['fec0::', 10],
+  ['fc00::', 7],
+] as const) {
+  PRIVATE_IPS.addSubnet(net, bits, 'ipv6');
+}
+
 /**
- * Where to fetch a stored media URL from. A Supabase Storage object is
- * fetched from the configured base: the public origin changes with the
- * Cloudflare tunnel, so it is matched on the path, never the origin.
- * Anything else must be https.
+ * An external download hop: https, and not a name or IP literal that
+ * points into a private network. No DNS lookup: this is defence in depth
+ * on top of the URL the gateway handed us, not an SSRF guard.
+ */
+export function isSafeExternalUrl(u: URL): boolean {
+  if (u.protocol !== 'https:') return false;
+  let host = u.hostname.toLowerCase().replace(/\.+$/, '');
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  if (!host) return false;
+  const family = isIP(host);
+  if (family === 4) return !PRIVATE_IPS.check(host, 'ipv4');
+  if (family === 6) return !PRIVATE_IPS.check(host, 'ipv6');
+  return !(
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  );
+}
+
+/**
+ * Where to fetch a stored media URL from. Only a public chat-media object
+ * is fetched from the configured base: the public origin changes with the
+ * Cloudflare tunnel, so it is matched on the path, never the origin. Any
+ * other Storage path (a private bucket) is refused. Anything else must be
+ * a safe https URL (`isSafeExternalUrl`).
  */
 export function resolveMediaUrl(
   mediaUrl: string,
@@ -420,23 +477,24 @@ export function resolveMediaUrl(
   } catch {
     return { ok: false };
   }
-  const at = u.pathname.indexOf('/storage/v1/object/');
-  if (at >= 0) {
+  if (u.pathname.startsWith(PUBLIC_CHAT_MEDIA)) {
     return {
       ok: true,
-      url: `${baseUrl.replace(/\/+$/, '')}${u.pathname.slice(at)}${u.search}`,
+      url: `${baseUrl.replace(/\/+$/, '')}${u.pathname}${u.search}`,
       internal: true,
     };
   }
-  if (u.protocol !== 'https:') return { ok: false };
+  if (u.pathname.includes('/storage/v1/object/')) return { ok: false };
+  if (!isSafeExternalUrl(u)) return { ok: false };
   return { ok: true, url: u.toString(), internal: false };
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
 export function makeDownload(opts: {
   baseUrl: string;
-  serviceKey: string;
   fetchImpl?: FetchLike;
   maxBytes?: number;
   timeoutMs?: number;
@@ -444,20 +502,38 @@ export function makeDownload(opts: {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const maxBytes = opts.maxBytes ?? MAX_BYTES;
   const timeoutMs = opts.timeoutMs ?? DOWNLOAD_TIMEOUT_MS;
+  const unsupported: Downloaded = {
+    ok: false,
+    outcome: 'failed',
+    error: 'unsupported media URL',
+  };
   return async (mediaUrl) => {
     const target = resolveMediaUrl(mediaUrl, opts.baseUrl);
-    if (!target.ok) {
-      return { ok: false, outcome: 'failed', error: 'unsupported media URL' };
-    }
-    // The service key goes only to our own Supabase, never to a gateway.
-    const headers: Record<string, string> = target.internal
-      ? { apikey: opts.serviceKey, Authorization: `Bearer ${opts.serviceKey}` }
-      : {};
+    if (!target.ok) return unsupported;
+    // No credentials on any download: a public chat-media object needs
+    // none, and the service key must never reach a storage path or a
+    // gateway. Redirects are followed by hand so every hop is checked;
+    // our own Storage never redirects a public object.
     try {
-      const res = await fetchImpl(target.url, {
-        headers,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      const signal = AbortSignal.timeout(timeoutMs);
+      let url = target.url;
+      let res: Response;
+      for (let hops = 0; ; hops++) {
+        res = await fetchImpl(url, { redirect: 'manual', signal });
+        if (!REDIRECT_STATUSES.has(res.status)) break;
+        await res.body?.cancel().catch(() => {});
+        const location = res.headers.get('location');
+        if (target.internal || hops >= MAX_REDIRECTS || !location)
+          return unsupported;
+        let next: URL;
+        try {
+          next = new URL(location, url);
+        } catch {
+          return unsupported;
+        }
+        if (!isSafeExternalUrl(next)) return unsupported;
+        url = next.toString();
+      }
       if (!res.ok) {
         await res.body?.cancel().catch(() => {});
         return {
@@ -527,8 +603,10 @@ export function makeRpc(opts: {
     const text = await res.text();
     if (!res.ok) {
       let detail = '';
+      let hint: string | undefined;
       try {
         const body = JSON.parse(text) as { message?: unknown; hint?: unknown };
+        if (typeof body.hint === 'string' && body.hint !== '') hint = body.hint;
         detail = [body.message, body.hint]
           .filter((v): v is string => typeof v === 'string' && v !== '')
           .join(' / ');
@@ -537,8 +615,9 @@ export function makeRpc(opts: {
       }
       const err = new Error(
         `${name}: HTTP ${res.status}${detail ? ` ${detail}` : ''}`.slice(0, 300)
-      ) as Error & { status: number };
+      ) as Error & { status: number; hint?: string };
       err.status = res.status;
+      err.hint = hint;
       throw err;
     }
     return text ? JSON.parse(text) : null;
@@ -876,12 +955,22 @@ export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
       await deps.rpc('customer_documents_settle', {
         p_id: doc.id,
         p_outcome: row.outcome,
+        // Exactly as the claim returned it: never through a Date.
+        p_claimed_at: doc.claimed_at,
         p_sha256: 'sha256' in row ? row.sha256 : null,
         p_size: 'size' in row ? row.size : null,
         p_nas_name: row.outcome === 'stored' ? row.name : null,
         p_error: 'error' in row ? row.error : null,
       });
     } catch (e) {
+      const hint = (e as { hint?: unknown })?.hint;
+      if (hint === 'STALE_CLAIM' || hint === 'STATE') {
+        // Another run re-claimed the row after the claim expiry, or has
+        // already settled it: it owns the row now. A file written here
+        // is adopted by that run (findIdentical), never filed twice.
+        log(`row ${doc.id} (${doc.ref}) settle refused: ${hint}`);
+        continue;
+      }
       // The 15-minute claim expiry puts the row back in the queue.
       result.settleErrors++;
       log(`row ${doc.id} (${doc.ref}) settle failed: ${describeError(e)}`);

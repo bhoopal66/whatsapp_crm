@@ -123,8 +123,8 @@ sudo systemctl enable --now wacrm-customer-docs
 ```
 
 Edit the paths in the unit first if your checkout or mount differs
-(`WorkingDirectory`, `ExecStart`, `EnvironmentFile`, `RequiresMountsFor`
-and the `Environment=` lines). `node scripts/customer-docs-worker.mjs
+(`WorkingDirectory`, `ExecStart`, `EnvironmentFile`, the mount unit in
+`After=` and the `Environment=` lines). `node scripts/customer-docs-worker.mjs
 --once` runs one batch and exits (1 if anything failed, 2 on bad
 configuration).
 
@@ -150,13 +150,19 @@ files; they are copied once it returns. Readiness is checked again
 (creating nothing) before every file, and only the check at the start
 of a batch ever creates the root: a customer's folder is created only inside an existing root,
 so a share that drops mid-batch stops the batch instead of filling the
-local disk under the mount point. A share mounted over the wrong
-folder cannot be written into, because the marker would be missing.
+local disk under the mount point. The check knows only that something
+is mounted at `CUSTOMER_DOCS_NAS_MOUNT`, not which share it is: a wrong
+share mounted there gets the root and marker created on it at the
+start of the next batch and is written into, so check the mount source
+(`findmnt <mount>`) when you set it up.
 
 ### Failure behaviour
 
 - A claim lasts 15 minutes; a worker that dies mid-file puts the row
   back in the queue when the claim expires.
+- Settling hands back the claim's `claimed_at` as its token; a run whose
+  claim expired and was re-claimed is refused (`STALE_CLAIM`), logs the
+  row id and leaves the row to the run that holds it.
 - A retryable failure backs off `2^attempts` minutes, at most 6 hours.
   After 10 attempts the file is `failed`.
 - A stop signal finishes the current file only.

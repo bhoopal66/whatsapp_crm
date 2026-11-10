@@ -22,8 +22,131 @@ import {
   parseMountPoints,
   processBatch,
   resolveMediaUrl,
+  makeRpc,
   sanitizeBase,
 } from './nas-worker';
+
+// A claim token as PostgREST returns it: microseconds a Date would drop.
+const CLAIMED_AT = '2026-11-10T07:53:16.925123+00:00';
+
+describe('makeDownload', () => {
+  const base = 'http://127.0.0.1:8000';
+  type Call = { url: string; init?: RequestInit };
+
+  const fetcher = (answer: (url: string, n: number) => Response) => {
+    const calls: Call[] = [];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return answer(url, calls.length);
+    };
+    return { calls, fetchImpl };
+  };
+  const redirect = (location: string) =>
+    new Response(null, { status: 302, headers: { location } });
+
+  it('refuses a private-bucket storage path without fetching it', async () => {
+    const { calls, fetchImpl } = fetcher(() => new Response('x'));
+    const download = makeDownload({ baseUrl: base, fetchImpl });
+    for (const path of [
+      '/storage/v1/object/authenticated/chat-media/a.pdf',
+      '/storage/v1/object/sign/case-files/a.pdf?token=t',
+      '/storage/v1/object/public/other-bucket/a.pdf',
+    ]) {
+      expect(await download(`https://tunnel.example.com${path}`)).toEqual({
+        ok: false,
+        outcome: 'failed',
+        error: 'unsupported media URL',
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it('fetches a public chat-media object from the internal base with no credentials', async () => {
+    const { calls, fetchImpl } = fetcher(() => new Response('PDF'));
+    const download = makeDownload({ baseUrl: base, fetchImpl });
+    const got = await download(
+      'https://old-tunnel.trycloudflare.com/storage/v1/object/public/chat-media/account-1/inbound/a.pdf?x=1'
+    );
+    expect(got).toMatchObject({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(
+      `${base}/storage/v1/object/public/chat-media/account-1/inbound/a.pdf?x=1`
+    );
+    const headers = new Headers(calls[0].init?.headers);
+    expect(headers.has('apikey')).toBe(false);
+    expect(headers.has('authorization')).toBe(false);
+    expect(calls[0].init?.redirect).toBe('manual');
+  });
+
+  it('refuses a redirect to http, a private address or a 4th hop', async () => {
+    for (const target of [
+      'http://cdn.example.net/a.pdf',
+      'https://127.0.0.1/a.pdf',
+      'https://10.0.0.5/a.pdf',
+      'https://[::1]/a.pdf',
+      'https://[fd12::1]/a.pdf',
+      'https://169.254.169.254/latest',
+      'https://localhost/a.pdf',
+      'https://nas.local/a.pdf',
+      'https://db.internal/a.pdf',
+    ]) {
+      const { calls, fetchImpl } = fetcher((_url, n) =>
+        n === 1 ? redirect(target) : new Response('SECRET')
+      );
+      const download = makeDownload({ baseUrl: base, fetchImpl });
+      expect(await download('https://gate.example.com/media/1')).toEqual({
+        ok: false,
+        outcome: 'failed',
+        error: 'unsupported media URL',
+      });
+      expect(calls).toHaveLength(1);
+    }
+
+    const { calls, fetchImpl } = fetcher((_url, n) =>
+      redirect(`https://hop${n}.example.com/a.pdf`)
+    );
+    const download = makeDownload({ baseUrl: base, fetchImpl });
+    expect(await download('https://gate.example.com/media/1')).toMatchObject({
+      ok: false,
+      error: 'unsupported media URL',
+    });
+    // Three redirects followed; the fourth is refused, not fetched.
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://gate.example.com/media/1',
+      'https://hop1.example.com/a.pdf',
+      'https://hop2.example.com/a.pdf',
+      'https://hop3.example.com/a.pdf',
+    ]);
+  });
+
+  it('follows a redirect to another public https host', async () => {
+    const { calls, fetchImpl } = fetcher((_url, n) =>
+      n === 1
+        ? redirect('https://cdn.example.net/f/a.pdf')
+        : new Response('PDF')
+    );
+    const download = makeDownload({ baseUrl: base, fetchImpl });
+    const got = await download('https://gate.example.com/media/1');
+    expect(got.ok && new TextDecoder().decode(got.bytes)).toBe('PDF');
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://gate.example.com/media/1',
+      'https://cdn.example.net/f/a.pdf',
+    ]);
+    expect(
+      calls.every((c) => !new Headers(c.init?.headers).has('apikey'))
+    ).toBe(true);
+  });
+
+  it('refuses an internal-looking first URL', async () => {
+    const { calls, fetchImpl } = fetcher(() => new Response('x'));
+    const download = makeDownload({ baseUrl: base, fetchImpl });
+    expect(await download('https://192.168.1.10/a.pdf')).toMatchObject({
+      ok: false,
+      error: 'unsupported media URL',
+    });
+    expect(calls).toEqual([]);
+  });
+});
 
 describe('parseMountPoints', () => {
   it('reads the 5th field and decodes octal escapes', () => {
@@ -188,6 +311,7 @@ describe('processBatch', () => {
       'https://tunnel.example.com/storage/v1/object/public/chat-media/x.pdf',
     received_at: '2026-03-04T21:30:00Z',
     attempts: 1,
+    claimed_at: CLAIMED_AT,
     ...over,
   });
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -312,7 +436,6 @@ describe('processBatch', () => {
     };
     const download = makeDownload({
       baseUrl: config.baseUrl,
-      serviceKey: 'k',
       fetchImpl,
       maxBytes: 10,
     });
@@ -501,5 +624,58 @@ describe('processBatch', () => {
     expect(settled[0]).toMatchObject({ p_nas_name: second });
     expect(await readFile(inRef(name), 'utf8')).toBe('PDF-2');
     expect(await readFile(inRef(second), 'utf8')).toBe('PDF-1');
+  });
+
+  it("settles with the claim's claimed_at string unchanged", async () => {
+    await processBatch({
+      config,
+      rpc,
+      download: okDownload('PDF-1'),
+      readMountInfo: mountinfo,
+    });
+    expect(settled).toHaveLength(1);
+    expect(settled[0].p_claimed_at).toBe(CLAIMED_AT);
+  });
+
+  it('logs a STALE_CLAIM refusal and goes on with the next row', async () => {
+    rows = [row({ id: 'a1' }), row({ id: 'b2', original_name: 'Visa.pdf' })];
+    const sent: Record<string, unknown>[] = [];
+    // The real PostgREST client, so the refusal's hint is read off the body.
+    const realRpc = makeRpc({
+      baseUrl: config.baseUrl,
+      serviceKey: 'k',
+      fetchImpl: async (url, init) => {
+        const name = url.split('/').pop();
+        if (name === 'customer_documents_claim')
+          return new Response(JSON.stringify(rows));
+        if (name === 'customer_documents_existing') return new Response('null');
+        const args = JSON.parse(String(init?.body));
+        sent.push(args);
+        if (args.p_id === 'a1')
+          return new Response(
+            JSON.stringify({
+              message:
+                'customer_documents_settle: document a1 is not held by this claim',
+              hint: 'STALE_CLAIM',
+            }),
+            { status: 400 }
+          );
+        return new Response('"stored"');
+      },
+    });
+    const lines: string[] = [];
+    const r = await processBatch({
+      config,
+      rpc: realRpc,
+      download: async () => ({
+        ok: true as const,
+        bytes: bytesOf(String(Math.random())),
+      }),
+      readMountInfo: mountinfo,
+      log: (l) => lines.push(l),
+    });
+    expect(sent.map((s) => s.p_id)).toEqual(['a1', 'b2']);
+    expect(r).toMatchObject({ claimed: 2, stored: 2, settleErrors: 0 });
+    expect(lines).toEqual(['row a1 (TC-000123) settle refused: STALE_CLAIM']);
   });
 });
