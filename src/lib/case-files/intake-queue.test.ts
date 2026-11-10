@@ -40,7 +40,7 @@ function setup() {
     order.push(`doc ${id}`);
     return id === 1 ? 'cd-1' : null;
   });
-  const caseIdForGroup = vi.fn(async () => 'case-1');
+  const caseIdForGroup = vi.fn(async (): Promise<string | null> => 'case-1');
   const q = caseIntakeQueue({ ports, caseIdForGroup, documentIdFor });
   return { q, ports, order, documentIdFor, caseIdForGroup };
 }
