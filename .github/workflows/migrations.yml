@@ -827,3 +827,11 @@ jobs:
       # vectors shared with src/lib/case-files; privileges.
       - name: Verify case files
         run: supabase db query --local --file supabase/ci/verify-case-files.sql
+
+      # Migration 185: saved inbox views, snooze and the mentions inbox.
+      # case_inbox is unchanged with nothing snoozed; views are private
+      # unless an owner/admin shares them; snooze is the coordinator's,
+      # lead's or admin's, hidden by default and logged append-only;
+      # mentions are newest first over readable cases; service_role only.
+      - name: Verify case views
+        run: supabase db query --local --file supabase/ci/verify-case-views.sql
