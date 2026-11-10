@@ -15,6 +15,16 @@
  * record, then file in the customer's documents (a failure there is
  * logged by id and never undoes the build).
  *
+ * Size: a merged build holds every document's bytes, the pdf-lib document
+ * and its output in memory at once, and storage refuses an object over
+ * 50 MiB whatever the bucket says. So the merged documents may total at
+ * most MAX_BUILD_INPUT_BYTES (declared sizes checked before each read,
+ * the real running total after it, stopping at the first that crosses)
+ * and the output at most MAX_BUILD_OUTPUT_BYTES; either refuses
+ * BUILD_TOO_LARGE before any storage write. The reservation is then
+ * never recorded and lapses after its 10 minutes (182 has no release;
+ * the next reserve simply takes the following version).
+ *
  * Text: pdf-lib's standard fonts encode WinAnsi only, so everything drawn
  * goes through `asciiSafe` first; an Arabic bank or product name prints
  * '?', it never throws.
@@ -48,6 +58,21 @@ import {
   type CaseFileSpecRow,
 } from './store';
 
+/**
+ * The merged documents' bytes one build may hold in memory: 3x the output
+ * cap, so a build whose inputs compress or share resources still fits,
+ * while one POST stays far from the process's memory (each file alone may
+ * be MAX_READ_BYTES, 100 MiB, and a spec has no row limit).
+ */
+export const MAX_BUILD_INPUT_BYTES = 150 * 1024 * 1024;
+
+/**
+ * The largest assembled PDF stored. Production's Supabase Storage refuses
+ * any object over its global FILE_SIZE_LIMIT (52428800 bytes), although
+ * migration 180 gives the 'case-files' bucket 100 MiB.
+ */
+export const MAX_BUILD_OUTPUT_BYTES = 50 * 1024 * 1024;
+
 export interface AssemblyDeps {
   /** The service-role storage client (`admin.storage`). */
   storage: CaseFilesStorage;
@@ -56,6 +81,10 @@ export interface AssemblyDeps {
   /** Defaults to `serverSupabaseUrl()`. */
   internalBaseUrl?: string;
   clock?: () => Date;
+  /** Defaults to MAX_BUILD_INPUT_BYTES (tests pass a small one). */
+  maxInputBytes?: number;
+  /** Defaults to MAX_BUILD_OUTPUT_BYTES (tests pass a small one). */
+  maxOutputBytes?: number;
 }
 
 export interface ManifestEntry {
@@ -411,6 +440,8 @@ export async function assembleCaseFile(input: {
   const now = input.now ?? (deps.clock ?? (() => new Date()))();
   const store = new CaseFilesStore(admin);
   const read = deps.readDocumentBytes ?? defaultReadDocumentBytes;
+  const maxInput = deps.maxInputBytes ?? MAX_BUILD_INPUT_BYTES;
+  const maxOutput = deps.maxOutputBytes ?? MAX_BUILD_OUTPUT_BYTES;
 
   // 1. Refusals before any PDF work or storage write.
   await rpc(admin, 'case_file_build_gate', { p_actor: actor, p_case: caseId });
@@ -434,9 +465,18 @@ export async function assembleCaseFile(input: {
     planManifest(store, caseId),
   ]);
   const manifest: ManifestEntry[] = [];
+  // Only a merged build keeps the bytes (and counts them against the
+  // budget); an index-only build hashes each file and lets it go.
   const documents: { fileId: string; bytes: Uint8Array }[] = [];
+  let held = 0;
   for (const { spec, file } of plan.entries) {
     const doc = await store.getDocument(file.customerDocumentId);
+    if (
+      plan.merged &&
+      doc?.sizeBytes != null &&
+      held + doc.sizeBytes > maxInput
+    )
+      throw new CaseFilesRefusedError('BUILD_TOO_LARGE');
     const bytes = doc
       ? await read(doc, {
           storage: deps.storage,
@@ -453,7 +493,11 @@ export async function assembleCaseFile(input: {
       pages: file.pages,
       sha256: sha256Hex(bytes),
     });
-    documents.push({ fileId: file.id, bytes });
+    if (plan.merged) {
+      held += bytes.byteLength;
+      if (held > maxInput) throw new CaseFilesRefusedError('BUILD_TOO_LARGE');
+      documents.push({ fileId: file.id, bytes });
+    }
   }
 
   // 4. One PDF.
@@ -471,6 +515,9 @@ export async function assembleCaseFile(input: {
     manifest,
     documents
   );
+
+  if (pdf.byteLength > maxOutput)
+    throw new CaseFilesRefusedError('BUILD_TOO_LARGE');
 
   // 5. Content-addressed: a path only ever holds the bytes it names.
   const sha256 = sha256Hex(pdf);

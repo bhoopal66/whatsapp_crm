@@ -59,6 +59,10 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     text: 'The case files changed while building; try again',
   },
   BUILD_STALE: { status: 409, text: 'The case file is out of date' },
+  BUILD_TOO_LARGE: {
+    status: 422,
+    text: 'The case file would be too large to store',
+  },
   DOC_NOT_REQUIRED: {
     status: 422,
     text: 'That document is not on this case’s list',

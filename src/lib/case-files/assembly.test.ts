@@ -71,6 +71,8 @@ interface World {
   bytes?: Record<string, Uint8Array>;
   rpc?: Record<string, (args: Row) => Reply>;
   uploadError?: unknown;
+  /** customer_documents.size_bytes by file id (absent = NULL). */
+  sizes?: Record<string, number>;
 }
 
 async function world(w: World = {}) {
@@ -125,6 +127,7 @@ async function world(w: World = {}) {
       storage_bucket: 'case-files',
       storage_path: `cases/${CASE}/${String(f.id)}`,
       mime: 'application/pdf',
+      size_bytes: w.sizes?.[String(f.id)] ?? null,
     })),
   };
 
@@ -375,6 +378,78 @@ describe('assembleCaseFile', () => {
     ).rejects.toThrow();
     expect(w.uploads).toEqual([]);
     expect(w.rpcNames()).not.toContain('case_file_build_record');
+  });
+
+  describe('size limits (BUILD_TOO_LARGE)', () => {
+    async function refusal(
+      w: Awaited<ReturnType<typeof world>>,
+      limits: { maxInputBytes?: number; maxOutputBytes?: number }
+    ) {
+      const err = await assembleCaseFile({
+        admin: w.admin,
+        actor: 'u-1',
+        caseId: CASE,
+        deps: { ...w.deps, ...limits },
+        now: NOW,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(CaseFilesRefusedError);
+      expect((err as CaseFilesRefusedError).reason).toBe('BUILD_TOO_LARGE');
+      // Nothing stored or recorded; the reservation is left to lapse.
+      expect(w.uploads).toEqual([]);
+      expect(w.rpcNames()).toContain('case_file_build_reserve');
+      expect(w.rpcNames()).not.toContain('case_file_build_record');
+      expect(w.rpcNames()).not.toContain('customer_documents_record_internal');
+    }
+
+    it('declared sizes over the input budget refuse before the crossing read', async () => {
+      const w = await world({ sizes: { 'f-eid': 2_000_000 } });
+      // passport and statement are read; emirates_id's declared size
+      // crosses the budget, so it is never read.
+      await refusal(w, { maxInputBytes: 1_000_000 });
+      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(2);
+    });
+
+    it('bytes read over the input budget stop at the first that crosses', async () => {
+      const w = await world();
+      await refusal(w, { maxInputBytes: w.bytes['f-pass'].byteLength + 1 });
+      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(2);
+    });
+
+    it('an assembled PDF over the output cap is never uploaded', async () => {
+      const w = await world();
+      await refusal(w, { maxOutputBytes: 100 });
+      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(4);
+    });
+
+    it('an index-only build holds no bytes, so the input budget does not apply', async () => {
+      const w = await world({ merged: false });
+      const out = await assembleCaseFile({
+        admin: w.admin,
+        actor: 'u-1',
+        caseId: CASE,
+        deps: { ...w.deps, maxInputBytes: 1 },
+        now: NOW,
+      });
+      expect(out.buildId).toBe('b-1');
+      expect(w.uploads).toHaveLength(1);
+    });
+
+    it('a merged build within both limits is stored and recorded', async () => {
+      const w = await world();
+      const out = await assembleCaseFile({
+        admin: w.admin,
+        actor: 'u-1',
+        caseId: CASE,
+        deps: {
+          ...w.deps,
+          maxInputBytes: 1024 * 1024,
+          maxOutputBytes: 1024 * 1024,
+        },
+        now: NOW,
+      });
+      expect(out.buildId).toBe('b-1');
+      expect(w.uploads).toHaveLength(1);
+    });
   });
 
   it('a failed customer-document record is logged by id and does not undo the build', async () => {
