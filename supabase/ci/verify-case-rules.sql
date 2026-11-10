@@ -208,6 +208,10 @@ BEGIN
       $$'no_activity', '{"days": 0}', '[{"kind": "add_note", "body": "x"}]'$$,
       $$'no_activity', '{"days": 366}', '[{"kind": "add_note", "body": "x"}]'$$,
       $$'no_activity', '{"days": 1.5}', '[{"kind": "add_note", "body": "x"}]'$$,
+      $$'no_activity', '{"days": "abc"}', '[{"kind": "add_note", "body": "x"}]'$$,
+      $$'case_opened', '{"amount_max": "abc"}', '[{"kind": "add_note", "body": "x"}]'$$,
+      $$'case_opened', '{"amount_max": 10000000000000000}', '[{"kind": "add_note", "body": "x"}]'$$,
+      $$'case_opened', '{"amount_min": 5, "amount_max": 2}', '[{"kind": "add_note", "body": "x"}]'$$,
       $$'case_opened', '{}', '[{"kind": "add_task", "templateKey": "call_customer", "dueHours": 24, "ownerRole": "agent"}]'$$,
       $$'case_opened', '{}', '[{"kind": "add_task"}]'$$,
       $$'case_opened', '{}', '[{"kind": "assign_agent", "userId": "not-a-uuid"}]'$$,
@@ -228,6 +232,11 @@ BEGIN
       format('SELECT (case_rule_save(%L, NULL, %s, true, ''case_opened'', ''{}'', %L::jsonb, NULL)).rule_id::text',
              u_admin, r, note), 'ERROR 22023 RULE_INVALID%');
   END LOOP;
+  -- 189: legal amount bounds (equal, and the numeric(18,2) ceiling) pass.
+  n := n + 1; failed := failed || pg_temp.cr_check('case_rule_validate refused legal amount bounds', NULL, NULL,
+    $$SELECT 'ok' FROM case_rule_validate('case_opened', '{"amount_min": 5, "amount_max": 5}', '[{"kind": "add_note", "body": "x"}]') v1,
+       case_rule_validate('case_opened', '{"amount_min": 0, "amount_max": 9999999999999999.99}', '[{"kind": "add_note", "body": "x"}]') v2$$,
+    'ok');
   n := n + 1; failed := failed || pg_temp.cr_check('case_rule_save accepted a negative position', NULL, NULL,
     format('SELECT (case_rule_save(%L, NULL, ''r'', true, ''case_opened'', ''{}'', %L::jsonb, -1)).rule_id::text',
            u_admin, note), 'ERROR 22023 RULE_INVALID%');

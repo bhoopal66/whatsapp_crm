@@ -393,7 +393,7 @@ BEGIN
   j := meta_cost_per_won_case(a_acct, t0 - interval '1 day', t0 + interval '1 day');
   n := n + 1; failed := failed || pg_temp.mnh_ok((j->>'won_cases')::int = 1
     AND (j->>'won_spend_usd')::numeric = 0.05 AND (j->>'cost_per_won_case_usd')::numeric = 0.05
-    AND (j->>'other_spend_usd')::numeric = 0.07 + 0.03 + 0.01 + 0.01 + 0.04
+    AND j->'other_spend_usd' = 'null'::jsonb
     AND (j->>'unknown_cost_messages')::int = 1,
     format('spend per won case is %s', j));
   j := meta_cost_per_won_case(b_acct, t0 - interval '1 day', t0 + interval '1 day');
@@ -408,9 +408,19 @@ BEGIN
   j := meta_cost_per_won_case(a_acct, t0 - interval '1 day', t0 + interval '1 day');
   n := n + 1; failed := failed || pg_temp.mnh_ok((j->>'won_cases')::int = 1
     AND j->'won_spend_usd' = 'null'::jsonb AND j->'cost_per_won_case_usd' = 'null'::jsonb
-    AND (j->>'other_spend_usd')::numeric = 0.07 + 0.03 + 0.01 + 0.01 + 0.04
+    AND j->'other_spend_usd' = 'null'::jsonb
     AND (j->>'unknown_cost_messages')::int = 2,
     format('an unknown rate on a won customer reads %s', j));
+  -- 189: other spend follows the same rule. w-unknown (someone else's,
+  -- in the window, no rate) makes it NULL above, never the 0.16 the
+  -- known rates add up to; a window holding only known rates (w-old)
+  -- gives their sum, and one with no other message at all gives 0.
+  j := meta_cost_per_won_case(a_acct, t0 - interval '25 days', t0 - interval '15 days');
+  n := n + 1; failed := failed || pg_temp.mnh_ok((j->>'other_spend_usd')::numeric = 0.50,
+    format('known other spend alone reads %s', j));
+  j := meta_cost_per_won_case(a_acct, t0 + interval '30 days', t0 + interval '31 days');
+  n := n + 1; failed := failed || pg_temp.mnh_ok(j->'other_spend_usd' = '0'::jsonb,
+    format('a window with no other message reads %s', j));
   r := pg_temp.mnh_try(NULL, NULL, format('SELECT public.meta_cost_per_won_case(%L, %L, %L)::text', a_acct, t0, t0));
   n := n + 1; failed := failed || pg_temp.mnh_ok(r LIKE 'ERROR % [RANGE_INVALID]%',
     format('an empty range was not refused (%s)', r));

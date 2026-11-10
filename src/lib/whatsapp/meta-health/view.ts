@@ -86,7 +86,8 @@ export interface CostPerWonCase {
   wonSpendUsd: number | null;
   /** Null with no won case, or when the won spend is unknown. */
   costPerWonCaseUsd: number | null;
-  otherSpendUsd: number;
+  /** Null when another billed message has no rate on file (189). */
+  otherSpendUsd: number | null;
   unknownCostMessages: number;
 }
 
@@ -106,7 +107,7 @@ export function parseCostPerWonCase(raw: unknown): CostPerWonCase | null {
     wonCases: num(o.won_cases) ?? 0,
     wonSpendUsd: num(o.won_spend_usd),
     costPerWonCaseUsd: num(o.cost_per_won_case_usd),
-    otherSpendUsd: num(o.other_spend_usd) ?? 0,
+    otherSpendUsd: num(o.other_spend_usd),
     unknownCostMessages: num(o.unknown_cost_messages) ?? 0,
   };
 }
@@ -134,6 +135,16 @@ export function wonSpendFigures(c: CostPerWonCase): {
         ? { kind: 'noRate' }
         : { kind: 'usd', usd: c.costPerWonCaseUsd };
   return { won, perCase };
+}
+
+/**
+ * What the card shows for the spend that went to anyone else: "no rate
+ * on file" when a message's rate is unknown (189), never $0.
+ */
+export function otherSpendFigure(c: CostPerWonCase): SpendFigure {
+  return c.otherSpendUsd === null
+    ? { kind: 'noRate' }
+    : { kind: 'usd', usd: c.otherSpendUsd };
 }
 
 export interface MarketingUsage {

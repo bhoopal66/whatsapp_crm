@@ -25,6 +25,7 @@ import {
   assessedTone,
   marketingUsage,
   qualityTone,
+  otherSpendFigure,
   wonSpendFigures,
   type AssessedState,
   type CostPerWonCase,
@@ -223,7 +224,7 @@ export function MetaHealthCard() {
                       {t('spendDetail', {
                         cases: spend.wonCases,
                         won: figure(spendFigures.won),
-                        other: usd(spend.otherSpendUsd),
+                        other: figure(otherSpendFigure(spend)),
                       })}
                     </p>
                     {spend.unknownCostMessages > 0 && (
