@@ -369,6 +369,140 @@ replies stay open; leads are never locked; the v1 API is never locked. The
 case page shows a "Managed in Compass" banner with an Open in Compass link
 and the time of the last sync.
 
+## Case files (migrations 179-182)
+
+Migrations 179, 180, 181 and 182 apply in that order, as a superuser or
+BYPASSRLS role. Each has a verify file (`verify-case-system-notes.sql`,
+`verify-customer-documents-internal.sql`, `verify-case-files.sql`,
+`verify-case-file-builds.sql`).
+
+**Automatic notes (179).** A case note may be written by the system rather
+than a person: `author_id` is NULL and `system_author` is `system:files` or
+`system:rules`. The case shows it as "Automatic". Only no-grant definer
+helpers write one (`case_note_add_system`); no API role, the service role
+included, can call it.
+
+**Where files live (180).** A file staff upload to a case, and a case-file
+PDF the CRM assembles, are stored in the private `case-files` bucket (no
+client policy: a browser gets a file only through a route that has checked
+the caller and then uses the service role). Each is also filed in the
+customer's documents (sources `staff_upload` and `case_build`), so it lands
+in the customer's folder on the NAS like a document the customer sent (see
+[customer-documents.md](customer-documents.md)). A coordinator who was only
+shared one chat does not see these files.
+
+**File specs (181).** Per bank and product, an owner or admin sets one spec
+row per document (`PUT /api/cases/config/banks/[code]/file-specs`, audited):
+position, required, max MB, allowed types (PDF, JPEG, PNG), minimum valid
+days, a file-name pattern (`{{case}}`, `{{company}}`, `{{doc}}`,
+`{{yyyymmdd}}`) and whether the document is merged into the case file or
+only listed in its index. With no spec rows the spec is derived from the
+bank's required documents with default values.
+
+**Attaching a file.** A customer's WhatsApp document, or a staff upload,
+is attached to one of the case's required documents
+(`/api/cases/[id]/files`, `/files/attach`, `/files/[fileId]/classify`). Each
+attach is a new version; nothing is deleted.
+
+**Checks.** Every attached version is checked automatically: type and file
+signature, size, a readable PDF and its page count, photo resolution (at
+least 600 px on the short side) and expiry (minimum valid days). It ends
+`passed` or `failed`. A case is **File ready** when every required document
+has a passed file and no newer version of it has failed.
+
+**Switches** (Settings -> Cases, `caseFiles` in `/api/cases/config/settings`,
+owners and admins write). All three are off by default, and none ever acts
+on a case Compass manages (the lock below):
+
+- _Mark the checklist received_ when a file passes; when a newer upload
+  fails, it also leaves one automatic note for the coordinator.
+- _Move the case_ from one chosen stage to another when it becomes File
+  ready (once, with one automatic note).
+- _Intake prompts_ (`files_intake_prompts`): lets the system intake classify
+  a file a customer sent by WhatsApp. Sending WhatsApp prompts to the
+  customer is not built.
+
+**Assembling the case file (182).** A coordinator, team leader or admin
+builds the case file of a File-ready, open case
+(`POST /api/cases/[id]/build`): either a cover/index plus every merged
+document in one PDF, or an index-only PDF. The bytes go to `case-files` at
+a content-addressed path (`cases/<case>/bundle-<sha256>.pdf` or
+`index-<sha256>.pdf`) after a short reservation (10 minutes), so two
+builders never write one object with different bytes. A build is recorded
+only if it still matches the case's current passed files. When a file later
+fails, is superseded or is reclassified, the build becomes stale and is no
+longer the current one.
+
+**Downloads and audit.** Downloading a file (`/files/[fileId]/download`) or
+the current build (`/build/download`) first writes an audit row, then issues
+a signed link valid for 10 minutes; if signing fails the row says so. A
+person who cannot read the case is told the file does not exist.
+
+## Saved views, snooze and mentions (migration 185)
+
+`verify-case-views.sql`. Apply after 182 (183 and 184 are not part of this
+stack).
+
+- **Saved views** (`/api/cases/views`): a named set of inbox filters and a
+  sort. A view is private, or shared with the workspace when an owner or
+  admin saves it. Anyone with a case role may keep private views; only the
+  owner or an owner/admin deletes one. Another person's private view is
+  reported as not found.
+- **Snooze** (`/api/cases/[id]/snooze`, `/unsnooze`): hides a case from the
+  inbox for up to 30 days, with an optional reason. A coordinator of the
+  case, its team leader and admins can snooze; agents cannot. Snoozing
+  never touches the SLA: timers keep running, and a snooze is not a touch
+  of the case. It ends by itself when its time passes; the inbox then marks
+  the case "snooze expired" for 24 hours. New inbox filters: snoozed (hide,
+  only, all), snooze expired, mentions me.
+- **Mentions** (`/api/cases/mentions`): the list of notes that mention you
+  on cases you can read, newest first.
+- A system note no longer counts as a case's last touch, so an automatic
+  note does not make an idle case look worked.
+
+## Macros (migration 186)
+
+`verify-case-macros.sql`. A macro is a saved list (1 to 10) of case actions
+applied to one case in one click (`/api/cases/macros`,
+`/api/cases/[id]/macros/[macroId]/apply`; the case page header has an Apply
+macro control, and Settings -> Cases manages them). Private or shared like
+views.
+
+Actions: add a task from a template, add a note (`{{customer}}` and
+`{{bank}}` are filled in), move the stage (optionally with an outcome), and
+preview the missing-documents request. The preview sends nothing.
+
+Applying a macro calls the normal case functions as the person applying, so
+roles, stages and the Compass lock all still apply and a macro never widens
+what its user may do. There is no transaction across actions: the run stops
+at the first refused action, and the actions before it stay applied. Every
+run is logged (`case_macro_log`, one row listing each action and its
+refusal), and the log outlives a deleted macro.
+
+## Automation rules (migration 187)
+
+`verify-case-rules.sql`. An owner or admin defines rules (`/api/cases/rules`):
+_when_ a trigger happens on a case, _if_ the conditions match, do the
+actions.
+
+- **Triggers:** a case is opened; it changes stage; it goes SLA overdue; it
+  sits idle for N days (1 to 365); it gets its submission.
+- **Conditions** (all must match, absent means any): bank, stage, product,
+  amount range, pre-submission.
+- **Actions:** assign a coordinator, assign an agent, add a note, set the
+  priority. Assigned people must be live staff of the workspace. There is no
+  "add a task" action.
+- **Safe by construction:** rules never send anything. They never change a
+  case Compass manages (the lock below) and never change a closed case. Each
+  action runs on its own, so a failing action is recorded and stops only
+  that rule; the next rule still runs. A rule can never stop the change that
+  fired it. A rule's own changes do not fire rules and do not count as
+  activity, so "idle N days" is not reset by a rule.
+- **History:** every rule evaluated on a case leaves a run row, matched or
+  not (`/api/cases/[id]/rule-runs`), shown on the case.
+- The idle and overdue triggers are evaluated by a sweep in the automations
+  cron (see below). The other triggers fire from the database at once.
+
 ## Settings -> Cases
 
 Owners and admins configure, per bank (`/api/cases/config/banks/...`; staff
@@ -402,7 +536,9 @@ The automations cron (`GET /api/automations/cron`) runs, each at most every
   rest still run, and it starts no case after 20 seconds;
 - the **group-end sweeper**: final-stage cases whose group end never
   completed, each ended through its own workspace; it starts no case after
-  20 seconds.
+  20 seconds;
+- the **case rules sweep** (migration 187), right after the SLA job: the
+  idle and overdue triggers of the [automation rules](#automation-rules-migration-187).
 
 A failure is only logged.
 

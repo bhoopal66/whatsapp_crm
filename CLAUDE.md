@@ -1254,7 +1254,31 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
 - **SQL habits.** A blank check uses `~ '^[[:space:]]*$'`, never
   `btrim(x) = ''`: `btrim()` strips spaces only, so a tab or newline
   passes (this bit twice; older checks still use `btrim`). Appending a
-  literal to a `text[]` needs `::text` (`v || 'x'::text`).
+  literal to a `text[]` needs `::text` (`v || 'x'::text`). When a
+  set-returning function gains columns, verify files must not name its
+  columns in `WITH ORDINALITY AS x(…)`; use `WITH ORDINALITY x` +
+  `x.ordinality`.
+- **Case files, views, macros, rules (179-187, `docs/cases.md`).** Apply
+  179, 180, 181, 182, 185, 186, 187 in order as a superuser/BYPASSRLS role.
+  - Every automatic behaviour (checklist sync, ready-move, intake prompts,
+    rules) is off or empty by default and never acts under the Compass lock
+    (`case_managed_externally`, `MANAGED_EXTERNALLY`).
+  - The system actor is `author_id`/actor NULL plus a label
+    (`system:files`, `system:rules`), written only by no-grant definer
+    helpers (`case_note_add_system`, rule actions); no API role, the service
+    role included, may execute them.
+  - Lock order everywhere: the case `FOR NO KEY UPDATE`, then the file /
+    build row.
+  - Build paths are content-addressed (`bundle-<sha256>.pdf`) and a version
+    is reserved (10 min) before any bytes are stored; a record is refused
+    unless it matches the current passed files.
+  - A download writes its audit row before the signed URL is minted.
+  - Rules never send (no gateway path) and their own writes neither fire
+    rules nor count as activity; each action is isolated in a
+    sub-transaction.
+  - Macro actions run through the normal case functions as the caller, so a
+    macro never widens access; the run stops at the first refusal and
+    earlier actions stay.
 - **Leads (130).** A case with `group_id` NULL at Interested. Nobody
   opens one any more: cases come only from the submission tracker, and
   `POST /api/cases/leads` was removed (`case_open_lead` has no caller). A later
@@ -1601,7 +1625,8 @@ Cron / GitHub Actions / any pinger):
 - `GET /api/automations/cron` — scheduled automation steps. It also
   carries the others' work, each throttled per process (`everyInterval`)
   inside `after()`, a failure only logged: channel health, Team
-  activity alerts, case SLA and case group-end retries (5 min), edge
+  activity alerts, case SLA, case rules sweep (187) and case group-end
+  retries (5 min), edge
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders and the assist pending sweep (1 min),

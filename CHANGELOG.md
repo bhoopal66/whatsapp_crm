@@ -12,6 +12,40 @@ and polish.
 
 ## [Unreleased]
 
+### Cases: case files, saved views and snooze, macros, automation rules
+
+- **Migration required:** apply, in this order and each as a superuser or
+  BYPASSRLS role: `179_case_system_notes.sql`,
+  `180_customer_documents_internal.sql`, `181_case_files.sql`,
+  `182_case_file_builds.sql`, `185_case_views_snooze_mentions.sql`,
+  `186_case_macros.sql`, `187_case_rules.sql`. Each has a
+  `supabase/ci/verify-*.sql` file wired into the migrations workflow.
+- **Case files.** Owners and admins set, per bank and product, which
+  documents a file needs (type, size, minimum valid days, file name, merged
+  or index-only). A customer's WhatsApp document or a staff upload is
+  attached to a required document, versioned and checked automatically; a
+  case is File ready when every required document has passed. Coordinators
+  can assemble the case file into one PDF; every download is audited and
+  the link lasts 10 minutes. Staff uploads and assembled files also reach
+  the customer's NAS folder. Three Settings -> Cases switches (mark the
+  checklist received, move the case when File ready, intake prompts) are
+  off by default and never act on a case Compass manages.
+- **Automatic notes.** A case note can come from the system and shows as
+  "Automatic".
+- **Saved views, snooze, mentions.** Save inbox filters as private views
+  (owners and admins can share them), snooze a case out of the inbox for up
+  to 30 days (the SLA keeps running), filter by "mentions me" and open a
+  Mentions list. Automatic notes no longer count as a case's last touch.
+- **Macros.** Save a list of case actions (add a task, add a note, move the
+  stage, preview the missing-documents request) and apply it from the case
+  page in one click. It uses the applier's own permissions and every run is
+  logged.
+- **Automation rules.** Owners and admins define rules that fire when a case
+  opens, changes stage, goes SLA overdue, sits idle for N days or gets its
+  submission, and assign an agent or coordinator, add a note or set the
+  priority. Rules never send messages and never change a Compass-managed
+  case. See `docs/cases.md`.
+
 ### Customer documents: every file a customer sends is filed under their reference
 
 - **Migration required:** apply `supabase/migrations/178_customer_documents.sql`
