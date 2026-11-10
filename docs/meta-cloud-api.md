@@ -126,6 +126,17 @@ and rejections to appear in the CRM automatically, and
 **`message_template_components_update`** for quality ratings and
 Meta's own edits to a template.
 
+#### Number health record (migration 188, watch-only)
+
+Subscribe **`account_update`** and **`phone_number_quality_update`**
+(plus the template fields above) to feed the number health record:
+each event is stored once (`meta_health_events`), template events move
+`meta_template_health`, and number/account events move the number's
+messaging tier, status and assessed state (`meta_number_state`). These
+entries are checked against the WABA's app secret like template
+callbacks. Nothing is blocked and the webhook's answer never changes:
+a failure here is logged (no message text) and skipped.
+
 Meta calls the URL once with `hub.mode=subscribe` and refuses to enable
 the subscription unless the challenge comes back verbatim. Taamul Connect handles
 that automatically.

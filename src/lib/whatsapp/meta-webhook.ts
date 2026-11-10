@@ -602,6 +602,41 @@ export function isTemplateWebhookPayload(
 }
 
 /**
+ * WABA-level fields that feed the watch-only number health record
+ * (migration 188, `lib/whatsapp/meta-health`). The template fields feed
+ * it too, but they are already template fields.
+ */
+const META_HEALTH_WEBHOOK_FIELDS: ReadonlySet<string> = new Set([
+  'phone_number_quality_update',
+  'account_update',
+  'account_review_update',
+]);
+
+export function isMetaHealthWebhookField(field: string): boolean {
+  return META_HEALTH_WEBHOOK_FIELDS.has(field);
+}
+
+/** A field addressed to a WABA (`entry.id`), not to a phone number. */
+export function isWabaLevelWebhookField(field: string): boolean {
+  return isTemplateWebhookField(field) || isMetaHealthWebhookField(field);
+}
+
+/**
+ * Does this payload carry a WABA-level change: a template event, or a
+ * number/account health event? Those entries are looked up and verified
+ * by WABA id. `isTemplateWebhookPayload` stays the narrower question.
+ */
+export function isWabaLevelWebhookPayload(
+  payload: RawMetaWebhookPayload
+): boolean {
+  return (payload.entry ?? []).some((entry) =>
+    (entry.changes ?? []).some(
+      (change) => !!change.field && isWabaLevelWebhookField(change.field)
+    )
+  );
+}
+
+/**
  * Every distinct `metadata.phone_number_id` in a messages callback, in
  * order of appearance. One POST can batch several numbers; the webhook
  * route resolves, authenticates and processes each on its own, so one

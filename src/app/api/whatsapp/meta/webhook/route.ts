@@ -6,8 +6,9 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature';
 import { secretsMatch } from '@/lib/whatsapp/whapi-webhook-auth';
 import {
   collectMetaStatuses,
+  isMetaHealthWebhookField,
   isMetaWebhookShape,
-  isTemplateWebhookPayload,
+  isWabaLevelWebhookPayload,
   metaPhoneNumberIds,
   normalizeMetaWebhook,
   type RawMetaWebhookPayload,
@@ -39,6 +40,20 @@ import {
   isGroupStatus,
   type GroupWebhookValue,
 } from '@/lib/deal-rooms/webhook';
+import {
+  healthEventRecordArgs,
+  ingestMetaHealth,
+  numberStateSetArgs,
+  templateHealthSetArgs,
+  type AssessedState,
+  type HealthEvent,
+} from '@/lib/whatsapp/meta-health/ingest';
+import {
+  isAlarmTransition,
+  nextNumberState,
+  numberStateFromRow,
+  type NumberStateRow,
+} from '@/lib/whatsapp/meta-health/state';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
@@ -225,7 +240,9 @@ export async function POST(request: Request) {
   // Neither half may short-circuit the other: returning after the
   // template half used to answer 200 for a batch whose customer
   // messages and receipts never ran, and Meta does not redeliver a 200.
-  const template = isTemplateWebhookPayload(payload)
+  // The WABA half also takes the number/account health fields (188),
+  // which record only: they never change what this POST answers.
+  const template = isWabaLevelWebhookPayload(payload)
     ? await templateHalf(payload, rawBody, signature)
     : null;
   if (template?.lookupFailed) return lookupFailed();
@@ -258,9 +275,14 @@ export async function POST(request: Request) {
   const work = [phone?.work, template?.work].filter(
     (run): run is () => Promise<void> => run != null
   );
-  if (work.length > 0) {
+  // The health record runs last and is not counted in `work`: it is
+  // watch-only, so it must not turn an 'ignored' answer into 'received'.
+  const background = template?.healthWork
+    ? [...work, template.healthWork]
+    : work;
+  if (background.length > 0) {
     after(async () => {
-      for (const run of work) {
+      for (const run of background) {
         try {
           await run();
         } catch (error) {
@@ -306,6 +328,11 @@ interface HalfResult {
   lookupFailed: boolean;
   /** Edge screening found an event claimed by a delivery in flight. */
   inFlight: boolean;
+  /**
+   * The watch-only health record (188) for the verified WABAs. Never
+   * part of `work`, never sets a flag above: it cannot change the answer.
+   */
+  healthWork?: (() => Promise<void>) | null;
 }
 
 const NOTHING_TO_DO: HalfResult = {
@@ -643,20 +670,28 @@ async function templateHalf(
   // Only entries that carry a template change. In a mixed batch the
   // `messages` entry's WABA verifying must not pass for the template
   // half — that half answers for its own entries.
-  const wabaIds = [
+  const wabaIdsWith = (pick: (field: string) => boolean) => [
     ...new Set(
       (payload.entry ?? [])
         .filter((entry) =>
           (entry.changes ?? []).some(
-            (change) => !!change.field && isTemplateWebhookField(change.field)
+            (change) => !!change.field && pick(change.field)
           )
         )
         .map((entry) => (entry.id == null ? '' : String(entry.id)))
         .filter(Boolean)
     ),
   ];
+  // Template entries decide this half's answer exactly as before 188.
+  // Entries carrying only health fields (188) ride the same lookup and
+  // signature check, but are watch-only: they never answer 401 or 503.
+  const templateWabaIds = wabaIdsWith(isTemplateWebhookField);
+  const wabaIds = [
+    ...new Set([...templateWabaIds, ...wabaIdsWith(isMetaHealthWebhookField)]),
+  ];
 
   let rows: {
+    id: string;
     account_id: string;
     waba_id: string | null;
     app_secret: string | null;
@@ -664,13 +699,14 @@ async function templateHalf(
   if (wabaIds.length > 0) {
     const { data, error } = await supabaseAdmin()
       .from('whatsapp_config')
-      .select('account_id, waba_id, app_secret')
+      .select('id, account_id, waba_id, app_secret')
       .eq('provider', 'meta')
       .in('waba_id', wabaIds);
     if (error) {
       // Not "no WABA connected here": that answer is a 200, and a
       // decision for the connected WABA would stay PENDING for good.
       console.error('[meta-webhook] template WABA lookup failed:', error);
+      if (templateWabaIds.length === 0) return NOTHING_TO_DO;
       return LOOKUP_FAILED;
     }
     rows = ((data ?? []) as typeof rows).filter(
@@ -690,6 +726,8 @@ async function templateHalf(
 
   // WABA id → accounts whose own secret verified this exact body.
   const verified = new Map<string, Set<string>>();
+  // Every verified row, for the health record (which needs the row id).
+  const healthTargets: HealthTarget[] = [];
   for (const row of rows) {
     if (!row.waba_id) continue;
     let secret: string | null = null; // null = fall back to META_APP_SECRET
@@ -704,17 +742,40 @@ async function templateHalf(
     const accounts = verified.get(row.waba_id) ?? new Set<string>();
     accounts.add(row.account_id);
     verified.set(row.waba_id, accounts);
+    healthTargets.push({
+      wabaId: row.waba_id,
+      accountId: row.account_id,
+      configId: row.id,
+    });
   }
 
-  if (verified.size === 0) {
+  const healthWork =
+    healthTargets.length > 0
+      ? async () => {
+          try {
+            await recordMetaHealth(supabaseAdmin(), payload, healthTargets);
+          } catch {
+            console.error('[meta-webhook] health record failed');
+          }
+        }
+      : null;
+
+  // The answer, as before 188: only template WABAs connected here count.
+  const templateRowsFound = rows.some(
+    (row) => !!row.waba_id && templateWabaIds.includes(row.waba_id)
+  );
+  const templateVerified = templateWabaIds.some((waba) => verified.has(waba));
+  if (!templateRowsFound) return { ...NOTHING_TO_DO, healthWork };
+  if (!templateVerified) {
     console.warn(
       '[meta-webhook] template callback failed signature verification'
     );
-    return { ...NOTHING_TO_DO, unauthorized: true };
+    return { ...NOTHING_TO_DO, unauthorized: true, healthWork };
   }
 
   return {
     ...NOTHING_TO_DO,
+    healthWork,
     work: async () => {
       for (const entry of payload.entry ?? []) {
         const accounts = verified.get(entry.id == null ? '' : String(entry.id));
@@ -736,6 +797,152 @@ async function templateHalf(
       }
     },
   };
+}
+
+/** A Meta row whose own app secret verified this body. */
+interface HealthTarget {
+  wabaId: string;
+  accountId: string;
+  configId: string;
+}
+
+type AlarmHook = (
+  admin: ReturnType<typeof supabaseAdmin>,
+  alarm: {
+    accountId: string;
+    configId: string;
+    previous: AssessedState | null;
+    next: AssessedState;
+    reasons: string[];
+  }
+) => Promise<void>;
+// TODO(meta-alert): replace with ringMetaNumberAlert import
+const ringAlarm = null as AlarmHook | null;
+
+/** CAS tries on meta_number_state: the first plus three retries. */
+const NUMBER_STATE_TRIES = 4;
+
+/**
+ * Migration 188, WATCH-ONLY: record each health event of a verified
+ * WABA, and on a new one (not a redelivery) move the template's health
+ * and/or the number's state. Fail-open: every failure is one log line
+ * with no Meta text (an error code at most), and nothing is thrown.
+ */
+async function recordMetaHealth(
+  admin: ReturnType<typeof supabaseAdmin>,
+  payload: RawMetaWebhookPayload,
+  targets: HealthTarget[]
+): Promise<void> {
+  const { events, errors } = ingestMetaHealth(payload);
+  if (errors.length > 0) {
+    console.warn(
+      `[meta-webhook] health: ${errors.length} change(s) unreadable, skipped`
+    );
+  }
+  for (const target of targets) {
+    for (const ingested of events) {
+      if (ingested.event.wabaId !== target.wabaId) continue;
+      try {
+        const { data: isNew, error } = await admin.rpc(
+          'meta_health_event_record',
+          healthEventRecordArgs(target.accountId, target.configId, ingested)
+        );
+        if (error) {
+          console.error(
+            `[meta-webhook] health event record failed (${errorCode(error)})`
+          );
+          continue;
+        }
+        // false = a redelivery: its effects were applied the first time.
+        if (isNew !== true) continue;
+
+        const templateArgs = templateHealthSetArgs(
+          target.accountId,
+          ingested.event
+        );
+        if (templateArgs) {
+          const { error: tError } = await admin.rpc(
+            'meta_template_health_set',
+            templateArgs
+          );
+          if (tError) {
+            console.error(
+              `[meta-webhook] template health write failed (${errorCode(tError)})`
+            );
+          }
+        }
+        if (isMetaHealthWebhookField(ingested.event.kind)) {
+          await applyNumberState(admin, target, ingested.event);
+        }
+      } catch {
+        console.error('[meta-webhook] health event failed');
+      }
+    }
+  }
+}
+
+/** Compare-and-set on `meta_number_state.updated_at`; re-read on a lost race. */
+async function applyNumberState(
+  admin: ReturnType<typeof supabaseAdmin>,
+  target: HealthTarget,
+  ev: HealthEvent
+): Promise<void> {
+  for (let attempt = 0; attempt < NUMBER_STATE_TRIES; attempt++) {
+    const { data: row, error } = await admin
+      .from('meta_number_state')
+      .select(
+        'quality_rating, messaging_limit_tier, account_status, assessed_state, reasons, updated_at'
+      )
+      .eq('config_id', target.configId)
+      .maybeSingle();
+    if (error) {
+      console.error(
+        `[meta-webhook] number state read failed (${errorCode(error)})`
+      );
+      return;
+    }
+    const stored = (row ?? null) as
+      (NumberStateRow & { updated_at: string }) | null;
+    const prev = numberStateFromRow(stored);
+    const step = nextNumberState(prev, ev);
+    if (!step.changed) return;
+    const { data: at, error: setError } = await admin.rpc(
+      'meta_number_state_set',
+      numberStateSetArgs(target.configId, stored?.updated_at ?? null, step.next)
+    );
+    if (setError) {
+      console.error(
+        `[meta-webhook] number state write failed (${errorCode(setError)})`
+      );
+      return;
+    }
+    // NULL: another writer got there first; re-read and apply on top.
+    if (at == null) continue;
+
+    const previous = stored ? prev.assessedState : null;
+    if (ringAlarm && isAlarmTransition(previous, step.next.assessedState)) {
+      try {
+        await ringAlarm(admin, {
+          accountId: target.accountId,
+          configId: target.configId,
+          previous,
+          next: step.next.assessedState,
+          reasons: step.next.reasons,
+        });
+      } catch {
+        console.error('[meta-webhook] number health alert failed');
+      }
+    }
+    return;
+  }
+  console.warn('[meta-webhook] number state kept losing its race; skipped');
+}
+
+function errorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(code)
+    ? code
+    : 'unknown';
 }
 
 /**
