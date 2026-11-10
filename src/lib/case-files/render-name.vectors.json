@@ -1,0 +1,205 @@
+{
+  "note": "Fixed vectors for renameFor (src/lib/case-files/checks.ts). Expected outputs were derived by hand from the rules of the 021 package's SQL case_file_render_name (literal replace case, company, doc, yyyymmdd in that order; runs outside [A-Za-z0-9._-] -> '_'; strip leading/trailing [._-]; left(120 - ext length) then strip trailing [._-]; '' -> 'file'; ext by exact mime match). The migration that ports case_file_render_name must assert these same vectors in its supabase/ci verify file, so the TS and SQL sides cannot drift.",
+  "vectors": [
+    {
+      "id": "plain-default-pattern",
+      "pattern": "{{case}}_{{doc}}_{{yyyymmdd}}",
+      "case": "TC-1234abcd",
+      "company": "ACME",
+      "doc": "passport",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "TC-1234abcd_passport_20261110.pdf"
+    },
+    {
+      "id": "arabic-company-only",
+      "pattern": "{{company}}_{{doc}}",
+      "case": null,
+      "company": "شركة الأمل",
+      "doc": "trade_license",
+      "date": "2026-11-10",
+      "mime": "image/jpeg",
+      "expected": "trade_license.jpg"
+    },
+    {
+      "id": "arabic-mixed",
+      "pattern": "{{case}}-{{company}}",
+      "case": "S-77",
+      "company": "Al Amal شركة 2",
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "image/png",
+      "expected": "S-77-Al_Amal_2.png"
+    },
+    {
+      "id": "emoji",
+      "pattern": "{{doc}} 😀 {{yyyymmdd}}",
+      "case": null,
+      "company": null,
+      "doc": "salary🎉cert",
+      "date": "2026-01-05",
+      "mime": "application/pdf",
+      "expected": "salary_cert_20260105.pdf"
+    },
+    {
+      "id": "slash-traversal",
+      "pattern": "{{company}}/{{doc}}",
+      "case": null,
+      "company": "../../etc",
+      "doc": "passwd",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "etc_passwd.pdf"
+    },
+    {
+      "id": "leading-dot",
+      "pattern": ".{{doc}}",
+      "case": null,
+      "company": null,
+      "doc": "hidden",
+      "date": "2026-11-10",
+      "mime": "image/png",
+      "expected": "hidden.png"
+    },
+    {
+      "id": "company-200-chars",
+      "pattern": "{{company}}_{{doc}}",
+      "case": null,
+      "company": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "doc": "id",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.pdf"
+    },
+    {
+      "id": "cut-lands-on-separator",
+      "pattern": "{{company}}",
+      "case": null,
+      "company": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB___CCCC",
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB.pdf"
+    },
+    {
+      "id": "unknown-placeholder",
+      "pattern": "{{case}}_{{bank}}_{{doc}}",
+      "case": "C1",
+      "company": null,
+      "doc": "kyc",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "C1__bank__kyc.pdf"
+    },
+    {
+      "id": "empty-pattern",
+      "pattern": "",
+      "case": "C1",
+      "company": "ACME",
+      "doc": "kyc",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "file.pdf"
+    },
+    {
+      "id": "null-pattern-unknown-mime",
+      "pattern": null,
+      "case": "C1",
+      "company": null,
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "application/zip",
+      "expected": "file"
+    },
+    {
+      "id": "mime-exact-match-only",
+      "pattern": "{{doc}}",
+      "case": null,
+      "company": null,
+      "doc": "scan",
+      "date": "2026-11-10",
+      "mime": "IMAGE/PNG",
+      "expected": "scan"
+    },
+    {
+      "id": "null-mime-keeps-dots",
+      "pattern": "{{doc}}",
+      "case": null,
+      "company": null,
+      "doc": "scan.final",
+      "date": "2026-11-10",
+      "mime": null,
+      "expected": "scan.final"
+    },
+    {
+      "id": "null-vars",
+      "pattern": "{{case}}_{{company}}_{{doc}}",
+      "case": null,
+      "company": null,
+      "doc": "x",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "x.pdf"
+    },
+    {
+      "id": "only-separators",
+      "pattern": "{{company}}",
+      "case": null,
+      "company": "...---___",
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "image/jpeg",
+      "expected": "file.jpg"
+    },
+    {
+      "id": "value-holds-later-placeholder",
+      "pattern": "{{case}}",
+      "case": "X{{doc}}Y",
+      "company": null,
+      "doc": "Z",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "XZY.pdf"
+    },
+    {
+      "id": "replacement-pattern-chars-literal",
+      "pattern": "p{{case}}",
+      "case": "$&$1",
+      "company": null,
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "p_1.pdf"
+    },
+    {
+      "id": "date-twice-leap-day",
+      "pattern": "{{yyyymmdd}}-{{yyyymmdd}}",
+      "case": null,
+      "company": null,
+      "doc": null,
+      "date": "2028-02-29",
+      "mime": "image/png",
+      "expected": "20280229-20280229.png"
+    },
+    {
+      "id": "spaces-and-trailing-dot",
+      "pattern": "  {{doc}} . ",
+      "case": null,
+      "company": null,
+      "doc": "bank statement",
+      "date": "2026-11-10",
+      "mime": "application/pdf",
+      "expected": "bank_statement.pdf"
+    },
+    {
+      "id": "backslash-tab-newline",
+      "pattern": "{{company}}",
+      "case": null,
+      "company": "C:\\Users\\a\tb\nc",
+      "doc": null,
+      "date": "2026-11-10",
+      "mime": "image/jpeg",
+      "expected": "C_Users_a_b_c.jpg"
+    }
+  ]
+}
