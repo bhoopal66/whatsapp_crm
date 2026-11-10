@@ -48,6 +48,7 @@ import { caseStatusView, contactPersonLine, formatAed } from '@/lib/cases/ui';
 import { canSnoozeCase } from '@/lib/cases/views-ui';
 import { cn } from '@/lib/utils';
 
+import { ApplyMacroMenu } from './apply-macro-menu';
 import { AuditTab } from './audit-tab';
 import { BankContactsTab } from './bank-contacts-tab';
 import {
@@ -581,6 +582,13 @@ export function CasePage({ caseId }: { caseId: string }) {
                 {ts('snooze')}
               </Button>
             ))}
+          {canWrite && (
+            <ApplyMacroMenu
+              caseId={caseId}
+              disabled={acting}
+              onApplied={() => void reload()}
+            />
+          )}
         </div>
         {c.isLead && (
           <p className="text-muted-foreground -mt-1 text-xs">{noGroup}</p>
