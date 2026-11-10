@@ -185,6 +185,9 @@ export const CASE_REFUSALS = [
   // 151 (Compass status -> stage map).
   'STATUS_FINAL',
   'STAGE_NOT_ALLOWED',
+  // 186 (case macros); ACTION_INVALID is 124's code, reused.
+  'NAME_INVALID',
+  'MACRO_NOT_FOUND',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

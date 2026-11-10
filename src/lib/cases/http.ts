@@ -130,10 +130,18 @@ const REFUSAL_TEXT: Record<string, string> = {
   STATUS_INVALID: 'That status is not valid',
   STATUS_FINAL: 'That status closes the case and cannot be mapped',
   STAGE_NOT_ALLOWED: 'A status cannot map to a pre-submission or final stage',
-  // 185 (saved views, snooze).
-  NAME_INVALID: 'A view name must be 1 to 60 characters',
+  // 185 (saved views, snooze) and 186 (case macros); NO_GROUP / FAILED
+  // only ever name a macro's action.
+  NAME_INVALID: 'A name must be 1 to 60 characters',
   SNOOZE_INVALID:
     'A snooze must end after now and within 30 days (reason up to 200 characters), and only a running snooze can be ended',
+  ACTION_INVALID: 'That action is not valid',
+  NO_GROUP,
+  FAILED: 'Something went wrong',
+  NOT_ALLOWED: 'Not allowed',
+  CASE_NOT_FOUND,
+  TASK_NOT_FOUND: 'Task not found',
+  MACRO_NOT_FOUND: 'Macro not found',
 };
 
 /** 130: one open lead / case per customer and bank; 134: the Compass lock. */
@@ -150,13 +158,18 @@ const VIEWS_CONFLICT_TEXT: Record<string, string> = {
   CASE_CLOSED: REFUSAL_TEXT.CASE_CLOSED,
 };
 
+/** A refusal code's wording (a macro run reports it per action). */
+export function refusalText(code: string): string {
+  return REFUSAL_TEXT[code] ?? CONFLICT_TEXT[code] ?? 'Request refused';
+}
+
 function refusal(
   code: string,
   conflicts: Record<string, string> = CONFLICT_TEXT
 ): NextResponse {
-  if (code === 'TASK_NOT_FOUND')
+  if (code === 'TASK_NOT_FOUND' || code === 'MACRO_NOT_FOUND')
     return NextResponse.json(
-      { error: 'Task not found', code },
+      { error: REFUSAL_TEXT[code], code },
       { status: 404 }
     );
   if (code === 'NOT_ALLOWED')

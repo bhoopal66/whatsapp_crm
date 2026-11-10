@@ -108,8 +108,15 @@ describe('case access mirrors match migration 122', () => {
       'utf8'
     );
     for (const h of ours151) expect(sql151).toContain(`HINT = '${h}'`);
+    // 186 adds the macros' own refusals; its other HINTs are reused.
+    const ours186 = ['NAME_INVALID', 'MACRO_NOT_FOUND'];
+    const sql186 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/186_case_macros.sql'),
+      'utf8'
+    );
+    for (const h of ours186) expect(sql186).toContain(`HINT = '${h}'`);
     expect(new Set(CASE_REFUSALS)).toEqual(
-      new Set([...hints, ...hints130, ...ours134, ...ours151])
+      new Set([...hints, ...hints130, ...ours134, ...ours151, ...ours186])
     );
   });
 });

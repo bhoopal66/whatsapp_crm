@@ -17,6 +17,7 @@ import { CaseConversations } from './conversations';
 import { BankDashboard } from './dashboard';
 import { HANDOVER_TEMPLATE_DRAFT } from './handover';
 import { CaseInbox } from './inbox';
+import { CaseMacroStore, type ApplyMacroDeps } from './macros';
 import { CaseNotesStore } from './notes';
 import { CaseSlaStore } from './sla';
 import { CaseStore } from './store';
@@ -33,6 +34,32 @@ export function caseStore(accountId?: string): CaseStore {
     admin,
     accountId ? { ender: submissionGroupService(accountId, admin) } : {}
   );
+}
+
+export function caseMacroStore(): CaseMacroStore {
+  return new CaseMacroStore(supabaseAdmin());
+}
+
+/**
+ * Everything one macro run (186) acts through, on one service-role client
+ * with one clock (`now` for every p_now). The case store ends the group of
+ * a final-stage move exactly as the stage route's does. No sender: a macro
+ * never sends.
+ */
+export function caseMacroDeps(
+  accountId: string,
+  now: Date
+): Omit<ApplyMacroDeps, 'refusalText'> {
+  const admin = supabaseAdmin();
+  const clock = () => now;
+  return {
+    macros: new CaseMacroStore(admin, clock),
+    cases: new CaseStore(admin, {
+      ender: submissionGroupService(accountId, admin),
+    }),
+    tools: new CaseToolsStore(admin, clock),
+    notes: new CaseNotesStore(admin, clock),
+  };
 }
 
 export function caseToolsStore(): CaseToolsStore {
