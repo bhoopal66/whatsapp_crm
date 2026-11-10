@@ -2290,6 +2290,7 @@
       "loadFailed": "번호 상태를 불러오지 못했습니다.",
       "none": "—",
       "unavailable": "사용할 수 없음",
+      "noRate": "요율 정보 없음",
       "assessed": "평가 상태",
       "states": {
         "NORMAL": "정상",

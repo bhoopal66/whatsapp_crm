@@ -8,6 +8,7 @@ import {
   parseReasons,
   qualityTone,
   utcDay,
+  wonSpendFigures,
 } from './view';
 
 describe('meta health view helpers', () => {
@@ -68,6 +69,45 @@ describe('meta health view helpers', () => {
     });
     expect(parseCostPerWonCase(null)).toBeNull();
     expect(parseCostPerWonCase([1])).toBeNull();
+  });
+
+  it('keeps an unknown won spend unknown and shows it as no rate on file', () => {
+    const parsed = parseCostPerWonCase({
+      won_cases: 2,
+      won_spend_usd: null,
+      cost_per_won_case_usd: null,
+      other_spend_usd: 0.5,
+      unknown_cost_messages: 1,
+    });
+    expect(parsed?.wonSpendUsd).toBeNull();
+    expect(wonSpendFigures(parsed!)).toEqual({
+      won: { kind: 'noRate' },
+      perCase: { kind: 'noRate' },
+    });
+  });
+
+  it('shows known figures as dollars and no won case as a dash', () => {
+    expect(
+      wonSpendFigures({
+        wonCases: 2,
+        wonSpendUsd: 0.1,
+        costPerWonCaseUsd: 0.05,
+        otherSpendUsd: 0,
+        unknownCostMessages: 0,
+      })
+    ).toEqual({
+      won: { kind: 'usd', usd: 0.1 },
+      perCase: { kind: 'usd', usd: 0.05 },
+    });
+    expect(
+      wonSpendFigures({
+        wonCases: 0,
+        wonSpendUsd: 0,
+        costPerWonCaseUsd: null,
+        otherSpendUsd: 0.2,
+        unknownCostMessages: 3,
+      })
+    ).toEqual({ won: { kind: 'usd', usd: 0 }, perCase: { kind: 'none' } });
   });
 
   it('flags the advisory cap once reached, never without one', () => {

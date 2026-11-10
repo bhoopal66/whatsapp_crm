@@ -31,7 +31,7 @@
 --   meta_health_event_record    append one event; a repeated
 --                               (account, dedup_key) returns false
 --   meta_number_state_set       compare-and-set on updated_at
---   meta_template_health_set    forward-only on the event time
+--   meta_template_health_set    forward-only per field on the event time
 --   meta_protection_set_enforce owner only (p_actor)
 --   meta_protection_set_marketing_cap  owner or admin (p_actor)
 -- Readers. Owners and admins of the account read the four tables
@@ -173,7 +173,13 @@ CREATE TABLE IF NOT EXISTS public.meta_template_health (
   quality       text NULL,
   status        text NULL,
   paused_until  timestamptz NULL,
-  -- The time of the newest event applied (Meta's, else receipt time).
+  -- Each field is forward-only on its own event time (Meta's, else
+  -- receipt time): Meta does not order a template's quality and status
+  -- events, so one shared clock let a late status lose to a newer
+  -- quality. NULL while that field was never reported.
+  quality_at    timestamptz NULL,
+  status_at     timestamptz NULL,
+  -- The time of the newest event applied, of either kind.
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (account_id, template_name, language)
 );
@@ -339,10 +345,14 @@ END;
 $$;
 
 -- One template's quality and/or status. p_at is the event's time (Meta's,
--- else receipt time); an event older than the row's newest is ignored and
--- returns false. A NULL quality or status keeps the stored one: a quality
--- update carries no status and the reverse. paused_until follows the
--- status: a status update sets it (NULL clears it).
+-- else receipt time). Quality and status are forward-only each on its own
+-- time (quality_at, status_at): a quality older than the stored quality
+-- is ignored, whatever the status's time, and the reverse, so a late
+-- PAUSED still lands after a newer quality. Returns false when nothing
+-- applied. A NULL quality or status means "not reported" and keeps the
+-- stored one and its time: a quality update carries no status and the
+-- reverse. paused_until follows the status: a status update that applies
+-- sets it (NULL clears it). updated_at is the newest time applied.
 CREATE OR REPLACE FUNCTION public.meta_template_health_set(p_account uuid, p_template_name text,
   p_language text, p_quality text, p_status text, p_paused_until timestamptz, p_at timestamptz)
 RETURNS boolean
@@ -358,16 +368,28 @@ BEGIN
     RAISE EXCEPTION 'TEMPLATE_HEALTH_INVALID: an account, a time and a quality or status are required'
       USING ERRCODE = 'check_violation', HINT = 'TEMPLATE_HEALTH_INVALID';
   END IF;
-  INSERT INTO public.meta_template_health AS t (account_id, template_name, language, quality, status,
-    paused_until, updated_at)
-  VALUES (p_account, p_template_name, p_language, p_quality, p_status,
+  -- Every SET expression reads the stored row (t), so each field's
+  -- "applies" test sees the times as they were before this call.
+  INSERT INTO public.meta_template_health AS t (account_id, template_name, language, quality,
+    quality_at, status, status_at, paused_until, updated_at)
+  VALUES (p_account, p_template_name, p_language, p_quality,
+          CASE WHEN p_quality IS NOT NULL THEN p_at END, p_status,
+          CASE WHEN p_status IS NOT NULL THEN p_at END,
           CASE WHEN p_status IS NOT NULL THEN p_paused_until END, p_at)
   ON CONFLICT (account_id, template_name, language) DO UPDATE
-    SET quality = coalesce(EXCLUDED.quality, t.quality),
-        status = coalesce(EXCLUDED.status, t.status),
-        paused_until = CASE WHEN p_status IS NOT NULL THEN EXCLUDED.paused_until ELSE t.paused_until END,
-        updated_at = EXCLUDED.updated_at
-    WHERE t.updated_at <= EXCLUDED.updated_at;
+    SET quality = CASE WHEN p_quality IS NOT NULL AND (t.quality_at IS NULL OR t.quality_at <= p_at)
+                       THEN p_quality ELSE t.quality END,
+        quality_at = CASE WHEN p_quality IS NOT NULL AND (t.quality_at IS NULL OR t.quality_at <= p_at)
+                          THEN p_at ELSE t.quality_at END,
+        status = CASE WHEN p_status IS NOT NULL AND (t.status_at IS NULL OR t.status_at <= p_at)
+                      THEN p_status ELSE t.status END,
+        status_at = CASE WHEN p_status IS NOT NULL AND (t.status_at IS NULL OR t.status_at <= p_at)
+                         THEN p_at ELSE t.status_at END,
+        paused_until = CASE WHEN p_status IS NOT NULL AND (t.status_at IS NULL OR t.status_at <= p_at)
+                            THEN p_paused_until ELSE t.paused_until END,
+        updated_at = greatest(t.updated_at, p_at)
+    WHERE (p_quality IS NOT NULL AND (t.quality_at IS NULL OR t.quality_at <= p_at))
+       OR (p_status IS NOT NULL AND (t.status_at IS NULL OR t.status_at <= p_at));
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n > 0;
 END;
@@ -519,7 +541,9 @@ $$;
 -- or could not be linked (a deal-room group message has no messages
 -- row). A customer with two won cases counts its spend once and both
 -- cases. A billed message whose rate is unknown (cost NULL, 051) is
--- never counted as 0: it is reported in unknown_cost_messages instead.
+-- never counted as 0: it is reported in unknown_cost_messages, and one
+-- such message on a won customer makes won_spend_usd and
+-- cost_per_won_case_usd NULL (no rate on file) rather than understated.
 CREATE OR REPLACE FUNCTION public.meta_cost_per_won_case(p_account uuid, p_from timestamptz, p_to timestamptz)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -559,13 +583,18 @@ BEGIN
            (b.delivered_at >= p_from) AS in_window
       FROM billed b
       LEFT JOIN won_contacts wc ON wc.contact_id = b.contact_id AND b.delivered_at <= wc.won_at
+  ), won_spend AS (
+    -- NULL, never a partial sum, when any won-case message has no rate
+    -- (051: unknown rates are NULL, never 0); 0 when there is none.
+    SELECT CASE WHEN bool_or(t.cost_usd IS NULL) THEN NULL
+                ELSE coalesce(sum(t.cost_usd), 0) END AS usd
+      FROM tagged t WHERE t.for_won
   )
   SELECT jsonb_build_object(
            'won_cases', (SELECT count(*) FROM won),
-           'won_spend_usd', coalesce((SELECT sum(t.cost_usd) FROM tagged t WHERE t.for_won), 0),
+           'won_spend_usd', (SELECT ws.usd FROM won_spend ws),
            'cost_per_won_case_usd', CASE WHEN (SELECT count(*) FROM won) = 0 THEN NULL
-             ELSE round(coalesce((SELECT sum(t.cost_usd) FROM tagged t WHERE t.for_won), 0)
-                        / (SELECT count(*) FROM won), 6) END,
+             ELSE round((SELECT ws.usd FROM won_spend ws) / (SELECT count(*) FROM won), 6) END,
            'other_spend_usd', coalesce((SELECT sum(t.cost_usd) FROM tagged t
                                          WHERE NOT t.for_won AND t.in_window), 0),
            'unknown_cost_messages', (SELECT count(*) FROM tagged t

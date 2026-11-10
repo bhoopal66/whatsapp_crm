@@ -2290,6 +2290,7 @@
       "loadFailed": "Could not load number health.",
       "none": "—",
       "unavailable": "Unavailable",
+      "noRate": "No rate on file",
       "assessed": "Assessed state",
       "states": {
         "NORMAL": "Normal",

@@ -229,6 +229,25 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.mnh_ok(b AND (SELECT status = 'APPROVED' AND paused_until IS NULL
       FROM meta_template_health WHERE account_id = a_acct AND template_name = 'promo' AND language = 'en'),
     'a later status did not clear the pause');
+  -- Quality and status each move forward on their own time: Meta does not
+  -- order them. State: quality GREEN @t0, status APPROVED @t0+2m.
+  b := meta_template_health_set(a_acct, 'promo', 'en', 'YELLOW', NULL, NULL, t0 + interval '10 minutes');
+  b := meta_template_health_set(a_acct, 'promo', 'en', NULL, 'PAUSED', t0 + interval '4 hours', t0 + interval '5 minutes');
+  n := n + 1; failed := failed || pg_temp.mnh_ok(b AND (SELECT quality = 'YELLOW' AND status = 'PAUSED'
+      AND paused_until = t0 + interval '4 hours' AND updated_at = t0 + interval '10 minutes'
+      FROM meta_template_health WHERE account_id = a_acct AND template_name = 'promo' AND language = 'en'),
+    'an older status after a newer quality was refused (the pause was lost)');
+  b := meta_template_health_set(a_acct, 'promo', 'en', NULL, 'APPROVED', NULL, t0 + interval '20 minutes');
+  b := meta_template_health_set(a_acct, 'promo', 'en', 'RED', NULL, NULL, t0 + interval '15 minutes');
+  n := n + 1; failed := failed || pg_temp.mnh_ok(b AND (SELECT quality = 'RED' AND status = 'APPROVED'
+      AND paused_until IS NULL AND updated_at = t0 + interval '20 minutes'
+      FROM meta_template_health WHERE account_id = a_acct AND template_name = 'promo' AND language = 'en'),
+    'an older quality after a newer status was refused, or moved the status');
+  b := meta_template_health_set(a_acct, 'promo', 'en', NULL, 'PAUSED', t0 + interval '5 hours', t0 + interval '18 minutes');
+  n := n + 1; failed := failed || pg_temp.mnh_ok(NOT b AND (SELECT quality = 'RED' AND status = 'APPROVED'
+      AND paused_until IS NULL AND status_at = t0 + interval '20 minutes'
+      FROM meta_template_health WHERE account_id = a_acct AND template_name = 'promo' AND language = 'en'),
+    'an older status after a newer status was applied');
 
   -- ---------- (d) settings ----------
   SELECT * INTO st FROM meta_protection_settings_get(a_acct);
@@ -381,6 +400,17 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.mnh_ok((j->>'won_cases')::int = 0
     AND j->'cost_per_won_case_usd' = 'null'::jsonb AND (j->>'won_spend_usd')::numeric = 0,
     format('an account with no won case reads %s', j));
+  -- A won customer's message with no rate on file: the won spend and the
+  -- cost per case are unknown (NULL), never an understated sum.
+  INSERT INTO messages (conversation_id, sender_type, content_type, message_id) VALUES
+    (cv1, 'bot', 'template', 'w-won-unknown');
+  PERFORM pg_temp.mnh_receipt(a_acct, 'MNH-188-A', 'w-won-unknown', '971500188101', 'delivered', 'marketing', t0 - interval '2 days', NULL);
+  j := meta_cost_per_won_case(a_acct, t0 - interval '1 day', t0 + interval '1 day');
+  n := n + 1; failed := failed || pg_temp.mnh_ok((j->>'won_cases')::int = 1
+    AND j->'won_spend_usd' = 'null'::jsonb AND j->'cost_per_won_case_usd' = 'null'::jsonb
+    AND (j->>'other_spend_usd')::numeric = 0.07 + 0.03 + 0.01 + 0.01 + 0.04
+    AND (j->>'unknown_cost_messages')::int = 2,
+    format('an unknown rate on a won customer reads %s', j));
   r := pg_temp.mnh_try(NULL, NULL, format('SELECT public.meta_cost_per_won_case(%L, %L, %L)::text', a_acct, t0, t0));
   n := n + 1; failed := failed || pg_temp.mnh_ok(r LIKE 'ERROR % [RANGE_INVALID]%',
     format('an empty range was not refused (%s)', r));
