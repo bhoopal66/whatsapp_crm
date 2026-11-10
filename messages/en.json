@@ -8775,6 +8775,104 @@
       "saveFailed": "The memory could not be saved."
     }
   },
+  "CaseMacros": {
+    "title": "Macros",
+    "description": "Saved lists of case actions that run on a case in one click. Your own macros, and the ones shared with the team.",
+    "add": "New macro",
+    "empty": "No macros yet.",
+    "loadFailed": "Couldn't load macros.",
+    "shared": "Shared",
+    "actionCount": "{count, plural, one {# action} other {# actions}}",
+    "editLabel": "Edit {name}",
+    "deleteLabel": "Delete {name}",
+    "deleteTitle": "Delete this macro?",
+    "deleteBody": "“{name}” will be removed for everyone who can use it.",
+    "deleteConfirm": "Delete",
+    "deleted": "Macro deleted",
+    "saved": "Macro saved",
+    "dialog": {
+      "newTitle": "New macro",
+      "editTitle": "Edit macro",
+      "description": "The actions run in order on the case. A refused action stops the run, and the earlier ones stay applied.",
+      "nameLabel": "Name",
+      "actionsLabel": "Actions",
+      "addAction": "Add action",
+      "step": "Step {step}",
+      "moveUp": "Move step {step} up",
+      "moveDown": "Move step {step} down",
+      "remove": "Remove step {step}",
+      "shareLabel": "Share with the team",
+      "shareHelp": "Everyone in the workspace can apply a shared macro. Only owners and admins can share.",
+      "cancel": "Cancel",
+      "save": "Save"
+    },
+    "kinds": {
+      "add_task": "Add a task",
+      "add_note": "Add a note",
+      "set_stage": "Move the stage",
+      "request_documents": "Preview the documents request"
+    },
+    "fields": {
+      "template": "Task template",
+      "templateNone": "No task templates are set up yet.",
+      "dueHours": "Due in (hours)",
+      "dueHoursHint": "Optional, 1 to 8760.",
+      "ownerRole": "Assign to",
+      "owner": {
+        "agent": "The case's agent",
+        "coordinator": "The case's coordinator",
+        "me": "Whoever applies it"
+      },
+      "body": "Note",
+      "placeholdersHint": "You can use these placeholders:",
+      "stage": "Stage",
+      "outcomeHint": "Sets the outcome to {outcome}.",
+      "requestDocumentsHint": "Shows the missing-documents message. Nothing is sent: send it with “Request missing documents”."
+    },
+    "problems": {
+      "name": "Give the macro a name of 1 to 60 characters.",
+      "noActions": "Add at least one action.",
+      "tooManyActions": "A macro has at most 10 actions.",
+      "action": "Step {step}: {problem}",
+      "actions": {
+        "templateKey": "pick a task template.",
+        "dueHours": "due hours must be a whole number from 1 to 8760.",
+        "ownerRole": "pick who gets the task.",
+        "body": "the note must be 1 to 4000 characters.",
+        "stage": "pick a stage.",
+        "outcome": "the outcome must be Approved, Declined or Withdrawn.",
+        "kind": "this action is not known."
+      }
+    },
+    "errors": {
+      "nameInvalid": "The name must be 1 to 60 characters.",
+      "actionInvalid": "One of the actions is not valid.",
+      "notAllowed": "You aren't allowed to do that.",
+      "notFound": "That macro no longer exists.",
+      "generic": "Something went wrong. Try again."
+    },
+    "apply": {
+      "button": "Apply macro",
+      "empty": "No macros yet. Create them in Settings → Cases.",
+      "loadFailed": "Couldn't load macros.",
+      "applying": "Applying…",
+      "resultTitle": "Applied “{name}”",
+      "previewTitle": "Documents request preview",
+      "previewHint": "Nothing was sent. To send it, use “Request missing documents”.",
+      "close": "Close"
+    },
+    "lines": {
+      "taskAdded": "Task added",
+      "noteAdded": "Note added",
+      "stageMoved": "Stage moved to {stage}",
+      "documentsPreviewed": "Documents request previewed",
+      "groupEnded": "WhatsApp group ended",
+      "groupEndPending": "WhatsApp group will be ended shortly",
+      "groupEndFailed": "The WhatsApp group could not be ended",
+      "stopped": "Stopped at step {step}: {reason}",
+      "unknown": "Action done"
+    }
+  },
   "CaseSettings": {
     "compass": {
       "label": "Submitted cases are managed in Compass",

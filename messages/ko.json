@@ -8775,6 +8775,104 @@
       "saveFailed": "메모리를 저장하지 못했습니다."
     }
   },
+  "CaseMacros": {
+    "title": "매크로",
+    "description": "케이스에 한 번에 실행하는 저장된 작업 목록입니다. 내 매크로와 팀에 공유된 매크로가 표시됩니다.",
+    "add": "새 매크로",
+    "empty": "아직 매크로가 없습니다.",
+    "loadFailed": "매크로를 불러오지 못했습니다.",
+    "shared": "공유됨",
+    "actionCount": "{count, plural, other {작업 #개}}",
+    "editLabel": "{name} 편집",
+    "deleteLabel": "{name} 삭제",
+    "deleteTitle": "이 매크로를 삭제할까요?",
+    "deleteBody": "“{name}” 매크로가 사용할 수 있는 모든 사람에게서 삭제됩니다.",
+    "deleteConfirm": "삭제",
+    "deleted": "매크로를 삭제했습니다",
+    "saved": "매크로를 저장했습니다",
+    "dialog": {
+      "newTitle": "새 매크로",
+      "editTitle": "매크로 편집",
+      "description": "작업은 케이스에서 순서대로 실행됩니다. 거부된 작업에서 실행이 멈추며, 앞선 작업은 적용된 상태로 남습니다.",
+      "nameLabel": "이름",
+      "actionsLabel": "작업",
+      "addAction": "작업 추가",
+      "step": "{step}단계",
+      "moveUp": "{step}단계를 위로 이동",
+      "moveDown": "{step}단계를 아래로 이동",
+      "remove": "{step}단계 삭제",
+      "shareLabel": "팀과 공유",
+      "shareHelp": "공유된 매크로는 워크스페이스의 모든 사람이 적용할 수 있습니다. 소유자와 관리자만 공유할 수 있습니다.",
+      "cancel": "취소",
+      "save": "저장"
+    },
+    "kinds": {
+      "add_task": "할 일 추가",
+      "add_note": "메모 추가",
+      "set_stage": "단계 이동",
+      "request_documents": "서류 요청 미리보기"
+    },
+    "fields": {
+      "template": "할 일 템플릿",
+      "templateNone": "아직 설정된 할 일 템플릿이 없습니다.",
+      "dueHours": "마감 (시간 후)",
+      "dueHoursHint": "선택 사항, 1~8760.",
+      "ownerRole": "담당자",
+      "owner": {
+        "agent": "케이스 담당 상담원",
+        "coordinator": "케이스 코디네이터",
+        "me": "매크로를 적용한 사람"
+      },
+      "body": "메모",
+      "placeholdersHint": "다음 자리표시자를 사용할 수 있습니다:",
+      "stage": "단계",
+      "outcomeHint": "결과를 {outcome}(으)로 설정합니다.",
+      "requestDocumentsHint": "누락 서류 요청 메시지를 보여 줍니다. 아무것도 보내지 않습니다. 보내려면 “누락 서류 요청”을 사용하세요."
+    },
+    "problems": {
+      "name": "매크로 이름은 1~60자로 입력하세요.",
+      "noActions": "작업을 하나 이상 추가하세요.",
+      "tooManyActions": "매크로에는 작업을 최대 10개까지 넣을 수 있습니다.",
+      "action": "{step}단계: {problem}",
+      "actions": {
+        "templateKey": "할 일 템플릿을 선택하세요.",
+        "dueHours": "마감 시간은 1~8760 사이의 정수여야 합니다.",
+        "ownerRole": "할 일을 받을 사람을 선택하세요.",
+        "body": "메모는 1~4000자여야 합니다.",
+        "stage": "단계를 선택하세요.",
+        "outcome": "결과는 Approved, Declined, Withdrawn 중 하나여야 합니다.",
+        "kind": "알 수 없는 작업입니다."
+      }
+    },
+    "errors": {
+      "nameInvalid": "이름은 1~60자여야 합니다.",
+      "actionInvalid": "작업 중 하나가 올바르지 않습니다.",
+      "notAllowed": "이 작업을 할 권한이 없습니다.",
+      "notFound": "해당 매크로가 더 이상 없습니다.",
+      "generic": "문제가 발생했습니다. 다시 시도하세요."
+    },
+    "apply": {
+      "button": "매크로 적용",
+      "empty": "아직 매크로가 없습니다. 설정 → 케이스에서 만드세요.",
+      "loadFailed": "매크로를 불러오지 못했습니다.",
+      "applying": "적용 중…",
+      "resultTitle": "“{name}” 적용됨",
+      "previewTitle": "서류 요청 미리보기",
+      "previewHint": "아무것도 보내지 않았습니다. 보내려면 “누락 서류 요청”을 사용하세요.",
+      "close": "닫기"
+    },
+    "lines": {
+      "taskAdded": "할 일을 추가했습니다",
+      "noteAdded": "메모를 추가했습니다",
+      "stageMoved": "단계를 {stage}(으)로 이동했습니다",
+      "documentsPreviewed": "서류 요청을 미리 보았습니다",
+      "groupEnded": "WhatsApp 그룹을 종료했습니다",
+      "groupEndPending": "WhatsApp 그룹이 곧 종료됩니다",
+      "groupEndFailed": "WhatsApp 그룹을 종료하지 못했습니다",
+      "stopped": "{step}단계에서 멈춤: {reason}",
+      "unknown": "작업 완료"
+    }
+  },
   "CaseSettings": {
     "compass": {
       "label": "제출된 케이스는 Compass에서 관리됩니다",
