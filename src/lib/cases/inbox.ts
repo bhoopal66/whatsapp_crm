@@ -35,8 +35,16 @@ export interface CaseInboxFilters {
   /** Whole days, 1..3650: last activity before now - N days. */
   noActivityDays?: number;
   includeClosed?: boolean;
+  /** 185: snoozed cases are hidden unless 'only' or 'all' (SQL default 'hide'). */
+  snoozed?: CaseInboxSnoozed;
+  /** 185: a snooze that ended at or before now, less than 24 hours ago. */
+  snoozeExpired?: boolean;
+  /** 185: a note mentions the caller. */
+  mentionedMe?: boolean;
   sort?: CaseInboxSort;
 }
+
+export type CaseInboxSnoozed = 'hide' | 'only' | 'all';
 
 export interface CaseInboxRow {
   caseId: string;
@@ -70,6 +78,10 @@ export interface CaseInboxRow {
   amount: string | null;
   openedAt: Date;
   closedAt: Date | null;
+  /** 185: NULL when never snoozed; may be past (the snooze has ended). */
+  snoozedUntil: Date | null;
+  /** 185: the snooze ended at or before now, less than 24 hours ago. */
+  snoozeExpired: boolean;
 }
 
 export interface CaseInboxPage {
@@ -102,8 +114,14 @@ export class CaseInboxRefusedError extends Error {
 export const INBOX_MAX_LIMIT = 200;
 export const INBOX_DEFAULT_LIMIT = 50;
 
-const SORTS: readonly string[] = ['most_overdue', 'due_soonest', 'stalest'];
+export const INBOX_SORTS: readonly CaseInboxSort[] = [
+  'most_overdue',
+  'due_soonest',
+  'stalest',
+];
+const SORTS: readonly string[] = INBOX_SORTS;
 const SLA_STATES: readonly string[] = ['on_track', 'due_soon', 'overdue'];
+const SNOOZED: readonly string[] = ['hide', 'only', 'all'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Check = (v: unknown) => boolean;
@@ -115,7 +133,10 @@ const oneOf =
   (v) =>
     typeof v === 'string' && list.includes(v);
 
-/** camelCase key -> 125's key and the value check. */
+/**
+ * camelCase key -> 125's (185's) key and the value check. The one table:
+ * the inbox and the saved views (views.ts) both map through it.
+ */
 const FILTERS: Record<keyof CaseInboxFilters, [string, Check]> = {
   bank: ['bank', text],
   stage: ['stage', text],
@@ -130,8 +151,24 @@ const FILTERS: Record<keyof CaseInboxFilters, [string, Check]> = {
     (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 3650,
   ],
   includeClosed: ['include_closed', bool],
+  snoozed: ['snoozed', oneOf(SNOOZED)],
+  snoozeExpired: ['snooze_expired', bool],
+  mentionedMe: ['mentioned_me', bool],
   sort: ['sort', oneOf(SORTS)],
 };
+
+/**
+ * A stored SQL filter object (a saved view's) -> the camelCase filters.
+ * A key the table does not know is dropped: 185's validator never stores one.
+ */
+export function inboxFiltersFromSql(
+  sql: Record<string, unknown>
+): CaseInboxFilters {
+  const out: Record<string, unknown> = {};
+  for (const [key, [sqlKey]] of Object.entries(FILTERS))
+    if (sqlKey in sql && sql[sqlKey] !== undefined) out[key] = sql[sqlKey];
+  return out as CaseInboxFilters;
+}
 
 /** The SQL filter object: known keys only, every value checked. */
 export function inboxSqlFilters(
@@ -177,6 +214,8 @@ function toRow(r: Record<string, unknown>): CaseInboxRow {
     amount: str(r.amount),
     openedAt: date(r.opened_at)!,
     closedAt: date(r.closed_at),
+    snoozedUntil: date(r.snoozed_until),
+    snoozeExpired: r.snooze_expired === true,
   };
 }
 

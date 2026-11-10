@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   open: vi.fn(),
   groupGet: vi.fn(),
   rpcResult: { data: null, error: null } as { data: unknown; error: unknown },
+  rpcCalls: [] as { fn: string; args: Record<string, unknown> }[],
   statuses: vi.fn(),
   names: vi.fn(),
 }));
@@ -18,7 +19,12 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
 }));
 // The inbox's rpc answers m.rpcResult.
 vi.mock('@/lib/submission-groups/server', () => ({
-  supabaseAdmin: () => ({ rpc: async () => m.rpcResult }),
+  supabaseAdmin: () => ({
+    rpc: async (fn: string, args: Record<string, unknown>) => (
+      m.rpcCalls.push({ fn, args }),
+      m.rpcResult
+    ),
+  }),
   submissionGroupStore: () => ({ get: m.groupGet }),
 }));
 vi.mock('@/lib/cases/server', () => ({
@@ -53,6 +59,7 @@ const ctx = { userId: 'u-me', accountId: 'acct-1', role: 'admin' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.rpcCalls.length = 0;
   m.getCurrentAccount.mockResolvedValue(ctx);
   m.requireRole.mockResolvedValue(ctx);
   m.rpcResult = { data: [], error: null };
@@ -121,10 +128,68 @@ describe('GET /api/cases', () => {
     ['sort=random', 'FILTER_INVALID'],
     ['limit=ten', 'LIMIT_INVALID'],
     ['after=notjson', 'CURSOR_INVALID'],
+    ['snoozed=later', 'FILTER_INVALID'],
+    ['mentionedMe=yes', 'FILTER_INVALID'],
   ])('refuses %s with 422 %s', async (qs, code) => {
     const res = await get(qs);
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ code });
+  });
+
+  it('without 185’s params sends exactly the filters it did before', async () => {
+    await get('bank=ADCB&sort=stalest');
+    expect(Object.keys(m.rpcCalls[0].args).sort()).toEqual([
+      'p_account',
+      'p_actor',
+      'p_after',
+      'p_filters',
+      'p_limit',
+      'p_now',
+    ]);
+    expect(m.rpcCalls[0].args).toMatchObject({
+      p_actor: 'u-me',
+      p_account: 'acct-1',
+      p_filters: { bank: 'ADCB', sort: 'stalest' },
+      p_limit: 50,
+      p_after: null,
+    });
+  });
+
+  it('maps snoozed / snoozeExpired / mentionedMe onto 185’s filter keys', async () => {
+    await get('snoozed=only&snoozeExpired=true&mentionedMe=false');
+    expect(m.list).toHaveBeenCalledWith(
+      'u-me',
+      'acct-1',
+      { snoozed: 'only', snoozeExpired: true, mentionedMe: false },
+      { limit: undefined, after: undefined }
+    );
+    expect(m.rpcCalls[0].args.p_filters).toEqual({
+      snoozed: 'only',
+      snooze_expired: true,
+      mentioned_me: false,
+    });
+  });
+
+  it('rows carry snoozedUntil and snoozeExpired', async () => {
+    m.rpcResult = {
+      data: [
+        {
+          case_id: 'c1',
+          stage: 'New',
+          agent_id: A,
+          last_activity_at: '2026-10-18T10:00:00Z',
+          opened_at: '2026-10-01T10:00:00Z',
+          snoozed_until: '2026-10-20T10:00:00Z',
+          snooze_expired: false,
+        },
+      ],
+      error: null,
+    };
+    const body = await (await get('snoozed=all')).json();
+    expect(body.rows[0]).toMatchObject({
+      snoozedUntil: '2026-10-20T10:00:00.000Z',
+      snoozeExpired: false,
+    });
   });
 
   it('maps a database refusal', async () => {

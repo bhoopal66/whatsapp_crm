@@ -32,6 +32,7 @@ import { BankDashboardRefusedError } from './dashboard';
 import { CaseInboxRefusedError, type CaseInboxFilters } from './inbox';
 import { CaseRefusedError, CaseStoreError, type CaseStore } from './store';
 import type { Case, CaseRole } from './types';
+import { CaseViewsRefusedError } from './views';
 import { inPostgresRange } from '@/lib/pg-date';
 
 export { isUuid };
@@ -129,6 +130,10 @@ const REFUSAL_TEXT: Record<string, string> = {
   STATUS_INVALID: 'That status is not valid',
   STATUS_FINAL: 'That status closes the case and cannot be mapped',
   STAGE_NOT_ALLOWED: 'A status cannot map to a pre-submission or final stage',
+  // 185 (saved views, snooze).
+  NAME_INVALID: 'A view name must be 1 to 60 characters',
+  SNOOZE_INVALID:
+    'A snooze must end after now and within 30 days (reason up to 200 characters), and only a running snooze can be ended',
 };
 
 /** 130: one open lead / case per customer and bank; 134: the Compass lock. */
@@ -139,7 +144,16 @@ const CONFLICT_TEXT: Record<string, string> = {
   CASE_EXISTS: 'An open case already exists for this customer and bank',
 };
 
-function refusal(code: string): NextResponse {
+/** 185: a snooze on a closed case is a conflict (SPEC_020c §9). */
+const VIEWS_CONFLICT_TEXT: Record<string, string> = {
+  ...CONFLICT_TEXT,
+  CASE_CLOSED: REFUSAL_TEXT.CASE_CLOSED,
+};
+
+function refusal(
+  code: string,
+  conflicts: Record<string, string> = CONFLICT_TEXT
+): NextResponse {
   if (code === 'TASK_NOT_FOUND')
     return NextResponse.json(
       { error: 'Task not found', code },
@@ -149,11 +163,13 @@ function refusal(code: string): NextResponse {
     return NextResponse.json({ error: 'Not allowed', code }, { status: 403 });
   if (code === 'CASE_NOT_FOUND')
     return NextResponse.json({ error: CASE_NOT_FOUND, code }, { status: 404 });
-  if (CONFLICT_TEXT[code])
+  if (code === 'VIEW_NOT_FOUND')
     return NextResponse.json(
-      { error: CONFLICT_TEXT[code], code },
-      { status: 409 }
+      { error: 'View not found', code },
+      { status: 404 }
     );
+  if (conflicts[code])
+    return NextResponse.json({ error: conflicts[code], code }, { status: 409 });
   return NextResponse.json(
     { error: REFUSAL_TEXT[code] ?? 'Request refused', code },
     { status: 422 }
@@ -176,6 +192,8 @@ export function caseErrorResponse(err: unknown, route?: string): NextResponse {
     err instanceof BankDashboardRefusedError
   )
     return refusal(err.reason);
+  if (err instanceof CaseViewsRefusedError)
+    return refusal(err.reason, VIEWS_CONFLICT_TEXT);
   if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
     return toErrorResponse(err);
   if (err instanceof CaseStoreError)
@@ -292,12 +310,16 @@ const TEXT_FILTERS = {
   priority: 'priority',
   sla_state: 'slaState',
   sort: 'sort',
+  // 185's params are named as SPEC_020c §9 names them (camelCase).
+  snoozed: 'snoozed',
 } as const;
 const BOOL_FILTERS = {
   customer_waiting: 'customerWaiting',
   documents_missing: 'documentsMissing',
   bank_query_open: 'bankQueryOpen',
   include_closed: 'includeClosed',
+  snoozeExpired: 'snoozeExpired',
+  mentionedMe: 'mentionedMe',
 } as const;
 
 /** A whole number when the text is one, else the text itself (the lib refuses it). */

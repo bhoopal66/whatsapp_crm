@@ -85,6 +85,38 @@ describe('CaseInbox.list', () => {
     expect(page.nextCursor).toBeNull();
   });
 
+  it('maps 185’s snooze and mention filters to their SQL keys', async () => {
+    const { db, inbox: ib } = inbox(() => ({ data: [] }));
+    await ib.list(ACTOR, ACCOUNT_ID, {
+      snoozed: 'only',
+      snoozeExpired: true,
+      mentionedMe: false,
+    });
+    expect(db.rpcs[0].args.p_filters).toEqual({
+      snoozed: 'only',
+      snooze_expired: true,
+      mentioned_me: false,
+    });
+  });
+
+  it('rows carry 185’s snoozedUntil and snoozeExpired', async () => {
+    const { inbox: ib } = inbox(() => ({
+      data: [
+        row(),
+        row({
+          case_id: 's1',
+          snoozed_until: '2026-10-19T09:00:00Z',
+          snooze_expired: true,
+        }),
+      ],
+    }));
+    const page = await ib.list(ACTOR, ACCOUNT_ID);
+    expect(page.rows.map((r) => [r.snoozedUntil, r.snoozeExpired])).toEqual([
+      [null, false],
+      [new Date('2026-10-19T09:00:00Z'), true],
+    ]);
+  });
+
   it('a row with no submission ref (130: a lead, no group) is a lead', async () => {
     const { inbox: ib } = inbox(() => ({
       data: [row(), row({ case_id: 'lead-1', submission_ref: null })],
@@ -114,6 +146,9 @@ describe('CaseInbox.list', () => {
     [{ noActivityDays: 1.5 }],
     [{ customerWaiting: 'yes' }],
     [{ bank: '   ' }],
+    [{ snoozed: 'later' }],
+    [{ snoozeExpired: 'true' }],
+    [{ mentionedMe: 1 }],
   ])('refuses %j with FILTER_INVALID before any call', async (f) => {
     const { db, inbox: ib } = inbox(() => ({ data: [] }));
     await expect(ib.list(ACTOR, ACCOUNT_ID, f as never)).rejects.toMatchObject({

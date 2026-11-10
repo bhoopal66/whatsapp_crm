@@ -21,6 +21,7 @@ import { CaseNotesStore } from './notes';
 import { CaseSlaStore } from './sla';
 import { CaseStore } from './store';
 import { CaseToolsStore } from './tools';
+import { CaseViews } from './views';
 
 /**
  * With an account id, a final-stage move ends the submission group
@@ -63,6 +64,11 @@ export function caseSlaInboundHook(admin: SupabaseClient): CaseSlaHook {
 
 export function caseInbox(): CaseInbox {
   return new CaseInbox(supabaseAdmin());
+}
+
+/** Saved views, snooze and mentions (185). Snooze: check tenancy first. */
+export function caseViews(): CaseViews {
+  return new CaseViews(supabaseAdmin());
 }
 
 /**
