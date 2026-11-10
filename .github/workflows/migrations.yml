@@ -862,3 +862,13 @@ jobs:
       # none for a lead); privileges.
       - name: Verify case files for Compass
         run: supabase db query --local --file supabase/ci/verify-case-files-compass.sql
+
+      # Migration 183: WhatsApp document intake prompts (database half, off
+      # by default). INTAKE_OFF and TEMPLATE_NOT_APPROVED before anything is
+      # recorded; the wording (owner/admin set, a changed body unapproves,
+      # owner-only approval, never of their own edit, get NULL until approved,
+      # the audit); record (FILE_NOT_FOUND, FILE_STATE, PROMPT_INVALID,
+      # CASE_CLOSED, one open prompt per case); answer once (PROMPT_STALE,
+      # PROMPT_OPTION, a file staff classified); the guard; privileges.
+      - name: Verify case intake
+        run: supabase db query --local --file supabase/ci/verify-case-intake.sql

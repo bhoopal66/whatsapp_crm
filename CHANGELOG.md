@@ -17,7 +17,8 @@ and polish.
 - **Migration required:** apply, in this order and each as a superuser or
   BYPASSRLS role: `179_case_system_notes.sql`,
   `180_customer_documents_internal.sql`, `181_case_files.sql`,
-  `182_case_file_builds.sql`, `185_case_views_snooze_mentions.sql`,
+  `182_case_file_builds.sql`, `183_case_intake_prompts.sql`,
+  `184_case_files_compass.sql`, `185_case_views_snooze_mentions.sql`,
   `186_case_macros.sql`, `187_case_rules.sql`. Each has a
   `supabase/ci/verify-*.sql` file wired into the migrations workflow.
 - **Case files.** Owners and admins set, per bank and product, which
@@ -45,6 +46,16 @@ and polish.
   submission, and assign an agent or coordinator, add a note or set the
   priority. Rules never send messages and never change a Compass-managed
   case. See `docs/cases.md`.
+
+### Case document intake prompts: database half, off by default
+
+- **Migration required:** apply `supabase/migrations/183_case_intake_prompts.sql`
+  (after 181) as a superuser or BYPASSRLS role.
+- Stores the wording of the WhatsApp "which document did you just send?"
+  messages and the prompts a sender has sent. Nothing sends yet. A prompt
+  can be recorded only while Settings' `files_intake_prompts` switch is on
+  **and** an owner has approved the `document_classify` wording; an edit
+  to the wording withdraws its approval, and nobody approves their own edit.
 
 ### Customer documents: every file a customer sends is filed under their reference
 
