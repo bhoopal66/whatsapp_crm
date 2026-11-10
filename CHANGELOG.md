@@ -23,7 +23,8 @@ and polish.
   are in `docs/customer-documents.md`. Without it, files queue and none
   reach the NAS.
 - Every document and photo a customer sends in a 1:1 WhatsApp chat (any
-  number: Whapi, Meta or OpenWA) is given to that customer's own
+  number: Whapi, Meta or OpenWA) or in their case's WhatsApp group is
+  given to that customer's own
   reference number, such as `TC-000123`, and copied into a folder of that
   name on the company NAS. Stickers, voice notes, audio and video are not
   filed, and nothing that arrived before the migration is.

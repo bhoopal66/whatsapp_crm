@@ -22,6 +22,11 @@ Filed:
 - A **document** (any file type) or a **photo** (image) a customer sends
   in a 1:1 WhatsApp chat, on any provider: Whapi, Meta Cloud API or
   OpenWA.
+- The same, sent by the customer in their case's **submission group**
+  (Whapi). The file is first copied into the CRM's `chat-media` storage,
+  like 1:1 media, even when the number's media mirror is switched off,
+  because the worker has no other way to fetch it. Messages from
+  coordinators or staff in the group are not filed.
 
 Not filed:
 
@@ -38,11 +43,9 @@ blocks or fails a message: if recording errors, the app logs
 `[customer-docs] record failed for message <id>` and carries on. That
 document is then not filed.
 
-Documents a customer sends in their case's **submission group** are
-meant to be filed the same way (first copied into the CRM's `chat-media`
-storage, like 1:1 media). The database side accepts that source
-(`submission_group`), but on this branch the app does not yet call it
-for group messages, so only 1:1 chats are filed today.
+A group document whose media could not be copied into `chat-media` is
+not filed; the app logs `[customer-docs] group media not mirrored for
+group message <id>`.
 
 ## Reference numbers and folders
 

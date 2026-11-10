@@ -1209,6 +1209,11 @@ copied to the NAS by a worker. Archive only: nothing is sent or changed.
   and before the `fanOut: false` cut. It never throws. The kind comes
   from the normalised type (`customerDocumentKind`): a sticker is stored
   as `image` and must stay out; audio, voice and video are not filed.
+  A customer's document in a submission group goes through
+  `groupCustomerDocumentHook` (`group-documents.ts`), called from
+  `recordSubmissionGroupInbound` once the message is recorded; it mirrors
+  the media into `chat-media` first (ignoring 039's opt-out, since the
+  worker has no other way to fetch it) and never throws.
 - **The copier never runs in the app.** `scripts/customer-docs-worker.mjs`
   (logic in `nas-worker.ts`) is its own systemd service: the NAS is a
   `hard` CIFS mount and an outage would block the app. It claims nothing
