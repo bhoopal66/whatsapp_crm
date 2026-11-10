@@ -9241,6 +9241,27 @@
       "label": "케이스 그룹에 보낸 서류를 고객이 번호를 눌러 분류하도록 요청",
       "help": "WhatsApp 메시지를 보냅니다. 메시지 문구가 승인될 때까지 꺼 두세요."
     },
+    "wording": {
+      "title": "메시지 문구",
+      "note": "스위치를 켜고 모든 메시지를 소유자가 승인하기 전까지는 아무것도 전송되지 않습니다.",
+      "approved": "승인됨",
+      "waiting": "소유자 승인 대기 중",
+      "noWording": "아직 문구 없음",
+      "placeholders": "사용 가능: {list}",
+      "save": "문구 저장",
+      "approve": "승인",
+      "saved": "문구를 저장했습니다. 소유자의 승인이 필요합니다.",
+      "approvedToast": "문구를 승인했습니다",
+      "problems": {
+        "blank": "먼저 메시지를 작성하세요.",
+        "tooLong": "1,000자 이내로 작성하세요."
+      },
+      "kinds": {
+        "document_classify": "파일이 어떤 서류인지 묻기",
+        "document_rejected": "파일이 검사를 통과하지 못했다고 알리기",
+        "document_received_next": "수신을 확인하고 다음 서류 요청하기"
+      }
+    },
     "stageProblems": {
       "incomplete": "두 단계를 모두 선택하세요.",
       "notSelectable": "제출 이후의, 최종이 아닌 단계를 선택하세요.",
@@ -9253,6 +9274,8 @@
       "bankUnknown": "이 워크스페이스에 설정되지 않은 은행입니다.",
       "settingInvalid": "이 단계는 이동에 사용할 수 없습니다. 제출 이후의, 최종이 아닌 단계를 순서대로 선택하세요.",
       "notAllowed": "소유자와 관리자만 변경할 수 있습니다.",
+      "selfApproval": "직접 수정한 문구는 다른 소유자가 승인해야 합니다.",
+      "templateInvalid": "문구가 올바르지 않습니다. 1자에서 1,000자 사이로 작성하세요.",
       "generic": "저장하지 못했습니다 ({error})."
     },
     "spec": {

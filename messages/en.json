@@ -9241,6 +9241,27 @@
       "label": "Ask customers to tap a number to classify documents they send in their case group",
       "help": "Sends WhatsApp messages; stays off until the message wording is approved."
     },
+    "wording": {
+      "title": "Message wording",
+      "note": "Nothing is sent until the switch is on and every message is approved by an owner.",
+      "approved": "Approved",
+      "waiting": "Waiting for an owner's approval",
+      "noWording": "No wording yet",
+      "placeholders": "You can use: {list}",
+      "save": "Save wording",
+      "approve": "Approve",
+      "saved": "Wording saved. An owner needs to approve it.",
+      "approvedToast": "Wording approved",
+      "problems": {
+        "blank": "Write the message first.",
+        "tooLong": "Keep it under 1,000 characters."
+      },
+      "kinds": {
+        "document_classify": "Ask which document a file is",
+        "document_rejected": "Tell the customer a file did not pass",
+        "document_received_next": "Confirm receipt and ask for the next one"
+      }
+    },
     "stageProblems": {
       "incomplete": "Pick both stages.",
       "notSelectable": "Pick stages after submission that are not final.",
@@ -9253,6 +9274,8 @@
       "bankUnknown": "That bank is not set up in this workspace.",
       "settingInvalid": "Those stages can't be used for the move. Pick stages after submission, not final, in order.",
       "notAllowed": "Only owners and admins can change this.",
+      "selfApproval": "Another owner must approve wording you edited.",
+      "templateInvalid": "That wording is not valid. Write 1 to 1,000 characters.",
       "generic": "Couldn't save ({error})."
     },
     "spec": {

@@ -19,25 +19,33 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/use-auth';
+import { isOwner } from '@/lib/auth/roles';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useCan } from '@/hooks/use-can';
 import {
   CASE_FILES_SWITCHES,
+  INTAKE_PLACEHOLDERS,
   NAME_PLACEHOLDERS,
   SPEC_MIME_TYPES,
   caseFilesErrorKey,
   caseFilesSettingsBody,
   parseCaseFilesSettings,
   parseFileSpec,
+  parseIntakeTemplates,
   readyStageOptions,
   specBody,
   specDraft,
   specRowsFromDraft,
+  templateBodyProblem,
   validateReadyStages,
   validateSpecRows,
   type CaseFilesSettings,
   type CaseFilesSwitchKey,
   type FileSpecView,
+  type IntakeKind,
+  type IntakeTemplateView,
   type SpecDraft,
   type SpecProblem,
   type SpecRowDraft,
@@ -197,6 +205,9 @@ export function CaseFilesSettingsCard() {
                       ) : null}
                     </div>
                   ) : null}
+                  {key === 'intakePrompts' ? (
+                    <IntakeWording canEdit={canEdit} />
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -226,6 +237,163 @@ export function CaseFilesSettingsCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const INTAKE_URL = '/api/cases/config/intake-templates';
+
+/**
+ * The WhatsApp intake wording: one message per kind, each saved on its
+ * own (any edit withdraws its approval) and approved by an owner other
+ * than whoever last edited it. Independent of the card's Save.
+ */
+function IntakeWording({ canEdit }: { canEdit: boolean }) {
+  const t = useTranslations('CaseFilesSettings.wording');
+  const failToast = useFailToast();
+  const { accountRole } = useAuth();
+  const owner = !!accountRole && isOwner(accountRole);
+  const [open, setOpen] = useState(false);
+  const [saved, setSaved] = useState<IntakeTemplateView[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || saved) return;
+    let off = false;
+    void call(INTAKE_URL).then((answer) => {
+      if (off) return;
+      const rows = parseIntakeTemplates(answer.ok ? answer.body : null);
+      setSaved(rows);
+      setDrafts(Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])));
+    });
+    return () => {
+      off = true;
+    };
+  }, [open, saved]);
+
+  function patch(kind: IntakeKind, change: Partial<IntakeTemplateView>) {
+    setSaved((rows) =>
+      rows ? rows.map((r) => (r.kind === kind ? { ...r, ...change } : r)) : rows
+    );
+  }
+
+  async function save(kind: IntakeKind) {
+    const text = drafts[kind] ?? '';
+    if (templateBodyProblem(text)) return;
+    setBusy(kind);
+    const answer = await call(`${INTAKE_URL}/${kind}`, {
+      method: 'PUT',
+      body: JSON.stringify({ body: text }),
+    });
+    setBusy(null);
+    if (!answer.ok) return failToast(answer);
+    patch(kind, { body: text, approved: false });
+    toast.success(t('saved'));
+  }
+
+  async function approve(kind: IntakeKind) {
+    setBusy(kind);
+    const answer = await call(`${INTAKE_URL}/${kind}/approve`, {
+      method: 'POST',
+    });
+    setBusy(null);
+    if (!answer.ok) return failToast(answer);
+    patch(kind, { approved: true });
+    toast.success(t('approvedToast'));
+  }
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        className="text-foreground text-sm font-medium underline-offset-4 hover:underline"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {t('title')}
+      </button>
+      {open ? (
+        <div className="space-y-4">
+          <p className="text-muted-foreground text-xs">{t('note')}</p>
+          {saved ? (
+            saved.map((row) => {
+              const text = drafts[row.kind] ?? '';
+              const problem = templateBodyProblem(text);
+              const changed = text !== (row.body ?? '');
+              return (
+                <div key={row.kind} className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label htmlFor={`intake-${row.kind}`}>
+                      {t(`kinds.${row.kind}`)}
+                    </Label>
+                    {row.body === null ? (
+                      <Badge variant="outline">{t('noWording')}</Badge>
+                    ) : row.approved ? (
+                      <Badge className="bg-success-soft text-success">
+                        {t('approved')}
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-warning-soft text-warning">
+                        {t('waiting')}
+                      </Badge>
+                    )}
+                  </div>
+                  <Textarea
+                    id={`intake-${row.kind}`}
+                    rows={4}
+                    value={text}
+                    readOnly={!canEdit}
+                    disabled={busy !== null}
+                    onChange={(e) =>
+                      setDrafts((d) => ({ ...d, [row.kind]: e.target.value }))
+                    }
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {t('placeholders', {
+                      list: INTAKE_PLACEHOLDERS[row.kind].join(' '),
+                    })}
+                  </p>
+                  {changed && problem ? (
+                    <p className="text-warning text-xs">
+                      {t(`problems.${problem}`)}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    {owner && row.body !== null && !row.approved && !changed ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy !== null}
+                        onClick={() => void approve(row.kind)}
+                      >
+                        {busy === row.kind ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : null}
+                        {t('approve')}
+                      </Button>
+                    ) : null}
+                    {canEdit ? (
+                      <Button
+                        size="sm"
+                        disabled={!changed || !!problem || busy !== null}
+                        onClick={() => void save(row.kind)}
+                      >
+                        {t('save')}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div
+              className="bg-muted/50 h-24 animate-pulse rounded-lg"
+              aria-busy="true"
+            />
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
