@@ -4,7 +4,8 @@
 --
 -- What it is. The database half of "number protection": a record of
 -- what Meta's webhooks say about the account's Cloud API number and
--- its templates (account_update, phone_number_quality_update,
+-- its templates (account_update, account_review_update,
+-- phone_number_quality_update,
 -- message_template_quality_update, message_template_status_update),
 -- the number's current health and an assessed sending state, each
 -- template's quality and status, and two read-only figures: marketing
@@ -68,7 +69,7 @@ CREATE TABLE IF NOT EXISTS public.meta_health_events (
 
 ALTER TABLE public.meta_health_events DROP CONSTRAINT IF EXISTS meta_health_events_kind_check;
 ALTER TABLE public.meta_health_events ADD CONSTRAINT meta_health_events_kind_check
-  CHECK (kind IN ('account_update', 'phone_number_quality_update',
+  CHECK (kind IN ('account_update', 'account_review_update', 'phone_number_quality_update',
                   'message_template_quality_update', 'message_template_status_update'));
 ALTER TABLE public.meta_health_events DROP CONSTRAINT IF EXISTS meta_health_events_dedup_key_check;
 ALTER TABLE public.meta_health_events ADD CONSTRAINT meta_health_events_dedup_key_check

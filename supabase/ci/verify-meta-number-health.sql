@@ -154,6 +154,8 @@ BEGIN
     'a repeated dedup key was recorded or changed the first event');
   b := meta_health_event_record(a_acct, wm, 'account_update', 'k2', '{}'::jsonb);
   n := n + 1; failed := failed || pg_temp.mnh_ok(b, 'a second key was not recorded');
+  b := meta_health_event_record(a_acct, wm, 'account_review_update', 'kr', '{}'::jsonb);
+  n := n + 1; failed := failed || pg_temp.mnh_ok(b, 'an account_review_update event was not recorded');
   b := meta_health_event_record(b_acct, wb, 'message_template_status_update', 'k1', '{}'::jsonb);
   n := n + 1; failed := failed || pg_temp.mnh_ok(b, 'the same key in another account was treated as a repeat');
   r := pg_temp.mnh_try(NULL, NULL, format(
