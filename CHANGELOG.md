@@ -22,7 +22,14 @@ and polish.
   quality and status), keeps the number's current health with an assessed
   sending state, counts marketing templates sent per number per day, and
   works out Meta spend per Approved case from the message-cost ledger.
-  Owners and admins can read it; nothing in the app writes or shows it yet.
+- The Meta webhook records these events (subscribe the app to
+  `account_update` and `phone_number_quality_update` as well; see
+  `docs/meta-cloud-api.md`). The webhook's answers do not change.
+- Settings → WhatsApp shows owners and admins a read-only Meta number
+  health card: state and reasons, templates, marketing sent today (UTC)
+  and spend per won case over 30 days.
+- A new bell, **Meta number alert**, rings owners and admins when the
+  number's assessed state gets worse.
 - **Nothing changes for sending.** This only records and assesses. A new
   owner-only "enforce" setting is off by default, and nothing reads it
   yet.
