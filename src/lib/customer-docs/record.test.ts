@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CustomerDocumentRecordError,
   customerDocumentKind,
   recordCustomerDocument,
+  recordCustomerDocumentInternal,
   type CustomerDocumentInput,
+  type InternalCustomerDocumentInput,
 } from './record';
 
 const input: CustomerDocumentInput = {
@@ -224,5 +227,122 @@ describe('recordCustomerDocument for a submission group', () => {
     expect(log).toHaveBeenCalledWith(
       '[customer-docs] record failed for group message 4321: contact not found'
     );
+  });
+});
+
+describe('recordCustomerDocumentInternal', () => {
+  type InternalReply = Promise<{
+    data: unknown;
+    error: { message: string; hint?: string; code?: string } | null;
+  }>;
+  const fakeInternal = (impl: () => InternalReply) => {
+    const rpc = vi.fn<(fn: string, args: unknown) => InternalReply>(impl);
+    return { rpc, admin: { rpc } as never };
+  };
+  const ok = () =>
+    fakeInternal(async () => ({
+      data: [{ document_id: 'doc-1', ref: 'TC-000123' }],
+      error: null,
+    }));
+
+  const upload: InternalCustomerDocumentInput = {
+    source: 'staff_upload',
+    accountId: 'acct-1',
+    contactId: 'contact-1',
+    kind: 'document',
+    storageBucket: 'case-files',
+    storagePath: 'account-1/case-9/salary.pdf',
+    receivedAt: '2026-11-10T08:00:00.000Z',
+    mime: 'application/pdf',
+    originalName: 'salary.pdf',
+    caseId: 'case-9',
+    uploadedBy: 'user-7',
+  };
+
+  it('calls the RPC with exactly the named args and returns the document', async () => {
+    const { rpc, admin } = ok();
+
+    await expect(
+      recordCustomerDocumentInternal(admin, upload)
+    ).resolves.toEqual({ documentId: 'doc-1', ref: 'TC-000123' });
+
+    expect(rpc.mock.calls).toStrictEqual([
+      [
+        'customer_documents_record_internal',
+        {
+          p_account_id: 'acct-1',
+          p_contact_id: 'contact-1',
+          p_source: 'staff_upload',
+          p_kind: 'document',
+          p_storage_bucket: 'case-files',
+          p_storage_path: 'account-1/case-9/salary.pdf',
+          p_received_at: '2026-11-10T08:00:00.000Z',
+          p_mime: 'application/pdf',
+          p_original_name: 'salary.pdf',
+          p_case_id: 'case-9',
+          p_uploaded_by: 'user-7',
+        },
+      ],
+    ]);
+  });
+
+  it('sends a case build with its case and no uploader, absent fields as null', async () => {
+    const { rpc, admin } = ok();
+
+    await recordCustomerDocumentInternal(admin, {
+      source: 'case_build',
+      accountId: 'acct-1',
+      contactId: 'contact-1',
+      kind: 'document',
+      storageBucket: 'case-files',
+      storagePath: 'account-1/case-9/case-file.pdf',
+      receivedAt: '2026-11-10T08:00:00.000Z',
+      caseId: 'case-9',
+    });
+
+    expect(rpc.mock.calls[0][1]).toMatchObject({
+      p_source: 'case_build',
+      p_case_id: 'case-9',
+      p_uploaded_by: null,
+      p_mime: null,
+      p_original_name: null,
+    });
+  });
+
+  it('throws an RPC error with its hint and code', async () => {
+    const { admin } = fakeInternal(async () => ({
+      data: null,
+      error: {
+        message: 'customer_documents_record_internal: case case-9 not found',
+        hint: 'NOT_FOUND',
+        code: 'P0002',
+      },
+    }));
+
+    const err = await recordCustomerDocumentInternal(admin, upload).catch(
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(CustomerDocumentRecordError);
+    expect(err).toMatchObject({ hint: 'NOT_FOUND', code: 'P0002' });
+  });
+
+  it('throws a transport failure with no hint', async () => {
+    const { admin } = fakeInternal(async () => {
+      throw new Error('fetch failed');
+    });
+
+    const err = await recordCustomerDocumentInternal(admin, upload).catch(
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(CustomerDocumentRecordError);
+    expect(err).toMatchObject({ hint: null, code: null });
+  });
+
+  it('answers null when the call returned no row', async () => {
+    const { admin } = fakeInternal(async () => ({ data: [], error: null }));
+
+    await expect(
+      recordCustomerDocumentInternal(admin, upload)
+    ).resolves.toBeNull();
   });
 });

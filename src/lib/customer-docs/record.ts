@@ -125,3 +125,114 @@ export async function recordCustomerDocument(
     return null;
   }
 }
+
+// ------------------------------------------------- internal (180)
+
+interface InternalCustomerDocumentFields {
+  accountId: string;
+  contactId: string;
+  kind: CustomerDocumentKind;
+  /** The private bucket the bytes are in; 180 accepts only this one. */
+  storageBucket: 'case-files';
+  /** Object path inside the bucket: not blank, no leading '/', no '..'. */
+  storagePath: string;
+  /** ISO timestamp the file was received or built. */
+  receivedAt: string;
+  mime?: string | null;
+  originalName?: string | null;
+}
+
+/** A file a staff member uploaded to a case or to the customer. */
+export interface StaffUploadDocumentInput extends InternalCustomerDocumentFields {
+  source: 'staff_upload';
+  /** The uploader's auth user id: live staff of the account. */
+  uploadedBy: string;
+  caseId?: string | null;
+}
+
+/** A case-file PDF the CRM assembled for a case. */
+export interface CaseBuildDocumentInput extends InternalCustomerDocumentFields {
+  source: 'case_build';
+  /** The case, whose contact must be `contactId`. */
+  caseId: string;
+}
+
+export type InternalCustomerDocumentInput =
+  StaffUploadDocumentInput | CaseBuildDocumentInput;
+
+/**
+ * Why `customer_documents_record_internal` refused or failed. `hint` is
+ * the function's HINT ('INVALID', 'NOT_FOUND'), or null for anything
+ * else (a transport failure, a permission error), so a route can answer
+ * 4xx for a refusal and 5xx otherwise.
+ */
+export class CustomerDocumentRecordError extends Error {
+  readonly hint: string | null;
+  readonly code: string | null;
+
+  constructor(message: string, hint: string | null, code: string | null) {
+    super(message);
+    this.name = 'CustomerDocumentRecordError';
+    this.hint = hint;
+    this.code = code;
+  }
+}
+
+function nonBlank(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * Record a staff upload or case build that already sits in the private
+ * 'case-files' bucket, through `customer_documents_record_internal`
+ * (migration 180, service role); the NAS worker later copies it into the
+ * customer's folder. Idempotent on the storage pair: recording the same
+ * object again returns the same document.
+ *
+ * Unlike `recordCustomerDocument` this is called from staff actions, so
+ * it THROWS a `CustomerDocumentRecordError` instead of swallowing. Null
+ * only when the call succeeded but returned no row.
+ */
+export async function recordCustomerDocumentInternal(
+  admin: Pick<SupabaseClient, 'rpc'>,
+  input: InternalCustomerDocumentInput
+): Promise<{ documentId: string; ref: string } | null> {
+  let reply: { data: unknown; error: unknown };
+  try {
+    reply = await admin.rpc('customer_documents_record_internal', {
+      p_account_id: input.accountId,
+      p_contact_id: input.contactId,
+      p_source: input.source,
+      p_kind: input.kind,
+      p_storage_bucket: input.storageBucket,
+      p_storage_path: input.storagePath,
+      p_received_at: input.receivedAt,
+      p_mime: blankToNull(input.mime ?? null),
+      p_original_name: blankToNull(input.originalName ?? null),
+      p_case_id: input.caseId ?? null,
+      p_uploaded_by: input.source === 'staff_upload' ? input.uploadedBy : null,
+    });
+  } catch (err) {
+    throw new CustomerDocumentRecordError(
+      `customer_documents_record_internal: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      null,
+      null
+    );
+  }
+  const { data, error } = reply;
+  if (error) {
+    const e = error as { message?: unknown; hint?: unknown; code?: unknown };
+    throw new CustomerDocumentRecordError(
+      `customer_documents_record_internal: ${nonBlank(e.message) ?? 'failed'}`,
+      nonBlank(e.hint),
+      nonBlank(e.code)
+    );
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as
+    { document_id?: unknown; ref?: unknown } | null | undefined;
+  const documentId = nonBlank(row?.document_id);
+  const ref = nonBlank(row?.ref);
+  return documentId && ref ? { documentId, ref } : null;
+}

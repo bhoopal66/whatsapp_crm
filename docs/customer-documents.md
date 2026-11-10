@@ -166,6 +166,13 @@ start of the next batch and is written into, so check the mount source
 - A retryable failure backs off `2^attempts` minutes, at most 6 hours.
   After 10 attempts the file is `failed`.
 - A stop signal finishes the current file only.
+- A staff upload or case build (migration 180) has no media link: its
+  bytes are in the private `case-files` bucket, and the worker fetches
+  the object with the service key. That is the only request that sends
+  the key to Storage: only for bucket `case-files` and a path with no
+  leading `/` and no `..` segment (else the row is `failed`,
+  "unsupported storage location"), never following a redirect. A row
+  with neither a media link nor a storage object is `failed`.
 
 ### Logs
 

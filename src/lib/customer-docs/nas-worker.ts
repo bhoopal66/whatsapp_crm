@@ -61,7 +61,8 @@ export type ClaimedDoc = {
   mime: string | null;
   original_name: string | null;
   caption: string | null;
-  media_url: string;
+  /** A customer's document (178): its stored link, and no storage pair. */
+  media_url: string | null;
   received_at: string;
   attempts: number;
   /**
@@ -70,6 +71,13 @@ export type ClaimedDoc = {
    * settle compares it for equality (STALE_CLAIM otherwise).
    */
   claimed_at: string;
+  /**
+   * A staff upload or case build (180): a private Storage object, with
+   * `media_url` NULL. Always 'case-files' by 180's CHECK, re-checked
+   * before the service key goes anywhere near it.
+   */
+  storage_bucket: string | null;
+  storage_path: string | null;
 };
 
 export type WorkerConfig = {
@@ -94,6 +102,12 @@ export type Downloaded =
   | { ok: false; outcome: 'retry' | 'failed'; error: string };
 
 export type Download = (mediaUrl: string) => Promise<Downloaded>;
+
+/** A private Storage object, fetched with the service key. */
+export type StorageDownload = (
+  bucket: string | null,
+  path: string | null
+) => Promise<Downloaded>;
 
 /** The file system calls the worker makes; tests may swap them. */
 export type FsOps = {
@@ -514,9 +528,10 @@ export function makeDownload(opts: {
   return async (mediaUrl) => {
     const target = resolveMediaUrl(mediaUrl, opts.baseUrl);
     if (!target.ok) return unsupported;
-    // No credentials on any download: a public chat-media object needs
-    // none, and the service key must never reach a storage path or a
-    // gateway. Redirects are followed by hand so every hop is checked;
+    // No credentials on a media URL download: a public chat-media object
+    // needs none, and the service key must never reach a gateway or any
+    // storage path but makeStorageDownload's. Redirects are followed by
+    // hand so every hop is checked;
     // our own Storage never redirects a public object.
     try {
       const signal = AbortSignal.timeout(timeoutMs);
@@ -538,35 +553,111 @@ export function makeDownload(opts: {
         if (!isSafeExternalUrl(next)) return unsupported;
         url = next.toString();
       }
-      if (!res.ok) {
+      return await readBody(res, maxBytes);
+    } catch (e) {
+      return { ok: false, outcome: 'retry', error: describeDownloadError(e) };
+    }
+  };
+}
+
+/** A final (non-redirect) response's bytes, streamed under the cap. */
+async function readBody(res: Response, maxBytes: number): Promise<Downloaded> {
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    return {
+      ok: false,
+      outcome: 'retry',
+      error: `download HTTP ${res.status}`,
+    };
+  }
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => {});
+    return { ok: false, outcome: 'failed', error: 'too large' };
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  if (res.body) {
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return { ok: false, outcome: 'failed', error: 'too large' };
+      }
+      chunks.push(value);
+    }
+  }
+  return { ok: true, bytes: Buffer.concat(chunks, total) };
+}
+
+/** The one private bucket the worker may read (migration 180). */
+export const CASE_FILES_BUCKET = 'case-files';
+
+/**
+ * The object URL for a claimed storage pair, or null when the pair is
+ * not one the service key may be sent to: the bucket must be exactly
+ * 'case-files' and the path must pass 180's CHECK (not blank, no
+ * leading '/', no '..' segment). Each segment is URL-encoded, so a '?',
+ * '#' or '%' in a name stays part of the object name.
+ */
+export function storageObjectUrl(
+  baseUrl: string,
+  bucket: string | null,
+  path: string | null
+): string | null {
+  if (bucket !== CASE_FILES_BUCKET) return null;
+  if (typeof path !== 'string') return null;
+  if (/^\s*$/.test(path) || path.startsWith('/')) return null;
+  if (/(^|\/)\.\.(\/|$)/.test(path)) return null;
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  return `${baseUrl.replace(/\/+$/, '')}/storage/v1/object/${bucket}/${encoded}`;
+}
+
+/**
+ * Downloads a staff upload or case build from the private bucket. This is
+ * the only request that carries the service key to Storage, so it goes
+ * only to `storageObjectUrl` and never follows a redirect (a redirect
+ * would carry nothing, but its target is not ours to trust either).
+ */
+export function makeStorageDownload(opts: {
+  baseUrl: string;
+  serviceKey: string;
+  fetchImpl?: FetchLike;
+  maxBytes?: number;
+  timeoutMs?: number;
+}): StorageDownload {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const maxBytes = opts.maxBytes ?? MAX_BYTES;
+  const timeoutMs = opts.timeoutMs ?? DOWNLOAD_TIMEOUT_MS;
+  const unsupported: Downloaded = {
+    ok: false,
+    outcome: 'failed',
+    error: 'unsupported storage location',
+  };
+  return async (bucket, path) => {
+    const url = storageObjectUrl(opts.baseUrl, bucket, path);
+    if (url === null) return unsupported;
+    try {
+      const res = await fetchImpl(url, {
+        headers: {
+          apikey: opts.serviceKey,
+          Authorization: `Bearer ${opts.serviceKey}`,
+        },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (REDIRECT_STATUSES.has(res.status)) {
         await res.body?.cancel().catch(() => {});
         return {
           ok: false,
-          outcome: 'retry',
-          error: `download HTTP ${res.status}`,
+          outcome: 'failed',
+          error: 'storage redirect refused',
         };
       }
-      const declared = Number(res.headers.get('content-length'));
-      if (Number.isFinite(declared) && declared > maxBytes) {
-        await res.body?.cancel().catch(() => {});
-        return { ok: false, outcome: 'failed', error: 'too large' };
-      }
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      if (res.body) {
-        const reader = res.body.getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          total += value.byteLength;
-          if (total > maxBytes) {
-            await reader.cancel().catch(() => {});
-            return { ok: false, outcome: 'failed', error: 'too large' };
-          }
-          chunks.push(value);
-        }
-      }
-      return { ok: true, bytes: Buffer.concat(chunks, total) };
+      return await readBody(res, maxBytes);
     } catch (e) {
       return { ok: false, outcome: 'retry', error: describeDownloadError(e) };
     }
@@ -838,6 +929,8 @@ export type BatchDeps = {
   config: WorkerConfig;
   rpc: Rpc;
   download: Download;
+  /** Default: `makeStorageDownload(config)`. */
+  storageDownload?: StorageDownload;
   fs?: FsOps;
   readMountInfo?: () => Promise<string>;
   log?: (line: string) => void;
@@ -868,9 +961,23 @@ type RowResult =
 
 async function processRow(
   doc: ClaimedDoc,
-  deps: Required<Pick<BatchDeps, 'config' | 'rpc' | 'download' | 'fs'>>
+  deps: Required<
+    Pick<BatchDeps, 'config' | 'rpc' | 'download' | 'storageDownload' | 'fs'>
+  >
 ): Promise<RowResult> {
-  const got = await deps.download(doc.media_url);
+  // A customer's document has a media_url; a staff upload or case build
+  // (180) has a storage pair instead. A row with neither is refused.
+  let got: Downloaded;
+  if (typeof doc.media_url === 'string') {
+    got = await deps.download(doc.media_url);
+  } else if (doc.storage_bucket != null || doc.storage_path != null) {
+    got = await deps.storageDownload(
+      doc.storage_bucket ?? null,
+      doc.storage_path ?? null
+    );
+  } else {
+    return { outcome: 'failed', error: 'no document location' };
+  }
   if (!got.ok) return { outcome: got.outcome, error: got.error };
   const bytes = got.bytes;
   const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -901,6 +1008,8 @@ export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
   const fs = deps.fs ?? nodeFs;
   const log = deps.log ?? (() => {});
   const readMountInfo = deps.readMountInfo ?? readProcMountInfo;
+  const storageDownload =
+    deps.storageDownload ?? makeStorageDownload(deps.config);
   const state = await checkNas(deps.config, fs, readMountInfo);
   if (!state.ready) return state;
 
@@ -944,6 +1053,7 @@ export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
         config: deps.config,
         rpc: deps.rpc,
         download: deps.download,
+        storageDownload,
         fs,
       });
     } catch (e) {
@@ -1018,13 +1128,21 @@ export async function runWorker(
   const sleep = deps.sleep ?? abortableSleep;
   const rpc = deps.rpc ?? makeRpc(config);
   const download = deps.download ?? makeDownload(config);
+  const storageDownload = deps.storageDownload ?? makeStorageDownload(config);
   let lastState = '';
 
   for (;;) {
     let ok = true;
     let full = false;
     try {
-      const r = await processBatch({ ...deps, config, rpc, download, log });
+      const r = await processBatch({
+        ...deps,
+        config,
+        rpc,
+        download,
+        storageDownload,
+        log,
+      });
       const stateLine = r.ready ? 'ready' : `not ready: ${r.reason}`;
       if (stateLine !== lastState) {
         log(`NAS ${stateLine}`);

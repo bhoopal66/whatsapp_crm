@@ -18,6 +18,7 @@ import {
   type FsOps,
   loadConfig,
   makeDownload,
+  makeStorageDownload,
   nodeFs,
   parseMountPoints,
   processBatch,
@@ -145,6 +146,98 @@ describe('makeDownload', () => {
       error: 'unsupported media URL',
     });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('makeStorageDownload', () => {
+  const base = 'http://127.0.0.1:8000/';
+  type Call = { url: string; init?: RequestInit };
+  const fetcher = (answer: () => Response) => {
+    const calls: Call[] = [];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return answer();
+    };
+    return { calls, fetchImpl };
+  };
+
+  it('fetches a case-files object from the base with the service key, encoding each segment', async () => {
+    const { calls, fetchImpl } = fetcher(() => new Response('PDF'));
+    const download = makeStorageDownload({
+      baseUrl: base,
+      serviceKey: 'svc-key',
+      fetchImpl,
+    });
+    const got = await download('case-files', 'account-1/case 7/a?b#c%.pdf');
+    expect(got).toMatchObject({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(
+      'http://127.0.0.1:8000/storage/v1/object/case-files/account-1/case%207/a%3Fb%23c%25.pdf'
+    );
+    const headers = new Headers(calls[0].init?.headers);
+    expect(headers.get('apikey')).toBe('svc-key');
+    expect(headers.get('authorization')).toBe('Bearer svc-key');
+    expect(calls[0].init?.redirect).toBe('manual');
+  });
+
+  it.each([
+    ['another bucket', 'chat-media', 'account-1/a.pdf'],
+    ['a public-looking bucket', 'public/case-files', 'a.pdf'],
+    ['no bucket', null, 'account-1/a.pdf'],
+    ['a leading slash', 'case-files', '/account-1/a.pdf'],
+    ['a .. segment', 'case-files', 'account-1/../other/a.pdf'],
+    ['a final .. segment', 'case-files', 'account-1/..'],
+    ['a blank path', 'case-files', ' \t'],
+    ['no path', 'case-files', null],
+  ])('refuses %s without any fetch', async (_label, bucket, path) => {
+    const { calls, fetchImpl } = fetcher(() => new Response('x'));
+    const download = makeStorageDownload({
+      baseUrl: base,
+      serviceKey: 'svc-key',
+      fetchImpl,
+    });
+    expect(await download(bucket, path)).toEqual({
+      ok: false,
+      outcome: 'failed',
+      error: 'unsupported storage location',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('never follows a redirect', async () => {
+    const { calls, fetchImpl } = fetcher(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://elsewhere.example.com/a.pdf' },
+        })
+    );
+    const download = makeStorageDownload({
+      baseUrl: base,
+      serviceKey: 'svc-key',
+      fetchImpl,
+    });
+    expect(await download('case-files', 'account-1/a.pdf')).toEqual({
+      ok: false,
+      outcome: 'failed',
+      error: 'storage redirect refused',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('caps the size like any other download', async () => {
+    const { fetchImpl } = fetcher(() => new Response('0123456789'));
+    const download = makeStorageDownload({
+      baseUrl: base,
+      serviceKey: 'svc-key',
+      fetchImpl,
+      maxBytes: 4,
+    });
+    expect(await download('case-files', 'a.pdf')).toEqual({
+      ok: false,
+      outcome: 'failed',
+      error: 'too large',
+    });
   });
 });
 
@@ -332,6 +425,8 @@ describe('processBatch', () => {
     received_at: '2026-03-04T21:30:00Z',
     attempts: 1,
     claimed_at: CLAIMED_AT,
+    storage_bucket: null,
+    storage_path: null,
     ...over,
   });
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -644,6 +739,115 @@ describe('processBatch', () => {
     expect(settled[0]).toMatchObject({ p_nas_name: second });
     expect(await readFile(inRef(name), 'utf8')).toBe('PDF-2');
     expect(await readFile(inRef(second), 'utf8')).toBe('PDF-1');
+  });
+
+  describe('storage-pair rows (180)', () => {
+    type Call = { url: string; init?: RequestInit };
+    let fetched: Call[];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      fetched.push({ url, init });
+      return new Response('CASE-PDF');
+    };
+    const wired = () => ({
+      download: makeDownload({ baseUrl: config.baseUrl, fetchImpl }),
+      storageDownload: makeStorageDownload({
+        baseUrl: config.baseUrl,
+        serviceKey: 'svc-key',
+        fetchImpl,
+      }),
+    });
+    const storageRow = (over: Partial<ClaimedDoc> = {}) =>
+      row({
+        media_url: null,
+        storage_bucket: 'case-files',
+        storage_path: 'account-1/case-9/Case file.pdf',
+        original_name: 'Case file.pdf',
+        ...over,
+      });
+    beforeEach(() => {
+      fetched = [];
+    });
+
+    it('fetches the object with the service key and files it like any document', async () => {
+      rows = [storageRow()];
+      const r = await processBatch({
+        config,
+        rpc,
+        ...wired(),
+        readMountInfo: mountinfo,
+      });
+      expect(r).toMatchObject({ ready: true, claimed: 1, stored: 1 });
+      expect(fetched).toHaveLength(1);
+      expect(fetched[0].url).toBe(
+        'http://127.0.0.1:8000/storage/v1/object/case-files/account-1/case-9/Case%20file.pdf'
+      );
+      const headers = new Headers(fetched[0].init?.headers);
+      expect(headers.get('apikey')).toBe('svc-key');
+      expect(headers.get('authorization')).toBe('Bearer svc-key');
+      const name = '2026-03-05 0130 Case file.pdf';
+      expect(await readFile(join(root, 'TC-000123', name), 'utf8')).toBe(
+        'CASE-PDF'
+      );
+      expect(settled[0]).toMatchObject({
+        p_outcome: 'stored',
+        p_nas_name: name,
+        p_claimed_at: CLAIMED_AT,
+      });
+    });
+
+    it('fails another bucket or an unsafe path without any fetch', async () => {
+      rows = [
+        storageRow({ id: 'a1', storage_bucket: 'chat-media' }),
+        storageRow({ id: 'b2', storage_path: '/account-1/a.pdf' }),
+        storageRow({ id: 'c3', storage_path: 'account-1/../../a.pdf' }),
+      ];
+      const r = await processBatch({
+        config,
+        rpc,
+        ...wired(),
+        readMountInfo: mountinfo,
+      });
+      expect(r).toMatchObject({ claimed: 3, failed: 3, stored: 0 });
+      expect(fetched).toEqual([]);
+      expect(settled.map((s) => [s.p_id, s.p_outcome, s.p_error])).toEqual([
+        ['a1', 'failed', 'unsupported storage location'],
+        ['b2', 'failed', 'unsupported storage location'],
+        ['c3', 'failed', 'unsupported storage location'],
+      ]);
+    });
+
+    it('fails a row with neither a media_url nor a storage pair', async () => {
+      rows = [row({ media_url: null })];
+      const r = await processBatch({
+        config,
+        rpc,
+        ...wired(),
+        readMountInfo: mountinfo,
+      });
+      expect(r).toMatchObject({ failed: 1 });
+      expect(fetched).toEqual([]);
+      expect(settled[0]).toMatchObject({
+        p_outcome: 'failed',
+        p_error: 'no document location',
+      });
+    });
+
+    it('still fetches a media_url row with no key', async () => {
+      const r = await processBatch({
+        config,
+        rpc,
+        ...wired(),
+        readMountInfo: mountinfo,
+      });
+      expect(r).toMatchObject({ stored: 1 });
+      expect(fetched).toHaveLength(1);
+      expect(fetched[0].url).toBe(
+        'http://127.0.0.1:8000/storage/v1/object/public/chat-media/x.pdf'
+      );
+      const headers = new Headers(fetched[0].init?.headers);
+      expect(headers.has('apikey')).toBe(false);
+      expect(headers.has('authorization')).toBe(false);
+    });
   });
 
   it("settles with the claim's claimed_at string unchanged", async () => {
