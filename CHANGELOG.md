@@ -57,6 +57,19 @@ and polish.
   **and** an owner has approved the `document_classify` wording; an edit
   to the wording withdraws its approval, and nobody approves their own edit.
 
+### Public API: Compass can read a case's assembled case file
+
+- **Migration required:** `supabase/migrations/184_case_files_compass.sql`
+  (and 181–182 before it).
+- `GET /api/v1/submission-groups/{submission_id}/case-file` answers the
+  case's document checklist and current build;
+  `GET …/case-file/download` answers a 600-second signed link to the
+  build, recorded against the API key. Both need
+  `submission_groups:read` and are read-only. A new webhook event,
+  `case.file_ready`, fires when every required document has passed.
+  Nothing changes for Compass until it calls them (`docs/public-api.md`,
+  `docs/compass.md`).
+
 ### Customer documents: every file a customer sends is filed under their reference
 
 - **Migration required:** apply `supabase/migrations/178_customer_documents.sql`

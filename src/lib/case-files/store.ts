@@ -449,6 +449,55 @@ export class CaseFilesStore {
     };
   }
 
+  /**
+   * The case file of a submission, as migration 184 assembles it for the
+   * v1 API (camelCase, passed through). FILE_NOT_FOUND for a ref unknown
+   * in the account.
+   */
+  async statusForSubmission(
+    accountId: string,
+    submissionRef: string
+  ): Promise<Record<string, unknown>> {
+    const fn = 'case_file_status_api';
+    const data = await this.rpc(fn, {
+      p_account: accountId,
+      p_submission_ref: submissionRef,
+    });
+    if (data === null || typeof data !== 'object' || Array.isArray(data))
+      throw new CaseFilesStoreError(fn, null);
+    return data as Record<string, unknown>;
+  }
+
+  /**
+   * Writes the audit row of an API-key build download (migration 184,
+   * url_issued false). FILE_NOT_FOUND for a ref unknown in the account or
+   * a key that is not live there; BUILD_STALE with no ready build.
+   */
+  async recordApiBuildDownload(
+    apiKeyId: string,
+    accountId: string,
+    submissionRef: string,
+    now: Date
+  ): Promise<BuildDownloadRecord> {
+    const fn = 'case_build_download_record_api';
+    const row = rows(
+      await this.rpc(fn, {
+        p_api_key: apiKeyId,
+        p_account: accountId,
+        p_submission_ref: submissionRef,
+        p_now: now.toISOString(),
+      })
+    )[0];
+    if (!row?.download_id || !row.object_path)
+      throw new CaseFilesStoreError(fn, null);
+    return {
+      downloadId: String(row.download_id),
+      objectPath: String(row.object_path),
+      sha256: String(row.sha256),
+      version: Number(row.version),
+    };
+  }
+
   /** Flips url_issued; call only once the URL was produced. */
   async markDownloadIssued(downloadId: string): Promise<void> {
     await this.rpc('case_file_download_issued', {

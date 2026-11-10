@@ -619,6 +619,70 @@ active and ended groups alike, and the answer adds
 The rules, reason codes and document handling are in
 [`compass.md`](compass.md#7-status-details-and-document-sync).
 
+### `GET /api/v1/submission-groups/{submission_id}/case-file`
+
+Scope: `submission_groups:read`. Read-only (migration 184). The case
+file of the submission's case: which documents it needs, how far each
+one is, and the current assembled build, if any.
+
+```json
+{
+  "data": {
+    "ready": true,
+    "documents": [
+      { "docKey": "passport", "required": true, "status": "passed" },
+      { "docKey": "salary_certificate", "required": false, "status": "missing" }
+    ],
+    "build": {
+      "version": 3,
+      "merged": true,
+      "sha256": "9f2c…",
+      "builtAt": "2026-11-10T09:30:00.000Z",
+      "manifest": [
+        { "docKey": "passport", "renamedName": "SUB-10482_passport_20261110.pdf", "pages": 2, "sha256": "41ab…" }
+      ]
+    }
+  }
+}
+```
+
+- `status` is `missing`, `checking` (a file is waiting for its checks),
+  `passed` or `failed`. `ready` is true when every required document is
+  `passed`.
+- `build` is `null` while there is no current build (none yet, or the
+  documents changed since the last one). `merged` says whether the build
+  is one PDF or a set of renamed files; `pages` may be `null`.
+- The keys inside `data` are camelCase, unlike the rest of `/api/v1`.
+
+Errors: `404 not_found` for an unknown submission, one of another
+workspace, or one with no case.
+
+### `GET /api/v1/submission-groups/{submission_id}/case-file/download`
+
+Scope: `submission_groups:read`. An audited, short-lived link to the
+current build (migration 184). Every call is recorded against the API
+key before the link is made.
+
+```json
+{
+  "data": {
+    "url": "https://…/storage/v1/object/sign/case-files/…?token=…",
+    "expiresAt": "2026-11-10T09:40:00.000Z",
+    "sha256": "9f2c…",
+    "version": 3
+  }
+}
+```
+
+The URL is valid for 600 seconds; fetch the file straight away and
+check it against `sha256`. Ask again for a fresh link rather than
+storing one. Responses carry `Cache-Control: no-store`.
+
+Errors: `404 not_found` (as above, or a key that is revoked or
+expired), `409 case_file_stale` when there is no current build (read
+`case-file` and wait for `build` to appear), `501 not_configured` when
+this install cannot make download links.
+
 ### `GET /api/v1/case-stages?bank=FAB`
 
 Scope: `submission_groups:read`. `{ bank, stages, presubmission, final }`:
@@ -680,11 +744,18 @@ things happen in your account. **Migration required:** apply
 | `submission_group.failed` | Creating that group failed (it is retried)      |
 | `submission_group.ended`  | A submission group ended                        |
 | `contact.opted_out`       | A contact opted out of messages                 |
+| `case.file_ready`         | Every required document of a case has passed    |
 
-The last six (migration 134) are queued in the database and sent by the
-automations cron; they are queued only while an active endpoint
-subscribes to them, and delivered at most once (reconcile with the read
-endpoints).
+The last seven (migrations 134 and 184) are queued in the database and
+sent by the automations cron; they are queued only while an active
+endpoint subscribes to them, and delivered at most once (reconcile with
+the read endpoints).
+
+`case.file_ready` (migration 184) fires when a case becomes ready, not
+again while it stays ready (a re-uploaded document of a ready case is
+not a second event); a case that stops being ready and becomes ready
+again fires once more. A case with no submission (a lead) never sends
+it. Read the build with `GET /submission-groups/{submission_id}/case-file`.
 
 ### Managing endpoints
 
@@ -738,6 +809,8 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
 { "submission_id": "…", "end_reason": "…", "ended_at": "…" }
 // contact.opted_out
 { "contact_id": "…", "phone": "…", "opted_out_at": "…", "compass_id": null }
+// case.file_ready (camelCase; also repeats account_id and occurred_at)
+{ "submissionRef": "SUB-10482", "caseId": "…", "ready": true }
 ```
 
 Headers: `X-Taamul-Event`, `X-Taamul-Webhook-Id`, and `X-Taamul-Signature`.

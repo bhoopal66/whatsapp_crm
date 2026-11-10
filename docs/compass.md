@@ -631,6 +631,27 @@ The documents the bank requires for the product, in order; the product
 matches case-insensitively on trimmed text. Both `bank` and `product`
 are required.
 
+### Pulling the case file (optional)
+
+Staff collect and check a case's documents in the CRM and assemble them
+into a case file (renamed files, or one merged PDF). Compass may read it
+with the same `submission_groups:read` key; nothing changes for Compass
+until it does.
+
+1. Subscribe to `case.file_ready` (see [Webhooks](#9-webhooks)), or poll
+   `GET /submission-groups/{submission_id}/case-file`, which answers
+   `{ ready, documents: [{ docKey, required, status }], build }`.
+2. When `build` is not `null`, call
+   `GET /submission-groups/{submission_id}/case-file/download` for
+   `{ url, expiresAt, sha256, version }`, fetch `url` within 600
+   seconds, and check the bytes against `sha256`.
+3. A `409 case_file_stale` means the documents changed since the last
+   build: wait for a new one (`build` reappears with a higher
+   `version`). Every download is recorded against the key.
+
+Full shapes and errors are in
+[`public-api.md`](public-api.md#get-apiv1submission-groupssubmission_idcase-file).
+
 ## 9. Webhooks
 
 Taamul Connect tells Compass what happens on its side. Register an
@@ -672,6 +693,7 @@ Every delivery is a `POST` with this body (`id` is unique per delivery):
 | `submission_group.failed` | Creating the WhatsApp group failed (it is retried) | `submission_id`, `error`, `retrying`                                                                         |
 | `submission_group.ended`  | The group ended                                    | `submission_id`, `end_reason`, `ended_at`                                                                    |
 | `contact.opted_out`       | A contact opted out of messages                    | `contact_id`, `phone`, `opted_out_at`, `compass_id` (null if not linked)                                     |
+| `case.file_ready`         | Every required document of the case has passed     | `submissionRef`, `caseId`, `ready` (always `true`); camelCase                                                |
 
 No invite link or token is ever in a payload; `invite_link_present` only
 says whether one exists (read it with `GET /submission-groups/{id}`).
