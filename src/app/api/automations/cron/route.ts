@@ -14,6 +14,7 @@ import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
 import { evaluateCaseSla, sweepCaseGroupEnds } from '@/lib/cases/cron'
 import { caseSlaStore, caseStore } from '@/lib/cases/server'
+import { runCaseRulesSweep } from '@/lib/cases/rules'
 import { memoryStore } from '@/lib/memory/server'
 import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
@@ -328,7 +329,9 @@ function scheduleSubmissionGroups() {
  * (final-stage cases whose submission-group end never completed, each
  * ended through its own account's service), each at most every 5 minutes
  * per process, inside after(). Neither starts a case after 20 s. A failure
- * is only logged (an SLA case by its id only).
+ * is only logged (an SLA case by its id only). The case rules sweep
+ * (migration 187: no_activity and sla_overdue rules) runs in the SLA step,
+ * right after the evaluation; its failure is only logged too.
  */
 const caseSlaDue = everyInterval(5 * 60_000)
 const caseGroupEndDue = everyInterval(5 * 60_000)
@@ -350,6 +353,17 @@ function scheduleCaseSla() {
       } catch (err) {
         console.error(
           '[automations-cron] case SLA failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+      // Case rules (migration 187): after the SLA evaluation, so
+      // sla_overdue sees fresh timer states. Runs even when the SLA job
+      // failed. runCaseRulesSweep never throws; the catch is a backstop.
+      try {
+        await runCaseRulesSweep({ admin: supabaseAdmin() })
+      } catch (err) {
+        console.error(
+          '[automations-cron] case rules sweep failed:',
           err instanceof Error ? err.message : err,
         )
       }

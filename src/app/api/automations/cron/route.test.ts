@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   submissionGroups: vi.fn(),
   caseSla: vi.fn(),
   caseSweep: vi.fn(),
+  caseRules: vi.fn(),
   memoryExpire: vi.fn(),
   kbGap: vi.fn(),
   outboxDrain: vi.fn(),
@@ -92,6 +93,9 @@ vi.mock('@/lib/cases/server', () => ({
   caseSlaStore: () => 'sla-store',
   caseStore: (accountId?: string) => `case-store:${accountId ?? 'all'}`,
 }));
+vi.mock('@/lib/cases/rules', () => ({
+  runCaseRulesSweep: h.caseRules,
+}));
 vi.mock('@/lib/memory/server', () => ({
   memoryStore: () => ({ expireDue: h.memoryExpire }),
 }));
@@ -151,6 +155,13 @@ beforeEach(() => {
     changes: [],
     errors: [],
     stoppedEarly: false,
+  });
+  h.caseRules.mockReset().mockResolvedValue({
+    ok: true,
+    fired: 0,
+    runs: 0,
+    noActivity: 0,
+    slaOverdue: 0,
   });
   h.caseSweep
     .mockReset()
@@ -555,6 +566,58 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] case group ends failed:',
       'sweep boom'
+    );
+    expect(h.memoryExpire).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('runs the case rules sweep after the SLA job, in the same 5-minute step', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+    const order: string[] = [];
+    h.caseSla.mockImplementation(async () => {
+      order.push('sla');
+      return { evaluated: 0, changes: [], errors: [], stoppedEarly: false };
+    });
+    h.caseRules.mockImplementation(async () => {
+      order.push('rules');
+      return { ok: true, fired: 0, runs: 0, noActivity: 0, slaOverdue: 0 };
+    });
+
+    await GET(req());
+    expect(h.caseRules).not.toHaveBeenCalled();
+    await runAfter();
+    expect(order).toEqual(['sla', 'rules']);
+    expect(h.caseRules).toHaveBeenCalledWith({
+      admin: expect.objectContaining({ rpc: h.rpc }),
+    });
+
+    vi.setSystemTime(new Date('2026-10-19T09:04:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.caseRules).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-19T09:05:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.caseRules).toHaveBeenCalledTimes(2);
+  });
+
+  it('a case rules sweep error does not fail the cron, and runs after a failed SLA job', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.caseSla.mockRejectedValueOnce(new Error('sla boom'));
+    h.caseRules.mockRejectedValueOnce(new Error('rules boom'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(h.caseRules).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] case rules sweep failed:',
+      'rules boom'
     );
     expect(h.memoryExpire).toHaveBeenCalledTimes(1);
     log.mockRestore();
