@@ -315,3 +315,121 @@ export function validExpiry(value: string): boolean {
   const d = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(value);
 }
+
+// ------------------------------------------------------------ Case file build
+
+export interface CaseBuildItem {
+  position: number;
+  docKey: string;
+  fileId: string;
+  renamedName: string | null;
+  pages: number | null;
+  sha256: string;
+}
+
+export interface CaseBuildView {
+  buildId: string;
+  version: number;
+  merged: boolean;
+  manifest: CaseBuildItem[];
+  sha256: string;
+  status: 'ready' | 'superseded';
+  builtAt: string | null;
+}
+
+function parseBuildItem(v: unknown): CaseBuildItem | null {
+  const r = obj(v);
+  const docKey = str(r?.docKey);
+  const fileId = str(r?.fileId);
+  const position = num(r?.position);
+  if (!r || !docKey || !fileId || position === null) return null;
+  return {
+    position,
+    docKey,
+    fileId,
+    renamedName: str(r.renamedName),
+    pages: num(r.pages),
+    sha256: str(r.sha256) ?? '',
+  };
+}
+
+function parseBuild(v: unknown): CaseBuildView | null {
+  const b = obj(v);
+  const buildId = str(b?.buildId);
+  const version = num(b?.version);
+  if (!b || !buildId || version === null) return null;
+  if (b.status !== 'ready' && b.status !== 'superseded') return null;
+  return {
+    buildId,
+    version,
+    merged: b.merged === true,
+    manifest: (Array.isArray(b.manifest) ? b.manifest : [])
+      .map(parseBuildItem)
+      .filter((i): i is CaseBuildItem => i !== null)
+      .sort((a, c) => a.position - c.position),
+    sha256: str(b.sha256) ?? '',
+    status: b.status,
+    builtAt: str(b.builtAt),
+  };
+}
+
+/**
+ * Parse GET / POST `/api/cases/[id]/build`: `{ build }`. `{ build: null }`
+ * is a valid "none yet"; any other shape is null, so the caller can tell
+ * "none" from "unreadable".
+ */
+export function parseCaseBuild(
+  json: unknown
+): { build: CaseBuildView | null } | null {
+  const root = obj(json);
+  if (!root || !('build' in root)) return null;
+  if (root.build === null) return { build: null };
+  const build = parseBuild(root.build);
+  return build ? { build } : null;
+}
+
+export type CaseBuildState = 'none' | 'current' | 'stale';
+
+/** A build is stale once the case is not File ready or it was superseded. */
+export function buildState(
+  ready: boolean,
+  build: Pick<CaseBuildView, 'status'> | null
+): CaseBuildState {
+  if (!build) return 'none';
+  return ready && build.status === 'ready' ? 'current' : 'stale';
+}
+
+/** The first 12 characters of a digest, for display. */
+export function shortHash(sha256: string): string {
+  return sha256.slice(0, 12);
+}
+
+const BUILD_ERROR_CODES = new Set([
+  'NOT_ALLOWED',
+  'FILE_NOT_READY',
+  'CASE_CLOSED',
+  'BUILD_INVALID',
+  'BUILD_STALE',
+  'FILE_NOT_FOUND',
+  'NOT_CONFIGURED',
+]);
+
+/** The `CaseFiles` key for a build / download refusal. */
+export function buildErrorKey(status: number, code: unknown): string {
+  if (typeof code === 'string' && BUILD_ERROR_CODES.has(code))
+    return `buildErrors.${code}`;
+  if (status === 403) return 'buildErrors.NOT_ALLOWED';
+  return 'buildErrors.generic';
+}
+
+/** The `url` of a download answer, only when it is an http(s) URL. */
+export function parseDownloadUrl(json: unknown): string | null {
+  const url = str(obj(json)?.url);
+  if (!url) return null;
+  try {
+    const p = new URL(url).protocol;
+    return p === 'https:' || p === 'http:' ? url : null;
+  } catch {
+    return null;
+  }
+}

@@ -6,12 +6,17 @@ import {
   CASE_FILE_MAX_BYTES,
   CASE_FILE_UPLOAD_MIME,
   buildCaseFilesView,
+  buildErrorKey,
+  buildState,
   caseFileErrorKey,
   checkFailureKey,
   checkFailures,
   formatFileSize,
   isAttachableDocument,
+  parseCaseBuild,
   parseCaseFiles,
+  parseDownloadUrl,
+  shortHash,
   uploadProblem,
   validExpiry,
 } from './view';
@@ -303,5 +308,80 @@ describe('caseFileErrorKey', () => {
     expect(caseFileErrorKey(413, null)).toBe('errors.FILE_TOO_LARGE');
     expect(caseFileErrorKey(500, 'SOMETHING')).toBe('errors.generic');
     expect(caseFileErrorKey(0, undefined)).toBe('errors.generic');
+  });
+});
+
+describe('case file build', () => {
+  const build = (over: Record<string, unknown> = {}) => ({
+    buildId: 'b1',
+    version: 2,
+    merged: true,
+    manifest: [
+      {
+        position: 2,
+        docKey: 'b',
+        fileId: 'f2',
+        renamedName: 'B.pdf',
+        pages: 3,
+        sha256: 'ab',
+      },
+      {
+        position: 1,
+        docKey: 'a',
+        fileId: 'f1',
+        renamedName: null,
+        pages: null,
+        sha256: 'cd',
+      },
+      { position: 3, docKey: '', fileId: 'f3' },
+    ],
+    sha256: 'x'.repeat(64),
+    status: 'ready',
+    builtAt: '2026-11-10T10:00:00Z',
+    ...over,
+  });
+
+  it('parses a build, ordering and dropping bad manifest rows', () => {
+    const r = parseCaseBuild({ build: build() });
+    expect(r?.build?.manifest.map((m) => m.docKey)).toEqual(['a', 'b']);
+    expect(r?.build?.merged).toBe(true);
+  });
+
+  it('tells none from unreadable', () => {
+    expect(parseCaseBuild({ build: null })).toEqual({ build: null });
+    expect(parseCaseBuild({})).toBeNull();
+    expect(parseCaseBuild(null)).toBeNull();
+    expect(parseCaseBuild({ build: build({ status: 'weird' }) })).toBeNull();
+    expect(parseCaseBuild({ build: build({ version: 'x' }) })).toBeNull();
+  });
+
+  it('derives the state', () => {
+    const ready = { status: 'ready' as const };
+    expect(buildState(true, null)).toBe('none');
+    expect(buildState(false, null)).toBe('none');
+    expect(buildState(true, ready)).toBe('current');
+    expect(buildState(false, ready)).toBe('stale');
+    expect(buildState(true, { status: 'superseded' })).toBe('stale');
+  });
+
+  it('shortens a hash and maps refusals', () => {
+    expect(shortHash('0123456789abcdef')).toBe('0123456789ab');
+    expect(buildErrorKey(409, 'FILE_NOT_READY')).toBe(
+      'buildErrors.FILE_NOT_READY'
+    );
+    expect(buildErrorKey(403, undefined)).toBe('buildErrors.NOT_ALLOWED');
+    expect(buildErrorKey(501, 'NOT_CONFIGURED')).toBe(
+      'buildErrors.NOT_CONFIGURED'
+    );
+    expect(buildErrorKey(500, 'NOPE')).toBe('buildErrors.generic');
+  });
+
+  it('accepts only http(s) download urls', () => {
+    expect(parseDownloadUrl({ url: 'https://x.test/a?s=1' })).toBe(
+      'https://x.test/a?s=1'
+    );
+    expect(parseDownloadUrl({ url: 'javascript:alert(1)' })).toBeNull();
+    expect(parseDownloadUrl({ url: 'nope' })).toBeNull();
+    expect(parseDownloadUrl(null)).toBeNull();
   });
 });

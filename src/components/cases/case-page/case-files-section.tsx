@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Loader2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -27,13 +33,19 @@ import {
 import {
   CASE_FILE_ACCEPT,
   buildCaseFilesView,
+  buildErrorKey,
+  buildState,
   caseFileErrorKey,
   checkFailureKey,
   formatFileSize,
   isAttachableDocument,
+  parseCaseBuild,
   parseCaseFiles,
+  parseDownloadUrl,
+  shortHash,
   uploadProblem,
   validExpiry,
+  type CaseBuildView,
   type CaseFileChip,
   type CaseFileDocRow,
   type CaseFileSpecView,
@@ -97,6 +109,11 @@ export function CaseFilesSection({
     parseCaseFiles
   );
   const view = useMemo(() => (data ? buildCaseFilesView(data) : null), [data]);
+  const { data: buildData, reload: reloadBuild } = useCaseResource(
+    `/api/cases/${caseId}/build`,
+    parseCaseBuild
+  );
+  const build = buildData?.build ?? null;
   const [dialog, setDialog] = useState<{
     kind: 'attach' | 'upload';
     spec: CaseFileSpecView;
@@ -147,6 +164,21 @@ export function CaseFilesSection({
         </div>
       )}
 
+      {(view.ready || build) && (
+        <BuildCard
+          caseId={caseId}
+          ready={view.ready}
+          closed={closed}
+          build={build}
+          labelOf={labelOf}
+          afterBuild={() => {
+            void reloadBuild();
+            void reload();
+            onChanged();
+          }}
+        />
+      )}
+
       {view.rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">{t('noSpec')}</p>
       ) : (
@@ -157,6 +189,7 @@ export function CaseFilesSection({
               row={row}
               label={labelOf(row.spec.docKey)}
               canAct={canAct}
+              caseId={caseId}
               onAttach={() => setDialog({ kind: 'attach', spec: row.spec })}
               onUpload={() => setDialog({ kind: 'upload', spec: row.spec })}
             />
@@ -202,12 +235,14 @@ function DocRow({
   row,
   label,
   canAct,
+  caseId,
   onAttach,
   onUpload,
 }: {
   row: CaseFileDocRow;
   label: string;
   canAct: boolean;
+  caseId: string;
   onAttach: () => void;
   onUpload: () => void;
 }) {
@@ -272,14 +307,23 @@ function DocRow({
             </button>
           )}
         </div>
-        {canAct && (
+        {(canAct || current) && (
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="ghost" onClick={onAttach}>
-              {t('attach')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onUpload}>
-              {t('upload')}
-            </Button>
+            {current && (
+              <DownloadButton
+                url={`/api/cases/${caseId}/files/${current.id}/download`}
+              />
+            )}
+            {canAct && (
+              <>
+                <Button size="sm" variant="ghost" onClick={onAttach}>
+                  {t('attach')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={onUpload}>
+                  {t('upload')}
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -291,6 +335,153 @@ function DocRow({
         </ul>
       )}
     </li>
+  );
+}
+
+/** GET a download answer and open its signed URL in a new tab. */
+async function openDownload(url: string, t: (key: string) => string) {
+  let status = 0;
+  let json: unknown = null;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    status = res.status;
+    json = await res.json().catch(() => null);
+  } catch {
+    // status 0: shown as the generic refusal
+  }
+  const target = status >= 200 && status < 300 ? parseDownloadUrl(json) : null;
+  if (!target) {
+    toast.error(t(buildErrorKey(status, codeOf(json))));
+    return;
+  }
+  window.open(target, '_blank', 'noopener,noreferrer');
+}
+
+function DownloadButton({
+  url,
+  label,
+  variant = 'ghost',
+}: {
+  url: string;
+  label?: string;
+  variant?: 'ghost' | 'outline';
+}) {
+  const t = useTranslations('CaseFiles');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        await openDownload(url, t);
+        setBusy(false);
+      }}
+    >
+      {busy ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Download className="size-4" />
+      )}
+      {label ?? t('download')}
+    </Button>
+  );
+}
+
+function BuildCard({
+  caseId,
+  ready,
+  closed,
+  build,
+  labelOf,
+  afterBuild,
+}: {
+  caseId: string;
+  ready: boolean;
+  closed: boolean;
+  build: CaseBuildView | null;
+  labelOf: (docKey: string) => string;
+  afterBuild: () => void;
+}) {
+  const t = useTranslations('CaseFiles');
+  const when = useWhen();
+  const [busy, setBusy] = useState(false);
+  const state = buildState(ready, build);
+
+  const assemble = async () => {
+    setBusy(true);
+    const r = await sendCaseRequest(`/api/cases/${caseId}/build`, 'POST');
+    setBusy(false);
+    if (!r.ok) {
+      toast.error(t(buildErrorKey(r.status, codeOf(r.json))));
+      return;
+    }
+    toast.success(t('buildDone'));
+    afterBuild();
+  };
+
+  return (
+    <div className="bg-card-2 space-y-2 rounded-md border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="min-w-0 flex-1 text-sm font-semibold">
+          {t('buildTitle')}
+        </h3>
+        {build && state === 'current' && (
+          <DownloadButton
+            variant="outline"
+            url={`/api/cases/${caseId}/build/download`}
+            label={t('buildDownload')}
+          />
+        )}
+        {!closed && ready && (
+          <Button size="sm" disabled={busy} onClick={() => void assemble()}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            {t('assemble')}
+          </Button>
+        )}
+      </div>
+      {!build ? (
+        <p className="text-muted-foreground text-xs">{t('buildNone')}</p>
+      ) : (
+        <>
+          {state === 'stale' && (
+            <p
+              role="status"
+              className="bg-warning-soft text-warning rounded-md px-2 py-1 text-xs font-medium"
+            >
+              {t('buildStale')}
+            </p>
+          )}
+          <p className="text-muted-foreground text-xs">
+            {[
+              t('version', { n: build.version }),
+              build.merged ? t('buildMerged') : t('buildIndex'),
+              when(build.builtAt),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+          <ol className="list-decimal space-y-1 ps-5 text-xs">
+            {build.manifest.map((m) => (
+              <li key={`${m.position}:${m.fileId}`}>
+                <span className="font-medium">{labelOf(m.docKey)}</span>
+                <span className="text-muted-foreground break-all">
+                  {' · '}
+                  {[
+                    m.renamedName ?? t('unnamed'),
+                    m.pages !== null ? t('pages', { count: m.pages }) : null,
+                    m.sha256 ? shortHash(m.sha256) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
   );
 }
 

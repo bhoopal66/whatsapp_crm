@@ -10033,7 +10033,26 @@
     "attached": "{label}에 첨부했습니다.",
     "uploaded": "{label} 파일을 업로드했습니다.",
     "checkedPassed": "{label}(으)로 검사했습니다.",
-    "checkedFailed": "{label}(으)로 검사했지만 검사를 통과하지 못했습니다.",
+    "download": "다운로드",
+    "buildTitle": "취합된 케이스 파일",
+    "assemble": "케이스 파일 취합",
+    "buildDone": "케이스 파일을 취합했습니다.",
+    "buildNone": "케이스 파일이 아직 취합되지 않았습니다.",
+    "buildStale": "오래된 파일입니다. 다시 취합하세요. 취합 이후 파일이 변경되었습니다.",
+    "buildMerged": "병합된 PDF 한 개",
+    "buildIndex": "파일 목록",
+    "buildDownload": "케이스 파일 다운로드",
+    "buildErrors": {
+      "NOT_ALLOWED": "코디네이터, 팀 리더 또는 관리자만 케이스 파일을 취합할 수 있습니다.",
+      "FILE_NOT_READY": "아직 파일 준비가 되지 않았습니다. 모든 필수 문서에 검사를 통과한 파일이 필요합니다.",
+      "CASE_CLOSED": "종료된 케이스입니다.",
+      "BUILD_INVALID": "이 파일들로는 케이스 파일을 취합할 수 없습니다.",
+      "BUILD_STALE": "케이스 파일이 최신이 아닙니다. 다시 취합하세요.",
+      "FILE_NOT_FOUND": "파일을 찾을 수 없습니다.",
+      "NOT_CONFIGURED": "이 서버에는 다운로드가 설정되어 있지 않습니다.",
+      "generic": "문제가 발생했습니다. 다시 시도하세요."
+    },
+    "checkedFailed":"{label}(으)로 검사했지만 검사를 통과하지 못했습니다.",
     "checks": {
       "detail": {
         "too_large": "파일이 너무 큽니다.",

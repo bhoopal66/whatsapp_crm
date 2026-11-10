@@ -10034,6 +10034,25 @@
     "uploaded": "Uploaded for {label}.",
     "checkedPassed": "Checked as {label}.",
     "checkedFailed": "Checked as {label}, but it failed its checks.",
+    "download": "Download",
+    "buildTitle": "Assembled case file",
+    "assemble": "Assemble case file",
+    "buildDone": "The case file was assembled.",
+    "buildNone": "The case file has not been assembled yet.",
+    "buildStale": "Stale — assemble again. The files have changed since this was built.",
+    "buildMerged": "One merged PDF",
+    "buildIndex": "Index of files",
+    "buildDownload": "Download case file",
+    "buildErrors": {
+      "NOT_ALLOWED": "Only the coordinator, team leader or an admin can assemble the case file.",
+      "FILE_NOT_READY": "The case is not file ready yet: every required document needs a file that passed its checks.",
+      "CASE_CLOSED": "The case is closed.",
+      "BUILD_INVALID": "The case file could not be assembled from these files.",
+      "BUILD_STALE": "The case file is out of date. Assemble it again.",
+      "FILE_NOT_FOUND": "This file could not be found.",
+      "NOT_CONFIGURED": "Downloads are not set up on this server.",
+      "generic": "Something went wrong. Try again."
+    },
     "checks": {
       "detail": {
         "too_large": "The file is too large.",
