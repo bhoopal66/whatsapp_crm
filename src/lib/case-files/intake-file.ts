@@ -119,7 +119,8 @@ async function loadFile(store: CaseFilesStore, fileId: string) {
 
 export async function classifyAndCheck(input: {
   admin: CaseFilesDb;
-  actor: string;
+  /** NULL = the system intake (WhatsApp tap-to-classify). */
+  actor: string | null;
   fileId: string;
   docKey: string;
   expiresOn?: string | null;

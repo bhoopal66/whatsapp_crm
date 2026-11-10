@@ -289,9 +289,12 @@ export class CaseFilesStore {
     if (ok !== true) throw new CaseFilesRefusedError('NOT_ALLOWED');
   }
 
-  /** Idempotent per (case, customer document); returns the file id. */
+  /**
+   * Idempotent per (case, customer document); returns the file id.
+   * A NULL actor is the system intake (WhatsApp tap-to-classify).
+   */
   async register(
-    actor: string,
+    actor: string | null,
     caseId: string,
     customerDocumentId: string
   ): Promise<string> {
@@ -306,8 +309,9 @@ export class CaseFilesStore {
     return id;
   }
 
+  /** A NULL actor is the system intake, as in `register`. */
   async classify(
-    actor: string,
+    actor: string | null,
     fileId: string,
     docKey: string
   ): Promise<ClassifyResult> {
