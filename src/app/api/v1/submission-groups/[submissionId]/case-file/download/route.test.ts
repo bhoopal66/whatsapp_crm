@@ -89,7 +89,13 @@ describe('GET /api/v1/submission-groups/[ref]/case-file/download', () => {
     const body = await res.json();
     expect(body.data).toMatchObject({ sha256: 'abc', version: 2 });
     expect(typeof body.data.url).toBe('string');
-    expect(typeof body.data.expiresAt).toBe('string');
+    expect(typeof body.data.expires_at).toBe('string');
+    expect(Object.keys(body.data).sort()).toEqual([
+      'expires_at',
+      'sha256',
+      'url',
+      'version',
+    ]);
   });
 
   it('answers an unknown ref 404 in the v1 error shape, unsigned', async () => {

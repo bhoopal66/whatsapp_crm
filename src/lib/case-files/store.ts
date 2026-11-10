@@ -455,7 +455,7 @@ export class CaseFilesStore {
 
   /**
    * The case file of a submission, as migration 184 assembles it for the
-   * v1 API (camelCase, passed through). FILE_NOT_FOUND for a ref unknown
+   * v1 API (snake_case, passed through). FILE_NOT_FOUND for a ref unknown
    * in the account.
    */
   async statusForSubmission(

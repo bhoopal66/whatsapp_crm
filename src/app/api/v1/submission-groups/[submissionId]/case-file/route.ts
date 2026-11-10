@@ -2,8 +2,8 @@
 // GET /api/v1/submission-groups/{submission_id}/case-file — the case's
 // assembled case file (scope: submission_groups:read, migration 184).
 //
-// `{ data: { ready, documents: [{ docKey, required, status }], build:
-// { version, merged, sha256, builtAt, manifest: [...] } | null } }`,
+// `{ data: { ready, documents: [{ doc_key, required, status }], build:
+// { version, merged, sha256, built_at, manifest: [...] } | null } }`,
 // exactly as case_file_status_api returns it. Account-scoped: an unknown
 // submission, one of another workspace, or one with no case → 404
 // `not_found`. Read-only.

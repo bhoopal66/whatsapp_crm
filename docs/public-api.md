@@ -630,16 +630,16 @@ one is, and the current assembled build, if any.
   "data": {
     "ready": true,
     "documents": [
-      { "docKey": "passport", "required": true, "status": "passed" },
-      { "docKey": "salary_certificate", "required": false, "status": "missing" }
+      { "doc_key": "passport", "required": true, "status": "passed" },
+      { "doc_key": "salary_certificate", "required": false, "status": "missing" }
     ],
     "build": {
       "version": 3,
       "merged": true,
       "sha256": "9f2c…",
-      "builtAt": "2026-11-10T09:30:00.000Z",
+      "built_at": "2026-11-10T09:30:00.000Z",
       "manifest": [
-        { "docKey": "passport", "renamedName": "SUB-10482_passport_20261110.pdf", "pages": 2, "sha256": "41ab…" }
+        { "doc_key": "passport", "renamed_name": "SUB-10482_passport_20261110.pdf", "pages": 2, "sha256": "41ab…" }
       ]
     }
   }
@@ -652,7 +652,6 @@ one is, and the current assembled build, if any.
 - `build` is `null` while there is no current build (none yet, or the
   documents changed since the last one). `merged` says whether the build
   is one PDF or a set of renamed files; `pages` may be `null`.
-- The keys inside `data` are camelCase, unlike the rest of `/api/v1`.
 
 Errors: `404 not_found` for an unknown submission, one of another
 workspace, or one with no case.
@@ -667,7 +666,7 @@ key before the link is made.
 {
   "data": {
     "url": "https://…/storage/v1/object/sign/case-files/…?token=…",
-    "expiresAt": "2026-11-10T09:40:00.000Z",
+    "expires_at": "2026-11-10T09:40:00.000Z",
     "sha256": "9f2c…",
     "version": 3
   }
@@ -809,8 +808,8 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
 { "submission_id": "…", "end_reason": "…", "ended_at": "…" }
 // contact.opted_out
 { "contact_id": "…", "phone": "…", "opted_out_at": "…", "compass_id": null }
-// case.file_ready (camelCase; also repeats account_id and occurred_at)
-{ "submissionRef": "SUB-10482", "caseId": "…", "ready": true }
+// case.file_ready (also repeats account_id and occurred_at)
+{ "submission_ref": "SUB-10482", "case_id": "…", "ready": true }
 ```
 
 Headers: `X-Taamul-Event`, `X-Taamul-Webhook-Id`, and `X-Taamul-Signature`.

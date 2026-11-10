@@ -21,14 +21,14 @@
 --   api_key_id, written before the URL is signed; 182's
 --   case_file_download_issued flips it.
 -- STATUS case_file_status_api(account, submission_ref) -> jsonb
---   { ready, documents: [{docKey, required, status}], build: {version,
---   merged, sha256, builtAt, manifest: [{docKey, renamedName, pages,
+--   { ready, documents: [{doc_key, required, status}], build: {version,
+--   merged, sha256, built_at, manifest: [{doc_key, renamed_name, pages,
 --   sha256}]} | null }. A document is 'passed' when it has a passed file
 --   with no failed file of a higher version (181's ready rule, so ready
 --   means every required document is 'passed'), else 'checking' with a file
 --   pending checks, else 'failed' with a failed file, else 'missing'.
 --   FILE_NOT_FOUND as above.
--- WEBHOOK case.file_ready { submissionRef, caseId, ready: true } through
+-- WEBHOOK case.file_ready { submission_ref, case_id, ready: true } through
 --   webhook_enqueue (only when an active endpoint subscribes), when a file
 --   turning 'passed' makes the case File ready and it was not before. "Was
 --   not before" is a latch, case_file_ready_marks: set when a pass finds the
@@ -166,7 +166,7 @@ BEGIN
   END IF;
 
   SELECT coalesce(jsonb_agg(jsonb_build_object(
-           'docKey', r.doc_key,
+           'doc_key', r.doc_key,
            'required', r.required,
            'status', CASE
              WHEN EXISTS (SELECT 1 FROM public.case_document_files f
@@ -190,10 +190,10 @@ BEGIN
            'version', b.version,
            'merged', b.merged,
            'sha256', b.sha256,
-           'builtAt', b.built_at,
+           'built_at', b.built_at,
            'manifest', (SELECT coalesce(jsonb_agg(jsonb_build_object(
-                                 'docKey', e ->> 'doc_key',
-                                 'renamedName', e ->> 'renamed_name',
+                                 'doc_key', e ->> 'doc_key',
+                                 'renamed_name', e ->> 'renamed_name',
                                  'pages', e -> 'pages',
                                  'sha256', e ->> 'sha256')
                                ORDER BY (e ->> 'position')::int, t.ord), '[]'::jsonb)
@@ -244,7 +244,7 @@ BEGIN
            WHERE c.id = NEW.case_id;
           IF v_ref IS NOT NULL THEN
             PERFORM public.webhook_enqueue(v_account, 'case.file_ready', jsonb_build_object(
-              'submissionRef', v_ref, 'caseId', NEW.case_id, 'ready', true));
+              'submission_ref', v_ref, 'case_id', NEW.case_id, 'ready', true));
           END IF;
         END IF;
       END IF;

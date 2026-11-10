@@ -3,7 +3,7 @@
 // audited link to the case's current build (scope:
 // submission_groups:read, migration 184).
 //
-// `{ data: { url, expiresAt, sha256, version } }`: a signed 'case-files'
+// `{ data: { url, expires_at, sha256, version } }`: a signed 'case-files'
 // URL valid 600 s, on the public origin. 404 `not_found` for an unknown
 // submission (or one of another workspace, or with no case); 409
 // `case_file_stale` with no current build; 501 `not_configured` when
@@ -49,7 +49,12 @@ export async function GET(request: Request, { params }: Params) {
     );
     await store.markDownloadIssued(rec.downloadId);
     return noStoreV1(
-      ok({ url, expiresAt, sha256: rec.sha256, version: rec.version })
+      ok({
+        url,
+        expires_at: expiresAt,
+        sha256: rec.sha256,
+        version: rec.version,
+      })
     );
   } catch (err) {
     return noStoreV1(caseFileV1ErrorResponse(err, 'case-file download'));

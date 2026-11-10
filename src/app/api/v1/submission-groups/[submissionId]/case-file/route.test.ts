@@ -15,14 +15,14 @@ const get = () => GET(new Request('http://x'), params);
 
 const status = {
   ready: true,
-  documents: [{ docKey: 'passport', required: true, status: 'passed' }],
+  documents: [{ doc_key: 'passport', required: true, status: 'passed' }],
   build: {
     version: 2,
     merged: true,
     sha256: 'abc',
-    builtAt: '2026-11-10T10:00:00Z',
+    built_at: '2026-11-10T10:00:00Z',
     manifest: [
-      { docKey: 'passport', renamedName: 'X.pdf', pages: 2, sha256: 'def' },
+      { doc_key: 'passport', renamed_name: 'X.pdf', pages: 2, sha256: 'def' },
     ],
   },
 };

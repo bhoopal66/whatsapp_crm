@@ -133,14 +133,14 @@ BEGIN
     CREATE FUNCTION pg_temp.cf_events(p_case uuid)
     RETURNS bigint LANGUAGE sql AS $body$
       SELECT count(*) FROM public.webhook_event_outbox o
-       WHERE o.event = 'case.file_ready' AND o.payload ->> 'caseId' = p_case::text
+       WHERE o.event = 'case.file_ready' AND o.payload ->> 'case_id' = p_case::text
     $body$
   $fn$;
   -- The status of every document of a status JSON, in order.
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.cf_st(p_status jsonb)
     RETURNS text LANGUAGE sql AS $body$
-      SELECT string_agg((d ->> 'docKey') || '=' || (d ->> 'status') || '/' || (d ->> 'required'), ',' ORDER BY o)
+      SELECT string_agg((d ->> 'doc_key') || '=' || (d ->> 'status') || '/' || (d ->> 'required'), ',' ORDER BY o)
         FROM jsonb_array_elements(p_status -> 'documents') WITH ORDINALITY AS t(d, o)
     $body$
   $fn$;
@@ -214,9 +214,9 @@ BEGIN
   st := case_file_status_api(a_acct, 'CFC-184-1');
   n := n + 1; failed := failed || pg_temp.cf_ok(
     st = jsonb_build_object('ready', false, 'build', 'null'::jsonb, 'documents', '[
-          {"docKey": "passport", "required": true, "status": "missing"},
-          {"docKey": "emirates_id", "required": true, "status": "missing"},
-          {"docKey": "salary_cert", "required": false, "status": "missing"}]'::jsonb),
+          {"doc_key": "passport", "required": true, "status": "missing"},
+          {"doc_key": "emirates_id", "required": true, "status": "missing"},
+          {"doc_key": "salary_cert", "required": false, "status": "missing"}]'::jsonb),
     format('the status of a case with no files is not all missing (%s)', st));
   fx := pg_temp.cf_file(u_agent, k1, 'passport', NULL);
   fx := pg_temp.cf_file(u_agent, k1, 'emirates_id', false);
@@ -235,10 +235,10 @@ BEGIN
   fx := pg_temp.cf_file(u_agent, k1, 'emirates_id', true);
   n := n + 1; failed := failed || pg_temp.cf_ok(
     case_file_ready(k1) AND pg_temp.cf_events(k1) = 1
-    AND (SELECT o.payload ->> 'submissionRef' = 'CFC-184-1' AND o.payload ->> 'ready' = 'true'
+    AND (SELECT o.payload ->> 'submission_ref' = 'CFC-184-1' AND o.payload ->> 'ready' = 'true'
                 AND o.account_id = a_acct
            FROM webhook_event_outbox o
-          WHERE o.event = 'case.file_ready' AND o.payload ->> 'caseId' = k1::text),
+          WHERE o.event = 'case.file_ready' AND o.payload ->> 'case_id' = k1::text),
     format('a case becoming ready queued %s case.file_ready events, or the payload is wrong', pg_temp.cf_events(k1)));
   st := case_file_status_api(a_acct, 'CFC-184-1');
   n := n + 1; failed := failed || pg_temp.cf_ok(
@@ -287,11 +287,11 @@ BEGIN
   st := case_file_status_api(a_acct, 'CFC-184-1');
   n := n + 1; failed := failed || pg_temp.cf_ok(
     (st -> 'build' ->> 'version')::int = v1 AND st -> 'build' ->> 'sha256' = sha
-    AND st -> 'build' -> 'merged' = 'false'::jsonb AND st -> 'build' ? 'builtAt'
+    AND st -> 'build' -> 'merged' = 'false'::jsonb AND st -> 'build' ? 'built_at'
     AND jsonb_array_length(st -> 'build' -> 'manifest') = 2
-    AND st -> 'build' -> 'manifest' -> 0 ->> 'docKey' = 'passport'
+    AND st -> 'build' -> 'manifest' -> 0 ->> 'doc_key' = 'passport'
     AND (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(st -> 'build' -> 'manifest' -> 0) k)
-        = ARRAY['docKey', 'pages', 'renamedName', 'sha256'],
+        = ARRAY['doc_key', 'pages', 'renamed_name', 'sha256'],
     format('the status of a built case does not carry its build (%s)', st));
   n := n + 1; failed := failed || pg_temp.cf_check('another account''s key downloaded', NULL, NULL,
     format('SELECT download_id::text FROM case_build_download_record_api(%L, %L, %L, now())', key_oth, a_acct, 'CFC-184-1'),
