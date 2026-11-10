@@ -34,6 +34,10 @@ export const CASE_FILES_REFUSALS = [
   'CHECKS_INVALID',
   'CHECK_MISMATCH',
   'SETTING_INVALID',
+  // Migration 182 (case file builds).
+  'FILE_NOT_READY',
+  'BUILD_INVALID',
+  'BUILD_STALE',
 ] as const;
 
 /** Refused in TypeScript before anything is written (intake-file.ts). */

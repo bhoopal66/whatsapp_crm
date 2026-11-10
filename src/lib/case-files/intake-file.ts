@@ -98,7 +98,7 @@ function isCaseFileMime(m: string): m is CaseFileMime {
 }
 
 /** Storage answers 409 / "already exists" for an object at that path. */
-function isAlreadyExists(error: unknown): boolean {
+export function isAlreadyExists(error: unknown): boolean {
   const e = error as {
     statusCode?: unknown;
     status?: unknown;

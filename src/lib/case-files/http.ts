@@ -43,6 +43,15 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
   },
   FILE_STATE: { status: 409, text: 'The file cannot be changed now' },
   NO_CONTACT: { status: 409, text: 'The case has no customer contact' },
+  FILE_NOT_READY: {
+    status: 409,
+    text: 'Every required document needs a passed file first',
+  },
+  BUILD_INVALID: {
+    status: 409,
+    text: 'The case files changed while building; try again',
+  },
+  BUILD_STALE: { status: 409, text: 'The case file is out of date' },
   DOC_NOT_REQUIRED: {
     status: 422,
     text: 'That document is not on this case’s list',
