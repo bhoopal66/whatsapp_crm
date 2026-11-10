@@ -18,10 +18,13 @@
 // by their message (that carries the path).
 
 import { createHash } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import {
+  copyFile,
+  link,
   mkdir,
   readFile,
-  rename,
+  readdir,
   stat,
   unlink,
   writeFile,
@@ -36,6 +39,10 @@ export const DOWNLOAD_TIMEOUT_MS = 60_000;
 export const RPC_TIMEOUT_MS = 30_000;
 export const MAX_NAME_BYTES = 200;
 const MAX_COLLISIONS = 1000;
+// Names tried when another writer takes the chosen one first.
+const MAX_PUBLISH_TRIES = 50;
+// Same-size files in the ref folder hashed before writing a copy.
+const MAX_ADOPT_HASHES = 10;
 
 const REF_RE = /^TC-[0-9]{6,}$/;
 // A row id becomes a path segment of the part file: never let it walk.
@@ -84,13 +91,25 @@ export type Download = (mediaUrl: string) => Promise<Downloaded>;
 /** The file system calls the worker makes; tests may swap them. */
 export type FsOps = {
   stat: (path: string) => Promise<{ size: number }>;
-  mkdir: (path: string, opts: { recursive: true }) => Promise<unknown>;
+  mkdir: (path: string, opts?: { recursive?: boolean }) => Promise<unknown>;
+  readdir: (path: string) => Promise<string[]>;
+  readFile: (path: string) => Promise<Uint8Array>;
   writeFile: (path: string, data: Uint8Array | string) => Promise<void>;
-  rename: (from: string, to: string) => Promise<void>;
+  link: (existingPath: string, newPath: string) => Promise<void>;
+  copyFile: (from: string, to: string, mode: number) => Promise<void>;
   unlink: (path: string) => Promise<void>;
 };
 
-export const nodeFs: FsOps = { stat, mkdir, writeFile, rename, unlink };
+export const nodeFs: FsOps = {
+  stat,
+  mkdir,
+  readdir: (path) => readdir(path),
+  readFile: (path) => readFile(path),
+  writeFile,
+  link,
+  copyFile,
+  unlink,
+};
 
 export function readProcMountInfo(): Promise<string> {
   return readFile('/proc/self/mountinfo', 'utf8');
@@ -204,11 +223,16 @@ export type NasState = { ready: true } | { ready: false; reason: string };
  * With the mount present, a missing root or marker is created; with it
  * absent nothing is created, because the mount point directory is then
  * on local disk.
+ *
+ * This is the only place the root is ever created. With `create: false`
+ * (the re-check before each row) a missing marker is simply not ready:
+ * the mount may have dropped since the batch began.
  */
 export async function checkNas(
   config: Pick<WorkerConfig, 'nasMount' | 'nasRoot'>,
   fs: FsOps,
-  readMountInfo: () => Promise<string>
+  readMountInfo: () => Promise<string>,
+  create = true
 ): Promise<NasState> {
   let info: string;
   try {
@@ -234,6 +258,7 @@ export async function checkNas(
       };
     }
   }
+  if (!create) return { ready: false, reason: 'NAS root marker is missing' };
   try {
     await fs.mkdir(config.nasRoot, { recursive: true });
     await fs.writeFile(marker, 'wacrm customer documents root\n');
@@ -566,7 +591,102 @@ export async function pickFreeName(
 
 type WriteResult =
   | { ok: true; name: string }
-  | { ok: false; outcome: 'retry' | 'failed'; error: string };
+  | { ok: false; outcome: 'retry' | 'failed' | 'not_ready'; error: string };
+
+/**
+ * A directory directly under the root, never recursively: if the share
+ * dropped after the readiness check, a recursive mkdir would rebuild the
+ * root on local disk (later hidden by the remount). False when the root
+ * itself is gone (ENOENT); an existing directory is fine.
+ */
+async function mkdirUnderRoot(fs: FsOps, path: string): Promise<boolean> {
+  try {
+    await fs.mkdir(path);
+    return true;
+  } catch (e) {
+    const code = errCode(e);
+    if (code === 'EEXIST') return true;
+    if (code === 'ENOENT') return false;
+    throw e;
+  }
+}
+
+/**
+ * A file already in the folder with exactly these bytes, named `fileName`
+ * or its ` (n)` variant: what an earlier attempt published before its
+ * settle was lost. Size first, then at most MAX_ADOPT_HASHES reads. A
+ * candidate that cannot be read (gone, or locked by a person over SMB) is
+ * just not adopted.
+ */
+async function findIdentical(
+  fs: FsOps,
+  folder: string,
+  fileName: string,
+  bytes: Uint8Array,
+  sha256: string
+): Promise<string | null> {
+  const dot = fileName.lastIndexOf('.');
+  const stem = fileName.slice(0, dot);
+  const ext = fileName.slice(dot);
+  const suffixOf = (name: string): number | null => {
+    if (name === fileName) return 1;
+    const head = `${stem} (`;
+    const tail = `)${ext}`;
+    if (!name.startsWith(head) || !name.endsWith(tail)) return null;
+    const n = name.slice(head.length, name.length - tail.length);
+    return /^[0-9]{1,6}$/.test(n) ? Number(n) : null;
+  };
+  const candidates = (await fs.readdir(folder))
+    .map((name) => ({ name, n: suffixOf(name) }))
+    .filter((c): c is { name: string; n: number } => c.n !== null)
+    .sort((a, b) => a.n - b.n);
+  let hashed = 0;
+  for (const { name } of candidates) {
+    if (hashed >= MAX_ADOPT_HASHES) break;
+    const path = join(folder, name);
+    try {
+      if ((await fs.stat(path)).size !== bytes.byteLength) continue;
+      hashed++;
+      const theirs = await fs.readFile(path);
+      if (createHash('sha256').update(theirs).digest('hex') === sha256) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function linkUnsupported(e: unknown): boolean {
+  const code = errCode(e);
+  return (
+    code === 'EPERM' ||
+    code === 'ENOTSUP' ||
+    code === 'EOPNOTSUPP' ||
+    code === 'ENOSYS' ||
+    code === 'EXDEV'
+  );
+}
+
+/**
+ * Put the part file at `dest` with an operation that fails (EEXIST) when
+ * `dest` exists. `rename` would replace it: a file a person dropped in
+ * over SMB between choosing the name and publishing would be lost.
+ */
+async function publishExclusive(
+  fs: FsOps,
+  part: string,
+  dest: string
+): Promise<void> {
+  try {
+    await fs.link(part, dest);
+    return;
+  } catch (e) {
+    if (!linkUnsupported(e)) throw e;
+  }
+  await fs.copyFile(part, dest, fsConstants.COPYFILE_EXCL);
+}
 
 /** Write into the ref's folder without ever overwriting a file. */
 export async function writeDocument(
@@ -574,7 +694,8 @@ export async function writeDocument(
   nasRoot: string,
   doc: Pick<ClaimedDoc, 'id' | 'ref'>,
   fileName: string,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  sha256: string
 ): Promise<WriteResult> {
   if (!REF_RE.test(doc.ref)) {
     return { ok: false, outcome: 'failed', error: 'invalid folder reference' };
@@ -585,16 +706,33 @@ export async function writeDocument(
   const folder = join(nasRoot, doc.ref);
   const incoming = join(nasRoot, INCOMING_DIR);
   const part = join(incoming, `${doc.id}.part`);
-  await fs.mkdir(folder, { recursive: true });
-  await fs.mkdir(incoming, { recursive: true });
-  // A leftover part file from a crash is simply overwritten.
+  if (!(await mkdirUnderRoot(fs, folder))) {
+    return { ok: false, outcome: 'not_ready', error: 'NAS root vanished' };
+  }
+  const adopted = await findIdentical(fs, folder, fileName, bytes, sha256);
+  if (adopted !== null) return { ok: true, name: adopted };
+  if (!(await mkdirUnderRoot(fs, incoming))) {
+    return { ok: false, outcome: 'not_ready', error: 'NAS root vanished' };
+  }
+  // A leftover part file from a crash may be a hard link to a published
+  // file: unlink it rather than write through it.
+  await fs.unlink(part).catch((e: unknown) => {
+    if (errCode(e) !== 'ENOENT') throw e;
+  });
   await fs.writeFile(part, bytes);
-  let renamed = false;
   try {
-    const name = await pickFreeName(fs, folder, fileName);
+    let name: string | null = null;
+    for (let i = 0; i < MAX_PUBLISH_TRIES && name === null; i++) {
+      const candidate = await pickFreeName(fs, folder, fileName);
+      try {
+        await publishExclusive(fs, part, join(folder, candidate));
+        name = candidate;
+      } catch (e) {
+        if (errCode(e) !== 'EEXIST') throw e;
+      }
+    }
+    if (name === null) throw new Error('no free file name');
     const dest = join(folder, name);
-    await fs.rename(part, dest);
-    renamed = true;
     const { size } = await fs.stat(dest);
     if (size !== bytes.byteLength) {
       // Ours, just written and wrong: remove it so the retry starts clean.
@@ -607,7 +745,7 @@ export async function writeDocument(
     }
     return { ok: true, name };
   } finally {
-    if (!renamed) await fs.unlink(part).catch(() => {});
+    await fs.unlink(part).catch(() => {});
   }
 }
 
@@ -641,7 +779,9 @@ export type BatchResult =
 type RowResult =
   | { outcome: 'stored'; sha256: string; size: number; name: string }
   | { outcome: 'duplicate'; sha256: string; size: number }
-  | { outcome: 'retry' | 'failed'; error: string };
+  | { outcome: 'retry' | 'failed'; error: string }
+  /** The share went away mid-write: stop, settle nothing. */
+  | { outcome: 'not_ready'; error: string };
 
 async function processRow(
   doc: ClaimedDoc,
@@ -667,7 +807,8 @@ async function processRow(
     deps.config.nasRoot,
     doc,
     fileName,
-    bytes
+    bytes,
+    sha256
   );
   if (!written.ok) return { outcome: written.outcome, error: written.error };
   return { outcome: 'stored', sha256, size, name: written.name };
@@ -676,11 +817,8 @@ async function processRow(
 export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
   const fs = deps.fs ?? nodeFs;
   const log = deps.log ?? (() => {});
-  const state = await checkNas(
-    deps.config,
-    fs,
-    deps.readMountInfo ?? readProcMountInfo
-  );
+  const readMountInfo = deps.readMountInfo ?? readProcMountInfo;
+  const state = await checkNas(deps.config, fs, readMountInfo);
   if (!state.ready) return state;
 
   const claimed = await deps.rpc('customer_documents_claim', {
@@ -701,11 +839,22 @@ export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
     settleErrors: 0,
   };
 
-  for (const doc of rows) {
+  // The share can drop mid-batch. Stop at once and settle nothing more:
+  // the remaining claims expire and the rows return to the queue.
+  const stop = (i: number, reason: string): BatchResult => {
+    log(
+      `NAS not ready mid-batch (${reason}); ${rows.length - i} claimed row(s) left for the claim expiry`
+    );
+    return { ready: false, reason };
+  };
+
+  for (const [i, doc] of rows.entries()) {
     if (deps.signal?.aborted) {
       result.skipped++;
       continue;
     }
+    const still = await checkNas(deps.config, fs, readMountInfo, false);
+    if (!still.ready) return stop(i, still.reason);
     let row: RowResult;
     try {
       row = await processRow(doc, {
@@ -717,6 +866,7 @@ export async function processBatch(deps: BatchDeps): Promise<BatchResult> {
     } catch (e) {
       row = { outcome: 'retry', error: describeError(e) };
     }
+    if (row.outcome === 'not_ready') return stop(i, row.error);
     result[row.outcome]++;
     if (row.outcome !== 'stored') {
       const why = 'error' in row ? `: ${row.error}` : '';

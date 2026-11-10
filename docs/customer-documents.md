@@ -79,8 +79,14 @@ File names are `YYYY-MM-DD HHmm <name>.<ext>`:
   cut to at most 200 bytes;
 - an existing file is never overwritten: a clash becomes `name (2).ext`,
   `name (3).ext`, and so on;
-- bytes are written into `<root>/.incoming/` and renamed into place, so
-  a half-written file never shows in a customer's folder.
+- bytes are written into `<root>/.incoming/` and then hard-linked into
+  place, an operation that fails rather than replace a file someone put
+  there meanwhile (the next free name is taken instead). Where the share
+  refuses hard links it falls back to an exclusive copy, which also
+  never overwrites but is visible while it copies;
+- a retry whose earlier attempt already put the same bytes in the folder
+  (as `name.ext` or `name (n).ext`) records that file instead of writing
+  a second copy.
 
 Files over 100 MB are failed ("too large").
 
@@ -140,7 +146,11 @@ The worker only works while the mount is live and the root holds the
 marker file `.wacrm-customer-docs`. If the mount is present but the root
 or marker is missing, the first run creates them. While not ready it
 claims nothing, so a NAS outage (or an unmounted share) just queues
-files; they are copied once it returns. A share mounted over the wrong
+files; they are copied once it returns. Readiness is checked again
+(creating nothing) before every file, and only the check at the start
+of a batch ever creates the root: a customer's folder is created only inside an existing root,
+so a share that drops mid-batch stops the batch instead of filling the
+local disk under the mount point. A share mounted over the wrong
 folder cannot be written into, because the marker would be missing.
 
 ### Failure behaviour

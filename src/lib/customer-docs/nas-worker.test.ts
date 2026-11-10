@@ -15,8 +15,10 @@ import {
   type ClaimedDoc,
   type WorkerConfig,
   fileNameFor,
+  type FsOps,
   loadConfig,
   makeDownload,
+  nodeFs,
   parseMountPoints,
   processBatch,
   resolveMediaUrl,
@@ -341,5 +343,163 @@ describe('processBatch', () => {
     expect(r).toEqual({ ready: false, reason: 'NAS share is not mounted' });
     expect(calls).toEqual([]);
     expect(await readdir(mount)).toEqual([]);
+  });
+
+  const tree = async () =>
+    ((await readdir(mount, { recursive: true })) as string[]).sort();
+  const name = '2026-03-05 0130 Passport.pdf';
+  const inRef = (n: string) => join(root, 'TC-000123', n);
+
+  it('stops the batch when the mount goes between rows, creating and settling nothing more', async () => {
+    rows = [
+      row({ id: 'a1' }),
+      row({ id: 'b2', ref: 'TC-000456' }),
+      row({ id: 'c3', ref: 'TC-000789' }),
+    ];
+    // Batch check and row a1's re-check see the mount; b2's does not.
+    let reads = 0;
+    const readMountInfo = async () =>
+      ++reads <= 2 ? mountinfo() : '22 1 8:1 / / rw - ext4 /dev/sda1 rw\n';
+    const downloaded: string[] = [];
+    const r = await processBatch({
+      config,
+      rpc,
+      download: async (url) => {
+        downloaded.push(url);
+        return { ok: true, bytes: bytesOf('PDF-1') };
+      },
+      readMountInfo,
+    });
+    expect(r).toEqual({ ready: false, reason: 'NAS share is not mounted' });
+    expect(downloaded).toHaveLength(1);
+    expect(settled.map((s) => [s.p_id, s.p_outcome])).toEqual([
+      ['a1', 'stored'],
+    ]);
+    expect(await tree()).toEqual(
+      [
+        'Customer Documents',
+        'Customer Documents/.incoming',
+        'Customer Documents/.wacrm-customer-docs',
+        'Customer Documents/TC-000123',
+        `Customer Documents/TC-000123/${name}`,
+      ].sort()
+    );
+  });
+
+  it('never recreates a root that vanished after the check', async () => {
+    const r = await processBatch({
+      config,
+      rpc,
+      download: async () => {
+        await rm(root, { recursive: true, force: true });
+        return { ok: true, bytes: bytesOf('PDF-1') };
+      },
+      readMountInfo: mountinfo,
+    });
+    expect(r).toMatchObject({ ready: false });
+    expect(settled).toEqual([]);
+    expect(await readdir(mount)).toEqual([]);
+  });
+
+  // A file that appears at `target` right after the free-name check.
+  const plantOnMiss = (target: string, body: string): FsOps => {
+    let planted = false;
+    return {
+      ...nodeFs,
+      stat: async (p) => {
+        try {
+          return await nodeFs.stat(p);
+        } catch (e) {
+          if (p === target && !planted) {
+            planted = true;
+            await writeFile(p, body);
+          }
+          throw e;
+        }
+      },
+    };
+  };
+
+  it('never overwrites a file that appears at the chosen name before publishing', async () => {
+    const r = await processBatch({
+      config,
+      rpc,
+      download: okDownload('OURS'),
+      readMountInfo: mountinfo,
+      fs: plantOnMiss(inRef(name), 'THEIRS'),
+    });
+    expect(r).toMatchObject({ stored: 1 });
+    expect(await readFile(inRef(name), 'utf8')).toBe('THEIRS');
+    const second = '2026-03-05 0130 Passport (2).pdf';
+    expect(await readFile(inRef(second), 'utf8')).toBe('OURS');
+    expect(settled[0]).toMatchObject({ p_nas_name: second });
+    expect(await readdir(join(root, '.incoming'))).toEqual([]);
+  });
+
+  it('publishes by exclusive copy when hard links are refused', async () => {
+    const links: string[] = [];
+    const fs: FsOps = {
+      ...plantOnMiss(inRef(name), 'THEIRS'),
+      link: async (_from, to) => {
+        links.push(to);
+        throw Object.assign(new Error('link'), {
+          code: 'EPERM',
+          syscall: 'link',
+        });
+      },
+    };
+    const r = await processBatch({
+      config,
+      rpc,
+      download: okDownload('OURS'),
+      readMountInfo: mountinfo,
+      fs,
+    });
+    expect(r).toMatchObject({ stored: 1 });
+    expect(links.length).toBeGreaterThan(0);
+    expect(await readFile(inRef(name), 'utf8')).toBe('THEIRS');
+    const second = '2026-03-05 0130 Passport (2).pdf';
+    expect(await readFile(inRef(second), 'utf8')).toBe('OURS');
+    expect(settled[0]).toMatchObject({ p_nas_name: second });
+    expect(await readdir(join(root, '.incoming'))).toEqual([]);
+  });
+
+  it('adopts an identical file an earlier attempt published, writing nothing', async () => {
+    await mkdir(join(root, 'TC-000123'), { recursive: true });
+    await writeFile(inRef(name), 'OTHER');
+    const second = '2026-03-05 0130 Passport (2).pdf';
+    await writeFile(inRef(second), 'PDF-1');
+    const r = await processBatch({
+      config,
+      rpc,
+      download: okDownload('PDF-1'),
+      readMountInfo: mountinfo,
+    });
+    expect(r).toMatchObject({ stored: 1 });
+    expect(settled[0]).toMatchObject({
+      p_outcome: 'stored',
+      p_nas_name: second,
+      p_size: 5,
+    });
+    expect((await readdir(join(root, 'TC-000123'))).sort()).toEqual(
+      [name, second].sort()
+    );
+    expect(await readFile(inRef(name), 'utf8')).toBe('OTHER');
+  });
+
+  it('does not adopt a same-name, same-size file with different bytes', async () => {
+    await mkdir(join(root, 'TC-000123'), { recursive: true });
+    await writeFile(inRef(name), 'PDF-2');
+    const r = await processBatch({
+      config,
+      rpc,
+      download: okDownload('PDF-1'),
+      readMountInfo: mountinfo,
+    });
+    expect(r).toMatchObject({ stored: 1 });
+    const second = '2026-03-05 0130 Passport (2).pdf';
+    expect(settled[0]).toMatchObject({ p_nas_name: second });
+    expect(await readFile(inRef(name), 'utf8')).toBe('PDF-2');
+    expect(await readFile(inRef(second), 'utf8')).toBe('PDF-1');
   });
 });
