@@ -41,6 +41,8 @@ const h = vi.hoisted(() => ({
   tagInterested: vi.fn(),
   recipientRows: [] as unknown[],
   order: [] as string[],
+  // customer_documents_record (migration 178): the reply, or a throw.
+  docRpc: vi.fn(),
 }));
 
 function respond(call: Call): Result {
@@ -75,6 +77,7 @@ function fakeDb() {
     rpc(fn: string, args?: unknown) {
       h.rpcs.push(fn);
       h.rpcArgs.push(args);
+      if (fn === 'customer_documents_record') return h.docRpc(args);
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -231,6 +234,7 @@ beforeEach(() => {
   h.order = [];
   h.classify.mockReset().mockResolvedValue(null);
   h.tagInterested.mockReset().mockResolvedValue('not_interested');
+  h.docRpc.mockReset().mockResolvedValue({ data: 'TC-000123', error: null });
 });
 
 describe('processMessage — assigning from call history', () => {
@@ -635,4 +639,180 @@ describe('processMessage — campaign reply sorting', () => {
       expect.objectContaining({ replyClass: null })
     );
   });
+});
+
+// Customer documents (migration 178): a document or photo the customer
+// sends is filed through customer_documents_record, once per stored
+// message, after the idempotency boundary and before the fan-out cut.
+describe('processMessage — customer documents', () => {
+  const FILE_URL = 'https://lookaside.example.com/media/abc';
+
+  function media(
+    type: NormalizedInboundMessage['type'],
+    filename: string | null,
+    mimeType: string,
+    text: string | null
+  ): NormalizedInboundMessage {
+    return {
+      ...message,
+      id: `wamid.${type}`,
+      type,
+      text,
+      media: { id: 'media-1', mimeType, link: FILE_URL, filename, fileSize: 1 },
+    };
+  }
+
+  const docCalls = () =>
+    h.rpcs.flatMap((fn, i) =>
+      fn === 'customer_documents_record' ? [h.rpcArgs[i]] : []
+    );
+
+  it('records a customer document with the stored row, URL and MIME', async () => {
+    await processMessage(
+      media('document', 'salary.pdf', 'application/pdf', 'my salary slip'),
+      'acct-1',
+      'owner-1',
+      channel
+    );
+
+    expect(docCalls()).toEqual([
+      {
+        p_account_id: 'acct-1',
+        p_contact_id: 'contact-1',
+        p_source: 'chat',
+        p_kind: 'document',
+        p_media_url: FILE_URL,
+        p_received_at: '2025-10-09T08:53:20.000Z',
+        p_conversation_id: 'conv-1',
+        p_message_id: 'row-1',
+        p_mime: 'application/pdf',
+        p_original_name: 'salary.pdf',
+        p_caption: 'my salary slip',
+      },
+    ]);
+    // The URL and MIME are the ones written to the row.
+    const upsert = h.calls.find(
+      (c) => c.table === 'messages' && c.op === 'upsert'
+    );
+    expect(upsert?.payload).toMatchObject({
+      media_url: FILE_URL,
+      media_type: 'application/pdf',
+      created_at: '2025-10-09T08:53:20.000Z',
+    });
+    expect(h.rpcs).toEqual([
+      'bump_conversation_on_inbound',
+      'push_whatsapp_inbound',
+      'customer_documents_record',
+    ]);
+  });
+
+  it('records a customer document for a photo, with no caption', async () => {
+    await processMessage(
+      media('image', null, 'image/jpeg', null),
+      'acct-1',
+      'owner-1',
+      channel
+    );
+
+    expect(docCalls()).toEqual([
+      expect.objectContaining({
+        p_kind: 'image',
+        p_media_url: FILE_URL,
+        p_message_id: 'row-1',
+        p_mime: 'image/jpeg',
+        p_original_name: null,
+        p_caption: null,
+      }),
+    ]);
+  });
+
+  it.each([
+    ['sticker', 'image/webp'],
+    ['audio', 'audio/ogg'],
+    ['video', 'video/mp4'],
+  ] as const)('records nothing for a %s', async (type, mime) => {
+    await processMessage(
+      media(type, null, mime, null),
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(docCalls()).toEqual([]);
+    expect(h.rpcs).toEqual([
+      'bump_conversation_on_inbound',
+      'push_whatsapp_inbound',
+    ]);
+  });
+
+  it('records nothing for a text', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(docCalls()).toEqual([]);
+  });
+
+  it('records nothing on a replayed delivery', async () => {
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(
+      media('document', 'salary.pdf', 'application/pdf', null),
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    info.mockRestore();
+    expect(docCalls()).toEqual([]);
+  });
+
+  it('records a customer document from a sender over the rate limit', async () => {
+    await processMessage(
+      media('document', 'salary.pdf', 'application/pdf', null),
+      'acct-1',
+      'owner-1',
+      channel,
+      undefined,
+      { fanOut: false }
+    );
+    expect(docCalls()).toHaveLength(1);
+    expect(h.flows).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'an error',
+      () => Promise.resolve({ data: null, error: { message: 'bad input' } }),
+    ],
+    ['a rejection', () => Promise.reject(new Error('fetch failed'))],
+  ])(
+    'a record that fails with %s leaves the pipeline running',
+    async (_label, reply) => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      h.docRpc.mockImplementation(reply);
+
+      await expect(
+        processMessage(
+          media('document', 'salary.pdf', 'application/pdf', null),
+          'acct-1',
+          'owner-1',
+          channel
+        )
+      ).resolves.toBeUndefined();
+      log.mockRestore();
+
+      expect(h.rpcs).toEqual([
+        'bump_conversation_on_inbound',
+        'push_whatsapp_inbound',
+        'customer_documents_record',
+      ]);
+      expect(h.reopen).toHaveBeenCalledTimes(1);
+      expect(h.flows).toHaveBeenCalledTimes(1);
+      expect(h.automations).toHaveBeenCalled();
+      expect(h.ai).toHaveBeenCalledTimes(1);
+      expect(h.webhook).toHaveBeenCalledWith(
+        expect.anything(),
+        'acct-1',
+        'message.received',
+        expect.anything()
+      );
+      expect(h.watch).toHaveBeenCalledTimes(1);
+    }
+  );
 });

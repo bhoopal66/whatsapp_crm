@@ -56,6 +56,10 @@ import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
 import { assignChatFromCallHistory } from '@/lib/pbx/assign-from-calls';
+import {
+  customerDocumentKind,
+  recordCustomerDocument,
+} from '@/lib/customer-docs/record';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -892,6 +896,27 @@ export async function processMessage(
   // (fanOut: false) still rings; after the idempotency boundary because
   // push_whatsapp_inbound de-dupes nothing. Fail-open by contract.
   await enqueueInboundPush(supabaseAdmin(), insertedRows[0].id);
+
+  // File a document or photo in the customer's documents folder
+  // (customer_documents_record, migration 178); a worker copies it to
+  // the NAS later. After the idempotency boundary, so a replay files
+  // nothing twice; before the fan-out cut, because a sender over the
+  // rate limit (fanOut: false) still sent us the file. Kind comes from
+  // the normalised type, so a sticker (stored as 'image') is skipped.
+  // Never throws.
+  await recordCustomerDocument(supabaseAdmin(), {
+    accountId,
+    contactId: contactRecord.id,
+    conversationId: conversation.id,
+    messageRowId: insertedRows[0].id,
+    source: 'chat',
+    kind: customerDocumentKind(message.type),
+    mediaUrl,
+    mime: mediaType,
+    originalName: message.media?.filename ?? null,
+    caption: message.text,
+    receivedAt: messageAt,
+  });
 
   // Everything above is the inbox; everything below reacts to it.
   if (options.fanOut === false) return;
