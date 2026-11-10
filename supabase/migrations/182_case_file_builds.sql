@@ -46,8 +46,10 @@
 --   the file spec of a (bank, product) changes (case_file_spec_set: a
 --   required doc_key, a pattern, merged ...), every ready build of a case
 --   of that bank and product is superseded (trigger on the spec audit row,
---   one per set; a re-save of the same rows changes nothing). So a stale
---   PDF is never current.
+--   one per set; a re-save of the same rows changes nothing); and, for a
+--   (bank, product) with no spec, when its case_doc_requirements change
+--   (181's fallback: a row added, removed, re-keyed or re-positioned; a
+--   trigger on that table). So a stale PDF is never current.
 -- DOWNLOADS case_file_downloads: one audit row per download of a file or of
 --   the ready build, written before the signed URL is minted
 --   (url_issued false); case_file_download_issued flips it once the URL
@@ -356,6 +358,21 @@ CREATE TRIGGER case_file_builds_stale
 -- writer and inserts one audit row per call, holding the rows it replaced
 -- and the rows it stored: equal (a re-save) supersedes nothing. A first
 -- spec (rows_before '[]') replaces 181's requirements fallback, a change.
+-- Products match as case_file_spec_rows matches them (lower(btrim())).
+CREATE OR REPLACE FUNCTION public.case_file_builds_supersede_for(p_account uuid, p_bank_code text, p_product text)
+RETURNS void
+LANGUAGE sql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  UPDATE public.case_file_builds b SET status = 'superseded'
+    FROM public.cases c
+   WHERE b.case_id = c.id AND b.status = 'ready'
+     AND c.account_id = p_account AND c.bank_code = p_bank_code
+     AND lower(btrim(c.product)) = lower(btrim(p_product));
+$$;
+
 CREATE OR REPLACE FUNCTION public.case_file_builds_spec_hook()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -366,11 +383,7 @@ BEGIN
   IF NEW.rows IS NOT DISTINCT FROM NEW.rows_before THEN
     RETURN NULL;
   END IF;
-  UPDATE public.case_file_builds b SET status = 'superseded'
-    FROM public.cases c
-   WHERE b.case_id = c.id AND b.status = 'ready'
-     AND c.account_id = NEW.account_id AND c.bank_code = NEW.bank_code
-     AND lower(btrim(c.product)) = lower(btrim(NEW.product));
+  PERFORM public.case_file_builds_supersede_for(NEW.account_id, NEW.bank_code, NEW.product);
   RETURN NULL;
 END;
 $$;
@@ -379,6 +392,47 @@ DROP TRIGGER IF EXISTS case_file_builds_spec_stale ON public.case_file_spec_audi
 CREATE TRIGGER case_file_builds_spec_stale
   AFTER INSERT ON public.case_file_spec_audit
   FOR EACH ROW EXECUTE FUNCTION public.case_file_builds_spec_hook();
+
+-- A bank and product with no spec take their file's documents from
+-- case_doc_requirements (181's fallback: doc_key and position), so a
+-- change there is a spec change for them. A bank and product that has a
+-- spec ignores its requirements, so its builds stay. An UPDATE that moves
+-- a row to another bank or product changes both. A label edit is not read
+-- by the fallback and supersedes nothing.
+CREATE OR REPLACE FUNCTION public.case_file_builds_requirements_hook()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  k record;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND (OLD.account_id, OLD.bank_code, OLD.product, OLD.doc_key, OLD.position)
+         IS NOT DISTINCT FROM (NEW.account_id, NEW.bank_code, NEW.product, NEW.doc_key, NEW.position) THEN
+    RETURN NULL;
+  END IF;
+  FOR k IN
+    SELECT DISTINCT x.account_id, x.bank_code, lower(btrim(x.product)) AS product
+      FROM (SELECT OLD.account_id, OLD.bank_code, OLD.product WHERE TG_OP IN ('UPDATE', 'DELETE')
+            UNION ALL
+            SELECT NEW.account_id, NEW.bank_code, NEW.product WHERE TG_OP IN ('UPDATE', 'INSERT')) x
+  LOOP
+    IF NOT EXISTS (SELECT 1 FROM public.case_file_specs s
+                    WHERE s.account_id = k.account_id AND s.bank_code = k.bank_code
+                      AND lower(btrim(s.product)) = k.product) THEN
+      PERFORM public.case_file_builds_supersede_for(k.account_id, k.bank_code, k.product);
+    END IF;
+  END LOOP;
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS case_file_builds_requirements_stale ON public.case_doc_requirements;
+CREATE TRIGGER case_file_builds_requirements_stale
+  AFTER INSERT OR UPDATE OR DELETE ON public.case_doc_requirements
+  FOR EACH ROW EXECUTE FUNCTION public.case_file_builds_requirements_hook();
 
 -- ---------- 8. Download audit ----------
 
@@ -516,6 +570,8 @@ REVOKE ALL ON FUNCTION
   public.case_file_builds_guard(),
   public.case_file_builds_stale_hook(),
   public.case_file_builds_spec_hook(),
+  public.case_file_builds_supersede_for(uuid, text, text),
+  public.case_file_builds_requirements_hook(),
   public.case_file_downloads_guard(),
   public.case_file_build_gate(uuid, uuid),
   public.case_file_build_reserve(uuid, uuid, timestamptz),
