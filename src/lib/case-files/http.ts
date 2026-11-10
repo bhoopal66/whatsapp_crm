@@ -217,6 +217,20 @@ export function parseUploadForm(form: FormData | null): {
   };
 }
 
+/** Marks a response `Cache-Control: no-store` (download and build routes). */
+export function noStore(res: NextResponse): NextResponse {
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/** 501: this install cannot sign download URLs. */
+export function notConfiguredResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'Downloads are not configured', code: 'NOT_CONFIGURED' },
+    { status: 501 }
+  );
+}
+
 /** The current date in UTC, YYYY-MM-DD (the expiry rule's "today"). */
 export function todayUtc(now: Date): string {
   return now.toISOString().slice(0, 10);

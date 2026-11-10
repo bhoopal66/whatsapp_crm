@@ -171,6 +171,20 @@ export interface CustomerDocumentRow {
   status: string | null;
 }
 
+/** `case_file_download_record` (182): the audit row and the document to serve. */
+export interface FileDownloadRecord {
+  downloadId: string;
+  customerDocumentId: string;
+}
+
+/** `case_build_download_record` (182): the audit row and the ready build. */
+export interface BuildDownloadRecord {
+  downloadId: string;
+  objectPath: string;
+  sha256: string;
+  version: number;
+}
+
 const FILE_COLUMNS =
   'id, case_id, customer_document_id, doc_key, version, status, classify_seq, checks, pages, expires_on, renamed_name, registered_at, customer_documents(original_name, mime, size_bytes, source)';
 const DOCUMENT_COLUMNS =
@@ -381,6 +395,65 @@ export class CaseFilesStore {
       p_to: toStage,
     });
     return data === true;
+  }
+
+  /**
+   * Writes the audit row of one file download (url_issued false).
+   * FILE_NOT_FOUND unless the actor can read the file's case.
+   */
+  async recordFileDownload(
+    actor: string,
+    fileId: string,
+    now: Date
+  ): Promise<FileDownloadRecord> {
+    const fn = 'case_file_download_record';
+    const row = rows(
+      await this.rpc(fn, {
+        p_actor: actor,
+        p_file: fileId,
+        p_now: now.toISOString(),
+      })
+    )[0];
+    if (!row?.download_id || !row.customer_document_id)
+      throw new CaseFilesStoreError(fn, null);
+    return {
+      downloadId: String(row.download_id),
+      customerDocumentId: String(row.customer_document_id),
+    };
+  }
+
+  /**
+   * Writes the audit row of a build download (url_issued false).
+   * FILE_NOT_FOUND unless readable; BUILD_STALE with no ready build.
+   */
+  async recordBuildDownload(
+    actor: string,
+    caseId: string,
+    now: Date
+  ): Promise<BuildDownloadRecord> {
+    const fn = 'case_build_download_record';
+    const row = rows(
+      await this.rpc(fn, {
+        p_actor: actor,
+        p_case: caseId,
+        p_now: now.toISOString(),
+      })
+    )[0];
+    if (!row?.download_id || !row.object_path)
+      throw new CaseFilesStoreError(fn, null);
+    return {
+      downloadId: String(row.download_id),
+      objectPath: String(row.object_path),
+      sha256: String(row.sha256),
+      version: Number(row.version),
+    };
+  }
+
+  /** Flips url_issued; call only once the URL was produced. */
+  async markDownloadIssued(downloadId: string): Promise<void> {
+    await this.rpc('case_file_download_issued', {
+      p_download_id: downloadId,
+    });
   }
 
   /** Every file of the case, every version, newest first. */
