@@ -12,6 +12,29 @@ and polish.
 
 ## [Unreleased]
 
+### Customer documents: every file a customer sends is filed under their reference
+
+- **Migration required:** apply `supabase/migrations/178_customer_documents.sql`
+  as a superuser or BYPASSRLS role (it refuses to run as anyone else).
+- **One-time worker install** (the copier is its own service, not part of
+  the app): copy `scripts/systemd/wacrm-customer-docs.service` to
+  `/etc/systemd/system/`, adjust its paths, then `systemctl daemon-reload`
+  and `systemctl enable --now wacrm-customer-docs`. Details and settings
+  are in `docs/customer-documents.md`. Without it, files queue and none
+  reach the NAS.
+- Every document and photo a customer sends in a 1:1 WhatsApp chat (any
+  number: Whapi, Meta or OpenWA) is given to that customer's own
+  reference number, such as `TC-000123`, and copied into a folder of that
+  name on the company NAS. Stickers, voice notes, audio and video are not
+  filed, and nothing that arrived before the migration is.
+- The customer page has a new **Documents** card (reference with copy
+  button, NAS folder path, each file's status, an Open link, and **Try
+  again** for owners and admins on a file that failed), and the inbox
+  contact panel a **Documents** row. Whoever can see a customer sees
+  their documents.
+- Nothing is sent to the customer and no flow, automation or reply
+  changes. If the NAS is down, files wait and are copied when it returns.
+
 ### Team recordings show the customer's number
 
 - The Team recordings page (`/calls/recordings`) now shows each call's
