@@ -43,7 +43,7 @@
 --   All three are the service role's only.
 --
 -- Refusals (hint): NOT_ALLOWED, TEMPLATE_INVALID, TEMPLATE_NOT_FOUND,
--- SELF_APPROVAL, CASE_NOT_FOUND, INTAKE_OFF, TEMPLATE_NOT_APPROVED,
+-- SELF_APPROVAL, CASE_NOT_FOUND, INTAKE_OFF, MANAGED_EXTERNALLY, TEMPLATE_NOT_APPROVED,
 -- CASE_CLOSED, FILE_NOT_FOUND, FILE_STATE, PROMPT_INVALID, PROMPT_NOT_FOUND,
 -- PROMPT_STALE, PROMPT_OPTION.
 -- Lock order (181's): the case FOR NO KEY UPDATE, then the prompt, then the
@@ -272,6 +272,11 @@ BEGIN
     RAISE EXCEPTION 'the WhatsApp document intake is off for this workspace'
       USING ERRCODE = 'check_violation', HINT = 'INTAKE_OFF';
   END IF;
+  -- 181's rule: the intake never acts on a case Compass manages.
+  IF c.group_id IS NOT NULL AND public.case_managed_externally(c.account_id) THEN
+    RAISE EXCEPTION 'MANAGED_EXTERNALLY: case % is managed in the submission app', p_case
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'MANAGED_EXTERNALLY';
+  END IF;
   IF public.case_intake_template_get(c.account_id, 'document_classify') IS NULL THEN
     RAISE EXCEPTION 'the document_classify wording is not approved'
       USING ERRCODE = 'check_violation', HINT = 'TEMPLATE_NOT_APPROVED';
@@ -331,6 +336,7 @@ SET search_path = ''
 AS $$
 DECLARE
   p        public.case_intake_prompts%ROWTYPE;
+  c        public.cases%ROWTYPE;
   v_case   uuid;
   v_status text;
   v_key    text;
@@ -339,8 +345,13 @@ BEGIN
   IF v_case IS NULL THEN
     RAISE EXCEPTION 'prompt % not found', p_prompt USING ERRCODE = 'no_data_found', HINT = 'PROMPT_NOT_FOUND';
   END IF;
-  PERFORM 1 FROM public.cases x WHERE x.id = v_case FOR NO KEY UPDATE;
+  SELECT * INTO c FROM public.cases x WHERE x.id = v_case FOR NO KEY UPDATE;
   SELECT * INTO p FROM public.case_intake_prompts x WHERE x.prompt_id = p_prompt FOR UPDATE;
+  -- An answer would classify: refused once Compass manages the case (181).
+  IF c.group_id IS NOT NULL AND public.case_managed_externally(c.account_id) THEN
+    RAISE EXCEPTION 'MANAGED_EXTERNALLY: case % is managed in the submission app', v_case
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'MANAGED_EXTERNALLY';
+  END IF;
   SELECT f.status INTO v_status FROM public.case_document_files f WHERE f.id = p.file_id;
   IF p.answered_at IS NOT NULL OR p.superseded_at IS NOT NULL OR v_status IS DISTINCT FROM 'unclassified' THEN
     RAISE EXCEPTION 'prompt % is no longer open', p_prompt USING ERRCODE = 'check_violation', HINT = 'PROMPT_STALE';
