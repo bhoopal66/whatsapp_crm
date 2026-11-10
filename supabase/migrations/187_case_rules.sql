@@ -25,7 +25,8 @@
 --   cron). Conditions (all must match; absent = any): bank_code, stage,
 --   product, amount_min, amount_max, pre_submission (group_id IS NULL),
 --   days (1..365; required for and only allowed on no_activity: the
---   inbox's last activity (185), else opened_at, at least that old).
+--   inbox's last activity (185) not counting the rules' own writes, else
+--   opened_at, at least that old).
 -- Actions: assign_coordinator {userId}, assign_agent {userId} (target:
 --   live non-guest staff of the account, case_reassign's rule),
 --   add_note {body} ({{customer}} = contact name,
@@ -444,7 +445,10 @@ $$;
 
 -- ---------- 5. Matching and firing ----------
 
--- The inbox's last activity (185's lateral, same sources and exclusions).
+-- The inbox's last activity (185's lateral, same sources and exclusions),
+-- minus the rules' own writes (actor NULL, role system:rules): a
+-- no_activity rule that reassigns or sets priority must not restart its
+-- own idle clock. Rule notes are already out (author_id NULL).
 CREATE OR REPLACE FUNCTION public.case_rule_last_activity(p_case uuid)
 RETURNS timestamptz
 LANGUAGE sql
@@ -454,8 +458,10 @@ SET search_path = ''
 AS $$
   SELECT max(e.at) FROM (
     SELECT h.changed_at AS at FROM public.case_stage_history h WHERE h.case_id = p_case
-    UNION ALL SELECT r.changed_at FROM public.case_reassign_history r WHERE r.case_id = p_case
-    UNION ALL SELECT d.changed_at FROM public.case_detail_log d WHERE d.case_id = p_case
+    UNION ALL SELECT r.changed_at FROM public.case_reassign_history r
+               WHERE r.case_id = p_case AND NOT (r.actor_id IS NULL AND r.actor_role IS NOT DISTINCT FROM 'system:rules')
+    UNION ALL SELECT d.changed_at FROM public.case_detail_log d
+               WHERE d.case_id = p_case AND NOT (d.actor_id IS NULL AND d.actor_role IS NOT DISTINCT FROM 'system:rules')
     UNION ALL SELECT l.changed_at FROM public.case_task_status_log l WHERE l.case_id = p_case
     UNION ALL SELECT n.created_at FROM public.case_notes n WHERE n.case_id = p_case AND n.author_id IS NOT NULL
     UNION ALL SELECT o.updated_at FROM public.case_documents o WHERE o.case_id = p_case
