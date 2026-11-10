@@ -66,6 +66,14 @@ export interface GroupCustomerDocument {
  */
 export type GroupCustomerDocumentHook = (doc: GroupCustomerDocument) => unknown;
 
+/** A NEW text with a body the customer sent into their submission group (183's intake). */
+export interface GroupCustomerText {
+  accountId: string;
+  groupId: string;
+  waMessageId: string;
+  body: string;
+}
+
 /**
  * The case SLA hook (module 018c): a NEW message from the customer is the
  * case's `customer_message` event. Best effort: a failure is logged, never
