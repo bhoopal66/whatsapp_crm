@@ -20,6 +20,7 @@ import {
 } from '@/lib/case-files/intake-queue';
 import { CaseFilesStore } from '@/lib/case-files/store';
 
+import { isManagedExternally } from './access';
 import { CaseBankContactsStore } from './bank-contacts';
 import { BankWorkspaceStore } from './bank-workspaces';
 import { CaseConversations } from './conversations';
@@ -174,11 +175,20 @@ export function caseIntakePorts(
       if (error) throw rpcError('cases', error);
       if (!data) return null;
       const r = data as Record<string, unknown>;
+      const groupId = str(r.group_id);
+      const managed =
+        (await rpc('case_managed_externally', {
+          p_account: r.account_id,
+        })) === true;
       return {
         accountId: String(r.account_id),
-        groupId: str(r.group_id),
+        groupId,
         coordinatorId: str(r.coordinator_id),
         closedAt: str(r.closed_at),
+        managedExternally: isManagedExternally(
+          { managedExternally: managed },
+          { groupId }
+        ),
       };
     },
     intakeEnabled: async (accountId) =>

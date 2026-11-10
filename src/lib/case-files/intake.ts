@@ -33,6 +33,11 @@ export interface IntakeCaseInfo {
   groupId: string | null;
   coordinatorId: string | null;
   closedAt: Date | string | null;
+  /**
+   * 134's lock (`isManagedExternally`): Compass manages the case, so the
+   * intake neither registers, prompts nor classifies (181's header).
+   */
+  managedExternally: boolean;
 }
 
 /** One row of the case's merged spec/checklist, with its requirement label. */
@@ -291,6 +296,7 @@ export async function onCustomerGroupDocument(
     return 'no_case';
   }
   const accountId = info.value.accountId;
+  if (info.value.managedExternally) return 'off';
 
   const on = await attempt(log, 'intakeEnabled', ids, () =>
     ports.intakeEnabled(accountId)
@@ -384,6 +390,7 @@ export async function onCustomerGroupText(
   if (!info.ok) return 'error';
   if (!info.value) return 'no_case';
   const accountId = info.value.accountId;
+  if (info.value.managedExternally) return 'off';
 
   const on = await attempt(log, 'intakeEnabled', ids, () =>
     ports.intakeEnabled(accountId)

@@ -69,6 +69,7 @@ function fake(
         groupId: GROUP,
         coordinatorId: 'coord-1',
         closedAt: null,
+        managedExternally: false,
         ...o.info,
       };
     },
@@ -180,6 +181,15 @@ describe('onCustomerGroupDocument', () => {
     expect(f.writes()).toEqual([]);
     expect(f.sends()).toEqual([]);
     expect(f.names()).toEqual(['caseInfo', 'intakeEnabled']);
+  });
+
+  it('does nothing on a case Compass manages (134), switch on and wording approved', async () => {
+    const f = fake({ info: { managedExternally: true } });
+    expect(await onCustomerGroupDocument(f.ports, docInput)).toBe('off');
+    expect(f.writes()).toEqual([]);
+    expect(f.sends()).toEqual([]);
+    expect(f.names()).not.toContain('register');
+    expect(f.names()).not.toContain('classifyAndCheck');
   });
 
   it('does nothing while the classify wording is not approved', async () => {
@@ -348,6 +358,13 @@ describe('onCustomerGroupText', () => {
     const f = fake({ enabled: false });
     expect(await onCustomerGroupText(f.ports, textInput('1'))).toBe('off');
     expect(f.names()).toEqual(['caseInfo', 'intakeEnabled']);
+    expect(f.writes()).toEqual([]);
+    expect(f.sends()).toEqual([]);
+  });
+
+  it('neither answers nor classifies on a case Compass manages (134)', async () => {
+    const f = fake({ info: { managedExternally: true } });
+    expect(await onCustomerGroupText(f.ports, textInput('1'))).toBe('off');
     expect(f.writes()).toEqual([]);
     expect(f.sends()).toEqual([]);
   });
