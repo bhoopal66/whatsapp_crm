@@ -275,10 +275,16 @@ export type RuleProblem =
   | 'note_too_long'
   | 'priority_invalid';
 
+/**
+ * Amounts must stay below 1e16: cases.amount is numeric(18, 2) (122) and
+ * 189's case_rule_validate refuses anything above 9999999999999999.99.
+ */
+const RULE_AMOUNT_LIMIT = 1e16;
+
 const amount = (raw: string): number | null | 'bad' => {
   if (isBlank(raw)) return null;
   const n = Number(raw.trim());
-  return Number.isFinite(n) && n >= 0 ? n : 'bad';
+  return Number.isFinite(n) && n >= 0 && n < RULE_AMOUNT_LIMIT ? n : 'bad';
 };
 
 /** The problems with a draft, each once, in form order; [] = sendable. */

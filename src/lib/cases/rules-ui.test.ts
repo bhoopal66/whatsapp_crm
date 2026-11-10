@@ -186,6 +186,10 @@ describe('validateDraft', () => {
     expect(validateDraft(draft({ amountMin: '-1' }))).toEqual([
       'amount_invalid',
     ]);
+    expect(validateDraft(draft({ amountMax: '1e16' }))).toEqual([
+      'amount_invalid',
+    ]);
+    expect(validateDraft(draft({ amountMax: '9999999999' }))).toEqual([]);
     expect(validateDraft(draft({ amountMax: 'abc' }))).toEqual([
       'amount_invalid',
     ]);
