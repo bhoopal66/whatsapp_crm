@@ -25,6 +25,12 @@ import {
   X,
 } from 'lucide-react';
 
+import {
+  CaseViewsMenu,
+  MentionsChip,
+  SnoozeChip,
+  SnoozedControl,
+} from '@/components/cases/case-views-menu';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -230,6 +236,7 @@ export function CasesInbox() {
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <CaseViewsMenu filters={filters} setFilters={setFilters} />
           <Button
             variant="outline"
             size="sm"
@@ -578,6 +585,14 @@ function FilterBar({
           checked={f.includeClosed}
           onChange={(includeClosed) => setFilters({ includeClosed })}
         />
+        <SnoozedControl
+          value={f.snoozed}
+          onChange={(snoozed) => setFilters({ snoozed })}
+        />
+        <MentionsChip
+          on={f.mentionedMe}
+          onChange={(mentionedMe) => setFilters({ mentionedMe })}
+        />
         {narrowed > 0 && (
           <Button
             variant="ghost"
@@ -703,7 +718,7 @@ function useCaseRowMenu(ref: RefObject<Element | null>, row: InboxRow) {
   });
 }
 
-function Chips({ row }: { row: InboxRow }) {
+function Chips({ row, now }: { row: InboxRow; now: Date }) {
   const t = useTranslations('Cases');
   const priority = PRIORITY_CHIP[row.priority];
   const status = caseStatusView(row);
@@ -728,6 +743,7 @@ function Chips({ row }: { row: InboxRow }) {
           {t('closed')}
         </span>
       )}
+      <SnoozeChip row={row} now={now} className={chip} />
     </span>
   );
 }
@@ -863,7 +879,7 @@ function TableRowView({
         )}
       </TableCell>
       <TableCell className="whitespace-normal">
-        <Chips row={row} />
+        <Chips row={row} now={now} />
       </TableCell>
       <TableCell className="text-xs whitespace-normal">
         <span className="block">{t('agentLabel', { name: v.agent })}</span>
@@ -919,7 +935,7 @@ function CaseCard({
         <span className="text-muted-foreground block truncate text-sm">
           {[v.bank, v.product].filter(Boolean).join(' · ')}
         </span>
-        <Chips row={row} />
+        <Chips row={row} now={now} />
         <Flags row={row} />
         <span className="text-muted-foreground block text-xs">
           {t('agentLabel', { name: v.agent })} ·{' '}

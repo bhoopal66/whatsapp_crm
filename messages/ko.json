@@ -8000,6 +8000,40 @@
     "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요.",
     "leadChip": "리드"
   },
+  "CaseViews": {
+    "views": "보기",
+    "allCases": "전체 케이스",
+    "sharedViews": "공유된 보기",
+    "myViews": "내 보기",
+    "saveCurrent": "현재 보기 저장…",
+    "saveTitle": "현재 보기 저장",
+    "saveBody": "지금 선택한 필터와 정렬을 저장합니다.",
+    "name": "이름",
+    "shareWithTeam": "팀과 공유",
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "deleteView": "{name} 보기 삭제",
+    "deleteTitle": "\"{name}\" 보기를 삭제할까요?",
+    "deleteBody": "이 보기가 삭제됩니다. 케이스에는 영향이 없습니다.",
+    "deleteSharedBody": "이 공유 보기가 모든 사람에게서 삭제됩니다. 케이스에는 영향이 없습니다.",
+    "snoozed": "보류됨",
+    "snoozedModes": {
+      "hide": "숨기기",
+      "only": "보류만",
+      "all": "전체"
+    },
+    "mentionsMe": "나를 멘션함",
+    "snoozedUntil": "{date}까지 보류",
+    "backFromSnooze": "보류 해제됨",
+    "errors": {
+      "NAME_INVALID": "보기 이름을 입력하세요.",
+      "FILTER_INVALID": "이 필터는 보기로 저장할 수 없습니다.",
+      "NOT_ALLOWED": "소유자와 관리자만 이 보기를 공유하거나 삭제할 수 있습니다.",
+      "VIEW_NOT_FOUND": "해당 보기가 더 이상 존재하지 않습니다.",
+      "FAILED": "문제가 발생했습니다. 다시 시도하세요."
+    }
+  },
   "CustomerCases": {
     "title": "케이스",
     "openLead": "리드 열기",

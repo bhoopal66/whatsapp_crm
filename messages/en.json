@@ -8000,6 +8000,40 @@
     "noMatchesBody": "Try fewer filters, or include closed cases.",
     "leadChip": "Lead"
   },
+  "CaseViews": {
+    "views": "Views",
+    "allCases": "All cases",
+    "sharedViews": "Shared views",
+    "myViews": "My views",
+    "saveCurrent": "Save current view…",
+    "saveTitle": "Save current view",
+    "saveBody": "Saves the filters and sort you have chosen now.",
+    "name": "Name",
+    "shareWithTeam": "Share with the team",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleteView": "Delete view {name}",
+    "deleteTitle": "Delete \"{name}\"?",
+    "deleteBody": "This view will be removed. Cases are not affected.",
+    "deleteSharedBody": "This shared view will be removed for everyone. Cases are not affected.",
+    "snoozed": "Snoozed",
+    "snoozedModes": {
+      "hide": "Hide",
+      "only": "Only",
+      "all": "All"
+    },
+    "mentionsMe": "Mentions me",
+    "snoozedUntil": "Snoozed until {date}",
+    "backFromSnooze": "Back from snooze",
+    "errors": {
+      "NAME_INVALID": "Enter a name for the view.",
+      "FILTER_INVALID": "These filters can't be saved as a view.",
+      "NOT_ALLOWED": "Only owners and admins can share or delete this view.",
+      "VIEW_NOT_FOUND": "That view no longer exists.",
+      "FAILED": "Something went wrong. Try again."
+    }
+  },
   "CustomerCases": {
     "title": "Cases",
     "openLead": "Open lead",
