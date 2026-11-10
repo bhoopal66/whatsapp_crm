@@ -28,10 +28,10 @@ DECLARE
   o_acct   UUID;
   wa       UUID;
   ca       UUID;
-  k1 UUID; k2 UUID; k3 UUID; k4 UUID; kx UUID;
+  k1 UUID; k2 UUID; k3 UUID; k4 UUID; k5 UUID; kx UUID;
   fp UUID; fe UUID; fs UUID; fold UUID; fx UUID;
   r1 UUID; r2 UUID; r3 UUID; r4 UUID; r5 UUID; r6 UUID;
-  b1 UUID; b3 UUID; b4 UUID; b5 UUID; b6 UUID; r7 UUID;
+  b1 UUID; b3 UUID; b4 UUID; b5 UUID; b6 UUID; b7 UUID; b8 UUID; r7 UUID;
   v1 INT; v3 INT; v5 INT;
   m1       JSONB;
   m4       JSONB;
@@ -400,6 +400,57 @@ BEGIN
     'a file spec change left the ready build current');
   n := n + 1; failed := failed || pg_temp.cf_check('a build stale by a spec change was downloadable', NULL, NULL,
     format('SELECT download_id::text FROM case_build_download_record(%L, %L, now())', u_agent, k4),
+    'ERROR 23514 BUILD_STALE:%');
+  -- a requirements change: for a bank and product with no spec (181's
+  -- fallback: doc_key and position) it supersedes the ready builds; for
+  -- one with a spec, and a label edit, it does not
+  fx := pg_temp.cf_file(u_agent, k4, 'salary_cert', true);
+  SELECT x.reservation_id INTO r7 FROM case_file_build_reserve(u_coord, k4, now()) x;
+  SELECT x.build_id INTO b7
+    FROM case_file_build_record(u_coord, k4, r7, pg_temp.cfb_man(k4), false,
+                                'cases/' || k4::text || '/index-' || repeat('d', 64) || '.pdf', repeat('d', 64), now()) x;
+  k5 := (SELECT x.case_id FROM case_open(
+    (SELECT x.group_id FROM sg_open(a_acct, 'CFB-182-5', ca, wa, 'case file builds', NULL,
+       jsonb_build_array(jsonb_build_object('user_id', u_coord, 'label', 'coordinator'),
+                         jsonb_build_object('user_id', u_agent, 'label', 'agent')), NULL) x),
+    'ADCB', 'ADCB Bank', 'Card', 1000, NULL) x);
+  INSERT INTO case_doc_requirements (account_id, bank_code, product, doc_key, label, position) VALUES
+    (a_acct, 'ADCB', 'Card', 'passport', 'Passport', 1),
+    (a_acct, 'ADCB', 'Card', 'emirates_id', 'Emirates ID', 2);
+  fx := pg_temp.cf_file(u_agent, k5, 'passport', true);
+  fx := pg_temp.cf_file(u_agent, k5, 'emirates_id', true);
+  SELECT jsonb_agg(jsonb_build_object('position', q2.position, 'doc_key', f.doc_key, 'file_id', f.id,
+                                      'renamed_name', f.renamed_name, 'pages', f.pages,
+                                      'sha256', repeat('b', 64)) ORDER BY q2.position)
+    INTO m4
+    FROM case_document_files f
+    JOIN case_doc_requirements q2 ON q2.account_id = a_acct AND q2.bank_code = 'ADCB' AND q2.product = 'Card'
+                                 AND q2.doc_key = f.doc_key
+   WHERE f.case_id = k5 AND f.status = 'passed';
+  SELECT x.reservation_id INTO r7 FROM case_file_build_reserve(u_coord, k5, now()) x;
+  SELECT x.build_id INTO b8
+    FROM case_file_build_record(u_coord, k5, r7, m4, true,
+                                'cases/' || k5::text || '/bundle-' || repeat('e', 64) || '.pdf', repeat('e', 64), now()) x;
+  ok := NOT EXISTS (SELECT 1 FROM case_file_specs WHERE account_id = a_acct AND product = 'Card')
+    AND (SELECT status FROM case_file_builds WHERE build_id = b7) = 'ready'
+    AND (SELECT status FROM case_file_builds WHERE build_id = b8) = 'ready';
+  UPDATE case_doc_requirements SET position = 4
+   WHERE account_id = a_acct AND bank_code = 'ADCB' AND product = 'Loan' AND doc_key = 'salary_cert';
+  UPDATE case_doc_requirements SET label = 'Passport (any)'
+   WHERE account_id = a_acct AND bank_code = 'ADCB' AND product = 'Card' AND doc_key = 'passport';
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    ok AND (SELECT status FROM case_file_builds WHERE build_id = b7) = 'ready'
+    AND (SELECT status FROM case_file_builds WHERE build_id = b8) = 'ready',
+    'a requirements change for a bank and product with a spec, or a label edit, superseded a ready build');
+  UPDATE case_doc_requirements SET position = 3
+   WHERE account_id = a_acct AND bank_code = 'ADCB' AND product = 'Card' AND doc_key = 'emirates_id';
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    (SELECT status FROM case_file_builds WHERE build_id = b8) = 'superseded'
+    AND NOT EXISTS (SELECT 1 FROM case_file_build_current(u_coord, k5))
+    AND (SELECT status FROM case_file_builds WHERE build_id = b7) = 'ready',
+    'a requirements change for a bank and product with no spec left its ready build current, or touched another product');
+  n := n + 1; failed := failed || pg_temp.cf_check('a build stale by a requirements change was downloadable', NULL, NULL,
+    format('SELECT download_id::text FROM case_build_download_record(%L, %L, now())', u_agent, k5),
     'ERROR 23514 BUILD_STALE:%');
 
   -- ---------- 7. privileges and RLS ----------
