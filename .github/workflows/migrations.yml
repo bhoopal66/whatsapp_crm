@@ -794,3 +794,13 @@ jobs:
       # RETURNING of their own contact still passes.
       - name: Verify contacts select set-based
         run: supabase db query --local --file supabase/ci/verify-contacts-select-set-based.sql
+
+      # Migration 178: customer documents. Reference formatting; recording
+      # (one folder and ref per contact, idempotent per message, refusals
+      # for agent messages, foreign chats and contacts, blank URLs and
+      # wrong id pairs); the NAS worker's claim / existing / settle; only
+      # the service role runs those and nobody writes the tables; RLS
+      # shows a document exactly when the contact is visible (admins all);
+      # an owner/admin's retry of a failed file.
+      - name: Verify customer documents
+        run: supabase db query --local --file supabase/ci/verify-customer-documents.sql
