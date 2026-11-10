@@ -8,6 +8,7 @@ import {
   parseReasons,
   qualityTone,
   utcDay,
+  otherSpendFigure,
   wonSpendFigures,
 } from './view';
 
@@ -84,6 +85,23 @@ describe('meta health view helpers', () => {
       won: { kind: 'noRate' },
       perCase: { kind: 'noRate' },
     });
+  });
+
+  it('keeps an unknown other spend unknown, never $0 (189)', () => {
+    const parsed = parseCostPerWonCase({
+      won_cases: 1,
+      won_spend_usd: 0.3,
+      cost_per_won_case_usd: 0.3,
+      other_spend_usd: null,
+      unknown_cost_messages: 1,
+    });
+    expect(parsed?.otherSpendUsd).toBeNull();
+    expect(otherSpendFigure(parsed!)).toEqual({ kind: 'noRate' });
+    expect(
+      otherSpendFigure(
+        parseCostPerWonCase({ won_cases: 0, other_spend_usd: '0' })!
+      )
+    ).toEqual({ kind: 'usd', usd: 0 });
   });
 
   it('shows known figures as dollars and no won case as a dash', () => {

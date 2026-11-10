@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Follow-ups
+
+**Migration required:** apply `189_followups.sql` (as a superuser or
+BYPASSRLS role, like 187 and 188).
+
+- Meta spend per won case: the spend that went to anyone else now reads
+  "No rate on file" when a message's rate is unknown, instead of
+  counting it as $0.
+- Case automation rules: an amount condition above 9,999,999,999,999,999.99
+  or a minimum above the maximum is refused, and a malformed `days` or
+  amount is refused cleanly rather than failing the cast.
+
 ### Meta number health and spend (watch-only)
 
 - **Migration required:** apply `188_meta_number_health.sql` as a
