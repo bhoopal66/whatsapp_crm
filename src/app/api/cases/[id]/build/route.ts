@@ -7,7 +7,9 @@
 //        build/download, which audits.
 //   POST -> 201 `{ build }` (same shape, status 'ready'): assembles a new
 //        build as the caller. 182 decides who may (403 NOT_ALLOWED) and
-//        when (409 FILE_NOT_READY / CASE_CLOSED / BUILD_INVALID).
+//        when (409 FILE_NOT_READY / CASE_CLOSED / BUILD_INVALID); 422
+//        BUILD_TOO_LARGE when the documents or the PDF are over the
+//        assembly limits (lib/case-files/assembly.ts).
 //
 // Refusals are `{ error, code }` (lib/case-files/http.ts); every response
 // is `Cache-Control: no-store`.

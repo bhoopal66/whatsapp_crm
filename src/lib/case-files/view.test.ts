@@ -369,6 +369,9 @@ describe('case file build', () => {
     expect(buildErrorKey(409, 'FILE_NOT_READY')).toBe(
       'buildErrors.FILE_NOT_READY'
     );
+    expect(buildErrorKey(422, 'BUILD_TOO_LARGE')).toBe(
+      'buildErrors.BUILD_TOO_LARGE'
+    );
     expect(buildErrorKey(403, undefined)).toBe('buildErrors.NOT_ALLOWED');
     expect(buildErrorKey(501, 'NOT_CONFIGURED')).toBe(
       'buildErrors.NOT_CONFIGURED'

@@ -432,6 +432,10 @@ builders never write one object with different bytes. A build is recorded
 only if it still matches the case's current passed files. When a file later
 fails, is superseded or is reclassified, the build becomes stale and is no
 longer the current one.
+A merged build refuses with `BUILD_TOO_LARGE` (422) when its documents
+total more than 150 MiB or the assembled PDF exceeds 50 MiB (Supabase
+Storage's global file size limit, whatever the bucket allows); nothing is
+stored and the reservation lapses.
 
 **Downloads and audit.** Downloading a file (`/files/[fileId]/download`) or
 the current build (`/build/download`) first writes an audit row, then issues

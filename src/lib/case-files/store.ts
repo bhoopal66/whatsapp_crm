@@ -44,8 +44,13 @@ export const CASE_FILES_REFUSALS = [
 export type CaseFilesIntakeRefusal =
   'MIME_NOT_ALLOWED' | 'FILE_TOO_LARGE' | 'VALIDATION_FAILED';
 
+/** Refused in TypeScript by the case-file assembly (assembly.ts). */
+export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE';
+
 export type CaseFilesRefusal =
-  (typeof CASE_FILES_REFUSALS)[number] | CaseFilesIntakeRefusal;
+  | (typeof CASE_FILES_REFUSALS)[number]
+  | CaseFilesIntakeRefusal
+  | CaseFilesBuildRefusal;
 
 export class CaseFilesRefusedError extends Error {
   override readonly name = 'CaseFilesRefusedError';
