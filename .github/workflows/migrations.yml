@@ -804,3 +804,11 @@ jobs:
       # an owner/admin's retry of a failed file.
       - name: Verify customer documents
         run: supabase db query --local --file supabase/ci/verify-customer-documents.sql
+
+      # Migration 179: system-authored case notes. case_note_add_system
+      # stores author_id NULL + system_author, resolves @<uuid> mentions
+      # exactly as case_note_add, refuses an unknown system or case; no
+      # API role may execute it; a direct INSERT needs exactly one author;
+      # staff notes are unchanged and nobody edits or deletes a system note.
+      - name: Verify case system notes
+        run: supabase db query --local --file supabase/ci/verify-case-system-notes.sql
