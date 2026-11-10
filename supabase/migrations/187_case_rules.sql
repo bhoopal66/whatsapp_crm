@@ -28,11 +28,11 @@
 --   inbox's last activity (185), else opened_at, at least that old).
 -- Actions: assign_coordinator {userId}, assign_agent {userId} (target:
 --   live non-guest staff of the account, case_reassign's rule),
---   add_task {templateKey, dueHours?, ownerRole} (refuses
---   TASK_NEEDS_PERSON: case_tasks.created_by is NOT NULL and a rule has no
---   person to name), add_note {body} ({{customer}} = contact name,
+--   add_note {body} ({{customer}} = contact name,
 --   {{bank}} = bank name; through case_note_add_system), set_priority
---   {priority} (cases.priority + a case_detail_log row).
+--   {priority} (cases.priority + a case_detail_log row). There is no
+--   add_task: case_tasks.created_by is NOT NULL (123) and a rule has no
+--   person to name, so a rule naming it is refused (RULE_INVALID).
 -- Firing: case_rules_fire runs the account's enabled rules for the trigger
 --   in position order, one case_rule_runs row per rule (matched or not);
 --   each action in its own sub-transaction, so a failing action is rolled
@@ -46,7 +46,7 @@
 --
 -- Refusals (HINT): NOT_ALLOWED, RULE_INVALID, RULE_NOT_FOUND,
 --   CASE_NOT_FOUND, NOW_REQUIRED; recorded per action: CASE_CLOSED,
---   MANAGED_EXTERNALLY, ASSIGNEE_INVALID, TASK_NEEDS_PERSON, plus 179's.
+--   MANAGED_EXTERNALLY, ASSIGNEE_INVALID, plus 179's.
 -- Re-runnable. Apply as a superuser or BYPASSRLS role (FORCE RLS).
 -- =============================================================================
 
@@ -185,7 +185,6 @@ BEGIN
     v_allowed := CASE v_kind
       WHEN 'assign_coordinator' THEN ARRAY['kind', 'userId']
       WHEN 'assign_agent'       THEN ARRAY['kind', 'userId']
-      WHEN 'add_task'           THEN ARRAY['kind', 'templateKey', 'dueHours', 'ownerRole']
       WHEN 'add_note'           THEN ARRAY['kind', 'body']
       WHEN 'set_priority'       THEN ARRAY['kind', 'priority']
     END;
@@ -200,19 +199,6 @@ BEGIN
     IF v_kind IN ('assign_coordinator', 'assign_agent') THEN
       IF jsonb_typeof(a -> 'userId') IS DISTINCT FROM 'string' OR (a ->> 'userId') !~ v_uuid THEN
         PERFORM public.case_rule_refuse(format('%s needs a userId (a uuid)', v_kind));
-      END IF;
-    ELSIF v_kind = 'add_task' THEN
-      IF jsonb_typeof(a -> 'templateKey') IS DISTINCT FROM 'string' OR (a ->> 'templateKey') ~ '^[[:space:]]*$'
-         OR char_length(a ->> 'templateKey') > 60 THEN
-        PERFORM public.case_rule_refuse('templateKey must be 1..60 characters');
-      END IF;
-      IF a ? 'dueHours' AND (jsonb_typeof(a -> 'dueHours') <> 'number' OR (a ->> 'dueHours') !~ '^[0-9]{1,4}$'
-                             OR (a ->> 'dueHours')::int NOT BETWEEN 1 AND 8760) THEN
-        PERFORM public.case_rule_refuse('dueHours must be an integer 1..8760');
-      END IF;
-      IF jsonb_typeof(a -> 'ownerRole') IS DISTINCT FROM 'string'
-         OR (a ->> 'ownerRole') NOT IN ('agent', 'coordinator') THEN
-        PERFORM public.case_rule_refuse('ownerRole must be agent or coordinator');
       END IF;
     ELSIF v_kind = 'add_note' THEN
       IF jsonb_typeof(a -> 'body') IS DISTINCT FROM 'string' OR (a ->> 'body') ~ '^[[:space:]]*$'
@@ -406,21 +392,9 @@ BEGIN
 END;
 $$;
 
--- case_tasks.created_by is NOT NULL (123) and a rule has no person to
--- name, so the action refuses rather than invent a creator.
-CREATE OR REPLACE FUNCTION public.case_rule_act_add_task(p_case uuid, p_action jsonb, p_now timestamptz)
-RETURNS void
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-  PERFORM public.case_rule_action_case(p_case);
-  RAISE EXCEPTION 'a rule cannot create task %: a case task needs a person as its creator', p_action ->> 'templateKey'
-    USING ERRCODE = 'check_violation', HINT = 'TASK_NEEDS_PERSON';
-END;
-$$;
+-- No add_task action (see the header): an earlier draft's helper, if a
+-- database has it, goes.
+DROP FUNCTION IF EXISTS public.case_rule_act_add_task(uuid, jsonb, timestamptz);
 
 CREATE OR REPLACE FUNCTION public.case_rule_act_add_note(p_case uuid, p_body text, p_now timestamptz)
 RETURNS uuid
@@ -575,8 +549,6 @@ BEGIN
               PERFORM public.case_rule_act_assign(p_case, 'coordinator', (a ->> 'userId')::uuid, p_now);
             WHEN 'assign_agent' THEN
               PERFORM public.case_rule_act_assign(p_case, 'agent', (a ->> 'userId')::uuid, p_now);
-            WHEN 'add_task' THEN
-              PERFORM public.case_rule_act_add_task(p_case, a, p_now);
             WHEN 'add_note' THEN
               PERFORM public.case_rule_act_add_note(p_case, a ->> 'body', p_now);
             WHEN 'set_priority' THEN
@@ -730,7 +702,6 @@ REVOKE ALL ON FUNCTION
   public.case_rule_runs_list(uuid, uuid),
   public.case_rule_action_case(uuid),
   public.case_rule_act_assign(uuid, text, uuid, timestamptz),
-  public.case_rule_act_add_task(uuid, jsonb, timestamptz),
   public.case_rule_act_add_note(uuid, text, timestamptz),
   public.case_rule_act_set_priority(uuid, text, timestamptz),
   public.case_rule_last_activity(uuid),
