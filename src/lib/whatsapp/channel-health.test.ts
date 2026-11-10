@@ -330,6 +330,7 @@ describe('runChannelHealthCheck', () => {
     expect(calls('profiles', 'in')).toEqual([
       ['account_role', ['owner', 'admin']],
     ]);
+    expect(calls('profiles', 'is')).toEqual([['deactivated_at', null]]);
     const [[rows]] = calls('notifications', 'insert') as [
       [Array<Record<string, unknown>>],
     ];

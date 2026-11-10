@@ -585,7 +585,9 @@ async function alertAdmins(
     .from('profiles')
     .select('user_id')
     .eq('account_id', accountId)
-    .in('account_role', ['owner', 'admin']);
+    .in('account_role', ['owner', 'admin'])
+    // A deactivated owner or admin no longer works this account.
+    .is('deactivated_at', null);
   if (profilesError) {
     throw new Error(`alert not saved: ${profilesError.message}`);
   }
