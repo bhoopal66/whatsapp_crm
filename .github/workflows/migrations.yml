@@ -818,3 +818,12 @@ jobs:
       # staff notes are unchanged and nobody edits or deletes a system note.
       - name: Verify case system notes
         run: supabase db query --local --file supabase/ci/verify-case-system-notes.sql
+
+      # Migration 181: case document files. The spec setter and its
+      # fallback to 123's requirements; register / classify / check result
+      # (versions, classify_seq, CHECK_MISMATCH, supersede, File ready);
+      # every automatic behaviour off by default; the checklist sync, the
+      # File ready move and the managed-externally lock; the render-name
+      # vectors shared with src/lib/case-files; privileges.
+      - name: Verify case files
+        run: supabase db query --local --file supabase/ci/verify-case-files.sql
