@@ -213,6 +213,26 @@ BEGIN
     AND (SELECT count(*) FROM case_document_files WHERE case_id = k1) = 1
     AND (SELECT status = 'unclassified' AND registered_by = u_agent FROM case_document_files WHERE id = f1),
     'register is not idempotent, or did not store one unclassified file');
+  -- A 1:1 chat document is the contact's: an actor who cannot see the
+  -- contact (u_agent: ca is u_owner's, no chat of theirs) is refused as
+  -- if it did not exist; one who can (an admin) registers it.
+  INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_owner, ca) RETURNING id INTO fx;
+  INSERT INTO messages (conversation_id, sender_type, content_type, media_url)
+    VALUES (fx, 'customer', 'document', 'https://x.invalid/cf-chat.pdf') RETURNING id INTO fa;
+  PERFORM customer_documents_record(a_acct, ca, 'chat', 'document', 'https://x.invalid/cf-chat.pdf', now(), fx, fa);
+  SELECT id INTO fb FROM customer_documents WHERE message_id = fa AND source = 'chat';
+  n := n + 1; failed := failed || pg_temp.cf_ok(fb IS NOT NULL AND NOT memory_can_read(u_agent, a_acct, 'contact', ca),
+    'fixture: no chat document was recorded, or the agent can see the contact');
+  n := n + 1; failed := failed || pg_temp.cf_check('an agent who cannot see the contact registered its chat document',
+    NULL, NULL, format('SELECT case_document_file_register(%L, %L, %L)::text', u_agent, k1, fb),
+    'ERROR P0002 FILE_NOT_FOUND:%');
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    NOT EXISTS (SELECT 1 FROM case_document_files WHERE customer_document_id = fb),
+    'a refused chat document left a file row');
+  fx := case_document_file_register(u_admin, k1, fb);
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    (SELECT registered_by = u_admin AND status = 'unclassified' FROM case_document_files WHERE id = fx),
+    'an admin who can see the contact could not register its chat document');
 
   -- ---------- 3. classify ----------
   n := n + 1; failed := failed || pg_temp.cf_check('a doc_key outside the spec was classified', NULL, NULL,
