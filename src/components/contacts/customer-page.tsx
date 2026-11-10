@@ -106,6 +106,7 @@ import {
   type SavedNote,
 } from './customer/customer-cards';
 import { CasesCard } from './customer/cases-card';
+import { DocumentsCard } from './customer/documents-card';
 import { CustomerHeader } from './customer/customer-header';
 import { RecordingPlayer } from './recording-player';
 
@@ -716,6 +717,7 @@ export function CustomerPage({
           )}
           <DealsCard contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
+          <DocumentsCard contactId={contactId} />
           <Card title={tl('openTasks')}>
             {sections.tasks === 'loading' ? (
               <div

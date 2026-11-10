@@ -9952,5 +9952,31 @@
         "internal": "Internal call"
       }
     }
+  },
+  "CustomerDocuments": {
+    "title": "Documents",
+    "copy": "Copy reference number",
+    "copied": "Copied",
+    "nasFolder": "NAS folder: {path}",
+    "nasPending": "The NAS folder is being created.",
+    "noReference": "No reference number yet. One is given with the first document this customer sends.",
+    "empty": "No documents yet. Documents and photos this customer sends are saved automatically.",
+    "loadFailed": "Couldn't load this customer's documents.",
+    "fallbackDocument": "Document",
+    "fallbackPhoto": "Photo",
+    "status": {
+      "saved": "Saved to NAS",
+      "saving": "Saving…",
+      "duplicate": "Same as an earlier file",
+      "failed": "Couldn't save"
+    },
+    "retry": "Try again",
+    "retryFailed": "Couldn't put this document back in the queue.",
+    "open": "Open",
+    "showAll": "Show all ({count})",
+    "showFewer": "Show fewer",
+    "sidebarLabel": "Documents",
+    "sidebarCount": "{count, plural, one {# file} other {# files}}",
+    "sidebarLink": "Open this customer's documents"
   }
 }

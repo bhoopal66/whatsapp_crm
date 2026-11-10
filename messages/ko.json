@@ -9952,5 +9952,31 @@
         "internal": "내부 통화"
       }
     }
+  },
+  "CustomerDocuments": {
+    "title": "문서",
+    "copy": "참조 번호 복사",
+    "copied": "복사됨",
+    "nasFolder": "NAS 폴더: {path}",
+    "nasPending": "NAS 폴더를 만드는 중입니다.",
+    "noReference": "아직 참조 번호가 없습니다. 이 고객이 처음 문서를 보내면 부여됩니다.",
+    "empty": "아직 문서가 없습니다. 이 고객이 보내는 문서와 사진은 자동으로 저장됩니다.",
+    "loadFailed": "이 고객의 문서를 불러오지 못했습니다.",
+    "fallbackDocument": "문서",
+    "fallbackPhoto": "사진",
+    "status": {
+      "saved": "NAS에 저장됨",
+      "saving": "저장 중…",
+      "duplicate": "이전 파일과 동일",
+      "failed": "저장하지 못함"
+    },
+    "retry": "다시 시도",
+    "retryFailed": "이 문서를 다시 대기열에 넣지 못했습니다.",
+    "open": "열기",
+    "showAll": "모두 보기 ({count})",
+    "showFewer": "간단히 보기",
+    "sidebarLabel": "문서",
+    "sidebarCount": "{count, plural, other {파일 #개}}",
+    "sidebarLink": "이 고객의 문서 열기"
   }
 }

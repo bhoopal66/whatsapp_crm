@@ -31,6 +31,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
 import { useTranslations } from 'next-intl';
 import { ContactAvatar } from './contact-avatar';
+import { ContactDocumentsRow } from './contact-documents-row';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
@@ -205,6 +206,8 @@ export function ContactSidebar({
                   <span className="truncate">{contact.email}</span>
                 </div>
               )}
+
+              <ContactDocumentsRow contactId={contact.id} />
             </div>
           </section>
 

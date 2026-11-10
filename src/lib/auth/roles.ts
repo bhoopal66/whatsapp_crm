@@ -200,6 +200,14 @@ export function canEditSettings(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: put a customer document the NAS worker could not save
+ * back in its queue (customer_documents_retry, migration 178).
+ */
+export function canRetryCustomerDocuments(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
  * Owner / admin: place or lift a legal hold on a call recording
  * (pbx_set_recording_hold, migration 093). A hold keeps the audio past
  * the retention period and blocks the owner's erasure.

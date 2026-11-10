@@ -6,6 +6,7 @@ import {
   canDeleteAccount,
   canEditSettings,
   canManageMembers,
+  canRetryCustomerDocuments,
   canSendMessages,
   canTransferOwnership,
   canViewOnly,
@@ -24,7 +25,8 @@ export type CanAction =
   | 'view-only'
   | 'delete-account'
   | 'transfer-ownership'
-  | 'create-meetings';
+  | 'create-meetings'
+  | 'retry-customer-documents';
 
 /**
  * Inline alternative to `<RequireRole>` for places that need a
@@ -58,6 +60,8 @@ export function useCan(action: CanAction): boolean {
       return canTransferOwnership(accountRole);
     case 'create-meetings':
       return canCreateMeetings(accountRole);
+    case 'retry-customer-documents':
+      return canRetryCustomerDocuments(accountRole);
     default: {
       // Exhaustiveness check — adding a new `CanAction` without a
       // case here fails the typecheck because TS narrows `action`
