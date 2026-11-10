@@ -463,9 +463,12 @@ export function isSafeExternalUrl(u: URL): boolean {
 /**
  * Where to fetch a stored media URL from. Only a public chat-media object
  * is fetched from the configured base: the public origin changes with the
- * Cloudflare tunnel, so it is matched on the path, never the origin. Any
- * other Storage path (a private bucket) is refused. Anything else must be
- * a safe https URL (`isSafeExternalUrl`).
+ * Cloudflare tunnel, so it is matched on the path, never the origin, and
+ * the public Supabase URL may sit under a path prefix (production's is
+ * `https://<host>/supabase`), so the object path is found anywhere in the
+ * URL's path and everything before it is dropped. Any other Storage path
+ * (a private bucket) is refused. Anything else must be a safe https URL
+ * (`isSafeExternalUrl`).
  */
 export function resolveMediaUrl(
   mediaUrl: string,
@@ -477,10 +480,11 @@ export function resolveMediaUrl(
   } catch {
     return { ok: false };
   }
-  if (u.pathname.startsWith(PUBLIC_CHAT_MEDIA)) {
+  const at = u.pathname.indexOf(PUBLIC_CHAT_MEDIA);
+  if (at >= 0) {
     return {
       ok: true,
-      url: `${baseUrl.replace(/\/+$/, '')}${u.pathname}${u.search}`,
+      url: `${baseUrl.replace(/\/+$/, '')}${u.pathname.slice(at)}${u.search}`,
       internal: true,
     };
   }

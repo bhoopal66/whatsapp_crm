@@ -258,6 +258,26 @@ describe('resolveMediaUrl', () => {
     }
   });
 
+  it('rewrites a storage URL served under a path prefix (production: /supabase)', () => {
+    expect(
+      resolveMediaUrl(
+        'https://wacrm.example.com/supabase/storage/v1/object/public/chat-media/account-1/inbound/m1-licence.pdf',
+        base
+      )
+    ).toEqual({
+      ok: true,
+      url: `${base}/storage/v1/object/public/chat-media/account-1/inbound/m1-licence.pdf`,
+      internal: true,
+    });
+    // A private bucket under the same prefix is still refused.
+    expect(
+      resolveMediaUrl(
+        'https://wacrm.example.com/supabase/storage/v1/object/call-recordings/a.mp3',
+        base
+      )
+    ).toEqual({ ok: false });
+  });
+
   it('allows other https URLs and refuses everything else', () => {
     expect(
       resolveMediaUrl('https://gate.whapi.cloud/media/1', base)
