@@ -88,6 +88,13 @@ const MetaChannelConfig = dynamic(
     ),
   { loading: PanelLoading }
 );
+const MetaHealthCard = dynamic(
+  () =>
+    import('@/components/settings/meta-health-card').then(
+      (m) => m.MetaHealthCard
+    ),
+  { loading: PanelLoading }
+);
 const WhatsAppRouting = dynamic(
   () =>
     import('@/components/settings/whatsapp-routing').then(
@@ -236,6 +243,7 @@ const PRELOADERS: Record<
   whatsapp: [
     () => import('@/components/settings/whapi-number-panels'),
     () => import('@/components/settings/meta-channel-config'),
+    () => import('@/components/settings/meta-health-card'),
   ],
   numbers: [() => import('@/components/settings/whatsapp-numbers')],
   routing: [() => import('@/components/settings/whatsapp-routing')],
@@ -435,6 +443,7 @@ function SettingsPageInner() {
       <div className="space-y-6">
         <WhapiNumberPanels />
         <MetaChannelConfig />
+        <MetaHealthCard />
       </div>
     ),
     numbers: <WhatsAppNumbers />,
