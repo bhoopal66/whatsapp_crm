@@ -235,7 +235,7 @@ BEGIN
   fx := pg_temp.cf_file(u_agent, k1, 'emirates_id', true);
   n := n + 1; failed := failed || pg_temp.cf_ok(
     case_file_ready(k1) AND pg_temp.cf_events(k1) = 1
-    AND (SELECT o.payload ->> 'submission_ref' = 'CFC-184-1' AND o.payload ->> 'ready' = 'true'
+    AND (SELECT o.payload ->> 'submission_id' = 'CFC-184-1' AND o.payload ->> 'ready' = 'true'
                 AND o.account_id = a_acct
            FROM webhook_event_outbox o
           WHERE o.event = 'case.file_ready' AND o.payload ->> 'case_id' = k1::text),

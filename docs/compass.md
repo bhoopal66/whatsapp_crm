@@ -693,7 +693,7 @@ Every delivery is a `POST` with this body (`id` is unique per delivery):
 | `submission_group.failed` | Creating the WhatsApp group failed (it is retried) | `submission_id`, `error`, `retrying`                                                                         |
 | `submission_group.ended`  | The group ended                                    | `submission_id`, `end_reason`, `ended_at`                                                                    |
 | `contact.opted_out`       | A contact opted out of messages                    | `contact_id`, `phone`, `opted_out_at`, `compass_id` (null if not linked)                                     |
-| `case.file_ready`         | Every required document of the case has passed     | `submission_ref`, `case_id`, `ready` (always `true`)                                                         |
+| `case.file_ready`         | Every required document of the case has passed     | `submission_id`, `case_id`, `ready` (always `true`)                                                          |
 
 No invite link or token is ever in a payload; `invite_link_present` only
 says whether one exists (read it with `GET /submission-groups/{id}`).

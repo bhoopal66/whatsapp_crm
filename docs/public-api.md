@@ -809,7 +809,7 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
 // contact.opted_out
 { "contact_id": "…", "phone": "…", "opted_out_at": "…", "compass_id": null }
 // case.file_ready (also repeats account_id and occurred_at)
-{ "submission_ref": "SUB-10482", "case_id": "…", "ready": true }
+{ "submission_id": "SUB-10482", "case_id": "…", "ready": true }
 ```
 
 Headers: `X-Taamul-Event`, `X-Taamul-Webhook-Id`, and `X-Taamul-Signature`.

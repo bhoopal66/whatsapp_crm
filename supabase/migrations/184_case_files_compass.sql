@@ -28,7 +28,7 @@
 --   means every required document is 'passed'), else 'checking' with a file
 --   pending checks, else 'failed' with a failed file, else 'missing'.
 --   FILE_NOT_FOUND as above.
--- WEBHOOK case.file_ready { submission_ref, case_id, ready: true } through
+-- WEBHOOK case.file_ready { submission_id, case_id, ready: true } (submission_id carries the submission reference, as in 134's payloads) through
 --   webhook_enqueue (only when an active endpoint subscribes), when a file
 --   turning 'passed' makes the case File ready and it was not before. "Was
 --   not before" is a latch, case_file_ready_marks: set when a pass finds the
@@ -244,7 +244,7 @@ BEGIN
            WHERE c.id = NEW.case_id;
           IF v_ref IS NOT NULL THEN
             PERFORM public.webhook_enqueue(v_account, 'case.file_ready', jsonb_build_object(
-              'submission_ref', v_ref, 'case_id', NEW.case_id, 'ready', true));
+              'submission_id', v_ref, 'case_id', NEW.case_id, 'ready', true));
           END IF;
         END IF;
       END IF;
