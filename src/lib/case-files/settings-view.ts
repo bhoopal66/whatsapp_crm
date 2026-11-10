@@ -378,6 +378,8 @@ const ERROR_KEYS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',
   SETTING_INVALID: 'settingInvalid',
   NOT_ALLOWED: 'notAllowed',
+  SELF_APPROVAL: 'selfApproval',
+  TEMPLATE_INVALID: 'templateInvalid',
 };
 
 /** The message key for a failed write's body: a known code's, else 'generic'. */
@@ -385,4 +387,45 @@ export function caseFilesErrorKey(body: unknown, status: number): string {
   const code = obj(body)?.code;
   if (typeof code === 'string' && ERROR_KEYS[code]) return ERROR_KEYS[code];
   return status === 403 ? 'notAllowed' : 'generic';
+}
+
+// --- WhatsApp intake wording (document_intake templates) -------------------
+
+export const INTAKE_KINDS = [
+  'document_classify',
+  'document_rejected',
+  'document_received_next',
+] as const;
+export type IntakeKind = (typeof INTAKE_KINDS)[number];
+
+/** The placeholders each message may use (shown as a hint, not validated). */
+export const INTAKE_PLACEHOLDERS: Record<IntakeKind, readonly string[]> = {
+  document_classify: ['{file}', '{list}'],
+  document_rejected: ['{doc}', '{checks}'],
+  document_received_next: ['{doc}', '{list}'],
+};
+
+export const INTAKE_BODY_MAX = 1000;
+
+export interface IntakeTemplateView {
+  kind: IntakeKind;
+  body: string | null;
+  approved: boolean;
+}
+
+/** Always the three kinds, in order; anything unreadable is "no wording". */
+export function parseIntakeTemplates(payload: unknown): IntakeTemplateView[] {
+  const list = obj(payload)?.templates;
+  const rows = Array.isArray(list) ? list : [];
+  return INTAKE_KINDS.map((kind) => {
+    const row = rows.map(obj).find((r) => r?.kind === kind);
+    const body = typeof row?.body === 'string' ? row.body : null;
+    return { kind, body, approved: body !== null && row?.approved === true };
+  });
+}
+
+/** Why a wording cannot be saved, or null. */
+export function templateBodyProblem(body: string): 'blank' | 'tooLong' | null {
+  if (/^\s*$/.test(body)) return 'blank';
+  return body.length > INTAKE_BODY_MAX ? 'tooLong' : null;
 }
