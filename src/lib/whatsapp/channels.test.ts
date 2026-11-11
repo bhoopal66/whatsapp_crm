@@ -59,6 +59,8 @@ interface Script {
   allocations?: string[];
   /** conversations.send_channel_id — a person's pin (migration 061). */
   pinnedChannelId?: string | null;
+  /** conversations.personal_owner_id — a personal chat (migration 191). */
+  personalOwnerId?: string | null;
   /** Other people's allocations: { config_id, user_id }. */
   otherAllocations?: Array<{ config_id: string; user_id: string }>;
   /** profiles.account_role of the sender. */
@@ -126,6 +128,7 @@ function makeDb(script: Script): SupabaseClient {
           data: {
             channel_id: script.threadChannelId ?? null,
             send_channel_id: script.pinnedChannelId ?? null,
+            personal_owner_id: script.personalOwnerId ?? null,
           },
           error: null,
         });
@@ -1073,7 +1076,7 @@ describe('personal numbers (migration 190)', () => {
       expect(ch.id).toBe('cfg-co');
     });
 
-    it('a human sender still follows the customer; the send check decides', async () => {
+    it('a human sender in a company chat never follows onto it either (191)', async () => {
       const db = makeDb({
         configs: [MINE, CO_PRIMARY],
         lastInboundProvider: 'openwa',
@@ -1085,9 +1088,137 @@ describe('personal numbers (migration 190)', () => {
         'inbox',
         'conv-1',
         null,
-        'user-1'
+        'user-9'
       );
+      expect(ch.id).toBe('cfg-co');
+    });
+  });
+
+  describe('personal chats (migration 191)', () => {
+    const CO_PRIMARY: ConfigRow = { ...COMPANY, is_primary: true };
+    const OTHER: ConfigRow = {
+      ...MINE,
+      id: 'cfg-other',
+      user_id: 'user-2',
+    };
+    const personalChat = {
+      channelId: 'cfg-mine',
+      sendChannelId: null,
+      personalOwnerId: 'user-9',
+    };
+
+    it("goes out on the owner's number, whatever the surface or provider", async () => {
+      const db = makeDb({ configs: [OTHER, CO_PRIMARY, MINE] });
+      for (const [surface, provider] of [
+        ['inbox', null],
+        ['api', 'meta'],
+        ['automation', 'whapi'],
+      ] as const) {
+        const ch = await resolveSendChannel(
+          db,
+          'acct-1',
+          surface,
+          'conv-1',
+          provider,
+          'user-2',
+          personalChat
+        );
+        expect(ch.id).toBe('cfg-mine');
+      }
+    });
+
+    it("refuses when the owner's number is not connected", async () => {
+      const db = makeDb({ configs: [OTHER, CO_PRIMARY] });
+      await expect(
+        resolveSendChannel(
+          db,
+          'acct-1',
+          'inbox',
+          'conv-1',
+          null,
+          'user-9',
+          personalChat
+        )
+      ).rejects.toMatchObject({
+        name: 'ChannelError',
+        code: 'personal_number_disconnected',
+        status: 409,
+      });
+    });
+
+    it('reads the owner off the conversation when nothing is preloaded', async () => {
+      const db = makeDb({
+        configs: [CO_PRIMARY, MINE],
+        personalOwnerId: 'user-9',
+      });
+      const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1');
       expect(ch.id).toBe('cfg-mine');
+    });
+
+    it('a company chat never resolves a personal number: pin, reply or start', async () => {
+      const pinned = makeDb({
+        configs: [MINE, CO_PRIMARY],
+        pinnedChannelId: 'cfg-mine',
+      });
+      expect(
+        (
+          await resolveSendChannel(
+            pinned,
+            'acct-1',
+            'inbox',
+            'conv-1',
+            null,
+            'user-9'
+          )
+        ).id
+      ).toBe('cfg-co');
+      const started = makeDb({
+        configs: [MINE, CO_PRIMARY],
+        threadChannelId: 'cfg-mine',
+      });
+      expect(
+        (
+          await resolveSendChannel(
+            started,
+            'acct-1',
+            'inbox',
+            'conv-1',
+            null,
+            'user-9'
+          )
+        ).id
+      ).toBe('cfg-co');
+      const fresh = makeDb({
+        configs: [{ ...MINE, is_primary: false }, COMPANY],
+      });
+      expect(
+        (
+          await resolveSendChannel(
+            fresh,
+            'acct-1',
+            'inbox',
+            null,
+            null,
+            'user-9'
+          )
+        ).id
+      ).toBe('cfg-co');
+      expect(await newChatProvider(fresh, 'acct-1', 'inbox', 'user-9')).toBe(
+        'openwa'
+      );
+    });
+
+    it('a bot or the AI never resolves a number for a personal chat', async () => {
+      const db = makeDb({
+        configs: [MINE, CO_PRIMARY],
+        personalOwnerId: 'user-9',
+      });
+      await expect(
+        resolveBotChannel(db, 'acct-1', 'flow', 'conv-1')
+      ).rejects.toMatchObject({ code: 'personal_chat', status: 409 });
+      await expect(
+        resolveAiReplyChannel(db, 'acct-1', 'conv-1')
+      ).rejects.toMatchObject({ code: 'personal_chat', status: 409 });
     });
   });
 });
