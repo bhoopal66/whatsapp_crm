@@ -10623,5 +10623,10 @@
       "notFound": "이 케이스가 더 이상 존재하지 않습니다.",
       "unknown": "문제가 발생했습니다. 다시 시도하세요."
     }
+  },
+  "ContactSearch": {
+    "similar": "유사",
+    "closeMatches": "유사한 결과",
+    "similarHint": "유사 항목: 검색어와 정확히 일치하지 않습니다"
   }
 }

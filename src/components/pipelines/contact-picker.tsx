@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import {
   CONTACT_SEARCH_DEBOUNCE_MS,
   CONTACT_SEARCH_LIMIT,
@@ -10,6 +11,12 @@ import {
   sanitizeContactSearch,
   type ContactOption,
 } from '@/lib/contacts/search';
+import {
+  isMissingSearchRpc,
+  parseSearchHits,
+  rankByHits,
+  searchRpcTerm,
+} from '@/lib/contacts/fuzzy-search';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -40,9 +47,12 @@ export function ContactPicker({
   onChange,
   placeholder,
 }: ContactPickerProps) {
+  const t = useTranslations('ContactSearch');
   const [focused, setFocused] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<ContactOption[]>([]);
+  const [results, setResults] = useState<
+    (ContactOption & { closeMatch?: boolean })[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const seq = useRef(0);
@@ -55,6 +65,34 @@ export function ContactPicker({
       async () => {
         setLoading(true);
         const supabase = createClient();
+        // Close-match search (migration 193): exact matches first, then
+        // close ones, marked. Missing RPC (193 not applied): the ilike
+        // query below, as before.
+        const rpcTerm = searchRpcTerm(query);
+        if (rpcTerm) {
+          const rpc = await supabase.rpc('search_contacts', {
+            p_term: rpcTerm,
+            p_limit: CONTACT_SEARCH_LIMIT,
+          });
+          if (mySeq !== seq.current) return;
+          if (!rpc.error || !isMissingSearchRpc(rpc.error)) {
+            const hits = rpc.error ? [] : parseSearchHits(rpc.data);
+            const { data } = hits.length
+              ? await supabase
+                  .from('contacts')
+                  .select('id, name, phone')
+                  .in(
+                    'id',
+                    hits.map((h) => h.contactId)
+                  )
+              : { data: [] };
+            if (mySeq !== seq.current) return;
+            setResults(rankByHits(parseContactOptions(data), hits));
+            setHighlight(0);
+            setLoading(false);
+            return;
+          }
+        }
         let q = supabase
           .from('contacts')
           .select('id, name, phone')
@@ -154,7 +192,17 @@ export function ContactPicker({
                 i === highlight && 'bg-muted'
               )}
             >
-              <span className="truncate">{label(c)}</span>
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="truncate">{label(c)}</span>
+                {c.closeMatch && (
+                  <span
+                    title={t('similarHint')}
+                    className="bg-warning-soft text-warning shrink-0 rounded px-1 text-[10px] font-medium"
+                  >
+                    {t('similar')}
+                  </span>
+                )}
+              </span>
               {c.name && (
                 <span className="text-muted-foreground shrink-0 text-xs">
                   {c.phone}

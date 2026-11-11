@@ -10623,5 +10623,10 @@
       "notFound": "This case no longer exists.",
       "unknown": "Something went wrong. Try again."
     }
+  },
+  "ContactSearch": {
+    "similar": "Similar",
+    "closeMatches": "Close matches",
+    "similarHint": "Close match: not an exact match for your search"
   }
 }
