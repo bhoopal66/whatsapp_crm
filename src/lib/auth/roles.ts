@@ -363,3 +363,12 @@ export function canDeleteGroups(role: AccountRole): boolean {
 export function canReceiveCoordinatorShare(role: AccountRole | null): boolean {
   return !!role && hasMinRole(role, 'agent') && !hasMinRole(role, 'admin');
 }
+
+/**
+ * Whom an admin may allow to connect a personal WhatsApp number
+ * (migration 190): live owner, admin, team leader and agent. Viewers and
+ * bank guests are refused by `set_member_personal_whatsapp`.
+ */
+export function canHavePersonalWhatsapp(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}

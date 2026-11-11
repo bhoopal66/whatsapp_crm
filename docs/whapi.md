@@ -112,6 +112,9 @@ its own WhatsApp number (migration 060). Admins manage them in
     (migration 072): they still see only the chats they own or are
     assigned (team leaders also their team's), on any number. Before
     072 an allocated person saw every chat on the number.
+    Personal numbers (migration 190, `docs/openwa.md`) are the one exception:
+    their chats are visible to the number's owner and their leader through
+    the chat's `channel_id`, whoever owns the contact.
   - *Teams allocated* (set in Settings → WhatsApp → Numbers & access, via Manage
     access; Settings → Teams shows it read-only, migration 071): everyone in the team and its leader get the
     number exactly as if ticked one by one. Joining the team grants it,
