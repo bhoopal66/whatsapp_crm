@@ -4,7 +4,9 @@
 -- INVOKER, joins back to contacts under RLS); search_contact_candidates
 -- is the indexed SECURITY DEFINER lookup behind it, which restates the
 -- contacts SELECT policies. This asserts number, name and company
--- matching (exact and close), that neither function shows a contact
+-- matching (exact and close), emails, 2-3 digit numbers, a
+-- punctuation-only term, that the trigram thresholds are put back after
+-- every search, that neither function shows a contact
 -- the caller cannot see or one of another account, the privileges, and
 -- that the two contacts SELECT policies are still the ones 193
 -- restates (change one, change both).
@@ -28,6 +30,7 @@ DECLARE
   c_hidden UUID;  -- the owner's, out of the agent's sight
   c_mine   UUID;  -- the agent's own
   c_out    UUID;  -- B's twin of c_zed
+  c_local  UUID;  -- a number stored the local way, 050 123 4567
   r        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
@@ -74,9 +77,11 @@ BEGIN
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_ag;
 
-  INSERT INTO contacts (account_id, user_id, name, company, phone)
-    VALUES (a_acct, u_owner, 'Zed Target', 'Taamul Credit', '+971 58 833 6503')
+  INSERT INTO contacts (account_id, user_id, name, company, phone, email)
+    VALUES (a_acct, u_owner, 'Zed Target', 'Taamul Credit', '+971 58 833 6503', 'Zed.Target@Example.invalid')
     RETURNING id INTO c_zed;
+  INSERT INTO contacts (account_id, user_id, name, phone)
+    VALUES (a_acct, u_owner, 'Local Number', '050 123 4567') RETURNING id INTO c_local;
   INSERT INTO contacts (account_id, user_id, name, phone)
     VALUES (a_acct, u_owner, 'Ahmed Ali', '+971 50 111 2233') RETURNING id INTO c_ahmed;
   INSERT INTO contacts (account_id, user_id, name, phone)
@@ -127,6 +132,48 @@ BEGIN
   IF r <> '0' THEN
     failed := array_append(failed, ('an unrelated term found contacts: ' || r));
   END IF;
+
+  -- ---- Emails, short numbers, punctuation -------------------------
+  FOREACH r IN ARRAY ARRAY['zed.target@example.invalid', 'zed.targ', 'example.inv'] LOOP
+    n := n + 1;
+    IF pg_temp.cs_try(u_owner, format(
+         'SELECT exact::text FROM search_contacts(%L) WHERE contact_id = %L', r, c_zed)) <> 'true' THEN
+      failed := array_append(failed, ('email search ' || r || ' did not find the contact'));
+    END IF;
+  END LOOP;
+  -- 2-3 digits: a substring of the number, as typed and without the
+  -- leading zero ('050' is 0501234567 and 971501112233 alike).
+  n := n + 1;
+  r := pg_temp.cs_try(u_owner, format(
+    'SELECT count(*)::text FROM search_contacts(''971'') WHERE contact_id IN (%L, %L)', c_zed, c_ahmed));
+  IF r <> '2' THEN
+    failed := array_append(failed, ('971 did not find both +971 numbers: ' || r));
+  END IF;
+  n := n + 1;
+  r := pg_temp.cs_try(u_owner, format(
+    'SELECT count(*)::text FROM search_contacts(''050'') WHERE contact_id IN (%L, %L)', c_local, c_ahmed));
+  IF r <> '2' THEN
+    failed := array_append(failed, ('050 did not find 050 123 4567 and +971 50 111 2233: ' || r));
+  END IF;
+  n := n + 1;
+  r := pg_temp.cs_try(u_owner, 'SELECT count(*)::text FROM search_contacts(''%%%%'')');
+  IF r <> '0' THEN
+    failed := array_append(failed, ('a term of only wildcards found contacts: ' || r));
+  END IF;
+  -- The thresholds the search sets for its index operators are put
+  -- back on every path, the early ones included ('0000').
+  FOREACH r IN ARRAY ARRAY['zed target', 'zed', '588336503', '050', '0000'] LOOP
+    n := n + 1;
+    PERFORM set_config('pg_trgm.word_similarity_threshold', '0.45', true);
+    PERFORM set_config('pg_trgm.similarity_threshold', '0.35', true);
+    PERFORM pg_temp.cs_try(u_owner, format('SELECT count(*)::text FROM search_contacts(%L)', r));
+    IF current_setting('pg_trgm.word_similarity_threshold', true) IS DISTINCT FROM '0.45'
+       OR current_setting('pg_trgm.similarity_threshold', true) IS DISTINCT FROM '0.35' THEN
+      failed := array_append(failed, format('search %L left the trigram thresholds at %s / %s',
+        r, current_setting('pg_trgm.similarity_threshold', true),
+        current_setting('pg_trgm.word_similarity_threshold', true)));
+    END IF;
+  END LOOP;
 
   -- ---- Visibility --------------------------------------------------
   -- The agent finds their own contact and not the owner's, through
