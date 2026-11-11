@@ -4,6 +4,8 @@ import {
   chatTagsByContact,
   type ChatTagIds,
 } from '@/lib/contacts/chat-tag-column';
+import { phoneSearchDigits } from '@/lib/contacts/phone-search';
+import { sanitizeContactSearch } from '@/lib/contacts/search';
 
 /**
  * The Contacts list (/contacts and /team-contacts) as one round trip and
@@ -121,12 +123,23 @@ export interface ContactListQuery<Q> {
   or(filter: string): Q;
 }
 
-/** `name|phone|email ilike %term%`, or null for no search. */
+/**
+ * `name|phone|email ilike %term%`, plus `phone_normalized like %digits%`
+ * for a term of digits (`588336503` finds `+971 58 833 6503`), or null
+ * for no search. The term is stripped of `or=(…)` syntax first.
+ */
 export function contactSearchFilter(term: string): string | null {
-  const t = term.trim();
+  const t = sanitizeContactSearch(term);
   if (!t) return null;
   const like = `%${t}%`;
-  return `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`;
+  const parts = [
+    `name.ilike.${like}`,
+    `phone.ilike.${like}`,
+    `email.ilike.${like}`,
+  ];
+  const digits = phoneSearchDigits(t);
+  if (digits) parts.push(`phone_normalized.like.%${digits}%`);
+  return parts.join(',');
 }
 
 /**

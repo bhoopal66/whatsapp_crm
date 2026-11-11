@@ -39,6 +39,14 @@ import {
 import { resolveListHandler } from '@/lib/inbox/handler';
 import { ownPersonalChatsGroup } from '@/lib/inbox/personal-chats';
 import {
+  INBOX_SEARCH_CONTACT_ALIAS,
+  INBOX_SEARCH_DEBOUNCE_MS,
+  INBOX_SEARCH_EMBED,
+  inboxSearchQuery,
+  inboxSearchTerm,
+  matchesInboxSearch,
+} from '@/lib/inbox/search';
+import {
   inDepartmentView,
   mainInboxGroup,
   type DepartmentView,
@@ -293,6 +301,11 @@ interface ListQueryParams {
   campaignId: string | null;
   /** Smart insights filters; always empty while signals are off. */
   insightFilters: readonly InsightFilter[];
+  /**
+   * The search box, debounced and cleaned ('' = no search). Pushed into
+   * the query so a chat beyond the loaded pages is found (search.ts).
+   */
+  search: string;
 }
 
 /** Whether the workspace has Smart insights signals on, once known. */
@@ -335,8 +348,24 @@ function conversationsQuery(
   }
 ) {
   const supabase = createClient();
-  let query = supabase.from('conversations').select(CONVERSATION_LIST_SELECT);
+  // Not on a delta, like the other facets: the held rows are re-matched
+  // client-side (matchesInboxSearch).
+  const search = opts.since ? null : inboxSearchQuery(p.search);
+  let query = supabase.from('conversations').select(
+    // The empty embed returns nothing, so the rows keep the list's
+    // shape; the cast only spares the select-string type parser, which
+    // does not read an empty embed.
+    (search
+      ? `${CONVERSATION_LIST_SELECT},${INBOX_SEARCH_EMBED}`
+      : CONVERSATION_LIST_SELECT) as typeof CONVERSATION_LIST_SELECT
+  );
   const groups: (string | null)[] = [];
+  if (search) {
+    query = query.or(search.contactOr, {
+      referencedTable: INBOX_SEARCH_CONTACT_ALIAS,
+    });
+    groups.push(search.group);
+  }
 
   if (p.restrictToUserId) {
     // "I created it OR it was handed to me OR it is on my number", the
@@ -491,6 +520,21 @@ export function ConversationList({
   );
 
   const [search, setSearch] = useState('');
+  // What the server is asked: the box, cleaned, after a pause in typing.
+  // Clearing the box returns to the plain list at once.
+  const [serverSearch, setServerSearch] = useState('');
+  useEffect(() => {
+    const term = inboxSearchTerm(search);
+    if (!term) {
+      setServerSearch('');
+      return;
+    }
+    const id = setTimeout(
+      () => setServerSearch(term),
+      INBOX_SEARCH_DEBOUNCE_MS
+    );
+    return () => clearTimeout(id);
+  }, [search]);
   const [filter, setFilter] = useState<InboxFilter>(
     initialUnread ? 'unread' : 'all'
   );
@@ -685,6 +729,7 @@ export function ConversationList({
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
       insightFilters,
+      search: serverSearch,
     }),
     [
       restrictToUserId,
@@ -700,6 +745,7 @@ export function ConversationList({
       assigneeFilter,
       selectedCampaignId,
       insightFilters,
+      serverSearch,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -732,8 +778,13 @@ export function ConversationList({
   // shown at once on a revisit, always revalidated below.
   const { accountId, user } = useAuth();
   const viewerId = user?.id ?? null;
+  // A search's results are not cached: one entry per typed term would
+  // pile up, and the plain list's entry must not take search rows.
   const cacheKey = useMemo(
-    () => inboxListCacheKey(accountId, viewerId, { ...listParams, teamView }),
+    () =>
+      listParams.search
+        ? null
+        : inboxListCacheKey(accountId, viewerId, { ...listParams, teamView }),
     [accountId, viewerId, listParams, teamView]
   );
   // The last first page handed to the parent: its key, and the rows the
@@ -1085,13 +1136,7 @@ export function ConversationList({
     }
 
     if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter((c) => {
-        const name = c.contact?.name?.toLowerCase() ?? '';
-        const phone = c.contact?.phone?.toLowerCase() ?? '';
-        const lastMsg = c.last_message_text?.toLowerCase() ?? '';
-        return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
-      });
+      result = result.filter((c) => matchesInboxSearch(c, search));
     }
 
     // Smart insights filters (empty while signals are off): realtime

@@ -118,6 +118,27 @@ describe('buildContactListQuery', () => {
   it('adds no search filter for a blank term', () => {
     expect(contactSearchFilter('   ')).toBeNull();
   });
+
+  it('finds a spaced phone by the digits typed without spaces', () => {
+    expect(contactSearchFilter('588336503')).toBe(
+      'name.ilike.%588336503%,phone.ilike.%588336503%,' +
+        'email.ilike.%588336503%,phone_normalized.like.%588336503%'
+    );
+    expect(contactSearchFilter('058 833 6503')).toContain(
+      'phone_normalized.like.%588336503%'
+    );
+  });
+
+  it('keeps a name search off the digits column', () => {
+    expect(contactSearchFilter('Elsa')).not.toContain('phone_normalized');
+  });
+
+  it('drops or-filter syntax so the request stays well-formed', () => {
+    expect(contactSearchFilter('Acme, Inc (UK)')).toBe(
+      'name.ilike.%Acme  Inc  UK%,phone.ilike.%Acme  Inc  UK%,' +
+        'email.ilike.%Acme  Inc  UK%'
+    );
+  });
 });
 
 describe('toContactListRows', () => {

@@ -21,6 +21,16 @@ describe('contactSearchFilter', () => {
     expect(contactSearchFilter('')).toBeNull();
     expect(contactSearchFilter(' (,) ')).toBeNull();
   });
+  it('also matches the phone digits for a number typed without spaces', () => {
+    expect(contactSearchFilter('588336503')).toBe(
+      'name.ilike.%588336503%,phone.ilike.%588336503%,' +
+        'phone_normalized.like.%588336503%'
+    );
+    expect(contactSearchFilter('+971 58 833 6503')).toContain(
+      'phone_normalized.like.%971588336503%'
+    );
+    expect(contactSearchFilter('Elsa')).not.toContain('phone_normalized');
+  });
   it('keeps a phone number intact', () => {
     expect(sanitizeContactSearch('+971 50')).toBe('+971 50');
   });
