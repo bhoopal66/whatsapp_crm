@@ -758,6 +758,120 @@ export async function getContactProfilePicture(
   return data?.url || null;
 }
 
+// ============================================================
+// Phone history (the personal-number import)
+// ============================================================
+
+/** One entry of `GET /chats`, as the history import reads it. */
+export interface OpenWAChatSummary {
+  /** `…@c.us`, `…@lid`, `…@g.us`, … */
+  id: string;
+  name: string | null;
+  /** 'individual' | 'group' | 'channel' | 'status' | 'broadcast' | 'unknown'. */
+  kind: string;
+  isGroup: boolean;
+  /** Unix seconds of the last activity; null when the engine gave none. */
+  timestamp: number | null;
+}
+
+/**
+ * One page of the number's chats, newest first. The gateway pages by
+ * `offset` (1-1000 per page); a short page is the last one.
+ */
+export async function listChats(
+  args: Credentials & { limit?: number; offset?: number; timeoutMs?: number }
+): Promise<OpenWAChatSummary[]> {
+  const query = new URLSearchParams({ limit: String(args.limit ?? 1000) });
+  if (args.offset) query.set('offset', String(args.offset));
+  const data = await openwaRequest<unknown>({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: `/chats?${query}`,
+    timeoutMs: args.timeoutMs,
+  });
+  if (!Array.isArray(data)) return [];
+  return data
+    .filter(
+      (c): c is Record<string, unknown> =>
+        !!c && typeof c === 'object' && typeof c.id === 'string' && !!c.id
+    )
+    .map((c) => ({
+      id: c.id as string,
+      name: typeof c.name === 'string' && c.name ? c.name : null,
+      kind: typeof c.kind === 'string' ? c.kind : 'unknown',
+      isGroup: c.isGroup === true,
+      timestamp:
+        typeof c.timestamp === 'number' && Number.isFinite(c.timestamp)
+          ? c.timestamp
+          : null,
+    }));
+}
+
+/** One message of a chat's live history (`GET …/history`). */
+export interface OpenWAHistoryMessage {
+  id: string;
+  from?: string;
+  to?: string;
+  chatId?: string;
+  /** The text, or a media message's caption; '' when none. */
+  body?: string;
+  type?: string;
+  /** Unix seconds (UTC). */
+  timestamp?: number;
+  fromMe?: boolean;
+  isGroup?: boolean;
+  kind?: string;
+  location?: { description?: string; address?: string } | null;
+  poll?: { name?: string } | null;
+}
+
+/**
+ * A chat's history read live from the phone, oldest first. `deep`
+ * raises the gateway's ceiling from 100 to 2000 and carries no media.
+ * There is no cursor: one call returns the newest `limit` messages.
+ * Slow on a long chat, so the caller sets `timeoutMs`; a timeout only
+ * stops our wait (503 like any network failure), not the gateway's read.
+ */
+export async function getChatHistory(
+  args: Credentials & {
+    chatId: string;
+    limit: number;
+    deep?: boolean;
+    timeoutMs?: number;
+  }
+): Promise<OpenWAHistoryMessage[]> {
+  const query = new URLSearchParams({ limit: String(args.limit) });
+  if (args.deep) query.set('deep', 'true');
+  const data = await openwaRequest<unknown>({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: `/messages/${encodeURIComponent(args.chatId)}/history?${query}`,
+    timeoutMs: args.timeoutMs,
+  });
+  if (!Array.isArray(data)) return [];
+  return data.filter(
+    (m): m is OpenWAHistoryMessage =>
+      !!m && typeof m === 'object' && typeof m.id === 'string' && !!m.id
+  );
+}
+
+/**
+ * The phone number (digits) behind a contact id such as an `@lid`, or
+ * null when the engine cannot map it — an answer, not a failure.
+ */
+export async function getContactPhone(
+  args: Credentials & { contactId: string; timeoutMs?: number }
+): Promise<string | null> {
+  const data = await openwaRequest<{ phone?: string | null }>({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: `/contacts/${encodeURIComponent(args.contactId)}/phone`,
+    timeoutMs: args.timeoutMs,
+  });
+  const phone = (data?.phone ?? '').replace(/\D/g, '');
+  return phone || null;
+}
+
 /**
  * OpenWA serves a message's stored media by (chat, message), not by a
  * media id, so the neutral `mediaId` for an OpenWA attachment is the
