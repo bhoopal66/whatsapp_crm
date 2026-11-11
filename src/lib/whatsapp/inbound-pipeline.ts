@@ -1516,18 +1516,24 @@ export async function resolveInboundMediaUrl(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ContactRow = any;
 
-interface ContactOutcome {
+export interface ContactOutcome {
   contact: ContactRow;
   /** True when this call created the row; drives new_contact_created
    *  automation dispatch in processMessage. */
   wasCreated: boolean;
 }
 
-async function findOrCreateContact(
+/**
+ * Shared with the personal history import, which passes
+ * `rename: false`: a name from someone's phone book must not rename a
+ * contact the company already has.
+ */
+export async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
   phone: string,
-  name: string
+  name: string,
+  opts: { rename?: boolean } = {}
 ): Promise<ContactOutcome | null> {
   // Find an existing contact for this account by phone. The shared
   // helper pre-filters in SQL by the last-8-digit suffix (so we don't
@@ -1543,7 +1549,7 @@ async function findOrCreateContact(
 
   if (existingContact) {
     // Update name if it changed
-    if (name && name !== existingContact.name) {
+    if (opts.rename !== false && name && name !== existingContact.name) {
       await supabaseAdmin()
         .from('contacts')
         .update({ name, updated_at: new Date().toISOString() })

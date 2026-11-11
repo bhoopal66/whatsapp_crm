@@ -12,7 +12,10 @@ import {
   revokeKey,
   startSession,
   downloadMedia,
+  getChatHistory,
+  getContactPhone,
   getContactProfilePicture,
+  listChats,
   getMediaUrl,
   getSession,
   renderOptionsText,
@@ -560,5 +563,90 @@ describe('provisioning', () => {
     await expect(
       findScopedKeyIds({ adminKey: 'a', sessionId: 'sess-9' })
     ).resolves.toEqual(['k1']);
+  });
+});
+
+describe('phone history', () => {
+  it('lists a page of chats by limit and offset, dropping id-less rows', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, [
+        {
+          id: '971501234567@c.us',
+          name: 'Ali',
+          kind: 'individual',
+          isGroup: false,
+          timestamp: 1700000000,
+        },
+        { id: '1203@g.us', kind: 'group', isGroup: true },
+        { name: 'no id' },
+      ])
+    );
+    const chats = await listChats({ ...creds, limit: 1000, offset: 2000 });
+    expect(lastCall().url).toBe(
+      'http://openwa.test:2785/api/sessions/sess-1/chats?limit=1000&offset=2000'
+    );
+    expect(lastCall().headers['X-API-Key']).toBe('key-1');
+    expect(chats).toEqual([
+      {
+        id: '971501234567@c.us',
+        name: 'Ali',
+        kind: 'individual',
+        isGroup: false,
+        timestamp: 1700000000,
+      },
+      {
+        id: '1203@g.us',
+        name: null,
+        kind: 'group',
+        isGroup: true,
+        timestamp: null,
+      },
+    ]);
+  });
+
+  it('reads a deep history with the caller timeout', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, [{ id: 'm1', body: 'hi', type: 'text' }, { body: 'x' }])
+    );
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const rows = await getChatHistory({
+      ...creds,
+      chatId: '123@lid',
+      limit: 500,
+      deep: true,
+      timeoutMs: 40_000,
+    });
+    expect(lastCall().url).toBe(
+      'http://openwa.test:2785/api/sessions/sess-1/messages/123%40lid/history?limit=500&deep=true'
+    );
+    expect(timeout).toHaveBeenCalledWith(40_000);
+    expect(rows).toEqual([{ id: 'm1', body: 'hi', type: 'text' }]);
+    timeout.mockRestore();
+  });
+
+  it('maps a gateway 5xx on history to an OpenWAError', async () => {
+    fetchMock.mockResolvedValueOnce(json(504, {}));
+    const err = await getChatHistory({ ...creds, chatId: 'a@c.us', limit: 1 })
+      .then(unexpected)
+      .catch(asOpenWAError);
+    expect(err.status).toBe(504);
+  });
+
+  it('resolves a contact id to phone digits, or null', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, { contactId: '123@lid', phone: '+971 50 123' })
+    );
+    await expect(
+      getContactPhone({ ...creds, contactId: '123@lid' })
+    ).resolves.toBe('97150123');
+    expect(lastCall().url).toBe(
+      'http://openwa.test:2785/api/sessions/sess-1/contacts/123%40lid/phone'
+    );
+    fetchMock.mockResolvedValueOnce(
+      json(200, { contactId: '123@lid', phone: null })
+    );
+    await expect(
+      getContactPhone({ ...creds, contactId: '123@lid' })
+    ).resolves.toBeNull();
   });
 });

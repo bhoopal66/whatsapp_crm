@@ -141,7 +141,7 @@ export class ChannelError extends Error {
 }
 
 /** Row shape as stored. Credentials here are still ciphertext. */
-interface ChannelRow {
+export interface ChannelRow {
   id: string;
   account_id: string;
   provider: string;
@@ -159,7 +159,7 @@ interface ChannelRow {
   user_id?: string | null;
 }
 
-const CHANNEL_COLUMNS =
+export const CHANNEL_COLUMNS =
   'id, account_id, provider, label, phone_number_id, waba_id, access_token, app_secret, is_primary, mirror_inbound_media, status, created_at, is_personal, user_id';
 
 /**
@@ -172,7 +172,7 @@ const CHANNEL_COLUMNS =
  * alternative, and returning nothing would surface as the much more
  * confusing "WhatsApp not configured".
  */
-function toChannel(row: ChannelRow): WhatsAppChannel {
+export function toChannel(row: ChannelRow): WhatsAppChannel {
   let accessToken: string;
   try {
     accessToken = decrypt(row.access_token);
