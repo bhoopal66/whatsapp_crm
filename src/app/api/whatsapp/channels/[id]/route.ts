@@ -27,6 +27,7 @@ import {
   validateIdList,
   validateMemberIds,
 } from '@/lib/whatsapp/channel-management';
+import { personalNumberRefusal } from '@/lib/whatsapp/personal-numbers';
 
 const TEAM_NOT_IN_ACCOUNT = 'Every team allocated must belong to this account';
 
@@ -170,6 +171,8 @@ export async function PATCH(
       });
       if (error) {
         console.error('[whatsapp/channels] allocate failed:', error);
+        const refusal = personalNumberRefusal(error);
+        if (refusal) return refusal;
         if (error.code === 'P0002') {
           return NextResponse.json(
             { error: 'WhatsApp number not found' },
@@ -201,6 +204,8 @@ export async function PATCH(
       });
       if (error) {
         console.error('[whatsapp/channels] set default failed:', error);
+        const refusal = personalNumberRefusal(error);
+        if (refusal) return refusal;
         return NextResponse.json(
           { error: 'Failed to make this the default number' },
           { status: 500 }

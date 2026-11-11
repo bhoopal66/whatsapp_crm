@@ -9,6 +9,7 @@ import {
   ChannelError,
   type RoutingSurface,
 } from '@/lib/whatsapp/channels';
+import { personalNumberRefusal } from '@/lib/whatsapp/personal-numbers';
 
 /**
  * The admin-level routing selector: which connected number sends what.
@@ -151,6 +152,8 @@ export async function PUT(request: Request) {
       );
       if (primaryError) {
         console.error('[whatsapp/routes] set primary failed:', primaryError);
+        const refusal = personalNumberRefusal(primaryError);
+        if (refusal) return refusal;
         return NextResponse.json(
           { error: 'Failed to update routing' },
           { status: 500 }
@@ -212,6 +215,8 @@ export async function PUT(request: Request) {
       );
       if (error) {
         console.error('[whatsapp/routes] upsert failed:', error);
+        const refusal = personalNumberRefusal(error);
+        if (refusal) return refusal;
         return NextResponse.json(
           { error: 'Failed to update routing' },
           { status: 500 }

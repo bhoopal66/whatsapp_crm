@@ -2,7 +2,11 @@ import { pickActiveProfile } from '@/lib/auth/active-profile'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import {
+  createClient as createAdminClient,
+  type SupabaseClient,
+} from '@supabase/supabase-js'
+import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers'
 import {
   WhapiError,
   describeChannelStatus,
@@ -105,17 +109,8 @@ async function ensurePrimary(
   supabase: Awaited<ReturnType<typeof createClient>>,
   accountId: string,
 ): Promise<void> {
-  const { data: rows } = await supabase
-    .from('whatsapp_config')
-    .select('id, is_primary, created_at')
-    .eq('account_id', accountId)
-    .order('created_at', { ascending: true })
-  if (!rows || rows.length === 0 || rows.some((r) => r.is_primary)) return
-  await supabase
-    .from('whatsapp_config')
-    .update({ is_primary: true })
-    .eq('id', rows[0].id)
-    .eq('account_id', accountId)
+  // Personal numbers are skipped (migration 190 refuses one as default).
+  await promoteOldestToPrimary(supabase as unknown as SupabaseClient, accountId)
 }
 
 // Lazy-initialised service-role client. Needed to detect a channel id

@@ -10,6 +10,8 @@ import {
   subscribeWabaToApp,
 } from '@/lib/whatsapp/meta-api';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
+import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Connect a Meta WhatsApp Cloud API number, alongside the Whapi channel.
@@ -505,18 +507,10 @@ export async function DELETE() {
     // If the Meta number was the default, hand the flag to the oldest
     // remaining number, so every "Use default" still names a real one
     // rather than whatever `primaryChannel` happens to see first.
-    const { data: remaining } = await supabase
-      .from('whatsapp_config')
-      .select('id, is_primary')
-      .eq('account_id', accountId)
-      .order('created_at', { ascending: true });
-    if (remaining && remaining.length > 0 && !remaining.some((r) => r.is_primary)) {
-      await supabase
-        .from('whatsapp_config')
-        .update({ is_primary: true })
-        .eq('id', remaining[0].id)
-        .eq('account_id', accountId);
-    }
+    await promoteOldestToPrimary(
+      supabase as unknown as SupabaseClient,
+      accountId
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {
