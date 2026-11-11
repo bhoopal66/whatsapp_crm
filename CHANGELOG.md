@@ -20,7 +20,8 @@ search indexes; without it the app falls back to the old search).
 
 - Numbers are found whatever the spacing or prefix: `588336503`,
   `0588336503` and `+971 58 833 6503` all find a contact stored as
-  `+971 58 833 6503`. Partial numbers work too.
+  `+971 58 833 6503`. Partial and short numbers (`971`, `050`) work too,
+  and the Contacts search still matches email addresses.
 - The Contacts page, the contact picker and the WhatsApp, Team and HR
   inboxes now list exact matches first, then close matches (a typo in a
   name or company, swapped words, a wrong or swapped digit), marked

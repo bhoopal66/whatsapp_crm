@@ -1270,7 +1270,9 @@ Written only by `set_department_settings`. `docs/departments.md` is the contract
 `search_contacts(p_term, p_limit)` (SECURITY INVOKER, so contacts RLS
 decides) ranks exact matches first, then close ones: trigram and phonetic
 (`contact_search_keys`) on name and company, digit distance on the last 9
-digits of `phone_normalized`. It reads candidates from
+digits of `phone_normalized`, exact-only email and 2–3 digit numbers;
+the fuzzy pass runs only for 4+ characters and only when the exact pass
+left room under the limit. It reads candidates from
 `search_contact_candidates` (SECURITY DEFINER), because under RLS the
 pg_trgm/LIKE operators are not leakproof and the GIN indexes go unused
 (3 s for an admin on 50k contacts). That helper repeats the contacts
