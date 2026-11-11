@@ -31,7 +31,9 @@ export async function GET(request: Request) {
     let query = ctx.supabase
       .from('conversations')
       .select(CONVERSATION_COLUMNS)
-      .eq('account_id', ctx.accountId);
+      .eq('account_id', ctx.accountId)
+      // Chats on staff members' personal numbers are never public.
+      .is('personal_owner_id', null);
 
     if (status) query = query.eq('status', status);
     if (contactId) query = query.eq('contact_id', contactId);

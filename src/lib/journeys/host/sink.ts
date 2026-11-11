@@ -144,6 +144,7 @@ export function createJourneySink({
       .select('id')
       .eq('account_id', ctx.accountId)
       .eq('contact_id', ctx.contactId)
+      .is('personal_owner_id', null)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();

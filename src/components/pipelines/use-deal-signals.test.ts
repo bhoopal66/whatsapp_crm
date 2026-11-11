@@ -15,13 +15,15 @@ function fakeClient(rows: Record<string, unknown>[]) {
   const client: SignalClient = {
     from: () => ({
       select: (columns) => ({
-        in: (_column, ids) => {
-          calls.push({ columns, ids });
-          return Promise.resolve({
-            data: rows.filter((r) => ids.includes(r.contact_id as string)),
-            error: null,
-          });
-        },
+        in: (_column, ids) => ({
+          is: () => {
+            calls.push({ columns, ids });
+            return Promise.resolve({
+              data: rows.filter((r) => ids.includes(r.contact_id as string)),
+              error: null,
+            });
+          },
+        }),
       }),
     }),
   };

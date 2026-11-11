@@ -77,7 +77,8 @@ export async function POST(request: Request) {
       .in(
         'contact_id',
         due.map((c) => c.id)
-      );
+      )
+      .is('personal_owner_id', null);
     const threadChannel = new Map<string, string | null>();
     for (const c of convs ?? []) threadChannel.set(c.contact_id, c.channel_id);
 

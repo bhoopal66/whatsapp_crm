@@ -445,6 +445,33 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
   });
 });
 
+describe("company chat only", () => {
+  const run = async (step_type: string, step_config: Record<string, unknown>) => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [{ ...updateStep(), step_type, step_config }];
+    h.state.profiles = [{ id: "p1", user_id: "owner-1", account_id: ACCOUNT }];
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+    return h.state.updateCalls.filter((c) => c.table === "conversations");
+  };
+
+  it("close_conversation skips personal chats", async () => {
+    const writes = await run("close_conversation", {});
+    expect(writes).toHaveLength(1);
+    expect(writes[0].filters).toContainEqual(["is", "personal_owner_id", null]);
+  });
+
+  it("assign_conversation skips personal chats", async () => {
+    const writes = await run("assign_conversation", { mode: "round_robin" });
+    expect(writes[0].filters).toContainEqual(["is", "personal_owner_id", null]);
+  });
+});
+
 describe("assign_conversation — a held chat keeps its person", () => {
   const run = async (step_config: Record<string, unknown>) => {
     h.state.owned = { id: "c1" };

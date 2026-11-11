@@ -593,6 +593,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
+        .is('personal_owner_id', null)
       // round_robin means "someone should have this", and its pick is
       // only the first member, usually the owner: a chat already held
       // (inbound gives it to the customer's last caller) keeps its person.
@@ -723,6 +724,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .update({ status: 'closed', updated_at: new Date().toISOString() })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
+        .is('personal_owner_id', null)
       return 'conversation closed'
     }
 
@@ -874,6 +876,7 @@ export async function resolveConversationId(
     .select('id')
     .eq('account_id', args.automation.account_id)
     .eq('contact_id', args.contactId)
+    .is('personal_owner_id', null)
     .maybeSingle()
   if (error) throw new Error(`conversation lookup failed: ${error.message}`)
   if (!data?.id) {
@@ -1017,6 +1020,7 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
         .select('chat_tag_id, chat_sub_tag_id')
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
+        .is('personal_owner_id', null)
         .order('last_message_at', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle()

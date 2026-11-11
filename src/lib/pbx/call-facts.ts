@@ -106,7 +106,12 @@ export async function loadVisibleFacts(
       .eq('status', 'open')
       .order('created_at', { ascending: false })
       .limit(1),
-    sb.from('conversations').select('id').eq('contact_id', contactId).limit(1),
+    sb
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', contactId)
+      .is('personal_owner_id', null)
+      .limit(1),
   ]);
   if (c.error) throw new Error(`contacts read failed: ${c.error.message}`);
   const row = c.data as Record<string, unknown> | null;

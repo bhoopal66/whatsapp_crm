@@ -281,6 +281,7 @@ export function ContactsPageInner({
             .from('conversations')
             .select('id, contact_id')
             .or(filterGroup)
+            .is('personal_owner_id', null)
             .order('id')
             .range(rangeFrom, rangeTo),
         FILTER_PAGE_SIZE

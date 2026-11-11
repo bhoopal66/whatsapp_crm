@@ -116,6 +116,7 @@ export async function POST(
         .select('id')
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
+        .is('personal_owner_id', null)
         .limit(1)
         .maybeSingle();
       if (cErr) throw new Error(cErr.message);

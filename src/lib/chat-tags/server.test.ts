@@ -129,6 +129,7 @@ describe('writeConversationChatTags', () => {
       ['select', 'id, contact_id, chat_tag_id, chat_sub_tag_id'],
       ['eq', 'account_id', 'acc-1'],
       ['eq', 'contact_id', 'contact-1'],
+      ['is', 'personal_owner_id', null],
       ['order', 'last_message_at', { ascending: false, nullsFirst: false }],
       ['limit', 1],
       ['maybeSingle'],
