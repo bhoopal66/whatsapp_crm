@@ -223,10 +223,11 @@ ALTER TABLE public.conversations
 COMMENT ON COLUMN public.conversations.inbox_department IS
   'The department inbox this chat sits in: the assignee''s department (else the owner''s) when that department has its own inbox; NULL = the main inbox. Derived by trigger for every writer; never written directly. Migration 192.';
 
--- CONCURRENTLY: must stay a top-level statement (not in a DO block or a
--- transaction). If a build is interrupted it leaves an INVALID index
--- that IF NOT EXISTS then skips: DROP INDEX CONCURRENTLY it and re-run.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_inbox_department_idx
+-- Plain CREATE INDEX, not CONCURRENTLY: the CI replay (supabase db reset)
+-- may run each file in a transaction, where CONCURRENTLY is refused, and
+-- no other migration here uses it. The index is partial and every row is
+-- still NULL when it is built, so the SHARE lock lasts one table scan.
+CREATE INDEX IF NOT EXISTS conversations_inbox_department_idx
   ON public.conversations (account_id, inbox_department)
   WHERE inbox_department IS NOT NULL;
 
