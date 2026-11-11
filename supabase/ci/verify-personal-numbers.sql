@@ -243,17 +243,21 @@ BEGIN
   END IF;
 
   -- ---- Visibility --------------------------------------------------
-  -- X's chat on P's personal number: X owns it, nobody is assigned, and
-  -- X is in no team, so P and L see it only through the 190 grant.
+  -- The predicates are asked about X's chat on P's personal number (X
+  -- owns it, nobody is assigned, X is in no team), so P and L pass them
+  -- only through the 190 grant. Since 191 such a row cannot exist: a
+  -- chat on P's number is P's personal chat (personal_owner_id), whose
+  -- rows RLS decides through can_view_personal_chat. The contact stays
+  -- X's; X sees the contact but never P's chat.
   INSERT INTO contacts (account_id, user_id, phone, name)
     VALUES (a_acct, u_x, '971500190001', 'PN customer') RETURNING id INTO c_ct;
   PERFORM set_config('request.jwt.claim.sub', u_owner::text, true);
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', u_owner, 'role', 'authenticated')::text, true);
-  INSERT INTO conversations (account_id, user_id, contact_id, channel_id)
-    VALUES (a_acct, u_x, c_ct, w_pn) RETURNING id INTO c_cv;
+  INSERT INTO conversations (account_id, user_id, contact_id, channel_id, personal_owner_id)
+    VALUES (a_acct, u_p, c_ct, w_pn, u_p) RETURNING id INTO c_cv;
   INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, content_text)
-    VALUES (c_cv, 'agent', u_x, 'text', 'pn hello');
+    VALUES (c_cv, 'agent', u_p, 'text', 'pn hello');
   PERFORM set_config('request.jwt.claim.sub', '', true);
   PERFORM set_config('request.jwt.claims', '', true);
 
@@ -278,6 +282,15 @@ BEGIN
       failed := array_append(failed, (who || ' cannot see the chat on the personal number: ' || r)::text);
     END IF;
   END LOOP;
+
+  r := pg_temp.pn_try(u_x, format(
+    'SELECT concat_ws('','',
+       (SELECT count(*) FROM conversations WHERE id = %1$L),
+       (SELECT count(*) FROM messages WHERE conversation_id = %1$L))', c_cv));
+  n := n + 1;
+  IF r <> '0,0' THEN
+    failed := array_append(failed, ('the contact''s owner sees the number owner''s personal chat: ' || r)::text);
+  END IF;
 
   FOR u, who IN SELECT * FROM (VALUES (u_p, 'number owner'), (u_lead, 'owner''s leader'),
                                       (u_y, 'unrelated agent')) s
@@ -369,26 +382,25 @@ BEGIN
   UPDATE profiles SET is_active = true WHERE user_id = u_p AND account_id = a_acct;
 
   -- ---- The grant follows the chat's number -------------------------
-  PERFORM set_config('request.jwt.claim.sub', u_owner::text, true);
-  PERFORM set_config('request.jwt.claims',
-    json_build_object('sub', u_owner, 'role', 'authenticated')::text, true);
-  UPDATE conversations SET channel_id = w_co WHERE id = c_cv;
-  PERFORM set_config('request.jwt.claim.sub', '', true);
-  PERFORM set_config('request.jwt.claims', '', true);
-
+  -- The predicate: the same chat on a company number grants P nothing.
+  -- The row itself cannot move there: P's personal chat stays on P's
+  -- number (191).
   r := pg_temp.pn_try(u_p, format(
-    'SELECT concat_ws('','', can_view_conversation(%1$L, %2$L, NULL, %3$L, NULL),
-       (SELECT count(*) FROM conversations WHERE id = %4$L))', a_acct, u_x, w_co, c_cv));
+    'SELECT can_view_conversation(%L, %L, NULL, %L, NULL)::text', a_acct, u_x, w_co));
   n := n + 1;
-  IF r <> 'f,0' THEN
-    failed := array_append(failed, ('the number owner still sees a chat moved to a company number: ' || r)::text);
+  IF r <> 'false' THEN
+    failed := array_append(failed, ('the number owner sees a chat on a company number: ' || r)::text);
   END IF;
   r := pg_temp.pn_try(u_x, format(
-    'SELECT concat_ws('','', can_view_conversation(%1$L, %2$L, NULL, %3$L, NULL),
-       (SELECT count(*) FROM conversations WHERE id = %4$L))', a_acct, u_x, w_co, c_cv));
+    'SELECT can_view_conversation(%L, %L, NULL, %L, NULL)::text', a_acct, u_x, w_co));
   n := n + 1;
-  IF r <> 't,1' THEN
-    failed := array_append(failed, ('the chat owner lost the chat moved to a company number: ' || r)::text);
+  IF r <> 'true' THEN
+    failed := array_append(failed, ('the chat owner loses a chat on a company number: ' || r)::text);
+  END IF;
+  r := pg_temp.pn_raw(format('UPDATE conversations SET channel_id = %L WHERE id = %L', w_co, c_cv));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
+    failed := array_append(failed, ('a personal chat moved to a company number: ' || r)::text);
   END IF;
 
   -- ---- Privileges --------------------------------------------------

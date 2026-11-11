@@ -896,3 +896,16 @@ jobs:
       # privileges.
       - name: Verify personal WhatsApp numbers
         run: supabase db query --local --file supabase/ci/verify-personal-numbers.sql
+
+      # Migration 191: separate personal chats. A company chat and the
+      # owner's personal chat of one contact coexist, one of each; the
+      # guard (owner is live staff, user_id is the owner, never assigned
+      # to anyone else, only on the owner's personal number, a company
+      # chat never on a personal number, never switches kind); the real
+      # conversations/messages RLS (admins, the owner and the owner's
+      # team leaders only); the insert policy; no coordinator share; 169
+      # never moves the contact's owner; import_history_rows (dedupe,
+      # summary forward only, unread untouched, personal chats only);
+      # claim_personal_history_import (one lease); privileges.
+      - name: Verify personal chats
+        run: supabase db query --local --file supabase/ci/verify-personal-chats.sql
