@@ -940,3 +940,79 @@ describe('processMessage — customer documents without our own copy', () => {
     }
   );
 });
+
+describe('processMessage — personal number (migration 190)', () => {
+  const personal: WhatsAppChannel = {
+    ...channel,
+    isPersonal: true,
+    personalUserId: 'owner-1',
+  };
+  const FILE_URL =
+    'https://crm.example.com/storage/v1/object/public/chat-media/account-acct-1/inbound/abc.pdf';
+
+  it('runs no bot: no flow, journey, automation, AI, insights or reply stamp', async () => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: 'flow-9' },
+      },
+    ];
+    await processMessage(message, 'acct-1', 'owner-1', personal);
+
+    expect(h.flows).not.toHaveBeenCalled();
+    expect(h.journey).not.toHaveBeenCalled();
+    expect(h.automations).not.toHaveBeenCalled();
+    expect(h.ai).not.toHaveBeenCalled();
+    expect(h.insights).not.toHaveBeenCalled();
+    expect(h.classify).not.toHaveBeenCalled();
+    expect(h.calls.some((c) => c.table === 'broadcast_recipients')).toBe(false);
+  });
+
+  it('still delivers message.received and runs the opt-out watch', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', personal);
+
+    expect(h.webhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'message.received',
+      expect.objectContaining({ conversation_id: 'conv-1' })
+    );
+    expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers the watch into later when given one', async () => {
+    const later: Promise<unknown>[] = [];
+    await processMessage(message, 'acct-1', 'owner-1', personal, later);
+    expect(later.length).toBeGreaterThan(0);
+    await Promise.all(later);
+    expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still files a customer document', async () => {
+    const pdf: NormalizedInboundMessage = {
+      ...message,
+      id: 'wamid.personal-doc',
+      type: 'document',
+      media: {
+        id: 'media-1',
+        mimeType: 'application/pdf',
+        link: FILE_URL,
+        filename: 'salary.pdf',
+        fileSize: 1,
+      },
+    };
+    await processMessage(pdf, 'acct-1', 'owner-1', personal);
+
+    expect(h.rpcs).toContain('customer_documents_record');
+    expect(h.flows).not.toHaveBeenCalled();
+  });
+
+  it('control: a shared number still runs flows and automations', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.flows).toHaveBeenCalledTimes(1);
+    expect(h.automations).toHaveBeenCalled();
+    expect(h.ai).toHaveBeenCalledTimes(1);
+  });
+});
