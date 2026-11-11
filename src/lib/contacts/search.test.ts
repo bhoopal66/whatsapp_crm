@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   contactSearchFilter,
+  escapeIlike,
   parseContactOptions,
   sanitizeContactSearch,
 } from './search';
@@ -56,5 +57,22 @@ describe('parseContactOptions', () => {
     );
     expect(parseContactOptions(null)).toEqual([]);
     expect(parseContactOptions({ id: 'a', phone: 'p' })).toEqual([]);
+  });
+});
+
+describe('wildcards', () => {
+  it('escapes % and _ and drops * in ilike values', () => {
+    expect(escapeIlike('50%_a')).toBe('50\\%\\_a');
+    expect(sanitizeContactSearch('al*')).toBe('al');
+    expect(contactSearchFilter('a%b_c')).toBe(
+      'name.ilike.%a\\%b\\_c%,phone.ilike.%a\\%b\\_c%'
+    );
+  });
+
+  it('treats a term of only wildcards or punctuation as empty', () => {
+    for (const t of ['%%%%', '_', '*', ' % _ * ', '+', '%']) {
+      expect(sanitizeContactSearch(t)).toBe('');
+      expect(contactSearchFilter(t)).toBeNull();
+    }
   });
 });

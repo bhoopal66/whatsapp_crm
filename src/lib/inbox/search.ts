@@ -4,9 +4,9 @@
  * A search used to filter only the rows already loaded, so an older chat
  * beyond the first pages could not be found at all. Now the typed term is
  * first turned into contacts (migration 193's close-match
- * `search_contacts`, else the plain ilike filter), and the list query
- * keeps a chat whose contact is one of them OR whose last message holds
- * the term (`conversationSearchGroup`), beside every view narrowing.
+ * `search_contacts`, else the plain ilike filter), and the list runs two
+ * reads under the same view narrowing: chats of those contacts, and chats
+ * whose last message holds the term (`mergeSearchRows` joins them).
  * The same match is re-applied to the held rows, which realtime and
  * deltas keep changing.
  */
@@ -23,6 +23,17 @@ export const INBOX_SEARCH_DEBOUNCE_MS = 300;
  * further pages (a search narrows by typing more, not by scrolling).
  */
 export const INBOX_SEARCH_LIMIT = 100;
+
+/**
+ * Contacts the RPC is asked for, before the view (own chats, team,
+ * department, campaign, tag) narrows them: a narrow view can still end
+ * with none if the term matches more than this many contacts the caller
+ * can see. Read in `CONTACT_ID_CHUNK` slices.
+ */
+export const INBOX_SEARCH_HIT_LIMIT = 300;
+
+/** Chats listed that matched only through their last message. */
+export const INBOX_SEARCH_TEXT_LIMIT = 50;
 
 /** What a search found: the contacts, ranked, for the term asked. */
 export interface InboxSearchHits {
@@ -142,4 +153,31 @@ export function matchesInboxSearchOrHit(
   return (
     !!hits && hits.term === inboxSearchTerm(term) && !!hitOf(row, hits.rank)
   );
+}
+
+/**
+ * The two search reads as one list: chats of the found contacts first,
+ * in hit rank order (as read among one contact's chats), then the chats
+ * found only through their last message, as read (newest first). A chat
+ * in both stays in the first place.
+ */
+export function mergeSearchRows<T extends RowWithContact & { id: string }>(
+  contactRows: readonly T[],
+  textRows: readonly T[],
+  ids: readonly string[]
+): T[] {
+  const order = new Map(ids.map((id, i) => [id, i]));
+  const at = (r: T) => order.get(r.contact?.id ?? '') ?? ids.length;
+  const first = contactRows
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => at(a.row) - at(b.row) || a.i - b.i)
+    .map((x) => x.row);
+  const seen = new Set(first.map((r) => r.id));
+  const out = [...first];
+  for (const r of textRows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+  }
+  return out;
 }

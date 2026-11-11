@@ -131,7 +131,9 @@ const FILTER_CHUNK_CONCURRENCY = 4;
 /** How long one filter's matched contact ids are reused while paging. */
 const FILTER_MATCHES_TTL_MS = 30_000;
 /** Hits the close-match RPC returns per search. */
-const SEARCH_RPC_LIMIT = 200;
+// Asked of the RPC before the personal / chat-tag narrowing: a term that
+// matches more than this many visible contacts can still lose hits there.
+const SEARCH_RPC_LIMIT = 500;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 type ContactRow = ContactListRow;

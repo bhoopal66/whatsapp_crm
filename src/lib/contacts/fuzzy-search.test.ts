@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  conversationSearchGroup,
+  chunkIds,
+  conversationContactGroup,
+  conversationTextGroup,
   isMissingSearchRpc,
   parseSearchHits,
   rankByHits,
@@ -58,17 +60,35 @@ describe('rankByHits', () => {
   });
 });
 
-describe('conversationSearchGroup', () => {
-  it('matches the found contacts or the last message', () => {
-    expect(conversationSearchGroup('acme', ['1', '2'])).toBe(
-      'contact_id.in.(1,2),last_message_text.ilike.%acme%'
+describe('conversation search groups', () => {
+  it('match the found contacts, and the last message, apart', () => {
+    expect(conversationContactGroup(['1', '2'])).toBe('contact_id.in.(1,2)');
+    expect(conversationContactGroup([])).toBeNull();
+    expect(conversationTextGroup('acme')).toBe(
+      'last_message_text.ilike.%acme%'
     );
   });
 
-  it('keeps only the message branch with no contacts, and strips or syntax', () => {
-    expect(conversationSearchGroup('a,(b)', [])).toBe(
+  it('strip or syntax, escape wildcards, and drop empty terms', () => {
+    expect(conversationTextGroup('a,(b)')).toBe(
       'last_message_text.ilike.%a  b%'
     );
-    expect(conversationSearchGroup('  ', ['1'])).toBeNull();
+    expect(conversationTextGroup('50%_off*')).toBe(
+      'last_message_text.ilike.%50\\%\\_off%'
+    );
+    expect(conversationTextGroup('  ')).toBeNull();
+    expect(conversationTextGroup('%%%%')).toBeNull();
+  });
+});
+
+describe('chunkIds', () => {
+  it('slices into at most the given size', () => {
+    expect(chunkIds(['a', 'b', 'c'], 2)).toEqual([['a', 'b'], ['c']]);
+    expect(chunkIds([], 2)).toEqual([]);
+    expect(
+      chunkIds(Array.from({ length: 300 }, (_, i) => String(i))).map(
+        (c) => c.length
+      )
+    ).toEqual([150, 150]);
   });
 });

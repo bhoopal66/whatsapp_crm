@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { conversationSearchGroup } from '@/lib/contacts/fuzzy-search';
+import {
+  conversationContactGroup,
+  conversationTextGroup,
+} from '@/lib/contacts/fuzzy-search';
 import { combineOrGroups } from './pagination';
 import {
   inboxSearchHits,
   isCloseMatch,
   matchesInboxSearch,
   matchesInboxSearchOrHit,
+  mergeSearchRows,
   sortByRank,
 } from './search';
 
@@ -38,10 +42,10 @@ describe('inboxSearchHits', () => {
 
 describe('the list query group', () => {
   it('sits beside the view narrowing in one or=', () => {
-    const group = conversationSearchGroup('Elsa', hits.ids)!;
-    expect(group).toBe(
-      'contact_id.in.(c-exact,c-close-hi,c-close-lo),' +
-        'last_message_text.ilike.%Elsa%'
+    const group = conversationContactGroup(hits.ids)!;
+    expect(group).toBe('contact_id.in.(c-exact,c-close-hi,c-close-lo)');
+    expect(conversationTextGroup('Elsa')).toBe(
+      'last_message_text.ilike.%Elsa%'
     );
     expect(combineOrGroups(['inbox_department.is.null', group])).toBe(
       `and(or(inbox_department.is.null),or(${group}))`
@@ -148,5 +152,26 @@ describe('matchesInboxSearch', () => {
   it('applies the same sanitising as the server', () => {
     expect(matchesInboxSearch(elsa, 'Thanks, see')).toBe(false);
     expect(matchesInboxSearch({ contact: null }, '')).toBe(true);
+  });
+});
+
+describe('mergeSearchRows', () => {
+  const chat = (id: string, contact: string | null) => ({
+    id,
+    contact: contact ? { id: contact } : null,
+  });
+
+  it('puts contact chats first in hit rank order, then new text matches', () => {
+    const contactRows = [chat('2', 'b'), chat('1', 'a'), chat('3', 'b')];
+    const textRows = [chat('9', 'z'), chat('2', 'b'), chat('8', null)];
+    expect(
+      mergeSearchRows(contactRows, textRows, ['a', 'b']).map((r) => r.id)
+    ).toEqual(['1', '2', '3', '9', '8']);
+  });
+
+  it('keeps recent message matches from crowding contact hits out', () => {
+    const contactRows = [chat('old', 'ali')];
+    const textRows = [chat('t1', 'x'), chat('t2', 'y')];
+    expect(mergeSearchRows(contactRows, textRows, ['ali'])[0].id).toBe('old');
   });
 });

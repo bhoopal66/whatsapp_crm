@@ -1,4 +1,4 @@
-import { sanitizeContactSearch } from './search';
+import { escapeIlike, sanitizeContactSearch } from './search';
 
 /**
  * Close-match contact search through migration 193's `search_contacts`
@@ -76,19 +76,36 @@ export function rankByHits<T extends { id: string }>(
 }
 
 /**
- * The conversations `or` group for a search: the chat's contact is one
- * the search found, or its last message holds the term. Goes through
- * `combineOrGroups` with the view's other groups, so every view filter
- * still applies. With no contact ids only the message branch is left.
+ * Ids per `contact_id.in.(…)` request: 150 UUIDs is ~5.5 KB of URL, so
+ * the 300 hits the Inbox asks for go out as two requests.
  */
-export function conversationSearchGroup(
-  term: string,
+export const CONTACT_ID_CHUNK = 150;
+
+/** `ids` in slices of at most `size`. */
+export function chunkIds(
+  ids: readonly string[],
+  size: number = CONTACT_ID_CHUNK
+): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
+/**
+ * The conversations `or` group for chats whose contact is one the
+ * search found, or null with no ids. Kept apart from the message-text
+ * group (`conversationTextGroup`) and run as its own read: in one group
+ * ordered by recency, recent chats merely mentioning the term crowded
+ * the exact contact out of the page.
+ */
+export function conversationContactGroup(
   contactIds: readonly string[]
 ): string | null {
+  return contactIds.length ? `contact_id.in.(${contactIds.join(',')})` : null;
+}
+
+/** The group for chats whose last message holds the term. */
+export function conversationTextGroup(term: string): string | null {
   const clean = sanitizeContactSearch(term);
-  if (!clean) return null;
-  const message = `last_message_text.ilike.%${clean}%`;
-  return contactIds.length
-    ? `contact_id.in.(${contactIds.join(',')}),${message}`
-    : message;
+  return clean ? `last_message_text.ilike.%${escapeIlike(clean)}%` : null;
 }

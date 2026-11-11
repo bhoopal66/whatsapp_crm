@@ -48,7 +48,10 @@ import { resolveListHandler } from '@/lib/inbox/handler';
 import { ownPersonalChatsGroup } from '@/lib/inbox/personal-chats';
 import {
   INBOX_SEARCH_DEBOUNCE_MS,
+  INBOX_SEARCH_HIT_LIMIT,
   INBOX_SEARCH_LIMIT,
+  INBOX_SEARCH_TEXT_LIMIT,
+  mergeSearchRows,
   inboxSearchHits,
   inboxSearchTerm,
   isCloseMatch,
@@ -57,7 +60,9 @@ import {
   type InboxSearchHits,
 } from '@/lib/inbox/search';
 import {
-  conversationSearchGroup,
+  chunkIds,
+  conversationContactGroup,
+  conversationTextGroup,
   isMissingSearchRpc,
   parseSearchHits,
   searchRpcTerm,
@@ -366,6 +371,16 @@ function conversationsQuery(
      * first page like `attention`, longest waiting first.
      */
     pinned?: boolean;
+    /**
+     * Which half of a search this read is: the chats of the found
+     * contacts (`ids`, one chunk of them), or the chats whose last
+     * message holds the term. Two reads, merged by `mergeSearchRows`,
+     * because in one group ordered by recency the message matches
+     * crowded the contact matches out. The attention and pin reads are
+     * empty during a search: the merged list is the answer.
+     */
+    searchPart?:
+      { part: 'contacts'; ids: readonly string[] } | { part: 'text' };
   }
 ) {
   const supabase = createClient();
@@ -374,11 +389,17 @@ function conversationsQuery(
   const searching = !opts.since && !!p.search;
   let query = supabase.from('conversations').select(CONVERSATION_LIST_SELECT);
   const groups: (string | null)[] = [];
-  // The chat's contact is one the search found, or its last message
-  // holds the term; one group beside the view's, so every view filter
-  // still applies.
-  if (searching) {
-    groups.push(conversationSearchGroup(p.search, p.searchContactIds));
+  // One half of the search (see searchPart), beside the view's groups,
+  // so every view filter still applies.
+  if (searching && opts.searchPart) {
+    groups.push(
+      opts.searchPart.part === 'contacts'
+        ? conversationContactGroup(opts.searchPart.ids)
+        : conversationTextGroup(p.search)
+    );
+  }
+  if (searching && (opts.attention || opts.pinned || !opts.searchPart)) {
+    query = query.is('id', null);
   }
 
   if (p.restrictToUserId) {
@@ -462,7 +483,38 @@ function conversationsQuery(
   return query
     .order('last_message_at', { ascending: false, nullsFirst: true })
     .order('id', { ascending: false })
-    .limit(searching ? INBOX_SEARCH_LIMIT : CONVERSATION_PAGE_SIZE);
+    .limit(
+      !searching
+        ? CONVERSATION_PAGE_SIZE
+        : opts.searchPart?.part === 'text'
+          ? INBOX_SEARCH_TEXT_LIMIT
+          : INBOX_SEARCH_LIMIT
+    );
+}
+
+/**
+ * A search's first page: the chats of the found contacts (the ids in
+ * chunks, so the URL stays short) and the chats whose last message holds
+ * the term, merged with the contacts first in rank order.
+ */
+async function searchConversations(p: ListQueryParams) {
+  const reads = [
+    ...chunkIds(p.searchContactIds).map((ids) =>
+      conversationsQuery(p, { searchPart: { part: 'contacts', ids } })
+    ),
+    conversationsQuery(p, { searchPart: { part: 'text' } }),
+  ];
+  const results = await Promise.all(reads);
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { page: null, error: failed.error };
+  const text = results[results.length - 1];
+  const contacts = results.slice(0, -1);
+  const page = mergeSearchRows(
+    contacts.flatMap((r) => normalizeConversations(r.data ?? [])),
+    normalizeConversations(text.data ?? []),
+    p.searchContactIds
+  );
+  return { page, error: null };
 }
 
 /**
@@ -476,7 +528,7 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
   if (rpcTerm) {
     const { data, error } = await supabase.rpc('search_contacts', {
       p_term: rpcTerm,
-      p_limit: INBOX_SEARCH_LIMIT,
+      p_limit: INBOX_SEARCH_HIT_LIMIT,
     });
     if (!error) return parseSearchHits(data);
     // Any other failure: no contacts, and the message match still runs
@@ -492,7 +544,7 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
     .from('contacts')
     .select('id')
     .or(or)
-    .limit(INBOX_SEARCH_LIMIT);
+    .limit(INBOX_SEARCH_HIT_LIMIT);
   if (error) {
     logFetchError('Failed to search contacts:', error);
     return [];
@@ -901,8 +953,14 @@ export function ConversationList({
     const fetchFirstPage = async (): Promise<
       InboxListSnapshot<ConversationListItem>
     > => {
-      const [{ data, error }, attention, pinned] = await Promise.all([
-        conversationsQuery(params, {}),
+      const [first, attention, pinned] = await Promise.all([
+        params.search
+          ? searchConversations(params)
+          : conversationsQuery(params, {}).then(({ data, error }) => ({
+              page: error ? null : normalizeConversations(data ?? []),
+              error,
+            })),
+        // Empty during a search (see searchPart).
         conversationsQuery(params, { attention: true }),
         // Only with signals on: off, the first page is the two reads
         // it always was.
@@ -910,11 +968,11 @@ export function ConversationList({
           ? conversationsQuery(params, { pinned: true })
           : null,
       ]);
-      if (error) {
-        logFetchError('Failed to fetch conversations:', error);
+      if (first.error || !first.page) {
+        logFetchError('Failed to fetch conversations:', first.error!);
         throw new Error('conversations fetch failed');
       }
-      const page = normalizeConversations(data ?? []);
+      const page = first.page;
       // The cursor is the page's alone; the pinned rows ride along. A
       // search is one page: no cursor, so no further pages.
       const cursor = params.search ? null : nextConversationCursor(page);
@@ -970,6 +1028,7 @@ export function ConversationList({
         else resolve(s.mode === 'on');
       });
       if (!on || cancelled || generation !== generationRef.current) return;
+      if (params.search) return;
       const pinned = await conversationsQuery(params, { pinned: true });
       if (cancelled || generation !== generationRef.current) return;
       if (pinned.error) {

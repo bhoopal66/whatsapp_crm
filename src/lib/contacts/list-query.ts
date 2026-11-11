@@ -5,7 +5,7 @@ import {
   type ChatTagIds,
 } from '@/lib/contacts/chat-tag-column';
 import { phoneSearchDigits } from '@/lib/contacts/phone-search';
-import { sanitizeContactSearch } from '@/lib/contacts/search';
+import { escapeIlike, sanitizeContactSearch } from '@/lib/contacts/search';
 import type { SearchHit } from '@/lib/contacts/fuzzy-search';
 
 /**
@@ -134,7 +134,7 @@ export interface ContactListQuery<Q> {
 export function contactSearchFilter(term: string): string | null {
   const t = sanitizeContactSearch(term);
   if (!t) return null;
-  const like = `%${t}%`;
+  const like = `%${escapeIlike(t)}%`;
   const parts = [
     `name.ilike.${like}`,
     `phone.ilike.${like}`,

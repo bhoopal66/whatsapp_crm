@@ -24,7 +24,23 @@ export const CONTACT_SEARCH_LIMIT = 20;
  * producing a malformed request.
  */
 export function sanitizeContactSearch(term: string): string {
-  return term.replace(/[,()"\\]/g, ' ').trim();
+  // `*` is PostgREST's own wildcard (it reads it as `%`), so it is dropped.
+  const clean = term
+    .replace(/[,()"\\]/g, ' ')
+    .replace(/\*/g, '')
+    .trim();
+  // Only punctuation or wildcards ("%%%", "_", "+") searches for nothing.
+  return /[\p{L}\p{N}]/u.test(clean) ? clean : '';
+}
+
+/**
+ * A cleaned term as the literal text of an `ilike` pattern: `%` and `_`
+ * would otherwise be wildcards (`%%%%` matched every chat). Postgres's
+ * default escape character is the backslash, which the sanitiser has
+ * already stripped from the term itself.
+ */
+export function escapeIlike(clean: string): string {
+  return clean.replace(/[%_]/g, '\\$&');
 }
 
 /**
@@ -35,7 +51,7 @@ export function sanitizeContactSearch(term: string): string {
 export function contactSearchFilter(term: string): string | null {
   const clean = sanitizeContactSearch(term);
   if (!clean) return null;
-  const like = `%${clean}%`;
+  const like = `%${escapeIlike(clean)}%`;
   const parts = [`name.ilike.${like}`, `phone.ilike.${like}`];
   const digits = phoneSearchDigits(clean);
   if (digits) parts.push(`phone_normalized.like.%${digits}%`);
