@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -30,7 +34,9 @@ const STALE_ERROR =
  */
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin');
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const limit = checkRateLimit(`ai-kb:${userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);
 
@@ -98,7 +104,9 @@ export async function PATCH(request: Request, { params }: Params) {
  */
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const { supabase, accountId } = await requireRole('admin');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const { id } = await params;
     if (!isKbEntryId(id)) {
       return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

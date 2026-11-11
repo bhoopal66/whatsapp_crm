@@ -5,6 +5,7 @@ import {
   UnauthorizedError,
   requireRole,
   toErrorResponse,
+  assertSalesAccess,
 } from '@/lib/auth/account';
 import {
   validateTemplatePayload,
@@ -121,7 +122,9 @@ export async function POST(request: Request) {
     // both require 'admin'. Resolving account_id off the profile only
     // proves membership, so the explicit role check stays even though
     // this route no longer has an external side effect to guard.
-    const { supabase, accountId, userId } = await requireRole('admin');
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
 
     let payload: TemplatePayload;
     try {

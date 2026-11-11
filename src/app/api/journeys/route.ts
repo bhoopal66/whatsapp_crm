@@ -1,4 +1,8 @@
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { NEW_STATE } from '@/lib/journeys/types';
 import { WORKFLOWS, fail } from './run-event';
 
@@ -28,7 +32,9 @@ interface FileRow {
  */
 export async function GET(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('viewer');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('viewer')
+    );
     const q = new URL(request.url).searchParams;
     const state = q.get('state') || null;
     const product = q.get('product') || null;

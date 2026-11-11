@@ -1,25 +1,30 @@
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server';
 import {
   getCurrentAccount,
   requireRole,
   toErrorResponse,
-} from '@/lib/auth/account'
-import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
-import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+  assertSalesAccess,
+} from '@/lib/auth/account';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
+import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
 import {
   parseAiAgentV2Settings,
   validateAiCredentials,
-} from '@/lib/ai/validate'
-import { embedTexts } from '@/lib/ai/embeddings'
-import { AiError, type AiProvider } from '@/lib/ai/types'
-import { parseEscalationKeywords } from '@/lib/ai/escalation'
-import { isBankGuest } from '@/lib/auth/roles'
+} from '@/lib/ai/validate';
+import { embedTexts } from '@/lib/ai/embeddings';
+import { AiError, type AiProvider } from '@/lib/ai/types';
+import { parseEscalationKeywords } from '@/lib/ai/escalation';
+import { isBankGuest } from '@/lib/auth/roles';
 
 /** Longest handoff message accepted — it is one WhatsApp bubble. */
-const MAX_HANDOFF_MESSAGE_LENGTH = 1000
+const MAX_HANDOFF_MESSAGE_LENGTH = 1000;
 
 function bad(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 })
+  return NextResponse.json({ error: message }, { status: 400 });
 }
 
 /**
@@ -31,38 +36,40 @@ function bad(message: string) {
  */
 export async function GET() {
   try {
-    const { supabase, accountId } = await getCurrentAccount()
+    const { supabase, accountId } = assertSalesAccess(
+      await getCurrentAccount()
+    );
 
     const { data, error } = await supabase
       .from('ai_configs')
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry, reply_on_all_numbers, answer_mode, approved_min_score, sensitive_data_reply',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry, reply_on_all_numbers, answer_mode, approved_min_score, sensitive_data_reply'
       )
       .eq('account_id', accountId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (error) {
-      console.error('[ai/config GET] fetch error:', error)
+      console.error('[ai/config GET] fetch error:', error);
       return NextResponse.json(
         { error: 'Failed to load AI configuration' },
-        { status: 500 },
-      )
+        { status: 500 }
+      );
     }
 
-    if (!data) return NextResponse.json({ configured: false })
+    if (!data) return NextResponse.json({ configured: false });
     // The keys are selected only to derive the has_* flags; neither is
     // returned to the client.
-    const { api_key, embeddings_api_key, ...safe } = data
+    const { api_key, embeddings_api_key, ...safe } = data;
     return NextResponse.json({
       configured: true,
       has_key: !!api_key,
       has_embeddings_key: !!embeddings_api_key,
       ...safe,
-    })
+    });
   } catch (err) {
-    return toErrorResponse(err)
+    return toErrorResponse(err);
   }
 }
 
@@ -77,84 +84,98 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
 
-    const limit = checkRateLimit(`ai-config:${userId}`, RATE_LIMITS.adminAction)
-    if (!limit.success) return rateLimitResponse(limit)
+    const limit = checkRateLimit(
+      `ai-config:${userId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!limit.success) return rateLimitResponse(limit);
 
-    const body = await request.json().catch(() => null)
-    if (!body || typeof body !== 'object') return bad('Invalid request body')
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object') return bad('Invalid request body');
 
-    const provider = body.provider as AiProvider
+    const provider = body.provider as AiProvider;
     if (provider !== 'openai' && provider !== 'anthropic') {
-      return bad('provider must be "openai" or "anthropic"')
+      return bad('provider must be "openai" or "anthropic"');
     }
-    const model = typeof body.model === 'string' ? body.model.trim() : ''
-    if (!model) return bad('model is required')
+    const model = typeof body.model === 'string' ? body.model.trim() : '';
+    if (!model) return bad('model is required');
 
     const systemPrompt =
       typeof body.system_prompt === 'string' && body.system_prompt.trim()
         ? body.system_prompt.trim()
-        : null
-    const isActive = body.is_active === true
-    const autoReplyEnabled = body.auto_reply_enabled === true
-    const autoReplyCampaignOnly = body.auto_reply_campaign_only === true
+        : null;
+    const isActive = body.is_active === true;
+    const autoReplyEnabled = body.auto_reply_enabled === true;
+    const autoReplyCampaignOnly = body.auto_reply_campaign_only === true;
 
-    let maxPer = Number(body.auto_reply_max_per_conversation)
-    if (!Number.isFinite(maxPer)) maxPer = 3
-    maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
+    let maxPer = Number(body.auto_reply_max_per_conversation);
+    if (!Number.isFinite(maxPer)) maxPer = 3;
+    maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)));
 
     // Gates (migration 052). Each is optional in the payload; absent →
     // left unchanged on update so a partial save can't wipe a list.
-    const gates: Record<string, unknown> = {}
+    const gates: Record<string, unknown> = {};
     if ('escalation_keywords' in body) {
-      const raw = body.escalation_keywords
+      const raw = body.escalation_keywords;
       if (raw !== null && typeof raw !== 'string' && !Array.isArray(raw)) {
-        return bad('escalation_keywords must be a string or an array of strings')
+        return bad(
+          'escalation_keywords must be a string or an array of strings'
+        );
       }
-      gates.escalation_keywords = raw === null ? [] : parseEscalationKeywords(raw)
+      gates.escalation_keywords =
+        raw === null ? [] : parseEscalationKeywords(raw);
     }
     if ('retrieval_min_score' in body) {
-      const raw = body.retrieval_min_score
+      const raw = body.retrieval_min_score;
       if (raw === null || raw === '') {
-        gates.retrieval_min_score = null
+        gates.retrieval_min_score = null;
       } else {
-        const n = Number(raw)
+        const n = Number(raw);
         if (!Number.isFinite(n) || n < 0 || n > 1) {
-          return bad('retrieval_min_score must be between 0 and 1, or null to turn the gate off')
+          return bad(
+            'retrieval_min_score must be between 0 and 1, or null to turn the gate off'
+          );
         }
-        gates.retrieval_min_score = Math.round(n * 100) / 100
+        gates.retrieval_min_score = Math.round(n * 100) / 100;
       }
     }
     if ('strict_grounding' in body) {
-      gates.strict_grounding = body.strict_grounding === true
+      gates.strict_grounding = body.strict_grounding === true;
     }
     if ('handoff_message' in body) {
-      const raw = body.handoff_message
+      const raw = body.handoff_message;
       if (raw !== null && typeof raw !== 'string') {
-        return bad('handoff_message must be a string or null')
+        return bad('handoff_message must be a string or null');
       }
-      const trimmed = typeof raw === 'string' ? raw.trim() : ''
+      const trimmed = typeof raw === 'string' ? raw.trim() : '';
       if (trimmed.length > MAX_HANDOFF_MESSAGE_LENGTH) {
-        return bad(`handoff_message must be at most ${MAX_HANDOFF_MESSAGE_LENGTH} characters`)
+        return bad(
+          `handoff_message must be at most ${MAX_HANDOFF_MESSAGE_LENGTH} characters`
+        );
       }
-      gates.handoff_message = trimmed || null
+      gates.handoff_message = trimmed || null;
     }
 
     // AI agent v2 (migration 077): tiers, the pause, the guardrail
     // retry — and 079's every-number switch. Absent → left unchanged on
     // update, like the gates.
-    const v2 = parseAiAgentV2Settings(body as Record<string, unknown>)
-    if (!v2.ok) return bad(v2.error)
+    const v2 = parseAiAgentV2Settings(body as Record<string, unknown>);
+    if (!v2.ok) return bad(v2.error);
 
     // Handoff routing target for auto-reply. A non-empty string must be a
     // member of this account (else the conversation would be assigned to a
     // stranger); an empty string / null means "leave unassigned" (the
     // shared queue). Absent → left unchanged on update below.
     const rawHandoff =
-      typeof body.handoff_agent_id === 'string' ? body.handoff_agent_id.trim() : ''
-    const handoffProvided = 'handoff_agent_id' in body
-    let handoffAgentId: string | null = null
+      typeof body.handoff_agent_id === 'string'
+        ? body.handoff_agent_id.trim()
+        : '';
+    const handoffProvided = 'handoff_agent_id' in body;
+    let handoffAgentId: string | null = null;
     if (rawHandoff) {
       // The hand-off person must be staff. Checked on the row, not in the
       // query: a database without migration 082 rejects the `bank_guest`
@@ -164,14 +185,14 @@ export async function POST(request: Request) {
         .select('user_id, account_role')
         .eq('account_id', accountId)
         .eq('user_id', rawHandoff)
-        .maybeSingle()
+        .maybeSingle();
       if (!member || isBankGuest(member.account_role)) {
-        return bad('handoff_agent_id must be a member of this account')
+        return bad('handoff_agent_id must be a member of this account');
       }
-      handoffAgentId = rawHandoff
+      handoffAgentId = rawHandoff;
     }
 
-    const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
+    const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : '';
 
     // Embeddings key (optional, for semantic KB search): a non-empty
     // string sets/replaces it; an explicit null clears it; absent leaves
@@ -179,27 +200,29 @@ export async function POST(request: Request) {
     const rawEmbeddingsKey =
       typeof body.embeddings_api_key === 'string'
         ? body.embeddings_api_key.trim()
-        : ''
-    const clearEmbeddingsKey = body.embeddings_api_key === null
+        : '';
+    const clearEmbeddingsKey = body.embeddings_api_key === null;
 
     // Reuse the stored key when the form didn't send a fresh one.
     const { data: existing } = await supabase
       .from('ai_configs')
       .select('id, provider, model, api_key')
       .eq('account_id', accountId)
-      .maybeSingle()
+      .maybeSingle();
 
-    let apiKeyPlain: string
+    let apiKeyPlain: string;
     if (rawKey) {
-      apiKeyPlain = rawKey
+      apiKeyPlain = rawKey;
     } else if (existing?.api_key) {
       try {
-        apiKeyPlain = decrypt(existing.api_key)
+        apiKeyPlain = decrypt(existing.api_key);
       } catch {
-        return bad('Stored API key could not be decrypted — re-enter your key.')
+        return bad(
+          'Stored API key could not be decrypted — re-enter your key.'
+        );
       }
     } else {
-      return bad('api_key is required')
+      return bad('api_key is required');
     }
 
     // Only spend a provider round-trip when the credentials that affect
@@ -210,7 +233,7 @@ export async function POST(request: Request) {
       !existing ||
       rawKey !== '' ||
       provider !== existing.provider ||
-      model !== existing.model
+      model !== existing.model;
 
     if (credentialsChanged) {
       try {
@@ -239,16 +262,16 @@ export async function POST(request: Request) {
           answerMode: 'generate',
           approvedMinScore: 0.8,
           sensitiveDataReply: null,
-        })
+        });
       } catch (err) {
         if (err instanceof AiError) {
           return NextResponse.json(
             { error: err.message, code: err.code },
-            { status: 400 },
-          )
+            { status: 400 }
+          );
         }
-        console.error('[ai/config POST] validation error:', err)
-        return bad('Could not validate the API key with the provider.')
+        console.error('[ai/config POST] validation error:', err);
+        return bad('Could not validate the API key with the provider.');
       }
     }
 
@@ -256,20 +279,20 @@ export async function POST(request: Request) {
     // embed), same "verify before save" discipline as the chat key.
     if (rawEmbeddingsKey) {
       try {
-        await embedTexts(rawEmbeddingsKey, ['ping'])
+        await embedTexts(rawEmbeddingsKey, ['ping']);
       } catch (err) {
         if (err instanceof AiError) {
           return NextResponse.json(
             { error: `Embeddings key: ${err.message}`, code: err.code },
-            { status: 400 },
-          )
+            { status: 400 }
+          );
         }
-        console.error('[ai/config POST] embeddings validation error:', err)
-        return bad('Could not validate the embeddings key.')
+        console.error('[ai/config POST] embeddings validation error:', err);
+        return bad('Could not validate the embeddings key.');
       }
     }
 
-    const encryptedKey = rawKey ? encrypt(rawKey) : null
+    const encryptedKey = rawKey ? encrypt(rawKey) : null;
     const shared: Record<string, unknown> = {
       provider,
       model,
@@ -280,27 +303,27 @@ export async function POST(request: Request) {
       auto_reply_max_per_conversation: maxPer,
       ...gates,
       ...v2.values,
-    }
+    };
     // Only touch the handoff target when the form actually sent the field,
     // so a partial save (e.g. flipping a toggle) doesn't wipe it.
-    if (handoffProvided) shared.handoff_agent_id = handoffAgentId
+    if (handoffProvided) shared.handoff_agent_id = handoffAgentId;
     if (rawEmbeddingsKey) {
-      shared.embeddings_api_key = encrypt(rawEmbeddingsKey)
+      shared.embeddings_api_key = encrypt(rawEmbeddingsKey);
     } else if (clearEmbeddingsKey) {
-      shared.embeddings_api_key = null
+      shared.embeddings_api_key = null;
     }
 
     if (existing) {
       const { error: upErr } = await supabase
         .from('ai_configs')
         .update(encryptedKey ? { ...shared, api_key: encryptedKey } : shared)
-        .eq('account_id', accountId)
+        .eq('account_id', accountId);
       if (upErr) {
-        console.error('[ai/config POST] update error:', upErr)
+        console.error('[ai/config POST] update error:', upErr);
         return NextResponse.json(
           { error: 'Failed to save AI configuration' },
-          { status: 500 },
-        )
+          { status: 500 }
+        );
       }
     } else {
       const { error: insErr } = await supabase.from('ai_configs').insert({
@@ -308,19 +331,19 @@ export async function POST(request: Request) {
         created_by: userId,
         api_key: encryptedKey, // guaranteed non-null: rawKey required when no existing row
         ...shared,
-      })
+      });
       if (insErr) {
-        console.error('[ai/config POST] insert error:', insErr)
+        console.error('[ai/config POST] insert error:', insErr);
         return NextResponse.json(
           { error: 'Failed to save AI configuration' },
-          { status: 500 },
-        )
+          { status: 500 }
+        );
       }
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (err) {
-    return toErrorResponse(err)
+    return toErrorResponse(err);
   }
 }
 
@@ -332,20 +355,22 @@ export async function POST(request: Request) {
  */
 export async function DELETE() {
   try {
-    const { supabase, accountId } = await requireRole('admin')
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const { error } = await supabase
       .from('ai_configs')
       .delete()
-      .eq('account_id', accountId)
+      .eq('account_id', accountId);
     if (error) {
-      console.error('[ai/config DELETE] error:', error)
+      console.error('[ai/config DELETE] error:', error);
       return NextResponse.json(
         { error: 'Failed to delete AI configuration' },
-        { status: 500 },
-      )
+        { status: 500 }
+      );
     }
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (err) {
-    return toErrorResponse(err)
+    return toErrorResponse(err);
   }
 }

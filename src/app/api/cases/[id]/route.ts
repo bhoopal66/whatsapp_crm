@@ -22,7 +22,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
 import {
   canReassignCase,
   canWriteCase,
@@ -46,7 +46,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);
@@ -171,7 +171,7 @@ function parsePatch(body: Record<string, unknown> | null): CasePatch {
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);

@@ -17,7 +17,11 @@
 import { NextResponse } from 'next/server';
 import { after } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import {
   BroadcastError,
   deliverBroadcast,
@@ -51,7 +55,9 @@ export async function POST(
     // Same gate as the batch send endpoint: running a broadcast is a
     // write, and viewers are read-only. Resuming is no different — it
     // puts real messages on real phones.
-    const { supabase, accountId, userId } = await requireRole('admin');
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
 
     const limit = checkRateLimit(
       `broadcast-resume:${userId}`,
@@ -129,7 +135,9 @@ export async function POST(
     // Planning failed after the claim — release it, or the campaign is
     // locked out of resuming until the staleness window expires.
     if (claimedId) {
-      await releaseBroadcastDelivery(supabaseAdmin(), claimedId).catch(() => {});
+      await releaseBroadcastDelivery(supabaseAdmin(), claimedId).catch(
+        () => {}
+      );
     }
     if (error instanceof BroadcastError) {
       return NextResponse.json(

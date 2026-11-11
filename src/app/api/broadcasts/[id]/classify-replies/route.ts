@@ -25,7 +25,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import {
   classifyCampaignReply,
   replyClassOn,
@@ -56,7 +60,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { supabase, accountId } = await requireRole('admin');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const started = Date.now();
     const { id } = await params;
     if (!UUID.test(id))

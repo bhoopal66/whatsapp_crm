@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
 import { canSyncGroups } from '@/lib/groups/access';
 import {
   GroupHttpError,
@@ -32,7 +32,7 @@ const HARD_STOP_MS = 52_000;
 
 export async function POST() {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     if (!canSyncGroups(ctx.role)) {
       throw new GroupHttpError(
         403,

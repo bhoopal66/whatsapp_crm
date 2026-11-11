@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
 import {
   bankErrorResponse,
   canCreateBankWorkspace,
@@ -30,7 +30,7 @@ import { CaseStoreError } from '@/lib/cases/store';
 
 export async function GET() {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const workspaces = await bankWorkspaceStore().list(
       ctx.userId,
       ctx.accountId
@@ -56,7 +56,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     if (!canCreateBankWorkspace(ctx.role))
       throw new CaseHttpError(403, 'Only owners and admins can add a bank');
     const bankCode = parseText((await readJsonObject(request))?.bank_code, 32);

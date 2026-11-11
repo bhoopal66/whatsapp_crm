@@ -10,7 +10,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 import { OUTBOX_EVENTS } from '@/lib/webhooks/events';
 
@@ -39,7 +43,7 @@ function failed(what: string, error: { message?: string }): never {
 
 export async function GET() {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const db = supabaseAdmin();
     const accountId = ctx.accountId;
 

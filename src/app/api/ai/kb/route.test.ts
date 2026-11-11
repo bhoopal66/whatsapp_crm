@@ -12,6 +12,7 @@ vi.mock('@/lib/auth/account', async () => {
     );
   return {
     requireRole: mocks.requireRole,
+    assertSalesAccess: (c: unknown) => c,
     ForbiddenError: actual.ForbiddenError,
     toErrorResponse: actual.toErrorResponse,
   };

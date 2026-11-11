@@ -92,6 +92,21 @@ describe('GET /api/banks', () => {
   });
 });
 
+describe('restricted department', () => {
+  it('answers 403 to GET and POST without reading anything', async () => {
+    m.getCurrentAccount.mockResolvedValue({
+      userId: 'u-1',
+      accountId: 'acct-1',
+      role: 'agent',
+      salesRestricted: true,
+    });
+    expect((await GET()).status).toBe(403);
+    expect((await post({})).status).toBe(403);
+    expect(m.list).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/banks', () => {
   it('creates the workspace for the active account and answers 201', async () => {
     const res = await post({ bank_code: 'ENBD' });

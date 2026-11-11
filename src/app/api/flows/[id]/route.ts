@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { resolveFallbackPolicy } from '@/lib/flows/fallback';
 
@@ -56,7 +60,7 @@ export async function GET(
   // Admin+ to READ as well as write: this is an admin-only screen, and
   // the payload describes how the account's messaging behaves.
   try {
-    await requireRole('admin');
+    assertSalesAccess(await requireRole('admin'));
   } catch (err) {
     return toErrorResponse(err);
   }
@@ -105,7 +109,7 @@ export async function PUT(
   // it, but this route mutates via the service-role client which bypasses
   // RLS, so the role must be enforced here (a viewer passes ownership).
   try {
-    await requireRole('admin');
+    assertSalesAccess(await requireRole('admin'));
   } catch (err) {
     return toErrorResponse(err);
   }
@@ -202,7 +206,7 @@ export async function DELETE(
   // Writes require at least `agent` — see the PUT handler note. The
   // service-role client below bypasses the agent-gated flows_delete RLS.
   try {
-    await requireRole('admin');
+    assertSalesAccess(await requireRole('admin'));
   } catch (err) {
     return toErrorResponse(err);
   }

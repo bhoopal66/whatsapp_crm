@@ -16,7 +16,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
+import {
+  getCurrentAccount,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import {
   GROUP_NOT_FOUND,
   isUuid,
@@ -45,7 +49,7 @@ const MESSAGE_COLUMNS =
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     if (!isUuid(id)) throw new SgHttpError(404, GROUP_NOT_FOUND);
     const admin = supabaseAdmin();
