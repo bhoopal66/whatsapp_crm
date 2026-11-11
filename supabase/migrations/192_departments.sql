@@ -25,12 +25,31 @@
 --        - an AFTER trigger on profiles (department, account_id,
 --          user_id changes, inserts and deletes) recomputing that
 --          person's chats in the workspace(s) involved;
---        - set_department_settings(), recomputing the workspace.
---      The recompute writes only inbox_department, so column-list
+--        - set_department_settings(), recomputing that department's
+--          chats.
+--      The recompute is one set-based UPDATE (refresh_inbox_departments)
+--      and writes only inbox_department, so column-list
 --      triggers on other columns (169's contact move, 080/138's deals,
 --      191's personal guard, 042's assignment guard) do not fire or
 --      return early. It does bump updated_at (001's set_updated_at).
 --   5. Backfill (all NULL today, since everyone is sales; run anyway).
+--
+-- Serialisation: a chat written while a department or a switch changes
+-- could otherwise keep a tag computed from the old setting. Every
+-- recompute of a workspace takes an EXCLUSIVE transaction advisory lock
+-- on inbox_department_lock_key(account) =
+-- hashtextextended('inbox_department:' || account_id, 0) (the 143
+-- convention: a per-feature prefix, so no other lock shares the key),
+-- and the conversations trigger takes it SHARED before reading the
+-- settings. A writer therefore waits for a running recompute to commit
+-- and reads its result, and a recompute waits for in-flight writers to
+-- commit and sees their rows.
+--
+-- Hand apply: the CHECK on conversations.inbox_department is added NOT
+-- VALID and validated in a separate statement, and the index is built
+-- CONCURRENTLY, so neither holds a long write-blocking lock on
+-- conversations. CONCURRENTLY cannot run in a transaction: apply with
+-- psql -f in autocommit (no -1 / --single-transaction).
 --
 -- A personal chat (191) has user_id = personal_owner_id, so it follows
 -- its owner's department like any other chat.
@@ -69,7 +88,7 @@ BEGIN
      )
   THEN
     RAISE EXCEPTION
-      'account_role, account_id, email and deactivation cannot be changed directly; use the account member/invitation RPCs (email changes go through sign-in settings)'
+      'account_role, account_id, department, email and deactivation cannot be changed directly; use the account member/invitation RPCs (department through set_member_department; email changes go through sign-in settings)'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -122,6 +141,13 @@ GRANT SELECT ON public.account_departments TO authenticated, service_role;
 
 -- ---------- 3. Department switches (row else default) ----------
 
+-- Built-in defaults live here and only here: the COALESCE fallback.
+-- Readable for the caller's own workspaces only: a signed-in caller who
+-- is not a live member of p_account gets NULL (a SECURITY DEFINER
+-- function would otherwise read any workspace's switches). Server-side
+-- callers (no auth.uid(), or the service role) pass. p_account NULL
+-- reads no row, so it answers the built-in default for anyone; the
+-- recompute below uses that to share this one definition.
 CREATE OR REPLACE FUNCTION public.department_own_inbox(p_account uuid, p_department text)
 RETURNS boolean
 LANGUAGE sql
@@ -129,10 +155,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT COALESCE(
-    (SELECT d.own_inbox FROM public.account_departments d
-      WHERE d.account_id = p_account AND d.department = p_department),
-    p_department IS NOT DISTINCT FROM 'hr');
+  SELECT CASE
+    WHEN p_account IS NULL
+      OR auth.uid() IS NULL
+      OR COALESCE(auth.role(), '') = 'service_role'
+      OR public.is_account_member(p_account)
+    THEN COALESCE(
+      (SELECT d.own_inbox FROM public.account_departments d
+        WHERE d.account_id = p_account AND d.department = p_department),
+      p_department IS NOT DISTINCT FROM 'hr')
+  END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.department_restricted(p_account uuid, p_department text)
@@ -142,10 +174,16 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT COALESCE(
-    (SELECT d.restricted FROM public.account_departments d
-      WHERE d.account_id = p_account AND d.department = p_department),
-    p_department IS NOT DISTINCT FROM 'hr');
+  SELECT CASE
+    WHEN p_account IS NULL
+      OR auth.uid() IS NULL
+      OR COALESCE(auth.role(), '') = 'service_role'
+      OR public.is_account_member(p_account)
+    THEN COALESCE(
+      (SELECT d.restricted FROM public.account_departments d
+        WHERE d.account_id = p_account AND d.department = p_department),
+      p_department IS NOT DISTINCT FROM 'hr')
+  END;
 $$;
 
 REVOKE ALL ON FUNCTION public.department_own_inbox(uuid, text) FROM PUBLIC, anon;
@@ -154,25 +192,60 @@ GRANT EXECUTE ON FUNCTION public.department_own_inbox(uuid, text) TO authenticat
 GRANT EXECUTE ON FUNCTION public.department_restricted(uuid, text) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.department_own_inbox(uuid, text) IS
-  'Does this department have its own inbox in this workspace (account_departments row, else hr only). Migration 192.';
+  'Does this department have its own inbox in this workspace (account_departments row, else hr only). NULL for a signed-in non-member. Migration 192.';
 COMMENT ON FUNCTION public.department_restricted(uuid, text) IS
-  'Is this department kept out of the sales areas in this workspace (account_departments row, else hr only). Migration 192.';
+  'Is this department kept out of the sales areas in this workspace (account_departments row, else hr only). NULL for a signed-in non-member. Migration 192.';
 
 -- ---------- 4. conversations.inbox_department ----------
 
 ALTER TABLE public.conversations
-  ADD COLUMN IF NOT EXISTS inbox_department text NULL
-    CONSTRAINT conversations_inbox_department_check
-    CHECK (inbox_department IN ('sales', 'hr', 'it', 'accounts'));
+  ADD COLUMN IF NOT EXISTS inbox_department text NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'conversations_inbox_department_check'
+       AND conrelid = 'public.conversations'::regclass
+  ) THEN
+    ALTER TABLE public.conversations
+      ADD CONSTRAINT conversations_inbox_department_check
+      CHECK (inbox_department IN ('sales', 'hr', 'it', 'accounts')) NOT VALID;
+  END IF;
+END
+$$;
+
+-- Separate statement: validating takes only a SHARE UPDATE EXCLUSIVE
+-- lock, so chats stay writable while it scans. A no-op once valid.
+ALTER TABLE public.conversations
+  VALIDATE CONSTRAINT conversations_inbox_department_check;
 
 COMMENT ON COLUMN public.conversations.inbox_department IS
   'The department inbox this chat sits in: the assignee''s department (else the owner''s) when that department has its own inbox; NULL = the main inbox. Derived by trigger for every writer; never written directly. Migration 192.';
 
-CREATE INDEX IF NOT EXISTS conversations_inbox_department_idx
+-- CONCURRENTLY: must stay a top-level statement (not in a DO block or a
+-- transaction). If a build is interrupted it leaves an INVALID index
+-- that IF NOT EXISTS then skips: DROP INDEX CONCURRENTLY it and re-run.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS conversations_inbox_department_idx
   ON public.conversations (account_id, inbox_department)
   WHERE inbox_department IS NOT NULL;
 
--- The one definition of a chat's department inbox.
+-- The per-workspace lock key (see the header). IMMUTABLE, no grant.
+CREATE OR REPLACE FUNCTION public.inbox_department_lock_key(p_account uuid)
+RETURNS bigint
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+  SELECT pg_catalog.hashtextextended('inbox_department:' || p_account::text, 0);
+$$;
+
+REVOKE ALL ON FUNCTION public.inbox_department_lock_key(uuid) FROM PUBLIC, anon, authenticated;
+
+-- The one definition of a chat's department inbox, for one chat. The
+-- set-based refresh_inbox_departments() below is the same join over many
+-- chats; change both together. The default comes from
+-- department_own_inbox(NULL, …) (section 3).
 CREATE OR REPLACE FUNCTION public.conversation_inbox_department(
   p_account uuid, p_user uuid, p_assignee uuid)
 RETURNS text
@@ -181,17 +254,24 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT p.department
+  SELECT CASE
+           WHEN COALESCE(d.own_inbox, public.department_own_inbox(NULL, p.department))
+           THEN p.department
+         END
     FROM public.profiles p
+    LEFT JOIN public.account_departments d
+      ON d.account_id = p.account_id AND d.department = p.department
    WHERE p.account_id = p_account
-     AND p.user_id = COALESCE(p_assignee, p_user)
-     AND public.department_own_inbox(p_account, p.department)
-   LIMIT 1;
+     AND p.user_id = COALESCE(p_assignee, p_user);
 $$;
 
 REVOKE ALL ON FUNCTION public.conversation_inbox_department(uuid, uuid, uuid)
   FROM PUBLIC, anon, authenticated;
 
+-- app.inbox_department_refresh is raised only by refresh_inbox_departments
+-- around its own UPDATE, which has already computed every value under
+-- the exclusive lock: recomputing per row would double the work. Clients
+-- cannot set it (no SQL access; PostgREST sets only request.*).
 CREATE OR REPLACE FUNCTION public.conversations_inbox_department()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -199,6 +279,12 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
+  IF COALESCE(current_setting('app.inbox_department_refresh', true), '') = 'on' THEN
+    RETURN NEW;
+  END IF;
+  -- Its own statement, before the read below takes its snapshot.
+  PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+    public.inbox_department_lock_key(NEW.account_id));
   NEW.inbox_department := public.conversation_inbox_department(
     NEW.account_id, NEW.user_id, NEW.assigned_agent_id);
   RETURN NEW;
@@ -214,11 +300,16 @@ CREATE TRIGGER zz_conversations_inbox_department
   FOR EACH ROW
   EXECUTE FUNCTION public.conversations_inbox_department();
 
--- Set-based recompute of a workspace's chats, or of one person's chats
--- in it (those they are assigned, and those they own unassigned).
--- Only rows whose value changes are written. No client grant.
+-- Set-based recompute of a workspace's chats: all of them, one person's
+-- (p_user: those they are assigned, and those they own unassigned), or
+-- one department's (p_department: chats tagged with it now, or whose
+-- assignee-else-owner is in it). One UPDATE … FROM a join, writing only
+-- rows whose value changes. LEFT JOIN profiles: a chat whose person has
+-- no profile in the workspace (they left) goes back to the main inbox.
+-- No client grant.
+DROP FUNCTION IF EXISTS public.refresh_inbox_departments(uuid, uuid);
 CREATE OR REPLACE FUNCTION public.refresh_inbox_departments(
-  p_account uuid, p_user uuid DEFAULT NULL)
+  p_account uuid, p_user uuid DEFAULT NULL, p_department text DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -230,22 +321,43 @@ BEGIN
   IF p_account IS NULL THEN
     RETURN 0;
   END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(public.inbox_department_lock_key(p_account));
+  PERFORM pg_catalog.set_config('app.inbox_department_refresh', 'on', true);
+
+  WITH defaults AS (
+    SELECT x.dep, public.department_own_inbox(NULL, x.dep) AS own_inbox
+      FROM unnest(ARRAY['sales', 'hr', 'it', 'accounts']) AS x(dep)
+  ), target AS (
+    SELECT t.id,
+           CASE WHEN COALESCE(d.own_inbox, df.own_inbox) THEN p.department END AS dept
+      FROM public.conversations t
+      LEFT JOIN public.profiles p
+        ON p.account_id = t.account_id
+       AND p.user_id = COALESCE(t.assigned_agent_id, t.user_id)
+      LEFT JOIN public.account_departments d
+        ON d.account_id = p.account_id AND d.department = p.department
+      LEFT JOIN defaults df ON df.dep = p.department
+     WHERE t.account_id = p_account
+       AND (p_user IS NULL
+            OR t.assigned_agent_id = p_user
+            OR (t.assigned_agent_id IS NULL AND t.user_id = p_user))
+       AND (p_department IS NULL
+            OR t.inbox_department = p_department
+            OR p.department = p_department)
+  )
   UPDATE public.conversations c
-     SET inbox_department = public.conversation_inbox_department(
-           c.account_id, c.user_id, c.assigned_agent_id)
-   WHERE c.account_id = p_account
-     AND (p_user IS NULL
-          OR c.assigned_agent_id = p_user
-          OR (c.assigned_agent_id IS NULL AND c.user_id = p_user))
-     AND c.inbox_department IS DISTINCT FROM public.conversation_inbox_department(
-           c.account_id, c.user_id, c.assigned_agent_id);
+     SET inbox_department = tg.dept
+    FROM target tg
+   WHERE c.id = tg.id
+     AND c.inbox_department IS DISTINCT FROM tg.dept;
   GET DIAGNOSTICS v_n = ROW_COUNT;
+
+  PERFORM pg_catalog.set_config('app.inbox_department_refresh', '', true);
   RETURN v_n;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.refresh_inbox_departments(uuid, uuid) FROM PUBLIC, anon, authenticated;
-
+REVOKE ALL ON FUNCTION public.refresh_inbox_departments(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 -- A person's department, workspace or identity changing (or the
 -- profile arriving or leaving) moves their chats. Account changes
 -- matter: removing someone moves their row to a fresh account, and
@@ -311,7 +423,9 @@ BEGIN
       USING ERRCODE = '22023', HINT = 'bad_department';
   END IF;
 
-  -- One writer per person at a time (the row lock switch_account takes).
+  -- The workspace's recompute lock first, then the person's row (the
+  -- row lock switch_account takes): the same order as every recompute.
+  PERFORM pg_catalog.pg_advisory_xact_lock(public.inbox_department_lock_key(v_acct));
   PERFORM 1 FROM public.profiles p
     WHERE p.user_id = p_user_id AND p.account_id = v_acct
       AND p.deactivated_at IS NULL
@@ -357,6 +471,9 @@ BEGIN
       USING ERRCODE = '22023', HINT = 'bad_settings';
   END IF;
 
+  -- Before the write: a chat written meanwhile waits for this commit.
+  PERFORM pg_catalog.pg_advisory_xact_lock(public.inbox_department_lock_key(v_acct));
+
   INSERT INTO public.account_departments AS d
          (account_id, department, own_inbox, restricted, updated_at)
   VALUES (v_acct, p_department, p_own_inbox, p_restricted, now())
@@ -365,7 +482,7 @@ BEGIN
          restricted = EXCLUDED.restricted,
          updated_at = now();
 
-  PERFORM public.refresh_inbox_departments(v_acct);
+  PERFORM public.refresh_inbox_departments(v_acct, NULL, p_department);
 END;
 $$;
 
@@ -373,12 +490,10 @@ REVOKE ALL ON FUNCTION public.set_department_settings(text, boolean, boolean) FR
 GRANT EXECUTE ON FUNCTION public.set_department_settings(text, boolean, boolean) TO authenticated;
 
 COMMENT ON FUNCTION public.set_department_settings(text, boolean, boolean) IS
-  'Set a department''s own-inbox and restricted switches in the caller''s active account (owner/admin only), then move the workspace''s chats accordingly. Migration 192.';
+  'Set a department''s own-inbox and restricted switches in the caller''s active account (owner/admin only), then move that department''s chats accordingly. Migration 192.';
 
 -- ---------- 5. Backfill ----------
 
-UPDATE public.conversations c
-   SET inbox_department = public.conversation_inbox_department(
-         c.account_id, c.user_id, c.assigned_agent_id)
- WHERE c.inbox_department IS DISTINCT FROM public.conversation_inbox_department(
-         c.account_id, c.user_id, c.assigned_agent_id);
+-- Set-based, one workspace at a time.
+SELECT count(public.refresh_inbox_departments(a.id)) AS accounts_refreshed
+  FROM public.accounts a;

@@ -28,6 +28,8 @@ DECLARE
   u_out    UUID := '00000000-0000-4000-8000-000000192006';  -- another workspace
   a_acct   UUID;
   a_r_own  UUID;  -- R's own provisioned account
+  a_out    UUID;  -- u_out's workspace (B)
+  cv_b     UUID;  -- H's chat in workspace B
   w_pn     UUID;  -- H's personal number
   c1 UUID; c2 UUID; c3 UUID; c4 UUID; c5 UUID; c6 UUID;
   cv1      UUID;  -- owned by H, unassigned
@@ -108,6 +110,7 @@ BEGIN
   ON CONFLICT DO NOTHING;
   SELECT id INTO a_acct FROM accounts WHERE owner_user_id = u_owner;
   SELECT id INTO a_r_own FROM accounts WHERE owner_user_id = u_r;
+  SELECT id INTO a_out FROM accounts WHERE owner_user_id = u_out;
   IF a_acct IS NULL OR a_r_own IS NULL THEN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision an account';
   END IF;
@@ -297,16 +300,91 @@ BEGIN
     failed := array_append(failed, ('switching the HR inbox back on restored ' || v_n || ' of 4 chats')::text);
   END IF;
 
+  -- ---- Switch reads stay in the caller's workspaces -----------------
+  r := pg_temp.dp_try(u_out, format('SELECT department_restricted(%L, ''hr'')', a_acct));
+  n := n + 1;
+  IF r NOT IN ('ok', 'false') THEN
+    failed := array_append(failed, ('another workspace read this one''s department switch: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_out, format('SELECT department_own_inbox(%L, ''hr'')', a_acct));
+  n := n + 1;
+  IF r NOT IN ('ok', 'false') THEN
+    failed := array_append(failed, ('another workspace read this one''s own-inbox switch: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_s, format('SELECT department_restricted(%L, ''hr'')', a_acct));
+  n := n + 1;
+  IF r <> 'true' THEN
+    failed := array_append(failed, ('a member cannot read their own workspace''s switch: ' || r)::text);
+  END IF;
+
+  -- ---- Another workspace's switch leaves this one alone --------------
+  r := pg_temp.dp_try(u_out, 'SELECT set_department_settings(''hr'', false, true)');
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv1) IS DISTINCT FROM 'hr' THEN
+    failed := array_append(failed, ('workspace B switching its HR inbox off moved A''s chats: ' || r)::text);
+  END IF;
+
+  -- ---- A team leader may not use the RPCs ----------------------------
+  UPDATE profiles SET account_role = 'team_leader' WHERE user_id = u_s AND account_id = a_acct;
+  r := pg_temp.dp_try(u_s, format('SELECT set_member_department(%L, ''sales'')', u_h));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501 not_admin%' THEN
+    failed := array_append(failed, ('a team leader set a department: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_s, 'SELECT set_department_settings(''hr'', false, true)');
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501 not_admin%' THEN
+    failed := array_append(failed, ('a team leader changed department settings: ' || r)::text);
+  END IF;
+  UPDATE profiles SET account_role = 'agent' WHERE user_id = u_s AND account_id = a_acct;
+
+  -- ---- A chat's owner changing recomputes ----------------------------
+  r := pg_temp.dp_raw(format('UPDATE conversations SET user_id = %L WHERE id = %L', u_s, cv1));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv1) IS NOT NULL THEN
+    failed := array_append(failed, ('handing an unassigned HR chat to a sales owner left it in HR: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_raw(format('UPDATE conversations SET user_id = %L WHERE id = %L', u_h, cv1));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv1) IS DISTINCT FROM 'hr' THEN
+    failed := array_append(failed, ('handing an unassigned chat to an HR owner did not move it: ' || r)::text);
+  END IF;
+
+  -- ---- One person, two workspaces: HR in A, sales in B ---------------
+  INSERT INTO profiles (user_id, account_id, account_role, email, full_name, is_active)
+    VALUES (u_h, a_out, 'agent', 'dp-h@example.invalid', 'DP H', false);
+  INSERT INTO contacts (account_id, user_id, phone, name)
+    VALUES (a_out, u_h, '971500192008', 'DP 8') RETURNING id INTO c6;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+    VALUES (a_out, u_h, c6) RETURNING id INTO cv_b;
+  n := n + 1;
+  IF (SELECT inbox_department FROM conversations WHERE id = cv_b) IS NOT NULL
+     OR (SELECT inbox_department FROM conversations WHERE id = cv1) IS DISTINCT FROM 'hr' THEN
+    failed := array_append(failed, 'a person HR in A and sales in B: B''s chat was tagged or A''s was not'::text);
+  END IF;
+
+  -- ---- Deactivation keeps the chats where they are -------------------
+  r := pg_temp.dp_try(u_admin, format('SELECT set_member_active(%L, false)', u_h));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv1) IS DISTINCT FROM 'hr' THEN
+    failed := array_append(failed, ('deactivating an HR person moved their chats: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_admin, format('SELECT set_member_active(%L, true)', u_h));
+  n := n + 1;
+  IF r <> 'ok' THEN
+    failed := array_append(failed, ('the admin could not reactivate H: ' || r)::text);
+  END IF;
+
   -- ---- A person leaving or changing department -----------------------
   r := pg_temp.dp_try(u_admin, format('SELECT set_member_department(%L, ''hr'')', u_r));
   n := n + 1;
   IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv_r) IS DISTINCT FROM 'hr' THEN
     failed := array_append(failed, ('R''s chat did not follow R into HR: ' || r)::text);
   END IF;
-  UPDATE profiles SET account_id = a_r_own WHERE user_id = u_r;
+  r := pg_temp.dp_try(u_admin, format('SELECT remove_account_member(%L)', u_r));
   n := n + 1;
-  IF (SELECT inbox_department FROM conversations WHERE id = cv_r) IS NOT NULL THEN
-    failed := array_append(failed, 'a chat stayed in the HR inbox after its owner left the workspace'::text);
+  IF r LIKE 'ERROR%' OR (SELECT inbox_department FROM conversations WHERE id = cv_r) IS NOT NULL THEN
+    failed := array_append(failed, ('a chat stayed in the HR inbox after its owner was removed: ' || r)::text);
   END IF;
   r := pg_temp.dp_try(u_admin, format('SELECT set_member_department(%L, ''sales'')', u_h));
   n := n + 1;
@@ -319,10 +397,28 @@ BEGIN
     failed := array_append(failed, ('chats stayed in a department inbox after H went back to sales: ' || v_n)::text);
   END IF;
 
+  -- ---- A department switched on for its own inbox (it) --------------
+  -- cv2 is owned by S, unassigned.
+  r := pg_temp.dp_try(u_admin, format('SELECT set_member_department(%L, ''it'')', u_s));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv2) IS NOT NULL THEN
+    failed := array_append(failed, ('an IT chat left the main inbox while IT has no own inbox: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_admin, 'SELECT set_department_settings(''it'', true, false)');
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv2) IS DISTINCT FROM 'it' THEN
+    failed := array_append(failed, ('switching the IT inbox on did not move IT people''s chats: ' || r)::text);
+  END IF;
+  r := pg_temp.dp_try(u_admin, 'SELECT set_department_settings(''it'', false, false)');
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT inbox_department FROM conversations WHERE id = cv2) IS NOT NULL THEN
+    failed := array_append(failed, ('switching the IT inbox off left chats in it: ' || r)::text);
+  END IF;
+
   -- ---- account_departments: members read, nobody writes --------------
   r := pg_temp.dp_try(u_s, format('SELECT count(*) FROM account_departments WHERE account_id = %L', a_acct));
   n := n + 1;
-  IF r <> '1' THEN
+  IF r <> '2' THEN
     failed := array_append(failed, ('a member cannot read the department settings: ' || r)::text);
   END IF;
   r := pg_temp.dp_try(u_out, format('SELECT count(*) FROM account_departments WHERE account_id = %L', a_acct));
@@ -350,8 +446,8 @@ BEGIN
 
   -- ---- Privileges --------------------------------------------------
   n := n + 1;
-  IF has_function_privilege('authenticated', 'public.refresh_inbox_departments(uuid, uuid)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.refresh_inbox_departments(uuid, uuid)', 'EXECUTE')
+  IF has_function_privilege('authenticated', 'public.refresh_inbox_departments(uuid, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.refresh_inbox_departments(uuid, uuid, text)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.conversation_inbox_department(uuid, uuid, uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.conversation_inbox_department(uuid, uuid, uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.set_member_department(uuid, text)', 'EXECUTE')
