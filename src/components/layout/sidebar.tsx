@@ -112,6 +112,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     signOut,
     workspaces,
     isBankGuest,
+    salesRestricted,
   } = useAuth();
   const unreadChats = useUnreadChats();
   const casesOverdue = useCasesOverdue();
@@ -122,6 +123,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const callsNav = useCallsNav();
   const navGroups = visibleNavGroups(profileLoading ? null : accountRole, {
     pbx: callsNav.visible,
+    salesRestricted,
   });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();

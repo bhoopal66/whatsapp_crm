@@ -11,6 +11,7 @@ import {
   navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
+  visibleNavItems,
   type NavGroup,
 } from './nav-items';
 
@@ -296,5 +297,34 @@ describe('sidebar labels', () => {
       expect(lookup(key), `missing Sidebar.${key}`).toBeTruthy();
       expect(typeof lookup(key), `Sidebar.${key}`).toBe('string');
     }
+  });
+});
+
+describe('visibleNavItems / sales-restricted departments', () => {
+  const items = [
+    { href: '/inbox' },
+    { href: '/contacts' },
+    { href: '/contacts/123' },
+    { href: '/cases' },
+    { href: '/team-inbox' },
+    { href: '/chat' },
+  ];
+
+  it('drops restricted paths only for a restricted person', () => {
+    expect(
+      visibleNavItems(items, { salesRestricted: true }).map((i) => i.href)
+    ).toEqual(['/inbox', '/contacts/123', '/chat']);
+    expect(visibleNavItems(items, { salesRestricted: false })).toEqual(items);
+  });
+
+  it('hides the sidebar rows through visibleNavGroups', () => {
+    const hrefs = (restricted: boolean) =>
+      visibleNavGroups('team_leader', { salesRestricted: restricted }).flatMap(
+        (g) => g.items.map((i) => i.href)
+      );
+    expect(hrefs(false)).toContain('/pipelines');
+    expect(hrefs(true)).not.toContain('/pipelines');
+    expect(hrefs(true)).not.toContain('/contacts');
+    expect(hrefs(true)).toContain('/inbox');
   });
 });

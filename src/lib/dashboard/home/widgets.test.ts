@@ -58,3 +58,13 @@ describe('homeWidgets', () => {
     expect(widgets.has('tasks')).toBe(true);
   });
 });
+
+describe('homeWidgets, sales-restricted department', () => {
+  it('drops the cases and campaigns panels', () => {
+    expect(sorted('admin', ALL)).toContain('cases');
+    const w = sorted('team_leader', { ...ALL, salesRestricted: true });
+    expect(w).not.toContain('cases');
+    expect(w).not.toContain('campaigns');
+    expect(w).toContain('attention');
+  });
+});

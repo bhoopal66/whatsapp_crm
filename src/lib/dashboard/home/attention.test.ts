@@ -23,15 +23,46 @@ describe('countInboxUnread', () => {
   const botChat = row({ campaign_broadcast_id: 'b1', ai_reply_count: 1 });
 
   it('leaves out a campaign chat the live bot is answering', () => {
-    expect(countInboxUnread([row(), botChat], true)).toBe(1);
+    expect(countInboxUnread([row(), botChat], true, 'me')).toBe(1);
   });
 
   it('counts that chat when the bot is not live', () => {
-    expect(countInboxUnread([row(), botChat], false)).toBe(2);
+    expect(countInboxUnread([row(), botChat], false, 'me')).toBe(2);
   });
 
   it('ignores rows with nothing unread', () => {
-    expect(countInboxUnread([row({ unread_count: 0 }), row()], true)).toBe(1);
+    expect(
+      countInboxUnread([row({ unread_count: 0 }), row()], true, 'me')
+    ).toBe(1);
+  });
+});
+
+describe('countInboxUnread, personal and department chats', () => {
+  it("leaves out other people's personal chats, keeps mine", () => {
+    const rows = [
+      row({ personal_owner_id: 'other' }),
+      row({ personal_owner_id: 'me' }),
+      row(),
+    ];
+    expect(countInboxUnread(rows, false, 'me')).toBe(2);
+  });
+
+  it("leaves out a department chat that isn't mine", () => {
+    const rows = [
+      row({ inbox_department: 'hr', user_id: 'x', assigned_agent_id: 'y' }),
+      row({ inbox_department: 'hr', user_id: 'me' }),
+      row({ inbox_department: 'hr', assigned_agent_id: 'me' }),
+    ];
+    expect(countInboxUnread(rows, false, 'me')).toBe(2);
+  });
+
+  it('fails closed without a viewer', () => {
+    const rows = [
+      row({ personal_owner_id: 'other' }),
+      row({ inbox_department: 'hr', user_id: 'me' }),
+      row(),
+    ];
+    expect(countInboxUnread(rows, false, null)).toBe(1);
   });
 });
 

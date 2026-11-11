@@ -1,4 +1,9 @@
 import type { InboxRow } from '@/lib/cases/ui';
+import { inMainInbox, type DepartmentChatRow } from '@/lib/inbox/departments';
+import {
+  isOthersPersonalChat,
+  type PersonalChatRow,
+} from '@/lib/inbox/personal-chats';
 import {
   inCampaignInbox,
   type CampaignInboxFields,
@@ -11,15 +16,24 @@ import {
 /**
  * Unread chats, by the sidebar's rule (`useUnreadChats`) without its
  * realtime channel. Not narrowed for a team leader: their tile opens
- * the Team inbox (`inboxHrefFor`), so it matches that count.
+ * the Team inbox (`inboxHrefFor`), so it matches that count. Other
+ * people's personal chats (191) and department chats that are not the
+ * viewer's own (192) stay out, as in the inbox list.
  */
 export function countInboxUnread(
-  rows: readonly (CampaignInboxFields & { unread_count?: number | null })[],
-  aiLive: boolean
+  rows: readonly (CampaignInboxFields &
+    PersonalChatRow &
+    DepartmentChatRow & { unread_count?: number | null })[],
+  aiLive: boolean,
+  userId: string | null
 ): number {
   let n = 0;
   for (const row of rows) {
-    if ((row.unread_count ?? 0) > 0 && !inCampaignInbox(row, aiLive)) n += 1;
+    if ((row.unread_count ?? 0) <= 0) continue;
+    if (inCampaignInbox(row, aiLive)) continue;
+    if (isOthersPersonalChat(row, userId)) continue;
+    if (!inMainInbox(row, userId)) continue;
+    n += 1;
   }
   return n;
 }

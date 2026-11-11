@@ -62,6 +62,7 @@ export default function DashboardPage() {
     accountRole,
     profileLoading,
     isBankGuest,
+    salesRestricted,
   } = useAuth();
   const userId = user?.id ?? null;
   const role = profileLoading ? null : accountRole;
@@ -102,6 +103,7 @@ export default function DashboardPage() {
     phoneNumbers: (numbers.data ?? []).some((n) =>
       isLinkedDeviceNumber(n.provider)
     ),
+    salesRestricted,
   });
   const show = widgets.has.bind(widgets);
 

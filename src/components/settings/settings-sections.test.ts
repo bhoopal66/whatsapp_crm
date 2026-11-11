@@ -483,3 +483,24 @@ describe('inAppLeaveTarget', () => {
     expect(inAppLeaveTarget('', origin)).toBeNull();
   });
 });
+
+describe('sales-restricted departments', () => {
+  it('drops templates and ai for a restricted agent', () => {
+    expect(canOpenSection('templates', 'admin', true)).toBe(false);
+    expect(canOpenSection('ai', 'admin', true)).toBe(false);
+    expect(canOpenSection('profile', 'agent', true)).toBe(true);
+    const all = visibleCategories('admin').flatMap((c) => c.sections);
+    const kept = visibleCategories('admin', true).flatMap((c) => c.sections);
+    expect(all).toContain('templates');
+    expect(kept).not.toContain('templates');
+    expect(kept).not.toContain('ai');
+  });
+
+  it('sends a deep link to a dropped section to the default section', () => {
+    const params = { get: (n: string) => (n === 'tab' ? 'templates' : null) };
+    expect(resolveSettingsLocation(params, 'admin').section).toBe('templates');
+    expect(resolveSettingsLocation(params, 'admin', true).section).toBe(
+      'overview'
+    );
+  });
+});

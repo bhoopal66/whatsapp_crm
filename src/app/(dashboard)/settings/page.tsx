@@ -329,15 +329,19 @@ export default function SettingsPage() {
 
 function SettingsPageInner() {
   const searchParams = useSearchParams();
-  const { profileLoading, accountRole } = useAuth();
+  const { profileLoading, accountRole, salesRestricted } = useAuth();
   const t = useTranslations('Settings');
 
   // The URL (`?tab=<section>`) is the single source of truth: the group
   // is derived from it, legacy ids resolve onto their new home, and a
   // section above the caller's role lands on the Overview.
   const role = profileLoading ? null : accountRole;
-  const { section, agentTab } = resolveSettingsLocation(searchParams, role);
-  const groups = visibleCategories(role);
+  const { section, agentTab } = resolveSettingsLocation(
+    searchParams,
+    role,
+    salesRestricted
+  );
+  const groups = visibleCategories(role, salesRestricted);
   // A bank guest has one section (Workspaces): no menu to show. Nor
   // while the role loads: with no role yet, every personal section
   // looks openable, so a guest would see a menu and Overview flash by

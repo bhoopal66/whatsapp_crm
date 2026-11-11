@@ -17,6 +17,7 @@ import {
   canEditSettings as canEditSettingsFor,
   canManageMembers as canManageMembersFor,
   canSendMessages as canSendMessagesFor,
+  hasMinRole,
   isAccountRole,
   isBankGuest as isBankGuestRole,
   type AccountRole,
@@ -29,6 +30,12 @@ import {
   workspaceHomePath,
   type Workspace,
 } from "@/lib/auth/my-workspaces";
+import {
+  DEFAULT_DEPARTMENT,
+  isSalesRestricted,
+  toDepartment,
+  type Department,
+} from "@/lib/auth/departments";
 import { clearClientCache } from "@/lib/client-cache";
 import { sweepPerUserBrowserStorage } from "@/lib/browser-storage-sweep";
 import {
@@ -53,6 +60,10 @@ interface Profile {
   beta_features: string[];
   account_id: string | null;
   account_role: AccountRole | null;
+  /** Migration 192. */
+  department: Department;
+  /** `department_restricted()` for this person; owners/admins never. */
+  sales_restricted: boolean;
 }
 
 interface AccountSummary {
@@ -128,6 +139,10 @@ interface AuthContextValue {
   accountId: string | null;
   /** Role within that account. Null while loading. */
   accountRole: AccountRole | null;
+  /** Department (migration 192); 'sales' before 192 or while loading. */
+  department: Department;
+  /** True if this person's department is restricted: no sales areas. */
+  salesRestricted: boolean;
   /** Lightweight account meta — id + name + default_currency. Null while loading. */
   account: AccountSummary | null;
   /** Account default deal currency. Falls back to DEFAULT_CURRENCY
@@ -202,6 +217,8 @@ interface ProfileRow {
   deactivated_at?: string | null;
   /** Migration 083. Absent on a database that predates it. */
   is_active?: boolean | null;
+  /** Migration 192. Absent on a database that predates it. */
+  department?: string | null;
 }
 
 /** Other tabs of this browser follow a workspace switch (see below). */
@@ -214,6 +231,28 @@ function sweepBrowserStorage(): void {
     sweepPerUserBrowserStorage(window.localStorage);
   } catch {
     // storage blocked: nothing was written either
+  }
+}
+
+/**
+ * SQL `department_restricted()` (192) as the caller; the server's
+ * `getCurrentAccount` makes the same call. Never throws and answers
+ * false on any failure (a missing function included): RLS and the
+ * server guards still hold, so a hiccup must not hide the sales areas.
+ */
+async function fetchDepartmentRestricted(
+  supabase: ReturnType<typeof createClient>,
+  accountId: string,
+  department: Department,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("department_restricted", {
+      p_account: accountId,
+      p_department: department,
+    });
+    return !error && data === true;
+  } catch {
+    return false;
   }
 }
 
@@ -487,6 +526,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        const department = toDepartment(data.department);
+        const salesRestricted =
+          !!data.account_id &&
+          !!accountRole &&
+          !isBankGuestRole(accountRole) &&
+          // A profile with no `department` key predates migration 192.
+          "department" in data &&
+          // Owners and admins are exempt: no round trip for them.
+          !hasMinRole(accountRole, "admin") &&
+          isSalesRestricted({
+            role: accountRole,
+            department,
+            restricted: await fetchDepartmentRestricted(
+              supabase,
+              data.account_id,
+              department,
+            ),
+          });
+
         setProfile({
           id: data.id,
           full_name: data.full_name,
@@ -500,6 +558,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           beta_features: data.beta_features ?? [],
           account_id: data.account_id ?? null,
           account_role: accountRole,
+          department,
+          sales_restricted: salesRestricted,
         });
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {
@@ -686,6 +746,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const role = profile?.account_role ?? null;
     return {
       accountRole: role,
+      department: profile?.department ?? DEFAULT_DEPARTMENT,
+      salesRestricted: profile?.sales_restricted ?? false,
       accountId: profile?.account_id ?? null,
       isOwner: role === "owner",
       isAdmin: role === "admin",
@@ -696,7 +758,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canSendMessages: role ? canSendMessagesFor(role) : false,
       isBankGuest: isBankGuestRole(role),
     };
-  }, [profile?.account_role, profile?.account_id]);
+  }, [
+    profile?.account_role,
+    profile?.account_id,
+    profile?.department,
+    profile?.sales_restricted,
+  ]);
 
   const activeWorkspaceId =
     derived.accountId ??
@@ -787,6 +854,8 @@ export function useAuth(): AuthContextValue {
       accountStatusDetail: null,
       accountId: null,
       accountRole: null,
+      department: DEFAULT_DEPARTMENT,
+      salesRestricted: false,
       isOwner: false,
       isAdmin: false,
       isAgent: false,

@@ -50,6 +50,9 @@ const MIN_ROLE: Record<HomeWidget, AccountRole> = {
   trends: 'viewer',
 };
 
+/** Panels that link into restricted areas (/cases, /broadcasts). */
+const SALES_WIDGETS: ReadonlySet<HomeWidget> = new Set(['cases', 'campaigns']);
+
 /** What the dashboard knows beyond the role. */
 export interface HomeContext {
   /**
@@ -62,6 +65,8 @@ export interface HomeContext {
    * device (Whapi or OpenWA), not the Cloud API.
    */
   phoneNumbers: boolean;
+  /** A restricted department (192): no cases or campaigns panels. */
+  salesRestricted?: boolean;
 }
 
 /**
@@ -78,6 +83,7 @@ export function homeWidgets(
     if (!hasMinRole(role, MIN_ROLE[widget])) continue;
     if (widget === 'calls' && !ctx.pbx) continue;
     if (widget === 'outreach' && !ctx.phoneNumbers) continue;
+    if (ctx.salesRestricted && SALES_WIDGETS.has(widget)) continue;
     out.add(widget);
   }
   return out;

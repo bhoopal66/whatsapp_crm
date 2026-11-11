@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 
 import { isAgentTab } from '@/lib/ai/agent-tabs';
+import { RESTRICTED_SETTINGS_SECTIONS } from '@/lib/auth/departments';
 import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 
 /**
@@ -411,8 +412,15 @@ export function aiTabParam(agentTab: string): string {
  */
 export function canOpenSection(
   section: SettingsSection,
-  role: AccountRole | null
+  role: AccountRole | null,
+  salesRestricted = false
 ): boolean {
+  // A restricted department (192) does not get the sales sections.
+  if (
+    salesRestricted &&
+    (RESTRICTED_SETTINGS_SECTIONS as readonly string[]).includes(section)
+  )
+    return false;
   // A bank guest sees Workspaces and nothing else, not even Overview or
   // the rest of My account.
   if (isBankGuest(role)) return section === GUEST_SECTION;
@@ -424,11 +432,14 @@ export function canOpenSection(
 /** The categories `role` may see, each with its openable sections; a
  *  category left with none is dropped. */
 export function visibleCategories(
-  role: AccountRole | null
+  role: AccountRole | null,
+  salesRestricted = false
 ): { id: SettingsCategory; sections: SettingsSection[] }[] {
   return SETTINGS_CATEGORIES.map((id) => ({
     id,
-    sections: sectionsOf(id).filter((s) => canOpenSection(s, role)),
+    sections: sectionsOf(id).filter((s) =>
+      canOpenSection(s, role, salesRestricted)
+    ),
   })).filter((c) => c.sections.length > 0);
 }
 
@@ -445,10 +456,11 @@ export interface SettingsLocation extends SettingsTarget {
  */
 export function resolveSettingsLocation(
   params: { get(name: string): string | null },
-  role: AccountRole | null
+  role: AccountRole | null,
+  salesRestricted = false
 ): SettingsLocation {
   const target = resolveSettingsTab(params.get('tab'));
-  const allowed = canOpenSection(target.section, role)
+  const allowed = canOpenSection(target.section, role, salesRestricted)
     ? target
     : { section: landingSectionFor(role), agentTab: null };
   return { ...allowed, category: SECTION_META[allowed.section].category };

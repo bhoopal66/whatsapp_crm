@@ -18,6 +18,8 @@ import { useTranslations } from 'next-intl';
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
 import { useAuth } from '@/hooks/use-auth';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
+import type { DepartmentChatRow } from '@/lib/inbox/departments';
+import type { PersonalChatRow } from '@/lib/inbox/personal-chats';
 import { UNREAD_ROW_COLUMNS } from '@/hooks/use-total-unread';
 import {
   countInboxUnread,
@@ -58,7 +60,9 @@ export interface AttentionStripProps {
   className?: string;
 }
 
-type UnreadRow = CampaignInboxFields & { unread_count: number | null };
+type UnreadRow = CampaignInboxFields &
+  PersonalChatRow &
+  DepartmentChatRow & { unread_count: number | null };
 
 interface ChatCounts {
   unreadRows: UnreadRow[];
@@ -187,7 +191,8 @@ export function AttentionStrip({
 }: AttentionStripProps) {
   const t = useTranslations('Dashboard.home.attention');
   const ti = useTranslations('InsightsUi.home');
-  const { accountId, accountRole } = useAuth();
+  const { accountId, accountRole, user } = useAuth();
+  const userId = user?.id ?? null;
   const inboxHref = inboxHrefFor(accountRole);
   const aiLive = useAiAutoReplyLive() === true;
   const chats = useWidgetData(
@@ -216,7 +221,7 @@ export function AttentionStrip({
 
   const chatError = chats.error && !chats.data;
   const unread = chats.data
-    ? countInboxUnread(chats.data.unreadRows, aiLive)
+    ? countInboxUnread(chats.data.unreadRows, aiLive, userId)
     : null;
   const taskFigures = tasks?.data ? taskCounts(tasks.data, clock.now) : null;
   const caseFigures = cases?.data ? overdueCases(cases.data.rows) : null;

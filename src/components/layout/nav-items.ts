@@ -1,3 +1,4 @@
+import { isRestrictedPath } from '@/lib/auth/departments';
 import {
   Activity,
   Briefcase,
@@ -82,6 +83,8 @@ export interface NavItem {
 
 /** What the sidebar knows beyond the role. */
 export interface NavContext {
+  /** A restricted department (192): sales-area rows are hidden. */
+  salesRestricted?: boolean;
   /** This person can use the phone system (`callsSidebar(…).visible`). */
   pbx?: boolean;
 }
@@ -348,6 +351,16 @@ export function visibleNavGroups(
   })).filter((group) => group.items.length > 0);
 }
 
+/** The rows of `items` this person may see (restricted departments lose sales areas). */
+export function visibleNavItems<T extends { href: string }>(
+  items: readonly T[],
+  { salesRestricted }: { salesRestricted: boolean }
+): T[] {
+  return items.filter(
+    (item) => !(salesRestricted && isRestrictedPath(item.href))
+  );
+}
+
 /** The foot-of-nav rows `role` may see (Settings is staff-only). */
 export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
   return BOTTOM_NAV_ITEMS.filter((item) => isNavItemVisible(item, role));
@@ -365,6 +378,7 @@ export function isNavItemVisible(
   ctx: NavContext = {}
 ): boolean {
   if (isBankGuest(role)) return !!item.guestVisible;
+  if (ctx.salesRestricted && isRestrictedPath(item.href)) return false;
   if (item.needsPbx && !(role && ctx.pbx)) return false;
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
