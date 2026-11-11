@@ -221,6 +221,20 @@ describe('GET /api/whatsapp/groups', () => {
   });
 });
 
+describe('restricted department', () => {
+  it('answers 403 to GET before reading groups', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      userId: 'u-1',
+      accountId: 'acct-1',
+      role: 'agent',
+      salesRestricted: true,
+    });
+    const res = await GET(new Request('http://x/api/whatsapp/groups'));
+    expect(res.status).toBe(403);
+    expect(mocks.loadChannels).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/whatsapp/groups: submission groups', () => {
   const sg = (over: Record<string, unknown> = {}) => ({
     id: SG,

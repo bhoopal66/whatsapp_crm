@@ -26,7 +26,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { planGroupDelete, type GroupToDelete } from '@/lib/groups/delete';
 import {
   channelForGroup,
@@ -130,7 +134,7 @@ async function withdrawTombstones(
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const ids = parseIds(await request.json().catch(() => null));
     if (!ids) {
       return NextResponse.json(

@@ -13,7 +13,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, type AccountContext } from '@/lib/auth/account';
+import {
+  getCurrentAccount,
+  type AccountContext,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { canSendMessages } from '@/lib/auth/roles';
 import {
   mergeGroupList,
@@ -145,7 +149,7 @@ async function listedSubmissionRows(
 
 export async function GET(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const q = new URL(request.url).searchParams.get('q');
     const pattern = nameSearchPattern(q);
     let query = ctx.supabase
@@ -226,7 +230,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const deadline = groupDeadline();
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const body = parseCreate(await request.json().catch(() => null));
 
     const allowed = await ctx.supabase.rpc('whatsapp_group_can_create', {

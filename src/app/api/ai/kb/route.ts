@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { canEditSettings } from '@/lib/auth/roles';
 import { KB_ENTRY_COLUMNS, summarizeKb } from '@/lib/kb/requests';
 import type { KbEntry } from '@/lib/kb/types';
@@ -18,7 +22,9 @@ import {
  */
 export async function GET() {
   try {
-    const { supabase, accountId, role } = await requireRole('viewer');
+    const { supabase, accountId, role } = assertSalesAccess(
+      await requireRole('viewer')
+    );
 
     const { data, error } = await supabase
       .from('kb_entries')
@@ -77,7 +83,9 @@ const MAX_NEW_QUESTION = 2000;
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin');
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const limit = checkRateLimit(`ai-kb:${userId}`, RATE_LIMITS.adminAction);
     if (!limit.success) return rateLimitResponse(limit);
 

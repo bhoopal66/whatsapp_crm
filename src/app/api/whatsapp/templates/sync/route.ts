@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { loadChannels } from '@/lib/whatsapp/channels';
 import { listMessageTemplates, MetaError } from '@/lib/whatsapp/meta-api';
 import { metaTemplateToRow } from '@/lib/whatsapp/template-import';
@@ -32,7 +36,9 @@ import {
  */
 export async function POST() {
   try {
-    const { supabase, accountId, userId } = await requireRole('admin');
+    const { supabase, accountId, userId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const limit = checkRateLimit(
       `template-sync:${accountId}`,
       RATE_LIMITS.adminAction

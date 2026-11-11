@@ -16,7 +16,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import {
   REPLY_CLASS_NAMES,
@@ -30,7 +34,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { supabase, accountId } = await requireRole('admin');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const { id } = await params;
     if (!UUID.test(id))
       return NextResponse.json(

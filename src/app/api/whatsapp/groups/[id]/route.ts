@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
 import { groupActionBlock, type GroupActionBlock } from '@/lib/groups/access';
 import {
   callerCanManage,
@@ -54,7 +54,7 @@ function adminOnlyActions(settings: GroupSettings) {
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     let group = await loadGroupForCaller(ctx, id);
     const canManage = await callerCanManage(ctx.supabase, id);
@@ -187,7 +187,7 @@ function requireActive(group: WhatsappGroupRow) {
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const patch = parsePatch(await request.json().catch(() => null));
     const group = await loadGroupForCaller(ctx, id, { manage: true });
@@ -259,7 +259,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     if (group.our_role === 'left') return NextResponse.json({ group });

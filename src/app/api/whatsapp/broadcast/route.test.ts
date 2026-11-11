@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/account', () => ({
+  assertSalesAccess: (c: unknown) => c,
   requireRole: vi.fn(async () => ({
     supabase: {},
     accountId: 'acct-1',

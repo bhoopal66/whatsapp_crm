@@ -71,6 +71,7 @@ function fakeSupabase() {
 
 vi.mock('@/lib/auth/account', () => ({
   requireRole: h.requireRole,
+  assertSalesAccess: (c: unknown) => c,
   toErrorResponse: vi.fn(() =>
     Response.json({ error: 'auth failed' }, { status: 403 })
   ),

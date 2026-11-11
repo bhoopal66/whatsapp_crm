@@ -15,7 +15,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, requireRole } from '@/lib/auth/account';
+import {
+  getCurrentAccount,
+  requireRole,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import {
   badRequest,
   caseErrorResponse,
@@ -37,7 +41,7 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { filters, limit, after } = parseInboxQuery(
       new URL(request.url).searchParams
     );
@@ -87,7 +91,7 @@ function optional<T>(
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readJsonObject(request);
     if (!body || !isUuid(body.group_id))
       throw badRequest('group_id must be a uuid');

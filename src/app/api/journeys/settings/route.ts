@@ -1,4 +1,8 @@
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { DEFAULT_COPY } from '@/lib/journeys/host/copy';
 import { fail, isRecord } from '../run-event';
 
@@ -60,7 +64,9 @@ function copyError(copy: unknown): string | null {
 /** The account's journey bot settings (any member), with the default copy the overrides apply to. */
 export async function GET() {
   try {
-    const { supabase, accountId } = await requireRole('viewer');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('viewer')
+    );
     const { data, error } = await supabase
       .from('journey_settings')
       .select(COLUMNS)
@@ -84,7 +90,9 @@ export async function GET() {
  */
 export async function PUT(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('admin');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('admin')
+    );
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body)) return fail(400, 'Expected a JSON object');
 

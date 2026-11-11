@@ -198,6 +198,17 @@ describe('GET /api/cases', () => {
   });
 });
 
+describe('restricted department', () => {
+  it('answers 403 to GET and POST before any work', async () => {
+    m.getCurrentAccount.mockResolvedValue({ ...ctx, salesRestricted: true });
+    m.requireRole.mockResolvedValue({ ...ctx, salesRestricted: true });
+    expect((await get('')).status).toBe(403);
+    expect((await post({ group_id: G })).status).toBe(403);
+    expect(m.open).not.toHaveBeenCalled();
+    expect(m.rpcCalls).toHaveLength(0);
+  });
+});
+
 describe('POST /api/cases', () => {
   it('refuses a non-admin with 403', async () => {
     m.requireRole.mockRejectedValue(new ForbiddenError());

@@ -15,7 +15,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
+import {
+  getCurrentAccount,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupStore,
@@ -44,7 +48,7 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const query = parseListQuery(new URL(request.url).searchParams);
     const admin = supabaseAdmin();
     const ended = query.status === 'ENDED';

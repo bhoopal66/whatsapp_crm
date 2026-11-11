@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({ requireRole: vi.fn() }));
 
 vi.mock('@/lib/auth/account', () => ({
   requireRole: h.requireRole,
+  assertSalesAccess: (c: unknown) => c,
   toErrorResponse: (err: { message: string; status?: number }) =>
     Response.json({ error: err.message }, { status: err.status ?? 500 }),
 }));

@@ -1,4 +1,8 @@
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  requireRole,
+  toErrorResponse,
+  assertSalesAccess,
+} from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { ensureOpenFile } from '@/lib/journeys/host/store';
 import {
@@ -25,7 +29,9 @@ export const maxDuration = 60;
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('agent');
+    const { supabase, accountId } = assertSalesAccess(
+      await requireRole('agent')
+    );
     const body: unknown = await request.json().catch(() => null);
     if (!isRecord(body) || !isUuid(body.contactId))
       return fail(400, 'contactId must be a contact id');
