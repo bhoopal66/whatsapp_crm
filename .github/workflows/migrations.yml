@@ -882,3 +882,17 @@ jobs:
       # privileges (service role only).
       - name: Verify Meta number health
         run: supabase db query --local --file supabase/ci/verify-meta-number-health.sql
+
+      # Migration 190: personal WhatsApp numbers. The grant (a chat on a
+      # personal number is visible to its owner and the owner's team
+      # leaders: can_view_conversation 5- and 4-arg, can_view_contact,
+      # contact_visibility_chat_contact_ids, memory_can_read,
+      # can_view_conversation_for_user, pbx_visible_contact_ids, and the
+      # real conversations/messages RLS) and that it follows the chat's
+      # number; can_use_channel (admin, owner, owner's leader only); the
+      # permission (no self-grant, owner/admin only, eligible roles, no
+      # revoke while a number exists); never primary, routed or
+      # allocated; personal and owner immutable; one per person;
+      # privileges.
+      - name: Verify personal WhatsApp numbers
+        run: supabase db query --local --file supabase/ci/verify-personal-numbers.sql
