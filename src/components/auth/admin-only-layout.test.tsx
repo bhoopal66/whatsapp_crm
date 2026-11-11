@@ -17,7 +17,39 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
 vi.mock('@/lib/auth/account', () => ({ getCurrentAccount: mocks.getCurrentAccount }));
 
-import { AdminOnlyLayout, StaffOnlyLayout } from './admin-only-layout';
+import {
+  AdminOnlyLayout,
+  SalesOnlyLayout,
+  StaffOnlyLayout,
+} from './admin-only-layout';
+
+describe('SalesOnlyLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const renderSales = async (ctx: object | null) => {
+    if (ctx === null)
+      mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
+    else mocks.getCurrentAccount.mockResolvedValue(ctx);
+    return SalesOnlyLayout({ children: 'PAGE' });
+  };
+
+  it('renders the page for someone whose department is not restricted', async () => {
+    await expect(
+      renderSales({ role: 'agent', department: 'sales', salesRestricted: false })
+    ).resolves.toBeDefined();
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it('sends a restricted department to their own inbox', async () => {
+    await expect(
+      renderSales({ role: 'team_leader', department: 'hr', salesRestricted: true })
+    ).rejects.toThrow('REDIRECT:/inbox');
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    await expect(renderSales(null)).rejects.toThrow('REDIRECT:/login');
+  });
+});
 
 async function render(role: string | null) {
   if (role === null) {

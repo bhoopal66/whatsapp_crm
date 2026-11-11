@@ -72,9 +72,98 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: () => createClient(),
 }));
 
-const { getCurrentAccount, UnauthorizedError, ForbiddenError } = await import(
-  "./account"
-);
+const {
+  getCurrentAccount,
+  requireSalesAccess,
+  toErrorResponse,
+  UnauthorizedError,
+  ForbiddenError,
+} = await import("./account");
+
+// Departments (migration 192): one agent/admin row with a department,
+// and `department_restricted()` answering `rpc`.
+function departmentClient(
+  profile: Record<string, unknown>,
+  rpcResult: { data: unknown; error: unknown },
+) {
+  const { client } = makeClient({
+    user: { id: "user-1" },
+    byTable: {
+      profiles: {
+        data: [{ account_id: "acct-1", ...profile }],
+        error: null,
+      },
+      accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+    },
+  });
+  const rpc = vi.fn(() => Promise.resolve(rpcResult));
+  createClient.mockReturnValue({ ...client, rpc });
+  return rpc;
+}
+
+describe("getCurrentAccount — departments (192)", () => {
+  it("marks an HR agent restricted when the account says so", async () => {
+    const rpc = departmentClient(
+      { account_role: "agent", department: "hr" },
+      { data: true, error: null },
+    );
+    const ctx = await getCurrentAccount();
+    expect(ctx).toMatchObject({ department: "hr", salesRestricted: true });
+    expect(rpc).toHaveBeenCalledWith("department_restricted", {
+      p_account: "acct-1",
+      p_department: "hr",
+    });
+  });
+
+  it("never restricts an admin, and does not ask", async () => {
+    const rpc = departmentClient(
+      { account_role: "admin", department: "hr" },
+      { data: true, error: null },
+    );
+    const ctx = await getCurrentAccount();
+    expect(ctx).toMatchObject({ department: "hr", salesRestricted: false });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("reads a profile without the column (192 not applied) as unrestricted sales", async () => {
+    const rpc = departmentClient(
+      { account_role: "agent" },
+      { data: true, error: null },
+    );
+    const ctx = await getCurrentAccount();
+    expect(ctx).toMatchObject({ department: "sales", salesRestricted: false });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails open when the function is missing", async () => {
+    departmentClient(
+      { account_role: "agent", department: "hr" },
+      { data: null, error: { code: "PGRST202", message: "not found" } },
+    );
+    const ctx = await getCurrentAccount();
+    expect(ctx.salesRestricted).toBe(false);
+  });
+
+  it("requireSalesAccess answers a restricted caller 403", async () => {
+    departmentClient(
+      { account_role: "team_leader", department: "hr" },
+      { data: true, error: null },
+    );
+    const err = await requireSalesAccess().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenError);
+    expect(toErrorResponse(err).status).toBe(403);
+  });
+
+  it("requireSalesAccess lets an unrestricted caller through", async () => {
+    departmentClient(
+      { account_role: "agent", department: "sales" },
+      { data: false, error: null },
+    );
+    await expect(requireSalesAccess()).resolves.toMatchObject({
+      salesRestricted: false,
+    });
+  });
+});
 
 afterEach(() => {
   vi.clearAllMocks();

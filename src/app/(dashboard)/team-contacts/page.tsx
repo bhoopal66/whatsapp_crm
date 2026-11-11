@@ -1,6 +1,6 @@
 'use client';
 
-import { ContactsPageInner } from '../contacts/page';
+import { ContactsPageInner } from '../contacts/(list)/page';
 
 /**
  * Team contacts — every customer this team leader's people created or

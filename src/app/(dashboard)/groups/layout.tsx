@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { StaffOnlyLayout } from '@/components/auth/admin-only-layout';
+import {
+  SalesOnlyLayout,
+  StaffOnlyLayout,
+} from '@/components/auth/admin-only-layout';
 import { GroupsWorkspace } from '@/components/groups/groups-workspace';
 
 // WhatsApp groups (migration 114) are every staff member's to open. A
@@ -14,7 +17,9 @@ import { GroupsWorkspace } from '@/components/groups/groups-workspace';
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <StaffOnlyLayout>
-      <GroupsWorkspace>{children}</GroupsWorkspace>
+      <SalesOnlyLayout>
+        <GroupsWorkspace>{children}</GroupsWorkspace>
+      </SalesOnlyLayout>
     </StaffOnlyLayout>
   );
 }
