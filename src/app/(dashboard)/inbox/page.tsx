@@ -249,8 +249,13 @@ export function InboxPageInner({
     [personalOnlyUserId, myNumberIds, sharedConversationIds]
   );
   const narrowingRef = useRef(narrowing);
+  // /inbox leaves other people's personal chats (191) to the Team inbox,
+  // for every role; `undefined` means no such hiding.
+  const hidePersonalFor = teamView ? undefined : (user?.id ?? null);
+  const hidePersonalForRef = useRef(hidePersonalFor);
   useEffect(() => {
     narrowingRef.current = narrowing;
+    hidePersonalForRef.current = hidePersonalFor;
   });
 
   /**
@@ -405,7 +410,11 @@ export function InboxPageInner({
       }
       if (!data) return;
       const fetched = normalizeConversation(data);
-      const admits = inPersonalInbox(fetched, narrowingRef.current);
+      const admits = inPersonalInbox(
+        fetched,
+        narrowingRef.current,
+        hidePersonalForRef.current
+      );
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === fetched.id);
         if (existing) {
@@ -586,7 +595,8 @@ export function InboxPageInner({
           admitsInsertedConversation(
             conv,
             knownConvIdsRef.current,
-            narrowingRef.current
+            narrowingRef.current,
+            hidePersonalForRef.current
           )
         ) {
           setConversations((prev) => {
@@ -1166,6 +1176,7 @@ export function InboxPageInner({
             restrictToConversationIds={
               personalOnlyUserId ? sharedConversationIds : undefined
             }
+            ownPersonalChatsOf={hidePersonalFor ?? null}
             sharedBanks={sharedBanks}
             numberNames={numberNames}
             showAssignee={showAssignee}

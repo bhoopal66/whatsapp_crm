@@ -21,6 +21,7 @@ import {
   PanelRightOpen,
   RefreshCw,
   Share2,
+  Smartphone,
   UserPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -136,6 +137,25 @@ export function ThreadHeader({
     !!sharedBank
   );
 
+  // A personal chat (migration 191) stays on its owner's own number,
+  // is never shared, and only its owner takes or releases it.
+  const personalOwnerId = conversation.personal_owner_id ?? null;
+  const isPersonalOwner =
+    personalOwnerId !== null && personalOwnerId === currentUserId;
+  const personalLabel = !personalOwnerId
+    ? null
+    : isPersonalOwner
+      ? t('personalMine')
+      : t('personalOf', {
+          name:
+            assignableProfiles
+              .find((p) => p.user_id === personalOwnerId)
+              ?.full_name?.trim() || t('unknownAgent'),
+        });
+  const pillProfiles = personalOwnerId
+    ? assignableProfiles.filter((p) => p.user_id === currentUserId)
+    : assignableProfiles;
+
   // Assigning is one click in the menu, which made it easy to hand a
   // chat to the wrong person by accident, so every change is asked
   // first. The question remembers which chat it was asked about: one
@@ -171,6 +191,12 @@ export function ThreadHeader({
         {contact.name && (
           <p className="text-wa-text-secondary truncate text-xs leading-4">
             {contact.phone}
+          </p>
+        )}
+        {personalLabel && (
+          <p className="text-info inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+            <Smartphone className="h-3 w-3 shrink-0" />
+            {personalLabel}
           </p>
         )}
         {sharedBank && (
@@ -240,14 +266,16 @@ export function ThreadHeader({
         <div className="flex shrink-0 items-center gap-1 @lg/thread:gap-1.5">
           {/* Which number this chat sends from (migration 061):
             automatic, or pinned by a person to one they may use. */}
-          <ThreadChannelSwitcher
-            // Remount per chat: an in-flight switch (and its rollback
-            // or toast) must never land on the next chat opened.
-            key={conversation.id}
-            conversation={conversation}
-            onSwitched={onChannelSwitched}
-            locked={shareOnly}
-          />
+          {!personalOwnerId && (
+            <ThreadChannelSwitcher
+              // Remount per chat: an in-flight switch (and its rollback
+              // or toast) must never land on the next chat opened.
+              key={conversation.id}
+              conversation={conversation}
+              onSwitched={onChannelSwitched}
+              locked={shareOnly}
+            />
+          )}
 
           {/* Who is on this chat, and the way to hand it to someone —
             one pill. It names the person to ask about this customer
@@ -256,82 +284,89 @@ export function ThreadHeader({
             had pressed it; and it is never captioned "Assign", which
             made the header read as "nobody has this chat" when
             somebody plainly did. Green once formally assigned. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              title={handlerTitle}
-              aria-label={`${t('assign')}: ${handlerTitle}`}
-              className={cn(
-                'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors @md/thread:max-w-[8.5rem] @2xl/thread:max-w-[11rem]',
-                handler?.kind === 'assigned'
-                  ? 'bg-wa-chip-active text-wa-teal border-transparent'
-                  : 'border-wa-divider bg-wa-panel text-wa-text-secondary hover:bg-wa-row-hover'
-              )}
-            >
-              {handler ? (
-                <MemberPresenceDot userId={handler.userId} />
-              ) : (
-                <UserPlus className="h-3.5 w-3.5 shrink-0" />
-              )}
-              <span className="truncate">
-                {handler ? handlerPillName : t('unassigned')}
-              </span>
-              <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="border-border bg-popover w-56"
-            >
-              <div className={MENU_HEADING}>{t('assignTo')}</div>
-              {assignableProfiles.length === 0 ? (
-                <DropdownMenuItem
-                  disabled
-                  className="text-muted-foreground text-sm"
-                >
-                  {t('noTeammates')}
-                </DropdownMenuItem>
-              ) : (
-                assignableProfiles.map((p) => {
-                  const isSelected = p.user_id === assignedAgentId;
-                  return (
-                    <DropdownMenuItem
-                      key={p.id}
-                      onClick={() =>
-                        askAssign(
-                          p.user_id,
-                          (p.full_name?.trim() ||
-                            p.email ||
-                            t('unknownAgent')) +
-                            (p.user_id === currentUserId ? t('me') : '')
-                        )
-                      }
-                      className={cn(
-                        'text-sm',
-                        isSelected ? 'text-primary' : 'text-popover-foreground'
-                      )}
-                    >
-                      <MemberPresenceDot userId={p.user_id} className="mr-2" />
-                      <span className="flex-1">
-                        {p.full_name}
-                        {p.user_id === currentUserId ? t('me') : ''}
-                      </span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })
-              )}
-              {assignedAgentId && (
-                <>
-                  <DropdownMenuSeparator className="bg-border" />
+          {(!personalOwnerId || isPersonalOwner) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                title={handlerTitle}
+                aria-label={`${t('assign')}: ${handlerTitle}`}
+                className={cn(
+                  'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors @md/thread:max-w-[8.5rem] @2xl/thread:max-w-[11rem]',
+                  handler?.kind === 'assigned'
+                    ? 'bg-wa-chip-active text-wa-teal border-transparent'
+                    : 'border-wa-divider bg-wa-panel text-wa-text-secondary hover:bg-wa-row-hover'
+                )}
+              >
+                {handler ? (
+                  <MemberPresenceDot userId={handler.userId} />
+                ) : (
+                  <UserPlus className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">
+                  {handler ? handlerPillName : t('unassigned')}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="border-border bg-popover w-56"
+              >
+                <div className={MENU_HEADING}>{t('assignTo')}</div>
+                {pillProfiles.length === 0 ? (
                   <DropdownMenuItem
-                    onClick={() => askAssign(null, null)}
+                    disabled
                     className="text-muted-foreground text-sm"
                   >
-                    {t('unassign')}
+                    {t('noTeammates')}
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                ) : (
+                  pillProfiles.map((p) => {
+                    const isSelected = p.user_id === assignedAgentId;
+                    return (
+                      <DropdownMenuItem
+                        key={p.id}
+                        onClick={() =>
+                          askAssign(
+                            p.user_id,
+                            (p.full_name?.trim() ||
+                              p.email ||
+                              t('unknownAgent')) +
+                              (p.user_id === currentUserId ? t('me') : '')
+                          )
+                        }
+                        className={cn(
+                          'text-sm',
+                          isSelected
+                            ? 'text-primary'
+                            : 'text-popover-foreground'
+                        )}
+                      >
+                        <MemberPresenceDot
+                          userId={p.user_id}
+                          className="mr-2"
+                        />
+                        <span className="flex-1">
+                          {p.full_name}
+                          {p.user_id === currentUserId ? t('me') : ''}
+                        </span>
+                        {isSelected && <Check className="ml-2 h-3 w-3" />}
+                      </DropdownMenuItem>
+                    );
+                  })
+                )}
+                {assignedAgentId && (
+                  <>
+                    <DropdownMenuSeparator className="bg-border" />
+                    <DropdownMenuItem
+                      onClick={() => askAssign(null, null)}
+                      className="text-muted-foreground text-sm"
+                    >
+                      {t('unassign')}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <ConfirmDialog
             open={
               pendingAssign !== null &&
@@ -396,7 +431,7 @@ export function ThreadHeader({
               currentUserId={currentUserId}
             />
           )}
-          {!shareOnly && (
+          {!shareOnly && !personalOwnerId && (
             <CoordinatorShareButton
               key={`coord-${conversation.id}`}
               conversationId={conversation.id}

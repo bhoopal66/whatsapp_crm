@@ -189,7 +189,9 @@ export function ThreadChannelSwitcher({
         allocations ?? [],
         user?.id ?? null,
         isAdmin
-      ),
+        // A company chat never goes out on someone's personal number
+        // (191); a personal chat has no switcher at all.
+      ).filter((n) => !n.is_personal),
     [numbers, allocations, user?.id, isAdmin]
   );
 

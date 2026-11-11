@@ -318,3 +318,29 @@ describe('a chat on a personal number (migration 190)', () => {
     ).toBe(false);
   });
 });
+
+describe('a personal chat (migration 191)', () => {
+  const chat = { ownerId: 'hr', assignedId: null, personalOwnerId: 'hr' };
+
+  it('shows it to the owner, a leader of the owner and admins', () => {
+    expect(canViewConversation('agent', 'hr', chat)).toBe(true);
+    expect(
+      canViewConversation('team_leader', 'lead', { ...chat, leadsOwner: true })
+    ).toBe(true);
+    expect(canViewConversation('admin', 'boss', chat)).toBe(true);
+    expect(canViewConversation('owner', 'boss', chat)).toBe(true);
+  });
+
+  it('ignores a share, an assignment and the personal-number flag', () => {
+    expect(
+      canViewConversation('agent', 'coord', { ...chat, sharedWithMe: true })
+    ).toBe(false);
+    expect(
+      canViewConversation('agent', 'me', { ...chat, assignedId: 'me' })
+    ).toBe(false);
+    expect(
+      canViewConversation('agent', 'me', { ...chat, onMyPersonalNumber: true })
+    ).toBe(false);
+    expect(canViewConversation('team_leader', 'lead', chat)).toBe(false);
+  });
+});

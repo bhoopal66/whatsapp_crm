@@ -166,3 +166,16 @@ describe('coordinator WhatsApp number (142)', () => {
     expect(phoneChanged(undefined, '+97150')).toBe(true);
   });
 });
+
+describe('isShareOnlyViewer on a personal chat (migration 191)', () => {
+  it('is never share-only: a personal chat is not shared', () => {
+    expect(
+      isShareOnlyViewer(
+        'agent',
+        'coord',
+        { user_id: 'hr', assigned_agent_id: null, personal_owner_id: 'hr' },
+        true
+      )
+    ).toBe(false);
+  });
+});

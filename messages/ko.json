@@ -399,9 +399,13 @@
       "yesterday": "어제",
       "important": "중요",
       "importantCount": "중요 · {count}",
-      "sharedWithMe": "공유됨 · {bank}"
+      "sharedWithMe": "공유됨 · {bank}",
+      "personalMine": "내 WhatsApp",
+      "personalOf": "개인 · {name}"
     },
     "messageThread": {
+      "personalMine": "내 WhatsApp",
+      "personalOf": "개인 · {name}",
       "loadingMessages": "메시지 불러오는 중",
       "backToConversations": "대화 목록으로 돌아가기",
       "hideContactPanel": "연락처 패널 숨기기",

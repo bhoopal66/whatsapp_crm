@@ -87,6 +87,7 @@ function strictRow(
     insight_callback: 0.1,
     insight_attention_at: '2026-10-28T07:30:00.000Z',
     insight_attention_reason: 'upset',
+    personal_owner_id: null,
     ...overrides,
   };
   // Every key the fixture holds is a listed column, so a typo in it

@@ -246,6 +246,12 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  /**
+   * Migration 191: the staff member (auth user id) whose own scanned
+   * WhatsApp this chat runs on. NULL = a company chat. Visible to that
+   * person, their team leaders and admins; never shared or bot-handled.
+   */
+  personal_owner_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

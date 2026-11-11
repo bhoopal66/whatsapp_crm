@@ -51,3 +51,26 @@ describe('countUnreadChats', () => {
     });
   });
 });
+
+describe('personal chats (migration 191)', () => {
+  const mine = row('mine', { user_id: 'me', personal_owner_id: 'me' });
+  const theirs = row('theirs', { user_id: 'hr', personal_owner_id: 'hr' });
+  const company = row('company', { user_id: 'me' });
+
+  it("counts someone else's personal chat in the Team inbox only", () => {
+    expect(
+      countUnreadChats([mine, theirs, company], false, null, 'me')
+    ).toEqual({ inbox: 2, team: 3 });
+  });
+
+  it('keeps it out of a team leader’s narrowed Inbox too', () => {
+    const narrowing = {
+      userId: 'me',
+      channelIds: [],
+      sharedConversationIds: ['theirs'],
+    };
+    expect(
+      countUnreadChats([mine, theirs, company], false, narrowing, 'me')
+    ).toEqual({ inbox: 2, team: 3 });
+  });
+});

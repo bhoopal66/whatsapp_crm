@@ -711,3 +711,21 @@ describe('countPinnedTile', () => {
     expect(countPinnedTile([campaign], false).pinned).toBe(1);
   });
 });
+
+describe("someone else's personal chat in /inbox (migration 191)", () => {
+  const theirs = { id: 'c1', user_id: 'hr', personal_owner_id: 'hr' };
+  const mine = { id: 'c2', user_id: 'me', personal_owner_id: 'me' };
+
+  it('stays out of /inbox for any role, admins included', () => {
+    expect(inPersonalInbox(theirs, null, 'me')).toBe(false);
+    expect(inPersonalInbox(mine, null, 'me')).toBe(true);
+    expect(admitsInsertedConversation(theirs, new Set(), null, 'me')).toBe(
+      false
+    );
+  });
+
+  it('is listed by the Team inbox (no viewer to hide for)', () => {
+    expect(inPersonalInbox(theirs, null)).toBe(true);
+    expect(admitsInsertedConversation(theirs, new Set(), null)).toBe(true);
+  });
+});

@@ -399,9 +399,13 @@
       "yesterday": "Yesterday",
       "important": "Important",
       "importantCount": "Important · {count}",
-      "sharedWithMe": "Shared · {bank}"
+      "sharedWithMe": "Shared · {bank}",
+      "personalMine": "My WhatsApp",
+      "personalOf": "Personal · {name}"
     },
     "messageThread": {
+      "personalMine": "My WhatsApp",
+      "personalOf": "Personal · {name}",
       "loadingMessages": "Loading messages",
       "backToConversations": "Back to conversations",
       "hideContactPanel": "Hide contact panel",

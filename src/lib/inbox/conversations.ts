@@ -58,6 +58,7 @@ export const CONVERSATION_LIST_COLUMNS = [
   'insight_callback',
   'insight_attention_at',
   'insight_attention_reason',
+  'personal_owner_id',
 ] as const satisfies readonly (keyof Conversation)[];
 
 /**
@@ -80,7 +81,7 @@ export const CONTACT_LIST_COLUMNS = [
  * pins it to the two lists.
  */
 export const CONVERSATION_LIST_SELECT =
-  'id,user_id,assigned_agent_id,last_message_text,last_message_at,unread_count,updated_at,channel_id,send_channel_id,chat_tag_id,chat_sub_tag_id,campaign_broadcast_id,human_engaged_at,ai_autoreply_disabled,ai_reply_count,ai_attention_at,insight_intent,insight_urgency,insight_lead_temp,insight_upset,insight_wants_human,insight_priority,insight_at,insight_sentiment,insight_objections,insight_needs_reply,insight_callback,insight_attention_at,insight_attention_reason,contact:contacts(id,name,phone,company,avatar_url)';
+  'id,user_id,assigned_agent_id,last_message_text,last_message_at,unread_count,updated_at,channel_id,send_channel_id,chat_tag_id,chat_sub_tag_id,campaign_broadcast_id,human_engaged_at,ai_autoreply_disabled,ai_reply_count,ai_attention_at,insight_intent,insight_urgency,insight_lead_temp,insight_upset,insight_wants_human,insight_priority,insight_at,insight_sentiment,insight_objections,insight_needs_reply,insight_callback,insight_attention_at,insight_attention_reason,personal_owner_id,contact:contacts(id,name,phone,company,avatar_url)';
 
 export type ConversationListContact = Pick<
   Contact,

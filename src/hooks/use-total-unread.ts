@@ -21,7 +21,7 @@ type UnreadRow = UnreadCountRow & Pick<Conversation, 'id'>;
 
 /** The columns `UnreadRow` reads; the home dashboard's strip reuses them. */
 export const UNREAD_ROW_COLUMNS =
-  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id, user_id, channel_id, send_channel_id';
+  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id, user_id, channel_id, send_channel_id, personal_owner_id';
 
 export interface UnreadChats {
   /** Unread chats the Inbox lists. */
@@ -166,7 +166,8 @@ export function useUnreadChats(): UnreadChats {
               channelIds: myNumberIds ?? [],
               sharedConversationIds: sharedIds ?? [],
             }
-          : null
+          : null,
+        userId
       ),
     [rows, aiLive, narrowed, userId, myNumberIds, sharedIds]
   );

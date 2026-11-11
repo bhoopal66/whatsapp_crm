@@ -28,6 +28,7 @@ import {
   inRestrictedInbox,
   type RestrictableRow,
 } from './pagination';
+import { isOthersPersonalChat, type PersonalChatRow } from './personal-chats';
 import type { InboxNarrowing } from './unread-counts';
 
 /**
@@ -496,8 +497,11 @@ export function rowHasMetaLine(input: {
   sharedBank?: string | null;
   showAssignee?: boolean;
   chips?: readonly unknown[];
+  /** The personal-chat badge (migration 191). */
+  personalLabel?: string | null;
 }): boolean {
   return (
+    !!input.personalLabel ||
     !!input.numberName ||
     !!input.campaignName ||
     !!input.sharedBank ||
@@ -536,9 +540,17 @@ export function rowPinLabel(
  * personal Inbox shows teammates' pinned chats.
  */
 export function inPersonalInbox(
-  row: RestrictableRow,
-  narrowing: InboxNarrowing | null
+  row: RestrictableRow & PersonalChatRow,
+  narrowing: InboxNarrowing | null,
+  hideOthersPersonalFor?: string | null
 ): boolean {
+  // /inbox (any role) never lists someone else's personal chat (191);
+  // `undefined` is the Team inbox, which lists all RLS returns.
+  if (
+    hideOthersPersonalFor !== undefined &&
+    isOthersPersonalChat(row, hideOthersPersonalFor)
+  )
+    return false;
   if (!narrowing) return true;
   return inRestrictedInbox(
     row,
@@ -558,11 +570,15 @@ export function inPersonalInbox(
  * `inRestrictedInbox` reads.
  */
 export function admitsInsertedConversation(
-  row: RestrictableRow,
+  row: RestrictableRow & PersonalChatRow,
   knownIds: ReadonlySet<string>,
-  narrowing: InboxNarrowing | null
+  narrowing: InboxNarrowing | null,
+  hideOthersPersonalFor?: string | null
 ): boolean {
-  return !knownIds.has(row.id) && inPersonalInbox(row, narrowing);
+  return (
+    !knownIds.has(row.id) &&
+    inPersonalInbox(row, narrowing, hideOthersPersonalFor)
+  );
 }
 
 /** The columns the Pinned chats tile reads. */

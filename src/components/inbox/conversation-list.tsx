@@ -37,6 +37,7 @@ import {
   inCampaignInbox,
 } from '@/lib/inbox/campaign-inbox';
 import { resolveListHandler } from '@/lib/inbox/handler';
+import { ownPersonalChatsGroup } from '@/lib/inbox/personal-chats';
 import {
   CONVERSATION_PAGE_SIZE,
   assigneeGroup,
@@ -96,6 +97,7 @@ import {
   Radio,
   Phone,
   Share2,
+  Smartphone,
   MessageSquare,
   SquareArrowOutUpRight,
   UserRoundSearch,
@@ -187,6 +189,11 @@ interface ConversationListProps {
    */
   restrictToConversationIds?: readonly string[];
   /**
+   * /inbox: the viewer, whose list leaves out other people's personal
+   * chats (migration 191). `null` (the Team inbox) lists all RLS returns.
+   */
+  ownPersonalChatsOf?: string | null;
+  /**
    * Conversation id -> bank code, for the chats shared with the viewer
    * as a coordinator. Those rows carry a "Shared · BANK" label.
    */
@@ -257,6 +264,7 @@ interface ListQueryParams {
   restrictToUserId: string | null;
   restrictToChannelIds: readonly string[];
   restrictToConversationIds: readonly string[];
+  ownPersonalChatsOf: string | null;
   campaignOnly: boolean;
   aiLive: boolean;
   status: InboxFilter;
@@ -321,6 +329,9 @@ function conversationsQuery(
         p.restrictToConversationIds
       )
     );
+  }
+  if (p.ownPersonalChatsOf) {
+    groups.push(ownPersonalChatsGroup(p.ownPersonalChatsOf));
   }
   if (p.campaignOnly) {
     query = query.not('campaign_broadcast_id', 'is', null);
@@ -415,6 +426,7 @@ export function ConversationList({
   restrictToUserId = null,
   restrictToChannelIds = NO_CHANNELS,
   restrictToConversationIds = NO_CHANNELS,
+  ownPersonalChatsOf = null,
   sharedBanks = null,
   showAssignee = false,
   numberNames = null,
@@ -628,6 +640,7 @@ export function ConversationList({
       restrictToUserId,
       restrictToChannelIds,
       restrictToConversationIds,
+      ownPersonalChatsOf,
       campaignOnly,
       aiLive,
       status: filter,
@@ -640,6 +653,7 @@ export function ConversationList({
       restrictToUserId,
       restrictToChannelIds,
       restrictToConversationIds,
+      ownPersonalChatsOf,
       campaignOnly,
       aiLive,
       filter,
@@ -1610,6 +1624,17 @@ export function ConversationList({
                 insights={signalsOn}
                 onHandled={canSendMessages ? handleHandled : undefined}
                 sharedBank={sharedBanks?.get(conv.id) ?? null}
+                personalLabel={
+                  // A personal chat (191): "My WhatsApp" for its owner,
+                  // else whose WhatsApp it is.
+                  conv.personal_owner_id
+                    ? conv.personal_owner_id === viewerId
+                      ? t('personalMine')
+                      : t('personalOf', {
+                          name: memberName(conv.personal_owner_id),
+                        })
+                    : null
+                }
                 numberName={
                   // The number the chat sends from: a person's pin
                   // (migration 061), else the one it is on.
@@ -1757,6 +1782,8 @@ interface ConversationItemProps {
   numberName?: string | null;
   /** The bank this chat was shared with the viewer under (migration 133). */
   sharedBank?: string | null;
+  /** The personal-chat badge (migration 191), or null on a company chat. */
+  personalLabel?: string | null;
   /** Smart insights on: colours, chips, pin labels and Handled. */
   insights?: boolean;
   /** Handled on an attention pin (stable: a useCallback). */
@@ -1786,6 +1813,7 @@ const ConversationItem = memo(function ConversationItem({
   campaignName = null,
   numberName = null,
   sharedBank = null,
+  personalLabel = null,
   insights = false,
   onHandled,
   onPrefetch,
@@ -1928,6 +1956,7 @@ const ConversationItem = memo(function ConversationItem({
     campaignName,
     sharedBank,
     showAssignee,
+    personalLabel,
   });
 
   const row = (
@@ -2056,6 +2085,13 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+            {personalLabel && (
+              <span className="text-info inline-flex shrink-0 items-center gap-1 font-medium">
+                <Smartphone className="h-3 w-3 shrink-0" />
+                {personalLabel}
+              </span>
+            )}
+
             {sharedBank && (
               <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
                 <Share2 className="h-3 w-3 shrink-0" />

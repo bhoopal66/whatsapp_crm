@@ -91,9 +91,15 @@ export function sharedBankByConversation(
 export function isShareOnlyViewer(
   role: AccountRole | null,
   userId: string | null,
-  conversation: { user_id?: string | null; assigned_agent_id?: string | null },
+  conversation: {
+    user_id?: string | null;
+    assigned_agent_id?: string | null;
+    personal_owner_id?: string | null;
+  },
   sharedWithMe: boolean
 ): boolean {
+  // A personal chat (191) is never shared with a coordinator.
+  if (conversation.personal_owner_id) return false;
   if (!sharedWithMe || !role || !userId) return false;
   if (role === 'team_leader') return false;
   return !canViewConversation(role, userId, {

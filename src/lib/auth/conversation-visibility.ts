@@ -45,6 +45,10 @@ function shareCanGrant(role: AccountRole): boolean {
  * `onMyPersonalNumber` (190) is the caller's answer to "is this chat on
  * a personal number that I own, or whose owner I lead?". It applies to
  * any role that can see conversations at all.
+ *
+ * `personalOwnerId` (191) marks a personal chat. Then the rule is only
+ * admin, the owner, or `leadsOwner` (the caller leads the owner); a
+ * share, an assignment and `onMyPersonalNumber` are ignored.
  */
 export function canViewConversation(
   role: AccountRole | null,
@@ -54,6 +58,10 @@ export function canViewConversation(
     assignedId: string | null;
     sharedWithMe?: boolean;
     onMyPersonalNumber?: boolean;
+    /** Migration 191: the owner of a personal chat; null = company chat. */
+    personalOwnerId?: string | null;
+    /** Does the caller lead `personalOwnerId`? (191's leader branch.) */
+    leadsOwner?: boolean;
   }
 ): boolean {
   // Unknown role or unknown user: fail closed. Both mean the profile
@@ -65,6 +73,15 @@ export function canViewConversation(
   // chats from unknown numbers, which land owned by whoever connected
   // the WhatsApp channel.
   if (hasMinRole(role, 'admin')) return true;
+
+  // A personal chat (191) is its owner's, their team leaders' and the
+  // admins', nothing else: no share, assignment or number grants it.
+  if (conversation.personalOwnerId) {
+    return (
+      conversation.personalOwnerId === userId ||
+      conversation.leadsOwner === true
+    );
+  }
 
   if (conversation.ownerId === userId || conversation.assignedId === userId) {
     return true;
