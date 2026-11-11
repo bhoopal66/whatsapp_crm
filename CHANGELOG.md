@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Smarter contact and chat search
+
+**Migration required:** apply `supabase/migrations/193_fuzzy_contact_search.sql`
+before deploying this build (it adds the `search_contacts` function and
+search indexes; without it the app falls back to the old search).
+
+- Numbers are found whatever the spacing or prefix: `588336503`,
+  `0588336503` and `+971 58 833 6503` all find a contact stored as
+  `+971 58 833 6503`. Partial numbers work too.
+- The Contacts page, the contact picker and the WhatsApp, Team and HR
+  inboxes now list exact matches first, then close matches (a typo in a
+  name or company, swapped words, a wrong or swapped digit), marked
+  "Similar" under a "Close matches" divider.
+- The inbox search now asks the server, so it finds chats that are not
+  loaded on screen yet. It still only returns chats you may see.
+
 ### Departments
 
 **Migration required:** apply `supabase/migrations/192_departments.sql`
