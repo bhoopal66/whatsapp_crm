@@ -70,6 +70,8 @@ interface ProfileRow {
   deactivated_at: string | null;
   /** Migration 083; undefined on a database that predates it. */
   bank_code?: string | null;
+  /** Migration 190; undefined on a database that predates it. */
+  may_connect_personal_whatsapp?: boolean;
 }
 
 export async function GET() {
@@ -98,6 +100,27 @@ export async function GET() {
       );
     }
 
+    // Personal numbers (190): one `whatsapp_config` row per owner. A
+    // failed read (e.g. no `is_personal` column yet) is "none", never a
+    // failed roster.
+    const personalByUser = new Map<string, { id: string; phone: string }>();
+    const { data: personal, error: personalError } = await ctx.supabase
+      .from('whatsapp_config')
+      .select('id, user_id, waba_id')
+      .eq('account_id', ctx.accountId)
+      .eq('is_personal', true);
+    if (!personalError && Array.isArray(personal)) {
+      for (const n of personal as {
+        id: string;
+        user_id: string | null;
+        waba_id: string | null;
+      }[]) {
+        if (n.user_id && !personalByUser.has(n.user_id)) {
+          personalByUser.set(n.user_id, { id: n.id, phone: n.waba_id ?? '' });
+        }
+      }
+    }
+
     const canSeeEmails = canManageMembers(ctx.role);
 
     const members: AccountMember[] = (data as ProfileRow[]).flatMap((row) => {
@@ -115,6 +138,9 @@ export async function GET() {
           joined_at: row.created_at,
           deactivated_at: row.deactivated_at ?? null,
           bank_code: row.bank_code ?? null,
+          may_connect_personal_whatsapp:
+            row.may_connect_personal_whatsapp ?? false,
+          personal_number: personalByUser.get(row.user_id) ?? null,
         },
       ];
     });

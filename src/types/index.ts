@@ -86,6 +86,11 @@ export interface AccountMember {
   /** The partner bank a `bank_guest` belongs to (migration 083); null for
    *  staff. Optional: absent on a database that predates 083. */
   bank_code?: string | null;
+  /** Migration 190: an admin has allowed this member to connect a
+   *  personal WhatsApp number. Absent on a database that predates it. */
+  may_connect_personal_whatsapp?: boolean;
+  /** The member's personal number, if they have connected one. */
+  personal_number?: { id: string; phone: string } | null;
 }
 
 /**

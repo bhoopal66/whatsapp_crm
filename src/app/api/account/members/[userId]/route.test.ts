@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/auth/account', () => ({
   requireRole: mocks.requireRole,
   toErrorResponse: vi.fn(() =>
-    Response.json({ error: 'auth failed' }, { status: 403 }),
+    Response.json({ error: 'auth failed' }, { status: 403 })
   ),
 }));
 
@@ -28,7 +28,10 @@ const otherRows = {
   select: () => otherRows,
   eq: (...args: unknown[]) => (mocks.filters.push(['eq', ...args]), otherRows),
   is: (...args: unknown[]) => (mocks.filters.push(['is', ...args]), otherRows),
-  neq: (...args: unknown[]) => (mocks.filters.push(['neq', ...args]), otherRows),
+  neq: (...args: unknown[]) => (
+    mocks.filters.push(['neq', ...args]),
+    otherRows
+  ),
   limit: mocks.limit,
 };
 
@@ -87,7 +90,7 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
       ban_duration: '876000h',
     });
     expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.updateUserById.mock.invocationCallOrder[0],
+      mocks.updateUserById.mock.invocationCallOrder[0]
     );
   });
 
@@ -104,7 +107,10 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
   });
 
   it('other membership keeps the login: no ban while another workspace has them', async () => {
-    mocks.limit.mockResolvedValue({ data: [{ account_id: 'account-2' }], error: null });
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'account-2' }],
+      error: null,
+    });
     const res = await PATCH(request({ active: false }), params);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, active: false });
@@ -138,7 +144,10 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
 
   it('never touches the login when the RPC refuses the caller', async () => {
     mocks.rpc.mockResolvedValue({
-      error: { code: '22023', message: 'The account owner cannot be deactivated' },
+      error: {
+        code: '22023',
+        message: 'The account owner cannot be deactivated',
+      },
     });
     const res = await PATCH(request({ active: false }), params);
     expect(res.status).toBe(400);
@@ -176,6 +185,53 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
   });
 });
 
+describe('PATCH /api/account/members/[userId] { personalWhatsapp }', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+    mocks.rpc.mockResolvedValue({ error: null });
+  });
+
+  it('calls set_member_personal_whatsapp and answers ok', async () => {
+    const res = await PATCH(request({ personalWhatsapp: true }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(mocks.rpc).toHaveBeenCalledWith('set_member_personal_whatsapp', {
+      p_user_id: 'user-2',
+      p_allowed: true,
+    });
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean value without calling the RPC', async () => {
+    const res = await PATCH(request({ personalWhatsapp: 'yes' }), params);
+    expect(res.status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      { code: '22023', hint: 'PERSONAL_NUMBER_EXISTS' },
+      409,
+      'personal_number_exists',
+    ],
+    [{ code: '22023', hint: 'not_eligible' }, 422, 'not_eligible'],
+    [{ code: 'P0002' }, 404, undefined],
+    [{ code: '42501', message: 'nope' }, 403, undefined],
+    [{ code: 'XX000', message: 'boom' }, 500, undefined],
+  ])('maps %j to %i', async (err, status, body) => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ error: err });
+    const res = await PATCH(request({ personalWhatsapp: false }), params);
+    expect(res.status).toBe(status);
+    if (body) expect(await res.json()).toEqual({ error: body });
+    consoleError.mockRestore();
+  });
+});
+
 describe('DELETE /api/account/members/[userId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -195,6 +251,9 @@ describe('DELETE /api/account/members/[userId]', () => {
   it('returns the new personal account of someone removed from their only workspace', async () => {
     mocks.rpc.mockResolvedValue({ data: 'account-9', error: null });
     const res = await DELETE(request(null), params);
-    expect(await res.json()).toEqual({ ok: true, newPersonalAccountId: 'account-9' });
+    expect(await res.json()).toEqual({
+      ok: true,
+      newPersonalAccountId: 'account-9',
+    });
   });
 });

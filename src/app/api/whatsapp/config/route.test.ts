@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   /** The Whapi row findWhapiRow returns. */
   row: null as Record<string, unknown> | null,
   updates: [] as Record<string, unknown>[],
+  eqs: [] as unknown[][],
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -37,9 +38,13 @@ function fakeDb() {
     from(table: string) {
       let columns = '';
       const builder: Record<string, unknown> = {};
-      for (const m of ['eq', 'neq', 'order', 'limit', 'insert']) {
+      for (const m of ['neq', 'order', 'limit', 'insert', 'delete']) {
         builder[m] = () => builder;
       }
+      builder.eq = (col: string, val: unknown) => {
+        h.eqs.push([table, col, val]);
+        return builder;
+      };
       builder.select = (cols: string) => {
         columns = cols;
         return builder;
@@ -53,7 +58,10 @@ function fakeDb() {
           return { data: { account_id: 'acct-1' }, error: null };
         }
         // findWhapiRow reads the row; the duplicate/claim checks find none.
-        if (table === 'whatsapp_config' && columns.startsWith('id, ')) {
+        if (
+          table === 'whatsapp_config' &&
+          (columns.startsWith('id, ') || columns === 'id')
+        ) {
           const isDuplicateCheck = columns === 'id, label, waba_id';
           return { data: isDuplicateCheck ? null : h.row, error: null };
         }
@@ -76,7 +84,7 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => fakeDb(),
 }));
 
-import { GET, POST } from './route';
+import { DELETE, GET, POST } from './route';
 
 function channelInfo(status: string, phone: string | null) {
   return {
@@ -101,6 +109,7 @@ function post(body: Record<string, unknown>) {
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SITE_URL = 'https://crm.test';
   h.updates = [];
+  h.eqs = [];
   h.row = {
     id: 'cfg-1',
     verify_token: 'enc:secret',
@@ -223,5 +232,17 @@ describe('GET /api/whatsapp/config — registered webhooks', () => {
       body.webhook.hooks.map((hook: { url: string }) => hook.url)
     );
     expect(JSON.stringify(body)).not.toContain('abcdef123456');
+  });
+});
+
+describe('DELETE /api/whatsapp/config — default hand-over', () => {
+  it('only ever promotes a shared number (is_personal = false)', async () => {
+    const res = await DELETE(
+      new Request('https://crm.test/api/whatsapp/config?config_id=cfg-1', {
+        method: 'DELETE',
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
   });
 });

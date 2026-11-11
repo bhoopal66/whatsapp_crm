@@ -91,7 +91,7 @@ describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
     });
   });
 
-  it('refuses a bank guest as a number\'s user', async () => {
+  it("refuses a bank guest as a number's user", async () => {
     // Only staff can be put on a number: the roster the ids are checked
     // against leaves bank guests out.
     const res = await PATCH(request({ member_ids: ['ana', 'gus'] }), params);
@@ -177,5 +177,34 @@ describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
       expect(res.status, `${code}/${hint}`).toBe(status);
       expect(await res.json()).toEqual({ error });
     }
+  });
+});
+
+describe('PATCH /api/whatsapp/channels/[id] — personal numbers (190)', () => {
+  const refused = {
+    code: '22023',
+    hint: 'PERSONAL_NUMBER',
+    message: 'a personal number cannot be shared',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.requireRole.mockResolvedValue(ctx());
+  });
+
+  it('answers 409, not the generic 400, when allocation names a personal number', async () => {
+    mocks.rpc.mockResolvedValue({ error: refused });
+    const res = await PATCH(request({ member_ids: ['ana'] }), params);
+    expect(res.status).toBe(409);
+  });
+
+  it('answers 409 when making a personal number the default', async () => {
+    mocks.rpc.mockResolvedValue({ error: refused });
+    const res = await PATCH(request({ is_primary: true }), params);
+    expect(res.status).toBe(409);
+    expect(mocks.rpc).toHaveBeenCalledWith('set_primary_channel', {
+      p_config_id: 'cfg-1',
+    });
   });
 });

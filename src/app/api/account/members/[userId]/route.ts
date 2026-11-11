@@ -1,8 +1,9 @@
 // ============================================================
 // /api/account/members/[userId]
 //
-//   PATCH  — change a member's role, or deactivate / reactivate
-//            them ({ role } or { active }).   Admin+.
+//   PATCH  — change a member's role, deactivate / reactivate them,
+//            or allow personal WhatsApp ({ role }, { active } or
+//            { personalWhatsapp }).   Admin+.
 //   DELETE — remove a member.                 Admin+.
 //
 // All delegate to SECURITY DEFINER RPCs:
@@ -82,8 +83,18 @@ export async function PATCH(
     const { userId } = await params;
 
     const body = (await request.json().catch(() => null)) as
-      | { role?: unknown; active?: unknown }
+      | { role?: unknown; active?: unknown; personalWhatsapp?: unknown }
       | null;
+
+    if (body && "personalWhatsapp" in body) {
+      if (typeof body.personalWhatsapp !== "boolean") {
+        return NextResponse.json(
+          { error: "'personalWhatsapp' must be true or false" },
+          { status: 400 },
+        );
+      }
+      return setPersonalWhatsapp(ctx, userId, body.personalWhatsapp);
+    }
 
     if (body && "active" in body) {
       if (typeof body.active !== "boolean") {
@@ -127,6 +138,46 @@ export async function PATCH(
   } catch (err) {
     return toErrorResponse(err);
   }
+}
+
+/**
+ * Let a member connect (or stop letting them connect) a personal
+ * WhatsApp number (migration 190). `set_member_personal_whatsapp`
+ * authorises the caller and refuses ineligible targets and a revoke
+ * while the person still has a personal number; its HINT tells the
+ * last two apart because both are SQLSTATE 22023.
+ */
+async function setPersonalWhatsapp(
+  ctx: AccountContext,
+  userId: string,
+  allowed: boolean,
+): Promise<NextResponse> {
+  const { error } = await ctx.supabase.rpc("set_member_personal_whatsapp", {
+    p_user_id: userId,
+    p_allowed: allowed,
+  });
+  if (!error) return NextResponse.json({ ok: true });
+
+  if (error.code === "22023" && error.hint === "PERSONAL_NUMBER_EXISTS") {
+    return NextResponse.json(
+      { error: "personal_number_exists" },
+      { status: 409 },
+    );
+  }
+  if (error.code === "22023" && error.hint === "not_eligible") {
+    return NextResponse.json({ error: "not_eligible" }, { status: 422 });
+  }
+  if (error.code === "P0002") {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+  if (error.code === "42501") {
+    return NextResponse.json({ error: error.message }, { status: 403 });
+  }
+  console.error("[members route] set_member_personal_whatsapp error:", error);
+  return NextResponse.json(
+    { error: "Failed to update member" },
+    { status: 500 },
+  );
 }
 
 /**
