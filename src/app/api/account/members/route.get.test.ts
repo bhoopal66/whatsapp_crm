@@ -25,14 +25,36 @@ const calls = {
   eq: [] as unknown[][],
 };
 
-function ctx(result: { data?: Row[] | null; error?: unknown }) {
+const personalCalls = {
+  select: [] as unknown[][],
+  eq: [] as unknown[][],
+};
+
+// Table-aware: `profiles` is recorded in `calls`, the personal-number
+// read of `whatsapp_config` (migration 190) in `personalCalls`.
+function ctx(
+  result: { data?: Row[] | null; error?: unknown },
+  personal: { data?: Row[] | null; error?: unknown } = { data: [] }
+) {
   const builder: Record<string, unknown> = {
     select: (...args: unknown[]) => (calls.select.push(args), builder),
     eq: (...args: unknown[]) => (calls.eq.push(args), builder),
     order: () => Promise.resolve({ data: null, error: null, ...result }),
   };
+  const personalBuilder: Record<string, unknown> = {
+    select: (...args: unknown[]) => (
+      personalCalls.select.push(args),
+      personalBuilder
+    ),
+    eq: (...args: unknown[]) => (personalCalls.eq.push(args), personalBuilder),
+    then: (resolve: (v: unknown) => unknown) =>
+      resolve({ data: null, error: null, ...personal }),
+  };
   return {
-    supabase: { from: () => builder },
+    supabase: {
+      from: (table: string) =>
+        table === 'whatsapp_config' ? personalBuilder : builder,
+    },
     accountId: 'account-1',
     role: 'admin',
   };
@@ -63,6 +85,8 @@ describe('GET /api/account/members', () => {
     vi.clearAllMocks();
     calls.select.length = 0;
     calls.eq.length = 0;
+    personalCalls.select.length = 0;
+    personalCalls.eq.length = 0;
   });
 
   it("lists the bank's code on a guest and null on staff", async () => {
@@ -110,6 +134,51 @@ describe('GET /api/account/members', () => {
 
     expect(members[0].bank_code).toBeNull();
     expect(calls.select).toEqual([['*']]);
+  });
+
+  it('carries the personal-WhatsApp flag and the personal number', async () => {
+    mocks.requireRole.mockResolvedValue(
+      ctx(
+        {
+          data: [
+            { ...STAFF, may_connect_personal_whatsapp: true },
+            { ...GUEST, user_id: 'bob', bank_code: null },
+          ],
+        },
+        { data: [{ id: 'cfg-1', user_id: 'ana', waba_id: '971500000000' }] }
+      )
+    );
+
+    const { members } = await (await GET()).json();
+
+    expect(members[0]).toMatchObject({
+      user_id: 'ana',
+      may_connect_personal_whatsapp: true,
+      personal_number: { id: 'cfg-1', phone: '971500000000' },
+    });
+    expect(members[1]).toMatchObject({
+      may_connect_personal_whatsapp: false,
+      personal_number: null,
+    });
+    expect(personalCalls.select).toEqual([['id, user_id, waba_id']]);
+    expect(personalCalls.eq).toEqual([
+      ['account_id', 'account-1'],
+      ['is_personal', true],
+    ]);
+    // The profiles read is untouched by the second read.
+    expect(calls.eq).toEqual([['account_id', 'account-1']]);
+  });
+
+  it('still lists members when the personal-number read fails', async () => {
+    mocks.requireRole.mockResolvedValue(
+      ctx({ data: [STAFF] }, { error: { message: 'no is_personal column' } })
+    );
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const { members } = await res.json();
+    expect(members[0].personal_number).toBeNull();
+    expect(members[0].may_connect_personal_whatsapp).toBe(false);
   });
 
   it('fails the whole list when the roster cannot be read', async () => {
