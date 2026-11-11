@@ -6,6 +6,7 @@ import {
 } from '@/lib/contacts/chat-tag-column';
 import { phoneSearchDigits } from '@/lib/contacts/phone-search';
 import { sanitizeContactSearch } from '@/lib/contacts/search';
+import type { SearchHit } from '@/lib/contacts/fuzzy-search';
 
 /**
  * The Contacts list (/contacts and /team-contacts) as one round trip and
@@ -76,6 +77,8 @@ export interface ContactListRow extends Contact {
   chatTags: ChatTagIds | null;
   /** Auth user id the contact's chat is assigned to, if any. */
   assignedTo: string | null;
+  /** Set by a close-match search: not an exact match for the term. */
+  closeMatch?: boolean;
 }
 
 export type EmbeddedConversation = ChatTagIds & {
@@ -166,4 +169,33 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   const search = contactSearchFilter(view.search);
   if (search) query = query.or(search);
   return query;
+}
+
+/**
+ * Keep the hits whose contact is in every narrowing set (personal
+ * owner, chat-tag filter), in the RPC's rank order. A null set means
+ * that narrowing does not apply.
+ */
+export function narrowHits(
+  hits: readonly SearchHit[],
+  allowed: readonly (ReadonlySet<string> | null)[]
+): SearchHit[] {
+  const sets = allowed.filter((s): s is ReadonlySet<string> => s !== null);
+  return hits.filter((h) => sets.every((s) => s.has(h.contactId)));
+}
+
+/** One page of ranked hits, plus how many hits there are in all. */
+export function pageOfHits(
+  hits: readonly SearchHit[],
+  from: number,
+  size: number
+): { hits: SearchHit[]; total: number } {
+  return { hits: hits.slice(from, from + size), total: hits.length };
+}
+
+/** Id of the row the "Close matches" divider goes above, or null. */
+export function firstCloseMatchId(
+  rows: readonly { id: string; closeMatch?: boolean }[]
+): string | null {
+  return rows.find((r) => r.closeMatch)?.id ?? null;
 }

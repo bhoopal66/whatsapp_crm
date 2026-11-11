@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { Contact } from '@/types';
 import { sessionKey } from '@/lib/session-cache';
 import {
+  firstCloseMatchId,
+  narrowHits,
+  pageOfHits,
   buildContactListQuery,
   CONTACT_LIST_QUESTION_PREFIX,
   CONTACT_LIST_SELECT,
@@ -176,5 +179,46 @@ describe('toContactListRows', () => {
     expect(out[1].chatTags).toBeNull();
     expect(out[2].assignedTo).toBeNull();
     for (const row of out) expect('conversations' in row).toBe(false);
+  });
+});
+
+describe('close-match search paging', () => {
+  const hit = (contactId: string, exact = true) => ({
+    contactId,
+    score: 1,
+    exact,
+  });
+  const hits = [hit('a'), hit('b'), hit('c', false), hit('d', false)];
+
+  it('keeps rank order and applies every narrowing set', () => {
+    expect(
+      narrowHits(hits, [new Set(['d', 'a', 'c']), null]).map((h) => h.contactId)
+    ).toEqual(['a', 'c', 'd']);
+    expect(
+      narrowHits(hits, [new Set(['a', 'c']), new Set(['c', 'd'])]).map(
+        (h) => h.contactId
+      )
+    ).toEqual(['c']);
+  });
+
+  it('does not narrow when no set applies', () => {
+    expect(narrowHits(hits, [null, null])).toEqual(hits);
+  });
+
+  it('pages the ranked hits and reports the total', () => {
+    const p = pageOfHits(hits, 2, 2);
+    expect(p.hits.map((h) => h.contactId)).toEqual(['c', 'd']);
+    expect(p.total).toBe(4);
+    expect(pageOfHits(hits, 4, 2).hits).toEqual([]);
+  });
+
+  it('finds the first close match for the divider', () => {
+    expect(
+      firstCloseMatchId([
+        { id: 'a', closeMatch: false },
+        { id: 'c', closeMatch: true },
+      ])
+    ).toBe('c');
+    expect(firstCloseMatchId([{ id: 'a' }])).toBeNull();
   });
 });

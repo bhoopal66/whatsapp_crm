@@ -3,6 +3,7 @@
 import { isUuid } from '@/lib/chat/mentions';
 import { customerPath } from '@/lib/contacts/customer-links';
 import {
+  Fragment,
   useState,
   useEffect,
   useCallback,
@@ -100,10 +101,20 @@ import {
   CONTACT_LIST_SELECT,
   contactListQuestion,
   contactSearchFilter,
+  firstCloseMatchId,
+  narrowHits,
+  pageOfHits,
   toContactListRows,
   type ContactListRow,
   type ContactWithConversations,
 } from '@/lib/contacts/list-query';
+import {
+  isMissingSearchRpc,
+  parseSearchHits,
+  rankByHits,
+  searchRpcTerm,
+  type SearchHit,
+} from '@/lib/contacts/fuzzy-search';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
@@ -119,6 +130,8 @@ const FILTER_PAGE_SIZE = 1000;
 const FILTER_CHUNK_CONCURRENCY = 4;
 /** How long one filter's matched contact ids are reused while paging. */
 const FILTER_MATCHES_TTL_MS = 30_000;
+/** Hits the close-match RPC returns per search. */
+const SEARCH_RPC_LIMIT = 200;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 type ContactRow = ContactListRow;
@@ -143,6 +156,7 @@ export function ContactsPageInner({
 }: { teamView?: boolean } = {}) {
   const router = useRouter();
   const t = useTranslations('Contacts.page');
+  const tSearch = useTranslations('ContactSearch');
   const locale = useLocale();
   const { user, accountId, accountRole, profileLoading } = useAuth();
 
@@ -210,6 +224,14 @@ export function ContactsPageInner({
     rows: { id: string; created_at: string }[];
   } | null>(null);
 
+  // The close-match search's ranked, narrowed hits, reused while paging
+  // (same TTL and reasoning as `filterMatches`).
+  const searchMatches = useRef<{
+    key: string;
+    at: number;
+    hits: SearchHit[];
+  } | null>(null);
+
   // One cache entry per view: every filter, the search, the page and
   // which screen (team or personal) is asking. Shown at once on a
   // revisit and always revalidated (`lib/session-cache.ts`).
@@ -239,6 +261,87 @@ export function ContactsPageInner({
     const searchFilter = contactSearchFilter(term);
 
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
+
+    // Close-match search: the RPC ranks (as the caller, so RLS applies),
+    // then the page's own filters narrow its hits. A missing RPC
+    // (migration 193 not applied) falls through to the ilike paths.
+    const rpcTerm = searchRpcTerm(term);
+    if (rpcTerm) {
+      const searchKey = JSON.stringify([
+        term,
+        chatTagFilterKey,
+        personalOnlyUserId,
+      ]);
+      const cachedSearch = searchMatches.current;
+      let ranked =
+        cachedSearch?.key === searchKey &&
+        Date.now() - cachedSearch.at < FILTER_MATCHES_TTL_MS
+          ? cachedSearch.hits
+          : null;
+      if (!ranked) {
+        const rpc = await supabase.rpc('search_contacts', {
+          p_term: rpcTerm,
+          p_limit: SEARCH_RPC_LIMIT,
+        });
+        if (rpc.error && !isMissingSearchRpc(rpc.error)) throw rpc.error;
+        if (!rpc.error) {
+          const hits = parseSearchHits(rpc.data);
+          const ids = hits.map((h) => h.contactId);
+          let owned: Set<string> | null = null;
+          let tagged: Set<string> | null = null;
+          if (ids.length > 0 && personalOnlyUserId) {
+            const res = await supabase
+              .from('contacts')
+              .select('id')
+              .in('id', ids)
+              .eq('user_id', personalOnlyUserId);
+            if (res.error) throw res.error;
+            owned = new Set((res.data ?? []).map((r) => r.id as string));
+          }
+          if (ids.length > 0 && filterGroup) {
+            const res = await supabase
+              .from('conversations')
+              .select('contact_id')
+              .in('contact_id', ids)
+              .or(filterGroup)
+              .is('personal_owner_id', null);
+            if (res.error) throw res.error;
+            tagged = new Set(
+              (res.data ?? []).map((r) => r.contact_id as string)
+            );
+          }
+          ranked = narrowHits(hits, [owned, tagged]);
+          searchMatches.current = {
+            key: searchKey,
+            at: Date.now(),
+            hits: ranked,
+          };
+        }
+      }
+      if (ranked) {
+        const { hits: pageHits, total } = pageOfHits(ranked, from, PAGE_SIZE);
+        if (pageHits.length === 0) return { rows: [], total };
+        const { data, error } = await supabase
+          .from('contacts')
+          .select(CONTACT_LIST_SELECT)
+          .in(
+            'id',
+            pageHits.map((h) => h.contactId)
+          )
+          .order(
+            CONTACT_LIST_CONVERSATION_ORDER.column,
+            CONTACT_LIST_CONVERSATION_ORDER.options
+          );
+        if (error) throw error;
+        const ordered = rankByHits(
+          (data ?? []) as unknown as ContactWithConversations[],
+          pageHits
+        );
+        // The rows keep `closeMatch` (the embed strip spreads the rest).
+        return { rows: toContactListRows(ordered), total };
+      }
+    }
+
     if (!filterGroup) {
       // One request: the page, its exact count (the subtitle and the
       // pager show the precise total) and each contact's conversations
@@ -359,6 +462,7 @@ export function ContactsPageInner({
   const list = useSessionQuery(listKey, fetchList);
   const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
   const totalCount = list.data?.total ?? 0;
+  const closeDividerId = firstCloseMatchId(contacts);
   // A spinner only while nothing is cached for this view: a revisit
   // shows the last answer while the fresh one loads.
   const loading = list.loading;
@@ -399,6 +503,7 @@ export function ContactsPageInner({
   // once the fresh answer lands.
   const refreshContacts = useCallback(async () => {
     filterMatches.current = null;
+    searchMatches.current = null;
     const prefix = sessionKey(
       accountId,
       user?.id,
@@ -822,128 +927,150 @@ export function ContactsPageInner({
               </TableRow>
             ) : (
               contacts.map((contact) => (
-                <ContactRow
-                  key={contact.id}
-                  contact={contact}
-                  teamView={teamView}
-                  onOpen={() => openDetail(contact.id)}
-                  onEdit={() => openEditForm(contact)}
-                  onDelete={() => confirmDelete(contact)}
-                >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={`Select ${contact.name || contact.phone}`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-foreground max-w-56 font-medium whitespace-normal">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <Link
-                        href={customerPath(contact.id, teamView)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="hover:underline"
+                <Fragment key={contact.id}>
+                  {contact.id === closeDividerId && (
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableCell
+                        colSpan={10}
+                        className="bg-card-2 text-muted-foreground py-1.5 text-xs font-medium"
                       >
-                        {contact.name || (
-                          <span className="text-muted-foreground italic">
-                            {t('unnamed')}
+                        {tSearch('closeMatches')}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  <ContactRow
+                    contact={contact}
+                    teamView={teamView}
+                    onOpen={() => openDetail(contact.id)}
+                    onEdit={() => openEditForm(contact)}
+                    onDelete={() => confirmDelete(contact)}
+                  >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selected.has(contact.id)}
+                        onCheckedChange={() => toggleSelect(contact.id)}
+                        aria-label={`Select ${contact.name || contact.phone}`}
+                      />
+                    </TableCell>
+                    <TableCell className="text-foreground max-w-56 font-medium whitespace-normal">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <Link
+                          href={customerPath(contact.id, teamView)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline"
+                        >
+                          {contact.name || (
+                            <span className="text-muted-foreground italic">
+                              {t('unnamed')}
+                            </span>
+                          )}
+                        </Link>
+                        {contact.closeMatch && (
+                          <span
+                            title={tSearch('similarHint')}
+                            className="bg-card-2 text-muted-foreground shrink-0 rounded px-1 text-[10px] font-medium"
+                          >
+                            {tSearch('similar')}
                           </span>
                         )}
-                      </Link>
-                      {contact.opted_out_at && (
-                        <OptedOutBadge
-                          label={t('optedOut')}
-                          hint={t('optedOutHint', {
-                            date: new Date(
-                              contact.opted_out_at
-                            ).toLocaleDateString(locale, {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            }),
-                          })}
-                        />
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    {contact.phone}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
-                    {contact.email || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
-                    {contact.company || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <ChatTagChip
-                      chip={contactChatTagChip(contact.chatTags, chatTagTree)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                    {(contact.user_id && nameOf(contact.user_id)) || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                    {(contact.assignedTo && nameOf(contact.assignedTo)) || (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
+                        {contact.opted_out_at && (
+                          <OptedOutBadge
+                            label={t('optedOut')}
+                            hint={t('optedOutHint', {
+                              date: new Date(
+                                contact.opted_out_at
+                              ).toLocaleDateString(locale, {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              }),
+                            })}
                           />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {contact.phone}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
+                      {contact.email || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
+                      {contact.company || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <ChatTagChip
+                        chip={contactChatTagChip(contact.chatTags, chatTagTree)}
+                      />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                      {(contact.user_id && nameOf(contact.user_id)) || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                      {(contact.assignedTo && nameOf(contact.assignedTo)) || (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
+                      {new Date(contact.created_at).toLocaleDateString(
+                        'en-US',
+                        {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
                         }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="bg-popover border-border"
-                      >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-muted-foreground hover:text-foreground"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          }
                         >
-                          <Pencil className="size-4" />
-                          {t('editAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
+                          <MoreHorizontal className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="bg-popover border-border"
                         >
-                          <Trash2 className="size-4" />
-                          {t('deleteAction')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </ContactRow>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditForm(contact);
+                            }}
+                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                          >
+                            <Pencil className="size-4" />
+                            {t('editAction')}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator className="bg-border" />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(contact);
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            {t('deleteAction')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </ContactRow>
+                </Fragment>
               ))
             )}
           </TableBody>
