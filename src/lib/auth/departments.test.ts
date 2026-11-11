@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
   DEPARTMENT_DEFAULTS,
   DEPARTMENTS,
   isRestrictedPath,
+  mergeDepartmentSettings,
   isSalesRestricted,
   toDepartment,
 } from './departments';
@@ -88,5 +91,57 @@ describe('isRestrictedPath', () => {
     '/groupsx',
   ])('leaves %s open', (path) => {
     expect(isRestrictedPath(path)).toBe(false);
+  });
+});
+
+const SQL = readFileSync(
+  join(process.cwd(), 'supabase/migrations/192_departments.sql'),
+  'utf8'
+);
+
+describe('DEPARTMENT_DEFAULTS match migration 192', () => {
+  // Each function ends its COALESCE with `p_department IS NOT DISTINCT
+  // FROM '<dept>'`: the one department that is on without a row.
+  function onWithoutRow(fn: string): string[] {
+    const body = SQL.split(`FUNCTION public.${fn}(p_account`)[1].split(
+      '$$;'
+    )[0];
+    return [...body.matchAll(/IS NOT DISTINCT FROM '([a-z]+)'/g)].map(
+      (m) => m[1]
+    );
+  }
+
+  it('own_inbox is on for hr only', () => {
+    expect(onWithoutRow('department_own_inbox')).toEqual(['hr']);
+    expect(DEPARTMENTS.filter((d) => DEPARTMENT_DEFAULTS[d].own_inbox)).toEqual(
+      ['hr']
+    );
+  });
+
+  it('restricted is on for hr only', () => {
+    expect(onWithoutRow('department_restricted')).toEqual(['hr']);
+    expect(
+      DEPARTMENTS.filter((d) => DEPARTMENT_DEFAULTS[d].restricted)
+    ).toEqual(['hr']);
+  });
+});
+
+describe('mergeDepartmentSettings', () => {
+  it('is the defaults with no rows', () => {
+    expect(mergeDepartmentSettings(null)).toEqual(DEPARTMENT_DEFAULTS);
+    expect(mergeDepartmentSettings([])).toEqual(DEPARTMENT_DEFAULTS);
+  });
+
+  it('lets a saved row win and ignores malformed ones', () => {
+    const merged = mergeDepartmentSettings([
+      { department: 'hr', own_inbox: false, restricted: true },
+      { department: 'it', own_inbox: true, restricted: true },
+      { department: 'marketing', own_inbox: true, restricted: true },
+      { department: 'accounts', own_inbox: 'yes', restricted: true },
+    ]);
+    expect(merged.hr).toEqual({ own_inbox: false, restricted: true });
+    expect(merged.it).toEqual({ own_inbox: true, restricted: true });
+    expect(merged.accounts).toEqual(DEPARTMENT_DEFAULTS.accounts);
+    expect(merged.sales).toEqual(DEPARTMENT_DEFAULTS.sales);
   });
 });

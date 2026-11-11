@@ -170,6 +170,13 @@ const TeamsTab = dynamic(
   () => import('@/components/settings/teams-tab').then((m) => m.TeamsTab),
   { loading: PanelLoading }
 );
+const DepartmentsPanel = dynamic(
+  () =>
+    import('@/components/settings/departments-panel').then(
+      (m) => m.DepartmentsPanel
+    ),
+  { loading: PanelLoading }
+);
 const TeamChatSettings = dynamic(
   () =>
     import('@/components/settings/team-chat-settings').then(
@@ -267,6 +274,7 @@ const PRELOADERS: Record<
   workspace: [() => import('@/components/settings/workspace-panel')],
   members: [() => import('@/components/settings/members-tab')],
   teams: [() => import('@/components/settings/teams-tab')],
+  departments: [() => import('@/components/settings/departments-panel')],
   'team-chat': [() => import('@/components/settings/team-chat-settings')],
   cases: [() => import('@/components/settings/cases-settings-panel')],
   vault: [() => import('@/components/settings/vault-panel')],
@@ -477,6 +485,7 @@ function SettingsPageInner() {
     workspace: <WorkspacePanel />,
     members: <MembersTab />,
     teams: <TeamsTab />,
+    departments: <DepartmentsPanel />,
     'team-chat': <TeamChatSettings />,
     cases: <CasesSettingsPanel />,
     vault: <VaultPanel />,

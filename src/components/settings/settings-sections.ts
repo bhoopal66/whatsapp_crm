@@ -68,6 +68,7 @@ export const SETTINGS_SECTIONS = [
   'workspace',
   'members',
   'teams',
+  'departments',
   // WhatsApp: the numbers and what goes out on them.
   'whatsapp',
   'numbers',
@@ -184,6 +185,13 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   teams: {
     id: 'teams',
     icon: Network,
+    category: 'workspace',
+    minRole: 'admin',
+  },
+  // Department inboxes and sales-area restriction (migration 192).
+  departments: {
+    id: 'departments',
+    icon: Briefcase,
     category: 'workspace',
     minRole: 'admin',
   },

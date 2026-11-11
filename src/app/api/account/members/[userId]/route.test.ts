@@ -232,6 +232,49 @@ describe('PATCH /api/account/members/[userId] { personalWhatsapp }', () => {
   });
 });
 
+describe('PATCH /api/account/members/[userId] { department }', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+    mocks.rpc.mockResolvedValue({ error: null });
+  });
+
+  it('calls set_member_department and answers ok', async () => {
+    const res = await PATCH(request({ department: 'hr' }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(mocks.rpc).toHaveBeenCalledWith('set_member_department', {
+      p_user_id: 'user-2',
+      p_department: 'hr',
+    });
+  });
+
+  it.each(['marketing', 5, null])(
+    'rejects %j without calling the RPC',
+    async (department) => {
+      const res = await PATCH(request({ department }), params);
+      expect(res.status).toBe(400);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    [{ code: '42501', message: 'nope' }, 403],
+    [{ code: '22023', message: 'bad', hint: 'bad_department' }, 400],
+    [{ code: 'P0002', message: 'none' }, 404],
+    [{ code: 'XX000', message: 'boom' }, 500],
+  ])('maps %j to %i', async (err, status) => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ error: err });
+    const res = await PATCH(request({ department: 'it' }), params);
+    expect(res.status).toBe(status);
+    consoleError.mockRestore();
+  });
+});
+
 describe('DELETE /api/account/members/[userId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();

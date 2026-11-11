@@ -1911,6 +1911,27 @@
         "restoreFailed": "{name}을(를) 복원하지 못했습니다"
       }
     },
+    "departments": {
+      "title": "부서",
+      "description": "각 사용자는 하나의 부서에서 일합니다(멤버에서 설정). 부서는 별도 받은편지함을 가질 수 있고 영업 영역에서 제외될 수 있습니다. 소유자와 관리자는 제한되지 않습니다.",
+      "names": {
+        "sales": "영업",
+        "hr": "인사",
+        "it": "IT",
+        "accounts": "회계"
+      },
+      "ownInbox": "별도 받은편지함",
+      "ownInboxHint": "이 부서 사람이 소유하거나 배정된 채팅은 소유자와 관리자만 보는 별도 받은편지함으로 이동합니다.",
+      "restricted": "영업 영역 접근 제한",
+      "restrictedHint": "이 사람들은 파이프라인, 케이스, 브로드캐스트, 자동화, 회사 채팅, 전체 연락처 목록, 그룹, Compass, OpenDesk를 열 수 없습니다.",
+      "customised": "(기본값에서 변경됨)",
+      "saved": "{department} 설정을 저장했습니다",
+      "saveFailed": "부서 설정을 저장하지 못했습니다",
+      "loadFailed": "부서 설정을 불러오지 못했습니다",
+      "memberLabel": "부서",
+      "memberChanged": "{name}님이 {department} 부서로 이동했습니다",
+      "memberFailed": "부서를 변경하지 못했습니다"
+    },
     "members": {
       "title": "팀원",
       "description": "이 계정에 접근 권한이 있는 사람들입니다. 역할에 따라 각 팀원이 할 수 있는 작업이 결정됩니다.",
@@ -2576,6 +2597,7 @@
       "workspace": "일반",
       "members": "멤버",
       "teams": "팀",
+      "departments": "부서",
       "ai": "AI 에이전트",
       "api": "API 키",
       "deals": "딜 & 통화",
@@ -2621,6 +2643,7 @@
       "workspace": "이 워크스페이스의 이름과 약칭, 보관 처리.",
       "members": "사람을 초대하고 접근 권한을 관리합니다.",
       "teams": "팀장을 중심으로 팀을 구성하고 번호를 배정합니다.",
+      "departments": "어떤 부서가 별도 받은편지함을 쓰고, 어떤 부서가 영업 영역에서 제외되는지 정합니다.",
       "whatsapp": "Whapi 번호와 Meta Cloud API 번호를 연결합니다.",
       "numbers": "번호 이름, 기본 번호, 번호별 담당자를 정합니다.",
       "routing": "브로드캐스트, 자동화, 플로우를 보낼 번호.",
@@ -2652,6 +2675,7 @@
       "workspace": "이름 변경 약칭 보관 복원 rename archive general",
       "members": "사용자 초대 링크 역할 관리자 상담원 뷰어 팀장 비활성화 users invite role",
       "teams": "팀장 그룹 번호 배정 team leader",
+      "departments": "부서 인사 hr it 회계 영업 별도 받은편지함 제한 department departments accounts sales",
       "whatsapp": "whapi meta 연결 토큰 QR 웹훅 채널 번호 connect token webhook",
       "numbers": "전화번호 기본 번호 접근 권한 배정 phone numbers access",
       "routing": "라우트 브로드캐스트 자동화 플로우 route broadcast",

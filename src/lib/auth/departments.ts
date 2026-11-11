@@ -18,19 +18,52 @@ export type Department = (typeof DEPARTMENTS)[number];
 /** Column default, and what a database without migration 192 means. */
 export const DEFAULT_DEPARTMENT: Department = 'sales';
 
+/** What one department's switches are in a workspace. */
+export interface DepartmentSettings {
+  own_inbox: boolean;
+  restricted: boolean;
+}
+
 /**
- * Built-in restriction per department, used when an account has no
- * `account_departments` row for it. TODO(192): pin to the migration's
- * `department_restricted()` defaults with a test that reads the SQL
- * once 192 lands (it was written in parallel and is not on this branch).
+ * Built-in switches per department, used when an account has no
+ * `account_departments` row for it. Mirrors SQL
+ * `department_own_inbox()` / `department_restricted()`: hr on/on, the
+ * rest off/off; `departments.test.ts` reads migration 192 to pin it.
  */
-export const DEPARTMENT_DEFAULTS: Record<Department, { restricted: boolean }> =
-  {
-    sales: { restricted: false },
-    hr: { restricted: true },
-    it: { restricted: false },
-    accounts: { restricted: false },
-  };
+export const DEPARTMENT_DEFAULTS: Record<Department, DepartmentSettings> = {
+  sales: { own_inbox: false, restricted: false },
+  hr: { own_inbox: true, restricted: true },
+  it: { own_inbox: false, restricted: false },
+  accounts: { own_inbox: false, restricted: false },
+};
+
+/**
+ * Every department's switches: a saved `account_departments` row wins,
+ * a missing (or malformed) one is the built-in default.
+ */
+export function mergeDepartmentSettings(
+  rows: ReadonlyArray<{
+    department?: unknown;
+    own_inbox?: unknown;
+    restricted?: unknown;
+  }> | null
+): Record<Department, DepartmentSettings> {
+  const out = {} as Record<Department, DepartmentSettings>;
+  for (const d of DEPARTMENTS) out[d] = { ...DEPARTMENT_DEFAULTS[d] };
+  for (const row of rows ?? []) {
+    if (!isDepartment(row.department)) continue;
+    if (
+      typeof row.own_inbox !== 'boolean' ||
+      typeof row.restricted !== 'boolean'
+    )
+      continue;
+    out[row.department] = {
+      own_inbox: row.own_inbox,
+      restricted: row.restricted,
+    };
+  }
+  return out;
+}
 
 export function isDepartment(value: unknown): value is Department {
   return (

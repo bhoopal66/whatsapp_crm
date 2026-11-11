@@ -503,7 +503,8 @@ personal branch and only an admin, the owner or the owner's leader sends
 (`maySendFromPersonal`). History import (first link, text only) has its
 own tables and RPCs. The customer page takes the company chat as its
 conversation and links personal chats apart (`splitConversations`).
-`verify-personal-numbers.sql`, `verify-personal-chats.sql`.
+`verify-personal-numbers.sql`, `verify-personal-chats.sql`,
+`verify-departments.sql`.
 
 ### Taamul Compass (`lib/compass/*`, migration 056)
 
@@ -1242,6 +1243,28 @@ copied to the NAS by a worker. Archive only: nothing is sent or changed.
   contacts policy; a deleted contact's rows are admin-only.
   `verify-customer-documents.sql`.
 
+### Departments (`lib/auth/departments.ts`, migration 192)
+
+`profiles.department` (`sales` default | `hr` | `it` | `accounts`) is
+written only by `set_member_department` (owner/admin; guarded column).
+`account_departments(account_id, department, own_inbox, restricted)` holds
+the per-workspace switches; a missing row is the built-in default (hr on/on,
+the rest off/off), in SQL `department_own_inbox()` / `department_restricted()`
+and in TS `DEPARTMENT_DEFAULTS`: `departments.test.ts` reads the migration.
+Written only by `set_department_settings`. `docs/departments.md` is the contract.
+
+- **Own inbox.** `conversations.inbox_department` is recomputed by the
+  `zz_conversations_inbox_department` trigger (named to run last) from the
+  assignee's department, else the owner's (`user_id`), NULL when that
+  department has no own inbox; profile and settings changes recompute too.
+  Splitting the list is UI-level: RLS is unchanged, so it hides nothing.
+- **Restricted** people cannot open the sales areas
+  (`RESTRICTED_PATHS`); owners and admins never are. Enforced by the
+  dashboard layouts and API guards, not by RLS.
+- **UI.** Settings -> Members (department select, PATCH
+  `/api/account/members/[userId]` `{ department }`) and Settings ->
+  Departments (`departments-panel.tsx`). `verify-departments.sql`.
+
 ### Cases (`lib/cases/*`, migrations 122-130)
 
 One case per submission group: bank, product, amount, stages, tasks,
@@ -1957,6 +1980,6 @@ fails if one is wired to plain `t()`.
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
-  `customer-documents.md`.
+  `customer-documents.md`, `departments.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

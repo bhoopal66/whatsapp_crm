@@ -1911,6 +1911,27 @@
         "restoreFailed": "Couldn't restore {name}"
       }
     },
+    "departments": {
+      "title": "Departments",
+      "description": "Each person works in one department (set in Members). A department can have its own inbox and can be kept out of the sales areas. Owners and admins are never restricted.",
+      "names": {
+        "sales": "Sales",
+        "hr": "HR",
+        "it": "IT",
+        "accounts": "Accounts"
+      },
+      "ownInbox": "Own inbox",
+      "ownInboxHint": "Chats owned by or assigned to this department's people go to a separate inbox that only owners and admins see.",
+      "restricted": "Restricted from sales areas",
+      "restrictedHint": "These people cannot open pipelines, cases, broadcasts, automations, company chats, the all-contacts list, groups, Compass or OpenDesk.",
+      "customised": "(changed from the default)",
+      "saved": "Saved {department} settings",
+      "saveFailed": "Could not save the department settings",
+      "loadFailed": "Could not load the department settings",
+      "memberLabel": "Department",
+      "memberChanged": "{name} is now in {department}",
+      "memberFailed": "Failed to change department"
+    },
     "members": {
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
@@ -2576,6 +2597,7 @@
       "workspace": "General",
       "members": "Members",
       "teams": "Teams",
+      "departments": "Departments",
       "ai": "AI Agents",
       "api": "API keys",
       "deals": "Deals & currency",
@@ -2621,6 +2643,7 @@
       "workspace": "This workspace's name and short name, and archiving it.",
       "members": "Invite people and manage who has access.",
       "teams": "Group people under a leader and give teams their numbers.",
+      "departments": "Which departments get their own inbox, and which are kept out of the sales areas.",
       "whatsapp": "Connect your Whapi numbers and the Meta Cloud API number.",
       "numbers": "Name each number, pick the default and choose who works it.",
       "routing": "Which number sends broadcasts, automations and flows.",
@@ -2652,6 +2675,7 @@
       "workspace": "workspace name rename short name tile archive restore general",
       "members": "users people staff invite invitation link login role admin agent viewer team leader deactivate remove",
       "teams": "team leader group allocate numbers",
+      "departments": "department departments hr human resources it accounts sales own inbox restricted restrict access",
       "whatsapp": "whapi meta cloud api connect token qr webhook channel number phone connection media",
       "numbers": "phone numbers default primary access allocation who can send label",
       "routing": "route broadcast automation flow which number sends",

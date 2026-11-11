@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Departments
+
+**Migration required:** apply `supabase/migrations/192_departments.sql`
+before deploying this build.
+
+- Each member now belongs to a department (Sales, HR, IT or Accounts),
+  set by an owner or admin in Settings -> Members. Sales is the default.
+- Settings -> Departments has two switches per department: **Own inbox**
+  (chats owned by or assigned to its people go to a separate inbox that
+  only owners and admins see) and **Restricted from sales areas**. HR has
+  both on until changed. Owners and admins are never restricted.
+- See `docs/departments.md`.
+
 ### Separate personal chats, chat history import, phone messages
 
 **Migration required:** apply `supabase/migrations/191_personal_chats.sql`

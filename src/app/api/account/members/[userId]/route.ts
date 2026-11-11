@@ -2,8 +2,8 @@
 // /api/account/members/[userId]
 //
 //   PATCH  — change a member's role, deactivate / reactivate them,
-//            or allow personal WhatsApp ({ role }, { active } or
-//            { personalWhatsapp }).   Admin+.
+//            or allow personal WhatsApp ({ role }, { active },
+//            { personalWhatsapp } or { department }).   Admin+.
 //   DELETE — remove a member.                 Admin+.
 //
 // All delegate to SECURITY DEFINER RPCs:
@@ -29,6 +29,7 @@ import {
   toErrorResponse,
   type AccountContext,
 } from "@/lib/auth/account";
+import { isDepartment } from "@/lib/auth/departments";
 import { isAccountRole } from "@/lib/auth/roles";
 import {
   checkRateLimit,
@@ -83,7 +84,12 @@ export async function PATCH(
     const { userId } = await params;
 
     const body = (await request.json().catch(() => null)) as
-      | { role?: unknown; active?: unknown; personalWhatsapp?: unknown }
+      | {
+          role?: unknown;
+          active?: unknown;
+          personalWhatsapp?: unknown;
+          department?: unknown;
+        }
       | null;
 
     if (body && "personalWhatsapp" in body) {
@@ -94,6 +100,16 @@ export async function PATCH(
         );
       }
       return setPersonalWhatsapp(ctx, userId, body.personalWhatsapp);
+    }
+
+    if (body && "department" in body) {
+      if (!isDepartment(body.department)) {
+        return NextResponse.json(
+          { error: "'department' must be one of sales, hr, it, accounts" },
+          { status: 400 },
+        );
+      }
+      return setDepartment(ctx, userId, body.department);
     }
 
     if (body && "active" in body) {
@@ -138,6 +154,38 @@ export async function PATCH(
   } catch (err) {
     return toErrorResponse(err);
   }
+}
+
+/**
+ * Put a member in a department (migration 192). `set_member_department`
+ * authorises the caller (owner/admin) and refuses an unknown department
+ * or a person who is not a member of this workspace.
+ */
+async function setDepartment(
+  ctx: AccountContext,
+  userId: string,
+  department: string,
+): Promise<NextResponse> {
+  const { error } = await ctx.supabase.rpc("set_member_department", {
+    p_user_id: userId,
+    p_department: department,
+  });
+  if (!error) return NextResponse.json({ ok: true });
+
+  if (error.code === "42501") {
+    return NextResponse.json({ error: error.message }, { status: 403 });
+  }
+  if (error.code === "22023") {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  if (error.code === "P0002") {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+  console.error("[members route] set_member_department error:", error);
+  return NextResponse.json(
+    { error: "Failed to update member" },
+    { status: 500 },
+  );
 }
 
 /**

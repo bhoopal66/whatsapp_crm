@@ -37,6 +37,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'insights',
   'workspace',
   'teams',
+  'departments',
   'team-chat',
   'cases',
   'vault',
@@ -134,7 +135,7 @@ describe('categories', () => {
     ).toEqual({
       overview: ['overview'],
       account: ACCOUNT_SECTIONS,
-      workspace: ['workspace', 'members', 'teams'],
+      workspace: ['workspace', 'members', 'teams', 'departments'],
       whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
       inbox: ['chat-tags', 'quick-replies', 'fields', 'deals'],
       automation: ['ai', 'insights', 'journey-bot'],

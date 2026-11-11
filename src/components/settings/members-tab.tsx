@@ -80,6 +80,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
+import {
+  DEPARTMENTS,
+  toDepartment,
+  type Department,
+} from '@/lib/auth/departments';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import {
@@ -124,6 +129,8 @@ interface Member {
   may_connect_personal_whatsapp?: boolean;
   /** Their personal number, once connected. */
   personal_number?: { id: string; phone: string } | null;
+  /** Migration 192; sales when absent. */
+  department?: Department;
 }
 
 interface Invitation {
@@ -165,6 +172,7 @@ export function MembersTab() {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
   const tCoord = useTranslations('Coordinators.members');
+  const tDept = useTranslations('Settings.departments');
   const { user, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
@@ -290,6 +298,36 @@ export function MembersTab() {
         )
       );
       console.error('[MembersTab] role change error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setPendingMemberAction(null);
+    }
+  }
+
+  // Move a member to a department (migration 192). The inbox a chat
+  // belongs to follows the department in SQL, so just reload.
+  async function handleSetDepartment(member: Member, department: Department) {
+    setPendingMemberAction(member.user_id);
+    try {
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || tDept('memberFailed'));
+        return;
+      }
+      toast.success(
+        tDept('memberChanged', {
+          name: member.full_name || t('unnamed'),
+          department: tDept(`names.${department}`),
+        })
+      );
+      await loadEverything();
+    } catch (err) {
+      console.error('[MembersTab] department error:', err);
       toast.error('Could not reach the server');
     } finally {
       setPendingMemberAction(null);
@@ -620,6 +658,11 @@ export function MembersTab() {
                               : ''}
                           </Badge>
                         )}
+                        {toDepartment(member.department) !== 'sales' && (
+                          <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
+                            {tDept(`names.${toDepartment(member.department)}`)}
+                          </Badge>
+                        )}
                         {isInactive && (
                           <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
                             {t('inactive')}
@@ -693,6 +736,36 @@ export function MembersTab() {
                         ) : null}
                       </span>
                     )}
+
+                    {member.role !== 'bank_guest' &&
+                      accountRole &&
+                      canManageMembers(accountRole) && (
+                        <Select
+                          value={toDepartment(member.department)}
+                          onValueChange={(v) =>
+                            v && handleSetDepartment(member, v as Department)
+                          }
+                        >
+                          <SelectTrigger
+                            className="border-border text-foreground w-28"
+                            disabled={isBusy}
+                            aria-label={tDept('memberLabel')}
+                          >
+                            <SelectValue>
+                              {tDept(
+                                `names.${toDepartment(member.department)}`
+                              )}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DEPARTMENTS.map((d) => (
+                              <SelectItem key={d} value={d}>
+                                {tDept(`names.${d}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
 
                     {canHoldCoordinatorBanks(member.role) && !isInactive && (
                       <Tooltip>

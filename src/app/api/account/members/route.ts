@@ -44,6 +44,7 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import { toDepartment } from '@/lib/auth/departments';
 import type { AccountMember } from '@/types';
 
 /**
@@ -72,6 +73,8 @@ interface ProfileRow {
   bank_code?: string | null;
   /** Migration 190; undefined on a database that predates it. */
   may_connect_personal_whatsapp?: boolean;
+  /** Migration 192; undefined on a database that predates it. */
+  department?: string | null;
 }
 
 export async function GET() {
@@ -141,6 +144,7 @@ export async function GET() {
           may_connect_personal_whatsapp:
             row.may_connect_personal_whatsapp ?? false,
           personal_number: personalByUser.get(row.user_id) ?? null,
+          department: toDepartment(row.department),
         },
       ];
     });

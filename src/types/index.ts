@@ -1,5 +1,6 @@
 import type { SharedContact } from '@/lib/whatsapp/contact-card';
 import type { AccountRole } from '@/lib/auth/roles';
+import type { Department } from '@/lib/auth/departments';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 import type { AiDispatchOutcome, AiPausedReason } from '@/lib/ai/outcomes';
 
@@ -91,6 +92,8 @@ export interface AccountMember {
   may_connect_personal_whatsapp?: boolean;
   /** The member's personal number, if they have connected one. */
   personal_number?: { id: string; phone: string } | null;
+  /** Migration 192: the member's department; 'sales' when absent. */
+  department?: Department;
 }
 
 /**

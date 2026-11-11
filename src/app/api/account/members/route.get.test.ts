@@ -112,6 +112,26 @@ describe('GET /api/account/members', () => {
     ]);
   });
 
+  it('carries the department, sales when absent or unknown', async () => {
+    mocks.requireRole.mockResolvedValue(
+      ctx({
+        data: [
+          STAFF,
+          { ...STAFF, user_id: 'hana', department: 'hr' },
+          { ...STAFF, user_id: 'odd', department: 'marketing' },
+        ],
+      })
+    );
+
+    const { members } = await (await GET()).json();
+
+    expect(members.map((m: { department: string }) => m.department)).toEqual([
+      'sales',
+      'hr',
+      'sales',
+    ]);
+  });
+
   it('reads the active workspace only', async () => {
     mocks.requireRole.mockResolvedValue(ctx({ data: [STAFF] }));
 
