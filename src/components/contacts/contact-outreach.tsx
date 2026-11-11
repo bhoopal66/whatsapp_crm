@@ -26,7 +26,7 @@
 // the dialogs elsewhere (beside the sheet, not inside it).
 // `ContactOutreach` renders both together.
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Loader2, LayoutTemplate, MessageSquarePlus, Send } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -50,6 +50,11 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMyOutreach } from '@/hooks/use-my-outreach';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import type { ContactThread } from '@/lib/contacts/contact-thread';
+import {
+  personalSendFailureKey,
+  showPersonalOption,
+  type PersonalNumberInfo,
+} from '@/lib/contacts/personal-outreach';
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import { limitNotices } from '@/lib/team-activity/thread-guard';
 import { providerLabel } from '@/lib/whatsapp/channel-management';
@@ -73,6 +78,10 @@ export interface ContactOutreachProps {
 export interface ContactOutreachState {
   openMessage: () => void;
   openTemplate: () => void;
+  /** "Message from my WhatsApp": true when the viewer has a connected
+   *  personal number (migration 191). */
+  canMessagePersonal: boolean;
+  openPersonalMessage: () => void;
   sendingMessage: boolean;
   sendingTemplate: boolean;
   /** The message dialog and the template picker; mount once. */
@@ -99,6 +108,28 @@ export function useContactOutreach({
   // chat (nothing said for 24 hours) is judged against it.
   const [messageDialogOpenedAt, setMessageDialogOpenedAt] = useState(0);
   const [sendingMessage, setSendingMessage] = useState(false);
+  // The message dialog sends from the viewer's own WhatsApp.
+  const [personalMode, setPersonalMode] = useState(false);
+
+  // The viewer's personal number (null until known, or not allowed one).
+  const [personalInfo, setPersonalInfo] = useState<PersonalNumberInfo | null>(
+    null
+  );
+  const askPersonal = !!contactId && !!accountRole && accountRole !== 'viewer';
+  useEffect(() => {
+    if (!askPersonal) return;
+    let live = true;
+    void fetch('/api/whatsapp/personal')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((info) => {
+        if (live) setPersonalInfo(info as PersonalNumberInfo | null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [askPersonal]);
+  const canMessagePersonal = showPersonalOption(personalInfo);
 
   // Team activity (migration 068): a message from here usually starts
   // a chat, so warn at the day's new-chat limit before it is typed.
@@ -148,13 +179,21 @@ export function useContactOutreach({
           content_text: text,
           // A plain message belongs on a linked-device number (Whapi,
           // else OpenWA) — see the note at the top of this file.
-          provider: messageChannel?.provider === 'openwa' ? 'openwa' : 'whapi',
+          ...(personalMode
+            ? { personal: true }
+            : {
+                provider:
+                  messageChannel?.provider === 'openwa' ? 'openwa' : 'whapi',
+              }),
         }),
       });
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
+        const own = personalMode
+          ? personalSendFailureKey(res.status, payload)
+          : null;
+        const reason = own ? t(own) : payload?.error || `HTTP ${res.status}`;
         toast.error(t('toastMessageFailed', { reason }));
         return;
       }
@@ -227,11 +266,13 @@ export function useContactOutreach({
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {t('messageDialog.desc', { phone: contact?.phone ?? '' })}
-              {messageChannel &&
+              {personalMode && ` ${t('messageDialog.viaPersonal')}`}
+              {!personalMode &&
+                messageChannel &&
                 ` ${t('messageDialog.via', { channel: channelName(messageChannel) })}`}
             </DialogDescription>
           </DialogHeader>
-          {messageNotices.length > 0 && (
+          {!personalMode && messageNotices.length > 0 && (
             <div className="overflow-hidden rounded-lg">
               <OutreachBanner notices={messageNotices} />
             </div>
@@ -285,6 +326,13 @@ export function useContactOutreach({
 
   return {
     openMessage: () => {
+      setPersonalMode(false);
+      setMessageDialogOpenedAt(Date.now());
+      setMessageDialogOpen(true);
+    },
+    canMessagePersonal,
+    openPersonalMessage: () => {
+      setPersonalMode(true);
       setMessageDialogOpenedAt(Date.now());
       setMessageDialogOpen(true);
     },
@@ -317,6 +365,18 @@ export function ContactOutreachButtons({
         )}
         {t('sendMessageBtn')}
       </Button>
+      {outreach.canMessagePersonal && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={outreach.openPersonalMessage}
+          disabled={outreach.sendingMessage}
+          className="border-border"
+        >
+          <MessageSquarePlus className="size-4" />
+          {t('sendPersonalBtn')}
+        </Button>
+      )}
       <Button
         size="sm"
         variant="outline"

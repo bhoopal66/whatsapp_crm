@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Separate personal chats, chat history import, phone messages
+
+**Migration required:** apply `supabase/migrations/191_personal_chats.sql`
+before deploying this build. It refuses if any company chat already sits
+on a personal number.
+
+- A person's own WhatsApp now has its own chats per contact, separate
+  from the company chat with the same contact. Visible to the owner,
+  their team leader and admins; bots and the public API never see them.
+- Contact page: "Message from my WhatsApp" (for a connected personal
+  number) starts or continues that personal chat, and the personal chats
+  you may see are linked as "Personal chat · name".
+- On first link, one-to-one chats are imported once (text only, as far
+  back as the phone allows), and messages typed on the phone appear in
+  the chat. See `docs/openwa.md`.
+
 ### Personal WhatsApp numbers
 
 **Migration required:** apply `supabase/migrations/190_personal_whatsapp_numbers.sql`

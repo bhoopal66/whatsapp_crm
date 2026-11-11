@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -306,6 +307,7 @@ export function CustomerPage({
   const askedKey = (id: string) => `${contactId}:${id}`;
   const wanted = [
     ...team.map((p) => p.userId),
+    ...(ready?.personalChats.map((c) => c.ownerId) ?? []),
     ...(timeline?.rows.notes.map((n) => n.user_id) ?? []),
     ...(timeline?.rows.internal.map((p) => p.authorId) ?? []),
     ...(view.tasks?.map((t) => t.assigned_to) ?? []),
@@ -715,6 +717,15 @@ export function CustomerPage({
               frame={(title, body) => <Card title={title}>{body}</Card>}
             />
           )}
+          {ready && ready.personalChats.length > 0 && (
+            <PersonalChatLinks
+              chats={ready.personalChats}
+              names={names}
+              label={(name) =>
+                name ? tl('personalChatBy', { name }) : tl('personalChat')
+              }
+            />
+          )}
           <DealsCard contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
           <DocumentsCard key={contactId} contactId={contactId} />
@@ -840,5 +851,30 @@ function ConsentTitle({
       <Icon className="text-muted-foreground size-3.5" />
       {children}
     </h2>
+  );
+}
+
+/** The viewer's visible personal chats (migration 191) as small links. */
+function PersonalChatLinks({
+  chats,
+  names,
+  label,
+}: {
+  chats: { id: string; ownerId: string }[];
+  names: Record<string, string>;
+  label: (ownerName: string | null) => string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {chats.map((c) => (
+        <Link
+          key={c.id}
+          href={`/inbox?c=${c.id}`}
+          className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+        >
+          {label(names[c.ownerId] ?? null)}
+        </Link>
+      ))}
+    </div>
   );
 }

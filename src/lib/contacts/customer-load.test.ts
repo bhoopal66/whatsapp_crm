@@ -6,6 +6,7 @@ import {
   loadCustomer,
   readPage,
   readShares,
+  splitConversations,
   startCustomerLoad,
 } from './customer-load';
 
@@ -401,5 +402,77 @@ describe('readShares', () => {
       'is',
       ['internal_messages.erased_at', null],
     ]);
+  });
+});
+
+describe('splitConversations', () => {
+  const row = (id: string, owner: string | null = null) => ({
+    id,
+    assigned_agent_id: null,
+    personal_owner_id: owner,
+  });
+
+  it('takes the oldest company chat as the conversation, past an older personal one', () => {
+    const { company, personal } = splitConversations([
+      row('p1', 'u9'),
+      row('c1'),
+      row('c2'),
+      row('p2', 'u8'),
+    ]);
+    expect(company.map((r) => r.id)).toEqual(['c1', 'c2']);
+    expect(personal).toEqual([
+      { id: 'p1', ownerId: 'u9' },
+      { id: 'p2', ownerId: 'u8' },
+    ]);
+  });
+
+  it('has no company chat when only personal ones are visible', () => {
+    expect(splitConversations([row('p1', 'u9')]).company).toEqual([]);
+  });
+});
+
+describe('startCustomerLoad with personal chats', () => {
+  it('keeps the thread and basics on the company chat', async () => {
+    const { sb, issued, settle } = fakeClient();
+    const parts = startCustomerLoad(sb, 'c1');
+    await flush();
+    const select = String(
+      issued.find((q) => q.table === 'conversations')?.ops[0][1][0]
+    );
+    expect(select).toContain('personal_owner_id');
+    settle('contacts', { data: contact });
+    settle('deals', { data: [] });
+    settle('pbx_settings', { data: null });
+    settle('conversations', {
+      data: [
+        {
+          id: 'p1',
+          contact_id: 'c1',
+          assigned_agent_id: 'u9',
+          personal_owner_id: 'u9',
+          channel_id: 'pn',
+          send_channel_id: null,
+          chat_tag_id: null,
+          chat_sub_tag_id: null,
+        },
+        {
+          id: 'v1',
+          contact_id: 'c1',
+          assigned_agent_id: 'a1',
+          personal_owner_id: null,
+          channel_id: 'n1',
+          send_channel_id: null,
+          chat_tag_id: null,
+          chat_sub_tag_id: null,
+        },
+      ],
+    });
+    const basics = await parts.basics;
+    expect(basics?.conversation).toEqual({ id: 'v1', assignedTo: 'a1' });
+    expect(basics?.personalChats).toEqual([{ id: 'p1', ownerId: 'u9' }]);
+    await flush();
+    const msgs = issued.filter((q) => q.table === 'messages');
+    msgs[msgs.length - 1].settle({ data: null });
+    await expect(parts.thread).resolves.toMatchObject({ home: 'n1' });
   });
 });

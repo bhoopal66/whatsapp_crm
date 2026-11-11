@@ -164,10 +164,17 @@ team leaders and agents, never viewers or bank guests.
 - **Connecting.** The person opens Settings, chooses Connect my
   WhatsApp and scans the QR code. One personal number per person per
   workspace.
-- **Who sees the chats.** The number's owner, their team leader(s) and
-  admins. The clash rule: a chat whose customer writes to the personal
-  number shows to the number's owner and their leader even when another
-  agent owns the contact or chat.
+- **Separate personal chats (migration 191).** Each person's own
+  WhatsApp has its own chats, one per contact, apart from the company
+  chat with the same contact. They are visible to that person, their
+  team leader and admins; company chats with the same contact are
+  untouched. Bots, flows, automations and the public API never see
+  personal chats. "Message from my WhatsApp" on the contact page starts
+  one (or continues it) from the person's own number. The customer page
+  lists the personal chats you may see as small links.
+- **History import.** On first link, all one-to-one chats are imported
+  once, text only, as far back as the phone allows. Messages typed on
+  the phone itself appear in the chat. (Both are being built now.)
 - **Who can send.** Only an admin, the owner of the number, or a team
   leader of the owner.
 - **No bots.** A personal number runs no flows, automations, AI

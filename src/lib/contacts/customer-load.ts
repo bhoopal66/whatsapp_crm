@@ -43,9 +43,17 @@ export interface Customer extends ConsentFields {
   created_at: string | null;
   user_id: string | null;
 }
+export interface PersonalChat {
+  id: string;
+  /** The auth user id of the person whose own WhatsApp it is. */
+  ownerId: string;
+}
 export interface Basics {
   contact: Customer;
   conversation: { id: string; assignedTo: string | null } | null;
+  /** The personal chats (migration 191) the viewer may see: RLS returns
+   *  only theirs, their team's, or all for an admin. Oldest first. */
+  personalChats: PersonalChat[];
   /** The conversation's Smart insights figures; null without one. */
   insights: CustomerInsightFigures | null;
   deal: { id: string; title: string; stage: string | null } | null;
@@ -207,8 +215,29 @@ export interface CustomerParts {
 type ConvRow = {
   id: string;
   assigned_agent_id: string | null;
+  personal_owner_id?: string | null;
 } & ThreadRow &
   CustomerInsightFigures;
+
+/**
+ * The company chat (no `personal_owner_id`) is THE conversation of the
+ * page; a person's own-WhatsApp chats (migration 191) are listed apart.
+ * Both stay oldest first, as read.
+ */
+export function splitConversations<
+  T extends { id: string; personal_owner_id?: string | null },
+>(rows: T[]): { company: T[]; personal: PersonalChat[] } {
+  const company: T[] = [];
+  const personal: PersonalChat[] = [];
+  for (const r of rows) {
+    if (r.personal_owner_id) {
+      personal.push({ id: r.id, ownerId: r.personal_owner_id });
+    } else {
+      company.push(r);
+    }
+  }
+  return { company, personal };
+}
 
 /**
  * Starts every read of the page's first load and hands back each part
@@ -226,17 +255,18 @@ export function startCustomerLoad(
   contactId: string
 ): CustomerParts {
   // Oldest first: the thread's send-number fields come from the oldest
-  // (contact-thread.ts), and the page shows that one conversation.
+  // (contact-thread.ts), and the page shows the oldest company chat as its one conversation.
   const convRows = Promise.resolve(
     sb
       .from('conversations')
       .select(
-        `id, assigned_agent_id, ${THREAD_COLUMNS}, ${CUSTOMER_INSIGHT_COLUMNS}`
+        `id, assigned_agent_id, personal_owner_id, ${THREAD_COLUMNS}, ${CUSTOMER_INSIGHT_COLUMNS}`
       )
       .eq('contact_id', contactId)
       .order('created_at', { ascending: true })
   ).then((r) => (must(r) as ConvRow[] | null) ?? []);
-  const conv = convRows.then((rows) => rows[0] ?? null);
+  const split = convRows.then(splitConversations);
+  const conv = split.then((s) => s.company[0] ?? null);
   const basics = Promise.all([
     sb
       .from('contacts')
@@ -245,6 +275,7 @@ export function startCustomerLoad(
       .eq('id', contactId)
       .maybeSingle(),
     conv,
+    split,
     sb
       .from('deals')
       .select('id, title, stage:pipeline_stages(name)')
@@ -254,7 +285,7 @@ export function startCustomerLoad(
       .limit(1),
     // The active workspace's row (RLS); none or unreadable: no draft.
     sb.from('pbx_settings').select('missed_call_whatsapp_draft').maybeSingle(),
-  ]).then(([c, cv, deal, pbx]) => toBasics(c, cv, deal, pbx));
+  ]).then(([c, cv, sp, deal, pbx]) => toBasics(c, cv, deal, pbx, sp.personal));
   // Second round, once the conversation id is known: the messages, the
   // shares and the last message are issued together. A messages
   // failure rejects (the shares never do); no conversation: no
@@ -286,8 +317,8 @@ export function startCustomerLoad(
       internal: { oldest: null, more: false },
     },
   }));
-  const thread = Promise.all([convRows, last]).then(([rows, lm]) =>
-    contactThreadFrom(rows, contactId, lm)
+  const thread = Promise.all([split, last]).then(([sp, lm]) =>
+    contactThreadFrom(sp.company, contactId, lm)
   );
   for (const p of [basics, timeline, thread]) p.catch(() => {});
   return { basics, timeline, thread };
@@ -297,7 +328,8 @@ function toBasics(
   c: { data: unknown; error: { message: string } | null },
   cv: ConvRow | null,
   deal: { data: unknown; error: { message: string } | null },
-  pbx: { data: unknown; error: unknown }
+  pbx: { data: unknown; error: unknown },
+  personalChats: PersonalChat[] = []
 ): Basics | null {
   const contact = must(c) as Customer | null;
   if (!contact) return null;
@@ -311,6 +343,7 @@ function toBasics(
   return {
     contact,
     conversation: cv ? { id: cv.id, assignedTo: cv.assigned_agent_id } : null,
+    personalChats,
     insights: cv
       ? {
           id: cv.id,

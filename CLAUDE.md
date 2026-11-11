@@ -486,18 +486,24 @@ automations and the journey bot do not. Team activity counts it as a
 phone number, like Whapi (migration 145); the Safety Meter stays
 Whapi-only.
 
-**Personal numbers (190).** An admin allows a person
+**Personal numbers (190, 191).** An admin allows a person
 (`profiles.may_connect_personal_whatsapp`) to link their own OpenWA
 number: a `whatsapp_config` row with `is_personal`, owner = `user_id`, one
 per person per workspace, never primary, routed or allocated to others.
-It is the one visibility exception to 072: its chats show to the owner
-and their leader through the chat's `channel_id`
-(`personal_number_visible_ids`, in `can_view_conversation`,
-`can_view_contact`, 177's set-based helper and 109's 5-argument push
-mirror). `can_use_channel` has a personal branch, and only an admin, the
-owner or the owner's leader sends (`maySendFromPersonal` in
-`send-message.ts`). Bots are cut in `inbound-pipeline.ts` and the
-`channels.ts` resolvers. `verify-personal-numbers.sql`.
+191 gives their traffic its own chats: `conversations.personal_owner_id`
+(NULL = company chat), two partial unique indexes replacing 036's
+(company: per contact; personal: per contact and owner),
+`conversations_personal_guard`, and `can_view_personal_chat` (owner,
+owner's leader, admins) in the conversations/messages policies; the old
+190 channel-based visibility exception is gone. Bots, flows, automations,
+integrations and the public API filter `personal_owner_id IS NULL`.
+`POST /api/whatsapp/send` with `personal: true` uses the caller's
+personal chat (409 `no_personal_number`); `can_use_channel` has a
+personal branch and only an admin, the owner or the owner's leader sends
+(`maySendFromPersonal`). History import (first link, text only) has its
+own tables and RPCs. The customer page takes the company chat as its
+conversation and links personal chats apart (`splitConversations`).
+`verify-personal-numbers.sql`, `verify-personal-chats.sql`.
 
 ### Taamul Compass (`lib/compass/*`, migration 056)
 

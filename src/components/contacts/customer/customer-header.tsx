@@ -5,7 +5,7 @@
 // (`headerActions`, from `customerAccess`). On a phone the secondary
 // actions fold into the overflow menu.
 
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -173,19 +173,31 @@ export function CustomerHeader({
         );
       case 'message':
         return (
-          <Button
-            key={a}
-            size="sm"
-            onClick={outreach.openMessage}
-            disabled={outreach.sendingMessage}
-          >
-            {outreach.sendingMessage ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <MessageSquarePlus className="size-4" />
+          <Fragment key={a}>
+            <Button
+              size="sm"
+              onClick={outreach.openMessage}
+              disabled={outreach.sendingMessage}
+            >
+              {outreach.sendingMessage ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <MessageSquarePlus className="size-4" />
+              )}
+              {t('sendMessageBtn')}
+            </Button>
+            {outreach.canMessagePersonal && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={outreach.openPersonalMessage}
+                disabled={outreach.sendingMessage}
+              >
+                <MessageSquarePlus className="size-4" />
+                {t('sendPersonalBtn')}
+              </Button>
             )}
-            {t('sendMessageBtn')}
-          </Button>
+          </Fragment>
         );
       case 'template':
         return (
