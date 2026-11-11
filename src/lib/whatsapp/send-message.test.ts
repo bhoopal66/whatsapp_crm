@@ -239,6 +239,12 @@ vi.mock('@/lib/flows/admin-client', () => ({
             write.filters.push([column, value]);
             return chain;
           },
+          // The adopted echo row (OpenWA 23505 race) is read back.
+          select: () => chain,
+          single: async () => ({
+            data: { id: 'msg-adopted', ...write.row },
+            error: null,
+          }),
           then: (resolve: (r: { error: null }) => unknown) =>
             resolve({ error: null }),
         };
@@ -742,6 +748,49 @@ describe('sendMessageToConversation — whether a failure is definite', () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe('sendMessageToConversation — OpenWA echo filed first', () => {
+  it('adopts the echo row on 23505 instead of failing the send', async () => {
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured, { provider: 'openwa' });
+    const db = {
+      from(table: string) {
+        const builder = inner.from(table) as unknown as Record<string, unknown>;
+        if (table === 'messages') {
+          builder.single = async () => ({
+            data: null,
+            error: { code: '23505', message: 'duplicate key' },
+          });
+        }
+        return builder;
+      },
+      rpc: async () => ({ data: { allowed: true }, error: null }),
+    } as unknown as SupabaseClient;
+    adminWrites.length = 0;
+    const result = await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'hi',
+      senderUserId: 'user-9',
+    });
+    expect(result).toEqual({
+      messageId: 'msg-adopted',
+      whatsappMessageId: 'owa.text',
+    });
+    const adopt = adminWrites.find((w) => w.table === 'messages');
+    expect(adopt?.row).toMatchObject({
+      sender_id: 'user-9',
+      content_type: 'text',
+      content_text: 'hi',
+      provider: 'openwa',
+    });
+    expect(adopt?.row).not.toHaveProperty('message_id');
+    expect(adopt?.filters).toEqual([
+      ['conversation_id', 'cv-1'],
+      ['message_id', 'owa.text'],
+    ]);
   });
 });
 

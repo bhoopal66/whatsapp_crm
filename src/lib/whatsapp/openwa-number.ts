@@ -27,6 +27,7 @@ import {
   openwaWebhookBaseUrl,
   revokeKey,
   startSession,
+  updateWebhookEvents,
 } from './openwa-api';
 import { teardownOpenWASession } from './openwa-cleanup';
 import { promoteOldestToPrimary } from './personal-numbers';
@@ -243,7 +244,7 @@ function explainConnectFailure(err: unknown, clean: boolean): string {
 }
 
 const ROW_COLUMNS =
-  'id, phone_number_id, access_token, waba_id, status, connected_at';
+  'id, phone_number_id, access_token, waba_id, status, connected_at, is_personal';
 
 export interface OpenWARow {
   id: string;
@@ -252,6 +253,7 @@ export interface OpenWARow {
   waba_id: string | null;
   status: string | null;
   connected_at: string | null;
+  is_personal?: boolean | null;
 }
 
 /**
@@ -295,6 +297,28 @@ export async function loadOpenWARow(
  * stamped without a phone, or a re-link to another handset, would
  * otherwise show the old number (or none) forever.
  */
+/** Rows whose webhook already carries every event, this process. */
+const eventsChecked = new Set<string>();
+
+/**
+ * A personal number connected before `message.sent` was subscribed gets
+ * it here, once per process per number: the probe runs while its owner
+ * has Settings open, which is when a missing mirror would be noticed.
+ * Best-effort; a failure is retried on the next probe.
+ */
+async function ensureOwnSendEvents(
+  rowId: string,
+  creds: { apiKey: string; sessionId: string }
+): Promise<void> {
+  if (eventsChecked.has(rowId)) return;
+  try {
+    await updateWebhookEvents(creds);
+    eventsChecked.add(rowId);
+  } catch (err) {
+    console.warn('[openwa status] webhook event update failed:', err);
+  }
+}
+
 export async function probeOpenWANumber(
   db: SupabaseClient,
   accountId: string,
@@ -328,6 +352,7 @@ export async function probeOpenWANumber(
       });
     }
     if (session.status === 'ready') {
+      if (row.is_personal === true) await ensureOwnSendEvents(row.id, creds);
       if (row.connected_at == null) {
         const { error } = await db
           .from('whatsapp_config')
