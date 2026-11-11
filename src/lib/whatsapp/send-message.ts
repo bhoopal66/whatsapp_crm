@@ -899,33 +899,59 @@ export async function sendMessageToConversation(
           )
         : (contentText ?? null);
 
-  const { data: messageRecord, error: msgError } = await db
+  const messageRow = {
+    conversation_id: conversationId,
+    sender_type: 'agent',
+    // Who sent it, when a human did. Null for API-key and bot
+    // sends — the column is nullable and every reader treats a
+    // missing sender as "not attributable to a person".
+    sender_id: senderUserId ?? null,
+    content_type: messageType,
+    content_text: persistedText,
+    media_url: mediaUrl || null,
+    template_name: templateName || null,
+    interactive_payload:
+      messageType === 'interactive' ? interactivePayload : null,
+    message_id: waMessageId,
+    status: 'sent',
+    reply_to_message_id: replyToMessageId || null,
+    // Which number carried it (migration 046). Read back by
+    // `resolveReplyChannel` so the thread keeps answering on the
+    // channel the conversation is actually happening on.
+    provider: channel.provider,
+    channel_id: channel.id,
+    is_forwarded: forwarded,
+  };
+  let { data: messageRecord, error: msgError } = await db
     .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      sender_type: 'agent',
-      // Who sent it, when a human did. Null for API-key and bot
-      // sends — the column is nullable and every reader treats a
-      // missing sender as "not attributable to a person".
-      sender_id: senderUserId ?? null,
-      content_type: messageType,
-      content_text: persistedText,
-      media_url: mediaUrl || null,
-      template_name: templateName || null,
-      interactive_payload:
-        messageType === 'interactive' ? interactivePayload : null,
-      message_id: waMessageId,
-      status: 'sent',
-      reply_to_message_id: replyToMessageId || null,
-      // Which number carried it (migration 046). Read back by
-      // `resolveReplyChannel` so the thread keeps answering on the
-      // channel the conversation is actually happening on.
-      provider: channel.provider,
-      channel_id: channel.id,
-      is_forwarded: forwarded,
-    })
+    .insert(messageRow)
     .select()
     .single();
+
+  // OpenWA echoes every send as `message.sent`, with the id the REST
+  // send returned. On a personal number the webhook files that echo
+  // (own-send.ts), and it can land before this insert: the unique
+  // (conversation_id, message_id) index then refuses the insert although
+  // the message went out. The echo's row is this send, so adopt it with
+  // this send's details instead of reporting "sent but not saved".
+  if (
+    msgError?.code === '23505' &&
+    channel.provider === 'openwa' &&
+    waMessageId
+  ) {
+    const details: Partial<typeof messageRow> = { ...messageRow };
+    delete details.conversation_id;
+    delete details.message_id;
+    const adopted = await supabaseAdmin()
+      .from('messages')
+      .update(details)
+      .eq('conversation_id', conversationId)
+      .eq('message_id', waMessageId)
+      .select()
+      .single();
+    messageRecord = adopted.data;
+    msgError = adopted.error;
+  }
 
   if (msgError) {
     console.error('[send-message] error inserting sent message:', msgError);

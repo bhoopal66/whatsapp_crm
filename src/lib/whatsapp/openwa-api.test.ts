@@ -492,7 +492,7 @@ describe('provisioning', () => {
     expect(err.status).toBe(502);
   });
 
-  it('registers the webhook with the four events and the secret', async () => {
+  it('registers the webhook with the five events and the secret', async () => {
     fetchMock.mockImplementation(async () => json(201, { id: 'wh-1' }));
     const url = 'http://host.docker.internal:3000/api/whatsapp/openwa/webhook';
     await createWebhook({
@@ -509,6 +509,7 @@ describe('provisioning', () => {
       url,
       events: [
         'message.received',
+        'message.sent',
         'message.ack',
         'message.failed',
         'session.status',

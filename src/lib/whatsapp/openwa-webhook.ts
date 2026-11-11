@@ -86,6 +86,22 @@ export interface NormalizedOpenWAWebhook extends NormalizedWebhook {
    * filing one as a contact would mint a customer nobody can reach.
    */
   unmappedLidSenders: number;
+  /**
+   * `message.sent`: the number's own sends, typed on the phone or sent
+   * by the CRM. Kept apart from `messages`: only a personal number files
+   * them (own-send.ts), and never through the inbound pipeline.
+   */
+  ownSends: NormalizedOpenWAOwnSend[];
+}
+
+/** One own send. The peer is a phone, or an `@lid` the route resolves. */
+export interface NormalizedOpenWAOwnSend {
+  id: string;
+  peerPhone: string | null;
+  peerLid: string | null;
+  text: string;
+  /** Epoch seconds, as a string (like the inbound shape). */
+  timestamp: string;
 }
 
 // ============================================================
@@ -303,6 +319,63 @@ export function normalizeOpenWAMessage(
   }
 }
 
+const OWN_SEND_PLACEHOLDER: Record<string, string> = {
+  image: '[photo]',
+  video: '[video]',
+  audio: '[audio]',
+  voice: '[voice note]',
+  document: '[document]',
+  sticker: '[sticker]',
+};
+
+/**
+ * Map one `message.sent` data object, or null. Only the number's own
+ * 1:1 sends; media is stored as a text placeholder plus its caption,
+ * because the phone's copy of the bytes is not fetched.
+ */
+export function normalizeOpenWAOwnSend(
+  raw: RawOpenWAMessage
+): NormalizedOpenWAOwnSend | null {
+  if (!raw || typeof raw.id !== 'string' || !raw.id) return null;
+  if (raw.fromMe !== true) return null;
+  if (typeof raw.kind === 'string' && raw.kind !== 'individual') return null;
+  if (raw.isGroup) return null;
+
+  const peer = raw.to ?? raw.chatId ?? '';
+  let peerPhone: string | null = null;
+  let peerLid: string | null = null;
+  if (peer.endsWith('@lid')) peerLid = peer;
+  else if (peer.endsWith('@c.us')) peerPhone = digitsOf(peer) || null;
+  if (!peerPhone && !peerLid) return null;
+
+  const body = nonEmpty(raw.body);
+  let text: string | null = null;
+  const type = raw.type ?? '';
+  if (type === 'text') {
+    text = body;
+  } else if (OWN_SEND_PLACEHOLDER[type]) {
+    // A voice note has no caption; whatsapp-web.js may put noise there.
+    const caption = type === 'voice' || type === 'audio' ? null : body;
+    text = caption
+      ? `${OWN_SEND_PLACEHOLDER[type]} ${caption}`
+      : OWN_SEND_PLACEHOLDER[type];
+  } else if (type === 'location') {
+    text = '[location]';
+  } else if (type === 'contact') {
+    const card = body ? parseVcard(body) : null;
+    text = card ? contactCardsText([card]) : null;
+  }
+  if (!text) return null;
+
+  return {
+    id: raw.id,
+    peerPhone,
+    peerLid,
+    text,
+    timestamp: secondsString(raw.timestamp),
+  };
+}
+
 // ============================================================
 // Status normalisation
 // ============================================================
@@ -357,6 +430,7 @@ export function normalizeOpenWAWebhook(
     messages: [],
     statuses: [],
     unmappedLidSenders: 0,
+    ownSends: [],
   };
   const data = payload?.data;
   if (!data || typeof data !== 'object') return out;
@@ -366,6 +440,11 @@ export function normalizeOpenWAWebhook(
       const result = normalizeOpenWAMessage(data as RawOpenWAMessage);
       if (result.message) out.messages.push(result.message);
       else if (result.reason === 'unmapped_lid') out.unmappedLidSenders++;
+      break;
+    }
+    case 'message.sent': {
+      const own = normalizeOpenWAOwnSend(data as RawOpenWAMessage);
+      if (own) out.ownSends.push(own);
       break;
     }
     // `message.failed` is sent in addition to the `message.ack` with

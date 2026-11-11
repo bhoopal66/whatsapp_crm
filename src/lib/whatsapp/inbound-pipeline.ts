@@ -1523,7 +1523,7 @@ interface ContactOutcome {
   wasCreated: boolean;
 }
 
-async function findOrCreateContact(
+export async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
   phone: string,

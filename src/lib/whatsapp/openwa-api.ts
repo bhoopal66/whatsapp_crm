@@ -191,7 +191,7 @@ interface OpenWARequestArgs {
    * session yet, or the key registry.
    */
   apiPath?: string;
-  method?: 'GET' | 'POST' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
   timeoutMs?: number;
   route?: 'session' | 'message';
@@ -1009,6 +1009,8 @@ export async function findScopedKeyIds(args: {
 /** The events the CRM's OpenWA webhook route consumes. */
 export const OPENWA_WEBHOOK_EVENTS = [
   'message.received',
+  // Own sends; filed only on a personal number (own-send.ts).
+  'message.sent',
   'message.ack',
   'message.failed',
   'session.status',
@@ -1032,4 +1034,40 @@ export async function createWebhook(args: {
     },
   });
   return { id: data?.id ?? '' };
+}
+
+/**
+ * Bring a session's CRM webhook up to `OPENWA_WEBHOOK_EVENTS`, for a
+ * number connected before an event was added. The row stores no webhook
+ * id, so ours is found by path; events it already has are kept. One GET
+ * and, only when something is missing, one PUT (operator role, so the
+ * session's scoped key suffices). Idempotent.
+ */
+export async function updateWebhookEvents(args: {
+  apiKey: string;
+  sessionId: string;
+}): Promise<'updated' | 'unchanged' | 'missing'> {
+  const hooks = await openwaRequest<
+    { id?: string; url?: string; events?: string[] }[]
+  >({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: '/webhooks',
+  });
+  const ours = (Array.isArray(hooks) ? hooks : []).find(
+    (h) => !!h.id && (h.url ?? '').endsWith('/api/whatsapp/openwa/webhook')
+  );
+  if (!ours?.id) return 'missing';
+  const have = Array.isArray(ours.events) ? ours.events : [];
+  if (have.includes('*')) return 'unchanged';
+  const missing = OPENWA_WEBHOOK_EVENTS.filter((e) => !have.includes(e));
+  if (missing.length === 0) return 'unchanged';
+  await openwaRequest<unknown>({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: `/webhooks/${encodeURIComponent(ours.id)}`,
+    method: 'PUT',
+    body: { events: [...have, ...missing] },
+  });
+  return 'updated';
 }

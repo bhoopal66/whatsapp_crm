@@ -12,6 +12,7 @@ import {
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
+import { persistOwnSend, resolveOpenWALidPhone } from '@/lib/whatsapp/own-send';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
@@ -242,6 +243,10 @@ function screenEvents(
       kind: 'message',
     });
   }
+  // Own sends last; no sender key, since they are not a sender's flood.
+  for (const own of event.ownSends) {
+    events.push({ key: `openwa:own:${configId}:${own.id}`, kind: 'status' });
+  }
   return events;
 }
 
@@ -281,8 +286,15 @@ function applyScreen(
     } else skip(outcome);
   }
 
+  const ownSends: NormalizedOpenWAWebhook['ownSends'] = [];
+  for (const own of event.ownSends) {
+    const { outcome } = decisions[next++];
+    if (outcome === 'accept') ownSends.push(own);
+    else skip(outcome);
+  }
+
   return {
-    event: { ...event, statuses, messages },
+    event: { ...event, statuses, messages, ownSends },
     overLimit,
     duplicates,
     ipLimited,
@@ -304,7 +316,10 @@ async function processOpenWAWebhook(
     await handleStatusUpdate(status, config.account_id);
   }
 
-  if (event.messages.length === 0) return;
+  // Own sends are filed only on a personal number; a company number's
+  // CRM sends are already rows, and its phone is not a person's.
+  const ownSends = config.is_personal === true ? event.ownSends : [];
+  if (event.messages.length === 0 && ownSends.length === 0) return;
 
   // Shaped by hand like the Whapi route's: this runs on the service role
   // with the row already in hand, one fewer query on the hot path.
@@ -345,4 +360,32 @@ async function processOpenWAWebhook(
     );
   }
   await Promise.all(later);
+
+  let unresolved = 0;
+  for (const own of ownSends) {
+    const peerPhone =
+      own.peerPhone ??
+      (own.peerLid
+        ? await resolveOpenWALidPhone({
+            apiKey: channel.accessToken,
+            sessionId: channel.phoneNumberId,
+            lid: own.peerLid,
+          })
+        : null);
+    if (!peerPhone) {
+      unresolved++;
+      continue;
+    }
+    await persistOwnSend(supabaseAdmin(), channel, {
+      id: own.id,
+      peerPhone,
+      text: own.text,
+      timestamp: own.timestamp,
+    });
+  }
+  if (unresolved > 0) {
+    console.warn(
+      `[openwa-webhook] skipped ${unresolved} own send(s) to a peer with no phone number`
+    );
+  }
 }
