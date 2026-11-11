@@ -131,3 +131,28 @@ export async function StaffOnlyLayout({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
+
+/**
+ * Server-side gate for the sales areas (`RESTRICTED_PATHS` in
+ * `lib/auth/departments.ts`): a person whose department is restricted
+ * (migration 192, HR by default) is sent to their own inbox, whatever
+ * their role. Owners and admins are never restricted. Composed inside
+ * each area's role guard, which still decides by role. Same shape as
+ * {@link AdminOnlyLayout}, redirects outside the try.
+ */
+export async function SalesOnlyLayout({ children }: { children: ReactNode }) {
+  let signedIn = true;
+  let allowed = false;
+
+  try {
+    const ctx = await getCurrentAccount();
+    allowed = !ctx.salesRestricted;
+  } catch {
+    signedIn = false;
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/inbox');
+
+  return <>{children}</>;
+}

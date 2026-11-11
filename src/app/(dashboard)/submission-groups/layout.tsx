@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { AgentOnlyLayout } from '@/components/auth/admin-only-layout';
+import {
+  AgentOnlyLayout,
+  SalesOnlyLayout,
+} from '@/components/auth/admin-only-layout';
 import { SubmissionGroupsWorkspace } from '@/components/submission-groups/submission-groups-workspace';
 
 // Submission groups (module 018a) are worked by agents and up: a viewer
@@ -13,7 +16,9 @@ import { SubmissionGroupsWorkspace } from '@/components/submission-groups/submis
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <AgentOnlyLayout>
-      <SubmissionGroupsWorkspace>{children}</SubmissionGroupsWorkspace>
+      <SalesOnlyLayout>
+        <SubmissionGroupsWorkspace>{children}</SubmissionGroupsWorkspace>
+      </SalesOnlyLayout>
     </AgentOnlyLayout>
   );
 }

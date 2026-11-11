@@ -31,6 +31,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { pickActiveProfile } from "./active-profile";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+import {
+  isSalesRestricted,
+  toDepartment,
+  type Department,
+} from "./departments";
 
 // ------------------------------------------------------------
 // Errors
@@ -90,6 +95,14 @@ export interface AccountContext {
   role: AccountRole;
   /** Lightweight account meta — id + name. */
   account: { id: string; name: string };
+  /** Caller's department (migration 192); 'sales' before 192. */
+  department: Department;
+  /**
+   * True if the caller's department is restricted in this account and
+   * they are not an owner/admin: the sales areas are closed to them
+   * (`lib/auth/departments.ts`).
+   */
+  salesRestricted: boolean;
 }
 
 /**
@@ -134,6 +147,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
           account_role: string | null;
           deactivated_at?: string | null;
           is_active?: boolean | null;
+          department?: string | null;
         }[]
       | null,
   );
@@ -188,13 +202,59 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     throw new ForbiddenError("Profile is not linked to an account");
   }
 
+  const department = toDepartment(data.department);
+  const salesRestricted = isSalesRestricted({
+    role: data.account_role,
+    department,
+    // Owners/admins are exempt, and a profile with no `department` key
+    // predates migration 192: neither needs the round trip.
+    restricted:
+      !hasMinRole(data.account_role, "admin") && "department" in data
+        ? await departmentRestricted(supabase, data.account_id, department)
+        : false,
+  });
+
   return {
     supabase,
     userId: user.id,
     accountId: data.account_id,
     role: data.account_role,
     account: { id: account.id, name: account.name },
+    department,
+    salesRestricted,
   };
+}
+
+/** PostgREST / Postgres codes for "no such function": 192 not applied. */
+const MISSING_FUNCTION_CODES = new Set(["PGRST202", "42883"]);
+
+/**
+ * SQL `department_restricted()` (migration 192) as the caller. Never
+ * throws, and answers false on any failure: failing closed would lock
+ * every non-admin out of the sales areas the moment the function is
+ * missing or the database hiccups, while RLS still guards the data.
+ */
+async function departmentRestricted(
+  supabase: SupabaseClient,
+  accountId: string,
+  department: Department,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("department_restricted", {
+      p_account: accountId,
+      p_department: department,
+    });
+    if (error) {
+      if (!MISSING_FUNCTION_CODES.has(String(error.code ?? ""))) {
+        console.error("[getCurrentAccount] department_restricted:", error);
+      }
+      return false;
+    }
+    return data === true;
+  } catch (err) {
+    console.error("[getCurrentAccount] department_restricted:", err);
+    return false;
+  }
 }
 
 /**
@@ -210,6 +270,23 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
     throw new ForbiddenError(
       `This action requires the '${min}' role or higher`,
     );
+  }
+  return ctx;
+}
+
+/**
+ * Resolve the caller's account context and refuse a restricted
+ * department (migration 192) with a 403. For the entry routes of the
+ * sales areas (`RESTRICTED_PATHS` in `lib/auth/departments.ts`).
+ */
+export async function requireSalesAccess(): Promise<AccountContext> {
+  return assertSalesAccess(await getCurrentAccount());
+}
+
+/** The same refusal for a context already loaded (after `requireRole`). */
+export function assertSalesAccess(ctx: AccountContext): AccountContext {
+  if (ctx.salesRestricted) {
+    throw new ForbiddenError("Your department does not have access to this");
   }
   return ctx;
 }
