@@ -376,12 +376,17 @@ async function processOpenWAWebhook(
       unresolved++;
       continue;
     }
-    await persistOwnSend(supabaseAdmin(), channel, {
-      id: own.id,
-      peerPhone,
-      text: own.text,
-      timestamp: own.timestamp,
-    });
+    try {
+      await persistOwnSend(supabaseAdmin(), channel, {
+        id: own.id,
+        peerPhone,
+        text: own.text,
+        timestamp: own.timestamp,
+      });
+    } catch (err) {
+      // One failed archive write must not drop the sends after it.
+      console.error('[openwa-webhook] own send persist failed:', err);
+    }
   }
   if (unresolved > 0) {
     console.warn(

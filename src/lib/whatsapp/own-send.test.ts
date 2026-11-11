@@ -30,6 +30,8 @@ const SEND = {
 
 const state = {
   existing: [] as { id: string }[],
+  onNumber: [] as { id: string }[],
+  summaryFilters: [] as string[],
   inserted: [{ id: 'm1' }] as { id: string }[],
   upserts: [] as { row: Record<string, unknown>; opts: unknown }[],
   updates: [] as Record<string, unknown>[],
@@ -50,7 +52,11 @@ function fakeDb() {
               },
               limit: async () => {
                 state.reads.push(filters);
-                return { data: state.existing, error: null };
+                return {
+                  data:
+                    'channel_id' in filters ? state.onNumber : state.existing,
+                  error: null,
+                };
               },
             };
             return b;
@@ -66,7 +72,14 @@ function fakeDb() {
       return {
         update: (patch: Record<string, unknown>) => {
           state.updates.push(patch);
-          return { eq: async () => ({ error: null }) };
+          return {
+            eq: () => ({
+              or: async (f: string) => {
+                state.summaryFilters.push(f);
+                return { error: null };
+              },
+            }),
+          };
         },
       };
     },
@@ -76,6 +89,8 @@ function fakeDb() {
 beforeEach(() => {
   vi.resetAllMocks();
   state.existing = [];
+  state.onNumber = [];
+  state.summaryFilters = [];
   state.inserted = [{ id: 'm1' }];
   state.upserts = [];
   state.updates = [];
@@ -116,9 +131,10 @@ describe('persistOwnSend', () => {
     state.existing = [{ id: 'old' }];
     const out = await persistOwnSend(fakeDb(), CHANNEL, SEND);
     expect(out).toBe('exists');
-    expect(state.reads).toEqual([
-      { conversation_id: 'conv-1', message_id: 'wamid-1' },
-    ]);
+    expect(state.reads[1]).toEqual({
+      conversation_id: 'conv-1',
+      message_id: 'wamid-1',
+    });
     expect(state.upserts).toHaveLength(0);
     expect(state.updates).toHaveLength(0);
   });
@@ -157,6 +173,26 @@ describe('persistOwnSend', () => {
     expect(state.updates[0].last_message_at).toBe(
       new Date(1793174400 * 1000).toISOString()
     );
+  });
+
+  it('returns exists before any contact lookup when the number already holds the id', async () => {
+    state.onNumber = [{ id: 'filed-elsewhere' }];
+    const out = await persistOwnSend(fakeDb(), CHANNEL, SEND);
+    expect(out).toBe('exists');
+    expect(state.reads[0]).toEqual({
+      channel_id: 'cfg-1',
+      message_id: 'wamid-1',
+    });
+    expect(h.findOrCreateContact).not.toHaveBeenCalled();
+    expect(state.upserts).toHaveLength(0);
+  });
+
+  it('moves the summary forward only', async () => {
+    await persistOwnSend(fakeDb(), CHANNEL, SEND);
+    const at = new Date(1793174400 * 1000).toISOString();
+    expect(state.summaryFilters).toEqual([
+      `last_message_at.is.null,last_message_at.lt.${at}`,
+    ]);
   });
 
   it('returns exists and leaves the summary when the upsert lost a race', async () => {

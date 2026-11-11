@@ -46,6 +46,18 @@ export async function persistOwnSend(
   const ownerId = channel.isPersonal ? channel.personalUserId : null;
   if (!ownerId) return 'skipped';
 
+  // The same send may already be filed under another contact row when
+  // the stored phone differs from the gateway's digits, so the id is
+  // looked up across this number first, in any conversation.
+  const { data: onNumber, error: numberReadError } = await db
+    .from('messages')
+    .select('id')
+    .eq('channel_id', channel.id)
+    .eq('message_id', send.id)
+    .limit(1);
+  if (numberReadError) throw numberReadError;
+  if (onNumber && onNumber.length > 0) return 'exists';
+
   const contact = await findOrCreateContact(
     channel.accountId,
     ownerId,
@@ -103,7 +115,9 @@ export async function persistOwnSend(
       last_message_at: createdAt,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', conversationId);
+    .eq('id', conversationId)
+    // Forward-only: a late or replayed send must not rewind the preview.
+    .or(`last_message_at.is.null,last_message_at.lt.${createdAt}`);
   if (summaryError) {
     console.error('[own-send] summary update failed:', summaryError);
   }
