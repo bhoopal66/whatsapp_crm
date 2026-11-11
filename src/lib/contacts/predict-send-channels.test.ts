@@ -17,6 +17,8 @@ function num(
     phone_number_id: `pn-${id}`,
     is_primary,
     status: 'connected',
+    is_personal: false,
+    user_id: null,
   };
 }
 

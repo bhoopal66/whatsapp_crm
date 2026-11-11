@@ -17,7 +17,8 @@ function shareCanGrant(role: AccountRole): boolean {
 /**
  * Client-side mirror of the `can_view_conversation` SQL function
  * (migration 042, extended by 044; 072 removed the number-allocation
- * grant that 060 had added).
+ * grant that 060 had added, and 190 added one narrow exception: a
+ * personal number).
  *
  * The database is the enforcement point: the inbox queries PostgREST
  * directly, so RLS is what actually decides which rows come back, and
@@ -30,14 +31,20 @@ function shareCanGrant(role: AccountRole): boolean {
  * it inline at each call site is how the two drift apart.
  *
  * Allocation to a WhatsApp number (060, 071) grants no visibility: it
- * only decides which numbers someone may send from. Keep in lockstep
- * with migrations 042, 044 and 072.
+ * only decides which numbers someone may send from. The one exception
+ * is a personal number (190): a chat on it is also visible to its owner
+ * and to the owner's team leaders (`onMyPersonalNumber`). Keep in
+ * lockstep with migrations 042, 044, 072 and 190.
  *
  * `sharedWithMe` is the caller's answer to "is there an open share of
  * this chat to me, under a bank I still hold?" (133's
  * `conversation_coordinator_shares` + `coordinator_banks`). It shows the
  * chat to an agent or team leader only, as `coordinator_share_grants`
  * does. It grants reading and replying, never editing the chat.
+ *
+ * `onMyPersonalNumber` (190) is the caller's answer to "is this chat on
+ * a personal number that I own, or whose owner I lead?". It applies to
+ * any role that can see conversations at all.
  */
 export function canViewConversation(
   role: AccountRole | null,
@@ -46,6 +53,7 @@ export function canViewConversation(
     ownerId: string | null;
     assignedId: string | null;
     sharedWithMe?: boolean;
+    onMyPersonalNumber?: boolean;
   }
 ): boolean {
   // Unknown role or unknown user: fail closed. Both mean the profile
@@ -61,6 +69,7 @@ export function canViewConversation(
   if (conversation.ownerId === userId || conversation.assignedId === userId) {
     return true;
   }
+  if (conversation.onMyPersonalNumber === true) return true;
   return conversation.sharedWithMe === true && shareCanGrant(role);
 }
 
@@ -90,6 +99,9 @@ export function canAssignToOthers(role: AccountRole | null): boolean {
  * that already from the conversation it is rendering, and it is not
  * worth a second round trip to re-ask.
  *
+ * `viaPersonalNumber` (190) is "does this contact have a chat on a
+ * personal number I own, or whose owner I lead?".
+ *
  * Note the OR: a contact you created stays yours even with no chat
  * against it, which is what makes "add a contact, then message them"
  * work.
@@ -102,11 +114,19 @@ export function canAssignToOthers(role: AccountRole | null): boolean {
 export function canViewContact(
   role: AccountRole | null,
   userId: string | null,
-  contact: { creatorId: string | null; handlesChat?: boolean }
+  contact: {
+    creatorId: string | null;
+    handlesChat?: boolean;
+    viaPersonalNumber?: boolean;
+  }
 ): boolean {
   if (!role || !userId) return false;
   if (hasMinRole(role, 'admin')) return true;
-  return contact.creatorId === userId || contact.handlesChat === true;
+  return (
+    contact.creatorId === userId ||
+    contact.handlesChat === true ||
+    contact.viaPersonalNumber === true
+  );
 }
 
 /**

@@ -97,6 +97,23 @@ describe('usableNumbers (mirrors can_use_channel, migration 061)', () => {
   it('gives nobody anything before the user is known', () => {
     expect(usableNumbers(all, allocations, null, false)).toEqual([]);
   });
+
+  describe('a personal number (190)', () => {
+    const mine = { id: 'mine', is_personal: true, user_id: 'alice' };
+    const list = [sales, mine];
+    it('is not shared: only its owner and admins may use it', () => {
+      // No allocation rows, yet carol must not get it as "shared".
+      expect(usableNumbers(list, allocations, 'carol', false)).toEqual([]);
+      expect(usableNumbers(list, allocations, 'alice', false)).toEqual([
+        sales,
+        mine,
+      ]);
+      expect(usableNumbers(list, allocations, 'carol', true)).toEqual(list);
+    });
+    it('is not offered to anyone before the user is known', () => {
+      expect(usableNumbers([mine], [], null, false)).toEqual([]);
+    });
+  });
 });
 
 describe('channelNameWithPhone', () => {

@@ -27,6 +27,10 @@ export interface AccountNumber {
   phone_number_id: string;
   is_primary: boolean;
   status: string;
+  /** A person's own OpenWA number (migration 190). */
+  is_personal: boolean;
+  /** The personal number's owner; null on company numbers. */
+  user_id: string | null;
 }
 
 /**
@@ -54,7 +58,7 @@ export function useAccountNumbers(
       const { data } = await createClient()
         .from('whatsapp_config')
         .select(
-          'id, provider, label, waba_id, phone_number_id, is_primary, status'
+          'id, provider, label, waba_id, phone_number_id, is_primary, status, is_personal, user_id'
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: true });
@@ -72,7 +76,22 @@ export function useAccountNumbers(
   return numbers;
 }
 
-/** Ids of the numbers the signed-in user is allocated to; null until loaded. */
+/**
+ * The ids `useMyNumberIds` returns: the allocated numbers plus the
+ * caller's own personal number (190), whose chats they see without any
+ * allocation row.
+ */
+export function mergeMyNumberIds(
+  allocatedIds: readonly string[],
+  personalIds: readonly string[]
+): string[] {
+  return [...new Set([...allocatedIds, ...personalIds])];
+}
+
+/**
+ * Ids of the numbers the signed-in user is allocated to, plus their own
+ * personal number; null until loaded.
+ */
 export function useMyNumberIds(): string[] | null {
   const { accountId, user } = useAuth();
   const userId = user?.id ?? null;
@@ -85,13 +104,25 @@ export function useMyNumberIds(): string[] | null {
       `whatsapp-allocations:${accountId}:${userId}`,
       60_000,
       async () => {
-        const { data } = await createClient()
-          .from('whatsapp_channel_members')
-          .select('config_id')
-          .eq('account_id', accountId)
-          .eq('user_id', userId);
-        return ((data ?? []) as Array<{ config_id: string }>).map(
-          (r) => r.config_id
+        const supabase = createClient();
+        const [alloc, personal] = await Promise.all([
+          supabase
+            .from('whatsapp_channel_members')
+            .select('config_id')
+            .eq('account_id', accountId)
+            .eq('user_id', userId),
+          supabase
+            .from('whatsapp_config')
+            .select('id')
+            .eq('account_id', accountId)
+            .eq('is_personal', true)
+            .eq('user_id', userId),
+        ]);
+        return mergeMyNumberIds(
+          ((alloc.data ?? []) as Array<{ config_id: string }>).map(
+            (r) => r.config_id
+          ),
+          ((personal.data ?? []) as Array<{ id: string }>).map((r) => r.id)
         );
       }
     )
@@ -117,7 +148,10 @@ export function predictNumber(
   provider: WhatsAppProvider,
   preferIds: ReadonlyArray<string | null | undefined>
 ): AccountNumber | null {
-  const candidates = numbers.filter((n) => n.provider === provider);
+  // A new chat starts on a company number, never on a personal one (190).
+  const candidates = numbers.filter(
+    (n) => n.provider === provider && !n.is_personal
+  );
   if (candidates.length === 0) return null;
   for (const id of preferIds) {
     const hit = id ? candidates.find((n) => n.id === id) : undefined;

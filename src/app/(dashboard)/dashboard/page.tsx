@@ -89,7 +89,7 @@ export default function DashboardPage() {
       const { data, error } = await createClient()
         .from('whatsapp_config')
         .select(
-          'id, provider, label, waba_id, phone_number_id, is_primary, status'
+          'id, provider, label, waba_id, phone_number_id, is_primary, status, is_personal, user_id'
         )
         .eq('account_id', accountId ?? '')
         .order('created_at', { ascending: true });

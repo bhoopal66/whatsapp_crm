@@ -285,3 +285,36 @@ describe('viewsOthersConversations', () => {
     expect(viewsOthersConversations(null, true)).toBe(false);
   });
 });
+
+describe('a chat on a personal number (migration 190)', () => {
+  const chat = { ownerId: 'other', assignedId: 'other' };
+
+  it('shows the chat to whoever owns or leads the number', () => {
+    for (const role of ['agent', 'team_leader'] as const) {
+      expect(
+        canViewConversation(role, 'me', { ...chat, onMyPersonalNumber: true })
+      ).toBe(true);
+    }
+  });
+  it('grants nothing without the flag', () => {
+    expect(canViewConversation('agent', 'me', chat)).toBe(false);
+    expect(
+      canViewConversation('agent', 'me', { ...chat, onMyPersonalNumber: false })
+    ).toBe(false);
+  });
+  it('still fails closed on an unknown role or user', () => {
+    const c = { ...chat, onMyPersonalNumber: true };
+    expect(canViewConversation(null, 'me', c)).toBe(false);
+    expect(canViewConversation('agent', null, c)).toBe(false);
+  });
+  it('shows the contact through the personal number', () => {
+    const contact = { creatorId: 'other' };
+    expect(
+      canViewContact('agent', 'me', { ...contact, viaPersonalNumber: true })
+    ).toBe(true);
+    expect(canViewContact('agent', 'me', contact)).toBe(false);
+    expect(
+      canViewContact(null, 'me', { ...contact, viaPersonalNumber: true })
+    ).toBe(false);
+  });
+});

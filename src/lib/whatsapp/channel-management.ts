@@ -137,8 +137,15 @@ export function channelNameWithPhone(c: {
  * may use every number; anyone else the numbers they are allocated to,
  * plus shared numbers (nobody allocated). The database enforces it;
  * this only decides what to show.
+ *
+ * A personal number (190) has no allocation rows but is NOT shared: it
+ * is usable by an admin or its owner. A team leader of the owner may
+ * use it too, but the client cannot tell who leads whom, so the picker
+ * does not offer it to them; the database decides if they try.
  */
-export function usableNumbers<T extends { id: string }>(
+export function usableNumbers<
+  T extends { id: string; is_personal?: boolean; user_id?: string | null },
+>(
   numbers: readonly T[],
   allocations: ReadonlyArray<{ config_id: string; user_id: string }>,
   userId: string | null,
@@ -147,6 +154,7 @@ export function usableNumbers<T extends { id: string }>(
   if (isAdmin) return [...numbers];
   if (!userId) return [];
   return numbers.filter((n) => {
+    if (n.is_personal) return n.user_id === userId;
     const onIt = allocations.filter((a) => a.config_id === n.id);
     return onIt.length === 0 || onIt.some((a) => a.user_id === userId);
   });
