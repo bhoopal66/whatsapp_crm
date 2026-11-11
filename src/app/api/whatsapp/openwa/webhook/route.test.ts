@@ -12,6 +12,7 @@ const SECRET = 'openwa_webhook_secret';
 
 const h = vi.hoisted(() => ({
   processMessage: vi.fn(),
+  persistOwnSend: vi.fn(),
   handleStatusUpdate: vi.fn(),
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
@@ -38,6 +39,11 @@ vi.mock('next/server', async () => {
 vi.mock('@/lib/whatsapp/inbound-pipeline', () => ({
   processMessage: h.processMessage,
   handleStatusUpdate: h.handleStatusUpdate,
+}));
+
+vi.mock('@/lib/whatsapp/own-send', () => ({
+  persistOwnSend: h.persistOwnSend,
+  resolveOpenWALidPhone: vi.fn(async () => null),
 }));
 
 vi.mock('@/lib/edge', () => ({
@@ -384,5 +390,59 @@ describe('OpenWA webhook: processing', () => {
     expect(lines.join('\n')).not.toContain('123456789');
     expect(lines.join('\n')).not.toContain('hello');
     warn.mockRestore();
+  });
+});
+
+describe('OpenWA webhook: own sends (message.sent)', () => {
+  function sentEvent() {
+    return {
+      event: 'message.sent',
+      timestamp: '2026-10-28T08:00:00.000Z',
+      sessionId: 'session-1',
+      data: {
+        id: 'own-1',
+        from: '971558233531@c.us',
+        to: '971500000001@c.us',
+        chatId: '971500000001@c.us',
+        body: 'typed on the phone',
+        type: 'text',
+        kind: 'individual',
+        fromMe: true,
+        timestamp: 1_761_638_400,
+      },
+    };
+  }
+
+  it('ignores an own send on a company number', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: false }];
+    const res = await post(sentEvent());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.persistOwnSend).not.toHaveBeenCalled();
+    expect(h.processMessage).not.toHaveBeenCalled();
+  });
+
+  it('hands an own send on a personal number to persistOwnSend', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: true }];
+    const res = await post(sentEvent());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.persistOwnSend).toHaveBeenCalledTimes(1);
+    const [, channel, send] = h.persistOwnSend.mock.calls[0];
+    expect(channel).toMatchObject({
+      id: 'cfg-openwa-1',
+      isPersonal: true,
+      personalUserId: 'user-1',
+    });
+    expect(send).toEqual({
+      id: 'own-1',
+      peerPhone: '971500000001',
+      text: 'typed on the phone',
+      timestamp: '1761638400',
+    });
+    expect(h.screenWebhook.mock.calls[0][1].events[0].key).toBe(
+      'openwa:own:cfg-openwa-1:own-1'
+    );
   });
 });

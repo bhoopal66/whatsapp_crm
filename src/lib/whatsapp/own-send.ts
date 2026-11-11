@@ -19,7 +19,7 @@ import {
   findOrCreateContact,
   findOrCreatePersonalChat,
 } from './inbound-pipeline';
-import { openwaBaseUrl } from './openwa-api';
+import { getContactPhone } from './openwa-api';
 
 export interface OwnSend {
   id: string;
@@ -120,17 +120,12 @@ export async function resolveOpenWALidPhone(args: {
   lid: string;
 }): Promise<string | null> {
   try {
-    const url = `${openwaBaseUrl()}/api/sessions/${encodeURIComponent(
-      args.sessionId
-    )}/contacts/${encodeURIComponent(args.lid)}/phone`;
-    const res = await fetch(url, {
-      headers: { 'X-API-Key': args.apiKey },
-      signal: AbortSignal.timeout(10_000),
+    return await getContactPhone({
+      apiKey: args.apiKey,
+      sessionId: args.sessionId,
+      contactId: args.lid,
+      timeoutMs: 10_000,
     });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { phone?: string | null };
-    const digits = (body?.phone ?? '').replace(/\D/g, '');
-    return digits || null;
   } catch {
     return null;
   }

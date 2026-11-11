@@ -392,3 +392,73 @@ describe('normalizeOpenWAWebhook — other events', () => {
     });
   });
 });
+
+describe('normalizeOpenWAWebhook — own sends (message.sent)', () => {
+  function sent(data: Record<string, unknown>) {
+    const base = received({}) as { data: Record<string, unknown> };
+    return {
+      ...base,
+      event: 'message.sent',
+      data: {
+        ...base.data,
+        from: '971558233531@c.us',
+        to: '971501234567@c.us',
+        chatId: '971501234567@c.us',
+        body: 'typed on the phone',
+        fromMe: true,
+        ...data,
+      },
+    };
+  }
+
+  it('files message.sent under ownSends, not messages', () => {
+    const out = normalizeOpenWAWebhook(sent({}));
+    expect(out.messages).toEqual([]);
+    expect(out.ownSends).toEqual([
+      {
+        id: 'false_971501234567@c.us_3EB0ABC123',
+        peerPhone: '971501234567',
+        peerLid: null,
+        text: 'typed on the phone',
+        timestamp: '1793174400',
+      },
+    ]);
+  });
+
+  it('still drops a fromMe message.received', () => {
+    const out = normalizeOpenWAWebhook(
+      received({ fromMe: true, to: '971501234567@c.us' })
+    );
+    expect(out.messages).toEqual([]);
+    expect(out.ownSends).toEqual([]);
+  });
+
+  it('carries an @lid peer as peerLid with no phone', () => {
+    const out = normalizeOpenWAWebhook(
+      sent({ to: '123456789@lid', chatId: '123456789@lid' })
+    );
+    expect(out.ownSends).toHaveLength(1);
+    expect(out.ownSends[0].peerLid).toBe('123456789@lid');
+    expect(out.ownSends[0].peerPhone).toBeNull();
+  });
+
+  it('stores an image as [photo] plus its caption', () => {
+    const out = normalizeOpenWAWebhook(
+      sent({ type: 'image', body: 'the brochure' })
+    );
+    expect(out.ownSends[0].text).toBe('[photo] the brochure');
+  });
+
+  it('drops a group own send', () => {
+    const out = normalizeOpenWAWebhook(
+      sent({
+        isGroup: true,
+        kind: 'group',
+        to: '120363@g.us',
+        chatId: '120363@g.us',
+      })
+    );
+    expect(out.ownSends).toEqual([]);
+    expect(out.messages).toEqual([]);
+  });
+});

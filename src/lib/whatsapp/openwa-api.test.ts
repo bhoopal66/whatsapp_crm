@@ -26,6 +26,7 @@ import {
   sendTextMessage,
   toOpenWAChatId,
   toOpenWAMediaId,
+  updateWebhookEvents,
 } from './openwa-api';
 
 const creds = { apiKey: 'key-1', sessionId: 'sess-1' };
@@ -649,5 +650,45 @@ describe('phone history', () => {
     await expect(
       getContactPhone({ ...creds, contactId: '123@lid' })
     ).resolves.toBeNull();
+  });
+});
+
+describe('updateWebhookEvents', () => {
+  const HOOK_URL = 'https://crm.example.com/api/whatsapp/openwa/webhook';
+  const ALL = [
+    'message.received',
+    'message.sent',
+    'message.ack',
+    'message.failed',
+    'session.status',
+  ];
+
+  it('makes no PUT when nothing is missing', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(200, [{ id: 'wh-1', url: HOOK_URL, events: ALL }])
+    );
+    await expect(updateWebhookEvents(creds)).resolves.toBe('unchanged');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(lastCall().init.method ?? 'GET').toBe('GET');
+  });
+
+  it('PUTs the merged list when message.sent is missing', async () => {
+    const have = ['message.received', 'message.ack', 'custom.event'];
+    fetchMock
+      .mockResolvedValueOnce(
+        json(200, [{ id: 'wh-1', url: HOOK_URL, events: have }])
+      )
+      .mockResolvedValueOnce(json(200, {}));
+    await expect(updateWebhookEvents(creds)).resolves.toBe('updated');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const c = lastCall();
+    expect(c.init.method).toBe('PUT');
+    expect(c.url).toMatch(/\/webhooks\/wh-1$/);
+    expect(c.body.events).toEqual([
+      ...have,
+      'message.sent',
+      'message.failed',
+      'session.status',
+    ]);
   });
 });
