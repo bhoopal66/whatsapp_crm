@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
   gatewayErrorFields,
+  maySendFromPersonal,
   isAcceptableMediaUrl,
   sendMessageToConversation,
   SendMessageError,
@@ -1080,5 +1081,80 @@ describe('media_url validation', () => {
       400,
       /https/
     );
+  });
+});
+
+describe('maySendFromPersonal (migration 190)', () => {
+  const personal = { id: 'ch-p', personalUserId: 'owner-1' };
+
+  function rpcDb(result: unknown) {
+    const rpc = vi.fn(async () => {
+      if (result instanceof Error) throw result;
+      return result;
+    });
+    return { db: { rpc } as unknown as SupabaseClient, rpc };
+  }
+
+  it('does not treat a null personalUserId as an owner match', async () => {
+    // The isPersonal gate lives in the caller; this function never
+    // short-circuits on a missing owner, it asks the database.
+    const { db, rpc } = rpcDb({ data: false, error: null });
+    expect(
+      await maySendFromPersonal(
+        db,
+        'acct-1',
+        { id: 'ch-1', personalUserId: null },
+        'agent-1'
+      )
+    ).toBe(false);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows the owner without a round trip', async () => {
+    const { db, rpc } = rpcDb({ data: false, error: null });
+    expect(await maySendFromPersonal(db, 'acct-1', personal, 'owner-1')).toBe(
+      true
+    );
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses another agent when can_use_channel says no', async () => {
+    const { db, rpc } = rpcDb({ data: false, error: null });
+    expect(await maySendFromPersonal(db, 'acct-1', personal, 'agent-2')).toBe(
+      false
+    );
+    expect(rpc).toHaveBeenCalledWith('can_use_channel', {
+      p_account_id: 'acct-1',
+      p_channel_id: 'ch-p',
+    });
+  });
+
+  it('allows a team leader or admin when can_use_channel says yes', async () => {
+    const { db } = rpcDb({ data: true, error: null });
+    expect(await maySendFromPersonal(db, 'acct-1', personal, 'lead-1')).toBe(
+      true
+    );
+  });
+
+  it('fails closed on an rpc error, a throw or a non-boolean', async () => {
+    for (const result of [
+      { data: true, error: { message: 'boom' } },
+      new Error('network'),
+      { data: 'true', error: null },
+    ]) {
+      const { db } = rpcDb(result);
+      expect(await maySendFromPersonal(db, 'acct-1', personal, 'lead-1')).toBe(
+        false
+      );
+    }
+  });
+
+  it('refuses a send with no sender (bot, API, system)', async () => {
+    const { db, rpc } = rpcDb({ data: true, error: null });
+    expect(await maySendFromPersonal(db, 'acct-1', personal, null)).toBe(false);
+    expect(await maySendFromPersonal(db, 'acct-1', personal, undefined)).toBe(
+      false
+    );
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

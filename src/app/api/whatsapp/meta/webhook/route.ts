@@ -1054,6 +1054,8 @@ async function processMetaEvent(
     // days) once resolved, so mirroring matters more here, not less.
     mirrorInboundMedia: config.mirror_inbound_media !== false,
     status: config.status ?? 'connected',
+    isPersonal: false,
+    personalUserId: null,
   };
 
   // Background work of each message (TypeSafe's watch), awaited once

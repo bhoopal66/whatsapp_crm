@@ -291,6 +291,8 @@ function whapiChannel(wabaId: string | null = '971581842504'): WhatsAppChannel {
     isPrimary: true,
     mirrorInboundMedia: true,
     status: 'connected',
+    isPersonal: false,
+    personalUserId: null,
   };
 }
 
@@ -498,6 +500,8 @@ function openwaChannel(): WhatsAppChannel {
     isPrimary: false,
     mirrorInboundMedia: true,
     status: 'connected',
+    isPersonal: false,
+    personalUserId: null,
   };
 }
 

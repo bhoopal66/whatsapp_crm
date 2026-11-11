@@ -118,6 +118,14 @@ export interface WhatsAppChannel {
    * first link is not announced as "connected again".
    */
   connectedAt?: string | null;
+  /**
+   * A staff member's own WhatsApp (migration 190, OpenWA only). Never
+   * the primary, never a route target and never a bot sender; only an
+   * admin, its owner or the owner's leader may send from it.
+   */
+  isPersonal: boolean;
+  /** The owner's auth user id when `isPersonal`, else null. */
+  personalUserId: string | null;
 }
 
 /** Thrown when no usable channel exists. Carries an HTTP status callers can map. */
@@ -147,10 +155,12 @@ interface ChannelRow {
   status: string;
   created_at?: string | null;
   connected_at?: string | null;
+  is_personal?: boolean | null;
+  user_id?: string | null;
 }
 
 const CHANNEL_COLUMNS =
-  'id, account_id, provider, label, phone_number_id, waba_id, access_token, app_secret, is_primary, mirror_inbound_media, status, created_at';
+  'id, account_id, provider, label, phone_number_id, waba_id, access_token, app_secret, is_primary, mirror_inbound_media, status, created_at, is_personal, user_id';
 
 /**
  * Decrypt a row into a usable channel.
@@ -201,7 +211,20 @@ function toChannel(row: ChannelRow): WhatsAppChannel {
     mirrorInboundMedia: row.mirror_inbound_media !== false,
     status: row.status,
     createdAt: row.created_at ?? null,
+    isPersonal: row.is_personal === true,
+    personalUserId: row.is_personal === true ? (row.user_id ?? null) : null,
   };
+}
+
+/**
+ * The company numbers: every channel but a person's own (migration
+ * 190). Bots, routes, the primary and automatic picks draw only from
+ * these.
+ */
+export function companyChannels(
+  channels: WhatsAppChannel[]
+): WhatsAppChannel[] {
+  return channels.filter((c) => !c.isPersonal);
 }
 
 /**
@@ -321,6 +344,8 @@ export async function loadLinkedChannelsForHealth(
 export function primaryChannel(
   channels: WhatsAppChannel[]
 ): WhatsAppChannel | null {
+  // A personal number (190) is never the account's fallback.
+  channels = companyChannels(channels);
   if (channels.length === 0) return null;
   // The partial unique index guarantees at most one primary, but a row
   // set could arrive with none (an admin deleted the primary), so fall
@@ -386,7 +411,11 @@ async function routeWithSource(
     .maybeSingle();
 
   if (route?.config_id) {
-    const routed = channels.find((c) => c.id === route.config_id);
+    // A route to a personal number (190) is ignored: the database
+    // refuses one, and a bot must never speak from a person's phone.
+    const routed = channels.find(
+      (c) => c.id === route.config_id && !c.isPersonal
+    );
     // A dangling route cannot normally survive — the FK cascades on
     // delete — but falling through to the primary is strictly better
     // than failing a customer-visible send over stale config.
@@ -513,7 +542,11 @@ export function pickByProvider(
     const hit = id ? candidates.find((c) => c.id === id) : undefined;
     if (hit) return hit;
   }
-  return candidates.find((c) => c.isPrimary) ?? candidates[0];
+  // An explicit hit above may be a personal number (a person replying
+  // in their own thread); a fallback never is (190).
+  const company = companyChannels(candidates);
+  if (company.length === 0) return null;
+  return company.find((c) => c.isPrimary) ?? company[0];
 }
 
 /**
@@ -562,8 +595,12 @@ async function startFor(
   const role = profile?.account_role as string | undefined;
   if (role === 'admin' || role === 'owner') return routed;
 
+  // A personal number (190) has no allocation rows but is not shared:
+  // nobody's new chat starts on it automatically.
   const shared = new Set(
-    channels.filter((c) => !restricted.has(c.id)).map((c) => c.id)
+    companyChannels(channels)
+      .filter((c) => !restricted.has(c.id))
+      .map((c) => c.id)
   );
   return pickChannelForUser(channels, [], routed, shared);
 }
@@ -590,7 +627,7 @@ export async function newChatProvider(
   try {
     const { data, error } = await db
       .from('whatsapp_config')
-      .select('id, provider, is_primary, created_at')
+      .select('id, provider, is_primary, created_at, is_personal, user_id')
       .eq('account_id', accountId)
       .order('provider', { ascending: true });
     if (error || !data?.length) return null;
@@ -599,6 +636,8 @@ export async function newChatProvider(
       provider: string;
       is_primary: boolean | null;
       created_at: string | null;
+      is_personal: boolean | null;
+      user_id: string | null;
     }>;
     // Only id, provider, isPrimary and createdAt steer the choice; the
     // credential fields stay empty.
@@ -618,6 +657,8 @@ export async function newChatProvider(
           mirrorInboundMedia: false,
           status: '',
           createdAt: r.created_at ?? null,
+          isPersonal: r.is_personal === true,
+          personalUserId: r.is_personal === true ? (r.user_id ?? null) : null,
         }))
     );
     if (channels.length === 0) return null;
@@ -853,11 +894,14 @@ export async function resolveBotChannel(
   // The bot answering in a pinned chat follows the pin too — the
   // customer is now talking to that number, and a flow's next question
   // arriving from the old one would undo the agent's switch.
-  const pinned = pinnedChannel(channels, sendChannelId);
+  // A personal number (190) never carries a bot: a pin or thread on one
+  // falls back to the routed company number.
+  const company = companyChannels(channels);
+  const pinned = pinnedChannel(company, sendChannelId);
   if (pinned) return pinned;
 
   const onThread = threadChannelId
-    ? channels.find((c) => c.id === threadChannelId)
+    ? company.find((c) => c.id === threadChannelId)
     : undefined;
   return onThread && onThread.provider === routed.provider ? onThread : routed;
 }
@@ -887,12 +931,14 @@ export async function resolveAiReplyChannel(
   const { channelId: threadChannelId, sendChannelId } =
     await conversationNumbers(db, conversationId);
 
-  const pinned = pinnedChannel(channels, sendChannelId);
+  // As in resolveBotChannel: never a personal number (190).
+  const company = companyChannels(channels);
+  const pinned = pinnedChannel(company, sendChannelId);
   if (pinned) return pinned;
   if (explicit) return routed;
 
   const onThread = threadChannelId
-    ? channels.find((c) => c.id === threadChannelId)
+    ? company.find((c) => c.id === threadChannelId)
     : undefined;
   return onThread && onThread.provider === routed.provider ? onThread : routed;
 }

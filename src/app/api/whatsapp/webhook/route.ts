@@ -643,5 +643,7 @@ function whapiChannel(config: any): WhatsAppChannel {
     // Per-channel opt-out for the inbound-media mirror (migration 039).
     mirrorInboundMedia: config.mirror_inbound_media !== false,
     status: config.status ?? 'connected',
+    isPersonal: false,
+    personalUserId: null,
   }
 }

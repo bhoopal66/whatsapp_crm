@@ -87,6 +87,10 @@ async function exactChannel(
       `WhatsApp number ${channelId} is not a connected number of this account`,
     )
   }
+  // A personal number (migration 190) never carries a bot.
+  if (channel.isPersonal) {
+    throw new Error(`WhatsApp number ${channelId} is a personal number`)
+  }
   return channel
 }
 
