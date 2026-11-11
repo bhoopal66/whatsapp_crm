@@ -291,25 +291,43 @@ export function ContactsPageInner({
           const ids = hits.map((h) => h.contactId);
           let owned: Set<string> | null = null;
           let tagged: Set<string> | null = null;
+          // Chunked: 500 UUIDs in one `in.(…)` is ~18 KB of URL, over
+          // Cloudflare's ~16 KB limit in front of the tunnelled install.
           if (ids.length > 0 && personalOnlyUserId) {
-            const res = await supabase
-              .from('contacts')
-              .select('id')
-              .in('id', ids)
-              .eq('user_id', personalOnlyUserId);
-            if (res.error) throw res.error;
-            owned = new Set((res.data ?? []).map((r) => r.id as string));
+            const results = await mapWithConcurrency(
+              chunkIds(ids),
+              FILTER_CHUNK_CONCURRENCY,
+              (chunk) =>
+                supabase
+                  .from('contacts')
+                  .select('id')
+                  .in('id', chunk)
+                  .eq('user_id', personalOnlyUserId)
+            );
+            const failed = results.find((r) => r.error)?.error;
+            if (failed) throw failed;
+            owned = new Set(
+              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
+            );
           }
           if (ids.length > 0 && filterGroup) {
-            const res = await supabase
-              .from('conversations')
-              .select('contact_id')
-              .in('contact_id', ids)
-              .or(filterGroup)
-              .is('personal_owner_id', null);
-            if (res.error) throw res.error;
+            const results = await mapWithConcurrency(
+              chunkIds(ids),
+              FILTER_CHUNK_CONCURRENCY,
+              (chunk) =>
+                supabase
+                  .from('conversations')
+                  .select('contact_id')
+                  .in('contact_id', chunk)
+                  .or(filterGroup)
+                  .is('personal_owner_id', null)
+            );
+            const failed = results.find((r) => r.error)?.error;
+            if (failed) throw failed;
             tagged = new Set(
-              (res.data ?? []).map((r) => r.contact_id as string)
+              results.flatMap((r) =>
+                (r.data ?? []).map((x) => x.contact_id as string)
+              )
             );
           }
           ranked = narrowHits(hits, [owned, tagged]);
