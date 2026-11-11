@@ -916,3 +916,13 @@ jobs:
       # on department and switch changes; account_departments read-only.
       - name: Verify departments
         run: supabase db query --local --file supabase/ci/verify-departments.sql
+
+      # Migration 193: fuzzy contact search. Numbers in every written
+      # form are exact, a swapped digit close; name and company typos and
+      # swapped words are close; an unrelated term finds nothing; neither
+      # search_contacts nor the SECURITY DEFINER search_contact_candidates
+      # shows an agent a contact they cannot see or anyone another
+      # account's; the two contacts SELECT policies the candidate lookup
+      # restates are pinned by text; privileges (no anon).
+      - name: Verify contact search
+        run: supabase db query --local --file supabase/ci/verify-contact-search.sql
