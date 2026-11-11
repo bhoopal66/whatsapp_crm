@@ -455,6 +455,12 @@ export async function loadUserChannelIds(
 export interface ConversationNumbers {
   channelId: string | null;
   sendChannelId: string | null;
+  /**
+   * The owner of a personal chat (migration 191): everything to and from
+   * their personal number lives in a chat of its own. Null (or absent)
+   * for a company chat.
+   */
+  personalOwnerId?: string | null;
 }
 
 async function conversationNumbers(
@@ -463,14 +469,43 @@ async function conversationNumbers(
 ): Promise<ConversationNumbers> {
   const { data } = await db
     .from('conversations')
-    .select('channel_id, send_channel_id')
+    .select('channel_id, send_channel_id, personal_owner_id')
     .eq('id', conversationId)
     .maybeSingle();
   return {
     channelId: (data?.channel_id as string | null | undefined) ?? null,
     sendChannelId: (data?.send_channel_id as string | null | undefined) ?? null,
+    personalOwnerId:
+      (data?.personal_owner_id as string | null | undefined) ?? null,
   };
 }
+
+/**
+ * A personal chat (migration 191) goes out only on its owner's own
+ * number: never a company number, and never anyone else's.
+ */
+function personalChannelFor(
+  channels: WhatsAppChannel[],
+  ownerId: string
+): WhatsAppChannel {
+  const own = channels.find(
+    (c) => c.isPersonal && c.personalUserId === ownerId
+  );
+  if (own) return own;
+  throw new ChannelError(
+    'personal_number_disconnected',
+    'This chat belongs to a personal WhatsApp number that is not connected.',
+    409
+  );
+}
+
+/** A bot never speaks in a personal chat (migration 191). */
+const PERSONAL_CHAT = () =>
+  new ChannelError(
+    'personal_chat',
+    'This chat is on a personal WhatsApp number; bots do not send in it.',
+    409
+  );
 
 /**
  * The number a person pinned this chat to (migration 061), if it is
@@ -561,8 +596,10 @@ async function startFor(
   accountId: string,
   surface: RoutingSurface,
   senderUserId: string | null | undefined,
-  channels: WhatsAppChannel[]
+  allChannels: WhatsAppChannel[]
 ): Promise<WhatsAppChannel> {
+  // A company chat never starts on a personal number (191).
+  const channels = companyChannels(allChannels);
   const { channel: routed } = await routeWithSource(
     db,
     accountId,
@@ -595,12 +632,8 @@ async function startFor(
   const role = profile?.account_role as string | undefined;
   if (role === 'admin' || role === 'owner') return routed;
 
-  // A personal number (190) has no allocation rows but is not shared:
-  // nobody's new chat starts on it automatically.
   const shared = new Set(
-    companyChannels(channels)
-      .filter((c) => !restricted.has(c.id))
-      .map((c) => c.id)
+    channels.filter((c) => !restricted.has(c.id)).map((c) => c.id)
   );
   return pickChannelForUser(channels, [], routed, shared);
 }
@@ -641,9 +674,10 @@ export async function newChatProvider(
     }>;
     // Only id, provider, isPrimary and createdAt steer the choice; the
     // credential fields stay empty.
+    // A personal number (191) only ever carries its own personal chats.
     const channels = oldestFirstPerProvider(
       rows
-        .filter((r) => isWhatsAppProvider(r.provider))
+        .filter((r) => isWhatsAppProvider(r.provider) && r.is_personal !== true)
         .map((r) => ({
           id: r.id,
           accountId,
@@ -701,10 +735,9 @@ async function replyFrom(
     .limit(1)
     .maybeSingle();
 
-  // No human sender (the public API, an integration) never follows a
-  // customer onto a personal number (migration 190): a person's own
-  // phone is theirs to send from. Fall through to the company pick.
-  const usable = senderUserId ? channels : companyChannels(channels);
+  // A company chat never answers from a personal number (191): what a
+  // customer writes to one lands in that person's own chat instead.
+  const usable = companyChannels(channels);
 
   const exactId =
     (lastInbound?.channel_id as string | null | undefined) ?? null;
@@ -818,12 +851,20 @@ export async function resolveSendChannel(
   senderUserId?: string | null,
   preloaded?: ConversationNumbers
 ): Promise<WhatsAppChannel> {
-  const channels = await loadChannels(db, accountId);
+  let channels = await loadChannels(db, accountId);
   if (channels.length === 0) throw NOT_CONFIGURED;
 
   const numbers: ConversationNumbers | null = conversationId
     ? (preloaded ?? (await conversationNumbers(db, conversationId)))
     : null;
+
+  // A personal chat (191) goes out on its owner's number or not at all,
+  // whatever the surface or the caller's preferred provider.
+  if (numbers?.personalOwnerId) {
+    return personalChannelFor(channels, numbers.personalOwnerId);
+  }
+  channels = companyChannels(channels);
+  if (channels.length === 0) throw NOT_CONFIGURED;
 
   // A person pinned this chat to a number (migration 061): everything
   // in it goes out there until someone changes it back.
@@ -893,14 +934,17 @@ export async function resolveBotChannel(
   );
   if (!conversationId) return routed;
 
-  const { channelId: threadChannelId, sendChannelId } =
-    await conversationNumbers(db, conversationId);
+  const {
+    channelId: threadChannelId,
+    sendChannelId,
+    personalOwnerId,
+  } = await conversationNumbers(db, conversationId);
+  if (personalOwnerId) throw PERSONAL_CHAT();
 
   // The bot answering in a pinned chat follows the pin too — the
   // customer is now talking to that number, and a flow's next question
   // arriving from the old one would undo the agent's switch.
-  // A personal number (190) never carries a bot: a pin or thread on one
-  // falls back to the routed company number.
+  // A personal number (190) never carries a bot.
   const company = companyChannels(channels);
   const pinned = pinnedChannel(company, sendChannelId);
   if (pinned) return pinned;
@@ -933,8 +977,12 @@ export async function resolveAiReplyChannel(
     'ai_reply',
     channels
   );
-  const { channelId: threadChannelId, sendChannelId } =
-    await conversationNumbers(db, conversationId);
+  const {
+    channelId: threadChannelId,
+    sendChannelId,
+    personalOwnerId,
+  } = await conversationNumbers(db, conversationId);
+  if (personalOwnerId) throw PERSONAL_CHAT();
 
   // As in resolveBotChannel: never a personal number (190).
   const company = companyChannels(channels);

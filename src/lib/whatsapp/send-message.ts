@@ -356,6 +356,17 @@ export function validateSendMessageParams(params: {
 }
 
 /**
+ * The database's refusal of a chat/number mix (migration 191): a
+ * personal number on a company chat, or another person's or a company
+ * number on a personal chat. SQLSTATE 23514 with HINT 'PERSONAL_CHAT'.
+ */
+export function isPersonalChatRefusal(
+  err: { code?: string | null; hint?: string | null } | null | undefined
+): boolean {
+  return err?.code === '23514' && err?.hint === 'PERSONAL_CHAT';
+}
+
+/**
  * May `senderUserId` send from this personal number (migration 190)?
  * No sender (a bot, the public API, a system send) never may. The
  * number's owner always may, without a round trip. Anyone else is asked
@@ -522,6 +533,18 @@ export async function sendMessageToConversation(
     );
   }
 
+  // A personal chat (migration 191) is a person's own conversation on
+  // their own phone: no bot, API or system send ever goes into it.
+  const personalOwnerId =
+    (conversation.personal_owner_id as string | null | undefined) ?? null;
+  if (personalOwnerId && !senderUserId) {
+    throw new SendMessageError(
+      'personal_chat',
+      'This chat is on a personal WhatsApp number, so automatic messages cannot be sent in it.',
+      409
+    );
+  }
+
   // Which connected number carries this send (migration 046). An
   // account may now have both a Whapi channel and a Meta Cloud API
   // number; for a thread reply this follows whichever the customer
@@ -546,6 +569,7 @@ export async function sendMessageToConversation(
       {
         channelId: (conversation.channel_id as string | null) ?? null,
         sendChannelId: (conversation.send_channel_id as string | null) ?? null,
+        personalOwnerId,
       }
     );
   } catch (err) {
@@ -980,8 +1004,10 @@ export async function sendMessageToConversation(
   }
 
   // Pause any active Flow run for this contact — the agent stepping in
-  // is the strongest "yield, human is here" signal. Best-effort.
-  if (pauseActiveFlows) {
+  // is the strongest "yield, human is here" signal. Best-effort. A
+  // personal chat (191) never has a flow, and a person's own chat must
+  // not stop the company chat's run.
+  if (pauseActiveFlows && !personalOwnerId) {
     try {
       const { error: pauseErr } = await supabaseAdmin()
         .from('flow_runs')

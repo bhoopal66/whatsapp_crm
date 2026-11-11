@@ -41,6 +41,7 @@ import { settleBroadcastAfterLateFailure } from '@/lib/whatsapp/broadcast-core';
 import { buildHandoffSummary } from '@/lib/ai/handoff';
 import { buildConversationContext } from '@/lib/ai/context';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
@@ -657,12 +658,21 @@ export async function processMessage(
   const contactRecord = contactOutcome.contact;
 
   // Find or create conversation
-  const convResult = await findOrCreateConversation(
-    accountId,
-    configOwnerUserId,
-    contactRecord.id,
-    channel.id
-  );
+  // A personal number (migration 191) has a chat of its own per
+  // (contact, owner); everything else lands in the company chat.
+  const convResult = channel.isPersonal
+    ? await findOrCreatePersonalChat(
+        supabaseAdmin(),
+        accountId,
+        contactRecord.id,
+        channel
+      )
+    : await findOrCreateConversation(
+        accountId,
+        configOwnerUserId,
+        contactRecord.id,
+        channel.id
+      );
   if (!convResult) return;
   const conversation = convResult.conversation;
 
@@ -1587,6 +1597,51 @@ async function findOrCreateConversation(
   // are evaluated against a NULL channel and never reach them.
   channelId: string
 ) {
+  return findOrCreateChat(supabaseAdmin(), accountId, contactId, {
+    personalOwnerId: null,
+    insert: { user_id: configOwnerUserId, channel_id: channelId },
+  });
+}
+
+/**
+ * The personal chat (migration 191) between `contactId` and the owner
+ * of the personal number `channel`: found, or created owned by and
+ * assigned to that person, on that number. Shared with the history
+ * import, which files old messages the same way. Null when the channel
+ * names no owner or a read/write fails (logged).
+ */
+export async function findOrCreatePersonalChat(
+  db: SupabaseClient,
+  accountId: string,
+  contactId: string,
+  channel: WhatsAppChannel
+) {
+  const ownerId = channel.isPersonal ? channel.personalUserId : null;
+  if (!ownerId) {
+    console.error('[inbound] personal number has no owner:', channel.id);
+    return null;
+  }
+  return findOrCreateChat(db, accountId, contactId, {
+    personalOwnerId: ownerId,
+    insert: {
+      user_id: ownerId,
+      assigned_agent_id: ownerId,
+      channel_id: channel.id,
+      personal_owner_id: ownerId,
+    },
+  });
+}
+
+async function findOrCreateChat(
+  db: SupabaseClient,
+  accountId: string,
+  contactId: string,
+  opts: {
+    // NULL = the company chat; else the personal chat of that owner.
+    personalOwnerId: string | null;
+    insert: Record<string, string>;
+  }
+) {
   // Look for an existing conversation in this account, oldest-first.
   //
   // We deliberately do NOT use `.single()` here. `.single()` errors on
@@ -1600,13 +1655,24 @@ async function findOrCreateConversation(
   // Ordering oldest-first and taking one row makes the lookup resolve to
   // the same canonical survivor the dedup migration (036) keeps, so any
   // pre-existing duplicates converge instead of compounding.
-  const { data: existingRows, error: findError } = await supabaseAdmin()
-    .from('conversations')
-    .select('*')
-    .eq('account_id', accountId)
-    .eq('contact_id', contactId)
-    .order('created_at', { ascending: true })
-    .limit(1);
+  //
+  // The company chat and each person's personal chat (191) are separate
+  // threads, so the lookup names which one it wants.
+  const lookup = () => {
+    const q = db
+      .from('conversations')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('contact_id', contactId);
+    return (
+      opts.personalOwnerId
+        ? q.eq('personal_owner_id', opts.personalOwnerId)
+        : q.is('personal_owner_id', null)
+    )
+      .order('created_at', { ascending: true })
+      .limit(1);
+  };
+  const { data: existingRows, error: findError } = await lookup();
 
   if (findError) {
     console.error('Error finding conversation:', findError);
@@ -1619,13 +1685,12 @@ async function findOrCreateConversation(
 
   // Create new conversation. Same tenancy + audit split as
   // findOrCreateContact above.
-  const { data: newConv, error: createError } = await supabaseAdmin()
+  const { data: newConv, error: createError } = await db
     .from('conversations')
     .insert({
       account_id: accountId,
-      user_id: configOwnerUserId,
       contact_id: contactId,
-      channel_id: channelId,
+      ...opts.insert,
     })
     .select()
     .single();
@@ -1633,16 +1698,11 @@ async function findOrCreateConversation(
   if (createError) {
     // Lost a race: a concurrent inbound delivery created the
     // conversation between our lookup and insert, and the unique index
-    // (migration 036) rejected the duplicate. Re-resolve the winning
-    // row instead of dropping the message — mirrors findOrCreateContact.
+    // (migrations 036 and 191) rejected the duplicate. Re-resolve the
+    // winning row instead of dropping the message — mirrors
+    // findOrCreateContact.
     if (isUniqueViolation(createError)) {
-      const { data: raced } = await supabaseAdmin()
-        .from('conversations')
-        .select('*')
-        .eq('account_id', accountId)
-        .eq('contact_id', contactId)
-        .order('created_at', { ascending: true })
-        .limit(1);
+      const { data: raced } = await lookup();
       if (raced && raced.length > 0) {
         return { conversation: raced[0], created: false };
       }

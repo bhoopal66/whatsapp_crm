@@ -10,8 +10,9 @@ import {
   sendMessageToConversation,
   validateSendMessageParams,
   SendMessageError,
+  isPersonalChatRefusal,
 } from '@/lib/whatsapp/send-message';
-import { isWhatsAppProvider } from '@/lib/whatsapp/channels';
+import { isWhatsAppProvider, loadChannels } from '@/lib/whatsapp/channels';
 import { isSendOrigin } from '@/lib/whatsapp/send-origin';
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
       // the missed-call WhatsApp draft (module 015), so the consent
       // register is re-checked before the gateway. Typed replies omit it.
       origin,
+      // Optional `true` with `contact_id`: "message from my WhatsApp" —
+      // the send goes into the caller's personal chat with this contact
+      // (migration 191), on their own personal number.
+      personal,
     } = body;
 
     if ((!conversationIdInput && !contact_id) || !message_type) {
@@ -85,6 +90,13 @@ export async function POST(request: Request) {
     if (provider != null && !isWhatsAppProvider(provider)) {
       return NextResponse.json(
         { error: "provider must be 'whapi', 'meta' or 'openwa'" },
+        { status: 400 }
+      );
+    }
+
+    if (personal != null && typeof personal !== 'boolean') {
+      return NextResponse.json(
+        { error: 'personal must be a boolean' },
         { status: 400 }
       );
     }
@@ -152,14 +164,41 @@ export async function POST(request: Request) {
         );
       }
 
+      // "Message from my WhatsApp": only for someone with a personal
+      // number of their own connected in this workspace.
+      let personalChannelId: string | null = null;
+      if (personal === true) {
+        const own = (await loadChannels(supabase, accountId)).find(
+          (c) => c.isPersonal && c.personalUserId === userId
+        );
+        if (!own) {
+          return NextResponse.json(
+            {
+              error: 'You have no personal WhatsApp number connected.',
+              code: 'no_personal_number',
+            },
+            { status: 409 }
+          );
+        }
+        personalChannelId = own.id;
+      }
+
       let resolved: string | null;
       try {
-        resolved = await findOrCreateConversation(
-          supabase,
-          accountId,
-          userId,
-          contact_id
-        );
+        resolved = personalChannelId
+          ? await findOrCreatePersonalConversation(
+              supabase,
+              accountId,
+              userId,
+              contact_id,
+              personalChannelId
+            )
+          : await findOrCreateConversation(
+              supabase,
+              accountId,
+              userId,
+              contact_id
+            );
       } catch (err) {
         // Map SendMessageError here rather than letting it reach the
         // outer catch, which collapses everything unknown to a generic
@@ -278,11 +317,14 @@ async function findOrCreateConversation(
   userId: string,
   contactId: string
 ): Promise<string | null> {
+  // The company chat: a contact's personal chats (migration 191) are
+  // separate threads and never picked here.
   const { data: existing } = await supabase
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .is('personal_owner_id', null)
     .maybeSingle();
 
   if (existing) return existing.id;
@@ -315,6 +357,66 @@ async function findOrCreateConversation(
     }
     console.error(
       'Error creating conversation for contact send:',
+      error.message
+    );
+    return null;
+  }
+
+  return created.id;
+}
+
+/**
+ * The caller's personal chat (migration 191) with this contact, found or
+ * created on their own personal number, owned by and assigned to them.
+ * Under the caller's RLS: an owner always sees their own personal chat,
+ * so a unique violation here is a concurrent create, re-read once.
+ */
+async function findOrCreatePersonalConversation(
+  supabase: SendSupabase,
+  accountId: string,
+  userId: string,
+  contactId: string,
+  channelId: string
+): Promise<string | null> {
+  const find = () =>
+    supabase
+      .from('conversations')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('contact_id', contactId)
+      .eq('personal_owner_id', userId)
+      .maybeSingle();
+
+  const { data: existing } = await find();
+  if (existing) return existing.id;
+
+  const { data: created, error } = await supabase
+    .from('conversations')
+    .insert({
+      account_id: accountId,
+      user_id: userId,
+      contact_id: contactId,
+      assigned_agent_id: userId,
+      personal_owner_id: userId,
+      channel_id: channelId,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      const { data: raced } = await find();
+      if (raced) return raced.id;
+    }
+    if (isPersonalChatRefusal(error)) {
+      throw new SendMessageError(
+        'personal_chat',
+        'This WhatsApp number cannot be used for this chat.',
+        409
+      );
+    }
+    console.error(
+      'Error creating personal conversation for contact send:',
       error.message
     );
     return null;
