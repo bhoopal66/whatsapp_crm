@@ -84,6 +84,8 @@ interface NumberRow {
   phone_number_id: string;
   waba_id: string | null;
   is_primary: boolean;
+  is_personal?: boolean;
+  user_id?: string | null;
   status: string;
   registered_at: string | null;
   /** People ticked by hand. */
@@ -525,6 +527,7 @@ export function WhatsAppNumbers() {
             const shownPhone = isLinkedDeviceNumber(row.provider)
               ? row.waba_id || rowHealth?.phone
               : rowHealth?.phone;
+            const isPersonal = row.is_personal === true;
             const access = savedAccess(row);
             const teamNames = row.team_ids
               .map((id) => teamById.get(id)?.name)
@@ -574,19 +577,21 @@ export function WhatsAppNumbers() {
                         <h3 className="text-foreground truncate text-sm font-semibold">
                           {channelDisplayName(row)}
                         </h3>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-muted-foreground size-7"
-                          onClick={() => {
-                            setRenamingId(row.id);
-                            setRenameValue(row.label ?? '');
-                          }}
-                          title={t('rename')}
-                          aria-label={t('rename')}
-                        >
-                          <Pencil className="size-3.5" />
-                        </Button>
+                        {!isPersonal && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-muted-foreground size-7"
+                            onClick={() => {
+                              setRenamingId(row.id);
+                              setRenameValue(row.label ?? '');
+                            }}
+                            title={t('rename')}
+                            aria-label={t('rename')}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        )}
                       </div>
                     )}
 
@@ -618,6 +623,15 @@ export function WhatsAppNumbers() {
                             ? t('connected')
                             : t('disconnected')}
                       </Badge>
+                      {isPersonal ? (
+                        <Badge variant="secondary">
+                          {t('personalLabel', {
+                            name: row.user_id
+                              ? nameOf(row.user_id)
+                              : t('unknownMember'),
+                          })}
+                        </Badge>
+                      ) : null}
                       {row.is_primary ? (
                         <Badge className="gap-1">
                           <Star className="size-3" />
@@ -635,7 +649,7 @@ export function WhatsAppNumbers() {
                     {busyId === row.id && (
                       <Loader2 className="text-muted-foreground size-4 animate-spin" />
                     )}
-                    {!row.is_primary && (
+                    {!row.is_primary && !isPersonal && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -702,43 +716,49 @@ export function WhatsAppNumbers() {
                   </div>
                 )}
 
-                <div className="border-border bg-muted/30 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2.5">
-                  <div className="min-w-0 text-sm">
-                    <p className="text-foreground font-medium">
-                      {access.shared
-                        ? t('sharedTitle')
-                        : t('allocatedTitle', { count: access.people.length })}
-                    </p>
-                    {teamNames.length > 0 && (
-                      <p className="text-muted-foreground mt-0.5 truncate text-xs">
-                        {t('teamsLine', { names: teamNames.join(', ') })}
+                {!isPersonal && (
+                  <div className="border-border bg-muted/30 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+                    <div className="min-w-0 text-sm">
+                      <p className="text-foreground font-medium">
+                        {access.shared
+                          ? t('sharedTitle')
+                          : t('allocatedTitle', {
+                              count: access.people.length,
+                            })}
                       </p>
-                    )}
-                    <p
-                      className={
-                        access.teamsEmpty && access.shared
-                          ? 'text-warning mt-0.5 text-xs'
-                          : 'text-muted-foreground mt-0.5 truncate text-xs'
+                      {teamNames.length > 0 && (
+                        <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                          {t('teamsLine', { names: teamNames.join(', ') })}
+                        </p>
+                      )}
+                      <p
+                        className={
+                          access.teamsEmpty && access.shared
+                            ? 'text-warning mt-0.5 text-xs'
+                            : 'text-muted-foreground mt-0.5 truncate text-xs'
+                        }
+                      >
+                        {access.shared
+                          ? access.teamsEmpty
+                            ? t('teamsEmptyShared')
+                            : t('sharedBody')
+                          : access.people.map(nameOf).join(', ')}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openAccess(row)}
+                      disabled={busyId !== null || !membersLoaded}
+                      title={
+                        membersLoaded ? undefined : t('membersUnavailable')
                       }
                     >
-                      {access.shared
-                        ? access.teamsEmpty
-                          ? t('teamsEmptyShared')
-                          : t('sharedBody')
-                        : access.people.map(nameOf).join(', ')}
-                    </p>
+                      <Users className="size-4" />
+                      {t('manageAccess')}
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openAccess(row)}
-                    disabled={busyId !== null || !membersLoaded}
-                    title={membersLoaded ? undefined : t('membersUnavailable')}
-                  >
-                    <Users className="size-4" />
-                    {t('manageAccess')}
-                  </Button>
-                </div>
+                )}
               </Card>
             );
           })}

@@ -28,6 +28,9 @@ interface ChannelListRow {
   phone_number_id: string;
   waba_id: string | null;
   is_primary: boolean;
+  /** A person's own number (migration 190); `user_id` is its owner. */
+  is_personal: boolean;
+  user_id: string | null;
   status: string;
   registered_at: string | null;
   created_at: string | null;
@@ -48,7 +51,7 @@ export async function GET() {
       supabase
         .from('whatsapp_config')
         .select(
-          'id, provider, label, phone_number_id, waba_id, is_primary, status, registered_at, created_at'
+          'id, provider, label, phone_number_id, waba_id, is_primary, is_personal, user_id, status, registered_at, created_at'
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: true }),

@@ -79,6 +79,7 @@ export async function GET() {
         phone_number_id: c.phoneNumberId,
         waba_id: c.wabaId,
         is_primary: c.isPrimary,
+        is_personal: c.isPersonal,
         status: c.status,
       })),
       routes: ROUTING_SURFACES.map((surface) => {

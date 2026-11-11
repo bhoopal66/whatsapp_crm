@@ -467,6 +467,7 @@
       "doNotContact": "This customer is marked do-not-contact, so the missed-call draft was not sent.",
       "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent.",
       "sharedChatNumber": "This chat was shared with you, so you can reply only on the chat's own WhatsApp number.",
+      "personalNumber": "You can't send from this colleague's own WhatsApp number. Switch the chat to a company number.",
       "attachmentExpired": "This attachment is too old to send again and has been removed. Attach the file again."
     },
     "composer": {
@@ -2436,6 +2437,7 @@
       "connected": "Connected",
       "disconnected": "Not connected",
       "default": "Default",
+      "personalLabel": "Personal · {name}",
       "makeDefault": "Make default",
       "madeDefault": "{name} is now the default number",
       "chatCount": "{count} {count, plural, =1 {chat} other {chats}}",

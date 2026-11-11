@@ -51,6 +51,8 @@ const CHANNEL = {
   phone_number_id: 'MANTIS-1',
   waba_id: '971500000000',
   is_primary: true,
+  is_personal: false,
+  user_id: null,
   status: 'connected',
   registered_at: null,
   created_at: null,
@@ -116,6 +118,8 @@ describe('GET /api/whatsapp/channels', () => {
     expect(first.team_member_ids).toEqual(['bo', 'cy']);
     expect(first.team_ids).toEqual(['team-a']);
     expect(first.conversation_count).toBe(3);
+    expect(first.is_personal).toBe(false);
+    expect(first.user_id).toBeNull();
 
     expect(second.member_ids).toEqual([]);
     expect(second.team_member_ids).toEqual([]);

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { myWhatsAppView, parsePersonalNumberInfo } from './my-whatsapp';
+import {
+  isPersonalNumberRefusal,
+  myWhatsAppView,
+  parsePersonalNumberInfo,
+  routableNumbers,
+} from './my-whatsapp';
 
 const number = {
   id: 'c1',
@@ -57,5 +62,31 @@ describe('parsePersonalNumberInfo', () => {
     expect(
       parsePersonalNumberInfo({ allowed: true, configured: true, number: {} })
     ).toEqual({ allowed: true, configured: true, number: null });
+  });
+});
+
+describe('isPersonalNumberRefusal', () => {
+  it('matches only the 409 personal_number code', () => {
+    expect(isPersonalNumberRefusal(409, { code: 'personal_number' })).toBe(
+      true
+    );
+    expect(isPersonalNumberRefusal(400, { code: 'personal_number' })).toBe(
+      false
+    );
+    expect(isPersonalNumberRefusal(409, { code: 'shared_chat_number' })).toBe(
+      false
+    );
+    expect(isPersonalNumberRefusal(409, null)).toBe(false);
+  });
+});
+
+describe('routableNumbers', () => {
+  it('leaves personal numbers out', () => {
+    const rows = [
+      { id: 'a', is_personal: false },
+      { id: 'b', is_personal: true },
+      { id: 'c' },
+    ];
+    expect(routableNumbers(rows).map((r) => r.id)).toEqual(['a', 'c']);
   });
 });

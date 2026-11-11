@@ -66,3 +66,23 @@ export function parsePersonalNumberInfo(
       : null;
   return { allowed: b.allowed, configured: b.configured, number };
 }
+
+/** `send-message.ts`'s refusal of a send from someone else's own number. */
+export function isPersonalNumberRefusal(
+  status: number,
+  payload: unknown
+): boolean {
+  return (
+    status === 409 &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { code?: unknown }).code === 'personal_number'
+  );
+}
+
+/** Numbers a route may point at: a person's own is never one. */
+export function routableNumbers<T extends { is_personal?: boolean }>(
+  numbers: readonly T[]
+): T[] {
+  return numbers.filter((n) => !n.is_personal);
+}

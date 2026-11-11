@@ -107,6 +107,7 @@ import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { canAssignToOthers } from '@/lib/auth/conversation-visibility';
 import { isSharedChatNumberRefusal } from '@/lib/coordinators/ui';
+import { isPersonalNumberRefusal } from '@/lib/whatsapp/my-whatsapp';
 import { resolveConversationHandler } from '@/lib/inbox/handler';
 import {
   MESSAGE_PAGE_SELECT,
@@ -1125,7 +1126,9 @@ export function MessageThread({
           )
         : isSharedChatNumberRefusal(res.status, payload)
           ? tFailedSend('sharedChatNumber')
-          : sendFailureReason(res.status, payload);
+          : isPersonalNumberRefusal(res.status, payload)
+            ? tFailedSend('personalNumber')
+            : sendFailureReason(res.status, payload);
       console.error(`Failed to send ${message.content_type}:`, reason);
       toast.error(
         `${toastPrefix}: ${reason}`,

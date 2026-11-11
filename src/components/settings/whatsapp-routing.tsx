@@ -1,5 +1,6 @@
 'use client';
 
+import { routableNumbers } from '@/lib/whatsapp/my-whatsapp';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Star, Info } from 'lucide-react';
@@ -48,6 +49,7 @@ interface RoutingChannel {
   phone_number_id: string;
   waba_id: string | null;
   is_primary: boolean;
+  is_personal?: boolean;
   status: string;
 }
 
@@ -84,7 +86,7 @@ export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
       const res = await fetch('/api/whatsapp/routes');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load routing');
-      setChannels(data.channels ?? []);
+      setChannels(routableNumbers((data.channels ?? []) as RoutingChannel[]));
       setRows(
         ((data.routes ?? []) as RoutingRow[]).filter(
           (r) => !HIDDEN_SURFACES.includes(r.surface)
