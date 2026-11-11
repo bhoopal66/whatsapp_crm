@@ -36,11 +36,13 @@ import {
   initialConnectState,
   cleanupPlan,
   isPolling,
+  openwaSessionUrls,
   openwaStatusLabelKey,
   settleUnfinishedSession,
+  OPENWA_ADMIN_BASE,
 } from '@/lib/whatsapp/openwa-connect';
 
-const BASE = '/api/whatsapp/config/openwa';
+type SessionUrls = ReturnType<typeof openwaSessionUrls>;
 
 /**
  * Best-effort removal of a session that never linked. Returns an error
@@ -48,11 +50,12 @@ const BASE = '/api/whatsapp/config/openwa';
  * could not be reached, so the session may still be running there.
  */
 async function removeSession(
+  urls: SessionUrls,
   configId: string,
   onIncomplete: () => void
 ): Promise<string | null> {
   try {
-    const res = await fetch(`${BASE}/${encodeURIComponent(configId)}`, {
+    const res = await fetch(urls.session(configId), {
       method: 'DELETE',
     });
     const body = await res.json().catch(() => ({}));
@@ -68,10 +71,11 @@ async function removeSession(
 
 /** One status read, for the late-link check; null when it did not answer. */
 async function checkSession(
+  urls: SessionUrls,
   configId: string
 ): Promise<{ status: string; phone: string | null } | null> {
   try {
-    const res = await fetch(`${BASE}/${encodeURIComponent(configId)}/status`, {
+    const res = await fetch(urls.status(configId), {
       cache: 'no-store',
     });
     const body = await res.json().catch(() => ({}));
@@ -89,13 +93,20 @@ export function OpenWAConnectDialog({
   open,
   onOpenChange,
   onConnected,
+  baseUrl = OPENWA_ADMIN_BASE,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called once when the phone is linked, to refresh the list. */
   onConnected: () => void;
+  /**
+   * The routes to drive: the admin's by default, or a person's own
+   * (`OPENWA_PERSONAL_BASE`), which share the same shape.
+   */
+  baseUrl?: string;
 }) {
   const t = useTranslations('Settings.numbers');
+  const urls = openwaSessionUrls(baseUrl);
   const [state, dispatch] = useReducer(connectReducer, initialConnectState);
   const [label, setLabel] = useState('');
   const [pollSeq, setPollSeq] = useState(0);
@@ -122,10 +133,9 @@ export function OpenWAConnectDialog({
     const timer = setTimeout(
       async () => {
         try {
-          const res = await fetch(
-            `${BASE}/${encodeURIComponent(configId)}/status`,
-            { cache: 'no-store' }
-          );
+          const res = await fetch(openwaSessionUrls(baseUrl).status(configId), {
+            cache: 'no-store',
+          });
           const body = await res.json().catch(() => ({}));
           if (!alive) return;
           if (res.ok && typeof body?.status === 'string') {
@@ -151,7 +161,7 @@ export function OpenWAConnectDialog({
       alive = false;
       clearTimeout(timer);
     };
-  }, [polling, configId, pollSeq]);
+  }, [polling, configId, pollSeq, baseUrl]);
 
   useEffect(() => {
     if (state.phase === 'connected') onConnectedRef.current();
@@ -181,7 +191,7 @@ export function OpenWAConnectDialog({
     setPollSeq(0);
     dispatch({ type: 'start' });
     try {
-      const res = await fetch(BASE, {
+      const res = await fetch(urls.create, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: label.trim() }),
@@ -210,9 +220,11 @@ export function OpenWAConnectDialog({
 
   function cleanupDeps(id: string) {
     return {
-      checkStatus: () => checkSession(id),
+      checkStatus: () => checkSession(urls, id),
       remove: () =>
-        removeSession(id, () => toast.warning(t('openwa.gatewayIncomplete'))),
+        removeSession(urls, id, () =>
+          toast.warning(t('openwa.gatewayIncomplete'))
+        ),
     };
   }
 

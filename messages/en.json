@@ -2516,6 +2516,23 @@
         }
       }
     },
+    "myWhatsApp": {
+      "title": "My WhatsApp",
+      "explainer": "Chats on this number are visible to you, your team leader and admins. Automations, flows, AI replies and broadcasts don't use it.",
+      "notConfigured": "OpenWA isn't set up on this server",
+      "connect": "Connect my WhatsApp",
+      "defaultLabel": "My WhatsApp",
+      "noPhone": "Phone number not known yet",
+      "statusConnected": "Connected",
+      "statusDisconnected": "Not connected",
+      "disconnect": "Disconnect",
+      "removeTitle": "Disconnect your WhatsApp?",
+      "removeBody": "This logs your phone out of the CRM. Messages stop sending and arriving here; chat history is kept. You can connect again later by scanning a new code.",
+      "removed": "Your WhatsApp was disconnected",
+      "removeFailed": "Couldn't disconnect your WhatsApp",
+      "gatewayIncomplete": "Disconnected here, but the OpenWA server could not be reached; ask an admin to remove the session there.",
+      "cancel": "Cancel"
+    },
     "sections": {
       "overview": "Overview",
       "profile": "Profile",

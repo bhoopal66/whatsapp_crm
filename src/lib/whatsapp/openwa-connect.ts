@@ -334,3 +334,24 @@ export function openwaStatusLabelKey(status: string): OpenWAStatusLabelKey {
       return 'starting';
   }
 }
+
+/** The admin routes the connect dialog drives by default. */
+export const OPENWA_ADMIN_BASE = '/api/whatsapp/config/openwa';
+
+/** The routes a person drives for their own number (migration 190). */
+export const OPENWA_PERSONAL_BASE = '/api/whatsapp/personal';
+
+/**
+ * The three URLs the connect dialog fetches under one base: POST
+ * `create`, GET `status(id)`, DELETE `session(id)`. The admin and the
+ * personal routes share this shape.
+ */
+export function openwaSessionUrls(base: string) {
+  const session = (configId: string) =>
+    `${base}/${encodeURIComponent(configId)}`;
+  return {
+    create: base,
+    session,
+    status: (configId: string) => `${session(configId)}/status`,
+  };
+}

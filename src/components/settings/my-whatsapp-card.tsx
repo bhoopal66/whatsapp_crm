@@ -1,0 +1,195 @@
+'use client';
+
+// ============================================================
+// Settings → Profile: "My WhatsApp" (migration 190).
+//
+// A person an admin allowed connects their own phone through OpenWA,
+// with the same connect dialog the admin uses, pointed at the personal
+// routes. Which face shows is `myWhatsAppView` (lib/whatsapp/my-whatsapp);
+// this file renders it and does the fetches. Hidden from everyone who
+// is neither allowed nor holding a number, bank guests included (the
+// route answers them 403).
+// ============================================================
+
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
+import { Loader2, Smartphone } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { invalidateCached } from '@/lib/client-cache';
+import {
+  OPENWA_PERSONAL_BASE,
+  isLinkedStatus,
+  openwaSessionUrls,
+} from '@/lib/whatsapp/openwa-connect';
+import {
+  myWhatsAppView,
+  parsePersonalNumberInfo,
+  type PersonalNumberInfo,
+} from '@/lib/whatsapp/my-whatsapp';
+import { OpenWAConnectDialog } from './openwa-connect-dialog';
+
+export function MyWhatsAppCard() {
+  const t = useTranslations('Settings.myWhatsApp');
+  const [info, setInfo] = useState<PersonalNumberInfo | null>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(OPENWA_PERSONAL_BASE, { cache: 'no-store' });
+      const body = await res.json().catch(() => null);
+      setInfo(res.ok ? parsePersonalNumberInfo(body) : null);
+    } catch {
+      setInfo(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onConnected = useCallback(() => {
+    invalidateCached('whatsapp-channels:');
+    void load();
+  }, [load]);
+
+  async function disconnect(id: string) {
+    setRemoving(true);
+    try {
+      const res = await fetch(
+        openwaSessionUrls(OPENWA_PERSONAL_BASE).session(id),
+        { method: 'DELETE' }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(
+          typeof body?.error === 'string' ? body.error : t('removeFailed')
+        );
+        return;
+      }
+      if (body?.gatewayCleanup === 'incomplete') {
+        toast.warning(t('gatewayIncomplete'));
+      } else {
+        toast.success(t('removed'));
+      }
+      setConfirmOpen(false);
+      invalidateCached('whatsapp-channels:');
+      await load();
+    } catch {
+      toast.error(t('removeFailed'));
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  const view = myWhatsAppView(info);
+  if (view.kind === 'hidden') return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-4">
+        <div className="flex items-start gap-3">
+          <Smartphone className="text-muted-foreground mt-0.5 size-5 shrink-0" />
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-foreground text-sm font-semibold">
+              {t('title')}
+            </h3>
+            <p className="text-muted-foreground text-sm">{t('explainer')}</p>
+          </div>
+        </div>
+
+        {view.kind === 'notConfigured' && (
+          <p className="text-muted-foreground text-sm">{t('notConfigured')}</p>
+        )}
+
+        {view.kind === 'connect' && (
+          <Button onClick={() => setConnectOpen(true)}>{t('connect')}</Button>
+        )}
+
+        {view.kind === 'connected' && (
+          <div className="border-border bg-card-2 flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-foreground truncate text-sm font-medium">
+                {view.number.label || t('defaultLabel')}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {view.number.phone
+                  ? `+${view.number.phone.replace(/^\+/, '')}`
+                  : t('noPhone')}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {isLinkedStatus(view.number.status) ? (
+                <Badge className="bg-success-soft text-success">
+                  {t('statusConnected')}
+                </Badge>
+              ) : (
+                <Badge className="bg-destructive-soft text-destructive">
+                  {t('statusDisconnected')}
+                </Badge>
+              )}
+              <Button variant="outline" onClick={() => setConfirmOpen(true)}>
+                {t('disconnect')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+
+      <OpenWAConnectDialog
+        open={connectOpen}
+        onOpenChange={setConnectOpen}
+        onConnected={onConnected}
+        baseUrl={OPENWA_PERSONAL_BASE}
+      />
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(o) => !o && !removing && setConfirmOpen(false)}
+      >
+        <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-popover-foreground">
+              {t('removeTitle')}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {t('removeBody')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmOpen(false)}
+              disabled={removing}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              onClick={() =>
+                view.kind === 'connected' && void disconnect(view.number.id)
+              }
+              disabled={removing}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {removing ? <Loader2 className="size-4 animate-spin" /> : null}
+              {t('disconnect')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}

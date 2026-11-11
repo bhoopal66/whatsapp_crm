@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  OPENWA_ADMIN_BASE,
   OPENWA_GIVE_UP_MS,
+  OPENWA_PERSONAL_BASE,
   OPENWA_POLL_INTERVAL_MS,
   cleanupPlan,
   connectReducer,
@@ -10,6 +12,7 @@ import {
   isLinkedStatus,
   isNotLinkedStatus,
   isPolling,
+  openwaSessionUrls,
   needsCleanup,
   openwaStatusLabelKey,
   settleUnfinishedSession,
@@ -308,5 +311,21 @@ describe('late link on close', () => {
       at: T0,
     });
     expect(connectReducer(notLinked, { type: 'lateLinked' })).toBe(notLinked);
+  });
+});
+
+describe('openwaSessionUrls', () => {
+  it('builds the admin routes the dialog always used', () => {
+    const urls = openwaSessionUrls(OPENWA_ADMIN_BASE);
+    expect(urls.create).toBe('/api/whatsapp/config/openwa');
+    expect(urls.status('a b')).toBe('/api/whatsapp/config/openwa/a%20b/status');
+    expect(urls.session('a b')).toBe('/api/whatsapp/config/openwa/a%20b');
+  });
+
+  it('builds the personal routes', () => {
+    const urls = openwaSessionUrls(OPENWA_PERSONAL_BASE);
+    expect(urls.create).toBe('/api/whatsapp/personal');
+    expect(urls.status('c1')).toBe('/api/whatsapp/personal/c1/status');
+    expect(urls.session('c1')).toBe('/api/whatsapp/personal/c1');
   });
 });

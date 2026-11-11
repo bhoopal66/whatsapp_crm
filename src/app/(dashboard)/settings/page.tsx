@@ -41,6 +41,9 @@ const ProfileForm = dynamic(
   () => import('@/components/settings/profile-form').then((m) => m.ProfileForm),
   { loading: PanelLoading }
 );
+const MyWhatsAppCard = dynamic(() =>
+  import('@/components/settings/my-whatsapp-card').then((m) => m.MyWhatsAppCard)
+);
 const WorkspacesPanel = dynamic(
   () =>
     import('@/components/settings/workspaces-panel').then(
@@ -431,7 +434,14 @@ function SettingsPageInner() {
 
   const panel: Record<SettingsSection, ReactNode> = {
     overview: <SettingsOverview groups={groups} onSelect={go} />,
-    profile: <ProfileForm />,
+    profile: (
+      // Everyone opens Profile; the card shows itself only to someone an
+      // admin allowed a personal WhatsApp number (or who still has one).
+      <div className="space-y-6">
+        <ProfileForm />
+        <MyWhatsAppCard />
+      </div>
+    ),
     workspaces: <WorkspacesPanel />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
