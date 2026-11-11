@@ -88,18 +88,30 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+DECLARE
+  v_ok boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.is_personal THEN
       NEW.is_primary := FALSE;
-      IF NOT EXISTS (
-        SELECT 1 FROM public.profiles p
-         WHERE p.user_id = NEW.user_id
-           AND p.account_id = NEW.account_id
-           AND p.deactivated_at IS NULL
-           AND p.account_role <> 'bank_guest'
-           AND p.may_connect_personal_whatsapp
-      ) THEN
+      -- FOR SHARE, not a plain read: set_member_personal_whatsapp(false)
+      -- locks this row FOR UPDATE and then checks that no personal
+      -- number exists. With a plain read a revoke and a connect running
+      -- at once could both commit (the revoke not seeing the uncommitted
+      -- number, the insert not seeing the uncommitted revoke). The share
+      -- lock makes them take turns, and under READ COMMITTED the locked
+      -- read sees the newest committed row. Eligibility is the RPC's
+      -- grant rule (live staff who can send), checked again here because
+      -- the person may have been demoted since the grant.
+      SELECT p.deactivated_at IS NULL
+             AND p.account_role::text IN ('owner', 'admin', 'team_leader', 'agent')
+             AND p.may_connect_personal_whatsapp
+        INTO v_ok
+        FROM public.profiles p
+       WHERE p.user_id = NEW.user_id
+         AND p.account_id = NEW.account_id
+         FOR SHARE;
+      IF NOT coalesce(v_ok, FALSE) THEN
         RAISE EXCEPTION 'This person may not connect a personal WhatsApp number'
           USING ERRCODE = '42501', HINT = 'PERSONAL_NOT_ALLOWED';
       END IF;
@@ -753,7 +765,10 @@ AS $$
         WHERE w.id = p_channel_id
           AND w.account_id = p_account_id
           AND (
-            w.user_id = auth.uid()
+            -- The owner must still be able to send here: a person
+            -- demoted to viewer keeps the number (an admin deletes it)
+            -- but may not use it.
+            (w.user_id = auth.uid() AND is_account_member(p_account_id, 'agent'))
             OR (is_account_member(p_account_id, 'team_leader')
                 AND leads_teammate(p_account_id, w.user_id))
           )
@@ -774,4 +789,4 @@ AS $$
   );
 $$;
 COMMENT ON FUNCTION public.can_use_channel(UUID, UUID) IS
-  'May the calling user send from this number? Admins: any number on the account. A personal number (190): its owner and the leaders of their teams. Others: numbers they are allocated to, and shared numbers (no allocation). See migrations 061, 062, 190.';
+  'May the calling user send from this number? Admins: any number on the account. A personal number (190): its owner while an agent or above there, and the leaders of their teams. Others: numbers they are allocated to, and shared numbers (no allocation). See migrations 061, 062, 190.';

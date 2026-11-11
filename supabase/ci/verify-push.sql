@@ -164,7 +164,10 @@ BEGIN
      OR has_function_privilege('service_role', 'public.push_eligible(uuid, uuid, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE')
-     OR has_function_privilege('service_role', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE') THEN
+     OR has_function_privilege('service_role', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid, uuid)', 'EXECUTE') THEN
     failed := array_append(failed, 'push functions: not executable by service_role only'::text);
   END IF;
 

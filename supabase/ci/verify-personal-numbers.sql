@@ -32,6 +32,7 @@ DECLARE
   w_co     UUID;  -- a company number
   c_ct     UUID;
   c_cv     UUID;
+  b_acct   UUID;  -- P's second workspace
   v_primary BOOLEAN;
   u        UUID;
   who      TEXT;
@@ -312,6 +313,60 @@ BEGIN
       failed := array_append(failed, (who || ': can_use_channel on the personal number = ' || r)::text);
     END IF;
   END LOOP;
+
+  -- The owner must still be staff who can send there: demoted to
+  -- viewer, they keep the number but may not use it.
+  UPDATE profiles SET account_role = 'viewer' WHERE user_id = u_p AND account_id = a_acct;
+  r := pg_temp.pn_try(u_p, format('SELECT can_use_channel(%L, %L)::text', a_acct, w_pn));
+  n := n + 1;
+  IF r <> 'false' THEN
+    failed := array_append(failed, ('a number owner demoted to viewer can still use it: ' || r)::text);
+  END IF;
+  UPDATE profiles SET account_role = 'agent' WHERE user_id = u_p AND account_id = a_acct;
+
+  -- The connect guard holds the RPC's grant rule: a viewer with the
+  -- flag set (set here as the table owner) still cannot connect.
+  UPDATE profiles SET may_connect_personal_whatsapp = true WHERE user_id = u_v;
+  r := pg_temp.pn_raw(format(
+    'INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, is_personal)
+     VALUES (%L, %L, ''openwa'', ''pn-sess-v'', ''t'', true)', u_v, a_acct));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501 PERSONAL_NOT_ALLOWED%' THEN
+    failed := array_append(failed, ('a viewer with the flag connected a personal number: ' || r)::text);
+  END IF;
+  UPDATE profiles SET may_connect_personal_whatsapp = false WHERE user_id = u_v;
+
+  -- A route moved onto a personal number, not only inserted on one.
+  INSERT INTO whatsapp_routes (account_id, surface, config_id) VALUES (a_acct, 'broadcast', w_co);
+  r := pg_temp.pn_raw(format(
+    'UPDATE whatsapp_routes SET config_id = %L WHERE account_id = %L AND surface = ''broadcast''',
+    w_pn, a_acct));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023 PERSONAL_NUMBER%' THEN
+    failed := array_append(failed, ('a route moved onto a personal number: ' || r)::text);
+  END IF;
+  DELETE FROM whatsapp_routes WHERE account_id = a_acct AND surface = 'broadcast';
+
+  -- P working in another workspace: the grant needs the caller's
+  -- ACTIVE account, so the chat and the number close while B is active.
+  -- profiles_one_active_per_user: demote A before promoting B.
+  SELECT id INTO b_acct FROM accounts WHERE owner_user_id = u_p;
+  IF b_acct IS NULL THEN
+    RAISE EXCEPTION 'fixture: no second account for P';
+  END IF;
+  INSERT INTO profiles (user_id, account_id, full_name, email, account_role, is_active)
+    VALUES (u_p, b_acct, 'PN P', 'pn-p@example.invalid', 'agent', false);
+  UPDATE profiles SET is_active = false WHERE user_id = u_p AND account_id = a_acct;
+  UPDATE profiles SET is_active = true WHERE user_id = u_p AND account_id = b_acct;
+  r := pg_temp.pn_try(u_p, format(
+    'SELECT concat_ws('','', can_view_conversation(%1$L, %2$L, NULL, %3$L, NULL),
+       can_use_channel(%1$L, %3$L))', a_acct, u_x, w_pn));
+  n := n + 1;
+  IF r <> 'f,f' THEN
+    failed := array_append(failed, ('the number owner, active in another workspace, still sees or uses it: ' || r)::text);
+  END IF;
+  UPDATE profiles SET is_active = false WHERE user_id = u_p AND account_id = b_acct;
+  UPDATE profiles SET is_active = true WHERE user_id = u_p AND account_id = a_acct;
 
   -- ---- The grant follows the chat's number -------------------------
   PERFORM set_config('request.jwt.claim.sub', u_owner::text, true);
