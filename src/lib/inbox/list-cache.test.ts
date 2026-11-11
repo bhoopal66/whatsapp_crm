@@ -46,6 +46,7 @@ describe('inboxListQuestion', () => {
     ['unassigned', { assignee: 'unassigned' }],
     ['campaign', { campaignId: 'b1' }],
     ['insight filter', { insightFilters: ['hot'] }],
+    ['department inbox', { department: 'hr' }],
   ];
 
   it.each(variants)('names the %s', (_label, change) => {

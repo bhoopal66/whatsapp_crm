@@ -39,6 +39,12 @@ import {
 import { resolveListHandler } from '@/lib/inbox/handler';
 import { ownPersonalChatsGroup } from '@/lib/inbox/personal-chats';
 import {
+  inDepartmentView,
+  mainInboxGroup,
+  type DepartmentView,
+  type InboxDepartment,
+} from '@/lib/inbox/departments';
+import {
   CONVERSATION_PAGE_SIZE,
   assigneeGroup,
   combineOrGroups,
@@ -194,6 +200,12 @@ interface ConversationListProps {
    */
   ownPersonalChatsOf?: string | null;
   /**
+   * Which department slice the list shows (migration 192): one
+   * department's chats, or the main inboxes' (no department chats but
+   * the viewer's own). Undefined asks nothing of the column.
+   */
+  departmentView?: DepartmentView;
+  /**
    * Conversation id -> bank code, for the chats shared with the viewer
    * as a coordinator. Those rows carry a "Shared · BANK" label.
    */
@@ -265,6 +277,13 @@ interface ListQueryParams {
   restrictToChannelIds: readonly string[];
   restrictToConversationIds: readonly string[];
   ownPersonalChatsOf: string | null;
+  /** The department to list, or null for the main inboxes. */
+  department: InboxDepartment | null;
+  /**
+   * Main inboxes: the viewer whose own department chats stay listed
+   * ('' while unknown: none do); null asks nothing of the column.
+   */
+  mainInboxOf: string | null;
   campaignOnly: boolean;
   aiLive: boolean;
   status: InboxFilter;
@@ -332,6 +351,13 @@ function conversationsQuery(
   }
   if (p.ownPersonalChatsOf) {
     groups.push(ownPersonalChatsGroup(p.ownPersonalChatsOf));
+  }
+  if (p.department) {
+    query = query.eq('inbox_department', p.department);
+  } else if (p.mainInboxOf !== null) {
+    groups.push(
+      p.mainInboxOf ? mainInboxGroup(p.mainInboxOf) : 'inbox_department.is.null'
+    );
   }
   if (p.campaignOnly) {
     query = query.not('campaign_broadcast_id', 'is', null);
@@ -427,6 +453,7 @@ export function ConversationList({
   restrictToChannelIds = NO_CHANNELS,
   restrictToConversationIds = NO_CHANNELS,
   ownPersonalChatsOf = null,
+  departmentView,
   sharedBanks = null,
   showAssignee = false,
   numberNames = null,
@@ -635,12 +662,22 @@ export function ConversationList({
 
   // What the server-side query asks. Memoised so the fetch effect
   // refires only when one of these actually changes.
+  const department =
+    departmentView && 'department' in departmentView
+      ? departmentView.department
+      : null;
+  const mainInboxOf =
+    departmentView && 'mainFor' in departmentView
+      ? (departmentView.mainFor ?? '')
+      : null;
   const listParams = useMemo<ListQueryParams>(
     () => ({
       restrictToUserId,
       restrictToChannelIds,
       restrictToConversationIds,
       ownPersonalChatsOf,
+      department,
+      mainInboxOf,
       campaignOnly,
       aiLive,
       status: filter,
@@ -654,6 +691,8 @@ export function ConversationList({
       restrictToChannelIds,
       restrictToConversationIds,
       ownPersonalChatsOf,
+      department,
+      mainInboxOf,
       campaignOnly,
       aiLive,
       filter,
@@ -1006,6 +1045,15 @@ export function ConversationList({
 
   const filtered = useMemo(() => {
     let result = applyHandled(conversations, handled).filter(hasMessages);
+    // A realtime patch can move a held chat into or out of a department
+    // (migration 192): the list keeps only its own slice.
+    if (department) {
+      result = result.filter((c) => inDepartmentView(c, { department }));
+    } else if (mainInboxOf !== null) {
+      result = result.filter((c) =>
+        inDepartmentView(c, { mainFor: mainInboxOf || null })
+      );
+    }
 
     if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
@@ -1069,6 +1117,8 @@ export function ConversationList({
     selectedCampaignId,
     insightFilters,
     signalsOn,
+    department,
+    mainInboxOf,
   ]);
 
   // Pinned chats the AI handed over, among those the filters show.
