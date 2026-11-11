@@ -23,7 +23,13 @@
 --   7. 080/138 (deals from chat tags) skip personal chats.
 --   8. merge_duplicate_conversations keys on personal_owner_id too.
 --   9. History import job tables + claim_personal_history_import +
---      import_history_rows (service role only).
+--      import_history_rows (service role only). Every row is stamped
+--      provider 'openwa' and a channel that is NULL or the owner's own
+--      personal number in the chat's workspace; anything else refuses
+--      the whole batch.
+--  10. Customer documents (178): a document filed from a personal chat
+--      is seen only by those who see the chat (backstop; the app no
+--      longer files them).
 --
 -- Every personal-chat refusal raised here carries HINT 'PERSONAL_CHAT'
 -- and SQLSTATE 23514, except the coordinator-share RPC's (42501): that
@@ -661,17 +667,37 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_n    int;
-  v_text text;
-  v_at   timestamptz;
+  v_n     int;
+  v_text  text;
+  v_at    timestamptz;
+  v_acct  uuid;
+  v_owner uuid;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM conversations c
-                  WHERE c.id = p_conversation_id AND c.personal_owner_id IS NOT NULL) THEN
+  SELECT c.account_id, c.personal_owner_id INTO v_acct, v_owner
+    FROM conversations c WHERE c.id = p_conversation_id;
+  IF v_owner IS NULL THEN
     RAISE EXCEPTION 'History is imported into personal chats only'
       USING ERRCODE = '23514', HINT = 'PERSONAL_CHAT';
   END IF;
   IF p_rows IS NULL OR jsonb_typeof(p_rows) <> 'array' THEN
     RAISE EXCEPTION 'rows must be a JSON array' USING ERRCODE = '22023';
+  END IF;
+  -- The rows come from the caller, not from the chat: a channel_id must
+  -- be the owner's own personal number in this workspace (or NULL), and
+  -- the provider OpenWA, the only one a personal number runs on (190).
+  -- Every row is checked, skipped ones too; one bad row refuses the batch.
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_to_recordset(p_rows) AS r(provider text, channel_id uuid)
+     WHERE coalesce(r.provider, 'openwa') <> 'openwa'
+        OR (r.channel_id IS NOT NULL AND NOT EXISTS (
+              SELECT 1 FROM whatsapp_config w
+               WHERE w.id = r.channel_id
+                 AND w.account_id = v_acct
+                 AND w.is_personal
+                 AND w.user_id = v_owner))) THEN
+    RAISE EXCEPTION 'History rows must be on the chat owner''s personal OpenWA number'
+      USING ERRCODE = '23514', HINT = 'PERSONAL_CHAT';
   END IF;
 
   WITH ins AS (
@@ -679,7 +705,7 @@ BEGIN
                           content_text, message_id, status, provider, channel_id, created_at)
     SELECT p_conversation_id, r.sender_type, r.sender_id,
            coalesce(r.content_type, 'text'), r.content_text, r.message_id,
-           coalesce(r.status, 'delivered'), r.provider, r.channel_id,
+           coalesce(r.status, 'delivered'), 'openwa', r.channel_id,
            coalesce(r.created_at, now())
       FROM jsonb_to_recordset(p_rows) AS r(
              sender_type text, sender_id uuid, content_type text, content_text text,
@@ -708,3 +734,47 @@ $$;
 
 REVOKE ALL ON FUNCTION public.import_history_rows(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.import_history_rows(uuid, jsonb) TO service_role;
+
+-- ---------- 10. Customer documents (178) ----------
+-- 178's customer_documents_select lets anyone who can see the customer
+-- read every document filed for them. A document from a personal chat
+-- must stay with that chat, and the policy cannot look the chat up
+-- itself: the conversations policy hides it from exactly the people it
+-- must refuse, so a NOT EXISTS would pass them. This definer helper
+-- reads the chat's owner unfiltered and answers only "may the caller
+-- see a document from this chat": true for no chat or a company chat.
+CREATE OR REPLACE FUNCTION public.customer_document_chat_visible(p_conversation_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT coalesce(
+    (SELECT CASE WHEN c.personal_owner_id IS NULL THEN true
+                 ELSE public.can_view_personal_chat(c.account_id, c.personal_owner_id)
+            END
+       FROM public.conversations c
+      WHERE c.id = p_conversation_id),
+    true);
+$$;
+
+REVOKE ALL ON FUNCTION public.customer_document_chat_visible(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.customer_document_chat_visible(uuid) TO authenticated, service_role;
+
+-- 178's body, unchanged, plus the personal-chat condition on the
+-- non-admin branches (admins see every personal chat anyway). The
+-- folders policy is left alone: a folder row is the customer's
+-- reference number and NAS timestamps, no message content.
+DROP POLICY IF EXISTS customer_documents_select ON public.customer_documents;
+CREATE POLICY customer_documents_select ON public.customer_documents
+  FOR SELECT TO authenticated
+  USING (account_id = (SELECT public.current_account_id())
+         AND ((SELECT public.current_role_rank()) >= 4
+              OR ((EXISTS (SELECT 1 FROM public.contacts c
+                            WHERE c.id = customer_documents.contact_id
+                              AND public.can_view_contact(c.account_id, c.id, c.user_id))
+                   OR (customer_documents.conversation_id IS NOT NULL
+                       AND public.coordinator_share_grants(customer_documents.conversation_id)))
+                  AND (customer_documents.conversation_id IS NULL
+                       OR public.customer_document_chat_visible(customer_documents.conversation_id)))));

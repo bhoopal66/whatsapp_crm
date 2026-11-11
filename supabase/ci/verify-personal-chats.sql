@@ -29,6 +29,9 @@ DECLARE
   u_x      UUID := '00000000-0000-4000-8000-000000191005';  -- owns the company chat
   u_y      UUID := '00000000-0000-4000-8000-000000191006';  -- unrelated agent
   u_v      UUID := '00000000-0000-4000-8000-000000191007';  -- viewer
+  u_lx     UUID := '00000000-0000-4000-8000-000000191008';  -- leads X's team, not P's
+  t_team_x UUID;
+  f_ct     UUID;  -- C's document folder
   a_acct   UUID;
   t_team   UUID;
   w_pn     UUID;  -- P's personal number
@@ -111,7 +114,8 @@ BEGIN
     (u_lead,  'pc-lead@example.invalid'),
     (u_x,     'pc-x@example.invalid'),
     (u_y,     'pc-y@example.invalid'),
-    (u_v,     'pc-v@example.invalid')
+    (u_v,     'pc-v@example.invalid'),
+    (u_lx,    'pc-lx@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT id INTO a_acct FROM accounts WHERE owner_user_id = u_owner;
   IF a_acct IS NULL THEN
@@ -119,12 +123,15 @@ BEGIN
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_p, u_x, u_y);
-  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_lead;
+  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id IN (u_lead, u_lx);
   UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_v;
   UPDATE profiles SET may_connect_personal_whatsapp = true WHERE user_id = u_p;
   INSERT INTO teams (account_id, name, leader_user_id)
     VALUES (a_acct, 'PC team', u_lead) RETURNING id INTO t_team;
   INSERT INTO team_members (team_id, user_id, account_id) VALUES (t_team, u_p, a_acct);
+  INSERT INTO teams (account_id, name, leader_user_id)
+    VALUES (a_acct, 'PC team X', u_lx) RETURNING id INTO t_team_x;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (t_team_x, u_x, a_acct);
 
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, is_personal)
     VALUES (u_p, a_acct, 'openwa', 'pc-sess-p', 't', true) RETURNING id INTO w_pn;
@@ -189,6 +196,20 @@ BEGIN
     failed := array_append(failed, ('a company chat moved onto a personal number: ' || r)::text);
   END IF;
   r := pg_temp.pc_raw(format(
+    'INSERT INTO conversations (account_id, user_id, contact_id, channel_id)
+     VALUES (%L, %L, %L, %L)', a_acct, u_y, c_ct2, w_pn));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
+    failed := array_append(failed, ('a company chat opened on a personal number: ' || r)::text);
+  END IF;
+  -- 062's pin RPC is a plain UPDATE, so the guard refuses it, admin or not.
+  r := pg_temp.pc_try(u_admin, format(
+    'SELECT set_conversation_send_channel(%L, %L)::text', cv_co, w_pn));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
+    failed := array_append(failed, ('an admin pinned a company chat to a personal number: ' || r)::text);
+  END IF;
+  r := pg_temp.pc_raw(format(
     'UPDATE conversations SET channel_id = %L WHERE id = %L', w_co, cv_pc));
   n := n + 1;
   IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
@@ -225,7 +246,8 @@ BEGIN
   -- personal chat rows, its messages, company chat rows
   FOR u, who IN SELECT * FROM (VALUES (u_owner, 'owner'), (u_admin, 'admin'),
                                       (u_p, 'number owner'), (u_lead, 'owner''s leader'),
-                                      (u_x, 'company chat owner'), (u_y, 'unrelated agent')) s
+                                      (u_x, 'company chat owner'), (u_y, 'unrelated agent'),
+                                      (u_lx, 'leader of X only'), (u_v, 'viewer')) s
   LOOP
     r := pg_temp.pc_try(u, format(
       'SELECT concat_ws('','',
@@ -235,9 +257,35 @@ BEGIN
     n := n + 1;
     IF r <> (CASE WHEN u IN (u_owner, u_admin) THEN '1,1,1'
                   WHEN u IN (u_p, u_lead) THEN '1,1,0'
-                  WHEN u = u_x THEN '0,0,1'
+                  WHEN u IN (u_x, u_lx) THEN '0,0,1'
                   ELSE '0,0,0' END) THEN
       failed := array_append(failed, (who || ' sees (personal, its messages, company) = ' || r)::text);
+    END IF;
+  END LOOP;
+
+  -- ---- Customer documents (178): a personal chat's stay with it ----
+  -- X owns C, so can_view_contact alone would show X the personal
+  -- chat's document; the company chat's document is the control.
+  INSERT INTO customer_doc_folders (account_id, contact_id, ref)
+    VALUES (a_acct, c_ct, 'TC-PC191') RETURNING id INTO f_ct;
+  INSERT INTO customer_documents (account_id, folder_id, contact_id, conversation_id,
+                                  source, kind, media_url, received_at)
+    VALUES (a_acct, f_ct, c_ct, cv_pc, 'chat', 'document', 'https://x.invalid/pc.pdf', now()),
+           (a_acct, f_ct, c_ct, cv_co, 'chat', 'document', 'https://x.invalid/co.pdf', now());
+  FOR u, who IN SELECT * FROM (VALUES (u_admin, 'admin'), (u_p, 'number owner'),
+                                      (u_lead, 'owner''s leader'), (u_x, 'company chat owner'),
+                                      (u_lx, 'leader of X only')) s
+  LOOP
+    r := pg_temp.pc_try(u, format(
+      'SELECT concat_ws('','',
+         (SELECT count(*) FROM customer_documents WHERE conversation_id = %1$L),
+         (SELECT count(*) FROM customer_documents WHERE conversation_id = %2$L))', cv_pc, cv_co));
+    n := n + 1;
+    -- P (and P's leader) see C through 190's personal-number contact
+    -- grant, hence the company chat's document too.
+    IF r <> (CASE WHEN u IN (u_admin, u_p, u_lead) THEN '1,1'
+                  ELSE '0,1' END) THEN
+      failed := array_append(failed, (who || ' sees documents (personal, company) = ' || r)::text);
     END IF;
   END LOOP;
 
@@ -324,6 +372,30 @@ BEGIN
   n := n + 1;
   IF v_at IS DISTINCT FROM '2026-01-03T00:00:00Z'::timestamptz OR v_unread IS DISTINCT FROM 3 THEN
     failed := array_append(failed, format('an older batch moved the chat: last_message_at %s, unread %s', v_at, v_unread));
+  END IF;
+
+  -- The rows' channel and provider are checked, not trusted.
+  v_n := import_history_rows(cv_pc, jsonb_build_array(
+    jsonb_build_object('sender_type', 'agent', 'sender_id', u_p, 'content_text', 'own number',
+                       'message_id', 'pc-h3', 'provider', 'openwa', 'channel_id', w_pn,
+                       'created_at', '2025-05-01T00:00:00Z')));
+  n := n + 1;
+  IF v_n IS DISTINCT FROM 1 THEN
+    failed := array_append(failed, ('a row on the owner''s own number inserted ' || coalesce(v_n::text, 'NULL') || ', not 1')::text);
+  END IF;
+  r := pg_temp.pc_raw(format('SELECT import_history_rows(%L, %L::jsonb)::text', cv_pc,
+    jsonb_build_array(jsonb_build_object('sender_type', 'agent', 'content_text', 'co',
+                      'message_id', 'pc-h4', 'provider', 'openwa', 'channel_id', w_co))));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
+    failed := array_append(failed, ('an imported row stamped with a company number: ' || r)::text);
+  END IF;
+  r := pg_temp.pc_raw(format('SELECT import_history_rows(%L, %L::jsonb)::text', cv_pc,
+    jsonb_build_array(jsonb_build_object('sender_type', 'agent', 'content_text', 'wh',
+                      'message_id', 'pc-h5', 'provider', 'whapi'))));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514 PERSONAL_CHAT%' THEN
+    failed := array_append(failed, ('an imported row with provider whapi: ' || r)::text);
   END IF;
 
   r := pg_temp.pc_raw(format('SELECT import_history_rows(%L, ''[]''::jsonb)::text', cv_co));
