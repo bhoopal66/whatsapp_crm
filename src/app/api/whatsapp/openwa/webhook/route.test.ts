@@ -422,6 +422,18 @@ describe('OpenWA webhook: own sends (message.sent)', () => {
     expect(h.processMessage).not.toHaveBeenCalled();
   });
 
+  it('answers 200 and logs when persisting an own send throws', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: true }];
+    h.persistOwnSend.mockRejectedValueOnce(new Error('db down'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post(sentEvent());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.persistOwnSend).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it('hands an own send on a personal number to persistOwnSend', async () => {
     h.state.configs = [{ ...CONFIG, is_personal: true }];
     const res = await post(sentEvent());

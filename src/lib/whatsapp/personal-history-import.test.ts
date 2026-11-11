@@ -10,6 +10,7 @@ import {
   OpenWAError,
   getChatHistory,
   getContactPhone,
+  getSession,
   listChats,
   type OpenWAChatSummary,
   type OpenWAHistoryMessage,
@@ -29,6 +30,7 @@ vi.mock('./openwa-api', async (importOriginal) => ({
   listChats: vi.fn(),
   getChatHistory: vi.fn(),
   getContactPhone: vi.fn(),
+  getSession: vi.fn(),
 }));
 
 const OWNER = 'user-owner';
@@ -279,6 +281,7 @@ function chatSummary(
 const listChatsMock = vi.mocked(listChats);
 const historyMock = vi.mocked(getChatHistory);
 const phoneMock = vi.mocked(getContactPhone);
+const sessionMock = vi.mocked(getSession);
 const contactMock = vi.mocked(findOrCreateContact);
 const chatMock = vi.mocked(findOrCreatePersonalChat);
 
@@ -587,6 +590,7 @@ describe('runPersonalHistoryImportTick', () => {
     const db = fakeDb({ whatsapp_config: [configRow()] });
     listChatsMock.mockResolvedValueOnce([chatSummary('971500000001@c.us', 1)]);
     historyMock.mockRejectedValueOnce(new OpenWAError('not ready', 409));
+    sessionMock.mockRejectedValueOnce(new OpenWAError('not ready', 409));
 
     await runPersonalHistoryImportTick(db.client, {
       budgetMs: 60_000,
@@ -598,6 +602,49 @@ describe('runPersonalHistoryImportTick', () => {
     });
     expect(chatRow(db, '971500000001@c.us')?.attempts).toBeUndefined();
     expect(job(db)).toMatchObject({ status: 'running', lease_until: null });
+  });
+
+  it('fails one bad chat on a per-chat 4xx and imports the next in the same tick', async () => {
+    const db = fakeDb({ whatsapp_config: [configRow()] });
+    listChatsMock.mockResolvedValueOnce([
+      chatSummary('971500000002@c.us', 2),
+      chatSummary('971500000001@c.us', 1),
+    ]);
+    historyMock.mockImplementation(async ({ chatId }) => {
+      if (chatId === '971500000002@c.us') {
+        throw new OpenWAError('bad chat', 400, { route: 'message' });
+      }
+      return [msg({ id: `${chatId}-1`, body: 'hi' })];
+    });
+
+    await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 600_000,
+      ...noPause,
+    });
+
+    expect(chatRow(db, '971500000002@c.us')).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+    });
+    expect(chatRow(db, '971500000001@c.us')).toMatchObject({ status: 'done' });
+    expect(job(db)).toMatchObject({ status: 'done' });
+  });
+
+  it('does not stall on a per-chat 4xx from the @lid phone lookup', async () => {
+    const db = fakeDb({ whatsapp_config: [configRow()] });
+    listChatsMock.mockResolvedValueOnce([
+      chatSummary('abc@lid', 2),
+      chatSummary('971500000001@c.us', 1),
+    ]);
+    phoneMock.mockRejectedValueOnce(new OpenWAError('bad', 400));
+
+    await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 600_000,
+      ...noPause,
+    });
+
+    expect(chatRow(db, 'abc@lid')).toMatchObject({ status: 'failed' });
+    expect(chatRow(db, '971500000001@c.us')).toMatchObject({ status: 'done' });
   });
 
   it('does nothing when no job is claimable', async () => {

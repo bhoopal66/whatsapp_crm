@@ -37,6 +37,7 @@ import {
   OpenWAError,
   getChatHistory,
   getContactPhone,
+  getSession,
   listChats,
   type OpenWAChatSummary,
   type OpenWAHistoryMessage,
@@ -215,8 +216,12 @@ function isRetryableRead(err: unknown): boolean {
   return err instanceof OpenWAError && err.status >= 500;
 }
 
-/** The gateway cannot serve this number now: stop, don't count attempts. */
-function isNumberUnavailable(err: unknown): boolean {
+/**
+ * Errors that MAY mean the gateway cannot serve this number now. A
+ * 400/409/404 from a per-chat call can equally be that one chat's
+ * fault, so these are only suspects: `numberIsDown` decides.
+ */
+function isNumberUnavailableSuspect(err: unknown): boolean {
   return (
     err instanceof OpenWAError &&
     (err.isAuthError ||
@@ -225,6 +230,31 @@ function isNumberUnavailable(err: unknown): boolean {
       err.status === 409 ||
       err.isPacingLimited)
   );
+}
+
+/**
+ * The number is down only on session-level evidence: a key/pacing
+ * refusal, or a failing session probe. Otherwise a 4xx belongs to the
+ * one chat that raised it, which must not stall the newest-first queue.
+ */
+async function numberIsDown(
+  err: unknown,
+  channel: WhatsAppChannel
+): Promise<boolean> {
+  if (!isNumberUnavailableSuspect(err)) return false;
+  if (err instanceof OpenWAError && (err.isAuthError || err.isPacingLimited)) {
+    return true;
+  }
+  try {
+    await getSession({
+      apiKey: channel.accessToken,
+      sessionId: channel.phoneNumberId,
+      timeoutMs: 10_000,
+    });
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -594,7 +624,8 @@ async function importChat(
     ctx.result.chatsDone++;
     ctx.result.messagesImported += imported;
   } catch (err) {
-    if (err instanceof StopTick || isNumberUnavailable(err)) throw err;
+    if (err instanceof StopTick || (await numberIsDown(err, channel)))
+      throw err;
     const attempts = (chat.attempts ?? 0) + 1;
     const message = errorText(err);
     const giveUp =
