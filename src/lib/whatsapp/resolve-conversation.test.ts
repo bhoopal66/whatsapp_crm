@@ -33,6 +33,8 @@ interface Script {
   inserted?: { table: string; row: Record<string, unknown> }[];
   /** Records every `.like()` pattern (the contact lookup's suffix). */
   likePatterns?: string[];
+  /** Records every `.is()` filter with its table. */
+  isCalls?: unknown[][];
 }
 
 function makeDb(script: Script): SupabaseClient {
@@ -54,6 +56,10 @@ function makeDb(script: Script): SupabaseClient {
       return builder;
     },
     eq: () => builder,
+    is: (...args: unknown[]) => {
+      script.isCalls?.push([table, ...args]);
+      return builder;
+    },
     order: () => builder,
     limit: () => {
       // whatsapp_config chains .limit(1).maybeSingle() — an account can
@@ -164,6 +170,29 @@ describe('resolveConversationByPhone', () => {
       contactCreated: false,
       conversationCreated: false,
     });
+  });
+
+  it('looks the conversation up among company chats only', async () => {
+    const isCalls: unknown[][] = [];
+    const inserted: { table: string; row: Record<string, unknown> }[] = [];
+    const { db } = {
+      db: makeDb({
+        config: { user_id: 'owner-1' },
+        contactCandidates: [{ id: 'c1', phone: '14155550123' }],
+        existingConversation: null,
+        insertedConversationId: 'cv2',
+        isCalls,
+        inserted,
+      }),
+    };
+    await resolveConversationByPhone(db, 'acct', '+1 (415) 555-0123');
+    expect(isCalls).toContainEqual([
+      'conversations',
+      'personal_owner_id',
+      null,
+    ]);
+    const conv = inserted.find((i) => i.table === 'conversations');
+    expect(conv?.row).not.toHaveProperty('personal_owner_id');
   });
 
   it('creates contact + conversation when none exist', async () => {

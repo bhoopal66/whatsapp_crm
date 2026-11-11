@@ -144,6 +144,7 @@ export function DealForm({
         .from('conversations')
         .select('*')
         .eq('contact_id', contactId)
+        .is('personal_owner_id', null)
         .order('last_message_at', { ascending: false })
         .limit(1)
         .maybeSingle();

@@ -185,6 +185,7 @@ export async function writeConversationChatTags(
         // most recently active one is the chat a person would mean.
         read
           .eq('contact_id', args.contactId as string)
+          .is('personal_owner_id', null)
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(1);
     const { data: current, error: readError } = await read.maybeSingle();

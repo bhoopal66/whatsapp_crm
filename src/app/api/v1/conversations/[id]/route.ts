@@ -25,6 +25,8 @@ export async function GET(
       .select(CONVERSATION_COLUMNS)
       .eq('id', id)
       .eq('account_id', ctx.accountId)
+      // A personal chat answers 404, as if it did not exist.
+      .is('personal_owner_id', null)
       .maybeSingle();
 
     if (error) {

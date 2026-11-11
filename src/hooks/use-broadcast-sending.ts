@@ -443,6 +443,7 @@ async function fetchChatTaggedContactIds(
         .from('conversations')
         .select('contact_id')
         .or(group)
+        .is('personal_owner_id', null)
         .order('id')
         .range(from, to),
     'chat-tagged conversations'

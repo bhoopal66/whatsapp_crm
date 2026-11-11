@@ -510,6 +510,7 @@ async function matchContact(
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', found[0].id)
+    .is('personal_owner_id', null)
     .order('created_at', { ascending: false })
     .limit(1);
   if (conv.error) fail('conversations read', conv.error);

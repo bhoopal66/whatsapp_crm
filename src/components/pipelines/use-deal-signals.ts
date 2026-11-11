@@ -26,7 +26,12 @@ export interface SignalClient {
       in(
         column: 'contact_id',
         values: string[]
-      ): PromiseLike<{ data: unknown[] | null; error: unknown }>;
+      ): {
+        is(
+          column: 'personal_owner_id',
+          value: null
+        ): PromiseLike<{ data: unknown[] | null; error: unknown }>;
+      };
     };
   };
 }
@@ -43,6 +48,7 @@ export async function loadDealSignals(
         .from('conversations')
         .select(DEAL_SIGNAL_SELECT)
         .in('contact_id', chunk)
+        .is('personal_owner_id', null)
     )
   );
   for (const { data, error } of pages) {

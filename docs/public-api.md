@@ -311,6 +311,10 @@ under it, each `{ id, name, color }` or `null`. A sub-tag only ever
 appears with the tag it belongs to. The embedded contact has the same
 `tags` (always `[]`) and `opted_out_at` as on the contact endpoints.
 
+Chats on staff members' personal WhatsApp numbers are private: they never
+appear in the conversation endpoints (a personal chat's id answers `404`),
+in its messages, or in webhook deliveries.
+
 ### `GET /api/v1/conversations/{id}`
 
 Read one conversation, in the same shape as the list rows. Scope:
@@ -755,6 +759,9 @@ again while it stays ready (a re-uploaded document of a ready case is
 not a second event); a case that stops being ready and becomes ready
 again fires once more. A case with no submission (a lead) never sends
 it. Read the build with `GET /submission-groups/{submission_id}/case-file`.
+
+Chats on staff members' personal WhatsApp numbers are private and never
+produce a webhook event.
 
 ### Managing endpoints
 

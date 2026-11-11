@@ -175,6 +175,7 @@ describe('journey sink: SEND claims', () => {
       ['select', 'id'],
       ['eq', 'account_id', 'a1'],
       ['eq', 'contact_id', 'c1'],
+      ['is', 'personal_owner_id', null],
       ['order', 'last_message_at', { ascending: false, nullsFirst: false }],
       ['limit', 1],
       ['maybeSingle'],

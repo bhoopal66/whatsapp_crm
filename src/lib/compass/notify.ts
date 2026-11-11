@@ -428,6 +428,7 @@ async function whapiNumberFor(
       .select('id, channel_id, send_channel_id')
       .eq('account_id', accountId)
       .eq('contact_id', contact.id)
+      .is('personal_owner_id', null)
       .order('created_at', { ascending: true })
       .limit(1);
     const chat = (
