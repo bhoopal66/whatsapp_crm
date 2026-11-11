@@ -286,6 +286,15 @@ describe('processMessage — assigning from call history', () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
     expect(h.assignFromCalls).not.toHaveBeenCalled();
   });
+
+  it('leaves a chat on a personal number with its owner', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'owner-1',
+    });
+    expect(h.assignFromCalls).not.toHaveBeenCalled();
+  });
 });
 
 describe('processMessage — fanOut', () => {

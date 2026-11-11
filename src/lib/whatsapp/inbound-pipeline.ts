@@ -834,7 +834,12 @@ export async function processMessage(
   // ahead of the unread bump and the push, so the bump's realtime event
   // and the push reach the new assignee. Part of the inbox: a sender
   // over the rate limit (fanOut: false) is assigned too. Never throws.
-  if (!conversation.assigned_agent_id && !conversation.human_engaged_at) {
+  // A chat on someone's own (personal) number stays theirs: skipped.
+  if (
+    !channel.isPersonal &&
+    !conversation.assigned_agent_id &&
+    !conversation.human_engaged_at
+  ) {
     await assignChatFromCallHistory(supabaseAdmin(), {
       accountId,
       conversationId: conversation.id,

@@ -87,7 +87,9 @@ export async function GET(
     const carrier = owningMessage.channel_id
       ? channels.find((c) => c.id === owningMessage.channel_id)
       : undefined
-    const first = carrier ?? primaryChannel(channels)!
+    // primaryChannel is null when every number is personal: then any
+    // number will do as the first attempt.
+    const first = carrier ?? primaryChannel(channels) ?? channels[0]
     const ordered = [first, ...channels.filter((c) => c.id !== first.id)]
 
     let resolved: { buffer: Buffer; contentType: string; mimeType: string } | null =
