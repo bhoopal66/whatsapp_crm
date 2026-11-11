@@ -1945,6 +1945,16 @@
       "reactivate": "다시 활성화",
       "deactivatedOn": "{date} 비활성화됨",
       "deactivatedToast": "{name}을(를) 비활성화했습니다. 더 이상 로그인할 수 없습니다.",
+      "personal": {
+        "badge": "개인 WhatsApp",
+        "allow": "개인 WhatsApp 허용",
+        "remove": "개인 WhatsApp 권한 해제",
+        "allowedToast": "{name}님이 이제 개인 WhatsApp을 연결할 수 있습니다",
+        "removedToast": "{name}님의 개인 WhatsApp 권한을 해제했습니다",
+        "numberExists": "먼저 해당 멤버의 WhatsApp 연결을 해제하세요",
+        "notEligible": "이 멤버는 개인 WhatsApp 번호를 가질 수 없습니다",
+        "failed": "멤버를 업데이트하지 못했습니다"
+      },
       "reactivatedToast": "{name}을(를) 다시 활성화했습니다",
       "deactivateDialogTitle": "멤버 비활성화",
       "deactivateDialogDesc": "<bold>{name}</bold>을(를) 비활성화하시겠습니까? 로그아웃되며 다시 활성화할 때까지 로그인할 수 없습니다. 역할, 배정된 채팅 및 기록은 그대로 유지됩니다.",

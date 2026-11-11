@@ -153,3 +153,28 @@ as the other two providers.
 
 Only one-to-one chats are processed. Group, status, channel and
 broadcast traffic, and the number's own sends, are dropped.
+
+## Personal numbers (migration 190)
+
+An admin can let chosen staff connect their **own** WhatsApp through
+OpenWA. The permission is granted per person in Settings -> Members
+(the phone icon, "Allow own WhatsApp"); it covers live owners, admins,
+team leaders and agents, never viewers or bank guests.
+
+- **Connecting.** The person opens Settings, chooses Connect my
+  WhatsApp and scans the QR code. One personal number per person per
+  workspace.
+- **Who sees the chats.** The number's owner, their team leader(s) and
+  admins. The clash rule: a chat whose customer writes to the personal
+  number shows to the number's owner and their leader even when another
+  agent owns the contact or chat.
+- **Who can send.** Only an admin, the owner of the number, or a team
+  leader of the owner.
+- **No bots.** A personal number runs no flows, automations, AI
+  replies or journeys, and is never used for broadcasts.
+- **Never shared.** It is never the primary number, never a route
+  target and never allocated to anyone else.
+- **Revoking.** Removing the permission is refused while the person
+  still has a number connected: they, or an admin, disconnect it first.
+- **Leaving.** A removed or deactivated person's number keeps running
+  until an admin deletes it.

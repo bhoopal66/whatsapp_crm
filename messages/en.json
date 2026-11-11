@@ -1945,6 +1945,16 @@
       "reactivate": "Reactivate",
       "deactivatedOn": "Deactivated {date}",
       "deactivatedToast": "Deactivated {name}. They can no longer sign in.",
+      "personal": {
+        "badge": "Own WhatsApp",
+        "allow": "Allow own WhatsApp",
+        "remove": "Remove own WhatsApp permission",
+        "allowedToast": "{name} can now connect their own WhatsApp",
+        "removedToast": "Removed own WhatsApp permission from {name}",
+        "numberExists": "Disconnect their WhatsApp first",
+        "notEligible": "This member cannot have a personal WhatsApp number",
+        "failed": "Failed to update member"
+      },
       "reactivatedToast": "Reactivated {name}",
       "deactivateDialogTitle": "Deactivate member",
       "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. Their role, assigned chats and history stay as they are.",

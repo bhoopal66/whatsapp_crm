@@ -486,6 +486,19 @@ automations and the journey bot do not. Team activity counts it as a
 phone number, like Whapi (migration 145); the Safety Meter stays
 Whapi-only.
 
+**Personal numbers (190).** An admin allows a person
+(`profiles.may_connect_personal_whatsapp`) to link their own OpenWA
+number: a `whatsapp_config` row with `is_personal`, owner = `user_id`, one
+per person per workspace, never primary, routed or allocated to others.
+It is the one visibility exception to 072: its chats show to the owner
+and their leader through the chat's `channel_id`
+(`personal_number_visible_ids`, in `can_view_conversation`,
+`can_view_contact`, 177's set-based helper and 109's 5-argument push
+mirror). `can_use_channel` has a personal branch, and only an admin, the
+owner or the owner's leader sends (`maySendFromPersonal` in
+`send-message.ts`). Bots are cut in `inbound-pipeline.ts` and the
+`channels.ts` resolvers. `verify-personal-numbers.sql`.
+
 ### Taamul Compass (`lib/compass/*`, migration 056)
 
 The ERP integration, on the v1 API. Customers sync into

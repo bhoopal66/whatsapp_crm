@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Personal WhatsApp numbers
+
+**Migration required:** apply `supabase/migrations/190_personal_whatsapp_numbers.sql`
+before deploying this build (the app selects the new columns).
+
+- Settings → Members: an admin can allow a member to connect their own
+  WhatsApp through OpenWA ("Allow own WhatsApp"). The row shows an "Own
+  WhatsApp" badge with the number once connected; withdrawing the
+  permission is refused until the number is disconnected. See
+  `docs/openwa.md`.
+
 ### Follow-ups
 
 **Migration required:** apply `189_followups.sql` (as a superuser or

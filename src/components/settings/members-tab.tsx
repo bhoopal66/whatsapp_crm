@@ -36,6 +36,7 @@ import {
   KeyRound,
   Loader2,
   Landmark,
+  Smartphone,
   Mail,
   MailX,
   Plus,
@@ -85,6 +86,8 @@ import {
   ASSIGNABLE_ROLES,
   canChangePasswordOf,
   canEditDetailsOf,
+  canHavePersonalWhatsapp,
+  canManageMembers,
   type AccountRole,
   type AssignableRole,
 } from '@/lib/auth/roles';
@@ -117,6 +120,10 @@ interface Member {
   deactivated_at: string | null;
   /** A bank guest's bank (migration 083); null on every other row. */
   bank_code?: string | null;
+  /** Migration 190: allowed to connect a personal WhatsApp number. */
+  may_connect_personal_whatsapp?: boolean;
+  /** Their personal number, once connected. */
+  personal_number?: { id: string; phone: string } | null;
 }
 
 interface Invitation {
@@ -283,6 +290,42 @@ export function MembersTab() {
         )
       );
       console.error('[MembersTab] role change error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setPendingMemberAction(null);
+    }
+  }
+
+  // Allow or withdraw a member's own WhatsApp (migration 190). The server
+  // refuses a withdrawal while their number is still connected.
+  async function handleSetPersonalWhatsapp(member: Member, allow: boolean) {
+    setPendingMemberAction(member.user_id);
+    try {
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personalWhatsapp: allow }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        if (payload.error === 'personal_number_exists') {
+          toast.error(t('personal.numberExists'));
+        } else if (payload.error === 'not_eligible') {
+          toast.error(t('personal.notEligible'));
+        } else {
+          toast.error(payload.error || t('personal.failed'));
+        }
+        return;
+      }
+      const name = member.full_name || t('unnamed');
+      toast.success(
+        allow
+          ? t('personal.allowedToast', { name })
+          : t('personal.removedToast', { name })
+      );
+      await loadEverything();
+    } catch (err) {
+      console.error('[MembersTab] personal whatsapp error:', err);
       toast.error('Could not reach the server');
     } finally {
       setPendingMemberAction(null);
@@ -569,6 +612,14 @@ export function MembersTab() {
                             {coordBanks.get(member.user_id)!.join(', ')}
                           </Badge>
                         )}
+                        {member.may_connect_personal_whatsapp && (
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                            {t('personal.badge')}
+                            {member.personal_number
+                              ? ` · ${member.personal_number.phone}`
+                              : ''}
+                          </Badge>
+                        )}
                         {isInactive && (
                           <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
                             {t('inactive')}
@@ -661,6 +712,41 @@ export function MembersTab() {
                         <TooltipContent>{tCoord('manage')}</TooltipContent>
                       </Tooltip>
                     )}
+
+                    {!!accountRole &&
+                      canManageMembers(accountRole) &&
+                      canHavePersonalWhatsapp(member.role) &&
+                      !isInactive && (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={
+                                  member.may_connect_personal_whatsapp
+                                    ? t('personal.remove')
+                                    : t('personal.allow')
+                                }
+                                onClick={() =>
+                                  handleSetPersonalWhatsapp(
+                                    member,
+                                    !member.may_connect_personal_whatsapp
+                                  )
+                                }
+                                disabled={isBusy}
+                              >
+                                <Smartphone className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>
+                            {member.may_connect_personal_whatsapp
+                              ? t('personal.remove')
+                              : t('personal.allow')}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
 
                     {/* Edit their name and login email: the same people
                         as the password below (migration 167). */}
