@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { isUuid } from '@/lib/cases/http';
 import { CaseRulesRefusedError, CaseRulesStore } from '@/lib/cases/rules';
 import { caseRulesErrorResponse } from '@/lib/cases/rules-http';
@@ -15,7 +15,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const { id } = await params;
     if (!isUuid(id)) throw new CaseRulesRefusedError('RULE_NOT_FOUND');
     await new CaseRulesStore(supabaseAdmin()).delete(ctx.userId, id);

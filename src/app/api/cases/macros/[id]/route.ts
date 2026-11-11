@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { caseErrorResponse, CaseHttpError, isUuid } from '@/lib/cases/http';
 import { caseMacroStore } from '@/lib/cases/server';
 
@@ -14,7 +14,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     if (!isUuid(id))
       throw new CaseHttpError(404, 'Macro not found', {

@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { CaseTakeOverRefusedError } from '@/lib/cases/conversations';
 import {
   assertUnderGroupSendLimit,
@@ -42,7 +42,7 @@ const REFUSED: Record<CaseTakeOverRefusedError['reason'], [number, string]> = {
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore(), {
       write: true,

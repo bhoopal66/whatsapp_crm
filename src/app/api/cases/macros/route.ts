@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   badRequest,
   caseErrorResponse,
@@ -23,7 +23,7 @@ import { caseMacroStore } from '@/lib/cases/server';
 
 export async function GET() {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const macros = await caseMacroStore().list(ctx.userId);
     return NextResponse.json({ macros });
   } catch (err) {
@@ -33,7 +33,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const body = await readObject(request);
 
     let macroId: string | null = null;

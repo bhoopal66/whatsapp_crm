@@ -15,7 +15,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   badRequest,
   caseErrorResponse,
@@ -27,7 +27,7 @@ import { caseViews } from '@/lib/cases/server';
 
 export async function GET() {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const views = await caseViews().list(ctx.userId);
     return NextResponse.json({ views });
   } catch (err) {
@@ -37,7 +37,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const body = await readObject(request);
     let viewId: string | null = null;
     if (body.viewId !== undefined && body.viewId !== null) {

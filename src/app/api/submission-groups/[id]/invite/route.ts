@@ -7,7 +7,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
+import {
+  assertSalesAccess,
+  getCurrentAccount,
+  toErrorResponse,
+} from '@/lib/auth/account';
 import { isUuid, ownGroup, SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupService,
@@ -56,7 +60,7 @@ const REFUSALS: Record<
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = submissionGroupStore();
     const group = ownGroup(

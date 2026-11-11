@@ -18,7 +18,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { loadCaseForCaller } from '@/lib/cases/http';
 import { caseStore } from '@/lib/cases/server';
 import {
@@ -53,7 +53,7 @@ function publicBuild(
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     const build = await currentCaseFileBuild({
@@ -71,7 +71,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     const admin = supabaseAdmin();

@@ -12,7 +12,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { canReadCase } from '@/lib/cases/access';
 import { badRequest, caseErrorResponse, isUuid } from '@/lib/cases/http';
 import { caseStore } from '@/lib/cases/server';
@@ -23,7 +23,7 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const contactId = new URL(request.url).searchParams.get('contactId');
     if (!isUuid(contactId)) throw badRequest('contactId must be a uuid');
 

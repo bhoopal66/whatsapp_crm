@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import {
   bankCodeParam,
   configErrorResponse,
@@ -38,7 +38,7 @@ const PCT_MAX = 99;
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const code = bankCodeParam((await params).code);
     await requireBank(ctx.supabase, ctx.accountId, code);
     const [config, stages] = await Promise.all([
@@ -53,7 +53,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const body = await readObject(request);
     const config = await caseSlaStore().upsertConfig(ctx.userId, {
@@ -79,7 +79,7 @@ export async function POST(request: Request, { params }: Params) {
 
 export async function DELETE(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const stage = requiredText(
       queryParam(request, 'stage'),

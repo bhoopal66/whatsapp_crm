@@ -16,7 +16,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { loadCaseForCaller } from '@/lib/cases/http';
 import { caseStore } from '@/lib/cases/server';
 import { documentDownloadUrl, signerOf } from '@/lib/case-files/download';
@@ -34,7 +34,7 @@ type Params = { params: Promise<{ id: string; fileId: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id, fileId: rawFileId } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     const fileId = requireFileId(rawFileId);

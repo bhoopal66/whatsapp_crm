@@ -17,7 +17,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { caseFilesErrorResponse, parseSpecRows } from '@/lib/case-files/http';
 import { CaseFilesStore } from '@/lib/case-files/store';
 import {
@@ -39,7 +39,7 @@ const productKey = (p: string) => p.replace(/^ +| +$/g, '').toLowerCase();
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const code = bankCodeParam((await params).code);
     const product = requiredText(
       queryParam(request, 'product'),
@@ -95,7 +95,7 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const body = await readObject(request);
     const product = requiredText(body.product, 'product', TEXT_MAX);

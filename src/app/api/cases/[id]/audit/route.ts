@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   badRequest,
   canSeeCaseAudit,
@@ -23,7 +23,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);

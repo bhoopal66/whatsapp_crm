@@ -56,6 +56,19 @@ describe('countInboxUnread, personal and department chats', () => {
     expect(countInboxUnread(rows, false, 'me')).toBe(2);
   });
 
+  it("counts other people's personal chats in the wide (Team inbox) view", () => {
+    const rows = [row({ personal_owner_id: 'other' }), row()];
+    expect(countInboxUnread(rows, false, 'me', true)).toBe(2);
+    expect(countInboxUnread(rows, false, 'me', false)).toBe(1);
+  });
+
+  it("still leaves out a department chat that isn't mine in the wide view", () => {
+    const rows = [
+      row({ inbox_department: 'hr', user_id: 'x', assigned_agent_id: 'y' }),
+    ];
+    expect(countInboxUnread(rows, false, 'me', true)).toBe(0);
+  });
+
   it('fails closed without a viewer', () => {
     const rows = [
       row({ personal_owner_id: 'other' }),

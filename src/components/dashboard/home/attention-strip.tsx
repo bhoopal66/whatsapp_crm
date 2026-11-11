@@ -221,7 +221,12 @@ export function AttentionStrip({
 
   const chatError = chats.error && !chats.data;
   const unread = chats.data
-    ? countInboxUnread(chats.data.unreadRows, aiLive, userId)
+    ? countInboxUnread(
+        chats.data.unreadRows,
+        aiLive,
+        userId,
+        inboxHref === '/team-inbox'
+      )
     : null;
   const taskFigures = tasks?.data ? taskCounts(tasks.data, clock.now) : null;
   const caseFigures = cases?.data ? overdueCases(cases.data.rows) : null;

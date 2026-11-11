@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { readObject, requiredText } from '@/lib/cases/http';
 import {
   applyStatusMapping,
@@ -20,7 +20,7 @@ import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readObject(request);
     const status = requiredText(body.status, 'status', MAX_STATUS_CHARS);
     return NextResponse.json(

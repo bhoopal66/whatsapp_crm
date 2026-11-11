@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   CaseHttpError,
   caseErrorResponse,
@@ -25,7 +25,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,
@@ -50,7 +50,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,

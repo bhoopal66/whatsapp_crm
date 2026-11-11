@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   CaseHttpError,
   caseErrorResponse,
@@ -34,7 +34,7 @@ const EVENTS: readonly SlaActorEvent[] = ['bank_response', 'customer_message'];
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,
@@ -52,7 +52,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,

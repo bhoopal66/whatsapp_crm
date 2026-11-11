@@ -6,7 +6,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  assertSalesAccess,
+  requireRole,
+  toErrorResponse,
+} from '@/lib/auth/account';
 import { isUuid, ownGroup, SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupService,
@@ -19,7 +23,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const { id } = await params;
     const group = ownGroup(
       isUuid(id) ? await submissionGroupStore().get(id) : null,

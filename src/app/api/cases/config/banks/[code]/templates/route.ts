@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import {
   bankCodeParam,
   configErrorResponse,
@@ -26,7 +26,7 @@ const TITLE_MAX = 200;
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const code = bankCodeParam((await params).code);
     await requireBank(ctx.supabase, ctx.accountId, code);
     const { templates } = await caseToolsStore().bankConfig(
@@ -41,7 +41,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const body = await readObject(request);
     const template = await caseToolsStore().upsertTaskTemplate(ctx.userId, {
@@ -60,7 +60,7 @@ export async function POST(request: Request, { params }: Params) {
 
 export async function DELETE(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const key = requiredKey(queryParam(request, 'key'), 'key');
     // Bank spaces' "Action needed" creates its task from this template;

@@ -11,7 +11,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
+import {
+  assertSalesAccess,
+  getCurrentAccount,
+  toErrorResponse,
+} from '@/lib/auth/account';
 import {
   isOverSendLimit,
   isUuid,
@@ -33,7 +37,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = ownGroup(
       isUuid(id) ? await submissionGroupStore().get(id) : null,

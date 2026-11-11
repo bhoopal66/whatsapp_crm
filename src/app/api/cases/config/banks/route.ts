@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import {
   configErrorResponse,
   readRows,
@@ -22,7 +22,7 @@ const NAME_MAX = 100;
 
 export async function GET() {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const [banks, listed] = await Promise.all([
       readRows(
         ctx.supabase
@@ -58,7 +58,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readObject(request);
     const code = requiredBankCode(body.code);
     const name = requiredText(body.name, 'name', NAME_MAX);

@@ -23,7 +23,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import {
   caseFilesErrorResponse,
   parseCaseFilesSettings,
@@ -47,7 +47,7 @@ function errorResponse(err: unknown, route: string) {
 
 export async function GET() {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const [[row], caseFiles] = await Promise.all([
       readRows(
         ctx.supabase
@@ -78,7 +78,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readObject(request);
     const managed = body.managed_externally;
     const groups = body.submission_whatsapp_groups;

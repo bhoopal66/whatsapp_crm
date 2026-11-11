@@ -1,6 +1,11 @@
-import { pickActiveProfile } from '@/lib/auth/active-profile'
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import {
+  assertSalesAccess,
+  ForbiddenError,
+  getCurrentAccount,
+  toErrorResponse,
+  UnauthorizedError,
+} from '@/lib/auth/account'
 import {
   validateTemplatePayload,
   type TemplatePayload,
@@ -37,45 +42,6 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/**
- * Resolve the caller's account, so teammates who didn't author a
- * template can still operate on it. Returns a ready-to-send error
- * response instead of an account id when the caller isn't eligible.
- */
-async function requireAccount() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return {
-      supabase,
-      accountId: null,
-      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
-    }
-  }
-
-  const { data: profileRows } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('user_id', user.id)
-  const profile = pickActiveProfile(profileRows)
-  const accountId = profile?.account_id as string | undefined
-  if (!accountId) {
-    return {
-      supabase,
-      accountId: null,
-      response: NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
-        { status: 403 },
-      ),
-    }
-  }
-
-  return { supabase, accountId, response: null }
-}
-
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -86,8 +52,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid template id.' }, { status: 400 })
     }
 
-    const { supabase, accountId, response } = await requireAccount()
-    if (response) return response
+    const { supabase, accountId } = assertSalesAccess(
+      await getCurrentAccount(),
+    )
 
     let payload: TemplatePayload
     try {
@@ -163,6 +130,9 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, template: row })
   } catch (error) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+      return toErrorResponse(error)
+    }
     console.error('Error editing template:', error)
     return NextResponse.json(
       {
@@ -184,8 +154,9 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid template id.' }, { status: 400 })
     }
 
-    const { supabase, accountId, response } = await requireAccount()
-    if (response) return response
+    const { supabase, accountId } = assertSalesAccess(
+      await getCurrentAccount(),
+    )
 
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
@@ -211,6 +182,9 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+      return toErrorResponse(error)
+    }
     console.error('Error deleting template:', error)
     return NextResponse.json(
       {

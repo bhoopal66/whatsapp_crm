@@ -20,7 +20,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   requestMissingDocuments,
   type DocRequestResult,
@@ -53,7 +53,7 @@ const NOT_SENT: Record<
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,

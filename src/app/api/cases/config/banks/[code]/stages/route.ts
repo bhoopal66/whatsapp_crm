@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import {
   bankCodeParam,
   configErrorResponse,
@@ -35,7 +35,7 @@ function stageList(value: unknown): string[] {
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const code = bankCodeParam((await params).code);
     const [, own, stages] = await Promise.all([
       requireBank(ctx.supabase, ctx.accountId, code),
@@ -58,7 +58,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const code = bankCodeParam((await params).code);
     const stages = stageList((await readObject(request)).stages);
     const count = await caseStore().setStages(

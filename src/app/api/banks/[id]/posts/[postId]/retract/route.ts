@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { bankErrorResponse, loadBankPost } from '@/lib/cases/bank-http';
 import { bankWorkspaceStore } from '@/lib/cases/server';
 
@@ -16,7 +16,7 @@ type Params = { params: Promise<{ id: string; postId: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id, postId } = await params;
     const store = bankWorkspaceStore();
     const { post } = await loadBankPost(store, ctx, id, postId);

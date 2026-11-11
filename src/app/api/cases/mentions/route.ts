@@ -12,13 +12,13 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { caseErrorResponse } from '@/lib/cases/http';
 import { caseViews } from '@/lib/cases/server';
 
 export async function GET(request: Request) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const params = new URL(request.url).searchParams;
     const limitText = params.get('limit') || null;
     const after = params.get('after') || null;

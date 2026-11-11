@@ -16,7 +16,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { hasMinRole } from '@/lib/auth/roles';
 import { canWriteCase } from '@/lib/cases/access';
 import {
@@ -46,7 +46,7 @@ const KINDS: readonly MemoryKind[] = [
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     const scope: MemoryScope = { type: 'case', id: c.id };
@@ -84,7 +84,7 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c, role } = await loadCaseForCaller(ctx, id, caseStore());
     if (!canWriteCase(role) || !hasMinRole(ctx.role, 'agent'))

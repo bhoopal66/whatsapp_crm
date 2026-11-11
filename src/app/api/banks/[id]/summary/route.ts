@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   BANK_WS_NOT_FOUND,
   bankErrorResponse,
@@ -21,7 +21,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = bankWorkspaceStore();
     const workspace = await loadBankWorkspace(store, ctx, id);

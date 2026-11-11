@@ -10,7 +10,7 @@
 // affects inbox routing.
 // ============================================================
 
-import type { AccountRole } from './roles';
+import { hasMinRole, type AccountRole } from './roles';
 
 export const DEPARTMENTS = ['sales', 'hr', 'it', 'accounts'] as const;
 export type Department = (typeof DEPARTMENTS)[number];
@@ -91,7 +91,7 @@ export function isSalesRestricted({
   restricted: boolean;
 }): boolean {
   if (!role) return false;
-  if (role === 'owner' || role === 'admin') return false;
+  if (hasMinRole(role, 'admin')) return false;
   return restricted;
 }
 

@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { caseErrorResponse, loadCaseForCaller } from '@/lib/cases/http';
 import { caseStore, caseViews } from '@/lib/cases/server';
 
@@ -16,7 +16,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     await caseViews().unsnooze(ctx.userId, c.id);

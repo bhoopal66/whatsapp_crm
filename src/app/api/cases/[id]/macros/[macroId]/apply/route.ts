@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   caseErrorResponse,
   CaseHttpError,
@@ -31,7 +31,7 @@ type Params = { params: Promise<{ id: string; macroId: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id, macroId } = await params;
     const { case: c } = await loadCaseForCaller(
       ctx,

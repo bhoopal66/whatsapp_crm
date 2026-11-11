@@ -65,6 +65,18 @@ beforeEach(() => {
 });
 
 describe('POST messages', () => {
+  it('is 403 for a sales-restricted department, before any group read', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      userId: 'agent-1',
+      accountId: 'acct-1',
+      role: 'agent',
+      salesRestricted: true,
+    });
+    expect((await post({ text: 'hi' })).status).toBe(403);
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(mocks.sendFromCrm).not.toHaveBeenCalled();
+  });
+
   it('sends the trimmed text as the caller and answers 201', async () => {
     const res = await post({ text: '  hi  ' });
     expect(res.status).toBe(201);

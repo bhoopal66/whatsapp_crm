@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { bankErrorResponse, loadBankThread } from '@/lib/cases/bank-http';
 import { badRequest, isUuid, readJsonObject } from '@/lib/cases/http';
 import { bankWorkspaceStore } from '@/lib/cases/server';
@@ -19,7 +19,7 @@ type Params = { params: Promise<{ id: string; threadId: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id, threadId } = await params;
     const store = bankWorkspaceStore();
     const { thread } = await loadBankThread(store, ctx, id, threadId);

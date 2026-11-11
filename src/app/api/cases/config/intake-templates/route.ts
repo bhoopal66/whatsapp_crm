@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { configErrorResponse, readRows } from '@/lib/cases/config-http';
 import { INTAKE_TEMPLATE_KINDS } from '@/lib/cases/intake-templates-http';
 
@@ -17,7 +17,7 @@ const text = (v: unknown) => (typeof v === 'string' ? v : null);
 
 export async function GET() {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const rows = await readRows(
       ctx.supabase
         .from('case_intake_templates')

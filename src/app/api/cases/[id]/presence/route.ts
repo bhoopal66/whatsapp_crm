@@ -12,7 +12,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canReadCase } from '@/lib/cases/access';
 import {
   badRequest,
@@ -35,7 +35,7 @@ const presence = new CasePresence({
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     if (!isUuid(id)) throw new CaseHttpError(404, CASE_NOT_FOUND);
     const c = ownCase(await caseStore().get(id), ctx.accountId);

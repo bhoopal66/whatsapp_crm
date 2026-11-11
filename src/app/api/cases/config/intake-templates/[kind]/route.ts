@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { configErrorResponse } from '@/lib/cases/config-http';
 import { readObject } from '@/lib/cases/http';
 import {
@@ -23,7 +23,7 @@ type Params = { params: Promise<{ kind: string }> };
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const kind = intakeKindParam((await params).kind);
     const body = intakeBody((await readObject(request)).body);
     const { data, error } = await supabaseAdmin().rpc(

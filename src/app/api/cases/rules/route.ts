@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { isUuid, readObject } from '@/lib/cases/http';
 import { CaseRulesRefusedError, CaseRulesStore } from '@/lib/cases/rules';
 import { caseRulesErrorResponse } from '@/lib/cases/rules-http';
@@ -21,7 +21,7 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 export async function GET() {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const rules = await new CaseRulesStore(supabaseAdmin()).list(ctx.userId);
     return NextResponse.json({ rules });
   } catch (err) {
@@ -31,7 +31,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readObject(request);
 
     let ruleId: string | null = null;

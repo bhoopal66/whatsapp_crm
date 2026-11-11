@@ -16,7 +16,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canWriteCase } from '@/lib/cases/access';
 import {
   assertUnderGroupSendLimit,
@@ -41,7 +41,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
 
@@ -68,7 +68,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c, role } = await loadCaseForCaller(ctx, id, caseStore());
     if (!canWriteCase(role)) throw new CaseHttpError(403, 'Not allowed');

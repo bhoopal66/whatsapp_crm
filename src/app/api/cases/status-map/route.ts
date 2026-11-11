@@ -19,7 +19,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { queryParam } from '@/lib/cases/config-http';
 import { badRequest, oneOf, readObject, requiredText } from '@/lib/cases/http';
 import {
@@ -37,7 +37,7 @@ import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const overview = await loadStatusMapOverview(supabaseAdmin(), ctx.userId);
     const suggestions =
       queryParam(request, 'suggestions') === '0'
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const body = await readObject(request);
     const status = requiredText(body.status, 'status', MAX_STATUS_CHARS);
     const stage = requiredText(body.stage, 'stage', MAX_STAGE_CHARS);
@@ -81,7 +81,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const status = requiredText(
       queryParam(request, 'status'),
       'status',

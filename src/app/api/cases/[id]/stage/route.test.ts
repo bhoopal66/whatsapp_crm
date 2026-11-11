@@ -52,6 +52,18 @@ const req = (path: string, body?: unknown) =>
 const post = (body: unknown, id = ID) => POST(req(`${id}/stage`, body), p(id));
 
 describe('POST /api/cases/[id]/stage', () => {
+  it('is 403 for a sales-restricted department, before any case read', async () => {
+    m.getCurrentAccount.mockResolvedValue({
+      userId: 'u-me',
+      accountId: 'acct-1',
+      role: 'agent',
+      salesRestricted: true,
+    });
+    expect((await post({ stage: 'Approved' })).status).toBe(403);
+    expect(m.store.get).not.toHaveBeenCalled();
+    expect(m.store.setStage).not.toHaveBeenCalled();
+  });
+
   it('is 404 for another account (no role call) and for no role', async () => {
     m.store.get.mockResolvedValue(aCase({ accountId: 'acct-2' }));
     expect((await post({ stage: 'Approved' })).status).toBe(404);

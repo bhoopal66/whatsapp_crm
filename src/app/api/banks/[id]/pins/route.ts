@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { bankErrorResponse, loadBankWorkspace } from '@/lib/cases/bank-http';
 import {
   BANK_WS_CAPS,
@@ -26,7 +26,7 @@ const isPinKind = (v: unknown): v is PinKind =>
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = bankWorkspaceStore();
     const workspace = await loadBankWorkspace(store, ctx, id);
@@ -42,7 +42,7 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const store = bankWorkspaceStore();
     const workspace = await loadBankWorkspace(store, ctx, id);

@@ -8,7 +8,11 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  assertSalesAccess,
+  requireRole,
+  toErrorResponse,
+} from '@/lib/auth/account';
 import {
   accessErrorFor,
   isUuid,
@@ -28,7 +32,7 @@ function errorResponse(err: unknown) {
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const { id } = await params;
     const store = submissionGroupStore();
     const group = ownGroup(
@@ -47,7 +51,7 @@ export async function PUT(request: Request, { params }: Params) {
 
 export async function DELETE(request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = assertSalesAccess(await requireRole('admin'));
     const { id } = await params;
     const store = submissionGroupStore();
     const group = ownGroup(

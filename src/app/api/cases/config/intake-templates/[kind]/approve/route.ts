@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { configErrorResponse } from '@/lib/cases/config-http';
 import { failIntake, intakeKindParam } from '@/lib/cases/intake-templates-http';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
@@ -16,7 +16,7 @@ type Params = { params: Promise<{ kind: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    const ctx = await requireRole('owner');
+    const ctx = assertSalesAccess(await requireRole('owner'));
     const kind = intakeKindParam((await params).kind);
     const { error } = await supabaseAdmin().rpc(
       'case_intake_template_approve',
