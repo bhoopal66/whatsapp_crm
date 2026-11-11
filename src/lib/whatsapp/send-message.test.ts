@@ -787,6 +787,10 @@ describe('sendMessageToConversation — OpenWA echo filed first', () => {
       provider: 'openwa',
     });
     expect(adopt?.row).not.toHaveProperty('message_id');
+    // The status webhook may already have moved the echo row to
+    // delivered/read; the ladder is forward-only, so the adopt must not
+    // write 'sent' over it.
+    expect(adopt?.row).not.toHaveProperty('status');
     expect(adopt?.filters).toEqual([
       ['conversation_id', 'cv-1'],
       ['message_id', 'owa.text'],

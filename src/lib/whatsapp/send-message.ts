@@ -942,6 +942,9 @@ export async function sendMessageToConversation(
     const details: Partial<typeof messageRow> = { ...messageRow };
     delete details.conversation_id;
     delete details.message_id;
+    // The echo row's status may already be delivered/read (forward-only
+    // ladder): leave it alone rather than writing 'sent' over it.
+    delete details.status;
     const adopted = await supabaseAdmin()
       .from('messages')
       .update(details)

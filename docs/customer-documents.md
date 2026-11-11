@@ -30,6 +30,8 @@ Filed:
 
 Not filed:
 
+- A document or photo sent to a staff member's **personal number**
+  (that chat is private, the customer folder is not).
 - Stickers, voice notes, other audio, video and text. The decision uses
   the message's normalised type, not the stored `content_type`: a
   sticker is stored as an image but is never filed.

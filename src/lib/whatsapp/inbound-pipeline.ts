@@ -680,7 +680,8 @@ export async function processMessage(
   // the reaction short-circuit below — so a conversation first opened by
   // a reaction still fires the event, and a subscriber always sees the
   // thread open before its first message.received.
-  if (convResult.created) {
+  // A personal number's thread is private: no webhook ever hears of it.
+  if (convResult.created && !channel.isPersonal) {
     await dispatchWebhookEvent(
       supabaseAdmin(),
       accountId,
@@ -949,7 +950,11 @@ export async function processMessage(
     receivedAt: messageAt,
   };
   let fileDocument: (() => Promise<void>) | null = null;
-  if (mediaUrl && isOwnStorageUrl(mediaUrl)) {
+  // A document sent to a staff member's personal number is not filed: the
+  // customer folder is visible to anyone who can see the contact.
+  if (channel.isPersonal) {
+    // nothing to file
+  } else if (mediaUrl && isOwnStorageUrl(mediaUrl)) {
     await recordCustomerDocument(supabaseAdmin(), {
       ...documentRecord,
       mediaUrl,
@@ -987,18 +992,11 @@ export async function processMessage(
   }
 
   // A person's own number (migration 190) carries no bot: no campaign
-  // reply stamp, flows, journeys, automations, AI reply or insights. The
-  // public API still hears of the message, TypeSafe's opt-out watch
-  // still runs (an opt-out holds whichever number it was written to),
-  // and the document is still filed.
+  // reply stamp, flows, journeys, automations, AI reply or insights, and
+  // no outbound webhook or customer document (the chat is private).
+  // TypeSafe's opt-out watch still runs (an opt-out holds whichever
+  // number it was written to).
   if (channel.isPersonal) {
-    await dispatchWebhookEvent(supabaseAdmin(), accountId, 'message.received', {
-      conversation_id: conversation.id,
-      contact_id: contactRecord.id,
-      whatsapp_message_id: message.id,
-      content_type: contentType,
-      text: contentText,
-    });
     const personalWatch = watchInboundMessage({
       accountId,
       conversationId: conversation.id,

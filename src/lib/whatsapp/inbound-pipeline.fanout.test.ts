@@ -988,16 +988,31 @@ describe('processMessage — personal number (migration 190)', () => {
     expect(h.calls.some((c) => c.table === 'broadcast_recipients')).toBe(false);
   });
 
-  it('still delivers message.received and runs the opt-out watch', async () => {
+  it('sends no message.received webhook but still runs the opt-out watch', async () => {
     await processMessage(message, 'acct-1', 'owner-1', personal);
 
+    expect(h.webhook).not.toHaveBeenCalled();
+    expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends no conversation.created webhook for a new personal chat', async () => {
+    h.convRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', personal);
+    expect(
+      h.calls.some((c) => c.table === 'conversations' && c.op === 'insert')
+    ).toBe(true);
+    expect(h.webhook).not.toHaveBeenCalled();
+  });
+
+  it('control: a new shared-number chat still sends conversation.created', async () => {
+    h.convRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
     expect(h.webhook).toHaveBeenCalledWith(
       expect.anything(),
       'acct-1',
-      'message.received',
-      expect.objectContaining({ conversation_id: 'conv-1' })
+      'conversation.created',
+      expect.anything()
     );
-    expect(h.watch).toHaveBeenCalledTimes(1);
   });
 
   it('defers the watch into later when given one', async () => {
@@ -1008,7 +1023,7 @@ describe('processMessage — personal number (migration 190)', () => {
     expect(h.watch).toHaveBeenCalledTimes(1);
   });
 
-  it('still files a customer document', async () => {
+  it('files no customer document, even with a stored copy', async () => {
     const pdf: NormalizedInboundMessage = {
       ...message,
       id: 'wamid.personal-doc',
@@ -1023,7 +1038,7 @@ describe('processMessage — personal number (migration 190)', () => {
     };
     await processMessage(pdf, 'acct-1', 'owner-1', personal);
 
-    expect(h.rpcs).toContain('customer_documents_record');
+    expect(h.rpcs).not.toContain('customer_documents_record');
     expect(h.flows).not.toHaveBeenCalled();
   });
 
