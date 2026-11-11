@@ -283,6 +283,8 @@ function whapi(
     isPrimary: true,
     mirrorInboundMedia: true,
     status,
+    isPersonal: false,
+    personalUserId: null,
   };
 }
 

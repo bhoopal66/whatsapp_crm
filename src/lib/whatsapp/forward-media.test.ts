@@ -29,6 +29,8 @@ const CHANNEL: WhatsAppChannel = {
   isPrimary: true,
   mirrorInboundMedia: false,
   status: 'connected',
+  isPersonal: false,
+  personalUserId: null,
 };
 
 const REHOSTED =

@@ -323,6 +323,11 @@ async function processOpenWAWebhook(
     // because the gateway's own link is not browser-loadable.
     mirrorInboundMedia: config.mirror_inbound_media !== false,
     status: config.status ?? 'connected',
+    // A person's own number (migration 190): the pipeline files and
+    // records its messages but runs no bot on it.
+    isPersonal: config.is_personal === true,
+    personalUserId:
+      config.is_personal === true ? (config.user_id ?? null) : null,
   };
 
   // Background work of each message (TypeSafe's watch), awaited once

@@ -31,6 +31,8 @@ function channel(over: Partial<WhatsAppChannel> = {}): WhatsAppChannel {
     isPrimary: false,
     mirrorInboundMedia: true,
     status: 'connected',
+    isPersonal: false,
+    personalUserId: null,
     ...over,
   };
 }

@@ -40,6 +40,8 @@ interface ConfigRow {
   mirror_inbound_media?: boolean | null;
   status?: string;
   created_at?: string;
+  is_personal?: boolean;
+  user_id?: string | null;
 }
 
 interface Script {
@@ -77,6 +79,8 @@ function row(r: ConfigRow) {
     mirror_inbound_media: r.mirror_inbound_media ?? true,
     status: r.status ?? 'connected',
     created_at: r.created_at ?? null,
+    is_personal: r.is_personal ?? false,
+    user_id: r.user_id ?? null,
   };
 }
 
@@ -957,5 +961,95 @@ describe('newChatProvider', () => {
         'user-1'
       )
     ).resolves.toBeNull();
+  });
+});
+
+describe('personal numbers (migration 190)', () => {
+  const MINE: ConfigRow = {
+    id: 'cfg-mine',
+    provider: 'openwa',
+    is_primary: false,
+    is_personal: true,
+    user_id: 'user-9',
+    created_at: '2020-01-01',
+  };
+  const COMPANY: ConfigRow = {
+    id: 'cfg-co',
+    provider: 'openwa',
+    is_primary: false,
+    created_at: '2026-01-01',
+  };
+
+  it('loads the owner and never makes one the primary', async () => {
+    const db = makeDb({ configs: [MINE, COMPANY] });
+    const channels = await loadChannels(db, 'acct-1');
+    const mine = channels.find((c) => c.id === 'cfg-mine')!;
+    expect(mine.isPersonal).toBe(true);
+    expect(mine.personalUserId).toBe('user-9');
+    expect(primaryChannel(channels)?.id).toBe('cfg-co');
+    expect(primaryChannel(channels.filter((c) => c.isPersonal))).toBeNull();
+  });
+
+  it('ignores a route pointing at a personal number', async () => {
+    const db = makeDb({
+      configs: [MINE, COMPANY],
+      route: { config_id: 'cfg-mine' },
+    });
+    expect(
+      (await resolveChannelForSurface(db, 'acct-1', 'automation')).id
+    ).toBe('cfg-co');
+  });
+
+  it('a bot never answers from a personal pin or thread number', async () => {
+    const pinned = makeDb({
+      configs: [MINE, COMPANY],
+      pinnedChannelId: 'cfg-mine',
+    });
+    expect(
+      (await resolveBotChannel(pinned, 'acct-1', 'flow', 'conv-1')).id
+    ).toBe('cfg-co');
+    const thread = makeDb({
+      configs: [MINE, COMPANY],
+      threadChannelId: 'cfg-mine',
+    });
+    expect(
+      (await resolveBotChannel(thread, 'acct-1', 'flow', 'conv-1')).id
+    ).toBe('cfg-co');
+    expect((await resolveAiReplyChannel(pinned, 'acct-1', 'conv-1')).id).toBe(
+      'cfg-co'
+    );
+    expect((await resolveAiReplyChannel(thread, 'acct-1', 'conv-1')).id).toBe(
+      'cfg-co'
+    );
+  });
+
+  it('is never a provider fallback, only an explicit pick', async () => {
+    const db = makeDb({ configs: [MINE] });
+    const channels = await loadChannels(db, 'acct-1');
+    expect(pickByProvider(channels, 'openwa')).toBeNull();
+    expect(pickByProvider(channels, 'openwa', ['cfg-mine'])?.id).toBe(
+      'cfg-mine'
+    );
+    expect(await resolveChannelByProvider(db, 'acct-1', 'openwa')).toBeNull();
+  });
+
+  it("is not a 'shared' number an unallocated agent's new chat starts from", async () => {
+    const db = makeDb({
+      configs: [
+        MINE,
+        COMPANY,
+        { id: 'cfg-team', provider: 'whapi', is_primary: true },
+      ],
+      otherAllocations: [{ config_id: 'cfg-team', user_id: 'user-2' }],
+    });
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      null,
+      null,
+      'user-1'
+    );
+    expect(ch.id).toBe('cfg-co');
   });
 });

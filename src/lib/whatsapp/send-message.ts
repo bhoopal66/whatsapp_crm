@@ -37,6 +37,7 @@ import {
   describeChannel,
   isLinkedDeviceProvider,
   type RoutingSurface,
+  type WhatsAppChannel,
   type WhatsAppProvider,
 } from '@/lib/whatsapp/channels';
 import {
@@ -355,6 +356,35 @@ export function validateSendMessageParams(params: {
 }
 
 /**
+ * May `senderUserId` send from this personal number (migration 190)?
+ * No sender (a bot, the public API, a system send) never may. The
+ * number's owner always may, without a round trip. Anyone else is asked
+ * of `can_use_channel` on the caller's own RLS client (it reads
+ * auth.uid(): admins, owners and the owner's team leader pass). Fails
+ * closed: an error or anything but `true` refuses.
+ */
+export async function maySendFromPersonal(
+  db: SupabaseClient,
+  accountId: string,
+  channel: Pick<WhatsAppChannel, 'id' | 'personalUserId'>,
+  senderUserId: string | null | undefined
+): Promise<boolean> {
+  if (!senderUserId) return false;
+  if (channel.personalUserId && channel.personalUserId === senderUserId) {
+    return true;
+  }
+  try {
+    const { data, error } = await db.rpc('can_use_channel', {
+      p_account_id: accountId,
+      p_channel_id: channel.id,
+    });
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Does `userId` reach this conversation ONLY through a chat share
  * (migration 133), and not by the ordinary rules? The coordinator case:
  * the database lets them read the chat and insert their own reply on
@@ -564,6 +594,25 @@ export async function sendMessageToConversation(
       ownNumbers.some(Boolean)
         ? "This chat was shared with you, so you can reply only on the chat's own WhatsApp number."
         : 'This chat was shared with you and has no WhatsApp number yet, so you cannot send in it until its owner does.',
+      409
+    );
+  }
+
+  // A personal number (migration 190) is a person's own phone: only an
+  // admin, its owner or the owner's team leader may send from it, and no
+  // bot, API or system send ever does (the resolvers never pick one for
+  // them; this is the backstop). The owner is decided here; everyone
+  // else by `can_use_channel`, asked as the sender through their own
+  // RLS client. Refused before the gateway, so nothing went out.
+  if (
+    channel.isPersonal &&
+    !(await maySendFromPersonal(db, accountId, channel, senderUserId))
+  ) {
+    throw new SendMessageError(
+      'personal_number',
+      senderUserId
+        ? "This chat is on a colleague's personal WhatsApp number, so only they, their team leader or an admin can send in it."
+        : 'This chat is on a personal WhatsApp number, so automatic messages cannot be sent in it.',
       409
     );
   }

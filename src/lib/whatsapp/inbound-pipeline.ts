@@ -971,6 +971,33 @@ export async function processMessage(
     return;
   }
 
+  // A person's own number (migration 190) carries no bot: no campaign
+  // reply stamp, flows, journeys, automations, AI reply or insights. The
+  // public API still hears of the message, TypeSafe's opt-out watch
+  // still runs (an opt-out holds whichever number it was written to),
+  // and the document is still filed.
+  if (channel.isPersonal) {
+    await dispatchWebhookEvent(supabaseAdmin(), accountId, 'message.received', {
+      conversation_id: conversation.id,
+      contact_id: contactRecord.id,
+      whatsapp_message_id: message.id,
+      content_type: contentType,
+      text: contentText,
+    });
+    const personalWatch = watchInboundMessage({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      messageId: message.id,
+      text: contentText ?? message.text ?? '',
+      configOwnerUserId,
+    });
+    if (later) later.push(personalWatch);
+    else await personalWatch;
+    await fileDocumentLater();
+    return;
+  }
+
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
   // trigger installed in migration 003). A first reply to a campaign

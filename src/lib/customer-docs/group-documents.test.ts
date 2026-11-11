@@ -36,6 +36,8 @@ const channel: WhatsAppChannel = {
   isPrimary: true,
   mirrorInboundMedia: false,
   status: 'connected',
+  isPersonal: false,
+  personalUserId: null,
 };
 
 const MIRRORED =
