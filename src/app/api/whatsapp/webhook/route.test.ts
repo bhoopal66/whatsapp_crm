@@ -120,15 +120,19 @@ vi.mock('@supabase/supabase-js', () => ({
                 },
               }),
             }),
+            // select().eq().eq() then .is('personal_owner_id', null) for a
+            // company chat (migration 191) before .order().limit().
             select: () => ({
               eq: () => ({
                 eq: () => ({
-                  order: () => ({
-                    limit: () =>
-                      Promise.resolve({
-                        data: [h.state.conversation],
-                        error: null,
-                      }),
+                  is: () => ({
+                    order: () => ({
+                      limit: () =>
+                        Promise.resolve({
+                          data: [h.state.conversation],
+                          error: null,
+                        }),
+                    }),
                   }),
                 }),
               }),
