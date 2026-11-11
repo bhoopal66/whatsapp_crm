@@ -13,6 +13,7 @@ interface Call {
   table: string;
   op: 'select' | 'update' | 'upsert' | 'insert';
   payload?: unknown;
+  filters?: [string, string, unknown][];
 }
 
 type Result = { data: unknown; error: unknown };
@@ -20,6 +21,8 @@ type Result = { data: unknown; error: unknown };
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
+  /** null = the usual existing row; [] = no chat yet (creates one). */
+  convRows: null as unknown[] | null,
   assignee: null as string | null,
   engagedAt: null as string | null,
   assignFromCalls: vi.fn(),
@@ -47,6 +50,7 @@ const h = vi.hoisted(() => ({
 
 function respond(call: Call): Result {
   if (call.table === 'conversations' && call.op === 'select') {
+    if (h.convRows) return { data: h.convRows, error: null };
     return {
       data: [
         {
@@ -57,6 +61,12 @@ function respond(call: Call): Result {
           human_engaged_at: h.engagedAt,
         },
       ],
+      error: null,
+    };
+  }
+  if (call.table === 'conversations' && call.op === 'insert') {
+    return {
+      data: { id: 'conv-new', ...(call.payload as object) },
       error: null,
     };
   }
@@ -94,15 +104,13 @@ function fakeDb() {
           return b;
         };
       }
-      for (const name of [
-        'select',
-        'eq',
-        'in',
-        'is',
-        'gte',
-        'order',
-        'limit',
-      ]) {
+      for (const name of ['eq', 'is'] as const) {
+        b[name] = (col: string, v: unknown) => {
+          (call.filters ??= []).push([name, col, v]);
+          return b;
+        };
+      }
+      for (const name of ['select', 'in', 'gte', 'order', 'limit']) {
         b[name] = () => b;
       }
       b.maybeSingle = () => run();
@@ -219,6 +227,7 @@ const message: NormalizedInboundMessage = {
 
 beforeEach(() => {
   h.meaningOn = true;
+  h.convRows = null;
   h.assignee = null;
   h.engagedAt = null;
   h.assignFromCalls.mockReset().mockResolvedValue(null);
@@ -1023,5 +1032,61 @@ describe('processMessage — personal number (migration 190)', () => {
     expect(h.flows).toHaveBeenCalledTimes(1);
     expect(h.automations).toHaveBeenCalled();
     expect(h.ai).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('processMessage — personal chats (migration 191)', () => {
+  const convCalls = (op: Call['op']) =>
+    h.calls.filter((c) => c.table === 'conversations' && c.op === op);
+
+  it('a company inbound looks only in the company chat (personal_owner_id IS NULL)', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    const lookup = convCalls('select')[0];
+    expect(lookup.filters).toContainEqual(['is', 'personal_owner_id', null]);
+    expect(lookup.filters?.some(([, col]) => col === 'personal_owner_id')).toBe(
+      true
+    );
+    expect(lookup.filters).not.toContainEqual(
+      expect.arrayContaining(['eq', 'personal_owner_id'])
+    );
+  });
+
+  it('an inbound on a personal number finds the owner’s personal chat', async () => {
+    const personal = {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'person-1',
+    };
+    await processMessage(message, 'acct-1', 'owner-1', personal, undefined, {
+      fanOut: false,
+    });
+    expect(convCalls('select')[0].filters).toContainEqual([
+      'eq',
+      'personal_owner_id',
+      'person-1',
+    ]);
+    expect(convCalls('insert')).toHaveLength(0);
+  });
+
+  it('creates the personal chat owned by and assigned to the person, on that number', async () => {
+    h.convRows = [];
+    const personal = {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'person-1',
+    };
+    await processMessage(message, 'acct-1', 'owner-1', personal, undefined, {
+      fanOut: false,
+    });
+    expect(convCalls('insert')[0].payload).toEqual({
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      user_id: 'person-1',
+      assigned_agent_id: 'person-1',
+      channel_id: 'ch-1',
+      personal_owner_id: 'person-1',
+    });
   });
 });

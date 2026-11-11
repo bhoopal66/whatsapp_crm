@@ -532,6 +532,24 @@ describe('sendMessageToConversation — provider pin', () => {
   });
 });
 
+describe('sendMessageToConversation — personal chats (migration 191)', () => {
+  it('refuses a personal chat with no sender, before any gateway call', async () => {
+    const captured: CapturedWrites = {};
+    sendTextMessage.mockClear();
+    await expect(
+      sendMessageToConversation(
+        sendPathDb([], captured, {
+          conversation: { personal_owner_id: 'owner-1' },
+        }),
+        'acct-1',
+        { conversationId: 'cv-1', messageType: 'text', contentText: 'hi' }
+      )
+    ).rejects.toMatchObject({ code: 'personal_chat', status: 409 });
+    expect(sendTextMessage).not.toHaveBeenCalled();
+    expect(captured.message).toBeUndefined();
+  });
+});
+
 describe('sendMessageToConversation — gateway refusal wording', () => {
   // A Whapi 401/403 on a send is ambiguous: a phone logged out of
   // WhatsApp answers it with a perfectly valid token. The send path

@@ -241,6 +241,23 @@ describe('POST /api/ai/autoreply/[conversationId]', () => {
     });
   });
 
+  it('reply_now never dispatches on a personal chat, the resume still succeeds', async () => {
+    setup({
+      conv: { ...CONV_ROW, personal_owner_id: 'owner-1' },
+      lastMessage: CUSTOMER_LAST,
+      channel: { provider: 'meta', user_id: 'owner-1' },
+    });
+    const res = await post({ paused: false, reply_now: true });
+    expect(await res.json()).toEqual({
+      success: true,
+      paused: false,
+      replying: false,
+    });
+    expect(admin.calls).toHaveLength(0);
+    await runAfter();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
   it('reply_now skips a Meta message older than 24 hours, the resume still succeeds', async () => {
     setup({
       lastMessage: { ...CUSTOMER_LAST, created_at: HOURS_AGO_25 },

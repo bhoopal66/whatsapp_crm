@@ -205,18 +205,27 @@ vi.mock('./admin-client', () => ({
         return chain;
       }
       return {
-        select: () => ({
+        select: (cols?: string) => ({
           eq: () => ({
             // The dispatch's first read sees `conv`; a re-read sees what
             // a person made of it since (`convLive`).
             maybeSingle: () =>
-              Promise.resolve({
-                data:
-                  h.state.convReads++ === 0
-                    ? h.state.conv
-                    : (h.state.convLive ?? h.state.conv),
-                error: null,
-              }),
+              cols === 'personal_owner_id'
+                ? // A read of its own: must not use up the "first read".
+                  Promise.resolve({
+                    data: {
+                      personal_owner_id:
+                        h.state.conv?.personal_owner_id ?? null,
+                    },
+                    error: null,
+                  })
+                : Promise.resolve({
+                    data:
+                      h.state.convReads++ === 0
+                        ? h.state.conv
+                        : (h.state.convLive ?? h.state.conv),
+                    error: null,
+                  }),
           }),
         }),
         update: (payload: Record<string, unknown>) => {
@@ -1500,6 +1509,19 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
     h.state.conv = { ...h.state.conv, assigned_agent_id: 'agent-9' };
     await dispatchInboundToAiReply(ARGS);
     expect(lastOutcome()).toBe('skipped_assigned');
+  });
+
+  it('skipped_number: a personal chat is never answered, before any spend', async () => {
+    h.state.conv = { ...h.state.conv, personal_owner_id: 'owner-1' };
+    const out = await dispatchInboundToAiReply(ARGS);
+    expect(out).toBe('skipped');
+    expect(lastOutcome()).toBe('skipped_number');
+    expect(h.state.outcomes.at(-1)?.ai_last_outcome_detail).toContain(
+      'Personal chat'
+    );
+    expect(h.resolveAiReplyChannel).not.toHaveBeenCalled();
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
   });
 
   it('skipped_paused: the bot is paused on this thread', async () => {

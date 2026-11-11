@@ -386,6 +386,24 @@ export async function dispatchInboundToAiReply(
     if (!config || !config.autoReplyEnabled) return 'skipped';
     recording = true;
 
+    // A personal chat (a staff member's own number) is never the bot's:
+    // stand down before the number lookup below, which would throw
+    // `personal_chat`, and before any token is spent. Recorded as
+    // `skipped_number` - the message is on a number the bot does not
+    // answer. Fails open on a read error (the channel resolver still
+    // refuses a personal chat).
+    const { data: personalRow } = await dbc
+      .from('conversations')
+      .select('personal_owner_id')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (personalRow?.personal_owner_id) {
+      return skip(
+        'skipped_number',
+        'Personal chat: the bot never answers on a personal number.'
+      );
+    }
+
     // Which number the bot answers on (migration 079). Every send below
     // goes out on `replyChannelId` when it is set; unset, the send
     // resolves the `ai_reply` route itself, as before 079.

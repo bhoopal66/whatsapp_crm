@@ -71,7 +71,7 @@ export async function POST(request: Request, { params }: Params) {
     // Confirm the conversation is in the caller's account before writing.
     const { data: conv, error: convErr } = await supabase
       .from('conversations')
-      .select('id, contact_id, channel_id')
+      .select('id, contact_id, channel_id, personal_owner_id')
       .eq('id', conversationId)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -152,13 +152,18 @@ export async function POST(request: Request, { params }: Params) {
     // reads below need the channel owner's id and the number's provider,
     // which an agent's RLS does not hand out, so they run on the service
     // role.
-    const dispatch = replyNow
-      ? await loadReplyNowDispatch(accountId, {
-          id: conv.id as string,
-          contact_id: conv.contact_id as string,
-          channel_id: (conv.channel_id as string | null) ?? null,
-        })
-      : null;
+    // A personal chat (a person's own number) is never the bot's: the
+    // pause/resume flags are harmless there, but reply_now must not
+    // dispatch (the channel resolver would refuse it anyway).
+    const isPersonal = !!conv.personal_owner_id;
+    const dispatch =
+      replyNow && !isPersonal
+        ? await loadReplyNowDispatch(accountId, {
+            id: conv.id as string,
+            contact_id: conv.contact_id as string,
+            channel_id: (conv.channel_id as string | null) ?? null,
+          })
+        : null;
 
     if (dispatch) {
       // Awaited inside after(): a floating promise is killed with the

@@ -17,6 +17,9 @@ let contactRow: Record<string, unknown> | null = null;
 // The caller's role, as `requireRole` reads it off the profile. Sending
 // requires 'agent'; 'viewer' must be refused before anything reaches Meta.
 let callerRole: string = 'admin';
+// Extra whatsapp_config rows (e.g. a personal number) listed after the
+// company Whapi channel; empty = the single company channel.
+let extraConfigRows: Array<Record<string, unknown>> = [];
 // A conversation created during the request becomes retrievable by id —
 // the shared send core re-loads the conversation (with its contact) from
 // just the id, so the mock must model insert-then-select-by-id.
@@ -85,6 +88,7 @@ function makeSupabaseMock() {
                 mirror_inbound_media: true,
                 status: 'connected',
               },
+              ...extraConfigRows,
             ],
             error: null,
           };
@@ -224,6 +228,24 @@ vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
 import { POST } from './route';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
+function personalRow(ownerId: string): Record<string, unknown> {
+  return {
+    id: 'cfg-personal',
+    account_id: 'acct-1',
+    user_id: ownerId,
+    provider: 'whapi',
+    label: 'Mine',
+    phone_number_id: 'PNID-P',
+    waba_id: null,
+    access_token: 'enc-token',
+    app_secret: null,
+    is_primary: false,
+    mirror_inbound_media: true,
+    status: 'connected',
+    is_personal: true,
+  };
+}
+
 function postContactTemplate(overrides: Record<string, unknown> = {}) {
   return POST(
     new Request('http://localhost/api/whatsapp/send', {
@@ -250,6 +272,7 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     createdConversation = null;
     contactRow = CONTACT;
     callerRole = 'admin';
+    extraConfigRows = [];
     supabaseMock = makeSupabaseMock();
     sendTemplateMessage.mockClear();
   });
@@ -295,6 +318,35 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
       content_type: 'template',
       template_name: 'order_update',
       sender_type: 'agent',
+    });
+  });
+
+  it('personal: true answers 409 no_personal_number without a personal number', async () => {
+    const res = await postContactTemplate({ personal: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('no_personal_number');
+    expect(conversationInserts).toHaveLength(0);
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+
+  it('personal: true ignores someone else’s personal number', async () => {
+    extraConfigRows = [personalRow('other-user')];
+    const res = await postContactTemplate({ personal: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('no_personal_number');
+  });
+
+  it('personal: true creates the caller’s personal chat on their own number', async () => {
+    extraConfigRows = [personalRow('user-1')];
+    await postContactTemplate({ personal: true });
+    expect(conversationInserts).toHaveLength(1);
+    expect(conversationInserts[0]).toMatchObject({
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      user_id: 'user-1',
+      assigned_agent_id: 'user-1',
+      personal_owner_id: 'user-1',
+      channel_id: 'cfg-personal',
     });
   });
 
