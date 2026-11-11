@@ -255,6 +255,13 @@ export interface Conversation {
    * person, their team leaders and admins; never shared or bot-handled.
    */
   personal_owner_id?: string | null;
+  /**
+   * Migration 192: the department ('hr', 'it', 'accounts') of the person
+   * who owns or holds this chat, kept by the database. NULL = the main
+   * inbox; otherwise the chat lists in that department's inbox and, in
+   * the main inboxes, only for its owner or assignee.
+   */
+  inbox_department?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

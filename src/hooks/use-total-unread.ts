@@ -8,6 +8,7 @@ import { useMyNumberIds } from '@/hooks/use-whatsapp-numbers';
 import { sharedBankByConversation } from '@/lib/coordinators/ui';
 import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import {
+  countDepartmentUnread,
   countUnreadChats,
   type UnreadCountRow,
 } from '@/lib/inbox/unread-counts';
@@ -21,13 +22,15 @@ type UnreadRow = UnreadCountRow & Pick<Conversation, 'id'>;
 
 /** The columns `UnreadRow` reads; the home dashboard's strip reuses them. */
 export const UNREAD_ROW_COLUMNS =
-  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id, user_id, channel_id, send_channel_id, personal_owner_id';
+  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id, user_id, channel_id, send_channel_id, personal_owner_id, inbox_department';
 
 export interface UnreadChats {
   /** Unread chats the Inbox lists. */
   inbox: number;
   /** Unread chats the Team inbox lists: every one RLS shows. */
   team: number;
+  /** Unread chats the HR inbox lists (migration 192; admins read it). */
+  hr: number;
 }
 
 /**
@@ -156,8 +159,8 @@ export function useUnreadChats(): UnreadChats {
   // leader's numbers and shares are known, only the chats they created
   // or hold count towards their Inbox.
   return useMemo(
-    () =>
-      countUnreadChats(
+    () => ({
+      ...countUnreadChats(
         rows.values(),
         aiLive,
         narrowed && userId
@@ -169,6 +172,8 @@ export function useUnreadChats(): UnreadChats {
           : null,
         userId
       ),
+      hr: countDepartmentUnread(rows.values(), aiLive, 'hr'),
+    }),
     [rows, aiLive, narrowed, userId, myNumberIds, sharedIds]
   );
 }

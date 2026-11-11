@@ -51,6 +51,7 @@ import {
   shouldFetchUnloadedPin,
 } from '@/lib/inbox/insights';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
+import type { DepartmentView, InboxDepartment } from '@/lib/inbox/departments';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { FullRowRetry } from '@/components/inbox/full-row-retry';
@@ -119,11 +120,21 @@ export default function InboxPage() {
  * /inbox narrows back to "mine" for them, and /team-inbox shows
  * everything RLS allows. Admins are left alone: their inbox has always
  * been the account-wide triage view and still is.
+ *
+ * `departmentView` (/hr-inbox, owners and admins) lists one
+ * department's chats (migration 192) the way the Team inbox lists
+ * everything; the other views leave department chats out except the
+ * viewer's own.
  */
 export function InboxPageInner({
   teamView = false,
   campaignView = false,
-}: { teamView?: boolean; campaignView?: boolean } = {}) {
+  departmentView,
+}: {
+  teamView?: boolean;
+  campaignView?: boolean;
+  departmentView?: InboxDepartment;
+} = {}) {
   const t = useTranslations('Inbox.page');
   const { user, accountId, accountRole, profileLoading } = useAuth();
 
@@ -131,8 +142,9 @@ export function InboxPageInner({
   // see more than their own — which today means a team leader. `null`
   // means "no extra filter", leaving RLS to decide, which is what both
   // the team view and an admin's inbox want.
+  const wideView = teamView || !!departmentView;
   const personalOnlyUserId =
-    !teamView && accountRole === 'team_leader' ? (user?.id ?? null) : null;
+    !wideView && accountRole === 'team_leader' ? (user?.id ?? null) : null;
 
   // Whether this list mixes other people's chats. When it does, each row
   // names whoever holds it and the list offers a by-agent filter —
@@ -150,7 +162,7 @@ export function InboxPageInner({
   const myNumberIds = useMyNumberIds();
   const accountNumbers = useAccountNumbers();
   const showAssignee =
-    !campaignView && viewsOthersConversations(accountRole, teamView);
+    !campaignView && viewsOthersConversations(accountRole, wideView);
   const numberNames = useMemo(() => {
     if (!accountNumbers || accountNumbers.length < 2) return null;
     return new Map(accountNumbers.map((n) => [n.id, channelDisplayName(n)]));
@@ -251,11 +263,21 @@ export function InboxPageInner({
   const narrowingRef = useRef(narrowing);
   // /inbox leaves other people's personal chats (191) to the Team inbox,
   // for every role; `undefined` means no such hiding.
-  const hidePersonalFor = teamView ? undefined : (user?.id ?? null);
+  const hidePersonalFor = wideView ? undefined : (user?.id ?? null);
   const hidePersonalForRef = useRef(hidePersonalFor);
+  // Which department slice this list is (192): a department inbox's own
+  // chats, else the main inboxes' (no department chat but the viewer's).
+  const viewerId = user?.id ?? null;
+  const deptView = useMemo<DepartmentView>(
+    () =>
+      departmentView ? { department: departmentView } : { mainFor: viewerId },
+    [departmentView, viewerId]
+  );
+  const deptViewRef = useRef(deptView);
   useEffect(() => {
     narrowingRef.current = narrowing;
     hidePersonalForRef.current = hidePersonalFor;
+    deptViewRef.current = deptView;
   });
 
   /**
@@ -413,7 +435,8 @@ export function InboxPageInner({
       const admits = inPersonalInbox(
         fetched,
         narrowingRef.current,
-        hidePersonalForRef.current
+        hidePersonalForRef.current,
+        deptViewRef.current
       );
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === fetched.id);
@@ -596,7 +619,8 @@ export function InboxPageInner({
             conv,
             knownConvIdsRef.current,
             narrowingRef.current,
-            hidePersonalForRef.current
+            hidePersonalForRef.current,
+            deptViewRef.current
           )
         ) {
           setConversations((prev) => {
@@ -1177,6 +1201,7 @@ export function InboxPageInner({
               personalOnlyUserId ? sharedConversationIds : undefined
             }
             ownPersonalChatsOf={hidePersonalFor ?? null}
+            departmentView={deptView}
             sharedBanks={sharedBanks}
             numberNames={numberNames}
             showAssignee={showAssignee}

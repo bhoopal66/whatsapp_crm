@@ -186,6 +186,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           label: t('unreadConversations', { count: unreadChats.team }),
           className: PRIMARY_BADGE,
         };
+      case '/hr-inbox':
+        return {
+          count: unreadChats.hr,
+          label: t('unreadConversations', { count: unreadChats.hr }),
+          className: PRIMARY_BADGE,
+        };
       case '/chat':
         return {
           count: chatUnread,

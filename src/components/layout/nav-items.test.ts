@@ -62,7 +62,7 @@ describe('visibleNavGroups', () => {
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
       ...AGENT,
-      team: TEAM,
+      team: ['/team-inbox', '/hr-inbox', ...TEAM.slice(1)],
       automation: ['/broadcasts', '/automations', '/flows'],
       integrations: ['/compass', '/opendesk'],
     });
@@ -234,6 +234,7 @@ describe('navPrefetch', () => {
         '/compass',
         '/flows',
         '/groups',
+        '/hr-inbox',
         '/journeys',
         '/meetings',
         '/opendesk',

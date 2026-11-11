@@ -82,6 +82,7 @@ export async function middleware(request: NextRequest) {
     '/dashboard',
     '/inbox',
     '/team-inbox',
+    '/hr-inbox',
     '/contacts',
     '/team-contacts',
     '/team-activity',

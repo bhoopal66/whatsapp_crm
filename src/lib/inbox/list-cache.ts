@@ -29,6 +29,8 @@ export interface InboxListQuestion {
   assignee: AssigneeFilter;
   campaignId: string | null;
   insightFilters: readonly string[];
+  /** A department inbox (migration 192, e.g. /hr-inbox); null/absent: main. */
+  department?: string | null;
 }
 
 /** What a list view holds: every loaded row and where the next page starts. */
@@ -58,6 +60,7 @@ export function inboxListQuestion(q: InboxListQuestion): string {
       q.assignee,
       q.campaignId,
       sorted(q.insightFilters),
+      q.department ?? null,
     ])
   );
 }

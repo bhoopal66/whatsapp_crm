@@ -229,6 +229,15 @@ export const NAV_GROUPS: NavGroup[] = [
         minRole: 'team_leader',
         guarded: true,
       },
+      // HR people's chats (migration 192), which leave the two inboxes
+      // above; owners and admins only (the route's AdminOnlyLayout).
+      {
+        href: '/hr-inbox',
+        labelKey: 'hrInbox',
+        icon: Inbox,
+        minRole: 'admin',
+        guarded: true,
+      },
       {
         href: '/team-contacts',
         labelKey: 'teamContacts',

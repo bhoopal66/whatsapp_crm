@@ -28,6 +28,11 @@ import {
   inRestrictedInbox,
   type RestrictableRow,
 } from './pagination';
+import {
+  inDepartmentView,
+  type DepartmentChatRow,
+  type DepartmentView,
+} from './departments';
 import { isOthersPersonalChat, type PersonalChatRow } from './personal-chats';
 import type { InboxNarrowing } from './unread-counts';
 
@@ -540,10 +545,14 @@ export function rowPinLabel(
  * personal Inbox shows teammates' pinned chats.
  */
 export function inPersonalInbox(
-  row: RestrictableRow & PersonalChatRow,
+  row: RestrictableRow & PersonalChatRow & DepartmentChatRow,
   narrowing: InboxNarrowing | null,
-  hideOthersPersonalFor?: string | null
+  hideOthersPersonalFor?: string | null,
+  departmentView?: DepartmentView
 ): boolean {
+  // The main inboxes leave department chats (192) to their own inbox,
+  // and a department inbox holds only its own; `undefined`: no check.
+  if (departmentView && !inDepartmentView(row, departmentView)) return false;
   // /inbox (any role) never lists someone else's personal chat (191);
   // `undefined` is the Team inbox, which lists all RLS returns.
   if (
@@ -570,14 +579,15 @@ export function inPersonalInbox(
  * `inRestrictedInbox` reads.
  */
 export function admitsInsertedConversation(
-  row: RestrictableRow & PersonalChatRow,
+  row: RestrictableRow & PersonalChatRow & DepartmentChatRow,
   knownIds: ReadonlySet<string>,
   narrowing: InboxNarrowing | null,
-  hideOthersPersonalFor?: string | null
+  hideOthersPersonalFor?: string | null,
+  departmentView?: DepartmentView
 ): boolean {
   return (
     !knownIds.has(row.id) &&
-    inPersonalInbox(row, narrowing, hideOthersPersonalFor)
+    inPersonalInbox(row, narrowing, hideOthersPersonalFor, departmentView)
   );
 }
 
