@@ -20,6 +20,7 @@ import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
+import { runPersonalHistoryImportTick } from '@/lib/whatsapp/personal-history-import'
 import { runStagedMediaSweep } from '@/lib/storage/staged-media-sweep'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
@@ -661,6 +662,38 @@ function scheduleAssistHousekeeping() {
 }
 
 /**
+ * The personal-number history import (one slice per tick) rides along at
+ * most once a minute per process, inside after(). The slice stops taking
+ * chats after 40 s, which fits the 45 s the other long jobs (PBX) allow
+ * themselves; this route sets no maxDuration, and its after() callbacks run
+ * side by side. The tick never throws; a failure is only logged.
+ */
+const personalImportDue = everyInterval(60_000)
+
+function schedulePersonalHistoryImport() {
+  try {
+    if (!personalImportDue()) return
+    after(async () => {
+      try {
+        await runPersonalHistoryImportTick(supabaseAdmin(), {
+          budgetMs: 40_000,
+        })
+      } catch (err) {
+        console.error(
+          '[automations-cron] personal history import failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the personal history import:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -707,6 +740,7 @@ export async function GET(request: Request) {
     schedulePushDispatch()
     scheduleCalendarReminders()
     scheduleAssistHousekeeping()
+    schedulePersonalHistoryImport()
   }
 }
 

@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
   profile: null as Record<string, unknown> | null,
   /** What a `whatsapp_config` maybeSingle returns, per filter set. */
   configRow: null as Record<string, unknown> | null,
+  importRow: null as Record<string, unknown> | null,
+  importEq: [] as unknown[][],
   configEq: [] as unknown[][],
   inserts: [] as Record<string, unknown>[],
   deletes: 0,
@@ -27,12 +29,13 @@ const h = vi.hoisted(() => ({
 
 function fakeDb(table: 'profiles' | 'service') {
   return {
-    from() {
+    from(name?: string) {
       let op = 'select';
       const b: Record<string, unknown> = {};
       for (const m of ['is', 'order', 'select']) b[m] = () => b;
       b.eq = (...args: unknown[]) => {
-        if (table === 'service') h.configEq.push(args);
+        if (name === 'personal_history_imports') h.importEq.push(args);
+        else if (table === 'service') h.configEq.push(args);
         return b;
       };
       b.insert = (p: Record<string, unknown>) => {
@@ -48,7 +51,12 @@ function fakeDb(table: 'profiles' | 'service') {
       b.update = () => b;
       b.single = async () => ({ data: { id: 'cfg-new' }, error: null });
       b.maybeSingle = async () => ({
-        data: table === 'profiles' ? h.profile : h.configRow,
+        data:
+          name === 'personal_history_imports'
+            ? h.importRow
+            : table === 'profiles'
+              ? h.profile
+              : h.configRow,
         error: null,
       });
       b.then = (resolve: (r: unknown) => unknown) =>
@@ -108,6 +116,8 @@ beforeEach(() => {
   h.role = 'agent';
   h.profile = { may_connect_personal_whatsapp: true };
   h.configRow = null;
+  h.importRow = null;
+  h.importEq = [];
   h.configEq = [];
   h.inserts = [];
   h.deletes = 0;
@@ -170,6 +180,7 @@ describe('GET /api/whatsapp/personal', () => {
     expect(await res.json()).toEqual({
       allowed: true,
       configured: true,
+      import: null,
       number: {
         id: 'cfg-9',
         label: 'Mine',
@@ -179,6 +190,35 @@ describe('GET /api/whatsapp/personal', () => {
         created_at: '2026-11-10T00:00:00Z',
       },
     });
+  });
+
+  it("reports the number's import progress, read by its config id", async () => {
+    h.configRow = { id: 'cfg-9', status: 'connected' };
+    h.importRow = {
+      status: 'running',
+      chats_done: 3,
+      chats_total: 10,
+      messages_imported: 120,
+      last_error: null,
+      finished_at: null,
+    };
+    const body = await (await GET()).json();
+    expect(body.import).toEqual({
+      status: 'running',
+      chats_done: 3,
+      chats_total: 10,
+      messages_imported: 120,
+      last_error: null,
+      finished_at: null,
+    });
+    expect(h.importEq).toEqual([['config_id', 'cfg-9']]);
+  });
+
+  it('reads no import when the caller has no number', async () => {
+    h.importRow = { status: 'done' };
+    const body = await (await GET()).json();
+    expect(body.import).toBeNull();
+    expect(h.importEq).toEqual([]);
   });
 });
 
