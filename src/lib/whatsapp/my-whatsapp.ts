@@ -14,10 +14,102 @@ export interface PersonalNumber {
   created_at: string;
 }
 
+export type ImportStatus =
+  'queued' | 'listing' | 'running' | 'paused' | 'done' | 'failed';
+
+const IMPORT_STATUSES: readonly string[] = [
+  'queued',
+  'listing',
+  'running',
+  'paused',
+  'done',
+  'failed',
+];
+
+/** Progress of the one-time chat history import (`personal_history_imports`). */
+export interface PersonalImportProgress {
+  status: ImportStatus;
+  chats_done: number;
+  chats_total: number;
+  messages_imported: number;
+  last_error: string | null;
+  finished_at: string | null;
+}
+
 export interface PersonalNumberInfo {
   allowed: boolean;
   configured: boolean;
   number: PersonalNumber | null;
+  import: PersonalImportProgress | null;
+}
+
+function count(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function parseImport(v: unknown): PersonalImportProgress | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const i = v as Record<string, unknown>;
+  if (typeof i.status !== 'string' || !IMPORT_STATUSES.includes(i.status)) {
+    return null;
+  }
+  return {
+    status: i.status as ImportStatus,
+    chats_done: count(i.chats_done),
+    chats_total: count(i.chats_total),
+    messages_imported: count(i.messages_imported),
+    last_error: typeof i.last_error === 'string' ? i.last_error : null,
+    finished_at: typeof i.finished_at === 'string' ? i.finished_at : null,
+  };
+}
+
+/** The card re-reads this often while the import is still moving. */
+export const IMPORT_POLL_MS = 10_000;
+
+export function isImportActive(p: PersonalImportProgress | null): boolean {
+  return (
+    p !== null &&
+    (p.status === 'queued' || p.status === 'listing' || p.status === 'running')
+  );
+}
+
+export type ImportLine =
+  | { key: 'preparing' }
+  | { key: 'running'; done: number; total: number; messages: number }
+  | { key: 'paused' }
+  | { key: 'done'; total: number; messages: number }
+  | { key: 'failed'; error: string };
+
+/** Which progress line to show, as a translation key plus its values. */
+export function importLine(
+  p: PersonalImportProgress | null
+): ImportLine | null {
+  if (!p) return null;
+  switch (p.status) {
+    case 'queued':
+    case 'listing':
+      return { key: 'preparing' };
+    case 'running':
+      return {
+        key: 'running',
+        done: p.chats_done,
+        total: p.chats_total,
+        messages: p.messages_imported,
+      };
+    case 'paused':
+      return { key: 'paused' };
+    case 'done':
+      return {
+        key: 'done',
+        total: p.chats_total,
+        messages: p.messages_imported,
+      };
+    case 'failed':
+      return {
+        key: 'failed',
+        error: (p.last_error ?? '').trim().slice(0, 120) || 'unknown error',
+      };
+  }
 }
 
 export type MyWhatsAppView =
@@ -64,7 +156,12 @@ export function parsePersonalNumberInfo(
           created_at: typeof n.created_at === 'string' ? n.created_at : '',
         }
       : null;
-  return { allowed: b.allowed, configured: b.configured, number };
+  return {
+    allowed: b.allowed,
+    configured: b.configured,
+    number,
+    import: number ? parseImport(b.import) : null,
+  };
 }
 
 /** `send-message.ts`'s refusal of a send from someone else's own number. */

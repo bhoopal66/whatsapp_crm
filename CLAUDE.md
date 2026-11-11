@@ -1655,7 +1655,8 @@ Cron / GitHub Actions / any pinger):
   retries (5 min), edge
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
-  delivery, calendar reminders and the assist pending sweep (1 min),
+  delivery, calendar reminders, the assist pending sweep and the
+  personal-number history import (1 min),
   closing empty instant meetings (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and
   the unsent-attachment sweep (24 h). An install that pings

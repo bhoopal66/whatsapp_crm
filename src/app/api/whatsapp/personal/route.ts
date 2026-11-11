@@ -14,7 +14,8 @@ import { personalNumbersAdmin } from '@/lib/whatsapp/personal-numbers';
  * /api/whatsapp/personal — the caller's own WhatsApp number in their
  * active workspace (migration 190), linked through OpenWA.
  *
- *   GET  — `{ allowed, configured, number }`: whether an admin has let
+ *   GET  — `{ allowed, configured, number, import }` (import: that
+ *          number's one-time chat history progress or null): whether an admin has let
  *          them connect one, whether this server has OpenWA at all
  *          (OPENWA_API_KEY), and their number or null.
  *   POST — connect it (`{ label? }` → `{ configId }`); the QR then comes
@@ -52,9 +53,38 @@ export async function GET() {
     );
   }
 
+  // Only after the ownership filters above found the caller's own number.
+  let importProgress: Record<string, unknown> | null = null;
+  if (number) {
+    const { data: job, error: jobError } = await personalNumbersAdmin()
+      .from('personal_history_imports')
+      .select(
+        'status, chats_done, chats_total, messages_imported, last_error, finished_at'
+      )
+      .eq('config_id', number.id as string)
+      .maybeSingle();
+    if (jobError) {
+      // Progress is a nicety: the card still works without it.
+      console.error('[whatsapp/personal] import progress failed:', jobError);
+    } else if (job) {
+      importProgress = {
+        status: job.status as string,
+        chats_done: (job.chats_done as number | null) ?? 0,
+        chats_total: (job.chats_total as number | null) ?? 0,
+        messages_imported: (job.messages_imported as number | null) ?? 0,
+        last_error:
+          typeof job.last_error === 'string'
+            ? job.last_error.slice(0, 120)
+            : null,
+        finished_at: (job.finished_at as string | null) ?? null,
+      };
+    }
+  }
+
   return NextResponse.json({
     allowed,
     configured: Boolean(openwaAdminApiKey()),
+    import: importProgress,
     number: number
       ? {
           id: number.id as string,

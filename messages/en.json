@@ -2550,6 +2550,12 @@
       "removed": "Your WhatsApp was disconnected",
       "removeFailed": "Couldn't disconnect your WhatsApp",
       "gatewayIncomplete": "Disconnected here, but the OpenWA server could not be reached; ask an admin to remove the session there.",
+      "importExplainer": "Your one-to-one chats are imported once, text only. New messages, including ones you type on your phone, appear automatically.",
+      "importPreparing": "Preparing to import your chats…",
+      "importRunning": "Importing chat history: {done} of {total} chats ({messages} messages)",
+      "importPaused": "Import paused while your phone is disconnected",
+      "importDone": "Chat history imported: {messages} messages from {total} chats",
+      "importFailed": "Import stopped: {error}",
       "cancel": "Cancel"
     },
     "sections": {

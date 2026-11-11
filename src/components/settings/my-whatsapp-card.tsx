@@ -34,6 +34,9 @@ import {
   openwaSessionUrls,
 } from '@/lib/whatsapp/openwa-connect';
 import {
+  IMPORT_POLL_MS,
+  importLine,
+  isImportActive,
   myWhatsAppView,
   parsePersonalNumberInfo,
   type PersonalNumberInfo,
@@ -60,6 +63,14 @@ export function MyWhatsAppCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Re-read while the history import is moving; stops once it settles.
+  const importActive = isImportActive(info?.import ?? null);
+  useEffect(() => {
+    if (!importActive) return;
+    const timer = setInterval(() => void load(), IMPORT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [importActive, load]);
 
   const onConnected = useCallback(() => {
     invalidateCached('whatsapp-channels:');
@@ -97,6 +108,7 @@ export function MyWhatsAppCard() {
 
   const view = myWhatsAppView(info);
   if (view.kind === 'hidden') return null;
+  const line = importLine(info?.import ?? null);
 
   return (
     <Card>
@@ -145,6 +157,39 @@ export function MyWhatsAppCard() {
                 {t('disconnect')}
               </Button>
             </div>
+          </div>
+        )}
+
+        {view.kind === 'connected' && (
+          <div className="space-y-1">
+            {line && (
+              <p
+                className={
+                  line.key === 'failed'
+                    ? 'text-destructive text-sm'
+                    : 'text-foreground text-sm'
+                }
+              >
+                {line.key === 'preparing' && t('importPreparing')}
+                {line.key === 'running' &&
+                  t('importRunning', {
+                    done: line.done,
+                    total: line.total,
+                    messages: line.messages,
+                  })}
+                {line.key === 'paused' && t('importPaused')}
+                {line.key === 'done' &&
+                  t('importDone', {
+                    total: line.total,
+                    messages: line.messages,
+                  })}
+                {line.key === 'failed' &&
+                  t('importFailed', { error: line.error })}
+              </p>
+            )}
+            <p className="text-muted-foreground text-xs">
+              {t('importExplainer')}
+            </p>
           </div>
         )}
       </CardContent>
