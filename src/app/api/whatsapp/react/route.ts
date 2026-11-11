@@ -8,7 +8,10 @@ import {
   pickByProvider,
   resolveReplyChannel,
 } from '@/lib/whatsapp/channels';
-import { reachesOnlyByShare } from '@/lib/whatsapp/send-message';
+import {
+  maySendFromPersonal,
+  reachesOnlyByShare,
+} from '@/lib/whatsapp/send-message';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -145,6 +148,23 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
       throw err;
+    }
+
+    // A personal number (migration 190) is a person's own phone: only
+    // its owner, their team leader or an admin may act from it, a
+    // reaction included. Same wording and code as the send route.
+    if (
+      channel.isPersonal &&
+      !(await maySendFromPersonal(supabase, accountId, channel, userId))
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This chat is on a colleague's personal WhatsApp number, so only they, their team leader or an admin can send in it.",
+          code: 'personal_number',
+        },
+        { status: 409 },
+      );
     }
 
     try {

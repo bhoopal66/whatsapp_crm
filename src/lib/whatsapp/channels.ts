@@ -701,20 +701,25 @@ async function replyFrom(
     .limit(1)
     .maybeSingle();
 
+  // No human sender (the public API, an integration) never follows a
+  // customer onto a personal number (migration 190): a person's own
+  // phone is theirs to send from. Fall through to the company pick.
+  const usable = senderUserId ? channels : companyChannels(channels);
+
   const exactId =
     (lastInbound?.channel_id as string | null | undefined) ?? null;
-  const exact = exactId ? channels.find((c) => c.id === exactId) : undefined;
+  const exact = exactId ? usable.find((c) => c.id === exactId) : undefined;
   if (exact) return exact;
 
   const provider = lastInbound?.provider as WhatsAppProvider | undefined;
   if (provider) {
-    const match = pickByProvider(channels, provider, [numbers.channelId]);
+    const match = pickByProvider(usable, provider, [numbers.channelId]);
     if (match) return match;
     // The channel that carried the conversation has since been
     // disconnected. Fall through rather than fail: the customer still
     // deserves a reply, even from the other number.
   } else if (numbers.channelId) {
-    const started = channels.find((c) => c.id === numbers.channelId);
+    const started = usable.find((c) => c.id === numbers.channelId);
     if (started) return started;
   }
 

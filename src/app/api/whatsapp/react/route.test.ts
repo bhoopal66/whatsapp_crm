@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   reachesOnlyByShare: vi.fn(),
   sendReaction: vi.fn(),
+  maySendFromPersonal: vi.fn(),
+  channel: { id: 'ch1' } as Record<string, unknown>,
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -19,6 +21,7 @@ vi.mock('@/lib/rate-limit', () => ({
 }));
 vi.mock('@/lib/whatsapp/send-message', () => ({
   reachesOnlyByShare: mocks.reachesOnlyByShare,
+  maySendFromPersonal: mocks.maySendFromPersonal,
 }));
 vi.mock('@/lib/whatsapp/provider', () => ({
   sendReaction: mocks.sendReaction,
@@ -27,7 +30,7 @@ vi.mock('@/lib/whatsapp/provider', () => ({
 vi.mock('@/lib/whatsapp/channels', () => ({
   ChannelError: class extends Error {},
   isWhatsAppProvider: () => true,
-  loadChannels: async () => [{ id: 'ch1' }],
+  loadChannels: async () => [mocks.channel],
   pickByProvider: () => null,
   resolveReplyChannel: async () => ({ id: 'ch1' }),
 }));
@@ -77,6 +80,7 @@ const req = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.channel = { id: 'ch1' };
   setup();
 });
 
@@ -91,6 +95,25 @@ describe('POST /api/whatsapp/react', () => {
 
   it('reacts for a caller with ordinary access', async () => {
     mocks.reachesOnlyByShare.mockResolvedValue(false);
+    const res = await POST(req());
+    expect(res.status).toBe(200);
+    expect(mocks.sendReaction).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a non-owner on a personal number before the gateway call', async () => {
+    mocks.reachesOnlyByShare.mockResolvedValue(false);
+    mocks.channel = { id: 'ch1', isPersonal: true, personalUserId: 'owner' };
+    mocks.maySendFromPersonal.mockResolvedValue(false);
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('personal_number');
+    expect(mocks.sendReaction).not.toHaveBeenCalled();
+  });
+
+  it('lets the personal number owner react', async () => {
+    mocks.reachesOnlyByShare.mockResolvedValue(false);
+    mocks.channel = { id: 'ch1', isPersonal: true, personalUserId: 'coord' };
+    mocks.maySendFromPersonal.mockResolvedValue(true);
     const res = await POST(req());
     expect(res.status).toBe(200);
     expect(mocks.sendReaction).toHaveBeenCalledOnce();

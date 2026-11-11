@@ -1052,4 +1052,42 @@ describe('personal numbers (migration 190)', () => {
     );
     expect(ch.id).toBe('cfg-co');
   });
+
+  describe('following the customer onto a personal number', () => {
+    const CO_PRIMARY: ConfigRow = { ...COMPANY, is_primary: true };
+
+    it('the public API (no sender) falls through to a company number', async () => {
+      const db = makeDb({
+        configs: [MINE, CO_PRIMARY],
+        lastInboundProvider: 'openwa',
+        lastInboundChannelId: 'cfg-mine',
+      });
+      const ch = await resolveSendChannel(
+        db,
+        'acct-1',
+        'api',
+        'conv-1',
+        null,
+        null
+      );
+      expect(ch.id).toBe('cfg-co');
+    });
+
+    it('a human sender still follows the customer; the send check decides', async () => {
+      const db = makeDb({
+        configs: [MINE, CO_PRIMARY],
+        lastInboundProvider: 'openwa',
+        lastInboundChannelId: 'cfg-mine',
+      });
+      const ch = await resolveSendChannel(
+        db,
+        'acct-1',
+        'inbox',
+        'conv-1',
+        null,
+        'user-1'
+      );
+      expect(ch.id).toBe('cfg-mine');
+    });
+  });
 });
