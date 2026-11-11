@@ -909,3 +909,10 @@ jobs:
       # claim_personal_history_import (one lease); privileges.
       - name: Verify personal chats
         run: supabase db query --local --file supabase/ci/verify-personal-chats.sql
+      # Departments (192): default sales; only owners/admins set one
+      # (set_member_department) or a department's switches
+      # (set_department_settings); conversations.inbox_department follows
+      # the assignee, else the owner, for every writer and is recomputed
+      # on department and switch changes; account_departments read-only.
+      - name: Verify departments
+        run: supabase db query --local --file supabase/ci/verify-departments.sql
