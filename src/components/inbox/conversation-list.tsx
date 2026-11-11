@@ -1,6 +1,14 @@
 'use client';
 
-import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  Fragment,
+  memo,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   REFERENCE_CACHE_TTL_MS,
@@ -39,13 +47,23 @@ import {
 import { resolveListHandler } from '@/lib/inbox/handler';
 import { ownPersonalChatsGroup } from '@/lib/inbox/personal-chats';
 import {
-  INBOX_SEARCH_CONTACT_ALIAS,
   INBOX_SEARCH_DEBOUNCE_MS,
-  INBOX_SEARCH_EMBED,
-  inboxSearchQuery,
+  INBOX_SEARCH_LIMIT,
+  inboxSearchHits,
   inboxSearchTerm,
-  matchesInboxSearch,
+  isCloseMatch,
+  matchesInboxSearchOrHit,
+  sortByRank,
+  type InboxSearchHits,
 } from '@/lib/inbox/search';
+import {
+  conversationSearchGroup,
+  isMissingSearchRpc,
+  parseSearchHits,
+  searchRpcTerm,
+  type SearchHit,
+} from '@/lib/contacts/fuzzy-search';
+import { contactSearchFilter } from '@/lib/contacts/search';
 import {
   inDepartmentView,
   mainInboxGroup,
@@ -278,6 +296,7 @@ type InboxFilter = 'all' | 'unread';
  * reloading the first page, so it does that instead.
  */
 const DELTA_LIMIT = 200;
+const NO_IDS: readonly string[] = [];
 
 /** Everything the server-side query depends on. */
 interface ListQueryParams {
@@ -302,10 +321,12 @@ interface ListQueryParams {
   /** Smart insights filters; always empty while signals are off. */
   insightFilters: readonly InsightFilter[];
   /**
-   * The search box, debounced and cleaned ('' = no search). Pushed into
-   * the query so a chat beyond the loaded pages is found (search.ts).
+   * The search, debounced and cleaned ('' = no search), and the contacts
+   * it found. Pushed into the query so a chat beyond the loaded pages is
+   * found (search.ts).
    */
   search: string;
+  searchContactIds: readonly string[];
 }
 
 /** Whether the workspace has Smart insights signals on, once known. */
@@ -349,22 +370,15 @@ function conversationsQuery(
 ) {
   const supabase = createClient();
   // Not on a delta, like the other facets: the held rows are re-matched
-  // client-side (matchesInboxSearch).
-  const search = opts.since ? null : inboxSearchQuery(p.search);
-  let query = supabase.from('conversations').select(
-    // The empty embed returns nothing, so the rows keep the list's
-    // shape; the cast only spares the select-string type parser, which
-    // does not read an empty embed.
-    (search
-      ? `${CONVERSATION_LIST_SELECT},${INBOX_SEARCH_EMBED}`
-      : CONVERSATION_LIST_SELECT) as typeof CONVERSATION_LIST_SELECT
-  );
+  // client-side (matchesInboxSearchOrHit).
+  const searching = !opts.since && !!p.search;
+  let query = supabase.from('conversations').select(CONVERSATION_LIST_SELECT);
   const groups: (string | null)[] = [];
-  if (search) {
-    query = query.or(search.contactOr, {
-      referencedTable: INBOX_SEARCH_CONTACT_ALIAS,
-    });
-    groups.push(search.group);
+  // The chat's contact is one the search found, or its last message
+  // holds the term; one group beside the view's, so every view filter
+  // still applies.
+  if (searching) {
+    groups.push(conversationSearchGroup(p.search, p.searchContactIds));
   }
 
   if (p.restrictToUserId) {
@@ -448,7 +462,42 @@ function conversationsQuery(
   return query
     .order('last_message_at', { ascending: false, nullsFirst: true })
     .order('id', { ascending: false })
-    .limit(CONVERSATION_PAGE_SIZE);
+    .limit(searching ? INBOX_SEARCH_LIMIT : CONVERSATION_PAGE_SIZE);
+}
+
+/**
+ * The contacts a search term finds, ranked: migration 193's close-match
+ * RPC (as the caller, so RLS decides), else, before 193 or for a term
+ * too short for it, the plain ilike filter, every row exact.
+ */
+async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
+  const supabase = createClient();
+  const rpcTerm = searchRpcTerm(term);
+  if (rpcTerm) {
+    const { data, error } = await supabase.rpc('search_contacts', {
+      p_term: rpcTerm,
+      p_limit: INBOX_SEARCH_LIMIT,
+    });
+    if (!error) return parseSearchHits(data);
+    // Any other failure: no contacts, and the message match still runs
+    // (the contact picker does the same).
+    if (!isMissingSearchRpc(error)) {
+      logFetchError('Failed to search contacts:', error);
+      return [];
+    }
+  }
+  const or = contactSearchFilter(term);
+  if (!or) return [];
+  const { data, error } = await supabase
+    .from('contacts')
+    .select('id')
+    .or(or)
+    .limit(INBOX_SEARCH_LIMIT);
+  if (error) {
+    logFetchError('Failed to search contacts:', error);
+    return [];
+  }
+  return (data ?? []).map((r) => ({ contactId: r.id, score: 1, exact: true }));
 }
 
 function logFetchError(
@@ -496,6 +545,7 @@ export function ConversationList({
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const tInsights = useTranslations('InsightsUi.list');
+  const tSearch = useTranslations('ContactSearch');
   const locale = useLocale();
 
   // The rows' timestamps ("14:05", "Yesterday", "Monday") only depend
@@ -535,6 +585,28 @@ export function ConversationList({
     );
     return () => clearTimeout(id);
   }, [search]);
+  // The contacts that term finds; the list is asked for once they are
+  // in. A response for a term since replaced is dropped.
+  const [searchHits, setSearchHits] = useState<InboxSearchHits | null>(null);
+  useEffect(() => {
+    if (!serverSearch) {
+      setSearchHits(null);
+      return;
+    }
+    let stale = false;
+    void fetchInboxSearchHits(serverSearch).then((hits) => {
+      if (!stale) setSearchHits(inboxSearchHits(serverSearch, hits));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [serverSearch]);
+  // Hits answering the term in the box right now, for the held rows'
+  // match, rank and marks; none while a newer term is on its way.
+  const liveHits =
+    searchHits && searchHits.term === inboxSearchTerm(search)
+      ? searchHits
+      : null;
   const [filter, setFilter] = useState<InboxFilter>(
     initialUnread ? 'unread' : 'all'
   );
@@ -729,7 +801,10 @@ export function ConversationList({
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
       insightFilters,
-      search: serverSearch,
+      // Asked only once the term's contacts are in (searchHits), so the
+      // query never runs with the previous term's ids.
+      search: searchHits?.term ?? '',
+      searchContactIds: searchHits?.ids ?? NO_IDS,
     }),
     [
       restrictToUserId,
@@ -745,7 +820,7 @@ export function ConversationList({
       assigneeFilter,
       selectedCampaignId,
       insightFilters,
-      serverSearch,
+      searchHits,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -840,8 +915,9 @@ export function ConversationList({
         throw new Error('conversations fetch failed');
       }
       const page = normalizeConversations(data ?? []);
-      // The cursor is the page's alone; the pinned rows ride along.
-      const cursor = nextConversationCursor(page);
+      // The cursor is the page's alone; the pinned rows ride along. A
+      // search is one page: no cursor, so no further pages.
+      const cursor = params.search ? null : nextConversationCursor(page);
       if (attention.error) {
         logFetchError(
           'Failed to fetch chats needing attention:',
@@ -1135,8 +1211,12 @@ export function ConversationList({
       );
     }
 
+    // The text match, or a contact the search found: a close match
+    // shares no text with the term and must stay listed.
     if (search.trim()) {
-      result = result.filter((c) => matchesInboxSearch(c, search));
+      result = result.filter((c) =>
+        matchesInboxSearchOrHit(c, search, liveHits)
+      );
     }
 
     // Smart insights filters (empty while signals are off): realtime
@@ -1147,7 +1227,9 @@ export function ConversationList({
 
     // Signals on: pinned until handled first (urgent › Important ›
     // wants a person › upset › call back, longest waiting first). Off,
-    // exactly sortForInbox's order.
+    // exactly sortForInbox's order. A search ranks instead: exact
+    // matches first, then close ones, best first (sortByRank).
+    if (liveHits) return sortByRank(result, liveHits.rank);
     return signalsOn ? sortWithPins(result) : sortForInbox(result);
   }, [
     conversations,
@@ -1155,6 +1237,7 @@ export function ConversationList({
     filter,
     chatTagFilterIds,
     search,
+    liveHits,
     selectedCompany,
     assigneeFilter,
     campaignOnly,
@@ -1187,6 +1270,19 @@ export function ConversationList({
     if (showPinnedOnly) rows = rows.filter(isPinned);
     return rows;
   }, [filtered, showImportantOnly, showPinnedOnly]);
+  // A search's close matches: the "Similar" chip on each, and the
+  // "Close matches" divider above the first (sortByRank puts them last).
+  const firstCloseId = useMemo(
+    () =>
+      liveHits
+        ? (shown.find((c) => isCloseMatch(c, liveHits.rank))?.id ?? null)
+        : null,
+    [shown, liveHits]
+  );
+  const similarChip = useMemo(
+    () => ({ label: tSearch('similar'), hint: tSearch('similarHint') }),
+    [tSearch]
+  );
 
   // Handled: clear the attention pin (acknowledge_insight_attention,
   // migration 153) at once and keep the row, unpinned; realtime then
@@ -1704,47 +1800,61 @@ export function ConversationList({
         ) : (
           <div className="flex flex-col">
             {shown.map((conv) => (
-              <ConversationItem
-                key={conv.id}
-                conversation={conv}
-                isActive={conv.id === activeConversationId}
-                onSelect={handleSelect}
-                onPrefetch={prefetchMessages}
-                t={t}
-                today={today}
-                locale={locale}
-                showAssignee={showAssignee}
-                memberName={memberName}
-                chatTagTree={chatTagTree}
-                insights={signalsOn}
-                onHandled={canSendMessages ? handleHandled : undefined}
-                sharedBank={sharedBanks?.get(conv.id) ?? null}
-                personalLabel={
-                  // A personal chat (191): "My WhatsApp" for its owner,
-                  // else whose WhatsApp it is.
-                  conv.personal_owner_id
-                    ? conv.personal_owner_id === viewerId
-                      ? t('personalMine')
-                      : t('personalOf', {
-                          name: memberName(conv.personal_owner_id),
-                        })
-                    : null
-                }
-                numberName={
-                  // The number the chat sends from: a person's pin
-                  // (migration 061), else the one it is on.
-                  numberNames && (conv.send_channel_id || conv.channel_id)
-                    ? (numberNames.get(
-                        (conv.send_channel_id || conv.channel_id) as string
-                      ) ?? null)
-                    : null
-                }
-                campaignName={
-                  campaignOnly && conv.campaign_broadcast_id
-                    ? (campaignsById.get(conv.campaign_broadcast_id) ?? null)
-                    : null
-                }
-              />
+              <Fragment key={conv.id}>
+                {conv.id === firstCloseId && (
+                  <div
+                    role="separator"
+                    className="text-muted-foreground border-wa-divider border-b px-4 pt-3 pb-1 text-[11px] font-medium tracking-wide uppercase"
+                  >
+                    {tSearch('closeMatches')}
+                  </div>
+                )}
+                <ConversationItem
+                  similar={
+                    liveHits && isCloseMatch(conv, liveHits.rank)
+                      ? similarChip
+                      : null
+                  }
+                  conversation={conv}
+                  isActive={conv.id === activeConversationId}
+                  onSelect={handleSelect}
+                  onPrefetch={prefetchMessages}
+                  t={t}
+                  today={today}
+                  locale={locale}
+                  showAssignee={showAssignee}
+                  memberName={memberName}
+                  chatTagTree={chatTagTree}
+                  insights={signalsOn}
+                  onHandled={canSendMessages ? handleHandled : undefined}
+                  sharedBank={sharedBanks?.get(conv.id) ?? null}
+                  personalLabel={
+                    // A personal chat (191): "My WhatsApp" for its owner,
+                    // else whose WhatsApp it is.
+                    conv.personal_owner_id
+                      ? conv.personal_owner_id === viewerId
+                        ? t('personalMine')
+                        : t('personalOf', {
+                            name: memberName(conv.personal_owner_id),
+                          })
+                      : null
+                  }
+                  numberName={
+                    // The number the chat sends from: a person's pin
+                    // (migration 061), else the one it is on.
+                    numberNames && (conv.send_channel_id || conv.channel_id)
+                      ? (numberNames.get(
+                          (conv.send_channel_id || conv.channel_id) as string
+                        ) ?? null)
+                      : null
+                  }
+                  campaignName={
+                    campaignOnly && conv.campaign_broadcast_id
+                      ? (campaignsById.get(conv.campaign_broadcast_id) ?? null)
+                      : null
+                  }
+                />
+              </Fragment>
             ))}
           </div>
         )}
@@ -1886,6 +1996,11 @@ interface ConversationItemProps {
   onHandled?: (conversation: ConversationListItem) => Promise<boolean>;
   /** Warm the chat's messages on hover/focus (stable: a useCallback). */
   onPrefetch?: (conversationId: string) => void;
+  /**
+   * A search's close match: the "Similar" chip's label and hint, or null
+   * on an exact match and outside a search.
+   */
+  similar?: { label: string; hint: string } | null;
 }
 
 /** Hover or focus this long before a row's messages are prefetched. */
@@ -1912,6 +2027,7 @@ const ConversationItem = memo(function ConversationItem({
   insights = false,
   onHandled,
   onPrefetch,
+  similar = null,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -2094,6 +2210,14 @@ const ConversationItem = memo(function ConversationItem({
             {displayName}
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
+            {similar && (
+              <span
+                title={similar.hint}
+                className="bg-info-soft text-info self-center rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+              >
+                {similar.label}
+              </span>
+            )}
             {/* No meta line to carry them: the chips ride here, always
                 as dots, so the name truncates by a few pixels at most. */}
             {!hasMeta && chips.length > 0 && (
