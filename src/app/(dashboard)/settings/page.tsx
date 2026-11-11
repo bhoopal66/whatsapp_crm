@@ -238,7 +238,10 @@ const PRELOADERS: Record<
   Exclude<SettingsSection, 'overview'>,
   Array<() => Promise<unknown>>
 > = {
-  profile: [() => import('@/components/settings/profile-form')],
+  profile: [
+    () => import('@/components/settings/profile-form'),
+    () => import('@/components/settings/my-whatsapp-card'),
+  ],
   workspaces: [() => import('@/components/settings/workspaces-panel')],
   security: [() => import('@/components/settings/security-panel')],
   appearance: [() => import('@/components/settings/appearance-panel')],
