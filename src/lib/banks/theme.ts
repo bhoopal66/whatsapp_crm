@@ -49,13 +49,16 @@ export const BANK_THEMES: Readonly<Record<string, BankTheme>> = {
   ADIB: { bg: '#0172A8', fg: WHITE },
   EIB: { bg: '#461E57', fg: WHITE },
   SIB: { bg: '#001489', fg: WHITE, accent: '#EE6600' },
-  AJMAN: { bg: '#F47920', fg: '#1F1F1F' },
+  // Ajman's orange on its dark grey: three orange fills (Mashreq, Ajman,
+  // Bank of Baroda) could not be told apart.
+  AJMAN: { bg: '#2B2B2B', fg: WHITE, accent: '#F47920' },
   RAKBANK: { bg: '#D62222', fg: WHITE },
   WIO: { bg: '#5700FF', fg: WHITE },
   ZAND: { bg: '#222222', fg: WHITE, accent: '#F6A767' },
   UBL: { bg: '#0075BE', fg: WHITE },
   ARABBANK: { bg: '#015AAB', fg: WHITE },
-  BOB: { bg: '#F26522', fg: '#002752' },
+  // Baroda orange as a light tag, apart from Mashreq's solid orange.
+  BOB: { bg: '#FDE3D3', fg: '#8E3A09' },
   HSBC: { bg: '#DB0011', fg: WHITE },
   SCB: { bg: '#0473EA', fg: WHITE },
   CITI: { bg: '#056DAE', fg: WHITE },

@@ -261,7 +261,12 @@ describe('scanVisiblePage', () => {
   };
   const run = (
     h: ReturnType<typeof harness>,
-    over: { limit?: number; rounds?: number; cursor?: ReturnType<typeof at> }
+    over: {
+      limit?: number;
+      rounds?: number;
+      emptyRounds?: number;
+      cursor?: ReturnType<typeof at>;
+    }
   ) =>
     scanVisiblePage({
       column: 'last_activity_at',
@@ -271,6 +276,7 @@ describe('scanVisiblePage', () => {
       visible: h.visible,
       batch: 3,
       rounds: over.rounds ?? 5,
+      emptyRounds: over.emptyRounds ?? 5,
     });
 
   it('fills a page across batches, skipping rows the caller cannot see', async () => {
@@ -292,10 +298,28 @@ describe('scanVisiblePage', () => {
   });
 
   it('answers what it found, with a cursor, once the rounds are spent', async () => {
-    const h = harness([9]);
+    const h = harness([1, 9]);
     const page = await run(h, { rounds: 2 });
-    expect(page.rows).toEqual([]);
+    expect(page.rows.map((r) => r.id)).toEqual(['id-1']);
     expect(page.next).toEqual(at(5));
+  });
+
+  it('reads on past the usual rounds while it has found nothing', async () => {
+    const h = harness([9]);
+    const page = await run(h, { rounds: 2, emptyRounds: 4 });
+    expect(page.rows.map((r) => r.id)).toEqual(['id-9']);
+    expect(page.next).toBeNull();
+    // Out of empty rounds too: an empty page, with where to go on from.
+    const short = await run(harness([9]), { rounds: 1, emptyRounds: 2 });
+    expect(short).toEqual({ rows: [], next: at(5) });
+  });
+
+  it('moves past a batch with nothing visible after one that had a row', async () => {
+    const h = harness([0, 7]);
+    const page = await run(h, { limit: 2 });
+    expect(page.rows.map((r) => r.id)).toEqual(['id-0', 'id-7']);
+    // Each batch starts after the last row scanned, not the last row kept.
+    expect(h.scans).toEqual([null, 'id-2', 'id-5']);
   });
 
   it('has no next page when the page fills on the last row there is', async () => {

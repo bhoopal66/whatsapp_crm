@@ -7883,7 +7883,8 @@
       "customerNotInGroup": "Customer not in group",
       "bankFilter": "Filter by bank",
       "allBanks": "All banks",
-      "noBankMatches": "No groups for {bank}."
+      "noBankMatches": "No groups for {bank}.",
+      "emptySoFar": "Nothing to show yet. Load more to look further."
     },
     "details": {
       "title": "Details",

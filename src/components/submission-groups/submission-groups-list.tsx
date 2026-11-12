@@ -301,7 +301,13 @@ export function SubmissionGroupsList({
             </Button>
           </div>
         ) : rows && rows.length === 0 ? (
-          searching && !mineOnly ? (
+          loaded.next && !mineOnly ? (
+            // A filtered page can come back empty with more to read: never
+            // claim there is nothing while Load more (below) can find more.
+            <p className="text-muted-foreground px-4 py-10 text-center text-sm">
+              {tl('emptySoFar')}
+            </p>
+          ) : searching && !mineOnly ? (
             <p className="text-muted-foreground px-4 py-10 text-center text-sm">
               {t('noMatches', { query: debounced.trim() })}
             </p>

@@ -147,6 +147,12 @@ export function parseListQuery(params: URLSearchParams): ListQuery {
 export const BANK_SCAN_BATCH = 100;
 /** Batches one page reads at most before answering with what it found. */
 export const BANK_SCAN_ROUNDS = 5;
+/**
+ * While nothing visible has turned up, a page keeps reading up to this many
+ * batches, so a caller who sees only a few old groups of a busy bank is not
+ * answered an empty page. All local queries: about 100 in the worst case.
+ */
+export const BANK_SCAN_ROUNDS_EMPTY = 50;
 
 type Row = Record<string, unknown>;
 
@@ -161,9 +167,15 @@ function cursorAt(row: Row, column: string): ListCursor | null {
  * caller may see: `scan(after)` answers up to `batch` candidates after a
  * cursor in (column desc, id desc) order, `visible(ids)` the ones RLS hands
  * the caller. Rows are kept in scan order until `limit` are found, the scan
- * runs out, or `rounds` batches were read. `next` is where the next page
- * starts: after the last kept row when the page filled, after the last
- * scanned row when the rounds ran out first, null when nothing is left.
+ * runs out, or `rounds` batches were read (`emptyRounds` while none was
+ * kept). `next` is where the next page starts: after the last kept row
+ * when the page filled, after the last scanned row when the rounds ran out
+ * first, null when nothing is left.
+ *
+ * That last case hands the caller the position (sort time and id) of a
+ * group they may not see, so the next page can move past it; without it a
+ * page that read only hidden groups would start again from the same place.
+ * A position opens nothing: every read is still RLS'd.
  */
 export async function scanVisiblePage(opts: {
   column: string;
@@ -173,12 +185,18 @@ export async function scanVisiblePage(opts: {
   visible: (ids: string[]) => Promise<ReadonlySet<string>>;
   batch?: number;
   rounds?: number;
+  emptyRounds?: number;
 }): Promise<{ rows: Row[]; next: ListCursor | null }> {
   const batch = opts.batch ?? BANK_SCAN_BATCH;
   const rounds = opts.rounds ?? BANK_SCAN_ROUNDS;
+  const emptyRounds = opts.emptyRounds ?? BANK_SCAN_ROUNDS_EMPTY;
   const rows: Row[] = [];
   let after = opts.cursor;
-  for (let round = 0; round < rounds; round++) {
+  for (
+    let round = 0;
+    round < (rows.length ? rounds : Math.max(rounds, emptyRounds));
+    round++
+  ) {
     const scanned = await opts.scan(after);
     if (!scanned.length) return { rows, next: null };
     const seen = await opts.visible(scanned.map((r) => String(r.id)));
