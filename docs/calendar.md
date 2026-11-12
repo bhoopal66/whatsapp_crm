@@ -51,14 +51,42 @@ most once a minute per process):
   to 5), or an attendee's own choice in place of them. Someone who
   declined is not reminded.
 - **Meetings**: 10 minutes before the scheduled start, and at the start.
-- **Tasks**: 15 minutes before the due time (`task_due`), to the
-  assignee.
+  `meeting_reminder` carries `meta.offset` (10 or 0).
+- **Tasks**: 15 minutes before the due time, a quiet heads-up ("Due in
+  15 minutes · …", `meta.offset` 15), and again when it falls due, an
+  alarm ("Due now · …", `meta.offset` 0), both `task_due` and to the
+  assignee. The due-now key is `tk0:<task>:<due epoch>:<assignee>`, so
+  moving the due time (a snooze) rings again at the new time.
 
 The SQL sweep (`calendar_reminder_sweep`) covers one-off events,
 meetings and tasks; occurrences of a recurring event are computed in
 the app (`runRecurringReminders`). Both record what they rang in
 `calendar_reminders_sent`, so a reminder rings once even when the cron
 runs twice.
+
+### The alarm card
+
+`task_due`, `meeting_reminder` and `event_reminder` bells also show a
+ringing card at the top right of every dashboard page (at the bottom of
+the screen on a phone). Up to three show at once, with "+N more". Each
+has a chime and a pulsing icon, and the tab title flashes while the tab
+is in the background. The code is `components/reminders/reminder-alarm.tsx`
+on `lib/reminders/alarm.ts`.
+
+- **Chime.** It plays in one tab only (Web Locks), repeats every minute
+  up to three times while the card is open, and stays silent during a
+  call or meeting (the card still shows).
+- **Task:** Open, Snooze (10 minutes, 1 hour, tomorrow 9:00; this moves
+  the task's due time) and Done.
+- **Meeting:** Join and Dismiss. **Event:** Open and Dismiss.
+- **Dismiss** marks the bell read, which closes the card in the person's
+  other tabs. A reminder from another workspace offers only Open and
+  Dismiss.
+- **Missed.** Opening the CRM shows unread reminders from the last 2
+  hours, marked "Missed", without a chime.
+- **OS notification.** If the tab is in the background and notifications
+  are allowed, the page also shows an OS notification that stays until
+  dismissed. It has the same tag as the push, so the device shows one.
 
 ## Recurring events
 

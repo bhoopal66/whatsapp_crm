@@ -1629,6 +1629,10 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   a `chat_message` row whose message has been edited, deleted or erased
   is skipped (112). Quiet hours hold everything except meeting and event
   reminders.
+- **Reminder rings (197).** `task_due` rings at 15 minutes and when due
+  (`meta.offset`); the alarm card is `components/reminders/reminder-alarm.tsx`
+  on `lib/reminders/alarm.ts`. Every push of one task carries tag
+  `task:<id>` so a later ring replaces the last. `docs/calendar.md`.
 - **117** makes two meeting FKs `DEFERRABLE INITIALLY DEFERRED`, because
   a same-transaction insert-then-cascade-delete failed after a
   `pg_dump` restore. The migration explains why no other FK was
@@ -1701,6 +1705,12 @@ knowledge-gap topics. `docs/jev-insights.md` is the contract.
   pins them); the bell type `insight_attention` lives in 153 §9
   (`notifications_type_check`, `push_bell_url`), `hrefFor`, `PUSH_KINDS`
   and `kindGroup` — change them together.
+- **Reminder suggestions (197).** A chip under a chat message that names a
+  later time; off until `reminder_suggest_enabled`. `lib/reminders/suggest.ts`
+  gates (text, time finder, 2 min ahead, company chats, 60/min, Jev
+  `qs-reminder-v1` at 0.6) and never throws. Rows in
+  `message_reminder_suggestions` are service-role writes; adding files a normal
+  follow-up task. `verify-reminder-suggestions.sql`.
 - **Colours** come only from `src/lib/insights/palette.ts`: complete literal
   class strings with a `dark:` pair (Tailwind can't see composed names).
   Inbox chips sit on the meta line and never replace the message preview.

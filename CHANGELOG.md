@@ -12,6 +12,34 @@ and polish.
 
 ## [Unreleased]
 
+### Reminders: suggestions in chats and a ringing alarm
+
+**Migration required:** apply `supabase/migrations/197_reminder_suggestions.sql`
+as a superuser or BYPASSRLS role BEFORE deploying this build. The Smart
+insights settings read selects the new column, so on an older database
+every insight feature would read as off.
+
+**Added**
+
+- Reminder suggestions (off by default; **Settings → Smart insights →
+  Reminder suggestions in chats**). When a chat message names a later
+  time, an **Add reminder · Tomorrow 15:00** chip appears under it. It
+  opens the **Remind me** dialog prefilled; saving files the usual
+  follow-up task. See `docs/jev-insights.md`.
+- The reminder alarm: task, meeting and event reminders show a ringing
+  card at the top right of every dashboard page, with a chime. Tasks can
+  be snoozed (10 minutes, 1 hour, tomorrow 9:00) or marked done. Unread
+  reminders from the last 2 hours show as "Missed" when you open the CRM.
+
+**Changed**
+
+- Task reminders now ring when they fall due as well as 15 minutes
+  before. Moving the due time rings again at the new time.
+- Reminder pushes (tasks, meetings, events) stay on screen until
+  dismissed and vibrate. The due-now push replaces the 15-minute one on
+  the device.
+- **Remind me** accepts a time 2 minutes ahead (was 15 minutes).
+
 ### Second brain (off by default)
 
 **Migration required:** apply `supabase/migrations/194_second_brain.sql`,

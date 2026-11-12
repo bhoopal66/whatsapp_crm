@@ -59,6 +59,21 @@ notifications on there. A Safari tab never receives pushes.
 Each person can switch push off entirely or per kind, across all their
 workspaces.
 
+## Reminder pushes
+
+- `task_due`, `meeting_reminder` and `event_reminder` pushes stay on
+  screen until dismissed (`requireInteraction`) and vibrate in an alarm
+  pattern (`public/sw.js`).
+- `task_due` is high urgency, but quiet hours still hold it (unlike
+  meeting and event reminders), because the phone system's missed-call
+  tasks ring it too and must not wake people at night.
+- Every `task_due` push of one task is tagged `task:<task id>`
+  (`push_on_notification`, migration 197). The due-now push replaces the
+  15-minute heads-up on the device, and a snoozed ring replaces the last
+  one. Other bells keep `bell:<row id>`.
+- The page shows its own alarm card for the same bells; see
+  `docs/calendar.md`.
+
 ## Quiet hours
 
 A person may set quiet hours (a window in their time zone, which may

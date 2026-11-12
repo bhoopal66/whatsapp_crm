@@ -43,6 +43,7 @@ overwriting their change.
 | Campaign reply sorting                        | Sorts replies to a broadcast into interested, question, not now, not interested, wrong person, stop and other; optionally tags interested replies with a chosen main tag.                                                                                                                                                  |
 | Message check before sending                  | **Off** or **Warn**: agents see a warning before sending a message that promises an approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam. It never blocks a message.                                                                                  |
 | Knowledge-gap topics                          | Lets Jev label the intent of recurring unanswered questions and check whether an approved answer already covers them. Topics still form without it.                                                                                                                                                                        |
+| Reminder suggestions in chats                 | Offers an "Add reminder" chip under a message that names a later time. See Reminder suggestions below. Off by default.                                                                                                                                                                                                     |
 | Flows and automations that understand meaning | Lets flow and automation triggers match what the customer means, not only exact keywords, and lets flows understand typed answers to buttons and lists.                                                                                                                                                                    |
 
 When Jev isn't available for the workspace (no `TYPESAFE_API_KEY`, or
@@ -570,6 +571,71 @@ before) and **Topics**, the default once any topic exists.
 - **The Jev labels and coverage need the Knowledge-gap topics switch** in Settings → Smart insights; it is off until an admin turns it on.
 - **Without Jev** (or with the switch off) topics still form, but carry no coverage badge and no
   intent.
+
+## Reminder suggestions
+
+When a WhatsApp chat message names a later time, Jev may offer a small
+chip under it, such as **Add reminder · Tomorrow 15:00**. This covers a
+customer's inbound message and a person's own text sent from the inbox.
+
+- **Add reminder** opens the chat header's **Remind me** dialog
+  prefilled: the title comes from the kind of thing ("Call Ahmed"), the
+  time is the one found, and the message is the note. Saving files the
+  usual follow-up task (`kind` `follow_up`, `source` `chat`). It shows on
+  the calendar, the customer page and the home Tasks panel, and the chip
+  becomes **Reminder set**.
+- **×** hides the chip for everyone; **Undo** brings it back.
+- If the task is deleted, the chip offers **Add** again.
+- Agents and up see the chip and act on it. Viewers see no chip.
+
+**Off by default.** Turn it on in **Settings → Smart insights →
+Reminder suggestions in chats** (`ai_insight_settings.reminder_suggest_enabled`,
+migration 197). Like every Smart insights feature it also needs Jev
+available: `TYPESAFE_API_KEY` set and the workspace in `TS_ACCOUNT_IDS`.
+
+### How a message is judged
+
+`src/lib/reminders/suggest.ts` runs these steps in order and never
+throws:
+
+1. Text only, at most 1,000 characters.
+2. The time finder (`src/lib/reminders/time-phrases.ts`) looks for a
+   time. It reads English and Gulf/MSA Arabic, Arabic-Indic digits and
+   day-first dates. A day with no time means 09:00. A bare hour from 1
+   to 7 is PM, 8 to 11 is AM. Past words such as "yesterday" or "امس"
+   never count. It works in the workspace's saved time zone (Team
+   activity settings), else UTC.
+3. Only times at least 2 minutes ahead are kept.
+4. Company chats only; a personal-number chat is never judged.
+5. At most 60 judgments per minute per workspace.
+6. One Jev request (`qs-reminder-v1`) asks whether the message is
+   something to be reminded of, what it is about (call, documents,
+   payment, meeting, other), and which time it means when it names
+   several.
+7. The suggestion is stored when Jev's probability is at least 0.6.
+
+The message is redacted and clipped before it reaches Jev. The times go
+as ordinal options. No ids or names are sent.
+
+Not judged: templates, media, interactive messages, replies from the
+bot, automations, flows or AI, public-API sends, and personal-number
+chats.
+
+### Storage and access
+
+`message_reminder_suggestions` holds one row per message. Whoever can
+see the chat can read the row (RLS: same workspace and the chat visible
+to them). Only the service role writes it. The chip's actions go
+through `POST /api/inbox/reminder-suggestions/[id]` with `added` plus the
+task id, `dismissed`, or `reopen`. Each is a compare-and-set: it answers
+409 when someone else got there first.
+
+### Calibration
+
+On 2026-11-12, against the real model (jev-1.13.0), 22 synthetic English
+and Arabic messages: 21 agreed with the expected answer at 0.6. Opening
+hours, delivery estimates and greetings were rejected. The one miss was
+"Good night, talk tomorrow".
 
 ## Privacy
 

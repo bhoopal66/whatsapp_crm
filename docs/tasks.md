@@ -34,9 +34,10 @@ agents and up) files a follow-up task (`kind` `follow_up`, `source`
 `POST /api/tasks`. The agent writes what to do and picks when: Tomorrow,
 In 1 week, In 1 month or In 3 months (09:00 local; a month past the end
 of the target month lands on its last day), or any future date and
-time. It is for the agent unless they pick someone they may already
+time at least 2 minutes ahead (it was 15). It is for the agent unless they pick someone they may already
 assign the chat to. The task's due date puts it on the calendar and
-rings the `task_due` bell 15 minutes before; the save toast offers Undo
+rings the `task_due` bell 15 minutes before (a quiet heads-up) and
+again when it falls due (an alarm); the save toast offers Undo
 (the task is cancelled). The same dialog lists the customer's open,
 dated tasks (`scope=contact`), soonest first, with a Done action. It is
 hidden from viewers and from a coordinator who sees the chat only
@@ -98,6 +99,10 @@ bell already carries it (reassigning that task later still rings, and
 so does a repeat missed call that hands an unassigned one to the person
 it rang: that call rings no `call_missed` bell of its own). A
 notification that fails to write never undoes the task.
+
+A task's holder is rung twice, 15 minutes before the due time and when
+it falls due. Moving the due time (a snooze from the alarm card) rings
+again at the new time. See `docs/calendar.md`.
 
 ## REST contract
 
