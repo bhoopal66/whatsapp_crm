@@ -34,7 +34,8 @@ DECLARE
   k4       UUID;  -- a lead case of c4, agent u_agent
   i_k1 UUID; i_k2 UUID; i_r UUID; i_fg UUID; i_m UUID; i_other UUID;
   i_b UUID; i_c2 UUID; i_c2b UUID; i_c3 UUID; i_d UUID;
-  i_msg UUID; i_sys UUID; i_old UUID; i_m4 UUID;
+  i_msg UUID; i_sys UUID; i_old UUID; i_m4 UUID; i_l1 UUID; i_l2 UUID;
+  r_mine   UUID;  -- u_agent's own closed case
   v_ids    UUID[];
   v_t      TEXT;
   v_n      INT;
@@ -348,9 +349,10 @@ BEGIN
   IF v_n <> 1 OR v_t <> '1' THEN failed := failed || 'deleting a contact did not tombstone its page'::text; END IF;
 
   -- ---------- 9. digest messages ----------
+  -- Per case, only the chunks of the newest staff message source.
   i_msg := brain_item_upsert(a_acct, 'message', 'bp-msg', k1, c1, NULL, 'sent the salary letter', false, NULL, u_agent, NULL);
   i_sys := brain_item_upsert(a_acct, 'message', 'bp-sys', k1, c1, NULL, 'welcome message sent', false, NULL, NULL, 'system:welcome');
-  i_old := brain_item_upsert(a_acct, 'message', 'bp-old', k1, c1, NULL, 'an old update', false, NULL, u_agent, NULL);
+  i_old := brain_item_upsert(a_acct, 'message', 'bp-old', k1, c1, NULL, 'I will send the letter by tomorrow', false, NULL, u_agent, NULL);
   i_m4  := brain_item_upsert(a_acct, 'message', 'bp-m4',  k4, c4, NULL, 'chased the bank', false, NULL, u_agent, NULL);
   IF i_msg IS NULL OR i_sys IS NULL OR i_old IS NULL OR i_m4 IS NULL THEN
     RAISE EXCEPTION 'fixture: a message item was not stored';
@@ -367,19 +369,77 @@ BEGIN
   n := n + 1;
   IF i_sys = ANY (v_ids) THEN failed := failed || 'the digest returned a system-label message'::text; END IF;
   n := n + 1;
-  IF i_old = ANY (v_ids) OR NOT (i_old = ANY (pg_temp.bp_digest(a_acct, u_agent, now() - interval '4 days'))) THEN
+  v_ids := pg_temp.bp_digest(a_acct, u_agent, now() - interval '4 days');
+  IF i_old = ANY (v_ids) OR NOT (i_msg = ANY (v_ids)) THEN
+    failed := failed || format('an older promise followed by a newer staff message was returned (%s)', v_ids);
+  END IF;
+  n := n + 1;
+  UPDATE brain_items SET created_at = now() - interval '5 days' WHERE item_id = i_msg;
+  v_ids := pg_temp.bp_digest(a_acct, u_agent, now() - interval '4 days');
+  IF NOT (i_old = ANY (v_ids)) OR i_msg = ANY (v_ids)
+     OR i_old = ANY (pg_temp.bp_digest(a_acct, u_agent, v_ts)) THEN
     failed := failed || 'the digest does not follow p_since'::text;
   END IF;
+  UPDATE brain_items SET created_at = now() WHERE item_id = i_msg;
   n := n + 1;
   IF cardinality(pg_temp.bp_digest(a_acct, u_agent2, v_ts)) <> 0
      OR cardinality(pg_temp.bp_digest(a_acct, u_viewer, v_ts)) <> 0
      OR cardinality(pg_temp.bp_digest(a_acct, u_out, v_ts)) <> 0 THEN
     failed := failed || 'the digest returned messages to another agent, a viewer or a stranger'::text;
   END IF;
+  -- A reply over 800 characters: two chunks of one source, each with its
+  -- own created_at. Both come back; the second does not hide the first.
+  i_l1 := brain_item_upsert(a_acct, 'message', 'bp-long', k4, c4, NULL, 'part one: I will send the payslips', false, NULL, u_agent, NULL);
+  i_l2 := brain_item_upsert(a_acct, 'message', 'bp-long', k4, c4, NULL, 'part two: regards', false, NULL, u_agent, NULL);
+  IF i_l1 IS NULL OR i_l2 IS NULL OR i_l1 = i_l2 THEN
+    RAISE EXCEPTION 'fixture: the two chunks were not stored';
+  END IF;
+  UPDATE brain_items SET created_at = now() - interval '2 hours' WHERE item_id = i_m4;
+  UPDATE brain_items SET created_at = now() - interval '61 minutes' WHERE item_id = i_l1;
+  UPDATE brain_items SET created_at = now() - interval '60 minutes' WHERE item_id = i_l2;
+  n := n + 1;
+  SELECT coalesce(array_agg(d.item_id ORDER BY d.created_at), '{}'), count(DISTINCT d.source_id)::text
+    INTO v_ids, v_t
+    FROM brain_digest_messages(a_acct, u_agent, v_ts) d WHERE d.case_id = k4;
+  IF v_ids IS DISTINCT FROM ARRAY[i_l1, i_l2] OR v_t <> '1' THEN
+    failed := failed || format('a two-chunk reply did not come back as both chunks of one source (%s)', v_ids);
+  END IF;
   n := n + 1;
   PERFORM brain_contact_mark(u_agent, a_acct, c4, 'opt_out');
-  IF i_m4 = ANY (pg_temp.bp_digest(a_acct, u_agent, v_ts)) THEN
+  v_ids := pg_temp.bp_digest(a_acct, u_agent, v_ts);
+  IF i_m4 = ANY (v_ids) OR i_l1 = ANY (v_ids) OR i_l2 = ANY (v_ids) THEN
     failed := failed || 'the digest returned a marked contact''s message'::text;
+  END IF;
+  n := n + 1;
+  SELECT coalesce(array_agg(x ORDER BY x), '{}') INTO v_ids
+    FROM brain_contacts_marked(a_acct, ARRAY[c1, c2, c3, c4, c4, NULL]) x;
+  IF v_ids IS DISTINCT FROM (SELECT array_agg(y ORDER BY y) FROM unnest(ARRAY[c3, c4]) y)
+     THEN
+    failed := failed || format('brain_contacts_marked returned %s, not the marked ids of the account', v_ids);
+  END IF;
+
+  -- Related closed cases: readability before the per-key limit. u_agent
+  -- closed one ADCB case 30 days ago; 60 newer ADCB cases are u_agent2's.
+  INSERT INTO cases (account_id, agent_id, contact_id, bank_code, stage, outcome, closed_at)
+  VALUES (a_acct, u_agent, c2, 'ADCB', 'Withdrawn', 'Withdrawn', now() - interval '30 days')
+  RETURNING id INTO r_mine;
+  INSERT INTO cases (account_id, agent_id, contact_id, bank_code, stage, outcome, closed_at)
+  SELECT a_acct, u_agent2, c1, 'ADCB', 'Withdrawn', 'Withdrawn', now() - make_interval(hours => g)
+    FROM generate_series(1, 60) g;
+  n := n + 1;
+  SELECT coalesce(array_agg(d.case_id), '{}') INTO v_ids
+    FROM brain_digest_related(a_acct, u_agent, '{}', ARRAY['ADCB'], 2) d;
+  IF v_ids IS DISTINCT FROM ARRAY[r_mine] THEN
+    failed := failed || format('brain_digest_related gave an agent %s, not their own older closed case', v_ids);
+  END IF;
+  n := n + 1;
+  SELECT coalesce(array_agg(d.case_id), '{}') INTO v_ids
+    FROM brain_digest_related(a_acct, u_agent, ARRAY[c2], '{}', 2) d;
+  SELECT count(*)::text INTO v_t FROM brain_digest_related(a_acct, u_owner, ARRAY[c1], ARRAY['ADCB'], 2) d
+   WHERE d.closed_at > now() - interval '3 hours' AND d.outcome = 'Withdrawn';
+  IF v_ids IS DISTINCT FROM ARRAY[r_mine] OR v_t <> '2'
+     OR EXISTS (SELECT 1 FROM brain_digest_related(a_acct, u_viewer, ARRAY[c2], ARRAY['ADCB'], 2)) THEN
+    failed := failed || format('brain_digest_related per contact / per key limit / viewer wrong (%s, owner %s)', v_ids, v_t);
   END IF;
 
   -- ---------- 10. privileges ----------
@@ -394,7 +454,9 @@ BEGIN
       'public.brain_page_read(uuid, uuid, text, text)',
       'public.brain_page_forget(uuid, text, uuid, uuid, text)',
       'public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text)',
-      'public.brain_digest_messages(uuid, uuid, timestamptz)'] LOOP
+      'public.brain_digest_messages(uuid, uuid, timestamptz)',
+      'public.brain_contacts_marked(uuid, uuid[])',
+      'public.brain_digest_related(uuid, uuid, uuid[], text[], integer)'] LOOP
     IF has_function_privilege('authenticated', fn, 'EXECUTE') OR has_function_privilege('anon', fn, 'EXECUTE') THEN
       failed := failed || format('authenticated or anon may execute %s', fn);
     END IF;
