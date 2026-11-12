@@ -29,7 +29,8 @@ let rls: FakeClient;
 let admin: FakeClient;
 let setResult: { data?: unknown; error?: unknown };
 let groupsResult: { data?: unknown; error?: unknown };
-let stored: { managed: unknown; groups: unknown };
+let stored: { managed: unknown; groups: unknown; brain: unknown };
+let brainResult: { data?: unknown; error?: unknown };
 let filesRow: Record<string, unknown>[];
 let filesStagesResult: { data?: unknown; error?: unknown };
 const OFF = {
@@ -60,22 +61,36 @@ beforeEach(() => {
   );
   setResult = { data: true };
   groupsResult = { data: true };
-  stored = { managed: true, groups: false };
+  stored = { managed: true, groups: false, brain: false };
+  brainResult = { data: true };
   filesRow = [];
   filesFails = false;
   filesStagesResult = { data: true };
-  admin = new FakeClient('admin', [], {
-    case_files_settings: () =>
-      (filesFails
-        ? { data: null, error: { code: 'XX000', message: 'boom' } }
-        : { data: filesRow }) as never,
-    case_settings_set_files_switch: (a) => ({ data: a.p_on }) as never,
-    case_settings_set_files_ready_stages: () => filesStagesResult as never,
-    case_settings_set: () => setResult as never,
-    case_settings_set_whatsapp_groups: () => groupsResult as never,
-    case_managed_externally: () => ({ data: stored.managed }) as never,
-    case_submission_whatsapp_groups: () => ({ data: stored.groups }) as never,
-  });
+  admin = new FakeClient(
+    'admin',
+    [],
+    {
+      case_files_settings: () =>
+        (filesFails
+          ? { data: null, error: { code: 'XX000', message: 'boom' } }
+          : { data: filesRow }) as never,
+      case_settings_set_files_switch: (a) => ({ data: a.p_on }) as never,
+      case_settings_set_files_ready_stages: () => filesStagesResult as never,
+      case_settings_set: () => setResult as never,
+      case_settings_set_whatsapp_groups: () => groupsResult as never,
+      case_managed_externally: () => ({ data: stored.managed }) as never,
+      case_submission_whatsapp_groups: () => ({ data: stored.groups }) as never,
+      case_settings_set_brain: (a) => {
+        if (!brainResult.error) stored.brain = a.p_enabled;
+        return brainResult as never;
+      },
+    },
+    {
+      case_account_settings: () => ({
+        data: [{ brain_enabled: stored.brain }],
+      }),
+    }
+  );
   m.admin = admin.client;
   as('admin');
 });
@@ -85,7 +100,11 @@ describe('GET case settings', () => {
     as('agent');
     const res = await GET();
     expect(await res.json()).toEqual({
-      settings: { managedExternally: true, submissionWhatsappGroups: true },
+      settings: {
+        managedExternally: true,
+        submissionWhatsappGroups: true,
+        brainEnabled: false,
+      },
       caseFiles: OFF,
     });
     expect(rls.queries[0]!.filters).toContainEqual([
@@ -99,7 +118,11 @@ describe('GET case settings', () => {
     rls = new FakeClient('rls', [], {}, { case_account_settings: () => ({}) });
     as('agent');
     expect(await (await GET()).json()).toEqual({
-      settings: { managedExternally: false, submissionWhatsappGroups: false },
+      settings: {
+        managedExternally: false,
+        submissionWhatsappGroups: false,
+        brainEnabled: false,
+      },
       caseFiles: OFF,
     });
   });
@@ -115,7 +138,11 @@ describe('PUT case settings', () => {
     const res = await put({ managed_externally: true });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      settings: { managedExternally: true, submissionWhatsappGroups: false },
+      settings: {
+        managedExternally: true,
+        submissionWhatsappGroups: false,
+        brainEnabled: false,
+      },
     });
     expect(admin.rpcs[0]).toEqual({
       fn: 'case_settings_set',
@@ -131,11 +158,15 @@ describe('PUT case settings', () => {
   });
 
   it('sets submission_whatsapp_groups alone and answers both stored values', async () => {
-    stored = { managed: false, groups: true };
+    stored = { managed: false, groups: true, brain: false };
     const res = await put({ submission_whatsapp_groups: true });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      settings: { managedExternally: false, submissionWhatsappGroups: true },
+      settings: {
+        managedExternally: false,
+        submissionWhatsappGroups: true,
+        brainEnabled: false,
+      },
     });
     expect(admin.rpcs[0]).toEqual({
       fn: 'case_settings_set_whatsapp_groups',
@@ -221,6 +252,7 @@ describe('case files settings', () => {
     expect(body.settings).toEqual({
       managedExternally: true,
       submissionWhatsappGroups: true,
+      brainEnabled: false,
     });
   });
 
@@ -242,6 +274,7 @@ describe('case files settings', () => {
     expect(json.settings).toEqual({
       managedExternally: true,
       submissionWhatsappGroups: false,
+      brainEnabled: false,
     });
   });
 
@@ -298,5 +331,50 @@ describe('case files settings', () => {
     expect((await res.json()).code).toBe('SETTING_INVALID');
     as('agent');
     expect((await put({ caseFiles: { readyMove: true } })).status).toBe(403);
+  });
+});
+
+describe('second brain switch (migration 194)', () => {
+  it('GET answers the stored switch', async () => {
+    rls = new FakeClient(
+      'rls',
+      [],
+      {},
+      { case_account_settings: () => ({ data: [{ brain_enabled: true }] }) }
+    );
+    as('agent');
+    expect((await (await GET()).json()).settings.brainEnabled).toBe(true);
+    expect(rls.queries[0]!.columns).toContain('brain_enabled');
+  });
+
+  it('PUT brainEnabled alone calls case_settings_set_brain for the caller and active account', async () => {
+    const res = await put({ brainEnabled: true });
+    expect(res.status).toBe(200);
+    expect(admin.rpcs[0]).toEqual({
+      fn: 'case_settings_set_brain',
+      args: { p_actor: 'u-1', p_account: 'acct-1', p_enabled: true },
+    });
+    expect(
+      admin.rpcs.filter((r) => r.fn.startsWith('case_settings_set'))
+    ).toHaveLength(1);
+    expect((await res.json()).settings).toEqual({
+      managedExternally: true,
+      submissionWhatsappGroups: false,
+      brainEnabled: true,
+    });
+    expect(admin.queriesOf('case_account_settings')[0]!.filters).toContainEqual(
+      ['eq', 'account_id', 'acct-1']
+    );
+  });
+
+  it('needs a boolean, admin only, and maps NOT_ALLOWED to 403', async () => {
+    expect((await put({ brainEnabled: 'yes' })).status).toBe(400);
+    expect(admin.rpcs).toEqual([]);
+    as('team_leader');
+    expect((await put({ brainEnabled: true })).status).toBe(403);
+    expect(admin.rpcs).toEqual([]);
+    as('admin');
+    brainResult = { error: { hint: 'NOT_ALLOWED', code: '42501' } };
+    expect((await put({ brainEnabled: true })).status).toBe(403);
   });
 });

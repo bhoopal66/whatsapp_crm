@@ -265,31 +265,36 @@ export function parseCaseSettings(body: unknown): CaseAccountSettings | null {
   return typeof value === 'boolean' ? { managedExternally: value } : null;
 }
 
-/** The two workspace switches of Settings -> Cases. */
+/** The workspace switches of Settings -> Cases. */
 export interface CaseSwitches extends CaseAccountSettings {
   /** Migration 136: each new Compass submission also opens a WhatsApp group. */
   submissionWhatsappGroups: boolean;
+  /** Migration 194: the second brain (search, summaries, daily list). */
+  brainEnabled: boolean;
 }
 
 export type CaseSwitchKey = keyof CaseSwitches;
 
-/** `GET|PUT /api/cases/config/settings` -> both switches, or null. */
+/** `GET|PUT /api/cases/config/settings` -> every switch, or null. */
 export function parseCaseSwitches(body: unknown): CaseSwitches | null {
   const base = parseCaseSettings(body);
   if (!base) return null;
-  const value = (body as { settings: Record<string, unknown> }).settings
-    .submissionWhatsappGroups;
-  return typeof value === 'boolean'
-    ? { ...base, submissionWhatsappGroups: value }
+  const { submissionWhatsappGroups, brainEnabled } = (
+    body as { settings: Record<string, unknown> }
+  ).settings;
+  return typeof submissionWhatsappGroups === 'boolean' &&
+    typeof brainEnabled === 'boolean'
+    ? { ...base, submissionWhatsappGroups, brainEnabled }
     : null;
 }
 
 const SWITCH_FIELDS: Record<CaseSwitchKey, string> = {
   managedExternally: 'managed_externally',
   submissionWhatsappGroups: 'submission_whatsapp_groups',
+  brainEnabled: 'brainEnabled',
 };
 
-/** The PUT body that changes one switch and leaves the other alone. */
+/** The PUT body that changes one switch and leaves the others alone. */
 export function caseSwitchBody(
   key: CaseSwitchKey,
   value: boolean

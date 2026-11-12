@@ -223,6 +223,13 @@ function CaseSwitchCards() {
         loaded={data?.submissionWhatsappGroups ?? null}
         failed={failed}
       />
+      <CaseSwitchCard
+        setting="brainEnabled"
+        ns="brain"
+        id="cases-second-brain"
+        loaded={data?.brainEnabled ?? null}
+        failed={failed}
+      />
     </>
   );
 }
@@ -236,7 +243,7 @@ function CaseSwitchCard({
   failed,
 }: {
   setting: CaseSwitchKey;
-  ns: 'compass' | 'whatsappGroups';
+  ns: 'compass' | 'whatsappGroups' | 'brain';
   id: string;
   /** The read value; null until (or unless) it loads. */
   loaded: boolean | null;
