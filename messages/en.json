@@ -378,6 +378,23 @@
     "page": {
       "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
     },
+    "reminderSuggestion": {
+      "add": "Add reminder",
+      "addTitle": "Add a reminder for {when}",
+      "set": "Reminder set",
+      "setTitle": "Reminder set for {when}",
+      "dismiss": "Not a reminder",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "titleCall": "Call {name}",
+      "titleDocuments": "Documents from {name}",
+      "titlePayment": "Payment: {name}",
+      "titleMeeting": "Meeting with {name}",
+      "titleFollowUp": "Follow up with {name}",
+      "failed": "Couldn't update the reminder suggestion",
+      "dismissed": "Suggestion hidden",
+      "undo": "Undo"
+    },
     "fullRow": {
       "failed": "Couldn't load this chat's details.",
       "retry": "Retry"
@@ -9903,6 +9920,10 @@
       "kbGap": {
         "title": "Knowledge-gap topics",
         "description": "Let Jev label recurring unanswered questions and check whether an approved answer already covers them (Settings → AI → Knowledge gaps). Topics still form without it."
+      },
+      "reminderSuggest": {
+        "title": "Reminder suggestions in chats",
+        "description": "When a customer's or a teammate's message names a later time (for example “call me tomorrow at 3”), Jev offers “Add reminder” under the message. Adding it files a follow-up task that shows on the calendar."
       }
     }
   },

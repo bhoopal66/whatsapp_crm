@@ -342,6 +342,20 @@ export function InsightsPanel() {
           />
         }
       />
+
+      <FeatureCard
+        id="insights-reminders"
+        title={t('reminderSuggest.title')}
+        description={t('reminderSuggest.description')}
+        control={
+          <Switch
+            checked={draft.reminderSuggestEnabled}
+            onCheckedChange={(v) => set('reminderSuggestEnabled', v)}
+            disabled={disabled}
+            aria-labelledby="insights-reminders-label"
+          />
+        }
+      />
     </div>
   );
 }

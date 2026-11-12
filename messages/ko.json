@@ -378,6 +378,23 @@
     "page": {
       "whatsappNotConnected": "WhatsApp®이 연결되어 있지 않습니다. 설정으로 이동해 계정을 연결하세요."
     },
+    "reminderSuggestion": {
+      "add": "리마인더 추가",
+      "addTitle": "{when}에 리마인더 추가",
+      "set": "리마인더 설정됨",
+      "setTitle": "{when}에 리마인더가 설정됨",
+      "dismiss": "리마인더 아님",
+      "today": "오늘",
+      "tomorrow": "내일",
+      "titleCall": "{name}에게 전화",
+      "titleDocuments": "{name}의 서류",
+      "titlePayment": "결제: {name}",
+      "titleMeeting": "{name}와(과) 미팅",
+      "titleFollowUp": "{name} 후속 연락",
+      "failed": "리마인더 제안을 업데이트하지 못했습니다",
+      "dismissed": "제안을 숨겼습니다",
+      "undo": "실행 취소"
+    },
     "fullRow": {
       "failed": "이 채팅의 세부 정보를 불러오지 못했습니다.",
       "retry": "다시 시도"
@@ -9903,6 +9920,10 @@
       "kbGap": {
         "title": "지식 공백 주제",
         "description": "Jev가 반복되는 미답변 질문에 라벨을 붙이고 승인된 답변이 이미 이를 다루는지 확인하도록 합니다 (설정 → AI → 지식 공백). 이 기능이 꺼져 있어도 주제는 계속 만들어집니다."
+      },
+      "reminderSuggest": {
+        "title": "채팅 속 리마인더 제안",
+        "description": "고객이나 팀원의 메시지가 나중 시간을 언급하면(예: “내일 3시에 전화 주세요”) Jev가 메시지 아래에 “리마인더 추가”를 제안합니다. 추가하면 캘린더에 표시되는 후속 작업이 등록됩니다."
       }
     }
   },
