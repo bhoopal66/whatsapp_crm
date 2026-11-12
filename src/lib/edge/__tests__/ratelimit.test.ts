@@ -80,6 +80,7 @@ describe('default scopes', () => {
       'webhook.ip': { limit: 600, windowMs: 1000, failOpen: true },
       'admin.ip': { limit: 10, windowMs: 1000, failOpen: false },
       'admin.user': { limit: 30, windowMs: 1000, failOpen: false },
+      'brain.search': { limit: 60, windowMs: 60000, failOpen: true },
     });
   });
 

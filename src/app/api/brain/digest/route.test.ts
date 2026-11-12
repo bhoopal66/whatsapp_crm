@@ -179,6 +179,21 @@ describe('GET /api/brain/digest', () => {
     expect(new Set(actorsSeen())).toEqual(new Set([MATE]));
   });
 
+  it('a non-admin naming a malformed userId is 403, not 400', async () => {
+    asRole('agent');
+    for (const q of ['?userId=agentA', '?userId=1234']) {
+      const res = await get(q);
+      expect(res.status, q).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Not allowed' });
+    }
+    expect(m.rpc).not.toHaveBeenCalled();
+  });
+
+  it('an empty userId is 400 for a non-admin too', async () => {
+    asRole('agent');
+    expect((await get('?userId=')).status).toBe(400);
+  });
+
   it('a malformed or empty userId is 400', async () => {
     asRole('admin');
     for (const q of ['?userId=', '?userId=agentA', '?userId=1234'])

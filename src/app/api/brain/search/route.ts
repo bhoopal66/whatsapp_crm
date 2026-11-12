@@ -1,7 +1,7 @@
 // ============================================================
 // POST /api/brain/search — second brain search (022b, migration 194).
 // Body `{ query (1-300 chars after trim), caseId?, contactId?, bankCode?,
-// limit? (1-50) }` -> 200 `{ hits }`, `Cache-Control: no-store`. The query
+// limit? (1-20) }` -> 200 `{ hits }`, `Cache-Control: no-store`. The query
 // travels in the body, never the URL, and is never logged. Every member
 // may call it (a viewer gets what SQL lets them see: nothing); account
 // and actor are the session's.
@@ -16,6 +16,7 @@ import {
   readObject,
   requiredText,
 } from '@/lib/cases/http';
+import { RateLimiter, RpcRateStore } from '@/lib/edge';
 import type { BrainFilters } from '@/lib/brain/ports';
 import { searchBrain } from '@/lib/brain/search';
 import {
@@ -24,14 +25,32 @@ import {
   optionalUuid,
   requireBrain,
 } from '@/lib/brain/server';
+import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 const QUERY_MAX = 300;
-const LIMIT_MAX = 50;
+const LIMIT_MAX = 20;
 
 export async function POST(request: Request) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     await requireBrain(ctx);
+    // 60 a minute per person: search is the one brain route that fans out
+    // to the embedding provider. Fails open if the store is down.
+    const decision = await new RateLimiter(
+      new RpcRateStore(supabaseAdmin())
+    ).check('brain.search', `${ctx.accountId}:${ctx.userId}`);
+    if (!decision.allowed)
+      return NextResponse.json(
+        { error: 'rate_limited' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(
+              Math.max(1, Math.ceil(decision.retryAfterMs / 1000))
+            ),
+          },
+        }
+      );
     const body = await readObject(request);
     const query = requiredText(body.query, 'query', QUERY_MAX);
     const filters: BrainFilters = {};

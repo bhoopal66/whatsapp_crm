@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   searchBrain: vi.fn(),
+  check: vi.fn(),
   settings: { data: { brain_enabled: true }, error: null } as {
     data: unknown;
     error: unknown;
@@ -20,6 +21,12 @@ vi.mock('@/lib/submission-groups/server', () => ({
     }),
     rpc: vi.fn(),
   }),
+}));
+vi.mock('@/lib/edge', () => ({
+  RpcRateStore: class {},
+  RateLimiter: class {
+    check = m.check;
+  },
 }));
 vi.mock('@/lib/brain/search', () => ({ searchBrain: m.searchBrain }));
 
@@ -41,6 +48,7 @@ beforeEach(() => {
     salesRestricted: false,
   });
   m.searchBrain.mockResolvedValue([{ itemId: 'i1' }]);
+  m.check.mockResolvedValue({ allowed: true, remaining: 59, retryAfterMs: 0 });
 });
 
 describe('POST /api/brain/search', () => {
@@ -109,16 +117,29 @@ describe('POST /api/brain/search', () => {
       { query: '   ' },
       { query: 'x'.repeat(301) },
       { query: 'q', limit: 0 },
-      { query: 'q', limit: 51 },
+      { query: 'q', limit: 21 },
       { query: 'q', limit: 2.5 },
       { query: 'q', caseId: 'nope' },
       { query: 'q', contactId: 7 },
     ])
       expect((await post(b)).status, JSON.stringify(b)).toBe(400);
-    expect((await post({ query: 'x'.repeat(300), limit: 50 })).status).toBe(
+    expect((await post({ query: 'x'.repeat(300), limit: 20 })).status).toBe(
       200
     );
     expect(m.searchBrain).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 429 over the limit and runs no search', async () => {
+    m.check.mockResolvedValue({
+      allowed: false,
+      remaining: 0,
+      retryAfterMs: 5000,
+    });
+    const res = await post({ query: 'q' });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'rate_limited' });
+    expect(m.check).toHaveBeenCalledWith('brain.search', 'acct-1:u-1');
+    expect(m.searchBrain).not.toHaveBeenCalled();
   });
 
   it('never logs the query on a failure', async () => {

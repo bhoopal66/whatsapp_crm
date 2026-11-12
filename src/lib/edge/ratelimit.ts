@@ -18,6 +18,7 @@ export const DEFAULT_SCOPES = {
   'webhook.ip': { limit: 600, windowMs: 1000, failOpen: true },
   'admin.ip': { limit: 10, windowMs: 1000, failOpen: false },
   'admin.user': { limit: 30, windowMs: 1000, failOpen: false },
+  'brain.search': { limit: 60, windowMs: 60_000, failOpen: true },
 } as const satisfies Record<string, ScopeConfig>;
 
 export type RateDecision = {
