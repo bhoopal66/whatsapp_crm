@@ -229,3 +229,6 @@ export class SupabaseCosineIndex implements VectorIndex {
       .filter((c): c is BrainCandidate => c !== null);
   }
 }
+
+/** For the 022c/022d adapters (pages.ts, digest-store.ts). */
+export { call as brainRpc, scalar as brainScalar };
