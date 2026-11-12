@@ -115,6 +115,33 @@ describe('visibleNavGroups', () => {
     expect(layout(visibleNavGroups(null, { pbx: true }))).toEqual(VIEWER);
   });
 
+  it('shows Brain to agents and up only while the workspace has it on', () => {
+    for (const role of [null, ...ACCOUNT_ROLES])
+      expect(
+        visibleNavGroups(role, { pbx: true }).flatMap((g) =>
+          g.items.map((i) => i.href)
+        ),
+        String(role)
+      ).not.toContain('/brain');
+    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const)
+      expect(
+        layout(visibleNavGroups(role, { brain: true })).submissions,
+        role
+      ).toEqual(['/cases', '/submission-groups', '/banks', '/brain']);
+    for (const role of [null, 'viewer', 'bank_guest'] as const)
+      expect(
+        visibleNavGroups(role, { brain: true }).flatMap((g) =>
+          g.items.map((i) => i.href)
+        ),
+        String(role)
+      ).not.toContain('/brain');
+    expect(
+      visibleNavGroups('agent', { brain: true, salesRestricted: true }).flatMap(
+        (g) => g.items.map((i) => i.href)
+      )
+    ).not.toContain('/brain');
+  });
+
   it('shows a guestVisible row to a guest and to staff alike', () => {
     const chat = {
       href: '/chat',
@@ -227,6 +254,7 @@ describe('navPrefetch', () => {
       [
         '/automations',
         '/banks',
+        '/brain',
         '/broadcasts',
         '/calendar',
         '/calls',

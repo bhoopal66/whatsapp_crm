@@ -1,6 +1,7 @@
 import { isRestrictedPath } from '@/lib/auth/departments';
 import {
   Activity,
+  Brain,
   Briefcase,
   Building2,
   ContactRound,
@@ -72,6 +73,12 @@ export interface NavItem {
    */
   needsPbx?: boolean;
   /**
+   * Shown only while the workspace has the second brain switched on
+   * (migration 194, Settings → Cases). Hidden until the sidebar knows,
+   * like `needsPbx`; the API answers 403 `brain_disabled` either way.
+   */
+  needsBrain?: boolean;
+  /**
    * The route's own layout guards it on the server (one of the
    * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
    * the session there makes the route dynamic, so the default `auto`
@@ -87,6 +94,8 @@ export interface NavContext {
   salesRestricted?: boolean;
   /** This person can use the phone system (`callsSidebar(…).visible`). */
   pbx?: boolean;
+  /** The workspace has the second brain on (`settings.brainEnabled`). */
+  brain?: boolean;
 }
 
 export interface NavGroup {
@@ -215,6 +224,16 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Landmark,
         minRole: 'agent',
         guarded: true,
+      },
+      // Second brain search (package 022e, migration 194): agent and up,
+      // only while the workspace has it switched on.
+      {
+        href: '/brain',
+        labelKey: 'brain',
+        icon: Brain,
+        minRole: 'agent',
+        guarded: true,
+        needsBrain: true,
       },
     ],
   },
@@ -380,6 +399,7 @@ export function isNavItemVisible(
   if (isBankGuest(role)) return !!item.guestVisible;
   if (ctx.salesRestricted && isRestrictedPath(item.href)) return false;
   if (item.needsPbx && !(role && ctx.pbx)) return false;
+  if (item.needsBrain && !(role && ctx.brain)) return false;
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 

@@ -77,6 +77,7 @@
     "submissionGroups": "Submission groups",
     "cases": "Cases",
     "banks": "Banks",
+    "brain": "Second brain",
     "opendesk": "OpenDesk"
   },
   "Header": {
@@ -115,6 +116,7 @@
     "cases": "Cases",
     "banks": "Banks",
     "bank": "Bank",
+    "brain": "Second brain",
     "opendesk": "OpenDesk"
   },
   "Notifications": {
@@ -8608,6 +8610,49 @@
       "open": "Open in Compass",
       "synced": "Last synced {time}",
       "detailsLocked": "Bank, product and amount are updated from Compass."
+    }
+  },
+  "Brain": {
+    "title": "Search and ask",
+    "notice": "Summaries are AI-generated working aids, not the record.",
+    "query": "Search the second brain",
+    "placeholder": "Customer, bank, document...",
+    "search": "Search",
+    "tooShort": "Type at least 2 characters.",
+    "tooLong": "Keep the search under 300 characters.",
+    "scope": "Searching one case only.",
+    "scopeClear": "Search everything",
+    "loading": "Searching...",
+    "empty": "No results. Try other words.",
+    "results": "Results",
+    "ai": "AI-generated",
+    "openCase": "Open case",
+    "noCase": "Workspace note",
+    "failed": "Search failed. Try again.",
+    "disabled": "The second brain is off. An admin can turn it on in Settings → Cases.",
+    "kind": {
+      "message": "Message",
+      "note": "Note",
+      "timeline": "Timeline",
+      "pinned": "Pinned",
+      "discussion": "Discussion",
+      "remember": "Remembered",
+      "page": "Case page"
+    },
+    "remember": {
+      "title": "Remember this",
+      "text": "What should the team remember?",
+      "case": "Case (optional)",
+      "noCase": "No case",
+      "scopedCase": "This case",
+      "hitCase": "Case of result {n}",
+      "save": "Remember",
+      "saving": "Saving...",
+      "saved": "Saved to the second brain (redacted)",
+      "skipped": "Already remembered; nothing new saved.",
+      "refused": "This can't be saved safely. Remove the personal details and try again.",
+      "failed": "Couldn't save. Try again.",
+      "hint": "Phone numbers, emails and account numbers are redacted before saving."
     }
   },
   "Banks": {
