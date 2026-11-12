@@ -9060,6 +9060,14 @@
       "turnedOn": "New submissions will get a WhatsApp group.",
       "turnedOff": "New submissions will open a case only, without a WhatsApp group."
     },
+    "brain": {
+      "label": "Second brain",
+      "help": "Search case notes, replies and bank posts; summaries and a daily list. Off by default.",
+      "readOnly": "Only owners and admins can change this.",
+      "loadFailed": "Could not load this setting. Reload the page to try again.",
+      "turnedOn": "The second brain is on.",
+      "turnedOff": "The second brain is off."
+    },
     "title": "Cases",
     "description": "Set up the Cases module for each bank: its stages, task templates, required documents and SLA timers.",
     "loadFailed": "Could not load these settings. Reload the page to try again.",

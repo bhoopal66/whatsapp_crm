@@ -19,6 +19,10 @@
 // through case_settings_set_files_ready_stages once (SETTING_INVALID ->
 // 422). A PUT that sent `caseFiles` answers `caseFiles` as stored too.
 // The writes are separate calls, not one transaction.
+//
+// Second brain (migration 194): `settings.brainEnabled` in both answers
+// (false when never saved); PUT takes `brainEnabled?: boolean` through
+// case_settings_set_brain (owner / admin, re-checked there).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -33,6 +37,7 @@ import {
   CaseFilesStore,
   CaseFilesStoreError,
 } from '@/lib/case-files/store';
+import { brainEnabled } from '@/lib/brain/server';
 import { configErrorResponse, readRows } from '@/lib/cases/config-http';
 import { badRequest, readObject } from '@/lib/cases/http';
 import { fail } from '@/lib/cases/store';
@@ -52,7 +57,9 @@ export async function GET() {
       readRows(
         ctx.supabase
           .from('case_account_settings')
-          .select('managed_externally, submission_whatsapp_groups')
+          .select(
+            'managed_externally, submission_whatsapp_groups, brain_enabled'
+          )
           .eq('account_id', ctx.accountId)
           .limit(1),
         'case_account_settings'
@@ -68,6 +75,7 @@ export async function GET() {
       settings: {
         managedExternally: row?.managed_externally === true,
         submissionWhatsappGroups: row?.submission_whatsapp_groups === true,
+        brainEnabled: row?.brain_enabled === true,
       },
       caseFiles,
     });
@@ -82,15 +90,23 @@ export async function PUT(request: Request) {
     const body = await readObject(request);
     const managed = body.managed_externally;
     const groups = body.submission_whatsapp_groups;
+    const brain = body.brainEnabled;
     const files = parseCaseFilesSettings(body.caseFiles);
-    if (managed === undefined && groups === undefined && !files)
+    if (
+      managed === undefined &&
+      groups === undefined &&
+      brain === undefined &&
+      !files
+    )
       throw badRequest(
-        'managed_externally, submission_whatsapp_groups or caseFiles is required'
+        'managed_externally, submission_whatsapp_groups, brainEnabled or caseFiles is required'
       );
     if (managed !== undefined && typeof managed !== 'boolean')
       throw badRequest('managed_externally must be true or false');
     if (groups !== undefined && typeof groups !== 'boolean')
       throw badRequest('submission_whatsapp_groups must be true or false');
+    if (brain !== undefined && typeof brain !== 'boolean')
+      throw badRequest('brainEnabled must be true or false');
     const db = supabaseAdmin();
     if (managed !== undefined) {
       const { error } = await db.rpc('case_settings_set', {
@@ -108,6 +124,14 @@ export async function PUT(request: Request) {
       });
       if (error) fail('case_settings_set_whatsapp_groups', error);
     }
+    if (brain !== undefined) {
+      const { error } = await db.rpc('case_settings_set_brain', {
+        p_actor: ctx.userId,
+        p_account: ctx.accountId,
+        p_enabled: brain,
+      });
+      if (error) fail('case_settings_set_brain', error);
+    }
     const store = new CaseFilesStore(db);
     for (const [which, on] of files?.switches ?? [])
       await store.setSwitch(ctx.userId, ctx.accountId, which, on);
@@ -119,12 +143,13 @@ export async function PUT(request: Request) {
         files.stages.to
       );
     // Both values as stored (a key not sent is read back, not assumed).
-    const [{ data: m, error: me }, { data: g, error: ge }, caseFiles] =
+    const [{ data: m, error: me }, { data: g, error: ge }, b, caseFiles] =
       await Promise.all([
         db.rpc('case_managed_externally', { p_account: ctx.accountId }),
         db.rpc('case_submission_whatsapp_groups', {
           p_account: ctx.accountId,
         }),
+        brainEnabled(ctx.accountId),
         files ? store.settings(ctx.accountId) : null,
       ]);
     if (me) fail('case_managed_externally', me);
@@ -133,6 +158,7 @@ export async function PUT(request: Request) {
       settings: {
         managedExternally: m === true,
         submissionWhatsappGroups: g === true,
+        brainEnabled: b,
       },
       ...(caseFiles ? { caseFiles } : {}),
     });

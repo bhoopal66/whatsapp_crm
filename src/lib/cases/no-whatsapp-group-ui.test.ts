@@ -8,12 +8,37 @@ import { caseSwitchBody, parseCaseSwitches } from './settings-ui';
 // group (submission_groups.wa_mode 'none'), behind a per-account switch.
 
 describe('parseCaseSwitches', () => {
-  it('reads both switches', () => {
+  it('reads every switch', () => {
+    expect(
+      parseCaseSwitches({
+        settings: {
+          managedExternally: false,
+          submissionWhatsappGroups: true,
+          brainEnabled: true,
+        },
+      })
+    ).toEqual({
+      managedExternally: false,
+      submissionWhatsappGroups: true,
+      brainEnabled: true,
+    });
+  });
+
+  it('refuses an answer without a boolean second brain switch', () => {
     expect(
       parseCaseSwitches({
         settings: { managedExternally: false, submissionWhatsappGroups: true },
       })
-    ).toEqual({ managedExternally: false, submissionWhatsappGroups: true });
+    ).toBeNull();
+    expect(
+      parseCaseSwitches({
+        settings: {
+          managedExternally: false,
+          submissionWhatsappGroups: true,
+          brainEnabled: 'on',
+        },
+      })
+    ).toBeNull();
   });
 
   it('refuses an answer without a boolean WhatsApp groups switch', () => {
@@ -39,6 +64,9 @@ describe('caseSwitchBody', () => {
     });
     expect(caseSwitchBody('managedExternally', false)).toEqual({
       managed_externally: false,
+    });
+    expect(caseSwitchBody('brainEnabled', true)).toEqual({
+      brainEnabled: true,
     });
   });
 });
