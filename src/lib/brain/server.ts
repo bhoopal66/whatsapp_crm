@@ -19,6 +19,7 @@ import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 import { HashingEmbedder } from './embed';
 import type { IngestDeps } from './ingest';
+import { SupabaseBrainPageStore } from './pages';
 import type { SearchDeps } from './search';
 import { BrainError, SupabaseBrainStore, SupabaseCosineIndex } from './store';
 
@@ -29,6 +30,11 @@ export function brainDeps(): IngestDeps & SearchDeps {
     index: new SupabaseCosineIndex(admin),
     embedder: new HashingEmbedder(),
   };
+}
+
+/** The 022c page store on the service role. */
+export function brainPages(): SupabaseBrainPageStore {
+  return new SupabaseBrainPageStore(supabaseAdmin());
 }
 
 /** `case_account_settings.brain_enabled`; no row means off. A failed read throws (500), never "on". */
