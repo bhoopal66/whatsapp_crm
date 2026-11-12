@@ -1047,6 +1047,28 @@ export function InboxPageInner({
     ]
   );
 
+  // The list's "New chat" button: open a chat by id (one it found or
+  // just started), the way a click on its row would.
+  const handleOpenConversationById = useCallback(
+    (convId: string) => {
+      const row = conversationsRef.current.find((c) => c.id === convId);
+      if (row) {
+        handleSelectConversation(row);
+        return;
+      }
+      if (activeConversation?.id === convId) return;
+      void openConversationById(convId);
+      autoSelectedForDeepLinkRef.current = convId;
+      window.history.replaceState(null, '', `${basePath}?c=${convId}`);
+    },
+    [
+      activeConversation?.id,
+      basePath,
+      handleSelectConversation,
+      openConversationById,
+    ]
+  );
+
   // Mobile "back" — deselect the conversation so the list pane comes
   // back. Also clears the ?c= param so a refresh lands on the list
   // instead of re-opening the thread the user just backed out of.
@@ -1173,6 +1195,7 @@ export function InboxPageInner({
             initialPinned={initialFilters.pinned}
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
+            onOpenConversationById={handleOpenConversationById}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}

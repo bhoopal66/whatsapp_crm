@@ -378,6 +378,18 @@
       "failed": "이 채팅의 세부 정보를 불러오지 못했습니다.",
       "retry": "다시 시도"
     },
+    "newChat": {
+      "button": "새 채팅",
+      "title": "새 채팅",
+      "desc": "번호로 WhatsApp 채팅을 시작합니다. 이미 채팅이 있으면 그 채팅이 열립니다.",
+      "phone": "전화번호",
+      "phonePlaceholder": "+971 50 123 4567",
+      "name": "이름 (선택)",
+      "cancel": "취소",
+      "next": "계속",
+      "composeDesc": "{phone}와(과)의 채팅이 아직 없습니다. 첫 메시지를 보내세요:",
+      "failed": "채팅을 시작하지 못했습니다: {reason}"
+    },
     "conversationList": {
       "searchPlaceholder": "대화 검색...",
       "filterAll": "전체",

@@ -26,7 +26,9 @@ cases, broadcasts, automations, company chats, Team contacts (everyone's
 contacts), groups, and Compass / OpenDesk. They keep their own chats, their
 own Contacts list (only the contacts they own or chat with, as for any
 agent; it is where they add a number and message it) and the customer page
-of a chat they can see. Enforced by the dashboard layouts and API guards.
+of a chat they can see. The **New chat** button in their inbox starts a
+chat with a new number without leaving it. Enforced by the dashboard
+layouts and API guards.
 
 **Owners and admins are never restricted**, whatever their department.
 

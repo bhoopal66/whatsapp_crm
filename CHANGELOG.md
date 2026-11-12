@@ -18,6 +18,12 @@ and polish.
   **Contacts** page back. It lists only the contacts they own or chat
   with, as for any agent, and is where they add a number and message it.
   Team contacts (everyone's contacts) stays closed to them.
+- Every inbox (Inbox, Team inbox, HR inbox) has a **New chat** button
+  beside the search box, for agents and up: type a number (and
+  optionally a name) and it opens your chat with it, or lets you send the
+  first message (from a company number, your own WhatsApp, or an approved
+  template). A number held by a colleague's contact you can't see is
+  refused, as on the Contacts page.
 
 ### Smarter contact and chat search
 

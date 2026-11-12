@@ -159,6 +159,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useOverflowEnd } from '@/hooks/use-overflow-end';
 import { ContactAvatar } from './contact-avatar';
+import { NewChatButton } from './new-chat-button';
 
 /**
  * How a batch of rows handed to `onConversationsLoaded` relates to the
@@ -177,6 +178,9 @@ export type ConversationListLoad =
 interface ConversationListProps {
   activeConversationId: string | null;
   onSelect: (conversation: ConversationListItem) => void;
+  /** Opens a chat by id: the "New chat" button's target. Without it,
+   *  or for a viewer or bank guest, there is no button. */
+  onOpenConversationById?: (conversationId: string) => void;
   conversations: ConversationListItem[];
   onConversationsLoaded: (
     conversations: ConversationListItem[],
@@ -573,6 +577,7 @@ const NO_INSIGHT_FILTERS: readonly InsightFilter[] = [];
 export function ConversationList({
   activeConversationId,
   onSelect,
+  onOpenConversationById,
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
@@ -1469,14 +1474,21 @@ export function ConversationList({
     <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-r lg:w-80 2xl:w-96">
       {/* Search + Filter */}
       <div className="space-y-2 px-3 pt-3 pb-2">
-        <div className="relative">
-          <Search className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
-          <Input
-            value={search}
-            onChange={handleSearchChange}
-            placeholder={t('searchPlaceholder')}
-            className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 pl-11 text-sm shadow-none focus-visible:ring-2"
-          />
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+            <Input
+              value={search}
+              onChange={handleSearchChange}
+              placeholder={t('searchPlaceholder')}
+              className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 pl-11 text-sm shadow-none focus-visible:ring-2"
+            />
+          </div>
+          {/* Agents and up (viewers and bank guests never): a chat with
+              a number that has none yet, without leaving the inbox. */}
+          {canSendMessages && onOpenConversationById && (
+            <NewChatButton onOpenConversation={onOpenConversationById} />
+          )}
         </div>
 
         {/* All / Unread as WhatsApp's filter chips — one tap, and "Unread"

@@ -378,6 +378,18 @@
       "failed": "Couldn't load this chat's details.",
       "retry": "Retry"
     },
+    "newChat": {
+      "button": "New chat",
+      "title": "New chat",
+      "desc": "Start a WhatsApp chat with a number. If you already have a chat with it, that chat opens.",
+      "phone": "Phone number",
+      "phonePlaceholder": "+971 50 123 4567",
+      "name": "Name (optional)",
+      "cancel": "Cancel",
+      "next": "Continue",
+      "composeDesc": "No chat with {phone} yet. Send the first message:",
+      "failed": "Couldn't start the chat: {reason}"
+    },
     "conversationList": {
       "searchPlaceholder": "Search conversations...",
       "filterAll": "All",
