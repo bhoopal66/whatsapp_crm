@@ -20,6 +20,12 @@ and polish.
   case, and an opened group shows the bank beside its name. The tag is
   the bank's name in the workspace's bank list (Settings → Cases), else
   its code. A group whose case has no bank yet shows none. No migration.
+- Bank tags are filled with each bank's brand colour (Emirates NBD navy,
+  ADCB red, Mashreq orange, …). NBF and Ruya, whose brand colours could
+  not be confirmed, and any bank outside the built-in list get a fixed
+  colour of their own.
+- A **bank filter** beside the Submission groups search lists only one
+  bank's groups, on the Active and Ended tabs alike.
 
 ### Reminders: suggestions in chats and a ringing alarm
 

@@ -18,7 +18,6 @@ import {
   Copy,
   Eye,
   Info,
-  Landmark,
   Loader2,
   MoreVertical,
   PanelRight,
@@ -75,6 +74,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { useSubmissionGroupsList } from './list-context';
+import { BankTag } from './bank-tag';
 import { GroupDetailsCard } from './group-details-card';
 import { MessageList } from './message-list';
 import { PeoplePanel } from './people-panel';
@@ -712,7 +712,6 @@ function DetailHeader({
 }) {
   const t = useTranslations('SubmissionGroups.page');
   const tl = useTranslations('SubmissionGroups.labels');
-  const tg = useTranslations('SubmissionGroups');
   const { group } = detail;
   const ended = group.status === 'ENDED';
   const noGroup = waModeOf(group) === 'none';
@@ -770,20 +769,8 @@ function DetailHeader({
             >
               {title}
             </h1>
-            {bank && (
-              <span
-                className={cn(
-                  chipClass,
-                  'border-border bg-card-2 text-foreground max-w-full min-w-0 gap-1 border'
-                )}
-                title={tg('bank', { bank })}
-              >
-                <Landmark className="size-3.5 shrink-0" aria-hidden />
-                <span className="sr-only">{tg('bank', { bank })}</span>
-                <span className="truncate" aria-hidden>
-                  {bank}
-                </span>
-              </span>
+            {group.bank && bank && (
+              <BankTag code={group.bank.code} name={bank} size="md" />
             )}
           </div>
           {(!group.contact || person || phone) && (

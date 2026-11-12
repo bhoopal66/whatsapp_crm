@@ -35,8 +35,16 @@ customer; the CRM contact found or created by phone keeps its own name.
 The internal Submission groups screens tag each group with its case's
 bank: every list row, and the header of an opened group beside its name.
 The tag is the bank's name in the workspace's bank list (Settings ->
-Cases), else its code. A group with no case yet, or whose case has no
-bank, shows none.
+Cases), else its code, filled with the bank's brand colour
+(`src/lib/banks/theme.ts`; a bank without one gets a fixed colour of its
+own). A group with no case yet, or whose case has no bank, shows none.
+
+A bank filter beside the list's search (`GET /api/submission-groups?bank=
+<code>`) shows only the groups whose case is at that bank, on both tabs.
+On the Active tab the bank is matched on the service role and the
+caller's own access decides which of those groups they see, a batch of
+100 at a time: matching through the caller's access to the case would
+hide groups they reach only through the group's people list.
 
 Only `submission_id`, `customer.phone` and `agent_email` are required. The
 call is idempotent per `submission_id`: a repeat returns the existing group

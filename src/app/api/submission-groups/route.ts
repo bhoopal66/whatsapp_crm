@@ -1,8 +1,9 @@
 // ============================================================
 // GET /api/submission-groups — the caller's Submission Groups (115).
 // `?status=active|ended` (default active), `q` (submission ref or contact
-// name), `cursor` (opaque: the previous page's last sort time + id),
-// `limit` (≤ 50) → `{ groups, next_cursor }`.
+// name), `bank` (a case bank code: only groups whose case is at it),
+// `cursor` (opaque: the previous page's last sort time + id), `limit`
+// (≤ 50) → `{ groups, next_cursor }`.
 //
 // ACTIVE groups are read through the caller's own RLS client: the
 // policy hands them the groups whose open access list they are on, or
@@ -35,17 +36,25 @@ import {
   matchingContactIds,
 } from '@/lib/submission-groups/view-refs';
 import {
+  BANK_SCAN_BATCH,
   canManageSubmissionGroups,
   cursorFilter,
+  encodeCursor,
   impliedLabel,
   myLabelOf,
   nextCursor,
   parseListQuery,
+  scanVisiblePage,
   searchFilter,
   sortColumn,
   toListItem,
   type AccessRow,
 } from '@/lib/submission-groups/views';
+
+/** The group's case (one per group, 122), named so the embed is never ambiguous. */
+const BANK_EMBED = 'cases!cases_group_fkey!inner(bank_code)';
+
+type Row = Record<string, unknown>;
 
 export async function GET(request: Request) {
   try {
@@ -58,32 +67,78 @@ export async function GET(request: Request) {
     const narrow = ended && !canManageSubmissionGroups(ctx.role);
 
     const column = sortColumn(query.status);
-    let q = (ended ? admin : ctx.supabase)
-      .from('submission_groups')
-      .select(
-        narrow
-          ? `${GROUP_COLUMNS}, submission_group_access!inner(user_id)`
-          : GROUP_COLUMNS
-      )
-      .eq('account_id', ctx.accountId)
-      .eq('status', query.status);
-    if (narrow) q = q.eq('submission_group_access.user_id', ctx.userId);
-    if (query.cursor) q = q.or(cursorFilter(column, query.cursor));
-    if (query.search) {
-      const contactIds = await matchingContactIds(
-        admin,
-        ctx.accountId,
-        query.search
-      );
-      q = q.or(searchFilter(query.search, contactIds));
-    }
-    const { data, error } = await q
-      .order(column, { ascending: false })
-      .order('id', { ascending: false })
-      .limit(query.limit);
-    if (error) throw new Error(`submission_groups: ${error.message}`);
+    const search = query.search
+      ? searchFilter(
+          query.search,
+          await matchingContactIds(admin, ctx.accountId, query.search)
+        )
+      : null;
 
-    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    let rows: Row[];
+    let next: string | null;
+    if (query.bank && !ended) {
+      // cases' RLS (case_role) is narrower than the groups' own: it ignores
+      // a group's access list, so an embed through the caller's client would
+      // drop groups they can see. The bank is matched on the service role
+      // instead, and the caller's RLS decides, batch by batch, which of
+      // those groups they see.
+      const bank = query.bank;
+      const page = await scanVisiblePage({
+        column,
+        cursor: query.cursor,
+        limit: query.limit,
+        scan: async (after) => {
+          let q = admin
+            .from('submission_groups')
+            .select(`${GROUP_COLUMNS}, ${BANK_EMBED}`)
+            .eq('account_id', ctx.accountId)
+            .eq('status', 'ACTIVE')
+            .eq('cases.bank_code', bank);
+          if (after) q = q.or(cursorFilter(column, after));
+          if (search) q = q.or(search);
+          const { data, error } = await q
+            .order(column, { ascending: false })
+            .order('id', { ascending: false })
+            .limit(BANK_SCAN_BATCH);
+          if (error) throw new Error(`submission_groups: ${error.message}`);
+          return (data ?? []) as unknown as Row[];
+        },
+        visible: async (ids) => {
+          const { data, error } = await ctx.supabase
+            .from('submission_groups')
+            .select('id')
+            .eq('account_id', ctx.accountId)
+            .in('id', ids);
+          if (error) throw new Error(`submission_groups: ${error.message}`);
+          return new Set(((data ?? []) as Row[]).map((r) => String(r.id)));
+        },
+      });
+      rows = page.rows;
+      next = page.next ? encodeCursor(page.next) : null;
+    } else {
+      const embeds = [
+        ...(narrow ? ['submission_group_access!inner(user_id)'] : []),
+        ...(query.bank ? [BANK_EMBED] : []),
+      ];
+      let q = (ended ? admin : ctx.supabase)
+        .from('submission_groups')
+        .select([GROUP_COLUMNS, ...embeds].join(', '))
+        .eq('account_id', ctx.accountId)
+        .eq('status', query.status);
+      if (narrow) q = q.eq('submission_group_access.user_id', ctx.userId);
+      // Only ENDED reaches this with a bank: read on the service role, where
+      // cases' RLS does not cut the embed down.
+      if (query.bank) q = q.eq('cases.bank_code', query.bank);
+      if (query.cursor) q = q.or(cursorFilter(column, query.cursor));
+      if (search) q = q.or(search);
+      const { data, error } = await q
+        .order(column, { ascending: false })
+        .order('id', { ascending: false })
+        .limit(query.limit);
+      if (error) throw new Error(`submission_groups: ${error.message}`);
+      rows = (data ?? []) as unknown as Row[];
+      next = nextCursor(rows, query.limit, query.status);
+    }
     const scanned = rows.map(toGroup);
     let groups = scanned;
     if (ended) {
@@ -159,7 +214,7 @@ export async function GET(request: Request) {
           unread: unread.get(g.id),
         })
       ),
-      next_cursor: nextCursor(rows, query.limit, query.status),
+      next_cursor: next,
     });
   } catch (err) {
     if (err instanceof SgHttpError)

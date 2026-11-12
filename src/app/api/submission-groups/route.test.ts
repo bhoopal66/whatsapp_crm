@@ -502,6 +502,96 @@ describe('GET /api/submission-groups', () => {
     });
   });
 
+  describe('?bank=', () => {
+    const H = '44444444-4444-4444-8444-44444444444d';
+    const A3 = '11111111-1111-4111-8111-11111111111c';
+    const ids = (body: { groups: { id: string }[] }) =>
+      body.groups.map((g) => g.id);
+
+    beforeEach(() => {
+      // The service role sees every ACTIVE group; RLS hands the caller only A
+      // and A2 (and A3 where a test adds it), never H.
+      admin.tables.submission_groups.push(
+        group({ id: A }),
+        group({
+          id: A2,
+          submission_ref: 'REF-7',
+          customer_name: 'Gulf Star Trading LLC',
+          contact_id: 'c2',
+          last_activity_at: '2026-10-09T10:00:00.000Z',
+        }),
+        group({ id: H, last_activity_at: '2026-10-11T10:00:00.000Z' })
+      );
+      admin.tables.cases = [
+        { account_id: 'acct-1', group_id: A, bank_code: 'FAB' },
+        { account_id: 'acct-1', group_id: A2, bank_code: 'ADCB' },
+        { account_id: 'acct-1', group_id: H, bank_code: 'FAB' },
+        { account_id: 'acct-1', group_id: E, bank_code: 'FAB' },
+      ];
+    });
+
+    it("lists the caller's ACTIVE groups at that bank only", async () => {
+      expect(ids(await (await get('?bank=fab')).json())).toEqual([A]);
+      expect(ids(await (await get('?bank=ADCB')).json())).toEqual([A2]);
+      expect(ids(await (await get('?bank=HSBC')).json())).toEqual([]);
+    });
+
+    it("matches the bank on the service role, never through the caller's RLS", async () => {
+      await get('?bank=FAB');
+      expect(
+        admin.log?.some(
+          ([t, d]) => t === 'submission_groups' && d === 'cases.bank_code=FAB'
+        )
+      ).toBe(true);
+      expect(rls.log?.some(([, d]) => d.startsWith('cases.'))).toBe(false);
+    });
+
+    it('pages a bank filter by cursor', async () => {
+      const older = group({
+        id: A3,
+        submission_ref: 'SUB-3',
+        last_activity_at: '2026-10-08T10:00:00.000Z',
+      });
+      admin.tables.submission_groups.push(older);
+      rls.tables.submission_groups.push(older);
+      admin.tables.cases.push({
+        account_id: 'acct-1',
+        group_id: A3,
+        bank_code: 'FAB',
+      });
+      const first = await (await get('?bank=FAB&limit=1')).json();
+      expect(ids(first)).toEqual([A]);
+      expect(first.next_cursor).toEqual(expect.any(String));
+      const second = await (
+        await get(`?bank=FAB&limit=1&cursor=${first.next_cursor}`)
+      ).json();
+      expect(ids(second)).toEqual([A3]);
+      expect(second.next_cursor).toBeNull();
+    });
+
+    it('combines the bank with a search', async () => {
+      admin.tables.cases[1].bank_code = 'FAB';
+      expect(ids(await (await get('?bank=FAB&q=gulf')).json())).toEqual([A2]);
+      expect(ids(await (await get('?bank=FAB&q=jane')).json())).toEqual([A]);
+    });
+
+    it('filters ENDED groups by bank too', async () => {
+      as('admin');
+      readable = new Set([E]);
+      expect(ids(await (await get('?status=ended&bank=FAB')).json())).toEqual([
+        E,
+      ]);
+      expect(ids(await (await get('?status=ended&bank=ADCB')).json())).toEqual(
+        []
+      );
+    });
+
+    it('answers 400 for a bank that is not a code', async () => {
+      expect((await get('?bank=F')).status).toBe(400);
+      expect((await get('?bank=a%2Cb')).status).toBe(400);
+    });
+  });
+
   it('below admin, scans only ENDED groups the caller was on', async () => {
     as('team_leader');
     readable = new Set([E]);

@@ -91,8 +91,17 @@ describe('listUrl / appendPage', () => {
     expect(listUrl('active', '  ', null)).toBe(
       '/api/submission-groups?status=active&limit=30'
     );
-    expect(listUrl('ended', ' SUB 1 ', 'c2', 10)).toBe(
+    expect(listUrl('ended', ' SUB 1 ', 'c2', { limit: 10 })).toBe(
       '/api/submission-groups?status=ended&limit=10&q=SUB+1&cursor=c2'
+    );
+  });
+
+  it('adds the bank filter only when one is picked', () => {
+    expect(listUrl('active', '', null, { bank: 'FAB' })).toBe(
+      '/api/submission-groups?status=active&limit=30&bank=FAB'
+    );
+    expect(listUrl('active', '', null, { bank: null })).toBe(
+      '/api/submission-groups?status=active&limit=30'
     );
   });
 

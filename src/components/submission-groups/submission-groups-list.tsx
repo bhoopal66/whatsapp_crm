@@ -6,7 +6,6 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   Archive,
   FolderKanban,
-  Landmark,
   Loader2,
   MessageSquareOff,
   Search,
@@ -15,7 +14,16 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useCaseBanks } from '@/hooks/use-case-banks';
+import type { CaseBankOption } from '@/lib/cases/ui';
 import { relativeActivity } from '@/lib/groups/ui';
 import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import {
@@ -38,6 +46,7 @@ import {
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
+import { BankSwatch, BankTag } from './bank-tag';
 import { useSubmissionGroupsList } from './list-context';
 
 type Tab = 'active' | 'ended';
@@ -67,6 +76,9 @@ export function SubmissionGroupsList({
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
+  /** A case bank code: the server lists only that bank's groups. */
+  const [bank, setBank] = useState<string | null>(null);
+  const banks = useCaseBanks();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const seq = useRef(0);
@@ -75,37 +87,42 @@ export function SubmissionGroupsList({
   // these counts rather than putting an old one back.
   const reads = useRef(new Set<string>());
   const { registerRefresh } = useSubmissionGroupsList();
-  const current = useRef({ tab, q: debounced });
-  current.current = { tab, q: debounced };
+  const current = useRef({ tab, q: debounced, bank });
+  current.current = { tab, q: debounced, bank };
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const load = useCallback(async (status: Tab, q: string) => {
-    const mine = ++seq.current;
-    reads.current.clear();
-    setLoaded(null);
-    try {
-      const res = await fetch(listUrl(status, q, null), { cache: 'no-store' });
-      if (!res.ok) throw new Error(String(res.status));
-      const page = parseSgList(await res.json());
-      if (mine === seq.current)
-        setLoaded({
-          groups: clearUnread(page.groups, reads.current),
-          next: page.next_cursor,
-          failed: false,
+  const load = useCallback(
+    async (status: Tab, q: string, bankCode: string | null) => {
+      const mine = ++seq.current;
+      reads.current.clear();
+      setLoaded(null);
+      try {
+        const res = await fetch(listUrl(status, q, null, { bank: bankCode }), {
+          cache: 'no-store',
         });
-    } catch {
-      if (mine === seq.current)
-        setLoaded({ groups: [], next: null, failed: true });
-    }
-  }, []);
+        if (!res.ok) throw new Error(String(res.status));
+        const page = parseSgList(await res.json());
+        if (mine === seq.current)
+          setLoaded({
+            groups: clearUnread(page.groups, reads.current),
+            next: page.next_cursor,
+            failed: false,
+          });
+      } catch {
+        if (mine === seq.current)
+          setLoaded({ groups: [], next: null, failed: true });
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    void load(tab, debounced);
-  }, [load, tab, debounced]);
+    void load(tab, debounced, bank);
+  }, [load, tab, debounced, bank]);
 
   // Re-read the current view from the first page without blanking the
   // rows; a failed refresh keeps what is listed. The selection is a prop
@@ -113,9 +130,11 @@ export function SubmissionGroupsList({
   const refresh = useCallback(async () => {
     const mine = ++seq.current;
     reads.current.clear();
-    const { tab: status, q } = current.current;
+    const { tab: status, q, bank: bankCode } = current.current;
     try {
-      const res = await fetch(listUrl(status, q, null), { cache: 'no-store' });
+      const res = await fetch(listUrl(status, q, null, { bank: bankCode }), {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error(String(res.status));
       const page = parseSgList(await res.json());
       if (mine === seq.current)
@@ -165,7 +184,7 @@ export function SubmissionGroupsList({
     const mine = seq.current;
     setLoadingMore(true);
     try {
-      const res = await fetch(listUrl(tab, debounced, loaded.next), {
+      const res = await fetch(listUrl(tab, debounced, loaded.next, { bank }), {
         cache: 'no-store',
       });
       if (!res.ok) throw new Error(String(res.status));
@@ -206,19 +225,24 @@ export function SubmissionGroupsList({
             </span>
           )}
         </div>
-        <div className="relative">
-          <Search
-            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={tl('search')}
-            aria-label={tl('search')}
-            className="h-8 pl-8 text-sm"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={tl('search')}
+              aria-label={tl('search')}
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+          {((banks && banks.length > 0) || bank !== null) && (
+            <BankFilter banks={banks ?? []} value={bank} onChange={setBank} />
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Tabs
@@ -271,7 +295,7 @@ export function SubmissionGroupsList({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void load(tab, debounced)}
+              onClick={() => void load(tab, debounced, bank)}
             >
               {t('retry')}
             </Button>
@@ -280,6 +304,12 @@ export function SubmissionGroupsList({
           searching && !mineOnly ? (
             <p className="text-muted-foreground px-4 py-10 text-center text-sm">
               {t('noMatches', { query: debounced.trim() })}
+            </p>
+          ) : bank !== null && !mineOnly ? (
+            <p className="text-muted-foreground px-4 py-10 text-center text-sm">
+              {tl('noBankMatches', {
+                bank: banks?.find((b) => b.code === bank)?.name ?? bank,
+              })}
             </p>
           ) : (
             <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
@@ -336,10 +366,67 @@ export function SubmissionGroupsList({
   );
 }
 
+const ALL_BANKS = '__all__';
+
+/**
+ * The bank filter beside the search: every bank of the workspace, each
+ * with its tag colour. A picked code missing from the list (the list failed
+ * to load) still shows, so the filter can always be cleared.
+ */
+function BankFilter({
+  banks,
+  value,
+  onChange,
+}: {
+  banks: readonly CaseBankOption[];
+  value: string | null;
+  onChange: (code: string | null) => void;
+}) {
+  const tl = useTranslations('SubmissionGroups.list');
+  const options =
+    value !== null && !banks.some((b) => b.code === value)
+      ? [...banks, { code: value, name: value }]
+      : banks;
+  const selected =
+    value === null ? null : (options.find((b) => b.code === value) ?? null);
+  return (
+    <Select
+      value={value ?? ALL_BANKS}
+      onValueChange={(v) => {
+        if (typeof v !== 'string') return;
+        onChange(v === ALL_BANKS ? null : v);
+      }}
+    >
+      <SelectTrigger
+        aria-label={tl('bankFilter')}
+        title={tl('bankFilter')}
+        className={cn('w-36 shrink-0', selected && 'border-ring')}
+      >
+        <SelectValue>
+          {selected ? (
+            <>
+              <BankSwatch code={selected.code} />
+              <span className="truncate">{selected.name}</span>
+            </>
+          ) : (
+            tl('allBanks')
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ALL_BANKS}>{tl('allBanks')}</SelectItem>
+        {options.map((b) => (
+          <SelectItem key={b.code} value={b.code}>
+            <BankSwatch code={b.code} />
+            {b.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
-/** The case's bank, the first tag on a row: outlined, so no status colour reads into it. */
-const BANK_TAG =
-  'border-border bg-card-2 text-foreground inline-flex max-w-full min-w-0 shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-medium';
 const UNREAD_BADGE =
   'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold';
 
@@ -468,15 +555,7 @@ function Row({
             customerAbsent ||
             g.my_label) && (
             <span className="flex flex-wrap items-center gap-1 pt-0.5">
-              {bank && (
-                <span className={BANK_TAG} title={t('bank', { bank })}>
-                  <Landmark className="size-3 shrink-0" aria-hidden />
-                  <span className="sr-only">{t('bank', { bank })}</span>
-                  <span className="truncate" aria-hidden>
-                    {bank}
-                  </span>
-                </span>
-              )}
+              {g.bank && bank && <BankTag code={g.bank.code} name={bank} />}
               {customerAbsent && (
                 <span className={cn(BADGE, 'bg-warning-soft text-warning')}>
                   {tl('customerNotInGroup')}

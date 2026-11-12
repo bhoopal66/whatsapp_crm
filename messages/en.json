@@ -7880,7 +7880,10 @@
       "emptyMineBody": "You are not on any of the submissions loaded so far. Turn off My groups to see them all.",
       "selectTitle": "Select a submission",
       "selectBody": "Choose one from the list to see its details, people and messages.",
-      "customerNotInGroup": "Customer not in group"
+      "customerNotInGroup": "Customer not in group",
+      "bankFilter": "Filter by bank",
+      "allBanks": "All banks",
+      "noBankMatches": "No groups for {bank}."
     },
     "details": {
       "title": "Details",

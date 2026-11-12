@@ -143,17 +143,18 @@ export function parseSgList(json: unknown): SgListPage {
   return { groups, next_cursor: next };
 }
 
-/** The list URL for one tab, search and page. */
+/** The list URL for one tab, search, bank filter and page. */
 export function listUrl(
   status: 'active' | 'ended',
   q: string,
   cursor: string | null,
-  limit = 30
+  { bank = null, limit = 30 }: { bank?: string | null; limit?: number } = {}
 ): string {
   const qs = new URLSearchParams({ status, limit: String(limit) });
   const query = q.trim();
   if (query) qs.set('q', query);
   if (cursor) qs.set('cursor', cursor);
+  if (bank) qs.set('bank', bank);
   return `/api/submission-groups?${qs}`;
 }
 

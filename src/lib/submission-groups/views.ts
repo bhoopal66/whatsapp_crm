@@ -79,7 +79,12 @@ export interface ListQuery {
   /** Rows strictly after this (sort time, id) in (column desc, id desc) order. */
   cursor: ListCursor | null;
   limit: number;
+  /** Only groups whose case is at this bank (a `case_banks` code), or null. */
+  bank: string | null;
 }
+
+/** 122's case_banks_code_check: a `?bank=` that is not a code is a 400. */
+const BANK_CODE_RE = /^[A-Z0-9_]{2,32}$/;
 
 /** The column a status's list is sorted (and paged) by, newest first. */
 export function sortColumn(
@@ -119,7 +124,82 @@ export function parseListQuery(params: URLSearchParams): ListQuery {
     ? Math.min(Math.max(n, 1), LIST_LIMIT_MAX)
     : LIST_LIMIT_DEFAULT;
 
-  return { status, search: searchTerm(params.get('q')), cursor, limit };
+  const bank = (params.get('bank') ?? '').trim().toUpperCase();
+  if (bank && !BANK_CODE_RE.test(bank))
+    throw new SgHttpError(400, 'bank is not valid');
+
+  return {
+    status,
+    search: searchTerm(params.get('q')),
+    cursor,
+    limit,
+    bank: bank || null,
+  };
+}
+
+/**
+ * A bank-filtered ACTIVE list reads candidates on the service role in
+ * batches of this many and asks the caller's RLS client which of them it
+ * sees, so no request carries more ids than this. (The gateway refused
+ * `id=in.(…)` at 900 UUIDs and PostgREST answers at most 1,000 rows, so a
+ * whole bank's id list would not fit.)
+ */
+export const BANK_SCAN_BATCH = 100;
+/** Batches one page reads at most before answering with what it found. */
+export const BANK_SCAN_ROUNDS = 5;
+
+type Row = Record<string, unknown>;
+
+/** The keyset cursor at a row: its raw sort-column string and id. */
+function cursorAt(row: Row, column: string): ListCursor | null {
+  const at = row[column];
+  return typeof at === 'string' && at ? { at, id: String(row.id) } : null;
+}
+
+/**
+ * One page of a list scanned on the service role and kept to what the
+ * caller may see: `scan(after)` answers up to `batch` candidates after a
+ * cursor in (column desc, id desc) order, `visible(ids)` the ones RLS hands
+ * the caller. Rows are kept in scan order until `limit` are found, the scan
+ * runs out, or `rounds` batches were read. `next` is where the next page
+ * starts: after the last kept row when the page filled, after the last
+ * scanned row when the rounds ran out first, null when nothing is left.
+ */
+export async function scanVisiblePage(opts: {
+  column: string;
+  cursor: ListCursor | null;
+  limit: number;
+  scan: (after: ListCursor | null) => Promise<Row[]>;
+  visible: (ids: string[]) => Promise<ReadonlySet<string>>;
+  batch?: number;
+  rounds?: number;
+}): Promise<{ rows: Row[]; next: ListCursor | null }> {
+  const batch = opts.batch ?? BANK_SCAN_BATCH;
+  const rounds = opts.rounds ?? BANK_SCAN_ROUNDS;
+  const rows: Row[] = [];
+  let after = opts.cursor;
+  for (let round = 0; round < rounds; round++) {
+    const scanned = await opts.scan(after);
+    if (!scanned.length) return { rows, next: null };
+    const seen = await opts.visible(scanned.map((r) => String(r.id)));
+    const last = scanned.length < batch;
+    for (let i = 0; i < scanned.length; i++) {
+      if (!seen.has(String(scanned[i].id))) continue;
+      rows.push(scanned[i]);
+      if (rows.length === opts.limit)
+        return {
+          rows,
+          next:
+            last && i === scanned.length - 1
+              ? null
+              : cursorAt(scanned[i], opts.column),
+        };
+    }
+    if (last) return { rows, next: null };
+    after = cursorAt(scanned[scanned.length - 1], opts.column);
+    if (!after) return { rows, next: null };
+  }
+  return { rows, next: after };
 }
 
 /**

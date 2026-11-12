@@ -13,6 +13,7 @@ import {
   myLabelOf,
   nextCursor,
   parseListQuery,
+  scanVisiblePage,
   searchFilter,
   searchTerm,
   toChannelRef,
@@ -58,7 +59,16 @@ describe('parseListQuery', () => {
       search: null,
       cursor: null,
       limit: LIST_LIMIT_DEFAULT,
+      bank: null,
     });
+  });
+
+  it('reads a bank code, upper-cased, and refuses anything else', () => {
+    expect(qs('bank=fab').bank).toBe('FAB');
+    expect(qs('bank=%20RAK_BANK2%20').bank).toBe('RAK_BANK2');
+    expect(qs('bank=').bank).toBeNull();
+    for (const bad of ['F', 'a%2Cb', 'FAB)', 'A'.repeat(33), 'FA%20B'])
+      expect(() => qs(`bank=${bad}`)).toThrow(SgHttpError);
   });
 
   it('reads status, cursor and a clamped limit', () => {
@@ -69,6 +79,7 @@ describe('parseListQuery', () => {
       search: null,
       cursor,
       limit: LIST_LIMIT_MAX,
+      bank: null,
     });
     expect(qs('limit=0').limit).toBe(1);
     expect(qs('limit=abc').limit).toBe(LIST_LIMIT_DEFAULT);
@@ -219,6 +230,85 @@ describe('toChannelRef', () => {
     expect(toChannelRef({ id: 'w', label: null, waba_id: null }).label).toBe(
       'Number'
     );
+  });
+});
+
+describe('scanVisiblePage', () => {
+  // Ten rows, newest first, as the scan's (column desc, id desc) order has them.
+  const rows = Array.from({ length: 10 }, (_, i) => ({
+    id: `id-${i}`,
+    last_activity_at: `2026-11-12T10:00:${String(59 - i).padStart(2, '0')}+00:00`,
+  }));
+  const at = (i: number) => ({ at: rows[i].last_activity_at, id: rows[i].id });
+
+  /** A keyset scan over `pool` and a visibility check, both recorded. */
+  const harness = (shown: number[], pool = rows, batch = 3) => {
+    const scans: (string | null)[] = [];
+    const checks: string[][] = [];
+    return {
+      scans,
+      checks,
+      scan: async (after: { id: string } | null) => {
+        scans.push(after?.id ?? null);
+        const from = after ? pool.findIndex((r) => r.id === after.id) + 1 : 0;
+        return pool.slice(from, from + batch);
+      },
+      visible: async (ids: string[]) => {
+        checks.push(ids);
+        return new Set(ids.filter((id) => shown.includes(Number(id.slice(3)))));
+      },
+    };
+  };
+  const run = (
+    h: ReturnType<typeof harness>,
+    over: { limit?: number; rounds?: number; cursor?: ReturnType<typeof at> }
+  ) =>
+    scanVisiblePage({
+      column: 'last_activity_at',
+      cursor: over.cursor ?? null,
+      limit: over.limit ?? 3,
+      scan: h.scan,
+      visible: h.visible,
+      batch: 3,
+      rounds: over.rounds ?? 5,
+    });
+
+  it('fills a page across batches, skipping rows the caller cannot see', async () => {
+    const h = harness([1, 4, 5, 8]);
+    const page = await run(h, {});
+    expect(page.rows.map((r) => r.id)).toEqual(['id-1', 'id-4', 'id-5']);
+    // The next page starts after the last row shown, not the batch's end.
+    expect(page.next).toEqual(at(5));
+    expect(h.scans).toEqual([null, 'id-2']);
+    expect(h.checks.every((ids) => ids.length <= 3)).toBe(true);
+  });
+
+  it('starts after the given cursor and ends when the scan runs out', async () => {
+    const h = harness([1, 8]);
+    const page = await run(h, { cursor: at(2) });
+    expect(page.rows.map((r) => r.id)).toEqual(['id-8']);
+    expect(page.next).toBeNull();
+    expect(h.scans).toEqual(['id-2', 'id-5', 'id-8']);
+  });
+
+  it('answers what it found, with a cursor, once the rounds are spent', async () => {
+    const h = harness([9]);
+    const page = await run(h, { rounds: 2 });
+    expect(page.rows).toEqual([]);
+    expect(page.next).toEqual(at(5));
+  });
+
+  it('has no next page when the page fills on the last row there is', async () => {
+    const h = harness([3, 4], rows.slice(0, 5));
+    const page = await run(h, { limit: 2 });
+    expect(page.rows.map((r) => r.id)).toEqual(['id-3', 'id-4']);
+    expect(page.next).toBeNull();
+  });
+
+  it('answers an empty page for an empty scan', async () => {
+    const h = harness([], []);
+    expect(await run(h, {})).toEqual({ rows: [], next: null });
+    expect(h.checks).toEqual([]);
   });
 });
 
