@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useBrainNav } from '@/hooks/use-brain-nav';
 import {
   caseLocks,
   caseTabDisabled,
@@ -171,13 +172,15 @@ export function CasePage({ caseId }: { caseId: string }) {
 
   const canSeeAudit = detail?.permissions.canSeeAudit ?? false;
   const isLead = detail?.case.isLead ?? false;
+  const brainOn = useBrainNav();
   const activeTab = resolveCaseTab(
     searchParams.get('tab'),
     canSeeAudit,
-    isLead
+    isLead,
+    brainOn
   );
   const changeTab = (next: unknown) => {
-    const tab = resolveCaseTab(String(next), canSeeAudit, isLead);
+    const tab = resolveCaseTab(String(next), canSeeAudit, isLead, brainOn);
     const url = new URL(window.location.href);
     if (tab === 'overview') url.searchParams.delete('tab');
     else url.searchParams.set('tab', tab);
@@ -608,7 +611,7 @@ export function CasePage({ caseId }: { caseId: string }) {
         className="min-h-0 flex-1"
       >
         <TabsList className="max-w-full justify-start overflow-x-auto">
-          {visibleCaseTabs(canSeeAudit).map((name) => (
+          {visibleCaseTabs(canSeeAudit, brainOn).map((name) => (
             <TabsTrigger
               key={name}
               value={name}
@@ -620,7 +623,7 @@ export function CasePage({ caseId }: { caseId: string }) {
             </TabsTrigger>
           ))}
         </TabsList>
-        {visibleCaseTabs(canSeeAudit).map((name) => {
+        {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
           const Body = TAB_BODY[name];
           return (
             <TabsContent key={name} value={name} className="min-h-0 flex-1">

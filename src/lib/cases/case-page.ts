@@ -516,8 +516,17 @@ export const CASE_TABS = [
 ] as const;
 export type CaseTab = (typeof CASE_TABS)[number];
 
-export function visibleCaseTabs(canSeeAudit: boolean): CaseTab[] {
-  return CASE_TABS.filter((t) => t !== 'audit' || canSeeAudit);
+/**
+ * The tabs shown. Brain (second brain, 194) only while the workspace's
+ * switch is on, so a workspace that never turned it on sees no new tab.
+ */
+export function visibleCaseTabs(
+  canSeeAudit: boolean,
+  brainOn = true
+): CaseTab[] {
+  return CASE_TABS.filter(
+    (t) => (t !== 'audit' || canSeeAudit) && (t !== 'brain' || brainOn)
+  );
 }
 
 /** Tabs a lead (130, no group yet) shows but cannot open. */
@@ -532,9 +541,10 @@ export function caseTabDisabled(tab: CaseTab, isLead: boolean): boolean {
 export function resolveCaseTab(
   raw: string | null | undefined,
   canSeeAudit: boolean,
-  isLead = false
+  isLead = false,
+  brainOn = true
 ): CaseTab {
-  const tabs = visibleCaseTabs(canSeeAudit).filter(
+  const tabs = visibleCaseTabs(canSeeAudit, brainOn).filter(
     (t) => !caseTabDisabled(t, isLead)
   );
   return (tabs as readonly string[]).includes(raw ?? '')
