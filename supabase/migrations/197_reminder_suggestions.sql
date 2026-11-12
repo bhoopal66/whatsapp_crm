@@ -45,6 +45,15 @@
 --    purge and the claimed/rung shape are 112's; privileges are
 --    restated (service role only).
 --
+-- 4. push_on_notification (109) tags a task_due push 'task:<task id>'
+--    instead of 'bell:<row id>'. Reminder pushes now stay on screen
+--    until dismissed (public/sw.js), so per-row tags would leave a
+--    task's heads-up and its due-now ring as two sticky notifications;
+--    with one tag per task the due-now push replaces the heads-up (and
+--    buzzes again: renotify), and a snoozed task's next ring replaces
+--    the last. Every other type keeps 'bell:<row id>'. Re-applying 109
+--    after 197 would put the per-row tag back: apply in order.
+--
 -- The sweep reads RLS-forced tables, so, as 108 and 112, apply as a
 -- superuser or BYPASSRLS role.
 --
@@ -131,7 +140,8 @@ DO $$ BEGIN
       FOR SELECT TO authenticated
       USING (
         account_id = public.current_account_id()
-        AND EXISTS (SELECT 1 FROM public.conversations c WHERE c.id = conversation_id)
+        AND EXISTS (SELECT 1 FROM public.conversations c
+                     WHERE c.id = message_reminder_suggestions.conversation_id)
       );
   END IF;
 END $$;
@@ -267,3 +277,24 @@ COMMENT ON FUNCTION public.calendar_reminder_sweep(timestamptz) IS
 
 REVOKE ALL ON FUNCTION public.calendar_reminder_sweep(timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.calendar_reminder_sweep(timestamptz) TO service_role;
+
+-- ---------- 4. One phone notification per task ----------
+
+CREATE OR REPLACE FUNCTION public.push_on_notification()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM public.push_enqueue(NEW.user_id, NEW.account_id, NEW.type, NEW.title, NEW.body,
+                              public.push_bell_url(NEW),
+                              CASE WHEN NEW.type = 'task_due' AND (NEW.meta ->> 'task_id') IS NOT NULL
+                                   THEN 'task:' || (NEW.meta ->> 'task_id')
+                                   ELSE 'bell:' || NEW.id END);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'push: bell row % not queued: %', NEW.id, SQLERRM;
+  RETURN NULL;
+END $$;
+
+COMMENT ON FUNCTION public.push_on_notification() IS
+  'AFTER INSERT on notifications: queues the bell row as a push. Tag ''task:<task id>'' for task_due (one device notification per task), ''bell:<row id>'' otherwise. Migrations 109, 197.';
+
+REVOKE ALL ON FUNCTION public.push_on_notification() FROM PUBLIC, anon, authenticated;

@@ -12,7 +12,9 @@
 -- calendar_reminder_sweep rings task_due 15 minutes before (offset 15,
 -- 'Due in 15 minutes') and again when due (offset 0, 'Due now') once
 -- each, again after a snooze, never for a done or unassigned task, and
--- only the service role may run it.
+-- only the service role may run it. Every task_due push of one task is
+-- tagged 'task:<id>' (the due-now push replaces the heads-up on the
+-- device); other bells keep 'bell:<row id>'.
 --
 -- ONE statement on purpose (the pinned CLI rejects several). Failing
 -- assertions are named in the final exception; fixtures (fresh ids, so
@@ -40,6 +42,7 @@ DECLARE
   t_due  UUID;
   t_done UUID;
   t_none UUID;
+  t_note UUID;
   t0     TIMESTAMPTZ := '2031-03-03 10:00+00';
   priv   TEXT;
   rl     TEXT;
@@ -257,6 +260,9 @@ BEGIN
   VALUES (a_acct, 'follow_up', 'RS done', u_ag1, u_own, t0, 'done') RETURNING id INTO t_done;
   INSERT INTO tasks (account_id, kind, title, assigned_to, created_by, due_at)
   VALUES (a_acct, 'follow_up', 'RS none', NULL, u_own, t0) RETURNING id INTO t_none;
+  -- A device, so the rings below are also queued as pushes (section 9).
+  INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+  VALUES (u_ag1, 'https://push.example.invalid/rs-ag1', 'k', 'a');
 
   r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 - interval '12 minutes'));
   n := n + 1;
@@ -294,6 +300,27 @@ BEGIN
   n := n + 1;
   IF EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND meta->>'task_id' IN (t_done::text, t_none::text)) THEN
     failed := array_append(failed, 'a done or unassigned task rang task_due'::text);
+  END IF;
+
+  -- ---------- 9. One phone notification per task ----------
+  -- Every task_due push of a task shares the tag 'task:<id>', so the
+  -- due-now push replaces the 15-minute heads-up on the device and the
+  -- snoozed ring replaces the last one: three rings above, three queued
+  -- pushes, one tag, none tagged per bell row.
+  n := n + 1;
+  IF (SELECT count(*) FROM push_outbox WHERE user_id = u_ag1 AND kind = 'task_due'
+        AND tag = 'task:' || t_due::text) <> 3
+     OR EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_ag1 AND kind = 'task_due'
+                  AND tag IS DISTINCT FROM 'task:' || t_due::text) THEN
+    failed := array_append(failed, 'task_due pushes are not all tagged task:<task id>'::text);
+  END IF;
+  -- Control: any other bell keeps its own tag, 'bell:<row id>'.
+  INSERT INTO notifications (account_id, user_id, type, title)
+  VALUES (a_acct, u_ag1, 'task_assigned', 'RS control') RETURNING id INTO t_note;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_ag1 AND kind = 'task_assigned'
+                   AND tag = 'bell:' || t_note::text) THEN
+    failed := array_append(failed, 'another bell type lost its bell:<id> push tag'::text);
   END IF;
 
   -- ---------- 7. Realtime ----------
