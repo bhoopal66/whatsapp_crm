@@ -1304,11 +1304,12 @@ export async function processMessage(
   // Reminder suggestions (migration 197, docs/jev-insights.md): a customer
   // message that names a later time may get "Add reminder" under it in
   // the inbox. Display data, off unless switched on, never throws; handed
-  // to `later` like the insights so after() keeps it alive.
+  // to `later` like the insights so after() keeps it alive. messageId is
+  // our messages row (the suggestion's FK), not the gateway's message id.
   const reminder = suggestReminderForMessage({
     accountId,
     conversationId: conversation.id,
-    messageId: message.id,
+    messageId: insertedRows[0].id,
     text: inboundText,
     side: 'customer',
     messageAt,

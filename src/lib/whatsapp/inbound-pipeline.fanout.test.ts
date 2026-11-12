@@ -387,7 +387,8 @@ describe('processMessage — reminder suggestions', () => {
     expect(h.reminder.mock.calls[0][0]).toMatchObject({
       accountId: 'acct-1',
       conversationId: 'conv-1',
-      messageId: 'wamid.over-limit',
+      // Our messages row, never the gateway id (the suggestion's FK).
+      messageId: 'row-1',
       text: 'hello',
       side: 'customer',
       messageAt: '2025-10-09T08:53:20.000Z',
