@@ -1,11 +1,12 @@
 /**
  * 022d SupabaseDigestSource over a fake supabase-js client: exact RPC names
- * and parameters, the case inbox called as the actor, related cases kept
- * only where case_can_read says so, and marked contacts dropped in TS.
+ * and parameters, the case inbox called as the actor, one batched marks
+ * lookup and one batched related-cases lookup.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 
+import { buildDigest } from './digest';
 import { SupabaseDigestSource } from './digest-store';
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -65,25 +66,26 @@ const inboxRow = (id: string, contact: string | null) => ({
 });
 
 describe('SupabaseDigestSource', () => {
-  it('cases: case_inbox as the actor (all snoozed, stalest, 200); marked contacts dropped', async () => {
+  it('cases: case_inbox as the actor (all snoozed, stalest, 200); marked contacts dropped with ONE brain_contacts_marked', async () => {
     const now = new Date('2026-11-12T08:00:00Z');
     const { client, rpcs } = fakeClient({
-      rpc: (fn, args) =>
+      rpc: (fn) =>
         fn === 'case_inbox'
           ? {
               data: [
                 inboxRow('c1', 'k1'),
                 inboxRow('c2', 'k2'),
                 inboxRow('c3', null),
+                inboxRow('c4', 'k1'),
               ],
               error: null,
             }
-          : fn === 'brain_contact_marked'
-            ? { data: args.p_contact === 'k2', error: null }
+          : fn === 'brain_contacts_marked'
+            ? { data: ['k2'], error: null }
             : { data: null, error: null },
     });
     const out = await new SupabaseDigestSource(client).cases(U, A, now);
-    expect(out.map((c) => c.caseId)).toEqual(['c1', 'c3']);
+    expect(out.map((c) => c.caseId)).toEqual(['c1', 'c3', 'c4']);
     expect(out[0]).toMatchObject({
       bankCode: 'ADCB',
       contactId: 'k1',
@@ -100,70 +102,91 @@ describe('SupabaseDigestSource', () => {
         p_after: null,
       },
     });
-    expect(
-      rpcs.filter((r) => r.fn === 'brain_contact_marked').map((r) => r.args)
-    ).toEqual([
-      { p_account: A, p_contact: 'k1' },
-      { p_account: A, p_contact: 'k2' },
+    expect(rpcs.slice(1)).toEqual([
+      {
+        fn: 'brain_contacts_marked',
+        args: { p_account: A, p_contacts: ['k1', 'k2'] },
+      },
     ]);
   });
 
-  it('messages: brain_digest_messages with account, actor, since; marked dropped', async () => {
-    const since = new Date('2026-10-29T08:00:00Z');
+  it('cases: no contacts on the page skips brain_contacts_marked', async () => {
     const { client, rpcs } = fakeClient({
-      rpc: (fn, args) =>
-        fn === 'brain_digest_messages'
-          ? {
-              data: [
-                {
-                  item_id: 'i1',
-                  case_id: 'c1',
-                  contact_id: 'k1',
-                  text: 'I will send',
-                  created_by: U,
-                  created_at: '2026-11-10T00:00:00Z',
-                },
-                {
-                  item_id: 'i2',
-                  case_id: 'c2',
-                  contact_id: 'k2',
-                  text: 'shortly',
-                  created_by: U,
-                  created_at: '2026-11-10T00:00:00Z',
-                },
-              ],
-              error: null,
-            }
-          : { data: args.p_contact === 'k2', error: null },
+      rpc: (fn) =>
+        fn === 'case_inbox'
+          ? { data: [inboxRow('c1', null)], error: null }
+          : { data: null, error: null },
     });
-    const out = await new SupabaseDigestSource(client).messages(U, A, since);
-    expect(out.map((m) => m.itemId)).toEqual(['i1']);
-    expect(rpcs[0]).toEqual({
-      fn: 'brain_digest_messages',
-      args: { p_account: A, p_actor: U, p_since: since.toISOString() },
-    });
+    const out = await new SupabaseDigestSource(client).cases(
+      U,
+      A,
+      new Date('2026-11-12T08:00:00Z')
+    );
+    expect(out.map((c) => c.caseId)).toEqual(['c1']);
+    expect(rpcs.map((r) => r.fn)).toEqual(['case_inbox']);
   });
 
-  it('closedCases: account-scoped closed cases with an outcome, only those case_can_read allows', async () => {
-    const closed = (id: string, contact: string) => ({
-      id,
-      contact_id: contact,
-      bank_code: 'ADCB',
-      stage: 'Declined',
-      outcome: 'Declined',
-      closed_at: '2026-10-01T00:00:00Z',
+  it('messages: brain_digest_messages with account, actor, since; source_id mapped, no other calls', async () => {
+    const since = new Date('2026-10-29T08:00:00Z');
+    const { client, rpcs } = fakeClient({
+      rpc: () => ({
+        data: [
+          {
+            item_id: 'i1',
+            source_id: 's1',
+            case_id: 'c1',
+            contact_id: 'k1',
+            text: 'I will send',
+            created_by: U,
+            created_at: '2026-11-10T00:00:00Z',
+          },
+          {
+            item_id: 'i2',
+            source_id: null,
+            case_id: 'c2',
+            contact_id: 'k2',
+            text: 'no source',
+            created_by: U,
+            created_at: '2026-11-10T00:00:00Z',
+          },
+        ],
+        error: null,
+      }),
     });
-    const { client, rpcs, queries } = fakeClient({
-      tables: {
-        cases: {
-          data: [closed('r1', 'k1'), closed('r2', 'k1'), closed('r3', 'k9')],
-          error: null,
-        },
+    const out = await new SupabaseDigestSource(client).messages(U, A, since);
+    expect(out).toEqual([
+      {
+        itemId: 'i1',
+        sourceId: 's1',
+        caseId: 'c1',
+        contactId: 'k1',
+        text: 'I will send',
+        createdBy: U,
+        createdAt: new Date('2026-11-10T00:00:00Z'),
       },
-      rpc: (fn, args) =>
-        fn === 'case_can_read'
-          ? { data: args.p_case !== 'r2', error: null }
-          : { data: args.p_contact === 'k9', error: null },
+    ]);
+    expect(rpcs).toEqual([
+      {
+        fn: 'brain_digest_messages',
+        args: { p_account: A, p_actor: U, p_since: since.toISOString() },
+      },
+    ]);
+  });
+
+  it('closedCases: ONE brain_digest_related, mapped with an empty stage', async () => {
+    const { client, rpcs, queries } = fakeClient({
+      rpc: () => ({
+        data: [
+          {
+            case_id: 'r1',
+            contact_id: 'k1',
+            bank_code: 'ADCB',
+            outcome: 'Declined',
+            closed_at: '2026-10-01T00:00:00Z',
+          },
+        ],
+        error: null,
+      }),
     });
     const out = await new SupabaseDigestSource(client).closedCases(
       U,
@@ -171,28 +194,31 @@ describe('SupabaseDigestSource', () => {
       ['k1'],
       ['ADCB']
     );
-    expect(out.map((c) => c.caseId)).toEqual(['r1']);
-    expect(out[0]).toMatchObject({
-      outcome: 'Declined',
-      closedAt: new Date('2026-10-01T00:00:00Z'),
-    });
-    expect(queries.map((q) => q.table)).toEqual(['cases', 'cases']);
-    expect(queries[0]!.ops).toEqual(
-      expect.arrayContaining([
-        ['eq', 'account_id', A],
-        ['in', 'contact_id', ['k1']],
-        ['not', 'closed_at', 'is', null],
-        ['not', 'outcome', 'is', null],
-      ])
-    );
-    expect(queries[1]!.ops).toContainEqual(['in', 'bank_code', ['ADCB']]);
-    expect(
-      rpcs.filter((r) => r.fn === 'case_can_read').map((r) => r.args)
-    ).toEqual([
-      { p_case: 'r1', p_user: U },
-      { p_case: 'r2', p_user: U },
-      { p_case: 'r3', p_user: U },
+    expect(out).toEqual([
+      {
+        caseId: 'r1',
+        bankCode: 'ADCB',
+        stage: '',
+        contactId: 'k1',
+        lastActivityAt: new Date('2026-10-01T00:00:00Z'),
+        snoozedUntil: null,
+        outcome: 'Declined',
+        closedAt: new Date('2026-10-01T00:00:00Z'),
+      },
     ]);
+    expect(rpcs).toEqual([
+      {
+        fn: 'brain_digest_related',
+        args: {
+          p_account: A,
+          p_actor: U,
+          p_contacts: ['k1'],
+          p_banks: ['ADCB'],
+          p_per: 2,
+        },
+      },
+    ]);
+    expect(queries).toEqual([]);
   });
 
   it('closedCases: no contacts and no banks reads nothing', async () => {
@@ -202,6 +228,70 @@ describe('SupabaseDigestSource', () => {
     ).toEqual([]);
     expect(queries).toEqual([]);
     expect(rpcs).toEqual([]);
+  });
+
+  it('buildDigest over 30 cases, 30 contacts and several banks makes a constant number of RPCs', async () => {
+    const now = new Date('2026-11-12T08:00:00Z');
+    const n = 30;
+    const inbox = Array.from({ length: n }, (_, i) => ({
+      ...inboxRow(`c${i}`, `k${i}`),
+      bank_code: `B${i % 5}`,
+      last_activity_at: '2026-10-01T00:00:00Z',
+    }));
+    const { client, rpcs, queries } = fakeClient({
+      rpc: (fn) => {
+        if (fn === 'case_inbox') return { data: inbox, error: null };
+        if (fn === 'brain_contacts_marked')
+          return { data: ['k3'], error: null };
+        if (fn === 'brain_digest_messages')
+          return {
+            data: inbox.map((r, i) => ({
+              item_id: `i${i}`,
+              source_id: `s${i}`,
+              case_id: r.case_id,
+              contact_id: r.contact_id,
+              text: 'I will send it tomorrow',
+              created_by: U,
+              created_at: '2026-11-10T00:00:00Z',
+            })),
+            error: null,
+          };
+        if (fn === 'brain_digest_related')
+          return {
+            data: [
+              {
+                case_id: 'z1',
+                contact_id: 'k0',
+                bank_code: 'B0',
+                outcome: 'Declined',
+                closed_at: '2026-09-01T00:00:00Z',
+              },
+            ],
+            error: null,
+          };
+        return { data: null, error: null };
+      },
+    });
+    const d = await buildDigest({
+      actorId: U,
+      accountId: A,
+      now,
+      source: new SupabaseDigestSource(client),
+    });
+    // 29 unmarked open cases, each with a promise: the digest is not empty.
+    expect(
+      d.sections.find((s) => s.kind === 'promises')!.items.length
+    ).toBeGreaterThan(0);
+    expect(
+      d.sections.find((s) => s.kind === 'related')!.items.length
+    ).toBeGreaterThan(0);
+    expect(rpcs.map((r) => r.fn)).toEqual([
+      'case_inbox',
+      'brain_contacts_marked',
+      'brain_digest_messages',
+      'brain_digest_related',
+    ]);
+    expect(queries.map((q) => q.table)).toEqual(['case_tasks']);
   });
 
   it("tasksDueBefore: the actor's not-done case_tasks in the account due before the instant", async () => {

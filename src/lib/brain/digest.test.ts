@@ -36,6 +36,7 @@ const msg = (
   contactId = 'K1'
 ): DigestMessage => ({
   itemId,
+  sourceId: itemId,
   caseId,
   contactId,
   text,
@@ -222,6 +223,48 @@ describe('022d digest (pure)', () => {
       )
     );
     expect(sec(d, 'promises').map((i) => i.citation!.id)).toEqual(['m2b']);
+  });
+
+  it('a promise in chunk 1 of a two-chunk reply is reported (same source, chunk 2 later)', async () => {
+    const d = await build(
+      mem(
+        [kase('c1')],
+        [
+          {
+            ...msg('m1a', 'c1', 'I will send it by tomorrow', ago(2)),
+            sourceId: 's1',
+          },
+          {
+            ...msg(
+              'm1b',
+              'c1',
+              'thanks for your patience',
+              new Date(ago(2).getTime() + 1000)
+            ),
+            sourceId: 's1',
+          },
+        ]
+      )
+    );
+    expect(sec(d, 'promises').map((i) => i.citation)).toEqual([
+      { kind: 'message', id: 'm1a' },
+    ]);
+  });
+
+  it('a newer separate source without a promise hides an older promise', async () => {
+    const d = await build(
+      mem(
+        [kase('c1')],
+        [
+          {
+            ...msg('m1', 'c1', 'I will send it by tomorrow', ago(3)),
+            sourceId: 's1',
+          },
+          { ...msg('m2', 'c1', 'sent, please check', ago(2)), sourceId: 's2' },
+        ]
+      )
+    );
+    expect(sec(d, 'promises')).toEqual([]);
   });
 
   it('snippets are at most 120 characters', async () => {

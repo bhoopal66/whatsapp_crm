@@ -5,9 +5,10 @@
  * (SupabaseDigestSource in digest-store.ts). Sections:
  *   stale_cases - open, not snoozed, no activity for `staleDays` (default 3)
  *                 days, stalest first
- *   promises    - a staff message in the last 14 days that matches a
- *                 commitment pattern, on an open case, with no LATER staff
- *                 message on that case
+ *   promises    - on an open case, the case's NEWEST staff message (one
+ *                 source, which may be several chunks) in the last 14 days,
+ *                 when any chunk of it matches a commitment pattern; a newer
+ *                 source without a promise hides an older one
  *   related     - for each stale / promise case, up to 2 closed cases with an
  *                 outcome sharing its contact (then its bank): outcome,
  *                 closed date and case id only, never item text
@@ -49,6 +50,8 @@ export interface DigestCase {
 }
 export interface DigestMessage {
   itemId: string;
+  /** The message a chunk belongs to; chunks of one reply share it. */
+  sourceId: string;
   caseId: string;
   contactId: string | null;
   text: string;
@@ -182,13 +185,26 @@ export async function buildDigest(input: {
   for (const caseId of new Set(msgs.map((m) => m.caseId))) {
     if (!openById.has(caseId)) continue;
     const onCase = msgs.filter((x) => x.caseId === caseId);
+    // The case's newest source: max createdAt over its chunks, ties by
+    // sourceId descending. Earlier sources never count.
+    const newest = new Map<string, number>();
+    for (const x of onCase)
+      newest.set(
+        x.sourceId,
+        Math.max(newest.get(x.sourceId) ?? -Infinity, x.createdAt.getTime())
+      );
+    const [source0] = [...newest.entries()].sort(
+      (a, b) => b[1] - a[1] || (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0)
+    );
+    if (!source0) continue;
     const p = onCase
-      .filter((x) => isPromise(x.text))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      .filter((x) => x.sourceId === source0[0] && isPromise(x.text))
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          a.itemId.localeCompare(b.itemId)
+      )[0];
     if (!p) continue;
-    // A promise only counts while no later staff message exists on the case.
-    if (onCase.some((x) => x.createdAt.getTime() > p.createdAt.getTime()))
-      continue;
     promises.push(p);
   }
   promises.sort(
