@@ -379,6 +379,8 @@ describe('SLA chips and tabs', () => {
     expect(resolveCaseTab('audit', false)).toBe('overview');
     expect(resolveCaseTab('audit', true)).toBe('audit');
     expect(resolveCaseTab('bank-contacts', false)).toBe('bank-contacts');
+    expect(visibleCaseTabs(false)).toContain('brain');
+    expect(resolveCaseTab('brain', false)).toBe('brain');
     expect(resolveCaseTab('nope', true)).toBe('overview');
     expect(resolveCaseTab(null, true)).toBe('overview');
   });
