@@ -8,7 +8,8 @@
 // account (checked through the caller's RLS client; else 404
 // `{ error: 'Not found' }`, the same body for an unknown id). The digest is
 // then built WITH THE TEAMMATE AS THE ACTOR, so it holds exactly what they
-// can read, never what only the admin can. A malformed userId is 400.
+// can read, never what only the admin can. A malformed userId is 400 for an admin (a non-admin
+// naming anyone else is 403 first); an empty one is 400 for everyone.
 // `Cache-Control: no-store`.
 // ============================================================
 
@@ -33,10 +34,12 @@ export async function GET(request: Request) {
     const named = new URL(request.url).searchParams.get('userId');
     let actorId = ctx.userId;
     if (named !== null) {
-      if (!isUuid(named)) throw badRequest('userId must be a uuid');
+      if (named === '') throw badRequest('userId must be a uuid');
       if (named !== ctx.userId) {
+        // Role first: a non-admin learns nothing from how a value is judged.
         if (!hasMinRole(ctx.role, 'admin'))
           throw new BrainHttpError(403, 'Not allowed');
+        if (!isUuid(named)) throw badRequest('userId must be a uuid');
         const { data, error } = await ctx.supabase
           .from('profiles')
           .select('user_id')
