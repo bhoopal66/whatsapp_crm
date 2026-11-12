@@ -87,6 +87,8 @@ export const SELECTION_CALLERS = [
   'intent_match',
   'status_map',
   'kb_gap',
+  // Reminder suggestions (lib/reminders/suggest.ts, migration 197).
+  'reminder',
   // 019d tool advisor (lib/assist/advisor.ts). Idle: nothing calls it yet.
   'tool_advice',
 ] as const;

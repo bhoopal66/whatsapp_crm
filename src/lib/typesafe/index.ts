@@ -33,6 +33,10 @@ import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
 import { runReplyClass, type ReplyClassInput } from './checks/reply-class';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
+import {
+  runReminderJudgment,
+  type ReminderJudgmentInput,
+} from './checks/reminder';
 import { runIntentMatch, type IntentMatchInput } from './checks/intent-match';
 import { runReplyOption, type ReplyOptionInput } from './checks/reply-option';
 import {
@@ -209,6 +213,14 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      * throws.
      */
     kbGap: (input: KbGapInput) => runKbGapJudgment({ config, gateway }, input),
+    /**
+     * Reminder suggestions (lib/reminders/suggest.ts): whether a chat
+     * message names a later time to be reminded of, its kind and which
+     * time. Not a safety check: no account switch, policy or log row.
+     * Never throws.
+     */
+    reminder: (input: ReminderJudgmentInput) =>
+      runReminderJudgment({ config, gateway }, input),
     /**
      * Compass status -> case stage suggestion (lib/cases/status-map.ts).
      * Not a safety check: no account switch, policy or log row. Never
