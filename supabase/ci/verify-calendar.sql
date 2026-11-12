@@ -407,14 +407,15 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
   r := pg_temp.cal_try('service_role', NULL, 'SELECT calendar_reminder_sweep(''2030-01-08 09:01+00'')::text');
   n := n + 1;
   IF r <> '2' OR (SELECT count(*) FROM notifications WHERE type = 'meeting_reminder'
-                    AND user_id IN (u_crt, u_att) AND meta = jsonb_build_object('meeting_id', m_one)
+                    -- 197: meeting_reminder meta carries the offset.
+                    AND user_id IN (u_crt, u_att) AND meta = jsonb_build_object('meeting_id', m_one, 'offset', 10)
                     AND body LIKE 'In 10 min · %') <> 2 THEN
     failed := array_append(failed, ('a meeting reminds host and invitee 10 minutes before (not a cancelled one): ' || r)::text);
   END IF;
   r := pg_temp.cal_try('service_role', NULL, 'SELECT calendar_reminder_sweep(''2030-01-08 09:10+00'')::text');
   n := n + 1;
   IF r <> '2' OR (SELECT count(*) FROM notifications WHERE type = 'meeting_reminder'
-                    AND meta = jsonb_build_object('meeting_id', m_one) AND body LIKE 'Starting now · %') <> 2 THEN
+                    AND meta = jsonb_build_object('meeting_id', m_one, 'offset', 0) AND body LIKE 'Starting now · %') <> 2 THEN
     failed := array_append(failed, ('a meeting rings "starting now" at its start: ' || r)::text);
   END IF;
 
@@ -426,7 +427,8 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
   r := pg_temp.cal_try('service_role', NULL, 'SELECT calendar_reminder_sweep(''2030-01-10 09:01+00'')::text');
   n := n + 1;
   IF r <> '1' OR EXISTS (SELECT 1 FROM notifications WHERE type = 'meeting_reminder'
-                          AND user_id = u_att AND meta = jsonb_build_object('meeting_id', m_rm)) THEN
+                          -- 197 added 'offset' to the meta: match the meeting id alone.
+                          AND user_id = u_att AND meta->>'meeting_id' = m_rm::text) THEN
     failed := array_append(failed, ('a removed invitee was reminded of the meeting: ' || r)::text);
   END IF;
 
@@ -438,7 +440,8 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
   r := pg_temp.cal_try('service_role', NULL, 'SELECT calendar_reminder_sweep(''2030-01-09 09:00+00'')::text');
   n := n + 1;
   IF r <> '1' OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND user_id = u_att
-                                AND title = 'Cal task' AND meta = jsonb_build_object('task_id', t_open)) THEN
+                                -- 197: the 15-minute ring's meta carries offset 15.
+                                AND title = 'Cal task' AND meta = jsonb_build_object('task_id', t_open, 'offset', 15)) THEN
     failed := array_append(failed, ('an open task rings task_due 15 minutes before due: ' || r)::text);
   END IF;
   n := n + 1;

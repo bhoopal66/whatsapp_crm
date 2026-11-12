@@ -955,3 +955,12 @@ jobs:
       # brain_page_wipe is the owner's only, RLS forced on brain_pages.
       - name: Verify brain pages
         run: supabase db query --local --file supabase/ci/verify-brain-pages.sql
+
+      # Migration 197: reminder suggestions are read by whoever can see the
+      # chat and written only by the service role (CHECKs, one per
+      # message, task delete keeps the row, message delete removes it,
+      # realtime); the switch defaults off; calendar_reminder_sweep rings
+      # task_due 15 minutes before and when due (offset in meta), once
+      # each, again after a snooze, never for done or unassigned tasks.
+      - name: Verify reminder suggestions
+        run: supabase db query --local --file supabase/ci/verify-reminder-suggestions.sql
