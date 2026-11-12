@@ -6588,6 +6588,26 @@
     "join": "참여",
     "notNow": "나중에"
   },
+  "Reminders": {
+    "alarm": {
+      "reminder": "알림",
+      "meeting": "회의",
+      "event": "일정",
+      "missed": "놓침",
+      "open": "열기",
+      "join": "참여",
+      "done": "완료",
+      "snooze": "다시 알림",
+      "snooze10m": "10분",
+      "snooze1h": "1시간",
+      "snoozeTomorrow": "내일 9:00",
+      "dismiss": "닫기",
+      "more": "+{count}개 더",
+      "snoozedUntil": "{when}까지 다시 알림",
+      "doneToast": "완료로 표시했습니다",
+      "failed": "알림을 업데이트하지 못했습니다"
+    }
+  },
   "MeetingRoom": {
     "recording": {
       "record": "이 회의 녹화",

@@ -6588,6 +6588,26 @@
     "join": "Join",
     "notNow": "Not now"
   },
+  "Reminders": {
+    "alarm": {
+      "reminder": "Reminder",
+      "meeting": "Meeting",
+      "event": "Event",
+      "missed": "Missed",
+      "open": "Open",
+      "join": "Join",
+      "done": "Done",
+      "snooze": "Snooze",
+      "snooze10m": "10 minutes",
+      "snooze1h": "1 hour",
+      "snoozeTomorrow": "Tomorrow 9:00",
+      "dismiss": "Dismiss",
+      "more": "+{count} more",
+      "snoozedUntil": "Snoozed until {when}",
+      "doneToast": "Marked done",
+      "failed": "Couldn't update the reminder"
+    }
+  },
   "MeetingRoom": {
     "recording": {
       "record": "Record this meeting",
