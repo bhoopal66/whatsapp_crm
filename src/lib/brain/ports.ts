@@ -137,6 +137,8 @@ export type ContactMarkKind = 'opt_out' | 'deletion';
 export interface BrainStore {
   /** The item id (new or existing), or null when nothing was stored (forgotten chunk, marked contact, brain off). */
   upsert(item: BrainItemInput): Promise<string | null>;
+  /** Whether this exact chunk is already stored and live under its source (optional: only Remember asks). */
+  isLive?(item: BrainItemInput): Promise<boolean>;
   forget(
     by: BrainWriter,
     accountId: string,

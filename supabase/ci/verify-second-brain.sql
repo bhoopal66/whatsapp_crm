@@ -337,6 +337,14 @@ BEGIN
   END LOOP;
 
   n := n + 1;
+  IF NOT brain_item_live(a_acct, 'note', 'bs-f', 'remembers the heron logo') THEN
+    failed := failed || 'brain_item_live: a stored chunk reads as not live'::text;
+  END IF;
+  IF brain_item_live(a_acct, 'note', 'bs-f', 'some other text') OR brain_item_live(a_acct, 'note', 'bs-other', 'remembers the heron logo') THEN
+    failed := failed || 'brain_item_live: another text or source reads as live'::text;
+  END IF;
+
+  n := n + 1;
   v_n := brain_item_forget(NULL, 'system:erasure', a_acct, i_f, NULL, NULL, 'verify');
   IF v_n <> 1 THEN failed := failed || format('system:erasure forgot %s items, not 1', v_n); END IF;
 
@@ -351,6 +359,11 @@ BEGIN
   IF v_id IS NOT NULL THEN failed := failed || 're-upserting a forgotten chunk brought it back'::text; END IF;
   SELECT count(*) INTO v_n FROM brain_items WHERE account_id = a_acct AND source_id = 'bs-f' AND deleted_at IS NULL;
   IF v_n <> 0 THEN failed := failed || 're-upserting a forgotten chunk stored a live row'::text; END IF;
+
+  n := n + 1;
+  IF brain_item_live(a_acct, 'note', 'bs-f', 'remembers the heron logo') THEN
+    failed := failed || 'brain_item_live: a forgotten chunk reads as live'::text;
+  END IF;
 
   n := n + 1;
   v_n := brain_item_forget(u_admin, NULL, a_acct, i_f, NULL, NULL, 'verify again');
@@ -449,6 +462,7 @@ BEGIN
       'public.brain_contact_mark(uuid, uuid, uuid, text)',
       'public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text)',
       'public.brain_audit_record(uuid, uuid, text, integer)',
+      'public.brain_item_live(uuid, text, text, text)',
       'public.brain_search_candidates(uuid, uuid, text, real[], text, uuid, uuid, text, integer)',
       'public.case_settings_set_brain(uuid, uuid, boolean)'] LOOP
     IF has_function_privilege('authenticated', fn, 'EXECUTE') OR has_function_privilege('anon', fn, 'EXECUTE') THEN

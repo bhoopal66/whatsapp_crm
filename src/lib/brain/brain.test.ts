@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CHUNK_MAX, chunkText } from './chunk';
 import { cosine, HashingEmbedder } from './embed';
@@ -197,6 +197,39 @@ describe('022a ingest (in-memory ports)', () => {
     expect(m.items.length).toBe(a.ok ? a.itemIds.length : -1);
     for (const i of m.items) expect(i.text.length).toBeLessThanOrEqual(800);
   });
+  it('remember counts chunks that were already stored', async () => {
+    const m = new MemPorts();
+    const first = await ingestRemember(
+      deps(m),
+      'user-x',
+      'Bank One wants the MOA.',
+      {
+        accountId: 'acc1',
+      }
+    );
+    const again = await ingestRemember(
+      deps(m),
+      'user-x',
+      'Bank One wants the MOA.',
+      {
+        accountId: 'acc1',
+      }
+    );
+    expect(first).toMatchObject({ ok: true, existing: 0 });
+    expect(again).toMatchObject({ ok: true, existing: 1 });
+    expect(again.ok && again.itemIds).toEqual(first.ok && first.itemIds);
+    expect(m.items.length).toBe(1);
+  });
+  it('other sources never ask whether a chunk exists', async () => {
+    const m = new MemPorts();
+    const spy = vi.spyOn(m, 'isLive');
+    await ingestNote(deps(m), {
+      accountId: 'acc1',
+      noteId: 'n1',
+      body: 'hello',
+    });
+    expect(spy).not.toHaveBeenCalled();
+  });
   it('remember stores the actor as source and creator', async () => {
     const m = new MemPorts();
     await ingestRemember(
@@ -239,7 +272,7 @@ describe('022a ingest (in-memory ports)', () => {
       noteId: 'n2',
       body: 'Opted out.',
     });
-    expect(r).toEqual({ ok: true, itemIds: [], skipped: 1 });
+    expect(r).toEqual({ ok: true, itemIds: [], skipped: 1, existing: 0 });
     expect(m.vecs.size).toBe(0);
   });
   it('stores nothing when the redactor refuses', async () => {

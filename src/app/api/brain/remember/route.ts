@@ -56,7 +56,12 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         itemIds: r.itemIds,
-        duplicate: r.itemIds.length === 0 && r.skipped > 0,
+        // Nothing new saved: every chunk was already stored (live), or
+        // none could be stored (forgotten before, contact marked).
+        duplicate:
+          r.itemIds.length === 0
+            ? r.skipped > 0
+            : r.existing === r.itemIds.length,
       },
       { status: 201 }
     );

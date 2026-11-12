@@ -146,6 +146,16 @@ export class SupabaseBrainStore implements BrainStore {
     return str(scalar(data));
   }
 
+  async isLive(i: BrainItemInput): Promise<boolean> {
+    const data = await call(this.db, 'brain_item_live', {
+      p_account: i.accountId,
+      p_source_kind: i.sourceKind,
+      p_source_id: i.sourceId,
+      p_text: i.text,
+    });
+    return scalar(data) === true;
+  }
+
   async forget(
     by: BrainWriter,
     accountId: string,

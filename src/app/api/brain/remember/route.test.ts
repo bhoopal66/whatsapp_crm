@@ -67,7 +67,12 @@ beforeEach(() => {
   asRole('agent');
   m.get.mockResolvedValue({ id: CASE, accountId: 'acct-1' });
   m.role.mockResolvedValue('agent');
-  m.ingestRemember.mockResolvedValue({ ok: true, itemIds: ['i1'], skipped: 0 });
+  m.ingestRemember.mockResolvedValue({
+    ok: true,
+    itemIds: ['i1'],
+    skipped: 0,
+    existing: 0,
+  });
 });
 
 describe('POST /api/brain/remember', () => {
@@ -90,11 +95,39 @@ describe('POST /api/brain/remember', () => {
   });
 
   it('reports a duplicate when every chunk was already stored', async () => {
-    m.ingestRemember.mockResolvedValue({ ok: true, itemIds: [], skipped: 1 });
+    m.ingestRemember.mockResolvedValue({
+      ok: true,
+      itemIds: [],
+      skipped: 1,
+      existing: 0,
+    });
     expect(await (await post({ text: 'x' })).json()).toEqual({
       itemIds: [],
       duplicate: true,
     });
+  });
+
+  it('reports a duplicate when the same text was remembered before', async () => {
+    m.ingestRemember.mockResolvedValue({
+      ok: true,
+      itemIds: ['i1'],
+      skipped: 0,
+      existing: 1,
+    });
+    expect(await (await post({ text: 'x' })).json()).toEqual({
+      itemIds: ['i1'],
+      duplicate: true,
+    });
+  });
+
+  it('is not a duplicate when only some chunks existed', async () => {
+    m.ingestRemember.mockResolvedValue({
+      ok: true,
+      itemIds: ['i1', 'i2'],
+      skipped: 0,
+      existing: 1,
+    });
+    expect((await (await post({ text: 'x' })).json()).duplicate).toBe(false);
   });
 
   it('answers 422 REDACTION_REFUSED and never logs the text', async () => {
@@ -170,7 +203,12 @@ describe('POST /api/brain/remember', () => {
   });
 
   it('no stored items: no dirty mark call', async () => {
-    m.ingestRemember.mockResolvedValue({ ok: true, itemIds: [], skipped: 1 });
+    m.ingestRemember.mockResolvedValue({
+      ok: true,
+      itemIds: [],
+      skipped: 1,
+      existing: 0,
+    });
     expect((await post({ text: 'again' })).status).toBe(201);
     expect(m.rpc).not.toHaveBeenCalled();
   });

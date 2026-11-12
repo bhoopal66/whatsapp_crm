@@ -27,7 +27,13 @@ export interface IngestDeps {
 }
 
 export type IngestResult =
-  | { ok: true; itemIds: string[]; skipped: number }
+  | {
+      ok: true;
+      itemIds: string[];
+      skipped: number;
+      /** Stored ids that were already there before this call (counted only when asked). */
+      existing: number;
+    }
   | { ok: false; reason: string };
 
 /** Fields every source carries besides its text. */
@@ -48,13 +54,15 @@ async function ingest(
   kind: BrainSourceKind,
   sourceId: string,
   ref: SourceRef,
-  text: string
+  text: string,
+  opts: { countExisting?: boolean } = {}
 ): Promise<IngestResult> {
   const red = brainRedact(text);
   if (!red.ok) return { ok: false, reason: red.reason };
   const chunks = chunkText(red.text);
   const stored: { id: string; text: string }[] = [];
   let skipped = 0;
+  let existing = 0;
   for (const chunk of chunks) {
     const item: BrainItemInput = {
       accountId: ref.accountId,
@@ -69,7 +77,12 @@ async function ingest(
       createdBy: ref.createdBy ?? null,
       systemLabel: ref.systemLabel ?? null,
     };
+    const known =
+      opts.countExisting && deps.store.isLive
+        ? await deps.store.isLive(item)
+        : false;
     const id = await deps.store.upsert(item);
+    if (id !== null && known) existing++;
     if (id === null) skipped++;
     else stored.push({ id, text: chunk });
   }
@@ -84,7 +97,7 @@ async function ingest(
       await deps.index.put(ref.accountId, s.id, deps.embedder.model, vec);
     }
   }
-  return { ok: true, itemIds: stored.map((s) => s.id), skipped };
+  return { ok: true, itemIds: stored.map((s) => s.id), skipped, existing };
 }
 
 export const ingestMessage = (
@@ -124,5 +137,6 @@ export const ingestRemember = (
     'remember',
     actorId,
     { ...ref, createdBy: actorId, systemLabel: null },
-    text
+    text,
+    { countExisting: true }
   );

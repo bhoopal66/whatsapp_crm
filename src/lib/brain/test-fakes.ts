@@ -34,6 +34,15 @@ export class MemPorts implements BrainStore, VectorIndex {
     this.items.push({ ...i, id });
     return id;
   }
+  async isLive(i: BrainItemInput) {
+    return this.items.some(
+      (x) =>
+        x.accountId === i.accountId &&
+        x.sourceKind === i.sourceKind &&
+        x.sourceId === i.sourceId &&
+        x.text === i.text
+    );
+  }
   async forget() {
     return 0;
   }

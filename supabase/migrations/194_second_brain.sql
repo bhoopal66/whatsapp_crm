@@ -437,6 +437,29 @@ $$;
 COMMENT ON FUNCTION public.brain_audit_record(uuid, uuid, text, integer) IS
   'Records one second brain search by its query sha256 and result count. Migration 194.';
 
+-- Is this exact chunk already stored, live, under this source? Lets
+-- "Remember this" say "already remembered" (the upsert returns the existing
+-- id either way). The hash is computed here, as in brain_item_upsert.
+CREATE OR REPLACE FUNCTION public.brain_item_live(p_account uuid, p_source_kind text, p_source_id text,
+  p_text text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.brain_items i
+     WHERE i.account_id = p_account
+       AND i.source_kind = p_source_kind
+       AND i.source_id = p_source_id
+       AND i.text_sha256 = encode(sha256(convert_to(coalesce(p_text, ''), 'UTF8')), 'hex')
+       AND i.deleted_at IS NULL)
+$$;
+
+COMMENT ON FUNCTION public.brain_item_live(uuid, text, text, text) IS
+  'Whether this exact chunk is already stored and live under this source (Remember this duplicate signal). Migration 194.';
+
 -- A deleted contact's items go with it, exactly as brain_item_forget's
 -- contact scope. Once migration 195's pages exist, its page is also
 -- tombstoned and every page built from its items (forgotten ones too)
@@ -631,6 +654,7 @@ REVOKE ALL ON FUNCTION
   public.brain_contact_mark(uuid, uuid, uuid, text),
   public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text),
   public.brain_audit_record(uuid, uuid, text, integer),
+  public.brain_item_live(uuid, text, text, text),
   public.brain_forget_deleted_contact(),
   public.brain_search_candidates(uuid, uuid, text, real[], text, uuid, uuid, text, integer),
   public.case_settings_set_brain(uuid, uuid, boolean)
@@ -643,6 +667,7 @@ GRANT EXECUTE ON FUNCTION
   public.brain_contact_mark(uuid, uuid, uuid, text),
   public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text),
   public.brain_audit_record(uuid, uuid, text, integer),
+  public.brain_item_live(uuid, text, text, text),
   public.brain_search_candidates(uuid, uuid, text, real[], text, uuid, uuid, text, integer),
   public.case_settings_set_brain(uuid, uuid, boolean)
   TO service_role;

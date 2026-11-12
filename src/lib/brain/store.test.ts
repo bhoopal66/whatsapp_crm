@@ -53,6 +53,28 @@ describe('SupabaseBrainStore', () => {
     ]);
   });
 
+  it('isLive calls brain_item_live with the chunk and reads true', async () => {
+    const { client, calls } = fakeClient({ data: true, error: null });
+    const live = await new SupabaseBrainStore(client).isLive({
+      accountId: 'acc',
+      sourceKind: 'remember',
+      sourceId: 'u1',
+      text: 'hello',
+    });
+    expect(live).toBe(true);
+    expect(calls).toEqual([
+      {
+        fn: 'brain_item_live',
+        args: {
+          p_account: 'acc',
+          p_source_kind: 'remember',
+          p_source_id: 'u1',
+          p_text: 'hello',
+        },
+      },
+    ]);
+  });
+
   it('upsert passes the given fields and reads null as nothing stored', async () => {
     const { client, calls } = fakeClient({ data: null, error: null });
     const id = await new SupabaseBrainStore(client).upsert({
