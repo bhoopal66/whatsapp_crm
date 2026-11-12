@@ -7,9 +7,10 @@
 // trimmed; no parent: a reply to the root post) -> 201 `{ postId }`.
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { brainSink } from '@/lib/brain/sink';
 import {
   bankErrorResponse,
   loadBankThread,
@@ -41,7 +42,12 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id, threadId } = await params;
     const store = bankWorkspaceStore();
-    const { thread } = await loadBankThread(store, ctx, id, threadId);
+    const { workspace, thread } = await loadBankThread(
+      store,
+      ctx,
+      id,
+      threadId
+    );
     const input = await readJsonObject(request);
     if (!input) throw badRequest('Body must be a JSON object');
     const body = requiredText(input.body, 'body', BANK_WS_CAPS.body);
@@ -57,6 +63,19 @@ export async function POST(request: Request, { params }: Params) {
       caseId,
       taskId,
     });
+    after(() =>
+      brainSink().record({
+        kind: 'discussion',
+        ref: {
+          accountId: workspace.accountId,
+          bankCode: workspace.bankCode,
+          caseId,
+          createdBy: ctx.userId,
+        },
+        postId,
+        body,
+      })
+    );
     return NextResponse.json({ postId }, { status: 201 });
   } catch (err) {
     return bankErrorResponse(err);

@@ -10,7 +10,7 @@
 // Note text is never logged.
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
@@ -20,6 +20,7 @@ import {
   requiredText,
 } from '@/lib/cases/http';
 import { caseNotesStore, caseStore } from '@/lib/cases/server';
+import { brainSink } from '@/lib/brain/sink';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -61,6 +62,20 @@ export async function POST(request: Request, { params }: Params) {
       NOTE_MAX
     );
     const added = await caseNotesStore().add(c.id, ctx.userId, body);
+    after(() =>
+      brainSink().record({
+        kind: 'note',
+        ref: {
+          accountId: ctx.accountId,
+          caseId: c.id,
+          contactId: c.contactId ?? null,
+          bankCode: c.bankCode ?? null,
+          createdBy: ctx.userId,
+        },
+        noteId: added.noteId,
+        body,
+      })
+    );
     return NextResponse.json(added, { status: 201 });
   } catch (err) {
     return caseErrorResponse(err, 'notes POST');

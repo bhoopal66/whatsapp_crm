@@ -14,9 +14,10 @@
 // `{ sent: true, recorded: false }`. Success is 201.
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { brainSink } from '@/lib/brain/sink';
 import { canWriteCase } from '@/lib/cases/access';
 import {
   assertUnderGroupSendLimit,
@@ -87,6 +88,21 @@ export async function POST(request: Request, { params }: Params) {
       ctx.userId,
       c.id,
       text
+    );
+    // The staff text, not the prefixed body the customer saw.
+    after(() =>
+      brainSink().record({
+        kind: 'message',
+        ref: {
+          accountId: ctx.accountId,
+          caseId: c.id,
+          contactId: c.contactId ?? null,
+          bankCode: c.bankCode ?? null,
+          createdBy: ctx.userId,
+        },
+        messageId: sent.messageId,
+        text,
+      })
     );
     return NextResponse.json(
       { sent: true, recorded: true, ...sent },

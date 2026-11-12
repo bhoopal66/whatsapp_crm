@@ -8,7 +8,7 @@
 // WhatsApp group close is pending".
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canWriteCase } from '@/lib/cases/access';
@@ -21,6 +21,7 @@ import {
   readJsonObject,
 } from '@/lib/cases/http';
 import { caseStore } from '@/lib/cases/server';
+import { brainSink, stageChangedEvent } from '@/lib/brain/sink';
 
 export const maxDuration = 60;
 
@@ -44,6 +45,17 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const result = await store.setStage(c.id, ctx.userId, stage, outcome);
+    const moved = stageChangedEvent(
+      {
+        accountId: ctx.accountId,
+        caseId: c.id,
+        contactId: c.contactId ?? null,
+        bankCode: c.bankCode ?? null,
+        createdBy: ctx.userId,
+      },
+      result
+    );
+    if (moved) after(() => brainSink().record(moved));
     return NextResponse.json(result);
   } catch (err) {
     return caseErrorResponse(err);
