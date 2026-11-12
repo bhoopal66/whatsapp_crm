@@ -5,14 +5,17 @@
 -- service_role writes; every CHECK refuses a bad value and a message has
 -- at most one row; a suggestion is visible to whoever can see its chat
 -- (owner, the assigned agent) and to nobody else (another agent, another
--- account, anon), with a control that the other agent does see one on a
+-- account, a bank guest of the same workspace, anon), with a control
+-- that the other agent does see one on a
 -- chat of their own; deleting the task keeps the row with task_id NULL,
 -- deleting the message removes it; the table is in supabase_realtime.
 -- ai_insight_settings.reminder_suggest_enabled is NOT NULL DEFAULT false.
 -- calendar_reminder_sweep rings task_due 15 minutes before (offset 15,
 -- 'Due in 15 minutes') and again when due (offset 0, 'Due now') once
 -- each, again after a snooze, never for a done or unassigned task, and
--- only the service role may run it. Every task_due push of one task is
+-- only the service role may run it; a first sweep 5 minutes after due_at
+-- rings nothing, and a task set under 10 minutes ahead rings once, when
+-- due. Every task_due push of one task is
 -- tagged 'task:<id>' (the due-now push replaces the heads-up on the
 -- device); other bells keep 'bell:<row id>'.
 --
@@ -27,6 +30,7 @@ DECLARE
   u_ag1  UUID := gen_random_uuid();
   u_ag2  UUID := gen_random_uuid();
   u_b    UUID := gen_random_uuid();
+  u_g    UUID := gen_random_uuid();
   a_acct UUID;
   b_acct UUID;
   ct1    UUID;
@@ -43,6 +47,8 @@ DECLARE
   t_done UUID;
   t_none UUID;
   t_note UUID;
+  t_edge UUID;
+  t_late UUID;
   t0     TIMESTAMPTZ := '2031-03-03 10:00+00';
   priv   TEXT;
   rl     TEXT;
@@ -90,13 +96,16 @@ BEGIN
     (u_own, 'rs-own-' || u_own || '@example.invalid'),
     (u_ag1, 'rs-ag1-' || u_ag1 || '@example.invalid'),
     (u_ag2, 'rs-ag2-' || u_ag2 || '@example.invalid'),
-    (u_b,   'rs-b-'   || u_b   || '@example.invalid');
+    (u_b,   'rs-b-'   || u_b   || '@example.invalid'),
+    (u_g,   'rs-g-'   || u_g   || '@example.invalid');
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_own;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_b;
   IF a_acct IS NULL OR b_acct IS NULL OR a_acct = b_acct THEN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision separate accounts';
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_ag1, u_ag2);
+  -- A partner bank's guest login in the same workspace (082-083).
+  UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
 
   INSERT INTO contacts (account_id, user_id, phone, name)
   VALUES (a_acct, u_own, '9715' || lpad((random() * 1e8)::bigint::text, 8, '0'), 'RS contact 1')
@@ -220,6 +229,11 @@ BEGIN
   IF r <> '0' AND r NOT LIKE 'ERROR 42501%' THEN
     failed := array_append(failed, ('anon sees the suggestion: ' || r)::text);
   END IF;
+  -- A bank guest of the same workspace: current_account_id() is NULL
+  -- for a guest, so the policy's first clause refuses.
+  r := pg_temp.rs_try('authenticated', u_g, q);
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('a bank guest of the workspace sees the suggestion: ' || r)::text); END IF;
   -- Control: ag2 does see the one on the chat assigned to them, so the
   -- denial above is about c1, not a blanket refusal.
   r := pg_temp.rs_try('authenticated', u_ag2, format(
@@ -321,6 +335,30 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_ag1 AND kind = 'task_assigned'
                    AND tag = 'bell:' || t_note::text) THEN
     failed := array_append(failed, 'another bell type lost its bell:<id> push tag'::text);
+  END IF;
+
+  -- ---------- 10. The due-now window's edges ----------
+  -- (After section 9: these rings queue pushes with their own tags.)
+  -- The window closes 5 minutes after due_at: a first sweep exactly then
+  -- rings nothing.
+  INSERT INTO tasks (account_id, kind, title, assigned_to, created_by, due_at)
+  VALUES (a_acct, 'follow_up', 'RS edge', u_ag1, u_own, t0 + interval '3 hours') RETURNING id INTO t_edge;
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '3 hours 5 minutes'));
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_edge::text) THEN
+    failed := array_append(failed, ('a first sweep 5 minutes after due_at still rang: ' || r)::text);
+  END IF;
+  -- A task set under 10 minutes ahead misses the heads-up window and
+  -- rings exactly once, when due.
+  INSERT INTO tasks (account_id, kind, title, assigned_to, created_by, due_at)
+  VALUES (a_acct, 'follow_up', 'RS late', u_ag1, u_own, t0 + interval '5 hours') RETURNING id INTO t_late;
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '5 hours' - interval '5 minutes'));
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '5 hours 1 minute'));
+  n := n + 1;
+  IF (SELECT count(*) FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_late::text) <> 1
+     OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_late::text
+                      AND meta->'offset' = '0'::jsonb) THEN
+    failed := array_append(failed, 'a task due in under 10 minutes did not ring exactly once, when due'::text);
   END IF;
 
   -- ---------- 7. Realtime ----------

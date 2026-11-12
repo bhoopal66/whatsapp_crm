@@ -598,7 +598,10 @@ available: `TYPESAFE_API_KEY` set and the workspace in `TS_ACCOUNT_IDS`.
 `src/lib/reminders/suggest.ts` runs these steps in order and never
 throws:
 
-1. Text only, at most 1,000 characters.
+1. The message's text, at most 1,000 characters. For a customer that
+   is what they typed, a media caption, or the title of a button or
+   list option they tapped (a tapped "Call me tomorrow" is a request
+   too). A person's own send counts only when it is plain text.
 2. The time finder (`src/lib/reminders/time-phrases.ts`) looks for a
    time. It reads English and Gulf/MSA Arabic, Arabic-Indic digits and
    day-first dates. A day with no time means 09:00. A bare hour from 1
@@ -617,9 +620,9 @@ throws:
 The message is redacted and clipped before it reaches Jev. The times go
 as ordinal options. No ids or names are sent.
 
-Not judged: templates, media, interactive messages, replies from the
-bot, automations, flows or AI, public-API sends, and personal-number
-chats.
+Never judged: our own templates, media and interactive messages,
+replies from the bot, automations, flows or AI, public-API sends, and
+personal-number chats.
 
 ### Storage and access
 

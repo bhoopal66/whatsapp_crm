@@ -51,8 +51,11 @@
 --    task's heads-up and its due-now ring as two sticky notifications;
 --    with one tag per task the due-now push replaces the heads-up (and
 --    buzzes again: renotify), and a snoozed task's next ring replaces
---    the last. Every other type keeps 'bell:<row id>'. Re-applying 109
---    after 197 would put the per-row tag back: apply in order.
+--    the last. Every other type keeps 'bell:<row id>'.
+--
+-- Apply in order, once: re-applying 112 after 197 would drop the due-now
+-- ring and the offset meta (part 3), and re-applying 109 would put the
+-- per-row push tag back (part 4).
 --
 -- The sweep reads RLS-forced tables, so, as 108 and 112, apply as a
 -- superuser or BYPASSRLS role.
