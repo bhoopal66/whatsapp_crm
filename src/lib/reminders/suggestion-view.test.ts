@@ -7,6 +7,7 @@ import {
   chipWhenLabel,
   reminderNote,
   reminderTitleKey,
+  suggestionActionResult,
   withSuggestion,
   withoutSuggestion,
 } from './suggestion-view';
@@ -152,5 +153,42 @@ describe('withSuggestion / withoutSuggestion', () => {
     expect([...out.keys()]).toEqual(['m2']);
     expect(m.size).toBe(2);
     expect(withoutSuggestion(m, 'nope').size).toBe(2);
+  });
+});
+
+describe('suggestionActionResult', () => {
+  it('merges the row of a 200', () => {
+    const row = s({ status: 'added', task_id: 't1' });
+    expect(suggestionActionResult(200, { suggestion: row })).toEqual({
+      outcome: 'ok',
+      suggestion: row,
+    });
+  });
+
+  it('marks a 409 as a conflict and still merges its row', () => {
+    const row = s({ status: 'dismissed' });
+    expect(
+      suggestionActionResult(409, { error: 'conflict', suggestion: row })
+    ).toEqual({ outcome: 'conflict', suggestion: row });
+  });
+
+  it('fails on any other status, or none, with nothing to merge', () => {
+    for (const status of [400, 403, 404, 500, null]) {
+      expect(suggestionActionResult(status, { suggestion: s() })).toEqual({
+        outcome: 'failed',
+        suggestion: null,
+      });
+    }
+  });
+
+  it('merges nothing when the body is not a row', () => {
+    expect(suggestionActionResult(200, null).suggestion).toBeNull();
+    expect(
+      suggestionActionResult(200, { suggestion: { id: 1 } }).suggestion
+    ).toBeNull();
+    expect(suggestionActionResult(409, { error: 'x' })).toEqual({
+      outcome: 'conflict',
+      suggestion: null,
+    });
   });
 });

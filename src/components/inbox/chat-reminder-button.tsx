@@ -79,24 +79,38 @@ export function ChatReminderButton(props: ChatReminderButtonProps) {
 
 type When = { kind: 'preset'; preset: ReminderPreset } | { kind: 'pick' };
 
-function ReminderDialog({
+export interface ReminderDialogProps extends ChatReminderButtonProps {
+  onClose: () => void;
+  /**
+   * Prefill (a message's reminder suggestion): the title, a picked time
+   * and the note. Omitted → empty title, Tomorrow, no note.
+   */
+  initial?: { what: string; dueAt: Date; note: string };
+  /** Called with the new task's id right after a successful save. */
+  onSaved?: (taskId: string) => void;
+}
+
+export function ReminderDialog({
   conversationId,
   contactId,
   customerName,
   assignableProfiles,
   currentUserId,
   onClose,
-}: ChatReminderButtonProps & { onClose: () => void }) {
+  initial,
+  onSaved,
+}: ReminderDialogProps) {
   const t = useTranslations('Inbox.reminder');
   const locale = useLocale();
   const { accountRole } = useAuth();
-  const [what, setWhat] = useState('');
-  const [when, setWhen] = useState<When>({
-    kind: 'preset',
-    preset: 'tomorrow',
-  });
-  const [custom, setCustom] = useState('');
-  const [note, setNote] = useState('');
+  const [what, setWhat] = useState(initial?.what ?? '');
+  const [when, setWhen] = useState<When>(
+    initial ? { kind: 'pick' } : { kind: 'preset', preset: 'tomorrow' }
+  );
+  const [custom, setCustom] = useState(
+    initial ? toDateTimeLocal(initial.dueAt) : ''
+  );
+  const [note, setNote] = useState(initial?.note ?? '');
   const [forId, setForId] = useState<string>(currentUserId ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<
@@ -209,6 +223,7 @@ function ReminderDialog({
     setSaving(false);
     const id = body?.task?.id;
     if (!id) return void toast.error(t('failed'));
+    onSaved?.(id);
     const key = savedToastKey(forId, currentUserId);
     const forName = people.find((p) => p.user_id === forId)?.full_name ?? '';
     toast.success(t(key, { when: formatWhen(due), name: forName }), {

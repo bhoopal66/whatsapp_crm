@@ -106,7 +106,25 @@ import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { canAssignToOthers } from '@/lib/auth/conversation-visibility';
-import { isSharedChatNumberRefusal } from '@/lib/coordinators/ui';
+import {
+  isShareOnlyViewer,
+  isSharedChatNumberRefusal,
+} from '@/lib/coordinators/ui';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
+import { ReminderDialog } from './chat-reminder-button';
+import {
+  REMINDER_SUGGESTION_COLUMNS,
+  type ReminderSuggestion,
+} from '@/lib/reminders/types';
+import {
+  reminderNote,
+  reminderTitleKey,
+  suggestionActionResult,
+  withSuggestion,
+  withoutSuggestion,
+  type ReminderChip,
+  type SuggestionActionOutcome,
+} from '@/lib/reminders/suggestion-view';
 import { isPersonalNumberRefusal } from '@/lib/whatsapp/my-whatsapp';
 import { resolveConversationHandler } from '@/lib/inbox/handler';
 import {
@@ -269,6 +287,9 @@ function messagesPageQuery(conversationId: string) {
     .order('id', { ascending: false })
     .limit(MESSAGE_PAGE_SIZE);
 }
+
+/** No suggestions: a stable empty map for a chat not yet read. */
+const EMPTY_SUGGESTIONS: ReadonlyMap<string, ReminderSuggestion> = new Map();
 
 export function MessageThread({
   conversation,
@@ -861,6 +882,180 @@ export function MessageThread({
       setLoadingOlder(false);
     }
   }, []);
+
+  // Reminder suggestions (migration 197): a chip under a message that
+  // names a later time. Only while the account's switch is on and Jev
+  // can run, and only for someone who could file the task from the
+  // header's "Remind me" (agent and up, not a share-only coordinator).
+  // Kept with the chat it was read for, so a late answer for the chat
+  // left behind shows nothing. Never in client-cache / session-cache.
+  const tReminder = useTranslations('Inbox.reminderSuggestion');
+  const { settings: insightSettings, available: insightsAvailable } =
+    useInsightSettings();
+  const reminderChipsOn =
+    insightSettings.reminderSuggestEnabled &&
+    insightsAvailable &&
+    !!accountRole &&
+    canSendMessages(accountRole) &&
+    !(
+      conversation &&
+      isShareOnlyViewer(accountRole, viewerId, conversation, !!sharedBank)
+    );
+  const [reminderState, setReminderState] = useState<{
+    conversationId: string | undefined;
+    map: ReadonlyMap<string, ReminderSuggestion>;
+    /** Date.now() when the map last changed: the chips' "now". */
+    at: number;
+  }>(() => ({ conversationId: undefined, map: new Map(), at: 0 }));
+  const suggestionsByMessageId =
+    reminderState.conversationId === conversationId
+      ? reminderState.map
+      : EMPTY_SUGGESTIONS;
+
+  useEffect(() => {
+    if (!conversationId || !reminderChipsOn) return;
+    let live = true;
+    // A failed read is no chips, never an error.
+    void createClient()
+      .from('message_reminder_suggestions')
+      .select(REMINDER_SUGGESTION_COLUMNS)
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .then(
+        ({ data, error }) => {
+          if (!live || error || !Array.isArray(data)) return;
+          // Newest first: the first row read for a message wins.
+          const map = new Map<string, ReminderSuggestion>();
+          for (const row of data as unknown as ReminderSuggestion[]) {
+            if (!map.has(row.message_id)) map.set(row.message_id, row);
+          }
+          setReminderState({ conversationId, map, at: Date.now() });
+        },
+        () => {}
+      );
+    return () => {
+      live = false;
+    };
+  }, [conversationId, reminderChipsOn]);
+
+  useEffect(() => {
+    if (!conversationId || !reminderChipsOn) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`reminder-suggestions:${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reminder_suggestions',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const at = Date.now();
+          setReminderState((prev) => {
+            const base =
+              prev.conversationId === conversationId
+                ? prev.map
+                : EMPTY_SUGGESTIONS;
+            if (payload.eventType === 'DELETE') {
+              const id = (payload.old as { id?: string } | null)?.id;
+              return id
+                ? { conversationId, map: withoutSuggestion(base, id), at }
+                : prev;
+            }
+            const row = payload.new as ReminderSuggestion;
+            if (row.conversation_id !== conversationId) return prev;
+            return { conversationId, map: withSuggestion(base, row), at };
+          });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversationId, reminderChipsOn]);
+
+  /** POST an action; merges the row it answers with (a 409 silently). */
+  const postReminderAction = useCallback(
+    async (
+      suggestionId: string,
+      body:
+        | { action: 'added'; taskId: string }
+        | { action: 'dismissed' }
+        | { action: 'reopen' }
+    ): Promise<SuggestionActionOutcome> => {
+      const res = await fetch(
+        `/api/inbox/reminder-suggestions/${encodeURIComponent(suggestionId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      ).catch(() => null);
+      const json = res ? await res.json().catch(() => null) : null;
+      const { outcome, suggestion } = suggestionActionResult(
+        res?.status ?? null,
+        json
+      );
+      if (suggestion) {
+        const at = Date.now();
+        setReminderState((prev) =>
+          prev.conversationId === suggestion.conversation_id
+            ? {
+                conversationId: prev.conversationId,
+                map: withSuggestion(prev.map, suggestion),
+                at,
+              }
+            : prev
+        );
+      }
+      return outcome;
+    },
+    []
+  );
+
+  const [addingReminder, setAddingReminder] = useState<{
+    conversationId: string;
+    message: Message;
+    chip: ReminderChip;
+  } | null>(null);
+
+  const handleAddReminder = useCallback(
+    (message: Message, chip: ReminderChip) => {
+      setAddingReminder({
+        conversationId: message.conversation_id,
+        message,
+        chip,
+      });
+    },
+    []
+  );
+
+  const handleDismissReminder = useCallback(
+    (suggestionId: string) => {
+      void postReminderAction(suggestionId, { action: 'dismissed' }).then(
+        (outcome) => {
+          if (outcome === 'failed')
+            return void toast.error(tReminder('failed'));
+          if (outcome === 'conflict') return;
+          toast(tReminder('dismissed'), {
+            action: {
+              label: tReminder('undo'),
+              onClick: () =>
+                void postReminderAction(suggestionId, {
+                  action: 'reopen',
+                }).then((again) => {
+                  if (again === 'failed') toast.error(tReminder('failed'));
+                }),
+            },
+          });
+        }
+      );
+    },
+    [postReminderAction, tReminder]
+  );
 
   // Reactions realtime subscription per conversation. Subscribing here
   // (not at the page level) keeps the channel scoped to the visible
@@ -1882,6 +2077,22 @@ export function MessageThread({
                           onForward={mayForward ? handleForward : undefined}
                           onSetReaction={postReaction}
                           onOpenMedia={handleMediaChange}
+                          reminderSuggestion={
+                            reminderChipsOn
+                              ? suggestionsByMessageId.get(msg.id)
+                              : undefined
+                          }
+                          onAddReminder={
+                            reminderChipsOn ? handleAddReminder : undefined
+                          }
+                          onDismissReminder={
+                            reminderChipsOn ? handleDismissReminder : undefined
+                          }
+                          reminderNowMs={
+                            suggestionsByMessageId.has(msg.id)
+                              ? reminderState.at
+                              : undefined
+                          }
                         />
                       </Fragment>
                     );
@@ -1982,6 +2193,37 @@ export function MessageThread({
           sourceConversationId={conversation.id}
           onClose={() => setForwarding(null)}
         />
+
+        {/* A reminder suggestion being added: the header's dialog,
+          prefilled. Saving files the task, then marks the suggestion
+          added; if that mark fails the task still stands. */}
+        {reminderChipsOn &&
+          addingReminder?.conversationId === conversation.id && (
+            <ReminderDialog
+              key={addingReminder.chip.suggestionId}
+              conversationId={conversation.id}
+              contactId={contact.id}
+              customerName={contactDisplayName}
+              assignableProfiles={assignableProfiles}
+              currentUserId={user?.id ?? null}
+              initial={{
+                what: tReminder(reminderTitleKey(addingReminder.chip.kind), {
+                  name: contactDisplayName,
+                }),
+                dueAt: addingReminder.chip.dueAt,
+                note: reminderNote(addingReminder.message.content_text ?? ''),
+              }}
+              onSaved={(taskId) => {
+                const id = addingReminder.chip.suggestionId;
+                void postReminderAction(id, { action: 'added', taskId }).then(
+                  (outcome) => {
+                    if (outcome === 'failed') toast.error(tReminder('failed'));
+                  }
+                );
+              }}
+              onClose={() => setAddingReminder(null)}
+            />
+          )}
 
         <TemplatePicker
           open={templateModalOpen}

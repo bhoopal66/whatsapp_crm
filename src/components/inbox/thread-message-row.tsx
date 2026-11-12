@@ -1,8 +1,14 @@
 'use client';
 
 import { memo, useCallback, useMemo } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import type { Message, MessageReaction } from '@/types';
+import type { ReminderSuggestion } from '@/lib/reminders/types';
+import {
+  chipFor,
+  chipWhenLabel,
+  type ReminderChip,
+} from '@/lib/reminders/suggestion-view';
 import { MessageActions } from './message-actions';
 import { MessageBubble } from './message-bubble';
 import { buildReplyPreview } from './reply-quote';
@@ -33,6 +39,19 @@ interface ThreadMessageRowProps {
   /** `emoji === ''` removes the caller's reaction. */
   onSetReaction: (messageId: string, emoji: string) => void;
   onOpenMedia: (messageId: string | null) => void;
+  /**
+   * The message's reminder suggestion (migration 197), passed only while
+   * the feature is on and the viewer may act on it. The chip is worked
+   * out here, so the row's props stay the map's own (stable) row.
+   */
+  reminderSuggestion?: ReminderSuggestion;
+  onAddReminder?: (message: Message, chip: ReminderChip) => void;
+  onDismissReminder?: (suggestionId: string) => void;
+  /**
+   * When the thread last took in a suggestion (Date.now() then): the
+   * "now" the chip is judged against, so rendering stays pure.
+   */
+  reminderNowMs?: number;
 }
 
 /**
@@ -56,8 +75,14 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
   onForward,
   onSetReaction,
   onOpenMedia,
+  reminderSuggestion,
+  onAddReminder,
+  onDismissReminder,
+  reminderNowMs = 0,
 }: ThreadMessageRowProps) {
   const tQuote = useTranslations('Inbox.replyQuote');
+  const tReminder = useTranslations('Inbox.reminderSuggestion');
+  const locale = useLocale();
 
   const sender = useMemo(() => senderLabel(message), [senderLabel, message]);
 
@@ -103,6 +128,26 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
     [onForward, message]
   );
 
+  // Judged against the thread's last suggestion update, not a clock of
+  // its own: an open chip whose time has since come too close stays
+  // until the next update, and the dialog refuses a time too soon.
+  const nowMs = reminderNowMs;
+  const chip =
+    onAddReminder && onDismissReminder
+      ? chipFor(reminderSuggestion, nowMs)
+      : null;
+  const reminder = chip
+    ? {
+        chip,
+        label: chipWhenLabel(chip.dueAt, new Date(nowMs), locale, {
+          today: tReminder('today'),
+          tomorrow: tReminder('tomorrow'),
+        }),
+        onAdd: () => onAddReminder?.(message, chip),
+        onDismiss: () => onDismissReminder?.(chip.suggestionId),
+      }
+    : undefined;
+
   return (
     <MessageActions
       message={message}
@@ -120,6 +165,7 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
         currentUserId={currentUserId}
         onToggleReaction={handleToggleReaction}
         onOpenMedia={onOpenMedia}
+        reminder={reminder}
       />
     </MessageActions>
   );

@@ -126,3 +126,36 @@ export function withoutSuggestion(
   }
   return next;
 }
+
+export type SuggestionActionOutcome = 'ok' | 'conflict' | 'failed';
+
+/**
+ * What an answer of POST /api/inbox/reminder-suggestions/[id] means
+ * for the inbox. A 2xx is 'ok' and a 409 'conflict' (someone acted
+ * first); both carry the row as it now stands, to merge (a conflict
+ * silently). Anything else, or no answer (status null), is 'failed'
+ * with nothing to merge.
+ */
+export function suggestionActionResult(
+  status: number | null,
+  body: unknown
+): { outcome: SuggestionActionOutcome; suggestion: ReminderSuggestion | null } {
+  const outcome: SuggestionActionOutcome =
+    status !== null && status >= 200 && status < 300
+      ? 'ok'
+      : status === 409
+        ? 'conflict'
+        : 'failed';
+  if (outcome === 'failed') return { outcome, suggestion: null };
+  const row =
+    body && typeof body === 'object'
+      ? (body as { suggestion?: unknown }).suggestion
+      : null;
+  const valid =
+    !!row &&
+    typeof row === 'object' &&
+    typeof (row as ReminderSuggestion).id === 'string' &&
+    typeof (row as ReminderSuggestion).message_id === 'string' &&
+    typeof (row as ReminderSuggestion).conversation_id === 'string';
+  return { outcome, suggestion: valid ? (row as ReminderSuggestion) : null };
+}

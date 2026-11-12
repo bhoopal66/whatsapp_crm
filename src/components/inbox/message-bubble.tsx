@@ -36,6 +36,10 @@ import {
 import { InteractivePreview } from '@/components/interactive/interactive-preview';
 import { ContactCardMessage } from './contact-card-message';
 import { SenderLine, type SenderLabel } from './sender-label';
+import {
+  ReminderSuggestionChip,
+  type ReminderSuggestionChipProps,
+} from './reminder-suggestion-chip';
 import { useTranslations } from 'next-intl';
 import { canTranslateMessage } from '@/lib/translate/detect';
 import {
@@ -63,6 +67,8 @@ interface MessageBubbleProps {
    * stays inline and non-clickable.
    */
   onOpenMedia?: (messageId: string) => void;
+  /** A reminder suggestion's chip (migration 197). Omitted → none. */
+  reminder?: ReminderSuggestionChipProps;
 }
 
 /** WhatsApp's message text: 14.2px on a 19px line. */
@@ -511,6 +517,7 @@ export function MessageBubble({
   currentUserId,
   onToggleReaction,
   onOpenMedia,
+  reminder,
 }: MessageBubbleProps) {
   const t = useTranslations('Inbox.bubble');
   const translation = useMessageTranslation(message);
@@ -619,6 +626,8 @@ export function MessageBubble({
           t={t}
         />
       )}
+      {/* Last of all, under the translate line too. */}
+      {reminder && <ReminderSuggestionChip {...reminder} />}
     </div>
   );
 }
