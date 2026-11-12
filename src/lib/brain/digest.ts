@@ -137,7 +137,11 @@ export function endOfDubaiDay(now: Date): Date {
   );
 }
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
+// Dates and times read in Asia/Dubai (UTC+4, no DST), the zone the day
+// boundary uses, never as a raw UTC timestamp.
+const dubai = (d: Date) => new Date(d.getTime() + 4 * 3600_000).toISOString();
+const day = (d: Date) => dubai(d).slice(0, 10);
+const clock = (d: Date) => dubai(d).slice(11, 16);
 const isClosed = (c: DigestCase) =>
   CLOSED_STAGES.has(c.stage) || c.closedAt !== null;
 const cap = <T>(xs: T[]) => xs.slice(0, DIGEST_SECTION_MAX);
@@ -294,8 +298,8 @@ export async function buildDigest(input: {
     label: t.title,
     reason:
       t.dueAt.getTime() < now.getTime()
-        ? `Overdue since ${t.dueAt.toISOString()}`
-        : `Due today at ${t.dueAt.toISOString()}`,
+        ? `Overdue since ${day(t.dueAt)} ${clock(t.dueAt)}`
+        : `Due today at ${clock(t.dueAt)}`,
     citation: { kind: 'task', id: t.taskId },
   }));
 

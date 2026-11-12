@@ -71,6 +71,19 @@ describe('022c ExtractiveSummariser', () => {
     );
   });
 
+  it('summarises the latest three staff notes', async () => {
+    const notes = [
+      item(id(11), 'note', 'bank wants the MOA attested', 1),
+      item(id(12), 'remember', 'customer prefers Arabic', 2),
+      item(id(13), 'discussion', 'ADCB asks for six months', 3),
+      item(id(14), 'note', 'latest: offer letter received', 4),
+    ];
+    const lines = (await s.summarise('case', notes)).split('\n');
+    const n = lines.filter((l) => l.includes(' Note: '));
+    expect(n.map((l) => l.slice(0, 15))).toEqual([id8(14), id8(13), id8(12)]);
+    expect(lines).not.toContain('No facts extracted yet.');
+  });
+
   it('digit guard: redacted sources and digit id prefixes never yield a 9+ digit run', async () => {
     const red = brainRedact(
       'call me on +971 50 123 4567 about account 123456789012'

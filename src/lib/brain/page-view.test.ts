@@ -36,6 +36,14 @@ describe('parseBrainPage', () => {
     });
   });
 
+  it("drops the summariser's own header line (the tab shows it)", () => {
+    const v = parseBrainPage({
+      ...PAGE,
+      summary: 'AI-generated summary - verify against the case\nLine one',
+    });
+    expect(v?.summary).toBe('Line one');
+  });
+
   it('accepts a null build time and no citations', () => {
     expect(parseBrainPage({ ...PAGE, builtAt: null, citations: [] })).toEqual({
       summary: PAGE.summary,

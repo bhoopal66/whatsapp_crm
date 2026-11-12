@@ -10,7 +10,7 @@
  */
 
 import Link from 'next/link';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Search } from 'lucide-react';
 
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { parseCaseSwitches } from '@/lib/cases/settings-ui';
 import {
   BRAIN_QUERY_MAX,
   BRAIN_REMEMBER_MAX,
@@ -56,6 +57,23 @@ export function BrainSearch({ caseId }: { caseId: string | null }) {
   const [remCase, setRemCase] = useState(caseId ?? '');
   const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Show the "off" notice on arrival, not only after the first refused
+  // search: read the workspace switch once. Any error leaves the form up
+  // (the routes still refuse with brain_disabled).
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/cases/config/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!cancelled && parseCaseSwitches(json)?.brainEnabled === false)
+          setDisabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const req = useRef(0);
   const problem = queryProblem(query);
 

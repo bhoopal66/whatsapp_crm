@@ -398,8 +398,17 @@ describe('022d digest (pure)', () => {
     expect(sec(after, 'followups').map((i) => i.citation!.id)).toEqual([
       'tomorrow',
     ]);
-    expect(sec(after, 'followups')[0]!.reason).toBe(
-      'Due today at 2026-11-13T10:00:00.000Z'
+    expect(sec(after, 'followups')[0]!.reason).toBe('Due today at 14:00');
+  });
+
+  it('an overdue task reads its Dubai date and time, not a UTC timestamp', async () => {
+    // 2026-11-11T21:30Z is 01:30 on the 12th in Dubai.
+    const d = await build(
+      mem([], [], [task('late', '2026-11-11T21:30:00Z')]),
+      new Date('2026-11-12T08:00:00Z')
+    );
+    expect(sec(d, 'followups')[0]!.reason).toBe(
+      'Overdue since 2026-11-12 01:30'
     );
   });
 });

@@ -56,7 +56,10 @@ export function parseBrainPage(json: unknown): BrainPageView | null {
       return null;
     cites.push({ kind: c.kind, id: c.id });
   }
-  return { summary, version, builtAt, citations: cites };
+  // The tab already shows the AI-generated label and caution line; drop
+  // the summariser's own header so it isn't said twice.
+  const body = summary.replace(/^AI-generated summary[^\n]*(\n|$)/, '');
+  return { summary: body, version, builtAt, citations: cites };
 }
 
 /** Which state a page GET's status and body put the tab in. */

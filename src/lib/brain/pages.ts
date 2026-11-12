@@ -141,6 +141,18 @@ export class ExtractiveSummariser implements Summariser {
       );
     for (const m of xs.filter((i) => i.sourceKind === 'message').slice(0, 3))
       lines.push(`${citeMarker(m.id)} Message: ${oneLine(m.text, 120)}`);
+    // Staff notes are most of what is written on a case here, so the
+    // latest three are summarised too (the package had intake messages).
+    for (const n of xs
+      .filter(
+        (i) =>
+          (i.sourceKind === 'note' ||
+            i.sourceKind === 'remember' ||
+            i.sourceKind === 'discussion') &&
+          !TASK_RE.test(i.text)
+      )
+      .slice(0, 3))
+      lines.push(`${citeMarker(n.id)} Note: ${oneLine(n.text, 120)}`);
     if (kind === 'bank')
       for (const p of xs.filter((i) => i.sourceKind === 'pinned').slice(0, 5))
         lines.push(`${citeMarker(p.id)} Pinned: ${oneLine(p.text, 160)}`);
