@@ -200,6 +200,10 @@ export const RATE_LIMITS = {
    *  per account. Off the reply path, so this caps spend: a message over
    *  it is simply not judged. */
   insightsAccount: { limit: 120, windowMs: 60_000 },
+  /** Reminder suggestions (lib/reminders/suggest.ts), per account: one
+   *  Jev request per chat message that names a future time. Display data
+   *  off the reply path, so a message over it simply gets no chip. */
+  reminderSuggestAccount: { limit: 60, windowMs: 60_000 },
   /** Knowledge-gap topics "Refresh" (POST /api/ai/knowledge/gaps/topics),
    *  per account: one recompute embeds every gap and asks Jev about up
    *  to 60 topics, and the daily cron already keeps them current, so a
