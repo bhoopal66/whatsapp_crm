@@ -1285,6 +1285,44 @@ owned by a BYPASSRLS role or it loses the indexes. Callers (Contacts page,
 The inbox turns ≤100 hits into `contact_id.in.(…)` inside the view's
 or-groups, one ranked page, no caching while searching.
 
+### Second brain (`lib/brain/*`, migrations 194-196)
+
+A searchable, redacted store of case notes, case replies, case-group
+customer text, stage changes and bank workspace pins/posts, plus
+extractive case/contact/bank summary pages and a per-person daily digest
+(`/brain`, `/digest`, the case Brain tab). Ported from package 022.
+`docs/second-brain.md` is the contract.
+
+- **Off by default.** `case_account_settings.brain_enabled`
+  (`case_settings_set_brain`, owner/admin); while off `brain_item_upsert`
+  stores nothing, routes answer 403 `brain_disabled`, the nav rows hide.
+- **Writes are best-effort.** `lib/brain/sink.ts` runs after the primary
+  write, awaited inside `after()`, never throws; failures are counted in
+  `brainSinkCounters`. Hook points: case notes, stage (route and macro
+  apply), case conversation reply, bank pins/threads/posts, and the
+  webhook's `customerText` hook (`recordGroupCustomerText`, switch checked
+  before the case lookup).
+- **Redaction twice.** `brainRedact` (memory redactor + a `\p{Nd}` 9+ digit
+  `[ID]` mask) in TS; the SQL guard (explicit ASCII, Arabic-Indic,
+  extended and full-width digit classes) refuses `TEXT_UNREDACTED`. The
+  TS mask must cover everything the SQL refuses (`brain.test.ts` holds a
+  copy of the SQL pattern): change both together.
+- **Visibility** is `case_can_read` for case items and owner/admin or the
+  writer for the rest (`brain_item_visible`, `brain_actor_role`; no IT
+  role). Marked = a `brain_contact_marks` row or the contact's
+  `opted_out_at` / `do_not_contact_at`. Search, page read and digest are
+  set-based (once per distinct case), not per item.
+- **All tables** are RLS-forced with no policies and no grants; every
+  access is a SECURITY DEFINER function granted to service_role only.
+  Actors are auth user ids; system writers pass NULL plus a
+  `system:<name>` label.
+- **One body per function.** `brain_item_forget` and the contact-delete
+  trigger live only in 194 and call 195's `brain_page_wipe` behind a
+  `to_regprocedure` guard, so re-running 194 after 195 changes nothing.
+- Client files import only `lib/brain/{ui,page-view,digest-view}` (or
+  `import type`); the rest pulls the admin client and `node:crypto`.
+  `verify-second-brain.sql`, `verify-brain-pages.sql`.
+
 ### Cases (`lib/cases/*`, migrations 122-130)
 
 One case per submission group: bank, product, amount, stages, tasks,
@@ -1949,6 +1987,11 @@ error, so 130's scan records the refusal, sets the session
 `default_transaction_read_only`, and raises in the next statement. When a migration adds keys to a function
 returning JSON, check older verify files for an exact key-list assertion
 (`verify-bank-dashboard.sql` has one).
+Re-running a file must not undo a later one: a later migration that
+`CREATE OR REPLACE`s an earlier file's function is reverted when the
+earlier file is re-applied. Keep one body in the earlier file and reach
+the later objects behind a `to_regprocedure` / `to_regclass` guard (194),
+or document "apply in order, once" (157-160).
 
 ### i18n
 
@@ -2000,6 +2043,6 @@ fails if one is wired to plain `t()`.
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
-  `customer-documents.md`, `departments.md`.
+  `customer-documents.md`, `departments.md`, `second-brain.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

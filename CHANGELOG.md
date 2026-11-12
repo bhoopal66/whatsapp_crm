@@ -12,6 +12,26 @@ and polish.
 
 ## [Unreleased]
 
+### Second brain (off by default)
+
+**Migration required:** apply `supabase/migrations/194_second_brain.sql`,
+`195_brain_pages.sql` and `196_brain_digest.sql`, in that order, before
+deploying this build.
+
+- A searchable store of case notes, case replies, customer text in case
+  groups, stage changes and bank workspace pins and posts, redacted
+  before it is stored. Off until an owner or admin turns it on in
+  **Settings → Cases → Second brain**; nothing is stored while it is off.
+- **Second brain** page: search what you are allowed to see on the case
+  screens, and **Remember this** to store a short note.
+- **Daily digest** page: your stale cases, promises made to customers that
+  nobody followed up, related closed cases and today's case tasks. A list
+  only; nothing is sent. Owners and admins can view a teammate's.
+- **Brain** tab on every case: an AI-generated summary with its sources,
+  rebuilt when an owner or admin presses Rebuild summaries.
+- Opted-out and do-not-contact customers are never stored; deleting a
+  contact erases what was stored about them. See `docs/second-brain.md`.
+
 ### HR can start WhatsApp chats again
 
 - People in a restricted department (HR by default) get their own
