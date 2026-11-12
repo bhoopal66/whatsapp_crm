@@ -391,12 +391,18 @@ BEGIN
      AND (p_older_than IS NULL OR i.created_at < p_older_than);
   DELETE FROM public.brain_embeddings e WHERE e.item_id = ANY (v_ids);
   UPDATE public.brain_items i SET text = '', deleted_at = now() WHERE i.item_id = ANY (v_ids);
+  -- Migration 195's pages: wipe every page built from a forgotten item
+  -- (scope contact also tombstones the contact's page). This is the only
+  -- definition, so re-running 194 after 195 keeps the wipe.
+  IF to_regprocedure('public.brain_page_wipe(uuid,uuid[],uuid)') IS NOT NULL THEN
+    PERFORM public.brain_page_wipe(p_account, v_ids, p_contact);
+  END IF;
   RETURN cardinality(v_ids);
 END
 $$;
 
 COMMENT ON FUNCTION public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text) IS
-  'Forgets one item, a contact''s items, or items older than a date: blank text, deleted_at, embeddings deleted. Admins / owners, or system:retention / system:erasure with actor NULL. Migration 194.';
+  'Forgets one item, a contact''s items, or items older than a date: blank text, deleted_at, embeddings deleted, and (once migration 195 is applied) pages built from them wiped, scope contact also tombstoning the contact''s page. Admins / owners, or system:retention / system:erasure with actor NULL. Migrations 194, 195.';
 
 CREATE OR REPLACE FUNCTION public.brain_audit_record(p_account uuid, p_actor uuid, p_query_sha256 text,
   p_result_count integer)
@@ -420,7 +426,10 @@ COMMENT ON FUNCTION public.brain_audit_record(uuid, uuid, text, integer) IS
   'Records one second brain search by its query sha256 and result count. Migration 194.';
 
 -- A deleted contact's items go with it, exactly as brain_item_forget's
--- contact scope (nothing to wipe is a no-op).
+-- contact scope. Once migration 195's pages exist, its page is also
+-- tombstoned and every page built from its items (forgotten ones too)
+-- wiped. A contact the brain never saw (no item, no page) writes
+-- nothing. The only definition: re-running 194 after 195 keeps the wipe.
 CREATE OR REPLACE FUNCTION public.brain_forget_deleted_contact()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -428,15 +437,31 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_ids uuid[];
+  v_live  uuid[];
+  v_all   uuid[];
+  v_pages boolean := to_regprocedure('public.brain_page_wipe(uuid,uuid[],uuid)') IS NOT NULL;
 BEGIN
-  SELECT coalesce(array_agg(i.item_id), '{}') INTO v_ids FROM public.brain_items i
-   WHERE i.account_id = old.account_id AND i.contact_id = old.id AND i.deleted_at IS NULL;
-  IF cardinality(v_ids) = 0 THEN
+  SELECT coalesce(array_agg(i.item_id) FILTER (WHERE i.deleted_at IS NULL), '{}'),
+         coalesce(array_agg(i.item_id), '{}')
+    INTO v_live, v_all
+    FROM public.brain_items i
+   WHERE i.account_id = old.account_id AND i.contact_id = old.id;
+  IF NOT v_pages THEN
+    IF cardinality(v_live) = 0 THEN
+      RETURN old;
+    END IF;
+  ELSIF cardinality(v_all) = 0
+     AND NOT EXISTS (SELECT 1 FROM public.brain_pages p
+                      WHERE p.account_id = old.account_id AND p.kind = 'contact' AND p.key = old.id::text) THEN
     RETURN old;
   END IF;
-  DELETE FROM public.brain_embeddings e WHERE e.item_id = ANY (v_ids);
-  UPDATE public.brain_items i SET text = '', deleted_at = now() WHERE i.item_id = ANY (v_ids);
+  IF cardinality(v_live) > 0 THEN
+    DELETE FROM public.brain_embeddings e WHERE e.item_id = ANY (v_live);
+    UPDATE public.brain_items i SET text = '', deleted_at = now() WHERE i.item_id = ANY (v_live);
+  END IF;
+  IF v_pages THEN
+    PERFORM public.brain_page_wipe(old.account_id, v_all, old.id);
+  END IF;
   RETURN old;
 END
 $$;
@@ -447,7 +472,7 @@ CREATE TRIGGER contacts_forget_brain
   FOR EACH ROW EXECUTE FUNCTION public.brain_forget_deleted_contact();
 
 COMMENT ON FUNCTION public.brain_forget_deleted_contact() IS
-  'contacts AFTER DELETE: forgets the deleted contact''s second brain items (blank text, deleted_at, embeddings deleted). Migration 194.';
+  'contacts AFTER DELETE: forgets the deleted contact''s second brain items (blank text, deleted_at, embeddings deleted) and, once migration 195 is applied, tombstones its page and wipes pages built from its items. Migrations 194, 195.';
 
 -- ---------- 5. Search candidates ----------
 
