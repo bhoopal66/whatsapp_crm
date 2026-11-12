@@ -7729,6 +7729,7 @@
     "pendingBadge": "Setting up",
     "noWhatsappBadge": "No WhatsApp group",
     "archiveBadge": "Archive",
+    "bank": "Bank: {bank}",
     "contactRemoved": "Customer deleted",
     "numberRemoved": "Number removed",
     "labels": {

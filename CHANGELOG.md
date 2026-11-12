@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups show their bank
+
+**Added**
+
+- Every row of **Submission groups** is tagged with the bank of its
+  case, and an opened group shows the bank beside its name. The tag is
+  the bank's name in the workspace's bank list (Settings → Cases), else
+  its code. A group whose case has no bank yet shows none. No migration.
+
 ### Reminders: suggestions in chats and a ringing alarm
 
 **Migration required:** apply `supabase/migrations/197_reminder_suggestions.sql`

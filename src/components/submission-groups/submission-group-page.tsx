@@ -18,6 +18,7 @@ import {
   Copy,
   Eye,
   Info,
+  Landmark,
   Loader2,
   MoreVertical,
   PanelRight,
@@ -52,6 +53,7 @@ import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
 import {
   avatarTone,
+  bankName,
   canResendInvite,
   canRetryCreate,
   groupBanners,
@@ -710,10 +712,12 @@ function DetailHeader({
 }) {
   const t = useTranslations('SubmissionGroups.page');
   const tl = useTranslations('SubmissionGroups.labels');
+  const tg = useTranslations('SubmissionGroups');
   const { group } = detail;
   const ended = group.status === 'ENDED';
   const noGroup = waModeOf(group) === 'none';
   const title = groupTitle(group) ?? t('untitled');
+  const bank = bankName(group);
   const person = groupContactName(group);
   const phone = group.contact?.phone?.trim() || null;
   const chip = trackerStatusChip(group.submission_status);
@@ -758,12 +762,30 @@ function DetailHeader({
           {initialsOf(title)}
         </span>
         <div className="min-w-0 flex-1">
-          <h1
-            className="truncate text-lg leading-tight font-semibold"
-            title={title}
-          >
-            {title}
-          </h1>
+          {/* A long name keeps its line; the bank then wraps below it. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h1
+              className="min-w-0 truncate text-lg leading-tight font-semibold"
+              title={title}
+            >
+              {title}
+            </h1>
+            {bank && (
+              <span
+                className={cn(
+                  chipClass,
+                  'border-border bg-card-2 text-foreground max-w-full min-w-0 gap-1 border'
+                )}
+                title={tg('bank', { bank })}
+              >
+                <Landmark className="size-3.5 shrink-0" aria-hidden />
+                <span className="sr-only">{tg('bank', { bank })}</span>
+                <span className="truncate" aria-hidden>
+                  {bank}
+                </span>
+              </span>
+            )}
+          </div>
           {(!group.contact || person || phone) && (
             <p className="text-muted-foreground mt-0.5 truncate text-sm">
               {group.contact ? (

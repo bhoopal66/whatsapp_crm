@@ -7729,6 +7729,7 @@
     "pendingBadge": "생성 중",
     "noWhatsappBadge": "WhatsApp 그룹 없음",
     "archiveBadge": "보관함",
+    "bank": "은행: {bank}",
     "contactRemoved": "고객 삭제됨",
     "numberRemoved": "번호 제거됨",
     "labels": {

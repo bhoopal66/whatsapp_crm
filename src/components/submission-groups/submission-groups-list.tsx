@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   Archive,
   FolderKanban,
+  Landmark,
   Loader2,
   MessageSquareOff,
   Search,
@@ -20,6 +21,7 @@ import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import {
   appendPage,
   avatarTone,
+  bankName,
   clearUnread,
   groupContactName,
   groupTitle,
@@ -335,6 +337,9 @@ export function SubmissionGroupsList({
 }
 
 const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
+/** The case's bank, the first tag on a row: outlined, so no status colour reads into it. */
+const BANK_TAG =
+  'border-border bg-card-2 text-foreground inline-flex max-w-full min-w-0 shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-medium';
 const UNREAD_BADGE =
   'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold';
 
@@ -381,6 +386,7 @@ function Row({
   const noGroupBadge = noGroup && !ended;
   const customerAbsent = customerNotInGroup(g);
   const unreadText = unreadBadgeText(g.unread);
+  const bank = bankName(g);
 
   return (
     <li>
@@ -455,12 +461,22 @@ function Row({
               </span>
             )}
           </span>
-          {(noGroupBadge ||
+          {(bank ||
+            noGroupBadge ||
             pending ||
             archived ||
             customerAbsent ||
             g.my_label) && (
             <span className="flex flex-wrap items-center gap-1 pt-0.5">
+              {bank && (
+                <span className={BANK_TAG} title={t('bank', { bank })}>
+                  <Landmark className="size-3 shrink-0" aria-hidden />
+                  <span className="sr-only">{t('bank', { bank })}</span>
+                  <span className="truncate" aria-hidden>
+                    {bank}
+                  </span>
+                </span>
+              )}
               {customerAbsent && (
                 <span className={cn(BADGE, 'bg-warning-soft text-warning')}>
                   {tl('customerNotInGroup')}

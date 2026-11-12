@@ -323,6 +323,31 @@ describe('GET /api/submission-groups/[id]', () => {
     expect(await (await get()).json()).toMatchObject({ caseId: null });
   });
 
+  it("answers the case's bank on the group, named from this account's banks", async () => {
+    admin.tables.cases = [caseRow({ bank_code: 'FAB' })];
+    admin.tables.case_banks = [
+      { account_id: 'acct-1', code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' },
+      { account_id: 'acct-2', code: 'FAB', name: 'Elsewhere' },
+    ];
+    const body = await (await get()).json();
+    expect(body.group.bank).toEqual({
+      code: 'FAB',
+      name: 'First Abu Dhabi Bank (FAB)',
+    });
+    // A bank code with no name in this account reads as the code.
+    admin.tables.case_banks = [];
+    expect((await (await get()).json()).group.bank).toEqual({
+      code: 'FAB',
+      name: 'FAB',
+    });
+  });
+
+  it('answers bank null with no case, or a case without a bank', async () => {
+    expect((await (await get()).json()).group.bank).toBeNull();
+    admin.tables.cases = [caseRow({ bank_code: null })];
+    expect((await (await get()).json()).group.bank).toBeNull();
+  });
+
   it('answers caseId for an ENDED group sg_can_read allows', async () => {
     endIt();
     readable = true;

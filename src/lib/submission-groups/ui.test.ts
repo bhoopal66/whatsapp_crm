@@ -5,6 +5,7 @@ import { caseStatusView } from '@/lib/cases/ui';
 import {
   AVATAR_TONES,
   avatarTone,
+  bankName,
   groupContactName,
   groupTitle,
   initialsOf,
@@ -357,6 +358,18 @@ describe('inviteNotice', () => {
     expect(inviteNotice(group({ invite_send_error: 'gateway down' }))).toEqual({
       key: 'failed',
     });
+  });
+});
+
+describe('bankName', () => {
+  it("tags a group with its bank's name, else the code, else nothing", () => {
+    expect(
+      bankName({ bank: { code: 'FAB', name: ' First Abu Dhabi Bank (FAB) ' } })
+    ).toBe('First Abu Dhabi Bank (FAB)');
+    expect(bankName({ bank: { code: 'FAB', name: ' ' } })).toBe('FAB');
+    expect(bankName({ bank: null })).toBeNull();
+    // Payloads from before the bank was sent.
+    expect(bankName({})).toBeNull();
   });
 });
 

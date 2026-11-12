@@ -32,6 +32,12 @@ in [public-api.md](public-api.md).
 (`submission_groups.customer_name`, migration 141) and shown as the case's
 customer; the CRM contact found or created by phone keeps its own name.
 
+The internal Submission groups screens tag each group with its case's
+bank: every list row, and the header of an opened group beside its name.
+The tag is the bank's name in the workspace's bank list (Settings ->
+Cases), else its code. A group with no case yet, or whose case has no
+bank, shows none.
+
 Only `submission_id`, `customer.phone` and `agent_email` are required. The
 call is idempotent per `submission_id`: a repeat returns the existing group
 (`200`). A new group answers `201`. If WhatsApp could not create the

@@ -239,6 +239,11 @@ export interface ChannelRef {
   id: string;
   label: string;
 }
+/** The bank of a group's case: its code and the workspace's name for it. */
+export interface BankRef {
+  code: string;
+  name: string;
+}
 
 const text = (v: unknown): string | null => {
   const s = v === null || v === undefined ? '' : String(v).trim();
@@ -263,6 +268,8 @@ export interface ItemRefs {
   myLabel: StaffLabel | null;
   /** 173: the caller's unread messages in this group; list rows only. */
   unread?: number;
+  /** Each group's case bank by group id; a group not in it shows none. */
+  banks?: ReadonlyMap<string, BankRef>;
 }
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -289,6 +296,8 @@ export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
     customer_name: group.customerName ?? null,
     /** The tracker's own status word, untranslated. */
     submission_status: group.submissionStatus,
+    /** The case's bank; null with no case yet or a case with no bank. */
+    bank: refs.banks?.get(group.id) ?? null,
     status: group.status,
     contact: group.contactId
       ? (refs.contacts.get(group.contactId) ?? null)

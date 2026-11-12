@@ -35,6 +35,8 @@ export interface SgListItem {
   customer_name?: string | null;
   /** The tracker's own status word, untranslated. */
   submission_status?: string | null;
+  /** The case's bank; null or absent (older payloads) shows none. */
+  bank?: { code: string; name: string } | null;
   status: SgStatus;
   contact: { id: string; name: string | null; phone: string | null } | null;
   channel: { id: string; label: string | null } | null;
@@ -410,6 +412,11 @@ export function groupTitle(g: Named): string | null {
     g.contact?.phone?.trim() ||
     null
   );
+}
+
+/** The bank tag's text: the bank's name, else its code; null for none. */
+export function bankName(g: Pick<SgListItem, 'bank'>): string | null {
+  return g.bank?.name?.trim() || g.bank?.code?.trim() || null;
 }
 
 /** The contact person under the title, or null when it adds nothing. */

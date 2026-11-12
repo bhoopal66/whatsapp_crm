@@ -234,6 +234,7 @@ describe('GET /api/submission-groups', () => {
       subject: 'Jane · SUB-1',
       customer_name: null,
       submission_status: null,
+      bank: null,
       status: 'ACTIVE',
       contact: { id: 'c1', name: 'Jane Doe', phone: '9715' },
       channel: { id: 'w1', label: '971500' },
@@ -447,6 +448,58 @@ describe('GET /api/submission-groups', () => {
     readable.add(E);
     const again = await (await get('?status=ended')).json();
     expect(again.groups.map((g: { id: string }) => g.id)).toEqual([E]);
+  });
+
+  it("tags each group with its case's bank, named from this account's banks", async () => {
+    admin.tables.cases = [
+      { account_id: 'acct-1', group_id: A, bank_code: 'FAB' },
+      { account_id: 'acct-1', group_id: A2, bank_code: 'ADCB' },
+    ];
+    admin.tables.case_banks = [
+      { account_id: 'acct-1', code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' },
+      // Another workspace's name for ADCB is not this one's: A2 keeps the code.
+      { account_id: 'acct-2', code: 'ADCB', name: 'Elsewhere' },
+    ];
+    const body = await (await get()).json();
+    expect(
+      body.groups.map((g: { id: string; bank: unknown }) => [g.id, g.bank])
+    ).toEqual([
+      [A, { code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' }],
+      [A2, { code: 'ADCB', name: 'ADCB' }],
+    ]);
+  });
+
+  it('shows no bank for a group with no case, a case of another account, or a case without a bank', async () => {
+    admin.tables.cases = [
+      { account_id: 'acct-2', group_id: A, bank_code: 'FAB' },
+      { account_id: 'acct-1', group_id: A2, bank_code: null },
+    ];
+    admin.tables.case_banks = [
+      { account_id: 'acct-1', code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' },
+    ];
+    const body = await (await get()).json();
+    expect(body.groups.map((g: { bank: unknown }) => g.bank)).toEqual([
+      null,
+      null,
+    ]);
+    // Nothing to name, so the bank list is never read.
+    expect(admin.log?.some(([t]) => t === 'case_banks')).toBe(false);
+  });
+
+  it('tags an ENDED group with its bank too', async () => {
+    as('admin');
+    readable = new Set([E]);
+    admin.tables.cases = [
+      { account_id: 'acct-1', group_id: E, bank_code: 'FAB' },
+    ];
+    admin.tables.case_banks = [
+      { account_id: 'acct-1', code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' },
+    ];
+    const body = await (await get('?status=ended')).json();
+    expect(body.groups[0]).toMatchObject({
+      id: E,
+      bank: { code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' },
+    });
   });
 
   it('below admin, scans only ENDED groups the caller was on', async () => {

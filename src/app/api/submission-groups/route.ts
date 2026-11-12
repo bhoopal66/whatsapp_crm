@@ -28,6 +28,7 @@ import {
 import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
 import {
   loadBankHolding,
+  loadBanks,
   loadLedGroups,
   loadRefs,
   loadUnread,
@@ -116,9 +117,14 @@ export async function GET(request: Request) {
     }
 
     // An ENDED group has no unread count; 173 counts ACTIVE groups only.
-    const [refs, unread] = await Promise.all([
+    const [refs, unread, banks] = await Promise.all([
       loadRefs(admin, ctx.accountId, groups),
       ended ? new Map<string, number>() : loadUnread(ctx.supabase),
+      loadBanks(
+        admin,
+        ctx.accountId,
+        groups.map((g) => g.id)
+      ),
     ]);
     // With no open row on an ACTIVE group, a leader of the case's agent
     // reads it as team lead (173) and a holder of its bank as coordinator
@@ -138,6 +144,7 @@ export async function GET(request: Request) {
       groups: groups.map((g) =>
         toListItem(g, {
           ...refs,
+          banks,
           myLabel:
             myLabelOf(g, mine) ??
             (holding

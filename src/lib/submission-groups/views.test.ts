@@ -259,6 +259,15 @@ describe('toListItem', () => {
     });
   });
 
+  it("carries the case's bank, null for a group with none", () => {
+    const fab = { code: 'FAB', name: 'First Abu Dhabi Bank (FAB)' };
+    const banks = new Map([['g1', fab]]);
+    expect(toListItem(group(), { ...refs, banks }).bank).toEqual(fab);
+    expect(toDetailGroup(group(), { ...refs, banks }).bank).toEqual(fab);
+    expect(toListItem(group({ id: 'g2' }), { ...refs, banks }).bank).toBeNull();
+    expect(toListItem(group(), refs).bank).toBeNull();
+  });
+
   it('lists every coordinator number once, the request number first (142)', () => {
     const g = group({
       coordinatorPhone: '971500000001',

@@ -33,7 +33,11 @@ import {
 } from '@/lib/submission-groups/server';
 import type { StaffLabel } from '@/lib/submission-groups/rules';
 import { toMessage } from '@/lib/submission-groups/store';
-import { loadNames, loadRefs } from '@/lib/submission-groups/view-refs';
+import {
+  loadBanks,
+  loadNames,
+  loadRefs,
+} from '@/lib/submission-groups/view-refs';
 import {
   canManageSubmissionGroups,
   DETAIL_MESSAGE_LIMIT,
@@ -87,13 +91,14 @@ export async function GET(_request: Request, { params }: Params) {
         .reverse();
     }
 
-    const [refs, names, caseId] = await Promise.all([
+    const [refs, names, caseId, banks] = await Promise.all([
       loadRefs(admin, ctx.accountId, [group]),
       loadNames(admin, ctx.accountId, [
         ...access.map((a) => a.userId),
         ...messages.map((m) => m.senderUserId),
       ]),
       loadCaseId(admin, ctx.accountId, group.id),
+      loadBanks(admin, ctx.accountId, [group.id]),
     ]);
     const active = group.status === 'ACTIVE';
     // 163: no open row, but a held bank can still make the caller a
@@ -107,7 +112,7 @@ export async function GET(_request: Request, { params }: Params) {
           )
         : null);
     return NextResponse.json({
-      group: toDetailGroup(group, { ...refs, myLabel }),
+      group: toDetailGroup(group, { ...refs, banks, myLabel }),
       access: access.map((a) => toAccessView(a, names)),
       messages: messages.map((m) => toMessageView(m, names)),
       archive_available: !active,

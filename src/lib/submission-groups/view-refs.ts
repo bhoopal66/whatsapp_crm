@@ -10,6 +10,7 @@ import type { SubmissionGroup } from './store';
 import {
   toChannelRef,
   toContactRef,
+  type BankRef,
   type ChannelRef,
   type ContactRef,
 } from './views';
@@ -59,6 +60,47 @@ export async function loadRefs(
       rows(channels.data).map((r) => [String(r.id), toChannelRef(r)])
     ),
   };
+}
+
+/**
+ * The bank of each group's case (one case per group, 122), by group id:
+ * the case's `bank_code` and the workspace's name for it in `case_banks`
+ * (the code when the name is blank). A group with no case yet, or whose
+ * case has no bank, is absent. Both reads are pinned to the account.
+ */
+export async function loadBanks(
+  admin: SupabaseClient,
+  accountId: string,
+  groupIds: readonly string[]
+): Promise<Map<string, BankRef>> {
+  const banks = new Map<string, BankRef>();
+  if (!groupIds.length) return banks;
+  const cases = await admin
+    .from('cases')
+    .select('group_id, bank_code')
+    .eq('account_id', accountId)
+    .in('group_id', [...groupIds]);
+  if (cases.error) throw new Error(`cases: ${cases.error.message}`);
+  const codeByGroup = new Map<string, string>();
+  for (const r of (cases.data ?? []) as Record<string, unknown>[])
+    if (r.group_id && r.bank_code)
+      codeByGroup.set(String(r.group_id), String(r.bank_code));
+  const codes = [...new Set(codeByGroup.values())];
+  if (!codes.length) return banks;
+  const named = await admin
+    .from('case_banks')
+    .select('code, name')
+    .eq('account_id', accountId)
+    .in('code', codes);
+  if (named.error) throw new Error(`case_banks: ${named.error.message}`);
+  const names = new Map<string, string>();
+  for (const r of (named.data ?? []) as Record<string, unknown>[]) {
+    const name = typeof r.name === 'string' ? r.name.trim() : '';
+    if (name) names.set(String(r.code), name);
+  }
+  for (const [groupId, code] of codeByGroup)
+    banks.set(groupId, { code, name: names.get(code) ?? code });
+  return banks;
 }
 
 /**
