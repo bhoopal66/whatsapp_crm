@@ -42,7 +42,7 @@
 --   returned. Not returned is indistinguishable from missing.
 -- FORGET: brain_page_forget wipes the contact's page (tombstone, never
 --   rebuilt) and wipes (summary '', dirty) every page built from that
---   contact's items. brain_item_forget is redefined: any scope also
+--   contact's items. brain_item_forget (defined in 194): any scope also
 --   wipes pages built from a forgotten item; scope contact also deletes
 --   that contact's page. Deleting a contact (contacts_forget_brain) does
 --   the same. Actors: admin / super_admin, system:retention /
@@ -356,82 +356,9 @@ $$;
 COMMENT ON FUNCTION public.brain_page_forget(uuid, text, uuid, uuid, text) IS
   'Deletes a contact''s page (tombstone) and wipes every page built from its items. Admins / owners, system:retention / system:erasure with actor NULL, or any brain role once the contact is marked. Migration 195.';
 
--- 194's brain_item_forget plus the page wipe: same signature, actor
--- rules and grants.
-CREATE OR REPLACE FUNCTION public.brain_item_forget(p_actor uuid, p_system_label text, p_account uuid,
-  p_item uuid, p_contact uuid, p_older_than timestamptz, p_reason text)
-RETURNS integer
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_ids uuid[];
-BEGIN
-  IF p_reason IS NULL OR p_reason ~ '^[[:space:]]*$' THEN
-    RAISE EXCEPTION 'brain_item_forget: a reason is required'
-      USING ERRCODE = 'invalid_parameter_value', HINT = 'SCOPE_INVALID';
-  END IF;
-  IF NOT ((p_actor IS NULL AND coalesce(p_system_label, '') IN ('system:retention', 'system:erasure'))
-          OR coalesce(public.brain_actor_role(p_account, p_actor), '') IN ('admin', 'super_admin')) THEN
-    RAISE EXCEPTION 'brain_item_forget: % may not forget', coalesce(p_actor::text, p_system_label)
-      USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
-  END IF;
-  IF (p_item IS NOT NULL)::int + (p_contact IS NOT NULL)::int + (p_older_than IS NOT NULL)::int <> 1 THEN
-    RAISE EXCEPTION 'brain_item_forget: exactly one of item, contact, older_than'
-      USING ERRCODE = 'invalid_parameter_value', HINT = 'SCOPE_INVALID';
-  END IF;
-  SELECT coalesce(array_agg(i.item_id), '{}') INTO v_ids FROM public.brain_items i
-   WHERE i.account_id = p_account
-     AND i.deleted_at IS NULL
-     AND (p_item IS NULL OR i.item_id = p_item)
-     AND (p_contact IS NULL OR i.contact_id = p_contact)
-     AND (p_older_than IS NULL OR i.created_at < p_older_than);
-  DELETE FROM public.brain_embeddings e WHERE e.item_id = ANY (v_ids);
-  UPDATE public.brain_items i SET text = '', deleted_at = now() WHERE i.item_id = ANY (v_ids);
-  PERFORM public.brain_page_wipe(p_account, v_ids, p_contact);
-  RETURN cardinality(v_ids);
-END
-$$;
-
-COMMENT ON FUNCTION public.brain_item_forget(uuid, text, uuid, uuid, uuid, timestamptz, text) IS
-  'Forgets one item, a contact''s items, or items older than a date: blank text, deleted_at, embeddings deleted, pages built from them wiped (scope contact also tombstones the contact''s page). Admins / owners, or system:retention / system:erasure with actor NULL. Migrations 194, 195.';
-
--- 194's contact-delete path plus the pages: a deleted contact's page is
--- tombstoned and every page built from its items wiped. A contact with
--- no brain items and no page leaves no row behind.
-CREATE OR REPLACE FUNCTION public.brain_forget_deleted_contact()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_live uuid[];
-  v_all  uuid[];
-BEGIN
-  SELECT coalesce(array_agg(i.item_id) FILTER (WHERE i.deleted_at IS NULL), '{}'),
-         coalesce(array_agg(i.item_id), '{}')
-    INTO v_live, v_all
-    FROM public.brain_items i
-   WHERE i.account_id = old.account_id AND i.contact_id = old.id;
-  IF cardinality(v_all) = 0
-     AND NOT EXISTS (SELECT 1 FROM public.brain_pages p
-                      WHERE p.account_id = old.account_id AND p.kind = 'contact' AND p.key = old.id::text) THEN
-    RETURN old;
-  END IF;
-  IF cardinality(v_live) > 0 THEN
-    DELETE FROM public.brain_embeddings e WHERE e.item_id = ANY (v_live);
-    UPDATE public.brain_items i SET text = '', deleted_at = now() WHERE i.item_id = ANY (v_live);
-  END IF;
-  PERFORM public.brain_page_wipe(old.account_id, v_all, old.id);
-  RETURN old;
-END
-$$;
-
-COMMENT ON FUNCTION public.brain_forget_deleted_contact() IS
-  'contacts AFTER DELETE: forgets the deleted contact''s second brain items (blank text, deleted_at, embeddings deleted), tombstones its page and wipes pages built from its items. Migrations 194, 195.';
+-- brain_item_forget and brain_forget_deleted_contact are defined once,
+-- in 194, and call brain_page_wipe when it exists: redefining them here
+-- let a re-run of 194 silently drop the page wipe.
 
 -- ---------- 6. Privileges ----------
 
