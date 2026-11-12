@@ -132,13 +132,18 @@ describe('parseCustomReminderDue', () => {
   const local = (x: Date) =>
     `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`;
 
-  it('refuses a time under 15 minutes away', () => {
-    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 5)), now);
+  it('refuses a time under 2 minutes away', () => {
+    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 1)), now);
     expect(r).toEqual({ ok: false, reason: 'tooSoon' });
   });
 
-  it('accepts 20 minutes ahead', () => {
-    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 20)), now);
+  it('accepts 2 minutes ahead', () => {
+    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 2)), now);
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts 5 minutes ahead, which the old 15-minute floor refused', () => {
+    const r = parseCustomReminderDue(local(at(2026, 10, 31, 14, 5)), now);
     expect(r.ok).toBe(true);
   });
 

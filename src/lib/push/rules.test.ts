@@ -105,6 +105,7 @@ describe('kinds', () => {
     expect(urgencyFor('whatsapp_message')).toBe('high');
     expect(urgencyFor('event_reminder')).toBe('high');
     expect(urgencyFor('task_assigned')).toBe('normal');
+    expect(urgencyFor('task_due')).toBe('high');
     expect(ttlFor('chat_message')).toBe(86_400);
     expect(ttlFor('meeting_invite')).toBe(259_200);
   });

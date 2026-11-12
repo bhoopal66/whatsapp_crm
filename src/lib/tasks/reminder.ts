@@ -75,16 +75,18 @@ export function reminderAssignees(
 }
 
 /**
- * The `task_due` bell only rings for a task due 10 to 15 minutes after
- * a sweep, so a reminder set closer than this to now never rings.
+ * The reminder sweep (migration 197) rings a task twice: a quiet
+ * `task_due` heads-up 15 minutes before it is due, and the alarm when it
+ * falls due. So a reminder only needs to be one sweep (at most a minute
+ * or so) ahead of now to ring; this keeps a margin over that.
  */
-export const MIN_CUSTOM_LEAD_MS = 15 * 60 * 1000;
+export const MIN_CUSTOM_LEAD_MS = 2 * 60 * 1000;
 
 export type CustomReminderDue =
   | { ok: true; at: Date }
   | { ok: false; reason: 'invalid' | 'past' | 'tooSoon' };
 
-/** A picked time as an instant, at least 15 minutes after `now`. */
+/** A picked time as an instant, at least 2 minutes after `now`. */
 export function parseCustomReminderDue(
   value: string,
   now: Date

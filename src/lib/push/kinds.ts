@@ -42,7 +42,11 @@ export function isPushKind(value: string): value is PushKind {
   return (PUSH_KINDS as readonly string[]).includes(value);
 }
 
-/** Time-critical: sent during quiet hours too. */
+/**
+ * Time-critical: sent during quiet hours too. task_due is deliberately
+ * not here: PBX missed-call tasks ring it as well, and must not wake
+ * people at night.
+ */
 export const QUIET_HOURS_EXEMPT: readonly string[] = [
   'meeting_reminder',
   'event_reminder',
@@ -54,6 +58,8 @@ const URGENT: readonly string[] = [
   'chat_message',
   'meeting_reminder',
   'event_reminder',
+  // The reminder alarm (migration 197): the task falling due.
+  'task_due',
 ];
 
 /** Seconds the push service keeps an undelivered push. */

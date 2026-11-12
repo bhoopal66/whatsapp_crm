@@ -53,11 +53,18 @@ function safeUrl(url) {
 // replaces the old notification and should still buzz.
 var RENOTIFY_KINDS = ['chat_message', 'whatsapp_message'];
 
+// Reminder alarms (lib/reminders/alarm.ts): the notification stays on
+// screen until the person acts on it, vibrates in an alarm pattern, and
+// buzzes again when its tag is reused.
+var ALARM_KINDS = ['task_due', 'event_reminder', 'meeting_reminder'];
+var ALARM_VIBRATE = [300, 120, 300, 120, 600];
+
 self.addEventListener('push', function (event) {
   var data = parsePayload(event);
   var url = safeUrl(data.url);
   var title = typeof data.title === 'string' && data.title ? data.title : 'Taamul Connect';
   var tag = typeof data.tag === 'string' && data.tag ? data.tag : undefined;
+  var alarm = ALARM_KINDS.indexOf(data.kind) !== -1;
 
   event.waitUntil(
     self.clients
@@ -76,15 +83,20 @@ self.addEventListener('push', function (event) {
         });
         if (watching) return undefined;
 
-        return self.registration.showNotification(title, {
+        var options = {
           body: typeof data.body === 'string' ? data.body : '',
           tag: tag,
           data: { url: url },
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-72.png',
-          renotify: !!tag && RENOTIFY_KINDS.indexOf(data.kind) !== -1,
+          renotify: !!tag && (alarm || RENOTIFY_KINDS.indexOf(data.kind) !== -1),
           timestamp: typeof data.ts === 'number' ? data.ts : Date.now(),
-        });
+        };
+        if (alarm) {
+          options.requireInteraction = true;
+          options.vibrate = ALARM_VIBRATE;
+        }
+        return self.registration.showNotification(title, options);
       })
       .catch(function () {
         return undefined;

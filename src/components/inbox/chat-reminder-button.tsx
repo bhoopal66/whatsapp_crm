@@ -3,8 +3,8 @@
 // The chat header's "Remind me": file a follow-up task about this
 // customer and this chat (POST /api/tasks, kind follow_up, source
 // chat), due on a preset day at 09:00 or at a picked time. A task with
-// a due date is on the calendar and rings its holder 15 minutes before
-// (`task_due`). The dialog also lists the customer's upcoming
+// a due date is on the calendar; its holder gets a quiet `task_due`
+// heads-up 15 minutes before and the ringing alarm when it falls due. The dialog also lists the customer's upcoming
 // open reminders (GET /api/tasks scope=contact, read when it opens,
 // never on chat open) with a Done action where the caller may edit. Agent and up only, as the route
 // is; the call window's `FollowUpReminder` is the same idea for calls.
