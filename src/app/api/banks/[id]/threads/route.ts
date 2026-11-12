@@ -7,9 +7,10 @@
 // `{ threadId }`. Postgres decides who may post (NOT_ALLOWED, 403).
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { brainSink } from '@/lib/brain/sink';
 import {
   bankErrorResponse,
   loadBankWorkspace,
@@ -57,6 +58,20 @@ export async function POST(request: Request, { params }: Params) {
       caseId,
       taskId,
     });
+    // The thread opens with its first post: one discussion item, title first.
+    after(() =>
+      brainSink().record({
+        kind: 'discussion',
+        ref: {
+          accountId: workspace.accountId,
+          bankCode: workspace.bankCode,
+          caseId,
+          createdBy: ctx.userId,
+        },
+        postId: threadId,
+        body: `${title}. ${body}`,
+      })
+    );
     return NextResponse.json({ threadId }, { status: 201 });
   } catch (err) {
     return bankErrorResponse(err);

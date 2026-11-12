@@ -6,9 +6,10 @@
 // -> `{ pinId }`. An unknown kind is KIND_INVALID (422).
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { brainSink } from '@/lib/brain/sink';
 import { bankErrorResponse, loadBankWorkspace } from '@/lib/cases/bank-http';
 import {
   BANK_WS_CAPS,
@@ -60,6 +61,18 @@ export async function PUT(request: Request, { params }: Params) {
       ctx.userId,
       input.kind,
       body
+    );
+    after(() =>
+      brainSink().record({
+        kind: 'pinned',
+        ref: {
+          accountId: workspace.accountId,
+          bankCode: workspace.bankCode,
+          createdBy: ctx.userId,
+        },
+        pinId,
+        text: `${input.kind}: ${body}`,
+      })
     );
     return NextResponse.json({ pinId });
   } catch (err) {

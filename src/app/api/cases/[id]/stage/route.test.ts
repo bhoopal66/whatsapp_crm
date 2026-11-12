@@ -1,5 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// 022b: `after` runs nothing in a unit test; the brain sink is stubbed.
+const brain = vi.hoisted(() => ({
+  record: vi.fn(async () => {}),
+  after: [] as (() => unknown)[],
+}));
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (cb: () => unknown) => {
+    brain.after.push(cb);
+  },
+}));
+vi.mock('@/lib/brain/sink', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/brain/sink')>()),
+  brainSink: () => ({ record: brain.record }),
+}));
+
 const m = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   store: {} as Record<string, ReturnType<typeof vi.fn>>,

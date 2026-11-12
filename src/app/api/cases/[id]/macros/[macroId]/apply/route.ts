@@ -12,7 +12,7 @@
 // request_documents only previews the text; nothing is sent.
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
@@ -24,6 +24,7 @@ import {
 } from '@/lib/cases/http';
 import { applyMacro } from '@/lib/cases/macros';
 import { caseMacroDeps, caseStore } from '@/lib/cases/server';
+import { brainSink, stageChangedEvent, type SinkEvent } from '@/lib/brain/sink';
 
 export const maxDuration = 60;
 
@@ -45,8 +46,32 @@ export async function POST(_request: Request, { params }: Params) {
       });
 
     const now = new Date();
+    const deps = caseMacroDeps(ctx.accountId, now);
+    // A stage the macro moved is handed to the brain after the response,
+    // also when a later action stopped the run (earlier actions stay).
+    const moves: SinkEvent[] = [];
+    after(async () => {
+      for (const ev of moves) await brainSink().record(ev);
+    });
+    const cases: typeof deps.cases = {
+      setStage: async (caseId, actor, stage, outcome) => {
+        const r = await deps.cases.setStage(caseId, actor, stage, outcome);
+        const ev = stageChangedEvent(
+          {
+            accountId: ctx.accountId,
+            caseId,
+            contactId: c.contactId ?? null,
+            bankCode: c.bankCode ?? null,
+            createdBy: actor,
+          },
+          r
+        );
+        if (ev) moves.push(ev);
+        return r;
+      },
+    };
     const result = await applyMacro(
-      { ...caseMacroDeps(ctx.accountId, now), refusalText },
+      { ...deps, cases, refusalText },
       { case: c, actor: ctx.userId, macroId, now }
     );
     return NextResponse.json(result);

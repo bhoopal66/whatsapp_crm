@@ -35,6 +35,7 @@ import {
 } from '@/lib/submission-groups/inbound'
 import { caseIntakeQueueFor, caseSlaInboundHook } from '@/lib/cases/server'
 import type { CaseIntakeQueue } from '@/lib/case-files/intake-queue'
+import { recordGroupCustomerText } from '@/lib/brain/sink'
 import {
   groupDocumentFiler,
   type GroupDocumentFiler,
@@ -546,7 +547,12 @@ async function processWhapiGroups(
           filer.hook(doc)
           intake.document(doc)
         },
-        customerText: (m) => intake.text(m),
+        // Intake queues first (sync); the brain sink is awaited here, inside
+        // the webhook's after(), and never rejects (022b).
+        customerText: async (m) => {
+          intake.text(m)
+          await recordGroupCustomerText(m)
+        },
       },
     )
     if (sg.failed > 0) ok = false
