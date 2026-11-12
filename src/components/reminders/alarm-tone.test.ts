@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ALARM_CHIME_FRESH_MS } from '@/lib/reminders/alarm';
+import { BUSY_LOCK } from '@/components/meetings/invite-ring-tone';
+
 import {
   CHIME_LOCK_HOLD_MS,
   chimeLockName,
@@ -79,7 +82,14 @@ function fakeLocks() {
         }
       );
   };
+  // Shared holders (the meeting ringer's busy lock), which only query() sees.
+  const shared = new Set<string>();
   return {
+    holdShared: (name: string) => shared.add(name),
+    query: vi.fn(async () => ({
+      held: [...held.keys(), ...shared].map((name) => ({ name })),
+      pending: [],
+    })),
     held: (name: string) => held.has(name),
     waiting: (name: string) => queueOf(name).length,
     request: vi.fn(
@@ -155,6 +165,7 @@ describe('playAlarmChime', () => {
 
   it('takes the repeat lock with ifAvailable and holds it for a while after playing', async () => {
     playAlarmChime(ID, 1);
+    await settle();
     expect(locks.request).toHaveBeenCalledWith(
       'wacrm-reminder-chime:n-1:1',
       { ifAvailable: true },
@@ -167,6 +178,20 @@ describe('playAlarmChime', () => {
     expect(locks.held(chimeLockName(ID, 1))).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     expect(locks.held(chimeLockName(ID, 1))).toBe(false);
+  });
+
+  it('holds the lock as long as a fresh seed could still chime the alarm', () => {
+    expect(CHIME_LOCK_HOLD_MS).toBe(ALARM_CHIME_FRESH_MS);
+    expect(CHIME_LOCK_HOLD_MS).toBe(2 * 60 * 1000);
+  });
+
+  it('a busy lock held by any tab means no sound and no chime lock', async () => {
+    locks.holdShared(BUSY_LOCK);
+    playAlarmChime(ID, 0);
+    await settle();
+    expect(locks.query).toHaveBeenCalled();
+    expect(locks.request).not.toHaveBeenCalled();
+    expect(made()).toHaveLength(0);
   });
 
   it('a second tab gets no sound while the first holds the lock, then or later', async () => {

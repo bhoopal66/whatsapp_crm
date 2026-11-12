@@ -6602,6 +6602,7 @@
       "snooze1h": "1시간",
       "snoozeTomorrow": "내일 9:00",
       "dismiss": "닫기",
+      "back": "뒤로",
       "more": "+{count}개 더",
       "snoozedUntil": "{when}까지 다시 알림",
       "doneToast": "완료로 표시했습니다",

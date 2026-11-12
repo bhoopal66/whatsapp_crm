@@ -6602,6 +6602,7 @@
       "snooze1h": "1 hour",
       "snoozeTomorrow": "Tomorrow 9:00",
       "dismiss": "Dismiss",
+      "back": "Back",
       "more": "+{count} more",
       "snoozedUntil": "Snoozed until {when}",
       "doneToast": "Marked done",

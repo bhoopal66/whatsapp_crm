@@ -9,7 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useNotifications } from '@/components/notifications/notifications-provider';
 import { useCalls } from '@/components/pbx/call-provider';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
-import { isRingerBusy } from '@/lib/meetings/invite-ring';
+import { isRingerBusy, meetingRoomPath } from '@/lib/meetings/invite-ring';
 import {
   notificationRow,
   type BellContext,
@@ -173,7 +173,14 @@ export function alarmActions(deps: AlarmActionDeps): AlarmActions {
   };
   return {
     open: () => {
-      void openNotification(alarm.row, plan);
+      // A meeting starting now opens its lobby, like the invite card;
+      // the 10-minute heads-up keeps the meeting page.
+      const startsNow = alarm.offset === 0 || alarm.offset === null;
+      const href =
+        alarm.kind === 'meeting' && alarm.meetingId && startsNow
+          ? meetingRoomPath(alarm.meetingId)
+          : plan.href;
+      void openNotification(alarm.row, { ...plan, href });
       remove(alarm.id);
     },
     dismiss: close,
@@ -197,6 +204,44 @@ export function alarmActions(deps: AlarmActionDeps): AlarmActions {
       toast.success(t('doneToast'));
     },
   };
+}
+
+/** The snooze choices, with a way back to the card's own buttons. */
+export function SnoozeRow({
+  pending,
+  onPick,
+  onBack,
+}: {
+  pending: boolean;
+  onPick: (option: SnoozeOption) => void;
+  onBack: () => void;
+}) {
+  const t = useTranslations('Reminders.alarm');
+  const secondary =
+    'inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-card-2 px-3 text-sm font-medium hover:bg-muted disabled:opacity-60';
+  return (
+    <div className="mt-3 flex gap-2" data-snooze-menu>
+      <button
+        type="button"
+        data-snooze-back
+        onClick={onBack}
+        className={secondary}
+      >
+        {t('back')}
+      </button>
+      {SNOOZE_OPTIONS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          disabled={pending}
+          onClick={() => onPick(option)}
+          className={secondary}
+        >
+          {t(SNOOZE_LABEL[option])}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export interface ReminderAlarmCardProps {
@@ -276,19 +321,11 @@ export function ReminderAlarmCard({
           </p>
         )}
         {snoozing && manageable ? (
-          <div className="mt-3 flex gap-2" data-snooze-menu>
-            {SNOOZE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                disabled={pending}
-                onClick={() => run(() => actions.snooze(option))}
-                className={secondary}
-              >
-                {t(SNOOZE_LABEL[option])}
-              </button>
-            ))}
-          </div>
+          <SnoozeRow
+            pending={pending}
+            onPick={(option) => run(() => actions.snooze(option))}
+            onBack={() => setSnoozing(false)}
+          />
         ) : (
           <div className="mt-3 flex gap-2">
             {alarm.kind === 'meeting' ? (

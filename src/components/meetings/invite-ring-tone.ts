@@ -10,7 +10,7 @@ const RING_LOCK = 'meeting-invite-ring';
 // Shared: every tab in a call. A ring gets past it before it plays. Tabs
 // must never take this one from each other: when one call ended, another
 // tab's call would be left unprotected.
-const BUSY_LOCK = 'meeting-invite-busy';
+export const BUSY_LOCK = 'meeting-invite-busy';
 /**
  * How long a tab keeps the ring lock after it stops. The tabs waiting
  * behind it hear the same answer a moment later, over realtime, and must

@@ -17,6 +17,7 @@ vi.mock('sonner', () => ({ toast: toastMock }));
 import {
   ReminderAlarmCard,
   ReminderAlarmStack,
+  SnoozeRow,
   alarmActions,
   alarmNotificationTag,
   canManageAlarm,
@@ -247,6 +248,37 @@ describe('alarmActions', () => {
     expect(toastMock.success).toHaveBeenCalledWith('doneToast');
   });
 
+  it('Join on a meeting starting now opens its lobby', () => {
+    const a = meetingAlarm();
+    actions(a).open();
+    expect(openNotification).toHaveBeenCalledWith(a.row, {
+      ...plan,
+      href: `/meetings/${MEETING}/room`,
+    });
+    expect(remove).toHaveBeenCalledWith('n1');
+  });
+
+  it('Join on a meeting with no offset opens its lobby too', () => {
+    const a = alarm({
+      type: 'meeting_reminder',
+      meta: { meeting_id: MEETING },
+    });
+    actions(a).open();
+    expect(openNotification).toHaveBeenCalledWith(a.row, {
+      ...plan,
+      href: `/meetings/${MEETING}/room`,
+    });
+  });
+
+  it('Join on the 10-minute heads-up keeps the planned meeting page', () => {
+    const a = alarm({
+      type: 'meeting_reminder',
+      meta: { meeting_id: MEETING, offset: 10 },
+    });
+    actions(a).open();
+    expect(openNotification).toHaveBeenCalledWith(a.row, plan);
+  });
+
   it('a refused or failed PATCH keeps the card and says so', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false });
     await actions().done();
@@ -256,5 +288,27 @@ describe('alarmActions', () => {
     expect(toastMock.error).toHaveBeenCalledWith('failed');
     expect(markRead).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('SnoozeRow', () => {
+  it('offers Back before the three times', () => {
+    const html = wrap(
+      <SnoozeRow pending={false} onPick={() => {}} onBack={() => {}} />
+    );
+    expect(html).toContain('data-snooze-back');
+    expect(html).toContain('>Back<');
+    expect(html.indexOf('>Back<')).toBeLessThan(html.indexOf('>10 minutes<'));
+    expect(html).toContain('>1 hour<');
+    expect(html).toContain('>Tomorrow 9:00<');
+  });
+
+  it('Back stays usable while a snooze is pending', () => {
+    const html = wrap(
+      <SnoozeRow pending onPick={() => {}} onBack={() => {}} />
+    );
+    expect(html).toContain('data-snooze-back');
+    expect(html).not.toMatch(/data-snooze-back[^>]*disabled=/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>10 minutes/);
   });
 });

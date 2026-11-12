@@ -6,16 +6,22 @@
 //
 // Only one tab of the browser plays a given repeat of a given alarm: each
 // repeat is its own Web Lock, taken with `ifAvailable`, and the tab that
-// gets it holds it for CHIME_LOCK_HOLD_MS after playing, long past the
-// moment the other tabs hear the same realtime row. A tab that finds the
-// lock taken stays silent; it never queues, or it would play the chime
-// again once the first tab let go. Without Web Locks every tab plays.
+// gets it holds it for CHIME_LOCK_HOLD_MS (ALARM_CHIME_FRESH_MS): as long
+// as a freshly opened tab's seed could still decide to chime that alarm,
+// so no tab can ring a repeat twice. A tab that finds the lock taken
+// stays silent; it never queues, or it would play the chime again once
+// the first tab let go. Without Web Locks every tab plays.
+//
+// While any tab holds the meeting ringer's shared busy lock (a meeting or
+// a call is live in one tab, and the others cannot see it) nobody chimes.
 
+import { BUSY_LOCK } from '@/components/meetings/invite-ring-tone';
 import { audioContextClass } from '@/components/meetings/room/room-sounds';
+import { ALARM_CHIME_FRESH_MS } from '@/lib/reminders/alarm';
 
 export const CHIME_LOCK_PREFIX = 'wacrm-reminder-chime:';
 /** How long the playing tab keeps a repeat's lock. */
-export const CHIME_LOCK_HOLD_MS = 20_000;
+export const CHIME_LOCK_HOLD_MS = ALARM_CHIME_FRESH_MS;
 export const CHIME_GAIN = 0.3;
 
 const NOTE_MS = 150;
@@ -89,6 +95,16 @@ function play(): void {
   }
 }
 
+/** Whether any tab holds the busy lock; a failed query reads as not busy. */
+async function callIsLive(locks: LockManager): Promise<boolean> {
+  try {
+    const state = await locks.query();
+    return !!state.held?.some((l) => l.name === BUSY_LOCK);
+  } catch {
+    return false;
+  }
+}
+
 /** Plays repeat `n` of an alarm's chime, in at most one tab. */
 export function playAlarmChime(alarmId: string, n: number): void {
   try {
@@ -100,15 +116,20 @@ export function playAlarmChime(alarmId: string, n: number): void {
       play();
       return;
     }
-    void locks
-      .request(chimeLockName(alarmId, n), { ifAvailable: true }, (lock) => {
-        if (!lock) return;
-        play();
-        return new Promise<void>((resolve) => {
-          setTimeout(resolve, CHIME_LOCK_HOLD_MS);
-        });
-      })
-      .catch(noop);
+    void (async () => {
+      if (await callIsLive(locks)) return;
+      await locks.request(
+        chimeLockName(alarmId, n),
+        { ifAvailable: true },
+        (lock) => {
+          if (!lock) return;
+          play();
+          return new Promise<void>((resolve) => {
+            setTimeout(resolve, CHIME_LOCK_HOLD_MS);
+          });
+        }
+      );
+    })().catch(noop);
   } catch {
     // No sound; the card still shows.
   }
