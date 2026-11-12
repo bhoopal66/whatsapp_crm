@@ -116,3 +116,40 @@ describe('posts', () => {
     expect((await res.json()).code).toBe('PARENT_INVALID');
   });
 });
+
+describe('posts: second-brain hook', () => {
+  it('records the reply once with the bank, as the caller', async () => {
+    brain.after.length = 0;
+    m.list.mockResolvedValue([
+      { bankWsId: WS, accountId: 'acct-1', bankCode: 'ADCB' },
+    ]);
+    expect((await post({ body: ' ok ', parent_post_id: PARENT })).status).toBe(
+      201
+    );
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'discussion',
+        postId: 'p-2',
+        body: 'ok',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          bankCode: 'ADCB',
+          createdBy: 'u-1',
+        }),
+      })
+    );
+  });
+
+  it('registers nothing when the post write is refused', async () => {
+    brain.after.length = 0;
+    m.addPost.mockRejectedValue(
+      new BankWorkspaceRefusedError('PARENT_INVALID')
+    );
+    expect((await post({ body: 'b' })).status).toBe(422);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

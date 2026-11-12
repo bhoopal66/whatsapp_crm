@@ -139,3 +139,48 @@ describe('POST /api/cases/[id]/stage', () => {
     expect(await res.json()).toMatchObject({ code });
   });
 });
+
+describe('stage: second-brain hook', () => {
+  const moved = {
+    moved: true,
+    fromStage: 'New',
+    toStage: 'Approved',
+    outcome: null,
+    groupEnd: null,
+  };
+
+  it('records a timeline event once for a move, as the caller', async () => {
+    brain.after.length = 0;
+    m.store.setStage.mockResolvedValue(moved);
+    expect((await post({ stage: 'Approved' })).status).toBe(200);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'timeline',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          caseId: ID,
+          createdBy: 'u-me',
+        }),
+      })
+    );
+  });
+
+  it('records nothing for a no-op move', async () => {
+    brain.after.length = 0;
+    m.store.setStage.mockResolvedValue({ ...moved, moved: false });
+    expect((await post({ stage: 'New' })).status).toBe(200);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+
+  it('registers nothing when the move is refused', async () => {
+    brain.after.length = 0;
+    m.store.setStage.mockRejectedValue(new CaseRefusedError('CASE_CLOSED'));
+    expect((await post({ stage: 'Docs' })).status).toBe(422);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

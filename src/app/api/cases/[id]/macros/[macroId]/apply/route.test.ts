@@ -134,3 +134,44 @@ describe('POST /api/cases/[id]/macros/[macroId]/apply', () => {
     expect(m.deps.macros.logApply).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('macro apply: second-brain hook', () => {
+  it('records a timeline event for the stage the macro moved', async () => {
+    brain.after.length = 0;
+    m.deps.cases.setStage.mockResolvedValue({
+      moved: true,
+      fromStage: 'New',
+      toStage: 'Approved',
+      outcome: 'Approved',
+      groupEnd: null,
+    });
+    expect((await apply()).status).toBe(200);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'timeline',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          caseId: ID,
+          createdBy: 'u-me',
+        }),
+      })
+    );
+  });
+
+  it('records nothing when the stage action was refused', async () => {
+    brain.after.length = 0;
+    expect((await apply()).status).toBe(200);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+
+  it('records nothing when the case is not readable', async () => {
+    brain.after.length = 0;
+    m.cases.role.mockResolvedValue(null);
+    expect((await apply()).status).toBe(404);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

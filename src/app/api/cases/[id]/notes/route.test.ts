@@ -127,3 +127,33 @@ describe('notes', () => {
     );
   });
 });
+
+describe('notes: second-brain hook', () => {
+  it('records the note once, after the response, as the caller', async () => {
+    brain.after.length = 0;
+    expect((await post({ body: ' call the bank ' })).status).toBe(201);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'note',
+        noteId: 'n2',
+        body: 'call the bank',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          caseId: C,
+          createdBy: 'u-1',
+        }),
+      })
+    );
+  });
+
+  it('registers nothing when the note write fails', async () => {
+    brain.after.length = 0;
+    m.add.mockRejectedValue(new CaseRefusedError('CASE_CLOSED'));
+    expect((await post({ body: 'x' })).status).toBe(422);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

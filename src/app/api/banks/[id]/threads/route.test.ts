@@ -128,3 +128,41 @@ describe('threads', () => {
     );
   });
 });
+
+describe('threads: second-brain hook', () => {
+  it('records the opening post once with the bank, as the caller', async () => {
+    brain.after.length = 0;
+    m.list.mockResolvedValue([
+      { bankWsId: WS, accountId: 'acct-1', bankCode: 'ADCB' },
+    ]);
+    expect(
+      (await post({ title: ' Docs ', body: ' need X ', case_id: CASE })).status
+    ).toBe(201);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'discussion',
+        postId: 't-2',
+        body: 'Docs. need X',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          bankCode: 'ADCB',
+          caseId: CASE,
+          createdBy: 'u-1',
+        }),
+      })
+    );
+  });
+
+  it('registers nothing when the thread write is refused', async () => {
+    brain.after.length = 0;
+    m.createThread.mockRejectedValue(
+      new BankWorkspaceRefusedError('NOT_ALLOWED')
+    );
+    expect((await post({ title: 't', body: 'b' })).status).toBe(403);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

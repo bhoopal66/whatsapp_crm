@@ -4,7 +4,14 @@ vi.mock('@/lib/submission-groups/server', () => ({
   supabaseAdmin: vi.fn(),
 }));
 
-import { BestEffortBrainSink, brainSinkCounters, type SinkEvent } from './sink';
+import { supabaseAdmin } from '@/lib/submission-groups/server';
+
+import {
+  BestEffortBrainSink,
+  brainSinkCounters,
+  recordGroupCustomerText,
+  type SinkEvent,
+} from './sink';
 import { MemPorts, memDeps } from './test-fakes';
 
 function fakes(opts: { marked?: string[]; enabled?: boolean } = {}) {
@@ -131,5 +138,90 @@ describe('022b BrainSink', () => {
       createdBy: null,
       systemLabel: 'system:inbound',
     });
+  });
+});
+
+describe('recordGroupCustomerText', () => {
+  const msgArgs = {
+    accountId: 'a1',
+    groupId: 'g1',
+    waMessageId: 'wa-1',
+    body: 'hello',
+  };
+  function fakeDb(o: {
+    enabled?: boolean;
+    row?: unknown;
+    lookupThrows?: boolean;
+  }) {
+    const tables: string[] = [];
+    const db = {
+      from: (table: string) => {
+        tables.push(table);
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: async () => {
+            if (table === 'cases' && o.lookupThrows) throw new Error('boom');
+            return table === 'cases'
+              ? { data: o.row ?? null, error: null }
+              : { data: { brain_enabled: o.enabled ?? true }, error: null };
+          },
+        };
+        return chain;
+      },
+    };
+    vi.mocked(supabaseAdmin).mockReturnValue(db as never);
+    return tables;
+  }
+  const record = () => vi.spyOn(BestEffortBrainSink.prototype, 'record');
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('switch off: no cases query and no record', async () => {
+    const tables = fakeDb({ enabled: false, row: { id: 'k1' } });
+    const rec = record().mockResolvedValue();
+    await recordGroupCustomerText(msgArgs);
+    expect(tables).not.toContain('cases');
+    expect(rec).not.toHaveBeenCalled();
+  });
+
+  it('switch on with a case: records as system:inbound with null author', async () => {
+    fakeDb({
+      row: { id: 'k1', contact_id: 'c9', bank_code: 'ADCB' },
+    });
+    const rec = record().mockResolvedValue();
+    await recordGroupCustomerText(msgArgs);
+    expect(rec).toHaveBeenCalledTimes(1);
+    expect(rec).toHaveBeenCalledWith({
+      kind: 'message',
+      ref: {
+        accountId: 'a1',
+        caseId: 'k1',
+        contactId: 'c9',
+        bankCode: 'ADCB',
+        createdBy: null,
+        systemLabel: 'system:inbound',
+      },
+      messageId: 'wa-1',
+      text: 'hello',
+    });
+  });
+
+  it('a group without a case records nothing', async () => {
+    fakeDb({ row: null });
+    const rec = record().mockResolvedValue();
+    await recordGroupCustomerText(msgArgs);
+    expect(rec).not.toHaveBeenCalled();
+  });
+
+  it('a throwing lookup resolves and counts one failure', async () => {
+    fakeDb({ lookupThrows: true });
+    const rec = record().mockResolvedValue();
+    await expect(recordGroupCustomerText(msgArgs)).resolves.toBeUndefined();
+    expect(rec).not.toHaveBeenCalled();
+    expect(brainSinkCounters.brain_ingest_failures).toBe(1);
   });
 });

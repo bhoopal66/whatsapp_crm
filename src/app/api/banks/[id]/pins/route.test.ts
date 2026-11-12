@@ -101,3 +101,37 @@ describe('pins', () => {
     expect((await put({ kind: 'product_rules', body: 'x' })).status).toBe(403);
   });
 });
+
+describe('pins: second-brain hook', () => {
+  it('records the pin once with the bank, as the caller', async () => {
+    brain.after.length = 0;
+    m.list.mockResolvedValue([
+      { bankWsId: WS, accountId: 'acct-1', bankCode: 'ADCB' },
+    ]);
+    expect(
+      (await put({ kind: 'product_rules', body: ' min 5k ' })).status
+    ).toBe(200);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'pinned',
+        pinId: 'pin-2',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          bankCode: 'ADCB',
+          createdBy: 'u-1',
+        }),
+      })
+    );
+  });
+
+  it('registers nothing when the pin write is refused', async () => {
+    brain.after.length = 0;
+    m.setPin.mockRejectedValue(new BankWorkspaceRefusedError('NOT_ALLOWED'));
+    expect((await put({ kind: 'product_rules', body: 'x' })).status).toBe(403);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});
