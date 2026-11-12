@@ -59,7 +59,7 @@ The brain never shows more than the case screens do.
 
 ## Search and "Remember this" (`/brain`)
 
-Agents and up. Type 2–300 characters. A result shows the redacted
+Agents and up. Type 2–300 characters; at most 20 results, and 60 searches a minute per person. A result shows the redacted
 snippet, what kind of source it is, an **AI-generated** label where it
 applies, and a link to its case. **Remember this** stores a short note
 (up to 4000 characters, redacted) against a case you can read, or against
@@ -125,6 +125,10 @@ original action; it is logged (without the text) and counted.
 | GET `/api/brain/pages/{case\|contact\|bank}/{key}` | anyone with sales access; 404 when missing or not visible |
 | POST `/api/brain/pages/rebuild` `{ limit? }` | owner, admin |
 | GET `/api/brain/digest[?userId=]` | own digest; `userId` owner/admin only |
+
+Read paths (search, summary pages, the digest) check visibility once per
+case, not once per item: on a 20,000-item test account a search takes
+about 0.4 s and a digest query about 0.4 s.
 
 The SQL behaviour is asserted by `supabase/ci/verify-second-brain.sql`
 and `supabase/ci/verify-brain-pages.sql`.
