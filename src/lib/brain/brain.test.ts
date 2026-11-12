@@ -73,6 +73,43 @@ describe('022a brainRedact', () => {
       text: 'ID number [ID] attached',
     });
   });
+  // SQL's TEXT_UNREDACTED guard (brain_item_upsert, brain_page_put) as a JS
+  // regex: whatever brainRedact returns must never match it, or the chunk is
+  // refused at ingest.
+  const SQL_GUARD = /[0-9٠-٩۰-۹０-９](?:[-./()\s]{0,2}[0-9٠-٩۰-۹０-９]){8,}/u;
+  it('masks Arabic-Indic, full-width, slash and bracket numbers as [ID]', () => {
+    const cases: Array<[string, string]> = [
+      ['ref ٠٥٠١٢٣٤٥٦٧٨ end', 'ref [ID] end'],
+      ['ref ۰۵۰۱۲۳۴۵۶۷۸ end', 'ref [ID] end'],
+      ['ref ０５０１２３４５６７ end', 'ref [PHONE:567] end'], // 019b's phone rule
+      ['ref １２３４５６７８９ end', 'ref [ID] end'],
+      ['ref 9876/5432/1 end', 'ref [ID] end'],
+      ['ref 987)(654)(321 end', 'ref [ID] end'],
+      ['ref (987) 654-321 end', 'ref ([ID] end'],
+      ['ref 12/34/56/78/9 end', 'ref [ID] end'],
+    ];
+    for (const [input, want] of cases) {
+      expect(brainRedact(input), input).toEqual({ ok: true, text: want });
+    }
+  });
+  it('never returns text the SQL digit guard refuses', () => {
+    const cases = [
+      'call ٠٥٠١٢٣٤٥٦٧٨',
+      'call ۰۵۰۱۲۳۴۵۶۷۸',
+      'call ０５０１２３４５６７',
+      'call 050/123/4567',
+      'call (050) 123-4567',
+      'call (050)(123)(4567)',
+      'ids 1234/5678/9 and 9876.5432.1',
+    ];
+    for (const c of cases) {
+      expect(c, c).toMatch(SQL_GUARD);
+      const r = brainRedact(c);
+      expect(r.ok, c).toBe(true);
+      if (!r.ok) continue;
+      expect(r.text, c).not.toMatch(SQL_GUARD);
+    }
+  });
   it('keeps ordinary text and short numbers', () => {
     const r = brainRedact(
       'Limit AED 250000 approved on 12 Oct for case TC-12.'
