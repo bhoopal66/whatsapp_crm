@@ -193,6 +193,12 @@ BEGIN
   r := pg_temp.bp_try(pg_temp.bp_put(a_acct, 'case', k1::text, 0, 'call 050 123 4567', ARRAY[i_k1]));
   IF r NOT LIKE 'ERROR % TEXT_UNREDACTED:%' THEN failed := failed || format('put with a phone number accepted: %s', r); END IF;
   n := n + 1;
+  FOREACH v_t IN ARRAY ARRAY['call ٠٥٠١٢٣٤٥٦٧٨', 'call ۰۵۰۱۲۳۴۵۶۷۸', 'call ０５０１２３４５６７',
+                             'call 050/123/4567', 'call (050) 123-4567', 'call (050)(123)(4567)'] LOOP
+    r := pg_temp.bp_try(pg_temp.bp_put(a_acct, 'case', k1::text, 0, v_t, ARRAY[i_k1]));
+    IF r NOT LIKE 'ERROR % TEXT_UNREDACTED:%' THEN failed := failed || format('put with %L accepted: %s', v_t, r); END IF;
+  END LOOP;
+  n := n + 1;
   FOREACH v_t IN ARRAY ARRAY[i_other::text, i_r::text, i_fg::text, 'NULL'] LOOP
     r := pg_temp.bp_try(format('SELECT public.brain_page_put(%L, %L, %L, 0, %L, ARRAY[%L, %s]::uuid[])::text',
                                a_acct, 'case', k1, 'case summary', i_k1,

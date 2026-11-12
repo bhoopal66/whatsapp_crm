@@ -243,7 +243,11 @@ BEGIN
     RAISE EXCEPTION 'brain_item_upsert: text must be 1..800 chars'
       USING ERRCODE = 'invalid_parameter_value', HINT = 'TEXT_INVALID';
   END IF;
-  IF p_text ~ '[0-9]([-. ]?[0-9]){8,}' THEN
+  -- Nine or more digits (ASCII, Arabic-Indic, extended Arabic-Indic,
+  -- full-width), up to two of - . / ( ) or whitespace between each: an
+  -- explicit class, since [[:digit:]] beyond ASCII depends on the ctype.
+  -- lib/brain/redact.ts masks a superset of this before ingest.
+  IF p_text ~ '[0-9٠-٩۰-۹０-９]([-./()[:space:]]{0,2}[0-9٠-٩۰-۹０-９]){8,}' THEN
     RAISE EXCEPTION 'brain_item_upsert: text holds an unredacted number'
       USING ERRCODE = 'invalid_parameter_value', HINT = 'TEXT_UNREDACTED';
   END IF;
@@ -253,6 +257,15 @@ BEGIN
   END IF;
   IF NOT coalesce((SELECT s.brain_enabled FROM public.case_account_settings s WHERE s.account_id = p_account), false) THEN
     RETURN NULL;   -- the switch is off: nothing is stored
+  END IF;
+  -- Lock the contact before the mark check: brain_contact_mark takes FOR
+  -- UPDATE on it, and an opt-out or delete conflicts with FOR SHARE, so a
+  -- chunk is never stored after its contact was marked or deleted.
+  IF p_contact IS NOT NULL THEN
+    PERFORM 1 FROM public.contacts c WHERE c.id = p_contact AND c.account_id = p_account FOR SHARE;
+    IF NOT FOUND THEN
+      RETURN NULL;   -- no such contact in the account (deleted): nothing is stored
+    END IF;
   END IF;
   IF public.brain_contact_marked(p_account, p_contact) THEN
     RETURN NULL;   -- opted-out / deletion-marked contact: nothing is stored
@@ -277,7 +290,7 @@ END
 $$;
 
 COMMENT ON FUNCTION public.brain_item_upsert(uuid, text, text, uuid, uuid, text, text, boolean, text, uuid, text) IS
-  'Stores one redacted chunk, idempotent on its sha256 (computed here). NULL while the switch is off, for a marked contact, or for a forgotten chunk. Migration 194.';
+  'Stores one redacted chunk, idempotent on its sha256 (computed here). NULL while the switch is off, for a marked contact or one not in the account, or for a forgotten chunk. Migration 194.';
 
 CREATE OR REPLACE FUNCTION public.brain_embedding_put(p_account uuid, p_item uuid, p_model text, p_vec real[])
 RETURNS void
@@ -292,8 +305,12 @@ BEGIN
     RAISE EXCEPTION 'brain_embedding_put: a 1..4096 dim vector and a model are required'
       USING ERRCODE = 'invalid_parameter_value', HINT = 'VEC_INVALID';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.brain_items i
-                  WHERE i.item_id = p_item AND i.account_id = p_account AND i.deleted_at IS NULL) THEN
+  -- FOR SHARE, not a plain EXISTS: it waits for a concurrent forget's UPDATE
+  -- and re-checks deleted_at after it, so no embedding outlives a forget.
+  PERFORM 1 FROM public.brain_items i
+   WHERE i.item_id = p_item AND i.account_id = p_account AND i.deleted_at IS NULL
+   FOR SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'brain_embedding_put: item % not found', p_item
       USING ERRCODE = 'no_data_found', HINT = 'ITEM_NOT_FOUND';
   END IF;
@@ -328,6 +345,9 @@ BEGIN
     RAISE EXCEPTION 'brain_contact_mark: % may not mark contacts of %', p_actor, p_account
       USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
   END IF;
+  -- Serialise with an in-flight brain_item_upsert, which holds FOR SHARE on
+  -- the contact until it commits (a contact already deleted locks nothing).
+  PERFORM 1 FROM public.contacts c WHERE c.id = p_contact AND c.account_id = p_account FOR UPDATE;
   INSERT INTO public.brain_contact_marks (account_id, contact_id, kind, marked_by)
   VALUES (p_account, p_contact, p_kind, p_actor)
   ON CONFLICT ON CONSTRAINT brain_contact_marks_pkey DO NOTHING;

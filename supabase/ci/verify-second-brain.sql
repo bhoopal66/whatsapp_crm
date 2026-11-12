@@ -170,6 +170,15 @@ BEGIN
     IF r NOT LIKE 'ERROR % TEXT_UNREDACTED:%' THEN failed := failed || format('unredacted %L accepted: %s', v_t, r); END IF;
   END LOOP;
 
+  -- Arabic-Indic, extended Arabic-Indic and full-width digits, and numbers
+  -- split by '/' or brackets.
+  n := n + 1;
+  FOREACH v_t IN ARRAY ARRAY['call ٠٥٠١٢٣٤٥٦٧٨', 'call ۰۵۰۱۲۳۴۵۶۷۸', 'call ０５０１２３４５６７',
+                             'call 050/123/4567', 'call (050) 123-4567', 'call (050)(123)(4567)'] LOOP
+    r := pg_temp.bs_try(pg_temp.bs_up(a_acct, 'note', 'bs-num2', NULL, v_t, NULL, u_agent));
+    IF r NOT LIKE 'ERROR % TEXT_UNREDACTED:%' THEN failed := failed || format('unredacted %L accepted: %s', v_t, r); END IF;
+  END LOOP;
+
   n := n + 1;
   r := pg_temp.bs_try(pg_temp.bs_up(a_acct, 'bogus', 'bs-k', NULL, 'some fact', NULL, u_agent));
   IF r NOT LIKE 'ERROR % KIND_INVALID:%' THEN failed := failed || format('unknown kind accepted: %s', r); END IF;
@@ -284,6 +293,16 @@ BEGIN
   IF v_id IS NOT NULL THEN failed := failed || 'upsert stored a chunk for a do-not-contact contact'::text; END IF;
   v_id := brain_item_upsert(a_acct, 'note', 'bs-mark2', NULL, c_mark, NULL, 'another fact', false, NULL, u_owner, NULL);
   IF v_id IS NOT NULL THEN failed := failed || 'upsert stored a chunk for a brain-marked contact'::text; END IF;
+
+  -- A contact that does not exist in the account (deleted, or another
+  -- account's) stores nothing.
+  n := n + 1;
+  v_id := brain_item_upsert(a_acct, 'note', 'bs-nocontact', NULL, gen_random_uuid(), NULL, 'a gone fact', false, NULL, u_owner, NULL);
+  IF v_id IS NOT NULL THEN failed := failed || 'upsert stored a chunk for a contact that does not exist'::text; END IF;
+  v_id := brain_item_upsert(a_acct, 'note', 'bs-outcontact', NULL, c_out, NULL, 'a foreign fact', false, NULL, u_owner, NULL);
+  IF v_id IS NOT NULL THEN failed := failed || 'upsert stored a chunk for another account''s contact'::text; END IF;
+  SELECT count(*) INTO v_n FROM brain_items WHERE account_id = a_acct AND source_id IN ('bs-nocontact', 'bs-outcontact');
+  IF v_n <> 0 THEN failed := failed || format('%s chunks stored for contacts not in the account', v_n); END IF;
 
   n := n + 1;
   r := pg_temp.bs_try(format('SELECT public.brain_contact_mark(%L, %L, %L, %L)::text', u_out, a_acct, c1, 'opt_out'));

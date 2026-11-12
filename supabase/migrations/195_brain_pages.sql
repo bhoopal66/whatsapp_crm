@@ -213,7 +213,9 @@ BEGIN
     RAISE EXCEPTION 'brain_page_put: summary must be 1..8000 chars'
       USING ERRCODE = 'invalid_parameter_value', HINT = 'TEXT_INVALID';
   END IF;
-  IF p_summary ~ '[0-9]([-. ]?[0-9]){8,}' THEN
+  -- 194's digit rule (brain_item_upsert): ASCII, Arabic-Indic, extended
+  -- Arabic-Indic and full-width digits, up to two of - . / ( ) or space between.
+  IF p_summary ~ '[0-9٠-٩۰-۹０-９]([-./()[:space:]]{0,2}[0-9٠-٩۰-۹０-９]){8,}' THEN
     RAISE EXCEPTION 'brain_page_put: summary holds an unredacted number'
       USING ERRCODE = 'invalid_parameter_value', HINT = 'TEXT_UNREDACTED';
   END IF;
