@@ -51,6 +51,7 @@ function valuesOf(v: InsightSettingsValues): InsightSettingsValues {
     attentionPinWantsPerson: v.attentionPinWantsPerson,
     attentionPinCallback: v.attentionPinCallback,
     attentionNotify: v.attentionNotify,
+    reminderSuggestEnabled: v.reminderSuggestEnabled,
   };
 }
 

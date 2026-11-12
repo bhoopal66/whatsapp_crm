@@ -40,6 +40,11 @@ export interface InsightSettings {
   attentionPinCallback: boolean;
   /** Notify the assigned person when a chat is pinned. */
   attentionNotify: boolean;
+  /**
+   * Offer "Add reminder" under a chat message that names a later time
+   * (migration 197, docs/jev-insights.md "Reminder suggestions").
+   */
+  reminderSuggestEnabled: boolean;
   /** The saved row's version; null when nothing was ever saved. */
   updatedAt: string | null;
 }
@@ -59,6 +64,7 @@ export const INSIGHT_SETTINGS_OFF: InsightSettings = Object.freeze({
   attentionPinWantsPerson: true,
   attentionPinCallback: true,
   attentionNotify: true,
+  reminderSuggestEnabled: false,
   updatedAt: null,
 }) as InsightSettings;
 
@@ -78,12 +84,13 @@ export interface InsightSettingsRow {
   attention_pin_wants_person: boolean;
   attention_pin_callback: boolean;
   attention_notify: boolean;
+  reminder_suggest_enabled: boolean;
   updated_at: string;
   updated_by: string | null;
 }
 
 export const INSIGHT_SETTINGS_COLUMNS =
-  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, kb_gap_judge_enabled, attention_pin_urgent, attention_pin_upset, attention_pin_wants_person, attention_pin_callback, attention_notify, updated_at, updated_by';
+  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, kb_gap_judge_enabled, attention_pin_urgent, attention_pin_upset, attention_pin_wants_person, attention_pin_callback, attention_notify, reminder_suggest_enabled, updated_at, updated_by';
 
 const isTagSuggestMode = (v: unknown): v is TagSuggestMode =>
   typeof v === 'string' && (TAG_SUGGEST_MODES as string[]).includes(v);
@@ -127,6 +134,7 @@ export function settingsFromRow(
     attentionPinWantsPerson: row.attention_pin_wants_person !== false,
     attentionPinCallback: row.attention_pin_callback !== false,
     attentionNotify: row.attention_notify !== false,
+    reminderSuggestEnabled: row.reminder_suggest_enabled === true,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
   };
 }
@@ -160,6 +168,7 @@ export function rowFromValues(
     attention_pin_wants_person: v.attentionPinWantsPerson,
     attention_pin_callback: v.attentionPinCallback,
     attention_notify: v.attentionNotify,
+    reminder_suggest_enabled: v.reminderSuggestEnabled,
     updated_by: userId,
   };
 }
@@ -187,6 +196,7 @@ export function parseInsightSettingsPut(
     'attentionPinWantsPerson',
     'attentionPinCallback',
     'attentionNotify',
+    'reminderSuggestEnabled',
   ] as const) {
     if (typeof b[key] !== 'boolean')
       return { ok: false, error: `${key} must be true or false` };
@@ -231,6 +241,7 @@ export function parseInsightSettingsPut(
       attentionPinWantsPerson: b.attentionPinWantsPerson as boolean,
       attentionPinCallback: b.attentionPinCallback as boolean,
       attentionNotify: b.attentionNotify as boolean,
+      reminderSuggestEnabled: b.reminderSuggestEnabled as boolean,
       expectedUpdatedAt: expected as string | null,
     },
   };
@@ -262,7 +273,8 @@ export function settingsDiffer(
     a.attentionPinUpset !== b.attentionPinUpset ||
     a.attentionPinWantsPerson !== b.attentionPinWantsPerson ||
     a.attentionPinCallback !== b.attentionPinCallback ||
-    a.attentionNotify !== b.attentionNotify
+    a.attentionNotify !== b.attentionNotify ||
+    a.reminderSuggestEnabled !== b.reminderSuggestEnabled
   );
 }
 

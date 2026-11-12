@@ -101,6 +101,7 @@ const values = {
   attentionPinWantsPerson: true,
   attentionPinCallback: false,
   attentionNotify: false,
+  reminderSuggestEnabled: true,
 };
 
 function put(body: unknown) {
@@ -180,6 +181,7 @@ describe('PUT /api/insights/settings', () => {
       reply_interested_tag_id: TAG,
       attention_pin_upset: false,
       attention_notify: false,
+      reminder_suggest_enabled: true,
       updated_by: 'user-1',
     });
     expect(db.filters).toContainEqual(['updated_at', SAVED_AT]);

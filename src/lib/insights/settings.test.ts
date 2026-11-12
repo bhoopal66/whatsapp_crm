@@ -35,6 +35,7 @@ const row = (extra: Partial<InsightSettingsRow> = {}): InsightSettingsRow => ({
   attention_pin_wants_person: true,
   attention_pin_callback: true,
   attention_notify: true,
+  reminder_suggest_enabled: false,
   updated_at: 'v1',
   updated_by: null,
   ...extra,

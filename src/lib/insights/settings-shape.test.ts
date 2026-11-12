@@ -32,6 +32,7 @@ const body = (extra: Record<string, unknown> = {}) => ({
   attentionPinWantsPerson: true,
   attentionPinCallback: false,
   attentionNotify: false,
+  reminderSuggestEnabled: true,
   expectedUpdatedAt: null,
   ...extra,
 });
@@ -53,6 +54,8 @@ describe('settingsFromRow', () => {
       attentionPinCallback: true,
       attentionNotify: true,
     });
+    // Reminder suggestions (197) are off with no row.
+    expect(INSIGHT_SETTINGS_OFF.reminderSuggestEnabled).toBe(false);
   });
 
   it('maps a row and rounds the real column', () => {
@@ -71,6 +74,7 @@ describe('settingsFromRow', () => {
         attention_pin_wants_person: true,
         attention_pin_callback: false,
         attention_notify: false,
+        reminder_suggest_enabled: true,
         updated_at: 'v1',
       })
     ).toEqual({
@@ -87,6 +91,7 @@ describe('settingsFromRow', () => {
       attentionPinWantsPerson: true,
       attentionPinCallback: false,
       attentionNotify: false,
+      reminderSuggestEnabled: true,
       updatedAt: 'v1',
     });
   });
@@ -119,6 +124,7 @@ describe('parseInsightSettingsPut', () => {
     ['a non-uuid tag', body({ replyInterestedTagId: 'interested' })],
     ['a missing pin rule', body({ attentionPinUpset: undefined })],
     ['a non-boolean notify', body({ attentionNotify: 'yes' })],
+    ['a missing reminder switch', body({ reminderSuggestEnabled: undefined })],
     ['a numeric version', body({ expectedUpdatedAt: 3 })],
   ])('refuses %s', (_label, input) => {
     expect(parseInsightSettingsPut(input).ok).toBe(false);
@@ -175,11 +181,18 @@ describe('rowFromValues', () => {
       attention_pin_wants_person: true,
       attention_pin_callback: false,
       attention_notify: false,
+      reminder_suggest_enabled: true,
       updated_by: 'user',
     });
     const values = parsed.value;
     expect(settingsDiffer(values, values)).toBe(false);
     expect(settingsDiffer(values, { ...values, tagAutoMinP: 0.91 })).toBe(true);
+    expect(
+      settingsDiffer(values, {
+        ...values,
+        reminderSuggestEnabled: !values.reminderSuggestEnabled,
+      })
+    ).toBe(true);
   });
 });
 
