@@ -11,6 +11,7 @@
 // see (migration 043): refused, as the contact form refuses it, and
 // the hidden contact is never named or linked.
 
+import { normalizeKey } from '@/lib/contacts/dedupe';
 import type { PhoneToSave } from '@/lib/contacts/phone-validation';
 
 export interface NewChatContact {
@@ -59,12 +60,21 @@ export function decideNewChat(facts: NewChatFacts): NewChatStep {
   const { phone } = facts;
   if (!phone.ok) return { kind: 'invalid-phone', message: phone.error };
 
+  // `findExistingContact` also returns a near match (same last 8
+  // digits, e.g. +91 98 0123 4567 for +971 50 123 4567), which the
+  // contact form only warns about. Here it would send the first message
+  // to someone else, so only the exact number counts as found.
+  const target = normalizeKey(phone.phone);
+  const exact = (c: NewChatContact | null | undefined) =>
+    c && c.phone !== null && normalizeKey(c.phone) === target ? c : null;
+
   let contact: NewChatContact | null = null;
   if (facts.visibleContact === undefined) {
     return { kind: 'find-contact', phone: phone.phone };
   }
-  if (facts.visibleContact) {
-    contact = facts.visibleContact;
+  const found = exact(facts.visibleContact);
+  if (found) {
+    contact = found;
   } else {
     const insert = facts.insert;
     if (!insert) return { kind: 'insert-contact', phone: phone.phone };
@@ -72,8 +82,9 @@ export function decideNewChat(facts: NewChatFacts): NewChatStep {
       return { kind: 'failed', message: insert.message };
     }
     if (insert.kind === 'unique-violation') {
-      if (!insert.visible) return { kind: 'hidden-conflict' };
-      contact = insert.visible;
+      const visible = exact(insert.visible);
+      if (!visible) return { kind: 'hidden-conflict' };
+      contact = visible;
     } else {
       contact = { id: insert.id, phone: phone.phone };
     }

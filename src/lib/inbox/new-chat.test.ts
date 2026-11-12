@@ -62,6 +62,35 @@ describe('decideNewChat', () => {
     ).toEqual({ kind: 'hidden-conflict' });
   });
 
+  it('inserts the typed number when the visible contact only shares its last 8 digits', () => {
+    // +91 98 0123 4567: a different person, same last 8 digits.
+    const nearMatch = { id: 'c9', phone: '+91 98 0123 4567' };
+    expect(decideNewChat(facts({ visibleContact: nearMatch }))).toEqual({
+      kind: 'insert-contact',
+      phone: '971501234567',
+    });
+  });
+
+  it('refuses rather than move to a near match when the exact number is hidden', () => {
+    const nearMatch = { id: 'c9', phone: '919801234567' };
+    expect(
+      decideNewChat(
+        facts({
+          visibleContact: null,
+          insert: { kind: 'unique-violation', visible: nearMatch },
+        })
+      )
+    ).toEqual({ kind: 'hidden-conflict' });
+  });
+
+  it('uses a visible contact stored with spaces and a plus', () => {
+    const contact = { id: 'c1', phone: '+971 50 123 4567' };
+    expect(decideNewChat(facts({ visibleContact: contact }))).toEqual({
+      kind: 'find-conversations',
+      contact,
+    });
+  });
+
   it('takes the contact a lost insert race turned up', () => {
     const contact = { id: 'c2', phone: '971501234567' };
     expect(

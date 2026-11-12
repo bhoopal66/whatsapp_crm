@@ -7,7 +7,7 @@
 // the caller's RLS client and renders. Mounted only for people who may
 // send (the list gates it with `useCan('send-messages')`).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -86,6 +86,10 @@ export function NewChatButton({
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  // One number per run: closing or reopening the dialog starts a new
+  // run, and a lookup still in flight from the old one is ignored, so
+  // it cannot open a chat the agent dismissed or land in the next form.
+  const runRef = useRef(0);
   // Set once the number has no chat the caller can see: the dialog
   // turns into the outreach buttons for it.
   const [composeFor, setComposeFor] = useState<NewChatContact | null>(null);
@@ -147,6 +151,8 @@ export function NewChatButton({
   };
 
   function start() {
+    runRef.current += 1;
+    setBusy(false);
     setPhone('');
     setName('');
     setComposeFor(null);
@@ -157,6 +163,8 @@ export function NewChatButton({
   async function handleContinue() {
     if (busy || !user || !accountId) return;
     const db = createClient();
+    const run = ++runRef.current;
+    const stale = () => runRef.current !== run;
     setBusy(true);
     try {
       const facts: NewChatFacts = {
@@ -165,6 +173,7 @@ export function NewChatButton({
         hasPersonalNumber: personal ?? (await hasPersonalNumber()),
       };
       for (;;) {
+        if (stale()) return;
         const step = decideNewChat(facts);
         switch (step.kind) {
           case 'invalid-phone':
@@ -231,10 +240,11 @@ export function NewChatButton({
         }
       }
     } catch (err) {
+      if (stale()) return;
       const reason = err instanceof Error ? err.message : String(err);
       toast.error(t('failed', { reason }));
     } finally {
-      setBusy(false);
+      if (!stale()) setBusy(false);
     }
   }
 
@@ -251,7 +261,13 @@ export function NewChatButton({
       >
         <MessageSquarePlus className="size-5" />
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) runRef.current += 1;
+          setOpen(next);
+        }}
+      >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-popover-foreground">
