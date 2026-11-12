@@ -486,24 +486,69 @@ CREATE OR REPLACE FUNCTION public.brain_search_candidates(p_actor uuid, p_accoun
 RETURNS TABLE (item_id uuid, source_kind text, source_id text, case_id uuid, contact_id uuid, bank_code text,
                text text, ai_generated boolean, created_at timestamptz, cosine double precision,
                kw_rank double precision)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
+-- A generic plan guesses one candidate row and nested-loops every item
+-- against every case (5 s on 20k items); planned with the real account
+-- and filters it hashes.
+SET plan_cache_mode = force_custom_plan
 AS $$
-  WITH a AS (SELECT public.brain_actor_role(p_account, p_actor) AS role),
+#variable_conflict use_column
+DECLARE
+  -- Set-based on purpose: brain_item_visible / brain_contact_marked per
+  -- item meant a case_role lookup and two EXISTS for every live item of
+  -- the account. Same rule, worked out once per actor and once per case.
+  -- An owner / admin reads every case of the account (case_role gives
+  -- them super_admin / admin there, 161; the composite FK keeps a case
+  -- item's case in the item's account).
+  v_role text := public.brain_actor_role(p_account, p_actor);
+  v_all boolean := v_role IN ('admin', 'super_admin');
+BEGIN
+  IF v_role IS NULL THEN
+    RETURN;
+  END IF;
+  RETURN QUERY
+  WITH a AS (SELECT v_role AS role),
   q AS (SELECT CASE WHEN p_query IS NULL OR p_query ~ '^[[:space:]]*$' THEN NULL::tsquery
                     ELSE websearch_to_tsquery('simple', p_query) END AS tsq),
-  visible AS (
-    SELECT i.* FROM public.brain_items i CROSS JOIN a
-     WHERE a.role IS NOT NULL
-       AND i.account_id = p_account
+  cand AS MATERIALIZED (
+    SELECT i.* FROM public.brain_items i
+     WHERE i.account_id = p_account
        AND i.deleted_at IS NULL
-       AND public.brain_item_visible(i.account_id, i.case_id, i.created_by, i.restricted_role, p_actor)
-       AND NOT public.brain_contact_marked(i.account_id, i.contact_id)
        AND (p_case IS NULL OR i.case_id = p_case)
        AND (p_contact IS NULL OR i.contact_id = p_contact)
        AND (p_bank_code IS NULL OR i.bank_code = p_bank_code)
+  ),
+  -- case_can_read is case_rule_can_read(case_role(...)) (122): one
+  -- case_role call per case serves both.
+  case_access AS MATERIALIZED (
+    SELECT r.case_id, coalesce(public.case_rule_can_read(r.case_role), false) AS can_read, r.case_role
+      FROM (SELECT d.case_id, public.case_role(d.case_id, p_actor) AS case_role
+              FROM (SELECT DISTINCT c.case_id FROM cand c WHERE c.case_id IS NOT NULL) d
+             WHERE NOT v_all
+            OFFSET 0) r
+  ),
+  marked AS MATERIALIZED (
+    SELECT m.contact_id FROM public.brain_contact_marks m WHERE m.account_id = p_account
+    UNION
+    SELECT ct.id FROM public.contacts ct
+     WHERE ct.account_id = p_account AND (ct.opted_out_at IS NOT NULL OR ct.do_not_contact_at IS NOT NULL)
+  ),
+  visible AS (
+    SELECT c.* FROM cand c CROSS JOIN a
+      LEFT JOIN case_access ca ON ca.case_id = c.case_id
+     WHERE (CASE
+              WHEN v_all THEN true
+              WHEN c.case_id IS NOT NULL THEN
+                coalesce(ca.can_read
+                         AND (c.restricted_role IS NULL OR ca.case_role = c.restricted_role
+                              OR ca.case_role IN ('admin', 'super_admin')), false)
+              ELSE c.created_by = p_actor
+                   AND (c.restricted_role IS NULL OR c.restricted_role = a.role)
+            END)
+       AND NOT EXISTS (SELECT 1 FROM marked mk WHERE mk.contact_id = c.contact_id)
   ),
   scored AS (
     SELECT v.*,
@@ -523,7 +568,8 @@ AS $$
          r.created_at, r.cos, r.kw
     FROM ranked r
    WHERE r.rc <= greatest(coalesce(p_limit, 50), 1) OR (r.rk <= greatest(coalesce(p_limit, 50), 1) AND r.kw > 0)
-   ORDER BY greatest(r.cos, r.kw) DESC, r.created_at DESC, r.item_id
+   ORDER BY greatest(r.cos, r.kw) DESC, r.created_at DESC, r.item_id;
+END;
 $$;
 
 COMMENT ON FUNCTION public.brain_search_candidates(uuid, uuid, text, real[], text, uuid, uuid, text, integer) IS
