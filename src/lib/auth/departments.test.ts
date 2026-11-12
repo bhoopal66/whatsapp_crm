@@ -72,14 +72,15 @@ describe('isRestrictedPath', () => {
     '/opendesk',
     '/team-inbox',
     '/team-contacts',
-    '/contacts',
-    '/contacts/',
+    '/team-contacts/abc',
   ])('closes %s', (path) => {
     expect(isRestrictedPath(path)).toBe(true);
   });
 
   it.each([
     '/inbox',
+    '/contacts',
+    '/contacts/',
     '/contacts/abc',
     '/chat',
     '/calendar',

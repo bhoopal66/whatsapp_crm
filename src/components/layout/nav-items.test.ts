@@ -313,7 +313,7 @@ describe('visibleNavItems / sales-restricted departments', () => {
   it('drops restricted paths only for a restricted person', () => {
     expect(
       visibleNavItems(items, { salesRestricted: true }).map((i) => i.href)
-    ).toEqual(['/inbox', '/contacts/123', '/chat']);
+    ).toEqual(['/inbox', '/contacts', '/contacts/123', '/chat']);
     expect(visibleNavItems(items, { salesRestricted: false })).toEqual(items);
   });
 
@@ -324,7 +324,8 @@ describe('visibleNavItems / sales-restricted departments', () => {
       );
     expect(hrefs(false)).toContain('/pipelines');
     expect(hrefs(true)).not.toContain('/pipelines');
-    expect(hrefs(true)).not.toContain('/contacts');
+    expect(hrefs(true)).toContain('/contacts');
+    expect(hrefs(true)).not.toContain('/team-contacts');
     expect(hrefs(true)).toContain('/inbox');
   });
 });

@@ -96,9 +96,11 @@ export function isSalesRestricted({
 }
 
 /**
- * Screens a restricted person may not open, as path prefixes. The
- * customer page `/contacts/[id]` stays open: only the list itself is
- * listed, matched exactly (see {@link isRestrictedPath}).
+ * Screens a restricted person may not open, as path prefixes. Their own
+ * Contacts list (`/contacts`, which RLS narrows to the contacts they own
+ * or chat with) and the customer page stay open: without them a
+ * restricted person has nowhere to add a number and write to it. The
+ * everyone's-contacts view (`/team-contacts`) is closed.
  */
 export const RESTRICTED_PATHS = [
   '/pipelines',
@@ -117,16 +119,12 @@ export const RESTRICTED_PATHS = [
   '/team-contacts',
 ] as const;
 
-/** Paths restricted only as themselves, not their children. */
-export const RESTRICTED_EXACT_PATHS = ['/contacts'] as const;
-
 /** Settings sections a restricted person does not get. */
 export const RESTRICTED_SETTINGS_SECTIONS = ['templates', 'ai'] as const;
 
 /** True if `pathname` (no query string) is a screen kept from them. */
 export function isRestrictedPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, '') || '/';
-  if ((RESTRICTED_EXACT_PATHS as readonly string[]).includes(path)) return true;
   return RESTRICTED_PATHS.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`)
   );

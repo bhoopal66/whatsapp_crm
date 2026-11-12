@@ -22,10 +22,11 @@ inbox (for HR, the "HR inbox"), which only owners and admins can open.
 ## Restricted from sales areas
 
 When **Restricted** is on, the department's people cannot open: pipelines,
-cases, broadcasts, automations, company chats, the all-contacts list,
-groups, and Compass / OpenDesk. They keep their own chats and the customer
-page of a chat they can see. Enforced by the dashboard layouts and API
-guards.
+cases, broadcasts, automations, company chats, Team contacts (everyone's
+contacts), groups, and Compass / OpenDesk. They keep their own chats, their
+own Contacts list (only the contacts they own or chat with, as for any
+agent; it is where they add a number and message it) and the customer page
+of a chat they can see. Enforced by the dashboard layouts and API guards.
 
 **Owners and admins are never restricted**, whatever their department.
 

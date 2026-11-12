@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### HR can start WhatsApp chats again
+
+- People in a restricted department (HR by default) get their own
+  **Contacts** page back. It lists only the contacts they own or chat
+  with, as for any agent, and is where they add a number and message it.
+  Team contacts (everyone's contacts) stays closed to them.
+
 ### Smarter contact and chat search
 
 **Migration required:** apply `supabase/migrations/193_fuzzy_contact_search.sql`
