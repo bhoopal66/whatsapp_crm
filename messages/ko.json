@@ -78,6 +78,7 @@
     "cases": "케이스",
     "banks": "은행",
     "brain": "세컨드 브레인",
+    "digest": "일일 요약",
     "opendesk": "OpenDesk"
   },
   "Header": {
@@ -117,6 +118,7 @@
     "banks": "은행",
     "bank": "은행",
     "brain": "세컨드 브레인",
+    "digest": "일일 요약",
     "opendesk": "OpenDesk"
   },
   "Notifications": {
@@ -8613,6 +8615,22 @@
     }
   },
   "Brain": {
+    "digest": {
+      "title": "일일 요약",
+      "banner": "목록일 뿐입니다. 고객에게는 아무것도 전송되지 않습니다.",
+      "viewAs": "다음 사용자로 보기",
+      "me": "나",
+      "loading": "요약을 불러오는 중...",
+      "failed": "요약을 불러오지 못했습니다. 페이지를 새로고침하여 다시 시도하세요.",
+      "generated": "{when}에 생성됨",
+      "empty": "오늘은 항목이 없습니다.",
+      "sections": {
+        "stale_cases": "최근 활동이 없는 케이스",
+        "promises": "지켜야 할 약속",
+        "related": "관련된 종료 케이스",
+        "followups": "예정된 후속 조치"
+      }
+    },
     "title": "검색 및 질문",
     "notice": "요약은 AI가 생성한 업무 보조 자료이며 공식 기록이 아닙니다.",
     "query": "세컨드 브레인 검색",

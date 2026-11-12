@@ -127,7 +127,13 @@ describe('visibleNavGroups', () => {
       expect(
         layout(visibleNavGroups(role, { brain: true })).submissions,
         role
-      ).toEqual(['/cases', '/submission-groups', '/banks', '/brain']);
+      ).toEqual([
+        '/cases',
+        '/submission-groups',
+        '/banks',
+        '/brain',
+        '/digest',
+      ]);
     for (const role of [null, 'viewer', 'bank_guest'] as const)
       expect(
         visibleNavGroups(role, { brain: true }).flatMap((g) =>
@@ -140,6 +146,23 @@ describe('visibleNavGroups', () => {
         (g) => g.items.map((i) => i.href)
       )
     ).not.toContain('/brain');
+  });
+
+  it('gates the Daily digest exactly like Brain', () => {
+    const hrefs = (
+      role: AccountRole | null,
+      ctx: Parameters<typeof visibleNavGroups>[1]
+    ) => visibleNavGroups(role, ctx).flatMap((g) => g.items.map((i) => i.href));
+    for (const role of [null, ...ACCOUNT_ROLES])
+      expect(hrefs(role, { pbx: true }), String(role)).not.toContain('/digest');
+    for (const role of [null, 'viewer', 'bank_guest'] as const)
+      expect(hrefs(role, { brain: true }), String(role)).not.toContain(
+        '/digest'
+      );
+    expect(
+      hrefs('agent', { brain: true, salesRestricted: true })
+    ).not.toContain('/digest');
+    expect(hrefs('agent', { brain: true })).toContain('/digest');
   });
 
   it('shows a guestVisible row to a guest and to staff alike', () => {
@@ -255,6 +278,7 @@ describe('navPrefetch', () => {
         '/automations',
         '/banks',
         '/brain',
+        '/digest',
         '/broadcasts',
         '/calendar',
         '/calls',

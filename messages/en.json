@@ -78,6 +78,7 @@
     "cases": "Cases",
     "banks": "Banks",
     "brain": "Second brain",
+    "digest": "Daily digest",
     "opendesk": "OpenDesk"
   },
   "Header": {
@@ -117,6 +118,7 @@
     "banks": "Banks",
     "bank": "Bank",
     "brain": "Second brain",
+    "digest": "Daily digest",
     "opendesk": "OpenDesk"
   },
   "Notifications": {
@@ -8613,6 +8615,22 @@
     }
   },
   "Brain": {
+    "digest": {
+      "title": "Daily digest",
+      "banner": "This is a list. Nothing is sent to customers.",
+      "viewAs": "View as",
+      "me": "Me",
+      "loading": "Loading digest...",
+      "failed": "Couldn't load the digest. Reload the page to try again.",
+      "generated": "Generated {when}",
+      "empty": "Nothing here today.",
+      "sections": {
+        "stale_cases": "Cases with no recent activity",
+        "promises": "Promises to keep",
+        "related": "Related closed cases",
+        "followups": "Follow-ups due"
+      }
+    },
     "title": "Search and ask",
     "notice": "Summaries are AI-generated working aids, not the record.",
     "query": "Search the second brain",
