@@ -281,3 +281,40 @@ describe('conversation POST: group send limit', () => {
     expect(m.conv.reply).not.toHaveBeenCalled();
   });
 });
+
+describe('conversation POST: second-brain hook', () => {
+  it('records the staff text (not the prefixed body) as the caller', async () => {
+    brain.after.length = 0;
+    m.conv.reply.mockResolvedValue({
+      messageId: 'msg-9',
+      prefixedBody: '*Me*: hi',
+      waMessageId: 'wa-9',
+    });
+    expect((await post({ text: '  hi  ' })).status).toBe(201);
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledTimes(1);
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'message',
+        messageId: 'msg-9',
+        text: 'hi',
+        ref: expect.objectContaining({
+          accountId: 'acct-1',
+          caseId: ID,
+          createdBy: 'u-me',
+        }),
+      })
+    );
+  });
+
+  it('registers nothing when the send is refused', async () => {
+    brain.after.length = 0;
+    m.conv.reply.mockRejectedValue(
+      new SubmissionGroupSendRefusedError('GROUP_NOT_READY')
+    );
+    expect((await post({ text: 'hi' })).status).toBe(409);
+    for (const cb of brain.after) await cb();
+    expect(brain.after).toHaveLength(0);
+    expect(brain.record).not.toHaveBeenCalled();
+  });
+});

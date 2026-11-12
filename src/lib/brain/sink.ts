@@ -141,6 +141,10 @@ export async function recordGroupCustomerText(m: {
   body: string;
 }): Promise<void> {
   try {
+    // The switch first: most accounts have it off, and this runs on every
+    // customer text in a group, so the `cases` lookup waits for it.
+    const deps = sinkDeps();
+    if (!(await deps.enabled(m.accountId))) return;
     const { data, error } = await supabaseAdmin()
       .from('cases')
       .select('id, contact_id, bank_code')
@@ -154,7 +158,11 @@ export async function recordGroupCustomerText(m: {
       bank_code: string | null;
     } | null;
     if (!c) return;
-    await brainSink().record({
+    // The switch was read above; do not read it twice.
+    await new BestEffortBrainSink({
+      ...deps,
+      enabled: async () => true,
+    }).record({
       kind: 'message',
       ref: {
         accountId: m.accountId,
