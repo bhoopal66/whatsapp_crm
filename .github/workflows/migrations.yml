@@ -926,3 +926,16 @@ jobs:
       # restates are pinned by text; privileges (no anon).
       - name: Verify contact search
         run: supabase db query --local --file supabase/ci/verify-contact-search.sql
+
+      # Migration 194: second brain store. The switch is off by default
+      # and only an owner/admin turns it on; the upsert is idempotent and
+      # refuses unredacted numbers, blank or long text, unknown kinds and
+      # another account's case; the role ladder and the read rule (with
+      # and without a case); opted-out, do-not-contact and marked
+      # contacts are neither stored nor returned; forgetting (who, one
+      # scope, a reason) blanks text and drops embeddings for good;
+      # cosine ranking; strangers get nothing; the audit keeps only the
+      # query hash; a deleted contact's items are wiped; no client role
+      # reaches the tables or functions, RLS forced on all four.
+      - name: Verify second brain
+        run: supabase db query --local --file supabase/ci/verify-second-brain.sql
