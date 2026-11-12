@@ -8259,7 +8259,22 @@
       "notes": "Notes",
       "bank-contacts": "Bank contacts",
       "memory": "Memory",
+      "brain": "Brain",
       "audit": "Audit"
+    },
+    "brain": {
+      "title": "Case summary",
+      "ai": "AI-generated",
+      "notice": "AI-generated summary — verify against the case",
+      "meta": "Version {version}, built {when}",
+      "unknownTime": "at an unknown time",
+      "sources": "Sources",
+      "none": "No summary yet",
+      "off": "The second brain is off. An admin can turn it on in Settings → Cases.",
+      "loadFailed": "The summary could not be loaded.",
+      "rebuild": "Rebuild summaries",
+      "rebuilt": "Rebuilt {count, plural, one {# summary} other {# summaries}} ({remaining} left)",
+      "rebuildFailed": "The summaries could not be rebuilt."
     },
     "priority": {
       "low": "Low priority",

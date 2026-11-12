@@ -50,6 +50,7 @@ import { cn } from '@/lib/utils';
 
 import { ApplyMacroMenu } from './apply-macro-menu';
 import { AuditTab } from './audit-tab';
+import { BrainTab } from './brain-tab';
 import { BankContactsTab } from './bank-contacts-tab';
 import {
   EditDetailsDialog,
@@ -82,6 +83,7 @@ const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
   notes: NotesTab,
   'bank-contacts': BankContactsTab,
   memory: MemoryTab,
+  brain: BrainTab,
   audit: AuditTab,
 };
 
