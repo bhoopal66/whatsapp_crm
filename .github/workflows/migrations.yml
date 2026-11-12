@@ -939,3 +939,19 @@ jobs:
       # reaches the tables or functions, RLS forced on all four.
       - name: Verify second brain
         run: supabase db query --local --file supabase/ci/verify-second-brain.sql
+
+      # Migrations 195-196: second brain pages and digest messages.
+      # mark_dirty opens version-0 case / contact / bank pages, once, and
+      # never a marked contact's; sources leave out restricted, forgotten
+      # and marked items, newest first, capped; put is version-checked and
+      # refuses numbers and non-source items, and a page fed without a
+      # newer source stays dirty; the read fails closed (case readers
+      # only, a source restricted or marked after the build hides it, a
+      # non-uuid case key is no row); forgetting an item wipes its pages,
+      # a contact forget or delete tombstones the contact page for good;
+      # page forget needs an admin unless the contact is marked; the
+      # digest gives an agent only staff messages on their cases since
+      # the date, contact unmarked; no client role reaches any of it,
+      # brain_page_wipe is the owner's only, RLS forced on brain_pages.
+      - name: Verify brain pages
+        run: supabase db query --local --file supabase/ci/verify-brain-pages.sql
