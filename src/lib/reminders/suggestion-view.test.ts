@@ -5,6 +5,7 @@ import type { ReminderSuggestion } from '@/lib/reminders/types';
 import {
   chipFor,
   chipWhenLabel,
+  mergeLoadedSuggestions,
   reminderNote,
   reminderTitleKey,
   suggestionActionResult,
@@ -153,6 +154,29 @@ describe('withSuggestion / withoutSuggestion', () => {
     expect([...out.keys()]).toEqual(['m2']);
     expect(m.size).toBe(2);
     expect(withoutSuggestion(m, 'nope').size).toBe(2);
+  });
+});
+
+describe('mergeLoadedSuggestions', () => {
+  it('lays rows already in state over the read, keeping both sides', () => {
+    const read = s({ id: 's1', message_id: 'm1' });
+    const readOther = s({ id: 's2', message_id: 'm2' });
+    const newer = s({ id: 's1', message_id: 'm1', status: 'dismissed' });
+    const arrived = s({ id: 's3', message_id: 'm3' });
+    const loaded = new Map([
+      ['m1', read],
+      ['m2', readOther],
+    ]);
+    const current = new Map([
+      ['m1', newer],
+      ['m3', arrived],
+    ]);
+    const out = mergeLoadedSuggestions(loaded, current);
+    expect(out.get('m1')).toBe(newer);
+    expect(out.get('m2')).toBe(readOther);
+    expect(out.get('m3')).toBe(arrived);
+    expect(out.size).toBe(3);
+    expect(loaded.get('m1')).toBe(read);
   });
 });
 

@@ -121,6 +121,7 @@ import {
   reminderTitleKey,
   suggestionActionResult,
   withSuggestion,
+  mergeLoadedSuggestions,
   withoutSuggestion,
   type ReminderChip,
   type SuggestionActionOutcome,
@@ -930,7 +931,17 @@ export function MessageThread({
           for (const row of data as unknown as ReminderSuggestion[]) {
             if (!map.has(row.message_id)) map.set(row.message_id, row);
           }
-          setReminderState({ conversationId, map, at: Date.now() });
+          // Realtime may have delivered rows while the read was in
+          // flight; they are newer than the read, so they win.
+          const at = Date.now();
+          setReminderState((prev) => ({
+            conversationId,
+            map: mergeLoadedSuggestions(
+              map,
+              prev.conversationId === conversationId ? prev.map : new Map()
+            ),
+            at,
+          }));
         },
         () => {}
       );
@@ -938,6 +949,19 @@ export function MessageThread({
       live = false;
     };
   }, [conversationId, reminderChipsOn]);
+
+  // "Now" for the chips only moved when the map did, so a chat left
+  // open showed "Today 15:00" at 16:00. While any suggestion is held,
+  // tick it every minute (rows without one never receive it).
+  const hasSuggestions = suggestionsByMessageId.size > 0;
+  useEffect(() => {
+    if (!hasSuggestions) return;
+    const timer = setInterval(
+      () => setReminderState((prev) => ({ ...prev, at: Date.now() })),
+      60_000
+    );
+    return () => clearInterval(timer);
+  }, [hasSuggestions, conversationId]);
 
   useEffect(() => {
     if (!conversationId || !reminderChipsOn) return;
@@ -1021,6 +1045,11 @@ export function MessageThread({
     message: Message;
     chip: ReminderChip;
   } | null>(null);
+  // The dialog unmounts with the chat, not through onClose: drop the
+  // prefill so it does not pop up again on returning.
+  useEffect(() => {
+    setAddingReminder(null);
+  }, [conversationId]);
 
   const handleAddReminder = useCallback(
     (message: Message, chip: ReminderChip) => {

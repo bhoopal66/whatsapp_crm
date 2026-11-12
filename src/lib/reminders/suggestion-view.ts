@@ -115,6 +115,20 @@ export function withSuggestion(
   return next;
 }
 
+/**
+ * The first read of a chat landing: the rows read, with whatever state
+ * already holds laid on top. State got those rows from Realtime while
+ * the read was in flight, so they are the newer ones.
+ */
+export function mergeLoadedSuggestions(
+  loaded: ReadonlyMap<string, ReminderSuggestion>,
+  current: ReadonlyMap<string, ReminderSuggestion>
+): Map<string, ReminderSuggestion> {
+  const next = new Map(loaded);
+  for (const [messageId, s] of current) next.set(messageId, s);
+  return next;
+}
+
 /** A realtime DELETE (the payload carries only the id). */
 export function withoutSuggestion(
   map: ReadonlyMap<string, ReminderSuggestion>,
