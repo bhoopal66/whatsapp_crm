@@ -10,6 +10,7 @@ import {
   Inbox,
   Landmark,
   LayoutDashboard,
+  ListChecks,
   MessageSquare,
   MessagesSquare,
   Phone,
@@ -231,6 +232,15 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/brain',
         labelKey: 'brain',
         icon: Brain,
+        minRole: 'agent',
+        guarded: true,
+        needsBrain: true,
+      },
+      // The second brain's Daily digest: the same gate as /brain.
+      {
+        href: '/digest',
+        labelKey: 'digest',
+        icon: ListChecks,
         minRole: 'agent',
         guarded: true,
         needsBrain: true,
