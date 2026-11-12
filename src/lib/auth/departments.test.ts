@@ -61,6 +61,8 @@ describe('isRestrictedPath', () => {
     '/pipelines',
     '/cases/abc',
     '/banks',
+    '/brain',
+    '/digest',
     '/submission-groups/x',
     '/groups',
     '/broadcasts/new',

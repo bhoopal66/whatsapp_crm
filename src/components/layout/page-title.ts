@@ -23,6 +23,7 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/submission-groups/*', 'submissionGroup'],
   ['/cases', 'cases'],
   ['/banks', 'banks'],
+  ['/brain', 'brain'],
   // /banks/<id>: one bank's internal space.
   ['/banks/*', 'bank'],
   ['/chat', 'chat'],

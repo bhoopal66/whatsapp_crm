@@ -15,6 +15,7 @@ import { useGroupsUnread } from '@/hooks/use-groups-unread';
 import { useSubmissionGroupsUnread } from '@/hooks/use-submission-groups-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
+import { useBrainNav } from '@/hooks/use-brain-nav';
 import {
   ArrowLeftRight,
   Crown,
@@ -121,8 +122,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
+  const brainOn = useBrainNav();
   const navGroups = visibleNavGroups(profileLoading ? null : accountRole, {
     pbx: callsNav.visible,
+    brain: brainOn,
     salesRestricted,
   });
   // Prefix for the group headings' ids, which label their lists.

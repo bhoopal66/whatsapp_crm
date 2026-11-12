@@ -106,6 +106,8 @@ export const RESTRICTED_PATHS = [
   '/pipelines',
   '/cases',
   '/banks',
+  '/brain',
+  '/digest',
   '/submission-groups',
   '/groups',
   '/broadcasts',
