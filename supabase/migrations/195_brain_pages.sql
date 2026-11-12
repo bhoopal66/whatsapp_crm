@@ -92,23 +92,45 @@ COMMENT ON TABLE public.brain_pages IS
 
 CREATE OR REPLACE FUNCTION public.brain_page_sources(p_account uuid, p_kind text, p_key text, p_limit integer)
 RETURNS TABLE (item_id uuid, text text, created_at timestamptz, source_kind text)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
+SET plan_cache_mode = force_custom_plan
 AS $$
+#variable_conflict use_column
+DECLARE
+  -- Set-based on purpose (as 194's brain_search_candidates): the page's
+  -- own filters first, on the uuid columns (a case / contact key only
+  -- matches its lowercase uuid text, the shape brain_pages_key_uuid
+  -- holds), then the account's marked contacts as one set, anti-joined,
+  -- instead of brain_contact_marked's two EXISTS per item.
+  v_uuid uuid := CASE WHEN p_kind IN ('case', 'contact')
+                       AND p_key ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN p_key::uuid END;
+BEGIN
+  IF p_kind IS NULL OR p_kind NOT IN ('case', 'contact', 'bank') OR (p_kind <> 'bank' AND v_uuid IS NULL) THEN
+    RETURN;
+  END IF;
+  RETURN QUERY
+  WITH marked AS MATERIALIZED (
+    SELECT m.contact_id FROM public.brain_contact_marks m WHERE m.account_id = p_account
+    UNION
+    SELECT ct.id FROM public.contacts ct
+     WHERE ct.account_id = p_account AND (ct.opted_out_at IS NOT NULL OR ct.do_not_contact_at IS NOT NULL)
+  )
   SELECT i.item_id, i.text, i.created_at, i.source_kind
     FROM public.brain_items i
    WHERE i.account_id = p_account
      AND i.deleted_at IS NULL
      AND i.restricted_role IS NULL
-     AND NOT public.brain_contact_marked(p_account, i.contact_id)
-     AND CASE p_kind WHEN 'case' THEN i.case_id::text = p_key
-                     WHEN 'contact' THEN i.contact_id::text = p_key
-                     WHEN 'bank' THEN i.bank_code = p_key
-                     ELSE false END
+     AND CASE p_kind WHEN 'case' THEN i.case_id = v_uuid
+                     WHEN 'contact' THEN i.contact_id = v_uuid
+                     ELSE i.bank_code = p_key END
+     AND NOT EXISTS (SELECT 1 FROM marked mk WHERE mk.contact_id = i.contact_id)
    ORDER BY i.created_at DESC, i.item_id
-   LIMIT p_limit
+   LIMIT p_limit;
+END;
 $$;
 
 COMMENT ON FUNCTION public.brain_page_sources(uuid, text, text, integer) IS
@@ -259,31 +281,89 @@ COMMENT ON FUNCTION public.brain_page_put(uuid, text, text, integer, text, uuid[
 -- brain_pages_key_uuid holds to the uuid shape.
 CREATE OR REPLACE FUNCTION public.brain_page_read(p_actor uuid, p_account uuid, p_kind text, p_key text)
 RETURNS TABLE (summary text, version integer, built_at timestamptz, sources jsonb)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
+SET plan_cache_mode = force_custom_plan
 AS $$
-  SELECT p.summary, p.version, p.built_at,
+#variable_conflict use_column
+DECLARE
+  -- Set-based on purpose (as 194's brain_search_candidates): the actor's
+  -- role once, one case_role per distinct case of the sources (owner /
+  -- admin need none: case_role gives them admin / super_admin on every
+  -- case of the account, 161, and the composite FK keeps an item's case
+  -- in its account), and the sources' marked contacts as one set,
+  -- instead of brain_contact_marked + brain_item_visible per source.
+  -- Same fail-closed rule as brain_item_visible.
+  v_role text := public.brain_actor_role(p_account, p_actor);
+  v_all boolean := v_role IN ('admin', 'super_admin');
+  v_page public.brain_pages%ROWTYPE;
+BEGIN
+  IF v_role IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT * INTO v_page FROM public.brain_pages p
+   WHERE p.account_id = p_account AND p.kind = p_kind AND p.key = p_key
+     AND p.deleted_at IS NULL AND p.built_at IS NOT NULL;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  IF v_page.kind = 'case' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.cases c WHERE c.id = v_page.key::uuid AND c.account_id = p_account)
+       OR NOT coalesce(public.case_can_read(v_page.key::uuid, p_actor), false) THEN
+      RETURN;
+    END IF;
+  ELSIF cardinality(v_page.built_from_item_ids) = 0
+        OR (v_page.kind = 'contact' AND public.brain_contact_marked(p_account, v_page.key::uuid)) THEN
+    RETURN;
+  END IF;
+  IF EXISTS (
+    WITH src AS MATERIALIZED (
+      SELECT b.id, i.item_id, i.deleted_at, i.case_id, i.contact_id, i.created_by, i.restricted_role
+        FROM unnest(v_page.built_from_item_ids) AS b(id)
+        LEFT JOIN public.brain_items i ON i.item_id = b.id AND i.account_id = p_account
+    ),
+    -- case_can_read is case_rule_can_read(case_role(...)) (122).
+    case_access AS MATERIALIZED (
+      SELECT r.case_id, coalesce(public.case_rule_can_read(r.case_role), false) AS can_read, r.case_role
+        FROM (SELECT d.case_id, public.case_role(d.case_id, p_actor) AS case_role
+                FROM (SELECT DISTINCT s.case_id FROM src s WHERE s.case_id IS NOT NULL) d
+               WHERE NOT v_all
+              OFFSET 0) r
+    ),
+    marked AS MATERIALIZED (
+      SELECT m.contact_id FROM public.brain_contact_marks m
+       WHERE m.account_id = p_account AND m.contact_id IN (SELECT s.contact_id FROM src s)
+      UNION
+      SELECT ct.id FROM public.contacts ct
+       WHERE ct.account_id = p_account AND ct.id IN (SELECT s.contact_id FROM src s)
+         AND (ct.opted_out_at IS NOT NULL OR ct.do_not_contact_at IS NOT NULL)
+    )
+    SELECT 1 FROM src s
+      LEFT JOIN case_access ca ON ca.case_id = s.case_id
+     WHERE s.item_id IS NULL
+        OR s.deleted_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM marked mk WHERE mk.contact_id = s.contact_id)
+        OR NOT coalesce(CASE
+                          WHEN v_all THEN true
+                          WHEN s.case_id IS NOT NULL THEN
+                            ca.can_read
+                            AND (s.restricted_role IS NULL OR ca.case_role = s.restricted_role
+                                 OR ca.case_role IN ('admin', 'super_admin'))
+                          ELSE s.created_by = p_actor
+                               AND (s.restricted_role IS NULL OR s.restricted_role = v_role)
+                        END, false)
+  ) THEN
+    RETURN;
+  END IF;
+  RETURN QUERY
+  SELECT v_page.summary, v_page.version, v_page.built_at,
          (SELECT coalesce(jsonb_agg(jsonb_build_object('id', i.item_id::text, 'kind', i.source_kind)
                                     ORDER BY i.created_at DESC, i.item_id), '[]'::jsonb)
             FROM public.brain_items i
-           WHERE i.account_id = p_account AND i.item_id = ANY (p.built_from_item_ids))
-    FROM public.brain_pages p
-   WHERE p.account_id = p_account AND p.kind = p_kind AND p.key = p_key
-     AND p.deleted_at IS NULL AND p.built_at IS NOT NULL
-     AND public.brain_actor_role(p_account, p_actor) IS NOT NULL
-     AND CASE WHEN p.kind = 'case'
-              THEN EXISTS (SELECT 1 FROM public.cases c WHERE c.id = p.key::uuid AND c.account_id = p_account)
-                   AND coalesce(public.case_can_read(p.key::uuid, p_actor), false)
-              ELSE cardinality(p.built_from_item_ids) > 0
-                   AND NOT (p.kind = 'contact' AND public.brain_contact_marked(p_account, p.key::uuid))
-         END
-     AND NOT EXISTS (SELECT 1 FROM unnest(p.built_from_item_ids) AS b(id)
-                       LEFT JOIN public.brain_items i ON i.item_id = b.id AND i.account_id = p_account
-                      WHERE i.item_id IS NULL OR i.deleted_at IS NOT NULL
-                         OR public.brain_contact_marked(p_account, i.contact_id)
-                         OR NOT public.brain_item_visible(p_account, i.case_id, i.created_by, i.restricted_role, p_actor))
+           WHERE i.account_id = p_account AND i.item_id = ANY (v_page.built_from_item_ids));
+END;
 $$;
 
 COMMENT ON FUNCTION public.brain_page_read(uuid, uuid, text, text) IS
