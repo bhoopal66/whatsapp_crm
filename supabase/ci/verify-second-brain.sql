@@ -30,9 +30,11 @@ DECLARE
   u_out    UUID := '00000000-0000-4000-8000-000000194010';  -- another workspace
   a_acct   UUID;
   a_out    UUID;
-  c1 UUID; c_opt UUID; c_dnc UUID; c_mark UUID; c_del UUID; c_out UUID;
+  c1 UUID; c_opt UUID; c_dnc UUID; c_mark UUID; c_del UUID; c_out UUID; c_kopt UUID; c_kok UUID;
   k1       UUID;  -- a lead case of a_acct, agent u_agent
   k_out    UUID;  -- a lead case of a_out
+  k_kopt   UUID;  -- a lead case whose customer opts out
+  k_kok    UUID;  -- a lead case whose customer stays unmarked
   i1 UUID; i1b UUID; i_opt UUID; i_dnc UUID; i_mark UUID; i_f UUID;
   i_v1 UUID; i_v2 UUID; i_del UUID; i_case UUID;
   v_id     UUID;
@@ -125,7 +127,11 @@ BEGIN
   INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_out, u_out, '971500194006', 'BS 6') RETURNING id INTO c_out;
   k1 := case_open_lead(u_agent, a_acct, c1, 'ADCB', 'Loan', u_agent, 1000);
   k_out := case_open_lead(u_out, a_out, c_out, 'ADCB', 'Loan', u_out, 1000);
-  IF k1 IS NULL OR k_out IS NULL THEN
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500194007', 'BS 7') RETURNING id INTO c_kopt;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500194008', 'BS 8') RETURNING id INTO c_kok;
+  k_kopt := case_open_lead(u_agent, a_acct, c_kopt, 'ADCB', 'Loan', u_agent, 1000);
+  k_kok := case_open_lead(u_agent, a_acct, c_kok, 'ADCB', 'Loan', u_agent, 1000);
+  IF k1 IS NULL OR k_out IS NULL OR k_kopt IS NULL OR k_kok IS NULL THEN
     RAISE EXCEPTION 'fixture: case_open_lead returned NULL';
   END IF;
 
@@ -411,6 +417,26 @@ BEGIN
   IF i_del IS NULL OR v_n <> 1 THEN failed := failed || 'deleting a contact did not wipe its items'::text; END IF;
   SELECT count(*) INTO v_n FROM brain_embeddings WHERE item_id = i_del;
   IF v_n <> 0 THEN failed := failed || 'deleting a contact kept its items'' embeddings'::text; END IF;
+
+  -- ---------- 8b. an item about a case carries the case's customer ----------
+  UPDATE contacts SET opted_out_at = now() WHERE id = c_kopt;
+  n := n + 1;
+  v_id := brain_item_upsert(a_acct, 'discussion', 'bs-kopt', k_kopt, NULL, NULL, 'bank asked for a fresh lynx form', false, NULL, u_owner, NULL);
+  SELECT count(*) INTO v_n FROM brain_items WHERE account_id = a_acct AND source_id = 'bs-kopt';
+  IF v_id IS NOT NULL OR v_n <> 0 THEN
+    failed := failed || 'upsert with only the case stored a chunk for the case''s opted-out customer'::text;
+  END IF;
+  n := n + 1;
+  v_id := brain_item_upsert(a_acct, 'discussion', 'bs-kok', k_kok, NULL, NULL, 'bank asked for a fresh ibex form', false, NULL, u_owner, NULL);
+  SELECT count(*) INTO v_n FROM brain_items WHERE item_id = v_id AND case_id = k_kok AND contact_id = c_kok;
+  IF v_id IS NULL OR v_n <> 1 THEN
+    failed := failed || 'upsert with only the case did not store the case''s customer as contact_id'::text;
+  END IF;
+  n := n + 1;
+  v_n := brain_item_forget(u_owner, NULL, a_acct, NULL, c_kok, NULL, 'verify');
+  IF v_n <> 1 OR EXISTS (SELECT 1 FROM brain_items WHERE account_id = a_acct AND source_id = 'bs-kok' AND deleted_at IS NULL) THEN
+    failed := failed || format('a contact-scope forget left the case item (forgot %s)', v_n);
+  END IF;
 
   -- ---------- 9. privileges ----------
   n := n + 1;

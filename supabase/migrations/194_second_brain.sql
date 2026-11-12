@@ -229,6 +229,7 @@ DECLARE
   v_sha     text;
   v_id      uuid;
   v_deleted timestamptz;
+  v_contact uuid := p_contact;
 BEGIN
   IF p_account IS NULL OR p_source_id IS NULL OR p_source_id ~ '^[[:space:]]*$'
      OR (p_system_label IS NOT NULL AND p_system_label !~ '^system:[a-z_]+$') THEN
@@ -258,22 +259,33 @@ BEGIN
   IF NOT coalesce((SELECT s.brain_enabled FROM public.case_account_settings s WHERE s.account_id = p_account), false) THEN
     RETURN NULL;   -- the switch is off: nothing is stored
   END IF;
+  -- An item about a case is about the case's customer: callers that pass
+  -- only the case (bank threads and posts, remember) get the contact from
+  -- the case (130's cases.contact_id, else its submission group's), so the
+  -- mark check, search's mark filter and a contact-scope forget all see
+  -- it. A contact the caller names is kept as given.
+  IF v_contact IS NULL AND p_case IS NOT NULL THEN
+    SELECT coalesce(c.contact_id, g.contact_id) INTO v_contact
+      FROM public.cases c
+      LEFT JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
+     WHERE c.id = p_case AND c.account_id = p_account;
+  END IF;
   -- Lock the contact before the mark check: brain_contact_mark takes FOR
   -- UPDATE on it, and an opt-out or delete conflicts with FOR SHARE, so a
   -- chunk is never stored after its contact was marked or deleted.
-  IF p_contact IS NOT NULL THEN
-    PERFORM 1 FROM public.contacts c WHERE c.id = p_contact AND c.account_id = p_account FOR SHARE;
+  IF v_contact IS NOT NULL THEN
+    PERFORM 1 FROM public.contacts c WHERE c.id = v_contact AND c.account_id = p_account FOR SHARE;
     IF NOT FOUND THEN
       RETURN NULL;   -- no such contact in the account (deleted): nothing is stored
     END IF;
   END IF;
-  IF public.brain_contact_marked(p_account, p_contact) THEN
+  IF public.brain_contact_marked(p_account, v_contact) THEN
     RETURN NULL;   -- opted-out / deletion-marked contact: nothing is stored
   END IF;
   v_sha := encode(sha256(convert_to(p_text, 'UTF8')), 'hex');
   INSERT INTO public.brain_items (account_id, source_kind, source_id, case_id, contact_id, bank_code, text,
                                   text_sha256, ai_generated, restricted_role, created_by, system_label)
-  VALUES (p_account, p_source_kind, p_source_id, p_case, p_contact, p_bank_code, p_text,
+  VALUES (p_account, p_source_kind, p_source_id, p_case, v_contact, p_bank_code, p_text,
           v_sha, coalesce(p_ai_generated, false), p_restricted_role, p_created_by, p_system_label)
   ON CONFLICT ON CONSTRAINT brain_items_source_key DO NOTHING
   RETURNING item_id INTO v_id;
