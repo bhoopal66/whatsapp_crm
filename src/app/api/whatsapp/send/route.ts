@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
+import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
@@ -249,6 +250,28 @@ export async function POST(request: Request) {
         senderUserId: userId,
         respectConsent: origin === 'missed_call_draft',
       });
+
+      // Reminder suggestions (migration 197): a person's own text that names
+      // a later time may get "Add reminder" under it. After the response,
+      // awaited inside after(); never for templates, media, interactive or
+      // personal-number sends.
+      if (
+        message_type === 'text' &&
+        personal !== true &&
+        typeof content_text === 'string' &&
+        content_text.trim()
+      ) {
+        after(() =>
+          suggestReminderForMessage({
+            accountId,
+            conversationId,
+            messageId: result.messageId,
+            text: content_text,
+            side: 'agent',
+            messageAt: new Date().toISOString(),
+          })
+        );
+      }
 
       return NextResponse.json({
         success: true,

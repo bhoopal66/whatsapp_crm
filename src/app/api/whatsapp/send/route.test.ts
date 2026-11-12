@@ -209,16 +209,39 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   isLegacyFormat: vi.fn(() => false),
 }));
 
-const { sendTemplateMessage, sendTextMessage } = vi.hoisted(() => ({
-  sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
-  sendTextMessage: vi.fn(async () => ({ messageId: 'wamid-text' })),
+// Reminder suggestions run in after(): collect the callbacks, run them
+// after the response, and stand the suggester in with a spy.
+const reminder = vi.hoisted(() => ({
+  suggest: vi.fn(async () => ({ status: 'off' })),
+  afterCallbacks: [] as Array<() => Promise<unknown> | unknown>,
 }));
+vi.mock('next/server', async () => {
+  const actual =
+    await vi.importActual<typeof import('next/server')>('next/server');
+  return {
+    ...actual,
+    after: (cb: () => Promise<unknown> | unknown) => {
+      reminder.afterCallbacks.push(cb);
+    },
+  };
+});
+vi.mock('@/lib/reminders/suggest', () => ({
+  suggestReminderForMessage: reminder.suggest,
+}));
+
+const { sendTemplateMessage, sendTextMessage, sendMediaMessage } = vi.hoisted(
+  () => ({
+    sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
+    sendTextMessage: vi.fn(async () => ({ messageId: 'wamid-text' })),
+    sendMediaMessage: vi.fn(async () => ({ messageId: 'wamid-media' })),
+  })
+);
 vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   // The real error class: a failed send is judged by `instanceof`.
   ...(await importOriginal<Record<string, unknown>>()),
   sendTemplateMessage,
   sendTextMessage,
-  sendMediaMessage: vi.fn(),
+  sendMediaMessage,
   // A refused 401/403 probes the number; never let that reach Whapi.
   getChannelInfo: vi.fn(async () => {
     throw new Error('no probe in tests');
@@ -649,5 +672,118 @@ describe('POST /api/whatsapp/send — missed-call draft origin', () => {
 
     expect(res.status).toBe(400);
     expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/whatsapp/send — reminder suggestions', () => {
+  beforeEach(() => {
+    conversationInserts.length = 0;
+    messageInserts.length = 0;
+    existingConversation = {
+      id: 'conv-existing',
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      contact: CONTACT,
+    };
+    createdConversation = null;
+    contactRow = CONTACT;
+    callerRole = 'agent';
+    extraConfigRows = [];
+    messageInsertError = null;
+    supabaseMock = makeSupabaseMock();
+    reminder.suggest.mockClear();
+    reminder.afterCallbacks.length = 0;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function runAfter() {
+    for (const cb of reminder.afterCallbacks.splice(0)) await cb();
+  }
+
+  function post(body: Record<string, unknown>) {
+    return POST(
+      new Request('http://localhost/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    );
+  }
+
+  it('schedules one agent-side suggestion for a text send', async () => {
+    const res = await post({
+      conversation_id: 'conv-existing',
+      message_type: 'text',
+      content_text: 'I will call you tomorrow at 5',
+    });
+    expect(res.status).toBe(200);
+    // Nothing runs until after the response.
+    expect(reminder.suggest).not.toHaveBeenCalled();
+    await runAfter();
+    expect(reminder.suggest).toHaveBeenCalledTimes(1);
+    expect(reminder.suggest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acct-1',
+        conversationId: 'conv-existing',
+        messageId: 'msg-1',
+        text: 'I will call you tomorrow at 5',
+        side: 'agent',
+      })
+    );
+  });
+
+  it('schedules none for a template send', async () => {
+    const res = await postContactTemplate({
+      contact_id: undefined,
+      conversation_id: 'conv-existing',
+    });
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(reminder.suggest).not.toHaveBeenCalled();
+  });
+
+  it('schedules none for a media send', async () => {
+    const res = await post({
+      conversation_id: 'conv-existing',
+      message_type: 'image',
+      media_url: 'https://example.com/a.png',
+      content_text: 'see you tomorrow',
+    });
+    expect(res.status).toBe(200);
+    expect(sendMediaMessage).toHaveBeenCalledTimes(1);
+    await runAfter();
+    expect(reminder.suggest).not.toHaveBeenCalled();
+  });
+
+  it('schedules none for a personal-number send', async () => {
+    extraConfigRows = [personalRow('user-1')];
+    const res = await post({
+      contact_id: 'contact-1',
+      personal: true,
+      message_type: 'text',
+      content_text: 'call you tomorrow',
+    });
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(reminder.suggest).not.toHaveBeenCalled();
+  });
+
+  it('schedules none when the send fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sendTextMessage.mockRejectedValueOnce(
+      new WhapiError('Recipient not on WhatsApp', 400)
+    );
+    const res = await post({
+      conversation_id: 'conv-existing',
+      message_type: 'text',
+      content_text: 'call you tomorrow',
+    });
+    expect(res.status).toBe(502);
+    await runAfter();
+    expect(reminder.suggest).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 });

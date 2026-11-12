@@ -53,6 +53,7 @@ import {
   tagInterestedReply,
 } from '@/lib/broadcasts/reply-class';
 import { runInboundInsights } from '@/lib/insights/inbound';
+import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
@@ -1299,6 +1300,21 @@ export async function processMessage(
     .then((outcome) => autoTagFromInsights(insightsArgs, outcome));
   if (later) later.push(insights);
   else await insights;
+
+  // Reminder suggestions (migration 197, docs/jev-insights.md): a customer
+  // message that names a later time may get "Add reminder" under it in
+  // the inbox. Display data, off unless switched on, never throws; handed
+  // to `later` like the insights so after() keeps it alive.
+  const reminder = suggestReminderForMessage({
+    accountId,
+    conversationId: conversation.id,
+    messageId: message.id,
+    text: inboundText,
+    side: 'customer',
+    messageAt,
+  });
+  if (later) later.push(reminder);
+  else await reminder;
 
   // The customer document's own copy, if it needs one (see above).
   await fileDocumentLater();

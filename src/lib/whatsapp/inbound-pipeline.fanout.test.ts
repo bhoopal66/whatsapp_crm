@@ -38,6 +38,7 @@ const h = vi.hoisted(() => ({
   webhook: vi.fn(),
   watch: vi.fn(),
   insights: vi.fn(),
+  reminder: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
   classify: vi.fn(),
@@ -157,6 +158,9 @@ vi.mock('@/lib/ai/typesafe-watch', () => ({
 vi.mock('@/lib/insights/inbound', () => ({
   runInboundInsights: (...args: unknown[]) => h.insights(...args),
 }));
+vi.mock('@/lib/reminders/suggest', () => ({
+  suggestReminderForMessage: (...args: unknown[]) => h.reminder(...args),
+}));
 vi.mock('@/lib/insights/auto-tag', () => ({
   autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
 }));
@@ -243,6 +247,7 @@ beforeEach(() => {
   h.webhook.mockReset().mockResolvedValue(undefined);
   h.watch.mockReset().mockResolvedValue(undefined);
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
+  h.reminder.mockReset().mockResolvedValue({ status: 'off' });
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
   h.recipientRows = [];
@@ -375,6 +380,29 @@ describe('processMessage — replay', () => {
   });
 });
 
+describe('processMessage — reminder suggestions', () => {
+  it('suggests for a customer message, with the persisted message id', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.reminder).toHaveBeenCalledTimes(1);
+    expect(h.reminder.mock.calls[0][0]).toMatchObject({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      messageId: 'wamid.over-limit',
+      text: 'hello',
+      side: 'customer',
+      messageAt: '2025-10-09T08:53:20.000Z',
+    });
+  });
+
+  it('a replayed message suggests nothing', async () => {
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    info.mockRestore();
+    expect(h.reminder).not.toHaveBeenCalled();
+  });
+});
+
 // The journey bot (module 016) runs after Flows, only when no Flow took
 // the message; when it consumes, content automations and the AI reply
 // stand down as they do for a Flow.
@@ -479,7 +507,8 @@ describe('processMessage — Smart insights', () => {
     const later: Promise<unknown>[] = [];
     await processMessage(message, 'acct-1', 'owner-1', channel, later);
 
-    expect(later).toHaveLength(1);
+    // The insights chain and the reminder suggestion.
+    expect(later).toHaveLength(2);
     expect(h.watch).toHaveBeenCalledTimes(1);
     expect(h.insights).not.toHaveBeenCalled();
 
