@@ -35,6 +35,7 @@ const msg = (text: string, contactId = 'c1'): SinkEvent => ({
 beforeEach(() => {
   brainSinkCounters.brain_ingest_failures = 0;
   brainSinkCounters.brain_ingest_skipped_marked = 0;
+  brainSinkCounters.brain_page_dirty_failures = 0;
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -223,5 +224,62 @@ describe('recordGroupCustomerText', () => {
     await expect(recordGroupCustomerText(msgArgs)).resolves.toBeUndefined();
     expect(rec).not.toHaveBeenCalled();
     expect(brainSinkCounters.brain_ingest_failures).toBe(1);
+  });
+});
+
+describe('022c BrainSink page dirty marks', () => {
+  // The block above spies on BestEffortBrainSink.prototype.record.
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  const note: SinkEvent = {
+    kind: 'note',
+    ref,
+    noteId: 'n1',
+    body: 'call the bank',
+  };
+  const withPages = (
+    markDirty: (a: string, ids: readonly string[]) => Promise<number>
+  ) => {
+    const m = new MemPorts();
+    const sink = new BestEffortBrainSink({
+      ...memDeps(m),
+      enabled: async () => true,
+      marked: async () => false,
+      pages: { markDirty },
+    });
+    return { sink, m };
+  };
+
+  it('marks the stored item ids dirty in the event account', async () => {
+    const markDirty = vi.fn(async () => 1);
+    const { sink, m } = withPages(markDirty);
+    await sink.record(note);
+    expect(m.items.length).toBe(1);
+    expect(markDirty).toHaveBeenCalledWith('a1', [m.items[0].id]);
+    expect(brainSinkCounters.brain_page_dirty_failures).toBe(0);
+  });
+
+  it('a rejecting markDirty leaves record() resolved and is counted apart', async () => {
+    const { sink } = withPages(async () => {
+      throw new Error('pages down');
+    });
+    await expect(sink.record(note)).resolves.toBeUndefined();
+    expect(brainSinkCounters.brain_page_dirty_failures).toBe(1);
+    expect(brainSinkCounters.brain_ingest_failures).toBe(0);
+  });
+
+  it('no dirty mark when nothing was stored (opted-out contact)', async () => {
+    const markDirty = vi.fn(async () => 1);
+    const m = new MemPorts();
+    const sink = new BestEffortBrainSink({
+      ...memDeps(m),
+      enabled: async () => true,
+      marked: async () => true,
+      pages: { markDirty },
+    });
+    await sink.record(msg('hello there'));
+    expect(markDirty).not.toHaveBeenCalled();
   });
 });

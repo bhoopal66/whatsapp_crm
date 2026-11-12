@@ -31,6 +31,8 @@ vi.mock('@/lib/submission-groups/server', () => ({
   }),
 }));
 
+import { brainSinkCounters } from '@/lib/brain/sink';
+
 import { POST } from './route';
 
 const CONTACT = '22222222-2222-4222-8222-222222222222';
@@ -125,5 +127,35 @@ describe('POST /api/brain/contact-mark', () => {
     ])
       expect((await post(b)).status, JSON.stringify(b)).toBe(400);
     expect(m.rpc).not.toHaveBeenCalled();
+  });
+
+  it('forgets the contact page as the session after the mark (022c)', async () => {
+    const res = await post({ contactId: CONTACT, kind: 'deletion' });
+    expect(res.status).toBe(200);
+    const fns = m.rpc.mock.calls.map((c) => c[0]);
+    expect(fns.indexOf('brain_page_forget')).toBeGreaterThan(
+      fns.indexOf('brain_contact_mark')
+    );
+    expect(m.rpc).toHaveBeenCalledWith('brain_page_forget', {
+      p_actor: 'u-1',
+      p_system_label: null,
+      p_account: 'acct-1',
+      p_contact: CONTACT,
+      p_reason: 'opt_out',
+    });
+  });
+
+  it('a failing page forget is counted and never changes the response', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    brainSinkCounters.brain_page_dirty_failures = 0;
+    m.rpc.mockImplementation(async (fn: string) =>
+      fn === 'brain_page_forget'
+        ? { data: null, error: { code: 'XX000', message: 'down' } }
+        : { data: null, error: null }
+    );
+    const res = await post({ contactId: CONTACT, kind: 'opt_out' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(brainSinkCounters.brain_page_dirty_failures).toBe(1);
   });
 });

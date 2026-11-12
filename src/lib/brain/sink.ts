@@ -26,6 +26,7 @@ import {
   type SourceRef,
 } from './ingest';
 import { HashingEmbedder } from './embed';
+import { SupabaseBrainPageStore, type BrainPageStore } from './pages';
 import { SupabaseBrainStore, SupabaseCosineIndex } from './store';
 
 export type SinkEvent =
@@ -40,6 +41,8 @@ export interface SinkDeps extends IngestDeps {
   enabled: (accountId: string) => Promise<boolean>;
   /** True when the contact is opted out / deletion-marked in the account. */
   marked: (accountId: string, contactId: string) => Promise<boolean>;
+  /** 022c: pages built from freshly stored items are marked dirty. */
+  pages?: Pick<BrainPageStore, 'markDirty'>;
 }
 
 export interface BrainSink {
@@ -50,7 +53,33 @@ export interface BrainSink {
 export const brainSinkCounters = {
   brain_ingest_failures: 0,
   brain_ingest_skipped_marked: 0,
+  brain_page_dirty_failures: 0,
 };
+
+/**
+ * 022c: mark the pages built from `itemIds` dirty. Never rejects: a failure
+ * is counted in `brain_page_dirty_failures` and logged without any text.
+ */
+export async function markPagesDirty(
+  pages: Pick<BrainPageStore, 'markDirty'> | undefined,
+  accountId: string,
+  itemIds: readonly string[]
+): Promise<void> {
+  if (!pages || itemIds.length === 0) return;
+  try {
+    await pages.markDirty(accountId, itemIds);
+  } catch (err) {
+    brainSinkCounters.brain_page_dirty_failures++;
+    try {
+      console.warn(
+        '[brain-sink] page dirty mark failed',
+        err instanceof Error ? err.name : typeof err
+      );
+    } catch {
+      // a logger must never reach the caller either
+    }
+  }
+}
 
 export class BestEffortBrainSink implements BrainSink {
   constructor(private readonly deps: SinkDeps) {}
@@ -60,6 +89,8 @@ export class BestEffortBrainSink implements BrainSink {
       if (!(await this.deps.enabled(event.ref.accountId))) return;
       const r = await this.ingest(event);
       if (r !== null && !r.ok) this.fail(event.kind, r.reason);
+      else if (r !== null)
+        await markPagesDirty(this.deps.pages, event.ref.accountId, r.itemIds);
     } catch (err) {
       this.fail(event.kind, err instanceof Error ? err.message : 'error');
     }
@@ -192,6 +223,7 @@ export function sinkDeps(): SinkDeps {
     store: new SupabaseBrainStore(db),
     index: new SupabaseCosineIndex(db),
     embedder: new HashingEmbedder(),
+    pages: new SupabaseBrainPageStore(db),
     enabled: async (accountId) => {
       const { data, error } = await db
         .from('case_account_settings')

@@ -4,7 +4,8 @@
 // nothing new is stored for it. Agent and up. Body `{ contactId (uuid),
 // kind: 'opt_out' | 'deletion' }`; the contact must be visible through the
 // caller's RLS client (404 otherwise) -> 200 `{ ok: true }`. Marks only
-// narrow: there is no "clear".
+// narrow: there is no "clear". The contact's summary page is then
+// forgotten (022c), best-effort.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -17,9 +18,11 @@ import {
 import { hasMinRole } from '@/lib/auth/roles';
 import { badRequest, oneOf, readObject } from '@/lib/cases/http';
 import type { ContactMarkKind } from '@/lib/brain/ports';
+import { brainSinkCounters } from '@/lib/brain/sink';
 import {
   brainDeps,
   brainErrorResponse,
+  brainPages,
   optionalUuid,
   requireBrain,
   requireVisibleContact,
@@ -43,6 +46,22 @@ export async function POST(request: Request) {
       contactId,
       kind
     );
+    // 022c: delete the contact's page and wipe every page built from its
+    // items. Best-effort: the mark stands, a failure is logged and counted.
+    try {
+      await brainPages().forget(
+        { actorId: ctx.userId },
+        ctx.accountId,
+        contactId,
+        'opt_out'
+      );
+    } catch (err) {
+      brainSinkCounters.brain_page_dirty_failures++;
+      console.warn(
+        '[brain] contact-mark page forget failed',
+        err instanceof Error ? err.name : typeof err
+      );
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return brainErrorResponse(err, 'contact-mark');

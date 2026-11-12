@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   ingestRemember: vi.fn(),
+  rpc: vi.fn(),
   get: vi.fn(),
   role: vi.fn(),
   contact: { data: { id: 'c' }, error: null } as {
@@ -28,13 +29,15 @@ vi.mock('@/lib/submission-groups/server', () => ({
         }),
       }),
     }),
-    rpc: vi.fn(),
+    rpc: m.rpc,
   }),
 }));
 vi.mock('@/lib/cases/server', () => ({
   caseStore: () => ({ get: m.get, role: m.role }),
 }));
 vi.mock('@/lib/brain/ingest', () => ({ ingestRemember: m.ingestRemember }));
+
+import { brainSinkCounters } from '@/lib/brain/sink';
 
 import { POST } from './route';
 
@@ -144,5 +147,31 @@ describe('POST /api/brain/remember', () => {
       expect((await post(b)).status, JSON.stringify(b)).toBe(400);
     expect(m.ingestRemember).not.toHaveBeenCalled();
     expect((await post({ text: 'x'.repeat(4000) })).status).toBe(201);
+  });
+
+  it('marks the pages built from the new items dirty (022d-2)', async () => {
+    m.rpc.mockResolvedValue({ data: 1, error: null });
+    const res = await post({ text: 'bank wants the salary letter' });
+    expect(res.status).toBe(201);
+    expect(m.rpc).toHaveBeenCalledWith('brain_page_mark_dirty', {
+      p_account: 'acct-1',
+      p_item_ids: ['i1'],
+    });
+  });
+
+  it('a failing dirty mark is counted and never changes the response', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    brainSinkCounters.brain_page_dirty_failures = 0;
+    m.rpc.mockRejectedValue(new Error('pages down'));
+    const res = await post({ text: 'bank wants the salary letter' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ itemIds: ['i1'], duplicate: false });
+    expect(brainSinkCounters.brain_page_dirty_failures).toBe(1);
+  });
+
+  it('no stored items: no dirty mark call', async () => {
+    m.ingestRemember.mockResolvedValue({ ok: true, itemIds: [], skipped: 1 });
+    expect((await post({ text: 'again' })).status).toBe(201);
+    expect(m.rpc).not.toHaveBeenCalled();
   });
 });
