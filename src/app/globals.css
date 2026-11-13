@@ -328,8 +328,8 @@ html[data-mode='light'] {
  * tile, softened by the veil layered on top of it. */
 /* The visible screen height. 100vh on a phone counts the space under the
    browser's address bar, so a full-height layout's bottom (the chat input)
-   sat off-screen; 100dvh is what is actually visible, and the 100vh line
-   stays for browsers without dvh. */
+   sat off-screen; 100dvh is what is actually visible. The build drops the
+   100vh line: every browser Next 16 supports has dvh. */
 @utility h-app {
   height: 100vh;
   height: 100dvh;
