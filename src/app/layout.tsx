@@ -55,6 +55,11 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Android Chrome: the on-screen keyboard shrinks the page instead of
+  // covering it, so a chat's input box stays above the keyboard.
+  interactiveWidget: "resizes-content",
   themeColor: "#020617",
   colorScheme: "dark light",
 };

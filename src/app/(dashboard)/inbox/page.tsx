@@ -1165,7 +1165,8 @@ export function InboxPageInner({
   const hasActiveConv = !!activeConversation;
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
+    // Fills the shell's full-bleed main (lib/layout/full-bleed.ts).
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {campaignView && (
         <div className="shrink-0 px-4 pt-2 sm:px-6">
           <BroadcastsTabs />

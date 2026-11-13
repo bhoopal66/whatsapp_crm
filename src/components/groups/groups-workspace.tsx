@@ -23,7 +23,8 @@ export function GroupsWorkspace({ children }: { children: ReactNode }) {
   const selectedId = (Array.isArray(raw) ? raw[0] : raw) ?? null;
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] overflow-hidden sm:-m-6">
+    // Fills the shell's full-bleed main (lib/layout/full-bleed.ts).
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* `min-w-0`: a long name must truncate, not widen the pane. */}
       <aside
         className={cn(

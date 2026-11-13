@@ -280,7 +280,7 @@ export function MentionTextarea(p: MentionTextareaProps) {
         }}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
-        className="placeholder:text-muted-foreground bg-card dark:bg-background focus-visible:ring-ring/40 block w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+        className="placeholder:text-muted-foreground bg-card dark:bg-background focus-visible:ring-ring/40 block w-full resize-none rounded-lg border px-3 py-2 text-base outline-none focus-visible:ring-2 sm:text-sm"
       />
     </div>
   );

@@ -37,7 +37,7 @@ export const metadata: Metadata = {
 
 export default function JoinLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="auth-backdrop flex min-h-screen items-center justify-center px-4 dark:bg-none">
+    <div className="auth-backdrop flex min-h-app items-center justify-center px-4 dark:bg-none">
       {children}
     </div>
   );

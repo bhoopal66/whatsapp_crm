@@ -1495,7 +1495,7 @@ export function MessageComposer({
             // The placeholder text also surfaces the read-only state.
             title={readOnly ? t('readOnlyTitle') : undefined}
             className={cn(
-              'bg-wa-input text-wa-text placeholder:text-wa-text-secondary min-h-10 flex-1 resize-none rounded-lg border-0 px-3 py-2.5 text-[15px] leading-5 outline-none',
+              'bg-wa-input text-wa-text placeholder:text-wa-text-secondary min-h-10 flex-1 resize-none rounded-lg border-0 px-3 py-2.5 text-base leading-5 outline-none sm:text-[15px]',
               readOnly && 'cursor-not-allowed opacity-50'
             )}
           />

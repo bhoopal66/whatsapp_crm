@@ -9,8 +9,7 @@ import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
-import { isChatPath } from "@/lib/chat/view";
-import { isMeetingRoomPath } from "@/lib/meetings/session/paths";
+import { isFullBleedPath } from "@/lib/layout/full-bleed";
 import { MeetingInviteCard } from "@/components/meetings/meeting-invite-card";
 import { ReminderAlarm } from "@/components/reminders/reminder-alarm";
 import { MeetingSessionProvider } from "@/components/meetings/session/meeting-session-provider";
@@ -26,10 +25,6 @@ import { BackNavTracker } from "@/components/layout/back-nav-tracker";
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
 
-/** Team chat and the meeting room scroll their own panes. */
-function isFullBleedPath(pathname: string): boolean {
-  return isChatPath(pathname) || isMeetingRoomPath(pathname);
-}
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
   const { user, loading, profileLoading, accountRole } = useAuth();
@@ -61,7 +56,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-app items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <p className="text-sm text-muted-foreground">Loading...</p>
@@ -85,7 +80,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* The bell: one list, count and realtime subscription for the
           top bar's dropdown and the /notifications page. */}
       <NotificationsProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
+      {/* `h-app` is the visible screen (100dvh): 100vh on a phone also
+          counts the space under the browser's address bar. */}
+      <div className="flex h-app overflow-hidden bg-background">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
@@ -101,10 +98,21 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           }
         >
           {/* Above every page: writes are being rejected and here's why.
-              Renders nothing unless the account/role failed to resolve. */}
-          <AccountAccessAlert />
-          {/* One-time offer to turn on push on this device. */}
-          <PushPrompt />
+              Renders nothing unless the account/role failed to resolve.
+              Then the one-time offer to turn on push on this device. A
+              full-bleed screen has no padding of its own, so they get it
+              here; `empty:hidden` drops the wrapper when both are null. */}
+          {isFullBleedPath(pathname) ? (
+            <div className="shrink-0 px-4 pt-4 empty:hidden sm:px-6">
+              <AccountAccessAlert />
+              <PushPrompt />
+            </div>
+          ) : (
+            <>
+              <AccountAccessAlert />
+              <PushPrompt />
+            </>
+          )}
           {children}
         </main>
       </div>

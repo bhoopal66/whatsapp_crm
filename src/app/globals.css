@@ -326,6 +326,20 @@ html[data-mode='light'] {
 
 /* The chat wallpaper: WhatsApp's beige / near-black with the doodle
  * tile, softened by the veil layered on top of it. */
+/* The visible screen height. 100vh on a phone counts the space under the
+   browser's address bar, so a full-height layout's bottom (the chat input)
+   sat off-screen; 100dvh is what is actually visible, and the 100vh line
+   stays for browsers without dvh. */
+@utility h-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+@utility min-h-app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 @utility wa-wallpaper {
   background-color: var(--wa-chat);
   background-image:
