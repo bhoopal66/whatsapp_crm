@@ -326,3 +326,20 @@ export function mergeSynced<
       : n;
   });
 }
+
+/**
+ * A row to show after a PATCH settles or is reverted: `next` with the
+ * PBX's name and on-PBX flag of the row as it is now. Those two come
+ * only from a sync (GET and PATCH never carry them), and a sync may
+ * have landed while the request was out.
+ */
+export function withPbxFields<
+  T extends { callerIdName?: string | null; onPbx?: boolean },
+>(next: T, current: { callerIdName?: string | null; onPbx?: boolean }): T {
+  return { ...next, callerIdName: current.callerIdName, onPbx: current.onPbx };
+}
+
+/** The busy-set key for a person in a workspace (a link or move in flight). */
+export function personKey(accountId: string, userId: string): string {
+  return `person:${accountId}:${userId}`;
+}

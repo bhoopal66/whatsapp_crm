@@ -10,6 +10,8 @@ import {
   personOptions,
   planLink,
   suggestMappings,
+  withPbxFields,
+  personKey,
   suggestionStillValid,
 } from './extension-mapping';
 import type { MappableWorkspace } from './admin-ui';
@@ -340,5 +342,29 @@ describe('mergeSynced', () => {
   });
   it('takes the sync for every row when nothing was written', () => {
     expect(mergeSynced(local, synced, () => false)).toEqual(synced);
+  });
+});
+
+describe('withPbxFields', () => {
+  it('keeps the PBX name a sync gave the row while a PATCH was out', () => {
+    const server = {
+      id: 'e1',
+      userId: 'u',
+      callerIdName: undefined,
+      onPbx: undefined,
+    };
+    const now = { id: 'e1', userId: null, callerIdName: 'Fatima', onPbx: true };
+    expect(withPbxFields(server, now)).toEqual({
+      id: 'e1',
+      userId: 'u',
+      callerIdName: 'Fatima',
+      onPbx: true,
+    });
+  });
+});
+
+describe('personKey', () => {
+  it('never collides with an extension id', () => {
+    expect(personKey('a', 'u')).toBe('person:a:u');
   });
 });

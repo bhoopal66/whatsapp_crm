@@ -43,6 +43,8 @@ import {
   planLink,
   suggestMappings,
   suggestionStillValid,
+  withPbxFields,
+  personKey,
   type ExtensionFilter,
   type MappingSuggestion,
 } from '@/lib/pbx/extension-mapping';
@@ -194,15 +196,15 @@ export function PhoneExtensionsPanel() {
       `/api/pbx/extensions/${id}`,
       { method: 'PATCH', body: p }
     );
+    // The PBX's name and on-PBX flag come only from a sync, which may
+    // have landed while this request was out: take them from the row as
+    // it is now, never from the copy taken before the PATCH.
+    const current = () => rowsRef.current.find((r) => r.id === id);
     if (res.ok) {
-      put({
-        ...res.data.extension,
-        callerIdName: row.callerIdName,
-        onPbx: row.onPbx,
-      });
+      put(withPbxFields(res.data.extension, current() ?? row));
       return { ok: true };
     }
-    put(row);
+    put(withPbxFields(row, current() ?? row));
     if (!quiet)
       toast.error(tx('saveFailed', { extension: row.extension }), {
         description: res.error ?? undefined,
@@ -211,9 +213,16 @@ export function PhoneExtensionsPanel() {
   };
 
   const link = async (extensionId: string, userId: string | null) => {
+    const target = rowsRef.current.find((r) => r.id === extensionId);
+    // The person being linked is busy too, for the whole link or move:
+    // between a move's unlink and its link they hold nothing, and another
+    // pick of them would race it (one extension per person, 409).
+    const who = userId && target ? personKey(target.accountId, userId) : null;
+    if (who && busyRef.current.has(who)) return;
     const steps = planLink(extensionId, userId, rowsRef.current);
     if (steps.length === 0) return;
     const ids = steps.map((s) => s.extensionId);
+    if (who) ids.push(who);
     flag(ids, true);
     try {
       if (steps.length === 1) {
@@ -275,6 +284,9 @@ export function PhoneExtensionsPanel() {
     // Link all never moves anyone.
     for (const s of suggestions) {
       if (busyRef.current.has(s.extensionId)) continue;
+      const ext = rowsRef.current.find((r) => r.id === s.extensionId);
+      if (ext && busyRef.current.has(personKey(ext.accountId, s.userId)))
+        continue;
       if (!suggestionStillValid(s, rowsRef.current)) continue;
       await link(s.extensionId, s.userId);
     }
@@ -715,7 +727,9 @@ function PersonPicker({
         selected: o.userId === row.userId,
         // Their extension has a request in flight: moving them now would
         // race it.
-        disabled: o.holdsId !== null && busy.has(o.holdsId),
+        disabled:
+          (o.holdsId !== null && busy.has(o.holdsId)) ||
+          busy.has(personKey(row.accountId, o.userId)),
         onPick: () => onPick(o.userId),
       }))}
     />
@@ -763,7 +777,10 @@ function ByPerson({
             const held = p.extension;
             const isBusy = !!held && busy.has(held.id);
             const free = freeExtensions(rows, p.accountId);
-            const anyBusy = isBusy || free.some((f) => busy.has(f.id));
+            const anyBusy =
+              isBusy ||
+              busy.has(personKey(p.accountId, p.userId)) ||
+              free.some((f) => busy.has(f.id));
             return (
               <li
                 key={`${p.accountId}:${p.userId}`}
