@@ -12,6 +12,7 @@ import {
   countUnreadChats,
   type UnreadCountRow,
 } from '@/lib/inbox/unread-counts';
+import { viewerInboxDepartment } from '@/lib/inbox/departments';
 import type { Conversation } from '@/types';
 
 /**
@@ -53,8 +54,9 @@ export interface UnreadChats {
  */
 export function useUnreadChats(): UnreadChats {
   const aiLive = useAiAutoReplyLive() === true;
-  const { accountId, accountRole, user } = useAuth();
+  const { accountId, accountRole, user, department } = useAuth();
   const userId = user?.id ?? null;
+  const ownDepartment = viewerInboxDepartment(accountRole, department);
   const narrowed = accountRole === 'team_leader' && !!userId;
   const myNumberIds = useMyNumberIds();
   // Chats shared with a leader as a coordinator (migration 133) are in
@@ -170,10 +172,11 @@ export function useUnreadChats(): UnreadChats {
               sharedConversationIds: sharedIds ?? [],
             }
           : null,
-        userId
+        userId,
+        ownDepartment
       ),
       hr: countDepartmentUnread(rows.values(), aiLive, 'hr'),
     }),
-    [rows, aiLive, narrowed, userId, myNumberIds, sharedIds]
+    [rows, aiLive, narrowed, userId, myNumberIds, sharedIds, ownDepartment]
   );
 }

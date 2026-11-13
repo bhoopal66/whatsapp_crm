@@ -320,6 +320,8 @@ interface ListQueryParams {
    * ('' while unknown: none do); null asks nothing of the column.
    */
   mainInboxOf: string | null;
+  /** Main inboxes: the department whose chats stay listed (below admin). */
+  mainInboxDepartment: InboxDepartment | null;
   campaignOnly: boolean;
   aiLive: boolean;
   status: InboxFilter;
@@ -424,7 +426,9 @@ function conversationsQuery(
     query = query.eq('inbox_department', p.department);
   } else if (p.mainInboxOf !== null) {
     groups.push(
-      p.mainInboxOf ? mainInboxGroup(p.mainInboxOf) : 'inbox_department.is.null'
+      p.mainInboxOf
+        ? mainInboxGroup(p.mainInboxOf, p.mainInboxDepartment)
+        : 'inbox_department.is.null'
     );
   }
   if (p.campaignOnly) {
@@ -843,6 +847,10 @@ export function ConversationList({
     departmentView && 'mainFor' in departmentView
       ? (departmentView.mainFor ?? '')
       : null;
+  const mainInboxDepartment =
+    departmentView && 'mainFor' in departmentView
+      ? (departmentView.ownDepartment ?? null)
+      : null;
   const listParams = useMemo<ListQueryParams>(
     () => ({
       restrictToUserId,
@@ -851,6 +859,7 @@ export function ConversationList({
       ownPersonalChatsOf,
       department,
       mainInboxOf,
+      mainInboxDepartment,
       campaignOnly,
       aiLive,
       status: filter,
@@ -870,6 +879,7 @@ export function ConversationList({
       ownPersonalChatsOf,
       department,
       mainInboxOf,
+      mainInboxDepartment,
       campaignOnly,
       aiLive,
       filter,
@@ -1242,7 +1252,10 @@ export function ConversationList({
       result = result.filter((c) => inDepartmentView(c, { department }));
     } else if (mainInboxOf !== null) {
       result = result.filter((c) =>
-        inDepartmentView(c, { mainFor: mainInboxOf || null })
+        inDepartmentView(c, {
+          mainFor: mainInboxOf || null,
+          ownDepartment: mainInboxDepartment,
+        })
       );
     }
 
@@ -1311,6 +1324,7 @@ export function ConversationList({
     signalsOn,
     department,
     mainInboxOf,
+    mainInboxDepartment,
   ]);
 
   // Pinned chats the AI handed over, among those the filters show.

@@ -28,6 +28,7 @@ import {
   overdueCases,
   tileState,
 } from '@/lib/dashboard/home/attention';
+import { viewerInboxDepartment } from '@/lib/inbox/departments';
 import type { OpenCases } from '@/lib/dashboard/home/sources';
 import { taskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
@@ -191,9 +192,10 @@ export function AttentionStrip({
 }: AttentionStripProps) {
   const t = useTranslations('Dashboard.home.attention');
   const ti = useTranslations('InsightsUi.home');
-  const { accountId, accountRole, user } = useAuth();
+  const { accountId, accountRole, user, department } = useAuth();
   const userId = user?.id ?? null;
   const inboxHref = inboxHrefFor(accountRole);
+  const ownDepartment = viewerInboxDepartment(accountRole, department);
   const aiLive = useAiAutoReplyLive() === true;
   const chats = useWidgetData(
     accountId ? `attention-chats:${accountId}:${refreshKey}` : null,
@@ -225,7 +227,8 @@ export function AttentionStrip({
         chats.data.unreadRows,
         aiLive,
         userId,
-        inboxHref === '/team-inbox'
+        inboxHref === '/team-inbox',
+        ownDepartment
       )
     : null;
   const taskFigures = tasks?.data ? taskCounts(tasks.data, clock.now) : null;

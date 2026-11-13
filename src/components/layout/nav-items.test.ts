@@ -397,7 +397,7 @@ describe('visibleNavItems / sales-restricted departments', () => {
   it('drops restricted paths only for a restricted person', () => {
     expect(
       visibleNavItems(items, { salesRestricted: true }).map((i) => i.href)
-    ).toEqual(['/inbox', '/contacts', '/contacts/123', '/chat']);
+    ).toEqual(['/inbox', '/contacts', '/contacts/123', '/team-inbox', '/chat']);
     expect(visibleNavItems(items, { salesRestricted: false })).toEqual(items);
   });
 
@@ -411,5 +411,7 @@ describe('visibleNavItems / sales-restricted departments', () => {
     expect(hrefs(true)).toContain('/contacts');
     expect(hrefs(true)).not.toContain('/team-contacts');
     expect(hrefs(true)).toContain('/inbox');
+    // A restricted (HR) team leader still follows her team.
+    expect(hrefs(true)).toContain('/team-inbox');
   });
 });

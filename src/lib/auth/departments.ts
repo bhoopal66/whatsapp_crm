@@ -100,7 +100,10 @@ export function isSalesRestricted({
  * Contacts list (`/contacts`, which RLS narrows to the contacts they own
  * or chat with) and the customer page stay open: without them a
  * restricted person has nowhere to add a number and write to it. The
- * everyone's-contacts view (`/team-contacts`) is closed.
+ * everyone's-contacts view (`/team-contacts`) is closed. The Team inbox
+ * stays open: only team leaders and up reach it (its own layout), and
+ * a restricted leader gets there only what RLS gives a leader, their own
+ * and their team's chats, so an HR team leader can follow her team.
  */
 export const RESTRICTED_PATHS = [
   '/pipelines',
@@ -117,7 +120,6 @@ export const RESTRICTED_PATHS = [
   '/agents',
   '/compass',
   '/opendesk',
-  '/team-inbox',
   '/team-contacts',
 ] as const;
 

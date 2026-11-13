@@ -28,19 +28,21 @@ export interface InboxNarrowing {
  * narrowed when the Inbox narrows (a team leader's). Someone else's
  * personal chat (191) is in `team` only: the Inbox never lists it.
  * A department chat (192) is in neither, unless it is the viewer's own
+ * or (below admin) of the viewer's own department, `ownDepartment`
  * (`inMainInbox`); {@link countDepartmentUnread} counts it instead.
  */
 export function countUnreadChats(
   rows: Iterable<UnreadCountRow>,
   aiLive: boolean,
   narrowing: InboxNarrowing | null,
-  viewerId: string | null = null
+  viewerId: string | null = null,
+  ownDepartment: InboxDepartment | null = null
 ): { inbox: number; team: number } {
   let inbox = 0;
   let team = 0;
   for (const row of rows) {
     if ((row.unread_count ?? 0) <= 0 || inCampaignInbox(row, aiLive)) continue;
-    if (!inMainInbox(row, viewerId)) continue;
+    if (!inMainInbox(row, viewerId, ownDepartment)) continue;
     team += 1;
     if (isOthersPersonalChat(row, viewerId)) continue;
     if (

@@ -5,6 +5,7 @@ import {
   inDepartmentView,
   inMainInbox,
   mainInboxGroup,
+  viewerInboxDepartment,
 } from './departments';
 import { admitsInsertedConversation, inPersonalInbox } from './insights';
 import { countDepartmentUnread, countUnreadChats } from './unread-counts';
@@ -33,6 +34,30 @@ describe('inMainInbox (migration 192)', () => {
   it('fails closed while the viewer is unknown', () => {
     expect(inMainInbox(hr, null)).toBe(false);
     expect(inMainInbox({ inbox_department: null }, null)).toBe(true);
+    expect(inMainInbox(hr, null, 'hr')).toBe(false);
+  });
+
+  it("keeps a colleague's chat of the viewer's own department", () => {
+    expect(inMainInbox(hr, 'me', 'hr')).toBe(true);
+    expect(inMainInbox(hr, 'me', 'it')).toBe(false);
+    expect(inMainInbox(hr, 'me', null)).toBe(false);
+  });
+});
+
+describe('viewerInboxDepartment', () => {
+  it("is a non-admin's own department inbox", () => {
+    expect(viewerInboxDepartment('team_leader', 'hr')).toBe('hr');
+    expect(viewerInboxDepartment('agent', 'it')).toBe('it');
+    expect(viewerInboxDepartment('viewer', 'accounts')).toBe('accounts');
+  });
+
+  it('is none for sales, admins, unknown values or no role', () => {
+    expect(viewerInboxDepartment('team_leader', 'sales')).toBeNull();
+    expect(viewerInboxDepartment('admin', 'hr')).toBeNull();
+    expect(viewerInboxDepartment('owner', 'hr')).toBeNull();
+    expect(viewerInboxDepartment('team_leader', 'legal')).toBeNull();
+    expect(viewerInboxDepartment('team_leader', null)).toBeNull();
+    expect(viewerInboxDepartment(null, 'hr')).toBeNull();
   });
 });
 
@@ -49,6 +74,9 @@ describe('inDepartmentView', () => {
     expect(inDepartmentView(hr, { department: 'hr' })).toBe(true);
     expect(inDepartmentView(hr, { mainFor: 'me' })).toBe(false);
     expect(inDepartmentView(hr, { mainFor: 'owner' })).toBe(true);
+    expect(inDepartmentView(hr, { mainFor: 'me', ownDepartment: 'hr' })).toBe(
+      true
+    );
   });
 });
 
@@ -57,6 +85,13 @@ describe('mainInboxGroup', () => {
     expect(mainInboxGroup('u1')).toBe(
       'inbox_department.is.null,user_id.eq.u1,assigned_agent_id.eq.u1'
     );
+  });
+
+  it("adds the viewer's own department when there is one", () => {
+    expect(mainInboxGroup('u1', 'hr')).toBe(
+      'inbox_department.is.null,user_id.eq.u1,assigned_agent_id.eq.u1,inbox_department.eq.hr'
+    );
+    expect(mainInboxGroup('u1', null)).toBe(mainInboxGroup('u1'));
   });
 });
 
@@ -113,6 +148,12 @@ describe('unread counts by department', () => {
       inbox: 2,
       team: 2,
     });
+  });
+
+  it("counts the viewer's own department's chats for a team leader", () => {
+    expect(countUnreadChats(rows, false, null, 'me', 'hr').team).toBe(
+      countUnreadChats(rows, false, null, 'me').team + 1
+    );
   });
 
   it('counts the HR inbox on its own', () => {

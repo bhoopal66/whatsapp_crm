@@ -1,5 +1,9 @@
 import type { InboxRow } from '@/lib/cases/ui';
-import { inMainInbox, type DepartmentChatRow } from '@/lib/inbox/departments';
+import {
+  inMainInbox,
+  type DepartmentChatRow,
+  type InboxDepartment,
+} from '@/lib/inbox/departments';
 import {
   isOthersPersonalChat,
   type PersonalChatRow,
@@ -19,7 +23,9 @@ import {
  * the Team inbox (`inboxHrefFor`), so it matches that count. Other
  * people's personal chats (191) stay out too, except in `wideView` (the
  * Team inbox lists them, so the tile must count them); department chats
- * that are not the viewer's own (192) stay out in both, as in the list.
+ * that are not the viewer's own (192) stay out in both, as in the list,
+ * except (below admin) those of the viewer's own department,
+ * `ownDepartment`.
  */
 export function countInboxUnread(
   rows: readonly (CampaignInboxFields &
@@ -27,14 +33,15 @@ export function countInboxUnread(
     DepartmentChatRow & { unread_count?: number | null })[],
   aiLive: boolean,
   userId: string | null,
-  wideView = false
+  wideView = false,
+  ownDepartment: InboxDepartment | null = null
 ): number {
   let n = 0;
   for (const row of rows) {
     if ((row.unread_count ?? 0) <= 0) continue;
     if (inCampaignInbox(row, aiLive)) continue;
     if (!wideView && isOthersPersonalChat(row, userId)) continue;
-    if (!inMainInbox(row, userId)) continue;
+    if (!inMainInbox(row, userId, ownDepartment)) continue;
     n += 1;
   }
   return n;

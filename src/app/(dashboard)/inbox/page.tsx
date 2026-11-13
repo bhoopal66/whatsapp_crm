@@ -51,7 +51,11 @@ import {
   shouldFetchUnloadedPin,
 } from '@/lib/inbox/insights';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
-import type { DepartmentView, InboxDepartment } from '@/lib/inbox/departments';
+import {
+  viewerInboxDepartment,
+  type DepartmentView,
+  type InboxDepartment,
+} from '@/lib/inbox/departments';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { FullRowRetry } from '@/components/inbox/full-row-retry';
@@ -136,7 +140,8 @@ export function InboxPageInner({
   departmentView?: InboxDepartment;
 } = {}) {
   const t = useTranslations('Inbox.page');
-  const { user, accountId, accountRole, profileLoading } = useAuth();
+  const { user, accountId, accountRole, profileLoading, department } =
+    useAuth();
 
   // Narrow the personal inbox to this user's own threads when they can
   // see more than their own — which today means a team leader. `null`
@@ -266,12 +271,17 @@ export function InboxPageInner({
   const hidePersonalFor = wideView ? undefined : (user?.id ?? null);
   const hidePersonalForRef = useRef(hidePersonalFor);
   // Which department slice this list is (192): a department inbox's own
-  // chats, else the main inboxes' (no department chat but the viewer's).
+  // chats, else the main inboxes' (no department chat but the viewer's,
+  // and below admin their own department's: an HR team leader's Team
+  // inbox lists her HR team's chats).
   const viewerId = user?.id ?? null;
+  const ownDepartment = viewerInboxDepartment(accountRole, department);
   const deptView = useMemo<DepartmentView>(
     () =>
-      departmentView ? { department: departmentView } : { mainFor: viewerId },
-    [departmentView, viewerId]
+      departmentView
+        ? { department: departmentView }
+        : { mainFor: viewerId, ownDepartment },
+    [departmentView, viewerId, ownDepartment]
   );
   const deptViewRef = useRef(deptView);
   useEffect(() => {

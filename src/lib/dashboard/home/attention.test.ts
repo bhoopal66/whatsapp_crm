@@ -69,6 +69,14 @@ describe('countInboxUnread, personal and department chats', () => {
     expect(countInboxUnread(rows, false, 'me', true)).toBe(0);
   });
 
+  it("counts a colleague's chat of my own department (an HR leader)", () => {
+    const rows = [
+      row({ inbox_department: 'hr', user_id: 'x', assigned_agent_id: 'y' }),
+      row({ inbox_department: 'it', user_id: 'x', assigned_agent_id: 'y' }),
+    ];
+    expect(countInboxUnread(rows, false, 'me', true, 'hr')).toBe(1);
+  });
+
   it('fails closed without a viewer', () => {
     const rows = [
       row({ personal_owner_id: 'other' }),

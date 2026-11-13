@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### HR team leaders see their team's chats
+
+No migration.
+
+**Changed**
+
+- A team leader in a restricted department (HR by default) can open the
+  **Team inbox** again. It shows only what a team leader always sees:
+  their own and their team members' chats.
+- Below admin, chats of your own department (for example HR) stay in
+  your Inbox and Team inbox instead of only in the admin-only HR inbox,
+  so an HR team leader sees her HR team's chats and unread counts.
+  Owners and admins still read them in the HR inbox.
+
 ### Call reviewers
 
 **Migration required:** apply `supabase/migrations/198_call_reviewers.sql`

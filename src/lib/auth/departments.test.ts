@@ -72,7 +72,6 @@ describe('isRestrictedPath', () => {
     '/agents',
     '/compass',
     '/opendesk',
-    '/team-inbox',
     '/team-contacts',
     '/team-contacts/abc',
   ])('closes %s', (path) => {
@@ -81,6 +80,7 @@ describe('isRestrictedPath', () => {
 
   it.each([
     '/inbox',
+    '/team-inbox',
     '/contacts',
     '/contacts/',
     '/contacts/abc',
