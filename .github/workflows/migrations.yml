@@ -964,3 +964,12 @@ jobs:
       # each, again after a snooze, never for done or unassigned tasks.
       - name: Verify reminder suggestions
         run: supabase db query --local --file supabase/ci/verify-reminder-suggestions.sql
+
+      # Migration 198: call reviewers. may_review_all_calls is written only
+      # by set_member_call_review (owner/admin; guests and deactivated
+      # people refused); a reviewer sees every call and live call of the
+      # active workspace, plays and downloads playable recordings, gets
+      # the workspace Call report and pbx_call_report; everyone else keeps
+      # 113's rules, the access log stays admin-only, other workspaces shut.
+      - name: Verify call reviewers
+        run: supabase db query --local --file supabase/ci/verify-call-reviewers.sql
