@@ -29,10 +29,12 @@ const SECRETS = {
   sdk_token_cache_enc: 'enc-sdk-token',
 };
 let service: FakeDb;
+let reviewer = false;
 let mine: Record<string, unknown>[];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  reviewer = false;
   mine = [
     { connection_id: 'conn-1', extension: '201', softphone_enabled: true },
   ];
@@ -40,6 +42,7 @@ beforeEach(() => {
     {},
     {
       pbx_my_extension: () => ({ data: mine, error: null }),
+      pbx_sees_all_calls: () => ({ data: reviewer, error: null }),
     }
   );
   service = createFakeDb({
@@ -69,7 +72,10 @@ describe('GET /api/pbx/me', () => {
     mine = [];
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ extension: null });
+    expect(await res.json()).toEqual({
+      extension: null,
+      seesAllCalls: false,
+    });
   });
 
   it('describes the caller’s phone and never a stored secret', async () => {
@@ -82,9 +88,20 @@ describe('GET /api/pbx/me', () => {
       softphoneAvailable: true,
       pbxUrl: 'https://acme.ras.yeastar.com',
       presence: null,
+      seesAllCalls: false,
     });
     for (const secret of Object.values(SECRETS).slice(1))
       expect(text).not.toContain(secret);
+  });
+
+  it('says whether the caller reviews every call, mapped or not', async () => {
+    reviewer = true;
+    expect((await (await GET()).json()).seesAllCalls).toBe(true);
+    mine = [];
+    expect(await (await GET()).json()).toEqual({
+      extension: null,
+      seesAllCalls: true,
+    });
   });
 
   it('reports the caller’s own presence row', async () => {

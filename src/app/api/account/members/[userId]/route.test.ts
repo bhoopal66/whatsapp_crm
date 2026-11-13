@@ -232,6 +232,49 @@ describe('PATCH /api/account/members/[userId] { personalWhatsapp }', () => {
   });
 });
 
+describe('PATCH /api/account/members/[userId] { reviewAllCalls }', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+    mocks.rpc.mockResolvedValue({ error: null });
+  });
+
+  it('calls set_member_call_review and answers ok', async () => {
+    const res = await PATCH(request({ reviewAllCalls: true }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(mocks.rpc).toHaveBeenCalledWith('set_member_call_review', {
+      p_user_id: 'user-2',
+      p_allowed: true,
+    });
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean value without calling the RPC', async () => {
+    const res = await PATCH(request({ reviewAllCalls: 'yes' }), params);
+    expect(res.status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ code: '22023', hint: 'not_eligible' }, 422],
+    [{ code: '22023', message: 'bad value' }, 400],
+    [{ code: 'P0002' }, 404],
+    [{ code: '42501', message: 'nope' }, 403],
+    [{ code: 'XX000', message: 'boom' }, 500],
+  ])('maps %j to %i', async (err, status) => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ error: err });
+    const res = await PATCH(request({ reviewAllCalls: false }), params);
+    expect(res.status).toBe(status);
+    expect(typeof (await res.json()).error).toBe('string');
+    consoleError.mockRestore();
+  });
+});
+
 describe('PATCH /api/account/members/[userId] { department }', () => {
   beforeEach(() => {
     vi.clearAllMocks();

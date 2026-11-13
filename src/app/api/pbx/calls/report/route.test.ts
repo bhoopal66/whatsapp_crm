@@ -33,6 +33,7 @@ const ROWS = [
   { row_kind: 'total', user_id: null, inbound_answered: 2, missed: 2 },
 ];
 
+let reviewer = false;
 let zone: { data: unknown; error: { message: string; code?: string } | null };
 let report: { data: unknown; error: { message: string; code?: string } | null };
 
@@ -42,8 +43,13 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   zone = { data: [{ timezone: 'Asia/Dubai' }], error: null };
   report = { data: ROWS, error: null };
+  reviewer = false;
   mocks.rpc.mockImplementation(async (fn: string) =>
-    fn === 'team_activity_limits' ? zone : report
+    fn === 'team_activity_limits'
+      ? zone
+      : fn === 'pbx_sees_all_calls'
+        ? { data: reviewer, error: null }
+        : report
   );
   mocks.requireRole.mockResolvedValue({
     supabase: { rpc: mocks.rpc },
@@ -62,9 +68,32 @@ describe('GET /api/pbx/calls/report', () => {
   it('is for team leaders and up', async () => {
     mocks.requireRole.mockRejectedValueOnce(new Error('forbidden'));
     const res = await get();
-    expect(mocks.requireRole).toHaveBeenCalledWith('team_leader');
     expect(res.status).toBe(403);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses an agent who is not a call reviewer', async () => {
+    mocks.requireRole.mockResolvedValue({
+      supabase: { rpc: mocks.rpc },
+      accountId: 'acct-1',
+      role: 'agent',
+    });
+    expect((await get()).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalledWith(
+      'pbx_call_report',
+      expect.anything()
+    );
+  });
+
+  it('lets an agent who is a call reviewer in', async () => {
+    reviewer = true;
+    mocks.requireRole.mockResolvedValue({
+      supabase: { rpc: mocks.rpc },
+      accountId: 'acct-1',
+      role: 'agent',
+    });
+    expect((await get()).status).toBe(200);
+    expect(reportArgs()).toBeDefined();
   });
 
   it("reports this month in the account's zone by default", async () => {
