@@ -83,7 +83,9 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 taamul-connect
   `SUPABASE_SERVICE_ROLE_KEY` like creating one does. A ban refuses
   sign-in and token refresh but cannot revoke an access token already
   issued; RLS stops honouring it immediately, and it expires on its
-  own after `JWT_EXPIRY` (1 hour by default).
+  own after `JWT_EXPIRY` (1 hour by default). Since migration 199 it
+  also takes them off their team and unlinks their Yeastar extension;
+  reactivating restores neither.
 - Database migrations under `supabase/` are **not** run by the
   container — apply them with the Supabase CLI as described in the
   README.

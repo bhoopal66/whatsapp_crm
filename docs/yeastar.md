@@ -57,7 +57,10 @@ One PBX can serve several workspaces.
   was mapped), so their Call report matches the PBX; calls already
   someone else's stay theirs. Turn on **Softphone** for people who should take calls in
   the browser, and leave **Presence** on (the default) for those whose
-  status the team should see.
+  status the team should see. Deactivating a person (migration 199)
+  unmaps their extension and turns its softphone off; their past calls
+  keep their name, and the extension waits for an admin to map it to
+  someone else.
 
   That status colours the person's dot wherever it shows (team chat
   DMs and member lists, the inbox assign picker and handler, a

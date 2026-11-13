@@ -133,8 +133,11 @@ sign-in bounces back to `/login`.
   sign-in and refresh; `is_account_member` / `current_account_id` /
   `current_role_rank` ignoring the profile is what neuters an access
   token issued before it, and the profile guard trigger stops a
-  deactivated admin's RPCs. `supabase/ci/verify-member-deactivation.sql`
-  asserts this.
+  deactivated admin's RPCs. Since 199 a trigger on the NULL → time
+  transition takes them off their team (member or leader) and unmaps
+  their `pbx_extensions` in that workspace, then re-runs the number
+  sync; direct number allocations stay, and reactivating restores
+  nothing. `supabase/ci/verify-member-deactivation.sql` asserts this.
 - **Setting a member's password (migration 140)** is POST
   `/api/account/members/[id]/password`: `authorize_member_password_change`
   decides as the caller, then GoTrue changes it, then

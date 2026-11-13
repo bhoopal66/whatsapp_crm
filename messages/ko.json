@@ -2030,7 +2030,7 @@
       },
       "reactivatedToast": "{name}을(를) 다시 활성화했습니다",
       "deactivateDialogTitle": "멤버 비활성화",
-      "deactivateDialogDesc": "<bold>{name}</bold>을(를) 비활성화하시겠습니까? 로그아웃되며 다시 활성화할 때까지 로그인할 수 없습니다. 역할, 배정된 채팅 및 기록은 그대로 유지됩니다.",
+      "deactivateDialogDesc": "<bold>{name}</bold>을(를) 비활성화하시겠습니까? 로그아웃되며 다시 활성화할 때까지 로그인할 수 없습니다. 소속 팀에서도 제외되고 전화 내선 연결이 해제되며, 다시 활성화해도 복원되지 않습니다. 역할, 배정된 채팅 및 기록은 그대로 유지됩니다.",
       "deactivating": "비활성화 중...",
       "deactivateBtn": "비활성화",
       "bankCode": "은행: {code}",

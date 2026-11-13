@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Deactivating a member takes them off their team and phone extension
+
+**Migration required:** `199_deactivation_cleanup.sql`.
+
+- Deactivating someone in Settings → Members now also removes them from
+  their team (as a member, or as its leader: the team stays, without a
+  leader) and unlinks their Yeastar extension, so its calls, status and
+  missed-call tasks no longer go to them. Their past calls keep their
+  name. Reactivating restores neither; add them to a team and map an
+  extension again.
+- Applying the migration does the same once for everyone already
+  deactivated.
+- Numbers allocated to the person directly are left as they are.
+
 ### Quieter WhatsApp push notifications
 
 - Messages to a staff member's personal number no longer push from the

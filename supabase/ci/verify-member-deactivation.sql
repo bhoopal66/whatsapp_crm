@@ -1,4 +1,5 @@
--- Behavioural regression suite for member deactivation (migration 069).
+-- Behavioural regression suite for member deactivation (migrations 069,
+-- 199: off the team and the PBX extension).
 --
 -- Asserts what a deactivated member can still do with an access token
 -- issued before the deactivation (nothing), who may deactivate whom,
@@ -21,6 +22,9 @@ DECLARE
   a_acct   UUID;
   b_acct   UUID;
   ct       UUID;
+  tm_id    UUID;  -- 199: a team in A, led by admin2, with the agent on it
+  pc_a     UUID;  -- 199: a PBX connection in A, and one in B
+  pc_b     UUID;
   r        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
@@ -77,6 +81,20 @@ BEGIN
   INSERT INTO conversations (account_id, user_id, contact_id)
   VALUES (a_acct, u_agent, ct);
 
+  -- 199 fixture: the agent is on a team admin2 leads and holds an
+  -- extension; B's owner holds one in B (another workspace, untouched).
+  INSERT INTO teams (account_id, name, leader_user_id)
+  VALUES (a_acct, 'MD team', u_admin2) RETURNING id INTO tm_id;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (tm_id, u_agent, a_acct);
+  INSERT INTO pbx_connections (account_id, label, edition, base_url)
+  VALUES (a_acct, 'MD pbx A', 'cloud', 'https://md-a.example.invalid') RETURNING id INTO pc_a;
+  INSERT INTO pbx_connections (account_id, label, edition, base_url)
+  VALUES (b_acct, 'MD pbx B', 'cloud', 'https://md-b.example.invalid') RETURNING id INTO pc_b;
+  INSERT INTO pbx_extensions (connection_id, extension, account_id, user_id, softphone_enabled)
+  VALUES (pc_a, '9101', a_acct, u_agent, true),
+         (pc_a, '9102', a_acct, u_admin, true),
+         (pc_b, '9201', b_acct, u_other, true);
+
   -- Baseline: the active agent sees their chat.
   r := pg_temp.md_try(u_agent, 'SELECT count(*)::text FROM conversations');
   n := n + 1;
@@ -117,6 +135,28 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = u_agent
                  AND deactivated_at IS NOT NULL AND deactivated_by = u_admin) THEN
     failed := array_append(failed, 'deactivated_at / deactivated_by not stamped'::text);
+  END IF;
+
+  -- 199: off the team, extension unmapped; the team, its leader and
+  -- everyone else's extensions stay.
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM team_members WHERE user_id = u_agent) THEN
+    failed := array_append(failed, '199: deactivated agent still on their team'::text);
+  END IF;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM teams WHERE id = tm_id AND leader_user_id = u_admin2) THEN
+    failed := array_append(failed, '199: deactivating a member changed the team or its leader'::text);
+  END IF;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM pbx_extensions WHERE connection_id = pc_a AND extension = '9101'
+                 AND user_id IS NULL AND NOT softphone_enabled) THEN
+    failed := array_append(failed, '199: deactivated agent''s extension still mapped'::text);
+  END IF;
+  n := n + 1;
+  IF (SELECT count(*) FROM pbx_extensions
+       WHERE (extension = '9102' AND user_id = u_admin AND softphone_enabled)
+          OR (extension = '9201' AND user_id = u_other AND softphone_enabled)) <> 2 THEN
+    failed := array_append(failed, '199: another person''s extension was unmapped'::text);
   END IF;
 
   -- A leftover token now reads nothing and writes nothing.
@@ -167,6 +207,12 @@ BEGIN
     failed := array_append(failed, ('deactivated admin reactivating someone: ' || r)::text);
   END IF;
 
+  -- 199: a deactivated leader leaves the team leaderless; the team stays.
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM teams WHERE id = tm_id AND leader_user_id IS NULL) THEN
+    failed := array_append(failed, '199: deactivated admin2 still leads the team'::text);
+  END IF;
+
   -- Idempotent: deactivating again keeps the original author.
   r := pg_temp.md_try(u_owner, format('SELECT set_member_active(%L, false)::text', u_agent));
   n := n + 1;
@@ -185,6 +231,18 @@ BEGIN
   IF EXISTS (SELECT 1 FROM profiles WHERE user_id = u_agent
              AND (deactivated_at IS NOT NULL OR deactivated_by IS NOT NULL)) THEN
     failed := array_append(failed, 'reactivation left deactivated_at / deactivated_by set'::text);
+  END IF;
+
+  -- 199: reactivation restores neither the team nor the extension.
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM team_members WHERE user_id = u_agent)
+     OR EXISTS (SELECT 1 FROM pbx_extensions WHERE user_id = u_agent) THEN
+    failed := array_append(failed, '199: reactivation put the agent back on a team or extension'::text);
+  END IF;
+  n := n + 1;
+  IF has_function_privilege('authenticated', 'public.deactivated_member_cleanup(uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.deactivated_member_cleanup(uuid, uuid)', 'EXECUTE') THEN
+    failed := array_append(failed, '199: a client role may call deactivated_member_cleanup'::text);
   END IF;
 
   n := n + 1;
