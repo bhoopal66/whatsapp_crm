@@ -1,0 +1,208 @@
+import { describe, expect, it } from 'vitest';
+import {
+  filterExtensions,
+  freeExtensions,
+  mappingSummary,
+  nameScore,
+  normalizeName,
+  peopleRows,
+  personOptions,
+  suggestMappings,
+} from './extension-mapping';
+import type { MappableWorkspace } from './admin-ui';
+
+const A = 'acct-a';
+const B = 'acct-b';
+
+function ext(
+  id: string,
+  extension: string,
+  o: Partial<{
+    accountId: string;
+    userId: string | null;
+    personName: string | null;
+    callerIdName: string | null;
+    mapped: boolean;
+  }> = {}
+) {
+  const userId = o.userId ?? null;
+  return {
+    id,
+    extension,
+    accountId: o.accountId ?? A,
+    userId,
+    personName: o.personName ?? null,
+    callerIdName: o.callerIdName ?? null,
+    mapped: o.mapped ?? userId !== null,
+  };
+}
+
+const ws: MappableWorkspace[] = [
+  {
+    accountId: A,
+    name: 'Main',
+    people: [
+      { userId: 'u-fatima', name: 'Fatima Al Zahra' },
+      { userId: 'u-omar', name: 'Omar Khalid' },
+      { userId: 'u-omar2', name: 'Omar Saeed' },
+      { userId: 'u-ravi', name: 'Ravi Kumar' },
+      { userId: 'u-noname', name: null },
+    ],
+  },
+  { accountId: B, name: 'Bank', people: [{ userId: 'u-sara', name: 'Sara' }] },
+];
+
+describe('normalizeName', () => {
+  it('drops case, accents and punctuation, keeps other scripts', () => {
+    expect(normalizeName('  José-Luis  O’Neil ')).toBe('jose luis o neil');
+    expect(normalizeName('فاطمة  الزهراء')).toBe('فاطمة الزهراء');
+    expect(normalizeName(null)).toBe('');
+  });
+});
+
+describe('nameScore', () => {
+  it('ranks the same name, first+last, and a lone first name', () => {
+    expect(nameScore('fatima al-zahra', 'Fatima Al Zahra')).toBe(3);
+    expect(nameScore('Fatima Zahra', 'Fatima Al Zahra')).toBe(2);
+    expect(nameScore('Ravi', 'Ravi Kumar')).toBe(1);
+    expect(nameScore('Al', 'Al Zahra')).toBe(0); // too short to trust
+    expect(nameScore('Kumar', 'Ravi Kumar')).toBe(0);
+    expect(nameScore('', 'Ravi Kumar')).toBe(0);
+    expect(nameScore('Ravi', null)).toBe(0);
+  });
+});
+
+describe('suggestMappings', () => {
+  it('suggests the single best fit for unlinked extensions only', () => {
+    const rows = [
+      ext('e1', '101', { callerIdName: 'Fatima Al Zahra' }),
+      ext('e2', '102', { callerIdName: 'Ravi' }),
+      ext('e3', '103', { callerIdName: 'Omar' }), // two Omars: ambiguous
+      ext('e4', '104', { callerIdName: 'Nobody Here' }),
+      ext('e5', '105', {
+        callerIdName: 'Omar Khalid',
+        userId: 'u-noname',
+        personName: null,
+      }), // already linked: never re-suggested
+    ];
+    expect(suggestMappings(rows, ws)).toEqual([
+      { extensionId: 'e1', userId: 'u-fatima', name: 'Fatima Al Zahra' },
+      { extensionId: 'e2', userId: 'u-ravi', name: 'Ravi Kumar' },
+    ]);
+  });
+
+  it('never suggests someone who already holds an extension there', () => {
+    const rows = [
+      ext('e1', '101', { userId: 'u-ravi', personName: 'Ravi Kumar' }),
+      ext('e2', '102', { callerIdName: 'Ravi Kumar' }),
+    ];
+    expect(suggestMappings(rows, ws)).toEqual([]);
+  });
+
+  it('a better name wins; equal fits for one person suggest neither', () => {
+    const better = [
+      ext('e1', '101', { callerIdName: 'Fatima' }),
+      ext('e2', '102', { callerIdName: 'Fatima Al Zahra' }),
+    ];
+    expect(suggestMappings(better, ws)).toEqual([
+      { extensionId: 'e2', userId: 'u-fatima', name: 'Fatima Al Zahra' },
+    ]);
+    const tie = [
+      ext('e1', '101', { callerIdName: 'Ravi' }),
+      ext('e2', '102', { callerIdName: 'ravi' }),
+    ];
+    expect(suggestMappings(tie, ws)).toEqual([]);
+  });
+
+  it('stays inside the extension’s own workspace, and only workspaces I administer', () => {
+    const rows = [
+      ext('e1', '201', { accountId: B, callerIdName: 'Fatima Al Zahra' }),
+      ext('e2', '202', { accountId: B, callerIdName: 'Sara' }),
+      ext('e3', '301', { accountId: 'acct-c', callerIdName: 'Ravi' }),
+    ];
+    expect(suggestMappings(rows, ws)).toEqual([
+      { extensionId: 'e2', userId: 'u-sara', name: 'Sara' },
+    ]);
+  });
+});
+
+describe('filterExtensions', () => {
+  const rows = [
+    ext('e3', '1010', { callerIdName: 'Reception' }),
+    ext('e1', '102', { userId: 'u-ravi', personName: 'Ravi Kumar' }),
+    ext('e2', '99', { callerIdName: 'Fatima' }),
+  ];
+  it('sorts numerically and filters linked / unlinked', () => {
+    expect(filterExtensions(rows, '', 'all').map((r) => r.extension)).toEqual(
+      ['99', '102', '1010']
+    );
+    expect(filterExtensions(rows, '', 'linked').map((r) => r.id)).toEqual([
+      'e1',
+    ]);
+    expect(filterExtensions(rows, '', 'unlinked').map((r) => r.id)).toEqual([
+      'e2',
+      'e3',
+    ]);
+  });
+  it('searches number, PBX name and person', () => {
+    expect(filterExtensions(rows, '10', 'all').map((r) => r.id)).toEqual([
+      'e1',
+      'e3',
+    ]);
+    expect(filterExtensions(rows, 'recep', 'all').map((r) => r.id)).toEqual([
+      'e3',
+    ]);
+    expect(filterExtensions(rows, 'kumar', 'all').map((r) => r.id)).toEqual([
+      'e1',
+    ]);
+  });
+});
+
+describe('people side', () => {
+  const rows = [
+    ext('e1', '101', { userId: 'u-ravi', personName: 'Ravi Kumar' }),
+    ext('e2', '102'),
+    ext('e3', '103'),
+    ext('e4', '201', { accountId: B }),
+    ext('e9', '900', { accountId: 'acct-c', userId: 'u-x', mapped: true }),
+  ];
+
+  it('lists people without an extension first', () => {
+    const list = peopleRows(rows, ws);
+    expect(list).toHaveLength(6);
+    expect(list.at(-1)).toMatchObject({
+      userId: 'u-ravi',
+      extension: { id: 'e1' },
+    });
+    expect(list.slice(0, -1).every((r) => r.extension === null)).toBe(true);
+  });
+
+  it('person options mark who already holds another extension', () => {
+    const opts = personOptions(rows[1], rows, ws);
+    expect(opts.at(-1)).toEqual({
+      userId: 'u-ravi',
+      name: 'Ravi Kumar',
+      holds: '101',
+      holdsId: 'e1',
+    });
+    // On their own extension they are not "holding another".
+    expect(
+      personOptions(rows[0], rows, ws).find((o) => o.userId === 'u-ravi')
+    ).toMatchObject({ holds: null, holdsId: null });
+    expect(personOptions(rows[4], rows, ws)).toEqual([]);
+  });
+
+  it('free extensions are the workspace’s unlinked ones', () => {
+    expect(freeExtensions(rows, A).map((r) => r.id)).toEqual(['e2', 'e3']);
+    expect(freeExtensions(rows, B).map((r) => r.id)).toEqual(['e4']);
+  });
+
+  it('summary counts only my workspaces', () => {
+    expect(mappingSummary(rows, ws)).toEqual({
+      total: 4,
+      linked: 1,
+      unlinked: 3,
+      peopleWithout: 5,
+    });
+  });
+});
