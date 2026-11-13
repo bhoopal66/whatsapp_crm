@@ -47,6 +47,21 @@ export function isLinkedStatus(status: string): boolean {
 }
 
 /**
+ * Whether to show a number as connected: OpenWA's live answer when there
+ * is one, else the saved row status (`connected`, written by the first
+ * link and the health sweep). The saved status is the CRM's word, not
+ * OpenWA's, so it must never go through `isLinkedStatus`.
+ */
+export function numberLinked(
+  savedStatus: string,
+  liveStatus: string | null
+): boolean {
+  return liveStatus !== null
+    ? isLinkedStatus(liveStatus)
+    : savedStatus === 'connected';
+}
+
+/**
  * Linked, or a phone in the middle of linking: a session in either state
  * must never be torn down on a guess. Everything else (a QR still
  * waiting, a failed or dropped pairing, an unknown word) is a definite
@@ -101,11 +116,19 @@ export interface ConnectState {
   error: string | null;
   /** The last status OpenWA reported, for the label under the QR. */
   lastStatus: string | null;
+  /**
+   * "Scan again": the dialog drives a number that already exists (its
+   * phone was logged out) instead of creating one. It never deletes that
+   * number, whatever happens: closing only stops showing the QR.
+   */
+  relink: boolean;
 }
 
 export type ConnectEvent =
   | { type: 'start' }
   | { type: 'created'; configId: string; at: number }
+  /** "Scan again" on an existing, logged-out number. */
+  | { type: 'relink'; configId: string; at: number }
   | { type: 'createFailed'; notConfigured: boolean; error?: string }
   | {
       type: 'polled';
@@ -130,6 +153,7 @@ export const initialConnectState: ConnectState = {
   failure: null,
   error: null,
   lastStatus: null,
+  relink: false,
 };
 
 /** True while a poll answer is still meaningful. */
@@ -162,6 +186,22 @@ export function connectReducer(
         return state;
       }
       return { ...initialConnectState, phase: 'creating' };
+    case 'relink':
+      // From rest only, like `start`: no second poll loop.
+      if (
+        state.phase !== 'idle' &&
+        state.phase !== 'failed' &&
+        state.phase !== 'cancelled'
+      ) {
+        return state;
+      }
+      return {
+        ...initialConnectState,
+        phase: 'waitingForQr',
+        configId: event.configId,
+        startedAt: event.at,
+        relink: true,
+      };
     case 'created':
       if (state.phase !== 'creating') return state;
       return {
@@ -191,7 +231,14 @@ export function connectReducer(
       if (!keepPolling && isLinkedStatus(event.status)) {
         return { ...next, phase: 'connected', phone: event.phone ?? null };
       }
-      if (!keepPolling && isNotLinkedStatus(event.status)) {
+      // A logged-out session that OpenWA is restarting passes through
+      // `disconnected` on its way back to a QR; on "Scan again" that is
+      // a wait, not a refused pairing. The clock still decides.
+      if (
+        !keepPolling &&
+        isNotLinkedStatus(event.status) &&
+        !(state.relink && event.status === 'disconnected')
+      ) {
         return { ...next, phase: 'failed', failure: 'notLinked' };
       }
       if (timedOut(state, event.at)) {
@@ -236,6 +283,9 @@ export function connectReducer(
  * scoped key alive on the gateway, and a "Not connected" row in the list.
  */
 export function needsCleanup(state: ConnectState): boolean {
+  // "Scan again" drives a number that existed before the dialog opened:
+  // it is never the dialog's to delete.
+  if (state.relink) return false;
   return state.configId !== null && state.phase !== 'connected';
 }
 

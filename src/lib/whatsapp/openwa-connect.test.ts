@@ -14,6 +14,7 @@ import {
   isPolling,
   openwaSessionUrls,
   needsCleanup,
+  numberLinked,
   openwaStatusLabelKey,
   settleUnfinishedSession,
   type ConnectEvent,
@@ -327,5 +328,113 @@ describe('openwaSessionUrls', () => {
     expect(urls.create).toBe('/api/whatsapp/personal');
     expect(urls.status('c1')).toBe('/api/whatsapp/personal/c1/status');
     expect(urls.session('c1')).toBe('/api/whatsapp/personal/c1');
+  });
+});
+
+describe('Scan again (relink)', () => {
+  const relink: ConnectEvent = { type: 'relink', configId: 'cfg-9', at: T0 };
+
+  it('polls the existing number without creating one', () => {
+    const s = run(relink);
+    expect(s).toMatchObject({
+      phase: 'waitingForQr',
+      configId: 'cfg-9',
+      startedAt: T0,
+      relink: true,
+    });
+    expect(isPolling(s)).toBe(true);
+  });
+
+  it('shows the QR, then connects', () => {
+    let s = run(relink, {
+      type: 'polled',
+      status: 'qr_ready',
+      qrCode: 'data:image/png;base64,QQ',
+      at: T0 + 3_000,
+    });
+    expect(s).toMatchObject({
+      phase: 'showingQr',
+      qrCode: 'data:image/png;base64,QQ',
+    });
+    s = connectReducer(s, {
+      type: 'polled',
+      status: 'ready',
+      phone: '971500000000',
+      at: T0 + 6_000,
+    });
+    expect(s).toMatchObject({ phase: 'connected', phone: '971500000000' });
+  });
+
+  it('never plans to delete the number, mid-poll, failed or timed out', () => {
+    const polling = run(relink, {
+      type: 'polled',
+      status: 'qr_ready',
+      at: T0 + 3_000,
+    });
+    expect(needsCleanup(polling)).toBe(false);
+    expect(cleanupPlan(polling)).toBe('none');
+    const failed = run(relink, { type: 'polled', status: 'failed', at: T0 });
+    expect(failed).toMatchObject({ phase: 'failed', failure: 'notLinked' });
+    expect(cleanupPlan(failed)).toBe('none');
+    const timedOut = run(relink, {
+      type: 'polled',
+      status: 'qr_ready',
+      at: T0 + OPENWA_GIVE_UP_MS,
+    });
+    expect(timedOut).toMatchObject({ phase: 'failed', failure: 'timedOut' });
+    expect(cleanupPlan(timedOut)).toBe('none');
+    expect(cleanupPlan(connectReducer(timedOut, { type: 'cancel' }))).toBe(
+      'none'
+    );
+  });
+
+  it('waits through disconnected while OpenWA restarts the session', () => {
+    const s = run(relink, {
+      type: 'polled',
+      status: 'disconnected',
+      at: T0 + 3_000,
+    });
+    expect(s.phase).toBe('waitingForQr');
+    // A new number's dialog still fails on it: the phone refused.
+    const fresh = run(...created, {
+      type: 'polled',
+      status: 'disconnected',
+      at: T0 + 3_000,
+    });
+    expect(fresh).toMatchObject({ phase: 'failed', failure: 'notLinked' });
+  });
+
+  it('starts again after a failure, and not while polling', () => {
+    const failed = run(relink, { type: 'polled', status: 'failed', at: T0 });
+    const again = connectReducer(failed, { ...relink, at: T0 + 60_000 });
+    expect(again).toMatchObject({
+      phase: 'waitingForQr',
+      startedAt: T0 + 60_000,
+      failure: null,
+      relink: true,
+    });
+    const polling = run(relink);
+    expect(connectReducer(polling, { ...relink, configId: 'other' })).toBe(
+      polling
+    );
+  });
+
+  it('a new connect clears the relink flag', () => {
+    const failed = run(relink, { type: 'polled', status: 'failed', at: T0 });
+    expect(connectReducer(failed, { type: 'start' }).relink).toBe(false);
+    expect(connectReducer(failed, { type: 'reset' }).relink).toBe(false);
+  });
+});
+
+describe('numberLinked', () => {
+  it('follows the live answer when there is one', () => {
+    expect(numberLinked('connected', 'qr_ready')).toBe(false);
+    expect(numberLinked('disconnected', 'ready')).toBe(true);
+  });
+  it('reads the saved status in the CRM’s own words otherwise', () => {
+    expect(numberLinked('connected', null)).toBe(true);
+    expect(numberLinked('disconnected', null)).toBe(false);
+    // The old badge compared the saved status with OpenWA's `ready`.
+    expect(numberLinked('ready', null)).toBe(false);
   });
 });

@@ -146,6 +146,8 @@ export function WhatsAppNumbers() {
   const [addChannelId, setAddChannelId] = useState('');
   const [adding, setAdding] = useState(false);
   const [openwaOpen, setOpenwaOpen] = useState(false);
+  // "Scan again" on an OpenWA number whose phone was logged out.
+  const [rescanId, setRescanId] = useState<string | null>(null);
 
   const [removing, setRemoving] = useState<NumberRow | null>(null);
   const [health, setHealth] = useState<Record<string, NumberHealth>>({});
@@ -700,9 +702,20 @@ export function WhatsAppNumbers() {
                       {inboundMissing
                         ? t('inboundMissing')
                         : isOpenwa
-                          ? t('openwa.notLive')
+                          ? t('openwa.loggedOut')
                           : rowHealth?.message || t('notLive')}
                     </span>
+                    {isOpenwa && !inboundMissing && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        onClick={() => setRescanId(row.id)}
+                      >
+                        <QrCode className="size-3.5" />
+                        {t('openwa.scanAgain')}
+                      </Button>
+                    )}
                     {!isOpenwa && (
                       <Button
                         variant="outline"
@@ -1003,6 +1016,16 @@ export function WhatsAppNumbers() {
       <OpenWAConnectDialog
         open={openwaOpen}
         onOpenChange={setOpenwaOpen}
+        onConnected={() => {
+          invalidateNumberCaches();
+          void load();
+        }}
+      />
+
+      <OpenWAConnectDialog
+        open={rescanId !== null}
+        onOpenChange={(o) => !o && setRescanId(null)}
+        relinkConfigId={rescanId}
         onConnected={() => {
           invalidateNumberCaches();
           void load();

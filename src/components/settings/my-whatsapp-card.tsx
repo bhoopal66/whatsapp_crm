@@ -31,6 +31,7 @@ import { invalidateCached } from '@/lib/client-cache';
 import {
   OPENWA_PERSONAL_BASE,
   isLinkedStatus,
+  numberLinked,
   openwaSessionUrls,
 } from '@/lib/whatsapp/openwa-connect';
 import {
@@ -47,6 +48,10 @@ export function MyWhatsAppCard() {
   const t = useTranslations('Settings.myWhatsApp');
   const [info, setInfo] = useState<PersonalNumberInfo | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [rescanOpen, setRescanOpen] = useState(false);
+  // OpenWA's live word for the number (`ready`, `qr_ready`, …); null
+  // until it answers, when the saved status stands in.
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
 
@@ -54,7 +59,21 @@ export function MyWhatsAppCard() {
     try {
       const res = await fetch(OPENWA_PERSONAL_BASE, { cache: 'no-store' });
       const body = await res.json().catch(() => null);
-      setInfo(res.ok ? parsePersonalNumberInfo(body) : null);
+      const next = res.ok ? parsePersonalNumberInfo(body) : null;
+      setInfo(next);
+      if (!next?.number) {
+        setLiveStatus(null);
+        return;
+      }
+      // The saved status lags the phone by up to a sweep (5 min); the
+      // badge and "Scan again" follow what the gateway says now.
+      const live = await fetch(
+        openwaSessionUrls(OPENWA_PERSONAL_BASE).status(next.number.id),
+        { cache: 'no-store' }
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      setLiveStatus(typeof live?.status === 'string' ? live.status : null);
     } catch {
       setInfo(null);
     }
@@ -144,7 +163,7 @@ export function MyWhatsAppCard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {isLinkedStatus(view.number.status) ? (
+              {numberLinked(view.number.status, liveStatus) ? (
                 <Badge className="bg-success-soft text-success">
                   {t('statusConnected')}
                 </Badge>
@@ -152,6 +171,11 @@ export function MyWhatsAppCard() {
                 <Badge className="bg-destructive-soft text-destructive">
                   {t('statusDisconnected')}
                 </Badge>
+              )}
+              {liveStatus !== null && !isLinkedStatus(liveStatus) && (
+                <Button onClick={() => setRescanOpen(true)}>
+                  {t('scanAgain')}
+                </Button>
               )}
               <Button variant="outline" onClick={() => setConfirmOpen(true)}>
                 {t('disconnect')}
@@ -199,6 +223,16 @@ export function MyWhatsAppCard() {
         onOpenChange={setConnectOpen}
         onConnected={onConnected}
         baseUrl={OPENWA_PERSONAL_BASE}
+      />
+
+      <OpenWAConnectDialog
+        open={rescanOpen}
+        onOpenChange={setRescanOpen}
+        onConnected={onConnected}
+        baseUrl={OPENWA_PERSONAL_BASE}
+        relinkConfigId={
+          rescanOpen && view.kind === 'connected' ? view.number.id : null
+        }
       />
 
       <Dialog

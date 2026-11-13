@@ -11,6 +11,10 @@
 // scoped key alive on the gateway; when the dialog cannot know whether
 // the phone linked meanwhile (it gave up, or is closed mid-poll), it
 // asks once first and keeps a number that turns out linked.
+//
+// With `relinkConfigId` it is "Scan again" for a number whose phone was
+// logged out: no name, no create, the existing session's QR, and closing
+// never deletes anything (the reducer's `relink` flag).
 // ============================================================
 
 import { useEffect, useReducer, useRef, useState } from 'react';
@@ -94,6 +98,7 @@ export function OpenWAConnectDialog({
   onOpenChange,
   onConnected,
   baseUrl = OPENWA_ADMIN_BASE,
+  relinkConfigId = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -104,6 +109,8 @@ export function OpenWAConnectDialog({
    * (`OPENWA_PERSONAL_BASE`), which share the same shape.
    */
   baseUrl?: string;
+  /** "Scan again": show this existing number's QR instead of creating one. */
+  relinkConfigId?: string | null;
 }) {
   const t = useTranslations('Settings.numbers');
   const urls = openwaSessionUrls(baseUrl);
@@ -167,7 +174,21 @@ export function OpenWAConnectDialog({
     if (state.phase === 'connected') onConnectedRef.current();
   }, [state.phase]);
 
+  // "Scan again" starts polling as soon as the dialog opens.
+  useEffect(() => {
+    if (!open || !relinkConfigId || state.phase !== 'idle') return;
+    setPollSeq(0);
+    dispatch({ type: 'relink', configId: relinkConfigId, at: Date.now() });
+  }, [open, relinkConfigId, state.phase]);
+
+  function rescan() {
+    if (!relinkConfigId || polling) return;
+    setPollSeq(0);
+    dispatch({ type: 'relink', configId: relinkConfigId, at: Date.now() });
+  }
+
   async function connect() {
+    if (relinkConfigId) return;
     if (state.phase === 'creating' || polling || settling.current) return;
     // A retry after a failed link starts a fresh session; the old one
     // would otherwise linger on the gateway.
@@ -275,36 +296,37 @@ export function OpenWAConnectDialog({
       <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">
-            {t('openwa.title')}
+            {relinkConfigId ? t('openwa.relinkTitle') : t('openwa.title')}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {t('openwa.desc')}
+            {relinkConfigId ? t('openwa.relinkDesc') : t('openwa.desc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          {(state.phase === 'idle' ||
-            state.phase === 'creating' ||
-            state.phase === 'failed') && (
-            <div className="space-y-1.5">
-              <Label htmlFor="openwa-number-name">{t('nameLabel')}</Label>
-              <Input
-                id="openwa-number-name"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                maxLength={MAX_CHANNEL_LABEL_LEN}
-                placeholder={t('namePlaceholder')}
-                disabled={busy}
-                className="border-border text-foreground"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void connect();
-                  }
-                }}
-              />
-            </div>
-          )}
+          {!relinkConfigId &&
+            (state.phase === 'idle' ||
+              state.phase === 'creating' ||
+              state.phase === 'failed') && (
+              <div className="space-y-1.5">
+                <Label htmlFor="openwa-number-name">{t('nameLabel')}</Label>
+                <Input
+                  id="openwa-number-name"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={MAX_CHANNEL_LABEL_LEN}
+                  placeholder={t('namePlaceholder')}
+                  disabled={busy}
+                  className="border-border text-foreground"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void connect();
+                    }
+                  }}
+                />
+              </div>
+            )}
 
           {(state.phase === 'creating' || state.phase === 'waitingForQr') && (
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -365,14 +387,19 @@ export function OpenWAConnectDialog({
           <Button variant="ghost" onClick={close}>
             {state.phase === 'connected' ? t('openwa.close') : t('cancel')}
           </Button>
-          {state.phase !== 'connected' && state.failure !== 'notConfigured' && (
-            <Button onClick={() => void connect()} disabled={busy}>
-              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-              {state.phase === 'failed'
-                ? t('openwa.retry')
-                : t('openwa.connect')}
-            </Button>
+          {relinkConfigId && state.phase === 'failed' && (
+            <Button onClick={rescan}>{t('openwa.retry')}</Button>
           )}
+          {!relinkConfigId &&
+            state.phase !== 'connected' &&
+            state.failure !== 'notConfigured' && (
+              <Button onClick={() => void connect()} disabled={busy}>
+                {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+                {state.phase === 'failed'
+                  ? t('openwa.retry')
+                  : t('openwa.connect')}
+              </Button>
+            )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
