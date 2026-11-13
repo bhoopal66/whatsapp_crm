@@ -1,6 +1,7 @@
 'use client';
 
-// Team call recordings (/calls/recordings): a team leader or admin picks
+// Team call recordings (/calls/recordings): a team leader, an admin or a
+// call reviewer (migration 198, treated as an admin here) picks
 // a period, team, person, direction, minimum length or a number, and
 // gets a per-person summary and the recorded calls by day, each
 // playable with the Calls list's player (which logs every play and
@@ -114,7 +115,10 @@ export function TeamRecordings() {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const { accountRole } = useAuth();
+  const { accountRole, reviewsAllCalls } = useAuth();
+  // Every person's calls: owners, admins and call reviewers (198).
+  const seesAll =
+    reviewsAllCalls || (!!accountRole && canViewAllCalls(accountRole));
 
   const params = useMemo(
     () => readRecordingsParams((k) => search.get(k)),
@@ -435,9 +439,7 @@ export function TeamRecordings() {
               className={selectClass}
             >
               <option value="">
-                {accountRole && canViewAllCalls(accountRole)
-                  ? t('filters.allTeams')
-                  : t('filters.allMyTeams')}
+                {seesAll ? t('filters.allTeams') : t('filters.allMyTeams')}
               </option>
               {teams.map((tm) => (
                 <option key={tm.id} value={tm.id}>

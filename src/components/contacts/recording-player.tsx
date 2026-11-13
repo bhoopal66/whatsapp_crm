@@ -91,9 +91,12 @@ export function RecordingPlayer({
   const [length, setLength] = useState<number | null>(null);
   const [speed, setSpeed] = useState<RecordingSpeed>(1);
   const [attach, setAttach] = useState<'idle' | 'busy' | 'done'>('idle');
-  const { accountRole } = useAuth();
+  const { accountRole, reviewsAllCalls } = useAuth();
   const canHold = !!accountRole && canPlaceLegalHold(accountRole);
-  const canDownload = !!accountRole && canDownloadRecording(accountRole);
+  // A call reviewer (migration 198) downloads like a team leader; the
+  // recording route and call_access_log's guard still decide.
+  const canDownload =
+    !!accountRole && (canDownloadRecording(accountRole) || reviewsAllCalls);
   const [downloading, setDownloading] = useState(false);
   const [hold, setHold] = useState(call.legalHold === true);
   // null: closed; a string: the reason being typed.

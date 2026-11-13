@@ -2019,6 +2019,15 @@
         "notEligible": "This member cannot have a personal WhatsApp number",
         "failed": "Failed to update member"
       },
+      "reviewCalls": {
+        "badge": "Reviews all calls",
+        "allow": "Allow reviewing all calls",
+        "remove": "Stop reviewing all calls",
+        "allowedToast": "{name} can now review every call",
+        "removedToast": "{name} no longer reviews every call",
+        "notEligible": "This member cannot be a call reviewer",
+        "failed": "Failed to update member"
+      },
       "reactivatedToast": "Reactivated {name}",
       "deactivateDialogTitle": "Deactivate member",
       "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. Their role, assigned chats and history stay as they are.",

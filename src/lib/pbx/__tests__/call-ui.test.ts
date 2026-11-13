@@ -719,6 +719,21 @@ describe('the Calls screen tabs', () => {
     expect(callsTabLabel('missed', 'admin')).toBe('missed');
   });
 
+  it('gives a call reviewer (198) All calls like an admin, never a guest', () => {
+    for (const r of ['viewer', 'agent', 'team_leader'] as const) {
+      expect(callsReach(r, true), r).toBe('all');
+      expect(callsTabLabel('log', r, true), r).toBe('all');
+      expect(visibleCallTabs(r, false, true, true), r).toContain('log');
+      expect(shownCallsTab('log', r, true, true), r).toBe('log');
+    }
+    expect(visibleCallTabs('agent', false, true)).not.toContain('log');
+    expect(shownCallsTab('log', 'agent', true)).toBe('mine');
+    // By person keeps its team-leader floor.
+    expect(visibleCallTabs('agent', false, true, true)).not.toContain('people');
+    expect(callsReach('bank_guest', true)).toBe('mine');
+    expect(callsReach(null, true)).toBe('mine');
+  });
+
   it('asks for my own missed calls and tasks unless the toggle widens them', () => {
     expect(callsListScopes('mine')).toEqual({ calls: 'mine', tasks: null });
     expect(callsListScopes('missed')).toEqual({

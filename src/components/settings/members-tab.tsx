@@ -33,6 +33,7 @@ import { toast } from 'sonner';
 import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
   AlertTriangle,
+  Headphones,
   KeyRound,
   Loader2,
   Landmark,
@@ -93,6 +94,8 @@ import {
   canEditDetailsOf,
   canHavePersonalWhatsapp,
   canManageMembers,
+  canViewAllCalls,
+  isBankGuest,
   type AccountRole,
   type AssignableRole,
 } from '@/lib/auth/roles';
@@ -129,6 +132,8 @@ interface Member {
   may_connect_personal_whatsapp?: boolean;
   /** Their personal number, once connected. */
   personal_number?: { id: string; phone: string } | null;
+  /** Migration 198: allowed to review every call; absent before 198. */
+  may_review_all_calls?: boolean;
   /** Migration 192; sales when absent. */
   department?: Department;
 }
@@ -364,6 +369,41 @@ export function MembersTab() {
       await loadEverything();
     } catch (err) {
       console.error('[MembersTab] personal whatsapp error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setPendingMemberAction(null);
+    }
+  }
+
+  // Allow or withdraw reviewing every call (migration 198): a staff
+  // member below admin who then sees calls, recordings and the Call
+  // report as an admin does. Owners and admins see every call anyway.
+  async function handleSetReviewAllCalls(member: Member, allow: boolean) {
+    setPendingMemberAction(member.user_id);
+    try {
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewAllCalls: allow }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(
+          res.status === 422
+            ? t('reviewCalls.notEligible')
+            : payload.error || t('reviewCalls.failed')
+        );
+        return;
+      }
+      const name = member.full_name || t('unnamed');
+      toast.success(
+        allow
+          ? t('reviewCalls.allowedToast', { name })
+          : t('reviewCalls.removedToast', { name })
+      );
+      await loadEverything();
+    } catch (err) {
+      console.error('[MembersTab] review all calls error:', err);
       toast.error('Could not reach the server');
     } finally {
       setPendingMemberAction(null);
@@ -658,6 +698,11 @@ export function MembersTab() {
                               : ''}
                           </Badge>
                         )}
+                        {member.may_review_all_calls && (
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                            {t('reviewCalls.badge')}
+                          </Badge>
+                        )}
                         {toDepartment(member.department) !== 'sales' && (
                           <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
                             {tDept(`names.${toDepartment(member.department)}`)}
@@ -817,6 +862,44 @@ export function MembersTab() {
                             {member.may_connect_personal_whatsapp
                               ? t('personal.remove')
                               : t('personal.allow')}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+
+                    {/* Review every call (migration 198): staff below
+                        admin only, since admins already see every call. */}
+                    {!!accountRole &&
+                      canManageMembers(accountRole) &&
+                      !isBankGuest(member.role) &&
+                      !canViewAllCalls(member.role) &&
+                      !isInactive && (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={
+                                  member.may_review_all_calls
+                                    ? t('reviewCalls.remove')
+                                    : t('reviewCalls.allow')
+                                }
+                                onClick={() =>
+                                  handleSetReviewAllCalls(
+                                    member,
+                                    !member.may_review_all_calls
+                                  )
+                                }
+                                disabled={isBusy}
+                              >
+                                <Headphones className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>
+                            {member.may_review_all_calls
+                              ? t('reviewCalls.remove')
+                              : t('reviewCalls.allow')}
                           </TooltipContent>
                         </Tooltip>
                       )}

@@ -165,6 +165,35 @@ describe('visibleNavGroups', () => {
     expect(hrefs('agent', { brain: true })).toContain('/digest');
   });
 
+  it('shows Team recordings to a call reviewer below team leader (198)', () => {
+    const hrefs = (
+      role: AccountRole | null,
+      ctx: Parameters<typeof visibleNavGroups>[1]
+    ) => visibleNavGroups(role, ctx).flatMap((g) => g.items.map((i) => i.href));
+    for (const role of ['viewer', 'agent'] as const) {
+      expect(hrefs(role, { pbx: true }), role).not.toContain(
+        '/calls/recordings'
+      );
+      expect(hrefs(role, { pbx: true, callReviewer: true }), role).toContain(
+        '/calls/recordings'
+      );
+      // The phone system still has to be in use.
+      expect(hrefs(role, { callReviewer: true }), role).not.toContain(
+        '/calls/recordings'
+      );
+    }
+    // Never a guest, nor while the role loads.
+    for (const role of [null, 'bank_guest'] as const)
+      expect(
+        hrefs(role, { pbx: true, callReviewer: true }),
+        String(role)
+      ).not.toContain('/calls/recordings');
+    // The flag waives only the Team recordings row's role floor.
+    expect(hrefs('agent', { pbx: true, callReviewer: true })).not.toContain(
+      '/team-inbox'
+    );
+  });
+
   it('shows a guestVisible row to a guest and to staff alike', () => {
     const chat = {
       href: '/chat',
@@ -223,15 +252,18 @@ describe('nav model', () => {
     for (const item of ALL_ITEMS) {
       const file = join(appDir, item.href.slice(1), 'layout.tsx');
       const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
-      const guard: AccountRole | undefined = source.includes(
-        'TeamLeaderOnlyLayout'
-      )
-        ? 'team_leader'
-        : source.includes('AdminOnlyLayout')
-          ? 'admin'
-          : source.includes('AgentOnlyLayout')
-            ? 'agent'
-            : undefined;
+      // CallReviewerLayout is team leader and up, plus a call reviewer
+      // (migration 198), whom `callReviewerVisible` lets past minRole.
+      const reviewerGuard = source.includes('CallReviewerLayout');
+      expect(!!item.callReviewerVisible, item.href).toBe(reviewerGuard);
+      const guard: AccountRole | undefined =
+        source.includes('TeamLeaderOnlyLayout') || reviewerGuard
+          ? 'team_leader'
+          : source.includes('AdminOnlyLayout')
+            ? 'admin'
+            : source.includes('AgentOnlyLayout')
+              ? 'agent'
+              : undefined;
       expect(item.minRole, item.href).toBe(guard);
       // A staff-only route turns a bank guest away: never show one its row.
       if (source.includes('StaffOnlyLayout'))
@@ -247,9 +279,9 @@ describe('nav model', () => {
     for (const item of ALL_ITEMS) {
       const file = join(appDir, item.href.slice(1), 'layout.tsx');
       const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
-      const guarded = /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(
-        source
-      );
+      const guarded =
+        /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(source) ||
+        /\bCallReviewerLayout\b/.test(source);
       expect(!!item.guarded, item.href).toBe(guarded);
     }
   });

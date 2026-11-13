@@ -82,15 +82,22 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const t = useTranslations('CallsPage');
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
-  const { accountRole, user } = useAuth();
+  const { accountRole, user, reviewsAllCalls } = useAuth();
   const hasPhone = Boolean(useCalls()?.me);
   // A direct link to a tab this role is not offered (the API would
   // refuse it, or it is not theirs) shows My calls, as an unknown ?tab=
   // does.
-  const tab = shownCallsTab(requested, accountRole);
-  // Missed calls are the viewer's own unless a leader or admin turns
-  // the toggle to their team's or everyone's.
-  const reach = callsReach(accountRole);
+  const tab = shownCallsTab(requested, accountRole, undefined, reviewsAllCalls);
+  // Missed calls are the viewer's own unless a leader, an admin or a
+  // call reviewer (migration 198) turns the toggle to their team's or
+  // everyone's.
+  const reach = callsReach(accountRole, reviewsAllCalls);
+  const tabs = visibleCallTabs(
+    accountRole,
+    hasPhone,
+    undefined,
+    reviewsAllCalls
+  );
   const [wideToggle, setWide] = useState(false);
   const wide = wideToggle && reach !== 'mine';
   const timeZone = useMemo(
@@ -316,7 +323,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             <BarChart3 className="size-4" aria-hidden />
             {t('reportLink')}
           </Link>
-          {accountRole && canLeadTeam(accountRole) && (
+          {accountRole && (canLeadTeam(accountRole) || reviewsAllCalls) && (
             <Link
               href="/calls/recordings"
               className="border-border bg-card hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
@@ -329,7 +336,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
         </div>
       </div>
       <nav className="flex flex-wrap gap-2" aria-label={t('title')}>
-        {visibleCallTabs(accountRole, hasPhone).map((k) => (
+        {tabs.map((k) => (
           <Link
             key={k}
             href={k === 'mine' ? '/calls' : `/calls?tab=${k}`}
@@ -341,7 +348,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
                 : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
-            {t(`tabs.${callsTabLabel(k, accountRole)}`)}
+            {t(`tabs.${callsTabLabel(k, accountRole, reviewsAllCalls)}`)}
           </Link>
         ))}
       </nav>

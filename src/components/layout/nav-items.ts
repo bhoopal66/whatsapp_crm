@@ -80,6 +80,13 @@ export interface NavItem {
    */
   needsBrain?: boolean;
   /**
+   * Also shown, below `minRole`, to a person allowed to review every
+   * call (`profiles.may_review_all_calls`, migration 198; `ctx.callReviewer`).
+   * Only the minRole check is waived: `needsPbx` and a restricted
+   * department still hide the row.
+   */
+  callReviewerVisible?: boolean;
+  /**
    * The route's own layout guards it on the server (one of the
    * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
    * the session there makes the route dynamic, so the default `auto`
@@ -97,6 +104,8 @@ export interface NavContext {
   pbx?: boolean;
   /** The workspace has the second brain on (`settings.brainEnabled`). */
   brain?: boolean;
+  /** Allowed to review every call (migration 198, `reviewsAllCalls`). */
+  callReviewer?: boolean;
 }
 
 export interface NavGroup {
@@ -286,6 +295,7 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamRecordings',
         icon: AudioLines,
         minRole: 'team_leader',
+        callReviewerVisible: true,
         needsPbx: true,
         guarded: true,
       },
@@ -398,8 +408,9 @@ export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
 /**
  * May `role` see `item`? A bank guest sees only `guestVisible` rows;
  * staff are gated by `minRole` (none = every staff member), and a
- * `needsPbx` row by `ctx.pbx`. Null (the profile still loading) shows
- * the ungated rows, as above.
+ * `needsPbx` row by `ctx.pbx`; a `callReviewerVisible` row passes its
+ * `minRole` for a call reviewer (`ctx.callReviewer`). Null (the profile
+ * still loading) shows the ungated rows, as above.
  */
 export function isNavItemVisible(
   item: NavItem,
@@ -410,6 +421,7 @@ export function isNavItemVisible(
   if (ctx.salesRestricted && isRestrictedPath(item.href)) return false;
   if (item.needsPbx && !(role && ctx.pbx)) return false;
   if (item.needsBrain && !(role && ctx.brain)) return false;
+  if (item.callReviewerVisible && role && ctx.callReviewer) return true;
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 
