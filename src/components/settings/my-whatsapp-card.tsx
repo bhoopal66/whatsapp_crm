@@ -11,7 +11,7 @@
 // route answers them 403).
 // ============================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, Smartphone } from 'lucide-react';
@@ -55,16 +55,24 @@ export function MyWhatsAppCard() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
 
+  // Loads overlap (the import poll, a connect); only the newest may set
+  // state, or an older `qr_ready` could land over a fresh `ready`.
+  const loadSeq = useRef(0);
+  // The number `liveStatus` belongs to.
+  const liveFor = useRef<string | null>(null);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const res = await fetch(OPENWA_PERSONAL_BASE, { cache: 'no-store' });
       const body = await res.json().catch(() => null);
+      if (seq !== loadSeq.current) return;
       const next = res.ok ? parsePersonalNumberInfo(body) : null;
       setInfo(next);
-      if (!next?.number) {
-        setLiveStatus(null);
-        return;
-      }
+      setLiveStatus((prev) =>
+        next?.number && next.number.id === liveFor.current ? prev : null
+      );
+      liveFor.current = next?.number?.id ?? null;
+      if (!next?.number) return;
       // The saved status lags the phone by up to a sweep (5 min); the
       // badge and "Scan again" follow what the gateway says now.
       const live = await fetch(
@@ -73,9 +81,10 @@ export function MyWhatsAppCard() {
       )
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
+      if (seq !== loadSeq.current) return;
       setLiveStatus(typeof live?.status === 'string' ? live.status : null);
     } catch {
-      setInfo(null);
+      if (seq === loadSeq.current) setInfo(null);
     }
   }, []);
 

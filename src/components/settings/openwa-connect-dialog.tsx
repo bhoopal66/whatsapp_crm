@@ -130,6 +130,9 @@ export function OpenWAConnectDialog({
 
   const polling = isPolling(state);
   const configId = state.configId;
+  // Relink mode is latched in the state once it starts, so a parent that
+  // drops the id mid-dialog cannot turn it into a create.
+  const relinkMode = relinkConfigId !== null || state.relink;
 
   // One poll per tick; the next is scheduled only after this one has
   // answered, so a slow tunnel never stacks requests. The first poll
@@ -182,13 +185,14 @@ export function OpenWAConnectDialog({
   }, [open, relinkConfigId, state.phase]);
 
   function rescan() {
-    if (!relinkConfigId || polling) return;
+    const id = state.relink ? state.configId : relinkConfigId;
+    if (!id || polling) return;
     setPollSeq(0);
-    dispatch({ type: 'relink', configId: relinkConfigId, at: Date.now() });
+    dispatch({ type: 'relink', configId: id, at: Date.now() });
   }
 
   async function connect() {
-    if (relinkConfigId) return;
+    if (relinkMode) return;
     if (state.phase === 'creating' || polling || settling.current) return;
     // A retry after a failed link starts a fresh session; the old one
     // would otherwise linger on the gateway.
@@ -272,8 +276,16 @@ export function OpenWAConnectDialog({
 
   const busy = state.phase === 'creating' || polling;
   const phone = state.phone?.replace(/^\+/, '');
+  // On "Scan again" a passing `disconnected` is OpenWA restarting the
+  // session, not a failure: label it as starting.
   const statusLabel = state.lastStatus
-    ? t(`openwa.status.${openwaStatusLabelKey(state.lastStatus)}`)
+    ? t(
+        `openwa.status.${
+          state.relink && state.lastStatus === 'disconnected'
+            ? 'starting'
+            : openwaStatusLabelKey(state.lastStatus)
+        }`
+      )
     : null;
 
   let failureText: string | null = null;
@@ -296,15 +308,15 @@ export function OpenWAConnectDialog({
       <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">
-            {relinkConfigId ? t('openwa.relinkTitle') : t('openwa.title')}
+            {relinkMode ? t('openwa.relinkTitle') : t('openwa.title')}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {relinkConfigId ? t('openwa.relinkDesc') : t('openwa.desc')}
+            {relinkMode ? t('openwa.relinkDesc') : t('openwa.desc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          {!relinkConfigId &&
+          {!relinkMode &&
             (state.phase === 'idle' ||
               state.phase === 'creating' ||
               state.phase === 'failed') && (
@@ -387,10 +399,10 @@ export function OpenWAConnectDialog({
           <Button variant="ghost" onClick={close}>
             {state.phase === 'connected' ? t('openwa.close') : t('cancel')}
           </Button>
-          {relinkConfigId && state.phase === 'failed' && (
+          {relinkMode && state.phase === 'failed' && (
             <Button onClick={rescan}>{t('openwa.retry')}</Button>
           )}
-          {!relinkConfigId &&
+          {!relinkMode &&
             state.phase !== 'connected' &&
             state.failure !== 'notConfigured' && (
               <Button onClick={() => void connect()} disabled={busy}>

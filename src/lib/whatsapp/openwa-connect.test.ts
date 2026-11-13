@@ -419,10 +419,14 @@ describe('Scan again (relink)', () => {
     );
   });
 
-  it('a new connect clears the relink flag', () => {
+  it('only closing (reset) leaves relink mode; then Connect works', () => {
     const failed = run(relink, { type: 'polled', status: 'failed', at: T0 });
-    expect(connectReducer(failed, { type: 'start' }).relink).toBe(false);
-    expect(connectReducer(failed, { type: 'reset' }).relink).toBe(false);
+    const reset = connectReducer(failed, { type: 'reset' });
+    expect(reset.relink).toBe(false);
+    expect(connectReducer(reset, { type: 'start' })).toMatchObject({
+      phase: 'creating',
+      relink: false,
+    });
   });
 });
 
@@ -436,5 +440,16 @@ describe('numberLinked', () => {
     expect(numberLinked('disconnected', null)).toBe(false);
     // The old badge compared the saved status with OpenWA's `ready`.
     expect(numberLinked('ready', null)).toBe(false);
+  });
+});
+
+describe('Scan again never creates', () => {
+  it('ignores start for as long as the dialog is in relink mode', () => {
+    const timedOut = run(
+      { type: 'relink', configId: 'cfg-9', at: T0 },
+      { type: 'pollFailed', at: T0 + OPENWA_GIVE_UP_MS }
+    );
+    expect(timedOut).toMatchObject({ phase: 'failed', failure: 'timedOut' });
+    expect(connectReducer(timedOut, { type: 'start' })).toBe(timedOut);
   });
 });

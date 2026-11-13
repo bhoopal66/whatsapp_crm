@@ -113,6 +113,18 @@ connected. After that, status changes, and the `channel_disconnected` /
 `channel_reconnected` alerts, come from the health sweep alone; the
 Settings list's live check no longer writes the status.
 
+**Scan again.** A phone can be logged out while the number stays in
+the CRM: WhatsApp drops the linked device, or the gateway restarted a
+session whose saved login was lost (a browser killed under memory
+pressure). OpenWA then keeps the session waiting with a fresh QR, and
+Settings → Numbers shows the number as logged out with a **Scan again**
+button (people with their own number get the same button in Settings →
+My WhatsApp). It shows that session's QR; whoever holds the phone scans
+it from WhatsApp → Linked devices, and the number comes back with its
+chats and access list unchanged. Scan again never creates or deletes a
+number: closing it only stops showing the code. A status read that gets
+no answer from the gateway is shown as unknown, never as logged out.
+
 Disconnecting logs the session out, deletes it and revokes its key. The
 number is removed from the CRM even when OpenWA cannot be reached (or
 `OPENWA_API_KEY` is unset), but then the session may still be running

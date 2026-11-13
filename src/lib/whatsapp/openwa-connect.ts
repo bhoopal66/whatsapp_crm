@@ -177,6 +177,9 @@ export function connectReducer(
     case 'reset':
       return initialConnectState;
     case 'start':
+      // A "Scan again" dialog never creates a number, even after its
+      // caller lost the id (the number was removed meanwhile).
+      if (state.relink) return state;
       // Only from rest: a double-clicked Connect must not open two sessions.
       if (
         state.phase !== 'idle' &&

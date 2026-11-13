@@ -212,14 +212,21 @@ export function WhatsAppNumbers() {
           if (row.provider === 'openwa') {
             // The Whapi health route would read an OpenWA row as a
             // Whapi channel; its own status route asks the gateway.
+            // No answer (gateway down, 5xx) is unknown, not "logged
+            // out": only OpenWA's own word may offer Scan again.
             const body = await fetch(
               `/api/whatsapp/config/openwa/${encodeURIComponent(row.id)}/status`,
               { cache: 'no-store' }
-            ).then((r) => r.json());
+            )
+              .then((r) => r.json())
+              .catch(() => null);
             setHealth((prev) => ({
               ...prev,
               [row.id]: {
-                live: isLinkedStatus(body?.status),
+                live:
+                  typeof body?.status === 'string'
+                    ? isLinkedStatus(body.status)
+                    : null,
                 phone: body?.phone ?? null,
               },
             }));

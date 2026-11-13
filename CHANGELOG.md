@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Scan again for a logged-out OpenWA number
+
+**No migration.** When an OpenWA phone is logged out, Settings → Numbers
+now says so and offers **Scan again**, which shows the number's QR so
+the phone can be linked again without disconnecting it; its chats and
+access list stay. Settings → My WhatsApp offers the same, and its badge
+now shows the live state: it said "Not connected" even for a linked
+number.
+
 ### Phone extensions get their own settings page
 
 **No migration.** Settings → Phone extensions replaces the extensions
