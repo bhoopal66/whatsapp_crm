@@ -973,7 +973,7 @@ export function callsTabLabel(
  * Keypad only while this build may place calls (`outbound`,
  * lib/pbx/outbound.ts); Colleagues stays as a directory with live status.
  * A call `reviewer` (migration 198) also gets All calls, through
- * callsReach; By person stays team leader and up (its route's floor).
+ * callsReach, and By person (its route admits a reviewer too).
  */
 export function visibleCallTabs(
   role: AccountRole | null,
@@ -994,7 +994,9 @@ export function visibleCallTabs(
             (hasMinRole(role, 'team_leader') ||
               (hasPhone && hasMinRole(role, 'agent')))
           : k === 'people'
-            ? role !== null && hasMinRole(role, 'team_leader')
+            ? role !== null &&
+              (hasMinRole(role, 'team_leader') ||
+                (reviewer && !isBankGuest(role)))
             : k === 'log'
               ? callsReach(role, reviewer) !== 'mine'
               : k === 'unrouted'

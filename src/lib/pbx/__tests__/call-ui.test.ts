@@ -728,8 +728,12 @@ describe('the Calls screen tabs', () => {
     }
     expect(visibleCallTabs('agent', false, true)).not.toContain('log');
     expect(shownCallsTab('log', 'agent', true)).toBe('mine');
-    // By person keeps its team-leader floor.
-    expect(visibleCallTabs('agent', false, true, true)).not.toContain('people');
+    // By person too: its route (/api/pbx/calls/report) admits a reviewer.
+    expect(visibleCallTabs('agent', false, true, true)).toContain('people');
+    expect(visibleCallTabs('agent', false, true)).not.toContain('people');
+    expect(visibleCallTabs('bank_guest', false, true, true)).not.toContain(
+      'people'
+    );
     expect(callsReach('bank_guest', true)).toBe('mine');
     expect(callsReach(null, true)).toBe('mine');
   });

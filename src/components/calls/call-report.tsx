@@ -30,7 +30,7 @@ export function CallReport() {
   const t = useTranslations('CallsPage.report');
   const tOutcome = useTranslations('PbxCall.outcomes');
   const locale = useLocale();
-  const { accountRole } = useAuth();
+  const { accountRole, reviewsAllCalls } = useAuth();
   const viewerZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -256,9 +256,9 @@ export function CallReport() {
           </p>
           <p>{t('footnoteMissed')}</p>
           <p>{t('footnoteFigures')}</p>
-          {accountRole && !hasMinRole(accountRole, 'admin') && (
-            <p>{t('footnoteLeader')}</p>
-          )}
+          {accountRole &&
+            !hasMinRole(accountRole, 'admin') &&
+            !reviewsAllCalls && <p>{t('footnoteLeader')}</p>}
         </div>
       )}
     </div>
