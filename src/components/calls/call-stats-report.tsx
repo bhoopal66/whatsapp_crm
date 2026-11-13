@@ -153,8 +153,12 @@ export function CallStatsReport() {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const { accountRole, user } = useAuth();
-  const leader = !!accountRole && hasMinRole(accountRole, 'team_leader');
+  const { accountRole, user, reviewsAllCalls } = useAuth();
+  // Picks a person or everyone: team leaders and up, and call reviewers
+  // (migration 198), whom pbx_call_stats scopes to every person.
+  const leader =
+    !!accountRole &&
+    (hasMinRole(accountRole, 'team_leader') || reviewsAllCalls);
   const viewerZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []

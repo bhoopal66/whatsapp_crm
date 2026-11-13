@@ -64,6 +64,8 @@ interface Profile {
   department: Department;
   /** `department_restricted()` for this person; owners/admins never. */
   sales_restricted: boolean;
+  /** Migration 198: allowed to review every call; false before 198. */
+  may_review_all_calls: boolean;
 }
 
 interface AccountSummary {
@@ -143,6 +145,14 @@ interface AuthContextValue {
   department: Department;
   /** True if this person's department is restricted: no sales areas. */
   salesRestricted: boolean;
+  /**
+   * An owner or admin allowed this person to review every call
+   * (`profiles.may_review_all_calls`, migration 198): the Calls screen,
+   * Team recordings and the Call report treat them as an admin. False
+   * before 198, while loading and for a bank guest. Owners and admins
+   * see every call anyway; RLS and the routes decide the rows.
+   */
+  reviewsAllCalls: boolean;
   /** Lightweight account meta — id + name + default_currency. Null while loading. */
   account: AccountSummary | null;
   /** Account default deal currency. Falls back to DEFAULT_CURRENCY
@@ -219,6 +229,8 @@ interface ProfileRow {
   is_active?: boolean | null;
   /** Migration 192. Absent on a database that predates it. */
   department?: string | null;
+  /** Migration 198. Absent on a database that predates it. */
+  may_review_all_calls?: boolean | null;
 }
 
 /** Other tabs of this browser follow a workspace switch (see below). */
@@ -560,6 +572,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           account_role: accountRole,
           department,
           sales_restricted: salesRestricted,
+          may_review_all_calls:
+            data.may_review_all_calls === true &&
+            !isBankGuestRole(accountRole),
         });
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {
@@ -748,6 +763,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accountRole: role,
       department: profile?.department ?? DEFAULT_DEPARTMENT,
       salesRestricted: profile?.sales_restricted ?? false,
+      reviewsAllCalls: profile?.may_review_all_calls ?? false,
       accountId: profile?.account_id ?? null,
       isOwner: role === "owner",
       isAdmin: role === "admin",
@@ -763,6 +779,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile?.account_id,
     profile?.department,
     profile?.sales_restricted,
+    profile?.may_review_all_calls,
   ]);
 
   const activeWorkspaceId =
@@ -856,6 +873,7 @@ export function useAuth(): AuthContextValue {
       accountRole: null,
       department: DEFAULT_DEPARTMENT,
       salesRestricted: false,
+      reviewsAllCalls: false,
       isOwner: false,
       isAdmin: false,
       isAgent: false,

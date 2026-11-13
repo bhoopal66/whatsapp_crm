@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Call reviewers
+
+**Migration required:** apply `supabase/migrations/198_call_reviewers.sql`
+after 192 and BEFORE deploying this build.
+
+**Added**
+
+- An owner or admin can let any staff member below admin review every
+  call (**Settings → Members**, _Allow reviewing all calls_; off by
+  default). A reviewer sees every call on the Calls screen, every
+  person's recordings on **Team recordings** (play and download), and
+  the **Call report** for everyone with customer names, as an admin
+  does. Nothing else changes for them: no call access log, no unrouted
+  calls, and chats and contacts stay as their role allows. Plays and
+  downloads are logged as before. See `docs/yeastar.md`.
+
 ### Submission groups show their bank
 
 **Added**

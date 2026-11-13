@@ -87,6 +87,44 @@ export async function TeamLeaderOnlyLayout({
 }
 
 /**
+ * Server-side gate for Team call recordings: team leader and above, as
+ * {@link TeamLeaderOnlyLayout}, plus anyone an owner or admin allowed to
+ * review every call (`profiles.may_review_all_calls`, migration 198),
+ * which `pbx_sees_all_calls()` answers as the caller. Without 198 the
+ * function is missing, the call errors and the role rule alone decides.
+ * Same shape as {@link AdminOnlyLayout}, redirects outside the try.
+ */
+export async function CallReviewerLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  let signedIn = true;
+  let allowed = false;
+
+  let ctx: Awaited<ReturnType<typeof getCurrentAccount>> | null = null;
+  try {
+    ctx = await getCurrentAccount();
+    allowed = canLeadTeam(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+  if (ctx && !allowed && !isBankGuest(ctx.role)) {
+    try {
+      const { data, error } = await ctx.supabase.rpc('pbx_sees_all_calls');
+      allowed = !error && data === true;
+    } catch {
+      // A failed check is a refusal, never a sign-out.
+    }
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}
+
+/**
  * Server-side gate for the screens where people act on customers
  * (Journeys): agent and above, so never a viewer or a bank guest.
  * Same shape as {@link AdminOnlyLayout}, redirects outside the try.

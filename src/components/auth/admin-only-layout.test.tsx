@@ -19,6 +19,7 @@ vi.mock('@/lib/auth/account', () => ({ getCurrentAccount: mocks.getCurrentAccoun
 
 import {
   AdminOnlyLayout,
+  CallReviewerLayout,
   SalesOnlyLayout,
   StaffOnlyLayout,
 } from './admin-only-layout';
@@ -123,5 +124,86 @@ describe('StaffOnlyLayout', () => {
 
   it('sends a signed-out caller to login', async () => {
     await expect(renderStaff(null)).rejects.toThrow('REDIRECT:/login');
+  });
+});
+
+describe('CallReviewerLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // `rpc` answers pbx_sees_all_calls() (migration 198) as the caller.
+  const renderReviewer = async (
+    role: string | null,
+    rpc: () => Promise<{ data: unknown; error: unknown }> = async () => ({
+      data: false,
+      error: null,
+    })
+  ) => {
+    const rpcMock = vi.fn(rpc);
+    if (role === null)
+      mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
+    else
+      mocks.getCurrentAccount.mockResolvedValue({
+        role,
+        accountId: 'a1',
+        userId: 'u1',
+        supabase: { rpc: rpcMock },
+      });
+    return { page: CallReviewerLayout({ children: 'PAGE' }), rpcMock };
+  };
+
+  it.each(['team_leader', 'admin', 'owner'])(
+    'renders the page for a %s without asking',
+    async (role) => {
+      const { page, rpcMock } = await renderReviewer(role);
+      await expect(page).resolves.toBeDefined();
+      expect(rpcMock).not.toHaveBeenCalled();
+      expect(mocks.redirect).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['agent', 'viewer'])(
+    'renders the page for a %s allowed to review every call',
+    async (role) => {
+      const { page, rpcMock } = await renderReviewer(role, async () => ({
+        data: true,
+        error: null,
+      }));
+      await expect(page).resolves.toBeDefined();
+      expect(rpcMock).toHaveBeenCalledWith('pbx_sees_all_calls');
+    }
+  );
+
+  it('redirects an agent who is not a reviewer to the dashboard', async () => {
+    const { page } = await renderReviewer('agent');
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('falls back to the role rule when the function is missing (pre-198)', async () => {
+    const { page } = await renderReviewer('agent', async () => ({
+      data: null,
+      error: { code: 'PGRST202', message: 'not found' },
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('treats a check that throws as a refusal, not a sign-out', async () => {
+    const { page } = await renderReviewer('agent', async () => {
+      throw new Error('network');
+    });
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('never asks for a bank guest', async () => {
+    const { page, rpcMock } = await renderReviewer('bank_guest', async () => ({
+      data: true,
+      error: null,
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    const { page } = await renderReviewer(null);
+    await expect(page).rejects.toThrow('REDIRECT:/login');
   });
 });

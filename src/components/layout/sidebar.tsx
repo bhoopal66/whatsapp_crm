@@ -114,6 +114,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     workspaces,
     isBankGuest,
     salesRestricted,
+    reviewsAllCalls,
   } = useAuth();
   const unreadChats = useUnreadChats();
   const casesOverdue = useCasesOverdue();
@@ -127,6 +128,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     pbx: callsNav.visible,
     brain: brainOn,
     salesRestricted,
+    callReviewer: reviewsAllCalls,
   });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();

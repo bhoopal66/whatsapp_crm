@@ -930,21 +930,32 @@ export const callsTab = (tab: string | undefined): CallsTab =>
  * call (`all`), team leaders their teams' (`team`), everyone else only
  * their own (`mine`), as before the role is known. It decides whether
  * the supervisor tab and the Missed calls toggle are offered and what
- * they are called; RLS still decides the rows.
+ * they are called; RLS still decides the rows. A call `reviewer`
+ * (`profiles.may_review_all_calls`, migration 198; `useAuth().reviewsAllCalls`)
+ * reaches every call like an admin, whatever their role; never a bank
+ * guest.
  */
 export type CallsReach = 'mine' | 'team' | 'all';
-export function callsReach(role: AccountRole | null): CallsReach {
+export function callsReach(
+  role: AccountRole | null,
+  reviewer = false
+): CallsReach {
   if (role === null) return 'mine';
-  if (canViewAllCalls(role)) return 'all';
+  if (canViewAllCalls(role) || (reviewer && !isBankGuest(role))) return 'all';
   return canLeadTeam(role) ? 'team' : 'mine';
 }
 
 /** The CallsPage.tabs key a tab is worded by: the supervisor tab by reach. */
 export function callsTabLabel(
   tab: CallsTab,
-  role: AccountRole | null
+  role: AccountRole | null,
+  reviewer = false
 ): Exclude<CallsTab, 'log'> | 'team' | 'all' {
-  return tab === 'log' ? (callsReach(role) === 'all' ? 'all' : 'team') : tab;
+  return tab === 'log'
+    ? callsReach(role, reviewer) === 'all'
+      ? 'all'
+      : 'team'
+    : tab;
 }
 
 /**
@@ -961,11 +972,14 @@ export function callsTabLabel(
  * groups route falls back to the workspace's connection for them).
  * Keypad only while this build may place calls (`outbound`,
  * lib/pbx/outbound.ts); Colleagues stays as a directory with live status.
+ * A call `reviewer` (migration 198) also gets All calls, through
+ * callsReach; By person stays team leader and up (its route's floor).
  */
 export function visibleCallTabs(
   role: AccountRole | null,
   hasPhone = false,
-  outbound = outboundCallsEnabled()
+  outbound = outboundCallsEnabled(),
+  reviewer = false
 ): CallsTab[] {
   return CALLS_TABS.filter((k) =>
     REMOVED_CALLS_TABS.includes(k)
@@ -982,7 +996,7 @@ export function visibleCallTabs(
           : k === 'people'
             ? role !== null && hasMinRole(role, 'team_leader')
             : k === 'log'
-              ? callsReach(role) !== 'mine'
+              ? callsReach(role, reviewer) !== 'mine'
               : k === 'unrouted'
                 ? role !== null && canViewUnroutedCalls(role)
                 : true
@@ -1000,7 +1014,8 @@ export function visibleCallTabs(
 export function shownCallsTab(
   tab: CallsTab,
   role: AccountRole | null,
-  outbound = outboundCallsEnabled()
+  outbound = outboundCallsEnabled(),
+  reviewer = false
 ): CallsTab {
   if (REMOVED_CALLS_TABS.includes(tab)) return 'mine';
   if (tab === 'keypad' && !outbound) return 'mine';
@@ -1011,7 +1026,10 @@ export function shownCallsTab(
     tab === 'groups'
   )
     return role === null || hasMinRole(role, 'agent') ? tab : 'mine';
-  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'mine';
+  return role === null ||
+    visibleCallTabs(role, false, outbound, reviewer).includes(tab)
+    ? tab
+    : 'mine';
 }
 
 /**
