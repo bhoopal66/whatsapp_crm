@@ -71,7 +71,7 @@ BEGIN
      )
   THEN
     RAISE EXCEPTION
-      'account_role, account_id, department, email and deactivation cannot be changed directly; use the account member/invitation RPCs (department through set_member_department; email changes go through sign-in settings)'
+      'account_role, account_id, department, email, call review and deactivation cannot be changed directly; use the account member/invitation RPCs (department through set_member_department, call review through set_member_call_review; email changes go through sign-in settings)'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 

@@ -619,7 +619,9 @@ section describes the behaviour once it is on.
   unrouted calls, or anything outside calls: their chats, contacts and
   everything else stay as their role allows, and team leaders without
   it are unchanged. Every play and download is logged in
-  `call_access_log` as anyone else's. (`profiles.may_review_all_calls`,
+  `call_access_log` as anyone else's. Deactivating a reviewer stops it,
+  but the switch itself stays on: reactivating them restores it, so
+  turn it off first if that is not wanted. (`profiles.may_review_all_calls`,
   `pbx_sees_all_calls()`; PATCH `/api/account/members/[id]`
   `{ reviewAllCalls }`.)
 - **Outcome and notes.** After a call, the person on it (or a team
