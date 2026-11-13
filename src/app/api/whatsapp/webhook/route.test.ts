@@ -365,7 +365,8 @@ const TEXT_MESSAGE = {
   from: '15551230000',
   from_name: 'Ada',
   chat_id: '15551230000@s.whatsapp.net',
-  timestamp: 1700000000,
+  // A live message: an old one is a backlog replay and rings nobody.
+  timestamp: Math.floor(Date.now() / 1000),
   type: 'text',
   text: { body: 'hello' },
 }

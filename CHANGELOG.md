@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Quieter WhatsApp push notifications
+
+- Messages to a staff member's personal number no longer push from the
+  CRM: their phone already rings for them.
+- A backlog of messages delivered when a number reconnects no longer
+  rings once per message (anything over 5 minutes old is not pushed).
+- A busy chat buzzes at most once a minute; its notification still
+  updates with the latest message.
+
 ### HR team leaders see their team's chats
 
 No migration.

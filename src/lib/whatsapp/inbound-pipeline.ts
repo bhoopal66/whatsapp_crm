@@ -56,7 +56,7 @@ import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
-import { enqueueInboundPush } from '@/lib/push/inbound';
+import { enqueueInboundPush, shouldPushInbound } from '@/lib/push/inbound';
 import { assignChatFromCallHistory } from '@/lib/pbx/assign-from-calls';
 import {
   customerDocumentKind,
@@ -916,7 +916,17 @@ export async function processMessage(
   // the inbox rather than the fan-out, so a sender over the rate limit
   // (fanOut: false) still rings; after the idempotency boundary because
   // push_whatsapp_inbound de-dupes nothing. Fail-open by contract.
-  await enqueueInboundPush(supabaseAdmin(), insertedRows[0].id);
+  // Never for a personal number or a replayed backlog
+  // (shouldPushInbound): both rang staff once per message.
+  if (
+    shouldPushInbound({
+      isPersonalNumber: channel.isPersonal,
+      messageTimestamp: message.timestamp,
+      nowMs: Date.now(),
+    })
+  ) {
+    await enqueueInboundPush(supabaseAdmin(), insertedRows[0].id);
+  }
 
   // File a document or photo in the customer's documents folder
   // (customer_documents_record, migration 178); a worker copies it to

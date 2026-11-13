@@ -50,8 +50,32 @@ function safeUrl(url) {
 }
 
 // Kinds whose tag is reused per thread: a new message in the same chat
-// replaces the old notification and should still buzz.
+// replaces the old notification and buzzes again, but at most once per
+// RENOTIFY_QUIET_MS per chat. Inside that window the notification is
+// replaced silently: a burst of messages (or a backlog arriving at
+// once) buzzed staff once per message (HR, 2026-11-13).
 var RENOTIFY_KINDS = ['chat_message', 'whatsapp_message'];
+var RENOTIFY_QUIET_MS = 60 * 1000;
+
+// When the chat's notification last buzzed, if it is still on screen.
+function lastBuzzedAt(tag) {
+  if (!tag || typeof self.registration.getNotifications !== 'function') {
+    return Promise.resolve(0);
+  }
+  return self.registration
+    .getNotifications({ tag: tag })
+    .then(function (list) {
+      var last = 0;
+      list.forEach(function (n) {
+        var at = n.data && typeof n.data.buzzedAt === 'number' ? n.data.buzzedAt : 0;
+        if (at > last) last = at;
+      });
+      return last;
+    })
+    .catch(function () {
+      return 0;
+    });
+}
 
 // Reminder alarms (lib/reminders/alarm.ts): the notification stays on
 // screen until the person acts on it, vibrates in an alarm pattern, and
@@ -83,20 +107,28 @@ self.addEventListener('push', function (event) {
         });
         if (watching) return undefined;
 
-        var options = {
-          body: typeof data.body === 'string' ? data.body : '',
-          tag: tag,
-          data: { url: url },
-          icon: '/icons/icon-192.png',
-          badge: '/icons/badge-72.png',
-          renotify: !!tag && (alarm || RENOTIFY_KINDS.indexOf(data.kind) !== -1),
-          timestamp: typeof data.ts === 'number' ? data.ts : Date.now(),
-        };
-        if (alarm) {
-          options.requireInteraction = true;
-          options.vibrate = ALARM_VIBRATE;
-        }
-        return self.registration.showNotification(title, options);
+        var threaded = !!tag && !alarm && RENOTIFY_KINDS.indexOf(data.kind) !== -1;
+        return (threaded ? lastBuzzedAt(tag) : Promise.resolve(0)).then(function (last) {
+          var now = Date.now();
+          var quiet = threaded && last > 0 && now - last < RENOTIFY_QUIET_MS;
+          var options = {
+            body: typeof data.body === 'string' ? data.body : '',
+            tag: tag,
+            // buzzedAt carries over a silent replacement, so a steady
+            // stream still buzzes once a minute.
+            data: { url: url, buzzedAt: quiet ? last : now },
+            icon: '/icons/icon-192.png',
+            badge: '/icons/badge-72.png',
+            renotify: !!tag && (alarm || (threaded && !quiet)),
+            silent: quiet,
+            timestamp: typeof data.ts === 'number' ? data.ts : now,
+          };
+          if (alarm) {
+            options.requireInteraction = true;
+            options.vibrate = ALARM_VIBRATE;
+          }
+          return self.registration.showNotification(title, options);
+        });
       })
       .catch(function () {
         return undefined;

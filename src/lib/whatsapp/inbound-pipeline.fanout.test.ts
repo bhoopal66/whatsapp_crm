@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
@@ -229,7 +229,17 @@ const message: NormalizedInboundMessage = {
   freeEntry: false,
 };
 
+// The fixture message is a live one: the clock reads a minute after it
+// was sent, inside the inbound push's freshness window.
+const MESSAGE_SENT_MS = 1760000000 * 1000;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(MESSAGE_SENT_MS + 60_000);
   h.meaningOn = true;
   h.convRows = null;
   h.assignee = null;
@@ -367,6 +377,33 @@ describe('processMessage — fanOut', () => {
 // A replayed delivery (the upsert returns no row) is the idempotency
 // boundary: push_whatsapp_inbound de-dupes nothing, so reaching it on a
 // replay would ring everyone twice.
+// HR, 2026-11-13: the CRM rang for every message on a personal number
+// (the phone already does) and for every message of a backlog replayed
+// when a gateway reconnects.
+describe('processMessage — when the push rings', () => {
+  it('a message on a personal number is stored but rings nobody', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'owner-1',
+    });
+    expect(h.rpcs).toContain('bump_conversation_on_inbound');
+    expect(h.rpcs).not.toContain('push_whatsapp_inbound');
+  });
+
+  it('a message older than five minutes (a backlog replay) rings nobody', async () => {
+    vi.setSystemTime(MESSAGE_SENT_MS + 6 * 60_000);
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).toContain('bump_conversation_on_inbound');
+    expect(h.rpcs).not.toContain('push_whatsapp_inbound');
+  });
+
+  it('control: a live message on a company number rings', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).toContain('push_whatsapp_inbound');
+  });
+});
+
 describe('processMessage — replay', () => {
   it('a replayed message queues no push and bumps nothing', async () => {
     h.upsertRows = [];

@@ -47,7 +47,13 @@ notifications on there. A Safari tab never receives pushes.
   chat's assignee, if they can see the chat; with no such assignee, to
   the people allocated to the number it arrived on who can see the
   chat; with none of those, to the workspace's owners and admins. A
-  replayed webhook delivery never pushes twice.
+  replayed webhook delivery never pushes twice. Two kinds of message
+  ring nobody: one on a personal number (the person's own phone
+  already alerts them), and one more than 5 minutes old when it
+  arrives (a backlog a gateway delivers on reconnecting).
+- **Buzzing.** A chat's notification is replaced by its next message
+  and buzzes again at most once a minute; in between it updates
+  silently (`public/sw.js`). Reminder alarms always buzz.
 - **Team chat.** Every message in a channel you belong to, except your
   own. A channel you muted pushes only when you are @mentioned. Deal
   room Team notes are never pushed to bank guests (they cannot read
