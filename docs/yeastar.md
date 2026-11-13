@@ -46,9 +46,16 @@ One PBX can serve several workspaces.
   workspace its calls belong to. Numbers are stored as digits only, and
   each may be listed once. You can route a number only to a workspace
   where you are an owner or admin.
-- **Extensions.** **Sync extensions** reads every extension off the PBX.
-  New ones arrive unmapped in this workspace; a sync never changes an
-  existing mapping, only the registration status. Map each extension to
+- **Extensions.** The mapping has its own page, **Settings → Phone
+  extensions** (the Phone system panel links to it). Opening it, and
+  **Refresh from phone system**, read every extension off the PBX with
+  the PBX's name for it. New ones arrive unlinked in this workspace; a
+  refresh never changes an existing mapping, only the registration
+  status. Where the PBX name matches exactly one person without an
+  extension, the page suggests the link (**Link** / **Link all**); the
+  **By person** tab shows who still has no extension. Picking someone who
+  already holds another extension moves them (the old one is unlinked
+  first). Map each extension to
   a person, in any workspace where you are an owner or admin. Only an
   active owner, admin, team leader or agent can hold an extension (not a
   viewer or a bank guest), and a person holds at most one extension per

@@ -248,3 +248,39 @@ export function mappingSummary(
     ).length,
   };
 }
+
+export interface PlannedLink {
+  extensionId: string;
+  userId: string | null;
+}
+
+/**
+ * The PATCHes that put `userId` on extension `extensionId` (or take the
+ * person off it, for null), in the order they must run. A person who
+ * already holds another extension in that workspace is unlinked from it
+ * first: the one-extension-per-person index would answer 409 otherwise.
+ * Nothing to do is an empty list.
+ */
+export function planLink(
+  extensionId: string,
+  userId: string | null,
+  extensions: readonly Ext[]
+): PlannedLink[] {
+  const target = extensions.find((e) => e.id === extensionId);
+  if (!target) return [];
+  if (userId === null)
+    return target.mapped || target.userId
+      ? [{ extensionId, userId: null }]
+      : [];
+  if (target.userId === userId) return [];
+  const held = extensions.find(
+    (e) =>
+      e.id !== extensionId &&
+      e.accountId === target.accountId &&
+      e.userId === userId
+  );
+  return [
+    ...(held ? [{ extensionId: held.id, userId: null }] : []),
+    { extensionId, userId },
+  ];
+}

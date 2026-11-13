@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Phone extensions get their own settings page
+
+**No migration.** Settings → Phone extensions replaces the extensions
+table in Settings → Phone system, which now shows a count and a link.
+The page reads the PBX's names for each extension, suggests links where
+a name matches one person, searches by number, name or person, filters
+linked and unlinked, and has a By person view listing who has no
+extension. Picking someone who already holds an extension moves them.
+
 ### Deactivating a member takes them off their team and phone extension
 
 **Migration required:** `199_deactivation_cleanup.sql`.

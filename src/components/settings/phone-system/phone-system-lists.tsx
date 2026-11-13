@@ -3,14 +3,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import { Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
 import {
-  applyExtensionPatch,
-  canEditExtension,
   enforcedRetention,
-  extensionState,
   PBX_ROUTES_ANCHOR,
   parseDueMinutes,
   parseRetentionDays,
@@ -19,16 +16,11 @@ import {
   sendsRetention,
   validateBankNumbers,
   validateRoutes,
-  workspaceChangePatch,
   type BankNumberRowIssues,
-  type ExtensionPatch,
-  type MappableWorkspace,
-  type PbxExtensionView,
   type RecordingRules,
   type RouteRowIssues,
 } from '@/lib/pbx/admin-ui';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -48,7 +40,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { CheckRow } from './connection-dialog';
-import { DOT, pbxFetch } from './fetch';
+import { pbxFetch } from './fetch';
 
 export interface RouteView {
   didNumber: string;
@@ -306,251 +298,6 @@ export function RoutesCard({
           {t('routes.save')}
         </Button>
       </div>
-    </Card>
-  );
-}
-
-// ---------- Extensions → people ----------
-
-export function ExtensionsCard({
-  connected,
-  onChanged,
-}: {
-  connected: boolean;
-  onChanged: () => void;
-}) {
-  const t = useTranslations('Settings.phoneSystem');
-  const tx = useTranslations('Settings.phoneSystem.extensions');
-  const { workspaces: mine } = useAuth();
-  const [rows, setRows] = useState<PbxExtensionView[]>([]);
-  const [workspaces, setWorkspaces] = useState<MappableWorkspace[]>([]);
-  const [busy, setBusy] = useState<Set<string>>(new Set());
-  const [syncing, setSyncing] = useState(false);
-
-  useEffect(() => {
-    void pbxFetch<{
-      extensions: PbxExtensionView[];
-      workspaces: MappableWorkspace[];
-    }>('/api/pbx/extensions').then((res) => {
-      if (!res.ok) return;
-      setRows(res.data.extensions);
-      setWorkspaces(res.data.workspaces);
-    });
-  }, []);
-
-  const wsName = (id: string) =>
-    workspaces.find((w) => w.accountId === id)?.name ??
-    mine.find((w) => w.accountId === id)?.name ??
-    t('routes.otherWorkspace');
-
-  const sync = async () => {
-    setSyncing(true);
-    const res = await pbxFetch<{
-      extensions: PbxExtensionView[];
-      total: number;
-      added: number;
-    }>('/api/pbx/extensions/sync', { method: 'POST' });
-    setSyncing(false);
-    if (res.ok) {
-      setRows(res.data.extensions);
-      toast.success(
-        tx('synced', { total: res.data.total, added: res.data.added })
-      );
-      onChanged();
-    } else
-      toast.error(tx('syncFailed'), { description: res.error ?? undefined });
-  };
-
-  // Optimistic, one request per row at a time; an error puts the row back.
-  const patch = async (row: PbxExtensionView, p: ExtensionPatch) => {
-    const flag = (on: boolean) =>
-      setBusy((prev) => {
-        const next = new Set(prev);
-        if (on) next.add(row.id);
-        else next.delete(row.id);
-        return next;
-      });
-    const put = (v: PbxExtensionView) =>
-      setRows((prev) => prev.map((r) => (r.id === row.id ? v : r)));
-    put(applyExtensionPatch(row, p, workspaces));
-    flag(true);
-    const res = await pbxFetch<{ extension: PbxExtensionView }>(
-      `/api/pbx/extensions/${row.id}`,
-      { method: 'PATCH', body: p }
-    );
-    flag(false);
-    if (res.ok) {
-      put({ ...res.data.extension, callerIdName: row.callerIdName });
-      onChanged();
-    } else {
-      put(row);
-      toast.error(tx('saveFailed', { extension: row.extension }), {
-        description: res.error ?? undefined,
-      });
-    }
-  };
-
-  return (
-    <Card
-      title={tx('title')}
-      action={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={sync}
-          disabled={syncing || !connected}
-        >
-          {syncing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          {tx('sync')}
-        </Button>
-      }
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{tx('extension')}</TableHead>
-            <TableHead>{tx('person')}</TableHead>
-            <TableHead>{tx('workspace')}</TableHead>
-            <TableHead>{tx('softphone')}</TableHead>
-            <TableHead>{tx('showStatus')}</TableHead>
-            <TableHead>{tx('state')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={6}
-                className="text-muted-foreground whitespace-normal"
-              >
-                {tx('empty')}
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {rows.map((row) => {
-            const editable =
-              canEditExtension(row, workspaces) && !busy.has(row.id);
-            const people =
-              workspaces.find((w) => w.accountId === row.accountId)?.people ??
-              [];
-            const { state, tone } = extensionState(row);
-            return (
-              <TableRow key={row.id}>
-                <TableCell className="font-medium">
-                  {row.extension}
-                  {row.callerIdName ? (
-                    <span className="text-muted-foreground block text-xs font-normal">
-                      {row.callerIdName}
-                    </span>
-                  ) : null}
-                </TableCell>
-                <TableCell className="min-w-44">
-                  {row.mapped && !row.userId ? (
-                    <span className="text-muted-foreground">
-                      {tx('mappedElsewhere')}
-                    </span>
-                  ) : (
-                    <Select
-                      value={row.userId ?? NONE}
-                      disabled={!editable}
-                      onValueChange={(v) =>
-                        patch(row, { userId: v === NONE ? null : String(v) })
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label={tx('person')}
-                      >
-                        <SelectValue>
-                          {row.userId
-                            ? (row.personName ?? row.userId.slice(0, 8))
-                            : tx('notMapped')}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>{tx('notMapped')}</SelectItem>
-                        {people.map((p) => (
-                          <SelectItem key={p.userId} value={p.userId}>
-                            {p.name ?? p.userId.slice(0, 8)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </TableCell>
-                <TableCell className="min-w-40">
-                  {editable && workspaces.length > 1 ? (
-                    <Select
-                      value={row.accountId}
-                      onValueChange={(v) =>
-                        v !== row.accountId &&
-                        patch(
-                          row,
-                          workspaceChangePatch(row, String(v), workspaces)
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label={tx('workspace')}
-                      >
-                        <SelectValue>{wsName(row.accountId)}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {workspaces.map((w) => (
-                          <SelectItem key={w.accountId} value={w.accountId}>
-                            {w.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    wsName(row.accountId)
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Checkbox
-                    aria-label={tx('softphone')}
-                    checked={row.softphoneEnabled}
-                    disabled={!editable}
-                    onCheckedChange={(v) =>
-                      patch(row, { softphoneEnabled: v === true })
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <Checkbox
-                    aria-label={tx('showStatus')}
-                    checked={row.presenceMonitor}
-                    disabled={!editable}
-                    onCheckedChange={(v) =>
-                      patch(row, { presenceMonitor: v === true })
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <span
-                      className={cn('size-2 shrink-0 rounded-full', DOT[tone])}
-                    />
-                    <span
-                      className={cn(
-                        tone === 'brown' &&
-                          'text-orange-800 dark:text-orange-300',
-                        tone === 'green' && 'text-success',
-                        (tone === 'grey' || tone === 'muted') &&
-                          'text-muted-foreground'
-                      )}
-                    >
-                      {tx(`states.${state}`)}
-                    </span>
-                  </span>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
     </Card>
   );
 }

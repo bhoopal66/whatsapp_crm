@@ -2649,6 +2649,7 @@
       "journey-bot": "Journey bot",
       "insights": "Smart insights",
       "phone-system": "Phone system",
+      "phone-extensions": "Phone extensions",
       "consent-retention": "Consent and retention",
       "audit-log": "Audit log",
       "deal-rooms": "Deal rooms",
@@ -2707,6 +2708,7 @@
       "consent-retention": "Bank guests and call recording per bank, and retention.",
       "audit-log": "Who did what: access, reads, erasures and changes.",
       "phone-system": "The Yeastar PBX: extensions, recording and call outcomes.",
+      "phone-extensions": "Link each phone extension to the person who answers it.",
       "api": "Keys for the public REST API and your own integrations."
     },
     "keywords": {
@@ -2739,6 +2741,7 @@
       "consent-retention": "consent privacy retention recordings erase gdpr bank guests delete",
       "audit-log": "audit history log activity who did what compliance",
       "phone-system": "pbx yeastar calls telephone extensions recordings softphone call outcomes",
+      "phone-extensions": "pbx yeastar extensions people link map softphone presence",
       "api": "api keys developer rest integration token bearer automation webhooks"
     },
     "nav": {
@@ -3975,6 +3978,70 @@
           "number_duplicate": "This number is already listed.",
           "bank_code_required": "Enter the bank's code (at most 32 characters)."
         }
+      },
+      "extensionsPage": {
+        "title": "Phone extensions",
+        "subtitle": "Link each phone extension to the person who answers it, so their calls, missed calls and recordings land with them.",
+        "loading": "Loading extensions…",
+        "loadFailed": "Couldn't load the extensions. Reload the page to try again.",
+        "noConnection": "Connect the phone system first",
+        "noConnectionHint": "Extensions are read from the phone system once it is connected.",
+        "openPhoneSystem": "Open Phone system",
+        "refresh": "Refresh from phone system",
+        "namesUnavailable": "Couldn't read names from the phone system. Showing the saved list.",
+        "otherWorkspace": "Another workspace",
+        "stats": {
+          "total": "Extensions",
+          "linked": "Linked",
+          "unlinked": "Not linked",
+          "peopleWithout": "People without an extension"
+        },
+        "suggestions": {
+          "title": "Matched by the name on the phone system",
+          "link": "Link",
+          "linkAll": "Link all ({count})"
+        },
+        "tabs": {
+          "label": "View",
+          "byExtension": "By extension",
+          "byPerson": "By person"
+        },
+        "search": "Search by number, name or person",
+        "searchPeople": "Search people",
+        "searchExtensions": "Search extensions",
+        "filters": {
+          "all": "All ({count})",
+          "unlinked": "Not linked ({count})",
+          "linked": "Linked ({count})"
+        },
+        "notLinked": "Not linked",
+        "nobody": "Nobody",
+        "unnamed": "Unnamed",
+        "pickPerson": "Person for extension {extension}",
+        "has": "has {extension}",
+        "movesFrom": "moves from {extension}",
+        "moved": "{name} moved from {from} to {to}",
+        "suggested": "Suggested: {name}",
+        "readOnly": "Linked in {workspace}, which you don't manage",
+        "softphone": "Calls in the browser",
+        "softphoneHint": "Lets this person make and answer calls inside the CRM.",
+        "showStatus": "Show status",
+        "showStatusHint": "Shows the team whether this extension is free or on a call.",
+        "workspace": "Workspace",
+        "noExtension": "No extension",
+        "extensionNumber": "Extension {extension}",
+        "pickExtension": "Extension for {name}",
+        "removeExtension": "Remove extension",
+        "noFreeExtensions": "No free extensions in this workspace",
+        "noMatches": "No matches",
+        "emptyExtensions": "No extensions yet. Press Refresh from phone system to read them.",
+        "noResults": "Nothing matches",
+        "emptyPeople": "No people to show"
+      },
+      "extensionsLink": {
+        "title": "Extensions",
+        "linked": "{count, plural, one {# extension} other {# extensions}} linked to people",
+        "manage": "Manage extensions"
       }
     },
     "consentRetention": {

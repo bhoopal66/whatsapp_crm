@@ -191,6 +191,13 @@ const ApiKeysSettings = dynamic(
     ),
   { loading: PanelLoading }
 );
+const PhoneExtensionsPanel = dynamic(
+  () =>
+    import('@/components/settings/phone-system/extensions-page').then(
+      (m) => m.PhoneExtensionsPanel
+    ),
+  { loading: PanelLoading }
+);
 const PhoneSystemPanel = dynamic(
   () =>
     import('@/components/settings/phone-system/phone-system-panel').then(
@@ -285,6 +292,9 @@ const PRELOADERS: Record<
   api: [() => import('@/components/settings/api-keys-settings')],
   'phone-system': [
     () => import('@/components/settings/phone-system/phone-system-panel'),
+  ],
+  'phone-extensions': [
+    () => import('@/components/settings/phone-system/extensions-page'),
   ],
   ai: [() => import('@/components/agents/ai-agents-area')],
 };
@@ -497,6 +507,7 @@ function SettingsPageInner() {
     'audit-log': <AuditLogPanel />,
     api: <ApiKeysSettings />,
     'phone-system': <PhoneSystemPanel />,
+    'phone-extensions': <PhoneExtensionsPanel />,
     ai: (
       <SettingsAiAgents
         agentTab={agentTab}

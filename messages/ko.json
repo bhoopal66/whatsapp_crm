@@ -2649,6 +2649,7 @@
       "journey-bot": "여정 봇",
       "insights": "스마트 인사이트",
       "phone-system": "전화 시스템",
+      "phone-extensions": "전화 내선",
       "consent-retention": "동의 및 보존",
       "audit-log": "감사 로그",
       "deal-rooms": "딜룸",
@@ -2707,6 +2708,7 @@
       "consent-retention": "은행별 게스트·통화 녹음 허용과 보존 기간.",
       "audit-log": "누가 무엇을 했는지: 접근, 열람, 삭제, 변경.",
       "phone-system": "Yeastar PBX: 내선, 녹음, 통화 결과.",
+      "phone-extensions": "각 전화 내선을 응답하는 사람과 연결합니다.",
       "api": "공개 REST API와 자체 연동을 위한 키."
     },
     "keywords": {
@@ -2739,6 +2741,7 @@
       "consent-retention": "동의 개인정보 보존 녹음 삭제 은행 게스트 consent retention privacy",
       "audit-log": "감사 기록 이력 활동 audit history",
       "phone-system": "PBX yeastar 전화 통화 내선 녹음 소프트폰 calls extensions",
+      "phone-extensions": "PBX yeastar 내선 사람 연결 소프트폰 상태 extensions",
       "api": "API 키 개발자 REST 연동 토큰 developer integration"
     },
     "nav": {
@@ -3975,6 +3978,70 @@
           "number_duplicate": "이미 목록에 있는 번호입니다.",
           "bank_code_required": "은행 코드를 입력하세요(최대 32자)."
         }
+      },
+      "extensionsPage": {
+        "title": "전화 내선",
+        "subtitle": "각 전화 내선을 응답하는 사람과 연결하면 통화, 부재중 전화, 녹음이 그 사람에게 갑니다.",
+        "loading": "내선 불러오는 중…",
+        "loadFailed": "내선을 불러오지 못했습니다. 페이지를 새로고침해 다시 시도하세요.",
+        "noConnection": "먼저 전화 시스템을 연결하세요",
+        "noConnectionHint": "전화 시스템이 연결되면 내선을 읽어옵니다.",
+        "openPhoneSystem": "전화 시스템 열기",
+        "refresh": "전화 시스템에서 새로고침",
+        "namesUnavailable": "전화 시스템에서 이름을 읽지 못했습니다. 저장된 목록을 표시합니다.",
+        "otherWorkspace": "다른 워크스페이스",
+        "stats": {
+          "total": "내선",
+          "linked": "연결됨",
+          "unlinked": "연결 안 됨",
+          "peopleWithout": "내선 없는 사람"
+        },
+        "suggestions": {
+          "title": "전화 시스템의 이름으로 찾은 항목",
+          "link": "연결",
+          "linkAll": "모두 연결 ({count})"
+        },
+        "tabs": {
+          "label": "보기",
+          "byExtension": "내선별",
+          "byPerson": "사람별"
+        },
+        "search": "번호, 이름 또는 사람으로 검색",
+        "searchPeople": "사람 검색",
+        "searchExtensions": "내선 검색",
+        "filters": {
+          "all": "전체 ({count})",
+          "unlinked": "연결 안 됨 ({count})",
+          "linked": "연결됨 ({count})"
+        },
+        "notLinked": "연결 안 됨",
+        "nobody": "없음",
+        "unnamed": "이름 없음",
+        "pickPerson": "내선 {extension}의 담당자",
+        "has": "{extension} 보유",
+        "movesFrom": "{extension}에서 이동",
+        "moved": "{name} 님을 {from}에서 {to}(으)로 옮겼습니다",
+        "suggested": "추천: {name}",
+        "readOnly": "관리 권한이 없는 {workspace}에서 연결됨",
+        "softphone": "브라우저 통화",
+        "softphoneHint": "이 사람이 CRM 안에서 전화를 걸고 받을 수 있습니다.",
+        "showStatus": "상태 표시",
+        "showStatusHint": "이 내선이 통화 중인지 팀에 보여줍니다.",
+        "workspace": "워크스페이스",
+        "noExtension": "내선 없음",
+        "extensionNumber": "내선 {extension}",
+        "pickExtension": "{name}의 내선",
+        "removeExtension": "내선 제거",
+        "noFreeExtensions": "이 워크스페이스에 빈 내선이 없습니다",
+        "noMatches": "일치 항목 없음",
+        "emptyExtensions": "아직 내선이 없습니다. 전화 시스템에서 새로고침을 눌러 읽어오세요.",
+        "noResults": "일치하는 항목 없음",
+        "emptyPeople": "표시할 사람이 없습니다"
+      },
+      "extensionsLink": {
+        "title": "내선",
+        "linked": "사람과 연결된 내선 {count, plural, other {#개}}",
+        "manage": "내선 관리"
       }
     },
     "consentRetention": {

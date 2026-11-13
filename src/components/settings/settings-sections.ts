@@ -18,6 +18,7 @@ import {
   Network,
   Palette,
   PhoneCall,
+  PhoneForwarded,
   PlugZap,
   Route,
   ScrollText,
@@ -95,6 +96,7 @@ export const SETTINGS_SECTIONS = [
   'audit-log',
   // Integrations: outside systems wired in.
   'phone-system',
+  'phone-extensions',
   'api',
 ] as const;
 
@@ -339,6 +341,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     icon: PhoneCall,
     category: 'integrations',
     minRole: 'team_leader',
+  },
+  // The extension -> person mapping, out of the Phone system panel so
+  // it can be searched and matched by name. Admin+, like its routes.
+  'phone-extensions': {
+    id: 'phone-extensions',
+    icon: PhoneForwarded,
+    category: 'integrations',
+    minRole: 'admin',
   },
   api: {
     id: 'api',

@@ -7,6 +7,7 @@ import {
   normalizeName,
   peopleRows,
   personOptions,
+  planLink,
   suggestMappings,
 } from './extension-mapping';
 import type { MappableWorkspace } from './admin-ui';
@@ -133,9 +134,11 @@ describe('filterExtensions', () => {
     ext('e2', '99', { callerIdName: 'Fatima' }),
   ];
   it('sorts numerically and filters linked / unlinked', () => {
-    expect(filterExtensions(rows, '', 'all').map((r) => r.extension)).toEqual(
-      ['99', '102', '1010']
-    );
+    expect(filterExtensions(rows, '', 'all').map((r) => r.extension)).toEqual([
+      '99',
+      '102',
+      '1010',
+    ]);
     expect(filterExtensions(rows, '', 'linked').map((r) => r.id)).toEqual([
       'e1',
     ]);
@@ -204,5 +207,51 @@ describe('people side', () => {
       unlinked: 3,
       peopleWithout: 5,
     });
+  });
+});
+
+describe('planLink', () => {
+  const rows = [
+    ext('e1', '101', { userId: 'u1' }),
+    ext('e2', '102'),
+    ext('e3', '103', { accountId: B, userId: 'u2' }),
+    ext('e4', '104', { mapped: true }), // linked in a workspace we do not see
+  ];
+
+  it('links a person who holds nothing in one step', () => {
+    expect(planLink('e2', 'u9', rows)).toEqual([
+      { extensionId: 'e2', userId: 'u9' },
+    ]);
+  });
+
+  it('moves a person: unlinks their old extension first', () => {
+    expect(planLink('e2', 'u1', rows)).toEqual([
+      { extensionId: 'e1', userId: null },
+      { extensionId: 'e2', userId: 'u1' },
+    ]);
+  });
+
+  it('ignores what the person holds in another workspace', () => {
+    expect(planLink('e2', 'u2', rows)).toEqual([
+      { extensionId: 'e2', userId: 'u2' },
+    ]);
+  });
+
+  it('does nothing for the person already there', () => {
+    expect(planLink('e1', 'u1', rows)).toEqual([]);
+  });
+
+  it('unlinks a linked extension, and nothing for an unlinked one', () => {
+    expect(planLink('e1', null, rows)).toEqual([
+      { extensionId: 'e1', userId: null },
+    ]);
+    expect(planLink('e4', null, rows)).toEqual([
+      { extensionId: 'e4', userId: null },
+    ]);
+    expect(planLink('e2', null, rows)).toEqual([]);
+  });
+
+  it('does nothing for an unknown extension', () => {
+    expect(planLink('nope', 'u1', rows)).toEqual([]);
   });
 });

@@ -6,6 +6,7 @@
 // mandatory-outcome switch (migration 097).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, PlugZap } from 'lucide-react';
@@ -24,14 +25,13 @@ import {
   routedWorkspaceNames,
   type PbxConnectionView,
 } from '@/lib/pbx/admin-ui';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { SettingsPanelHead } from '../settings-panel-head';
 import { ConnectionDialog } from './connection-dialog';
 import { DOT, pbxFetch, type PbxResult } from './fetch';
 import {
-  ExtensionsCard,
   OutcomeRuleCard,
   RecordingRulesCard,
   RoutesCard,
@@ -310,7 +310,7 @@ function AdminPanel() {
       )}
 
       <RoutesCard connected={!!conn} onRoutes={setRoutes} />
-      <ExtensionsCard connected={!!conn} onChanged={loadConnection} />
+      <ExtensionsLinkCard mapped={conn?.mappedExtensions ?? 0} />
       <RecordingRulesCard />
 
       <ConnectionDialog
@@ -326,6 +326,29 @@ function AdminPanel() {
         }}
       />
     </div>
+  );
+}
+
+// The mapping itself lives on Settings → Phone extensions.
+function ExtensionsLinkCard({ mapped }: { mapped: number }) {
+  const t = useTranslations('Settings.phoneSystem.extensionsLink');
+  return (
+    <section className="border-border bg-card flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+      <div className="min-w-0">
+        <h3 className="text-foreground text-base font-semibold">
+          {t('title')}
+        </h3>
+        <p className="text-muted-foreground text-sm">
+          {t('linked', { count: mapped })}
+        </p>
+      </div>
+      <Link
+        href="/settings?tab=phone-extensions"
+        className={buttonVariants({ variant: 'outline', size: 'sm' })}
+      >
+        {t('manage')}
+      </Link>
+    </section>
   );
 }
 
