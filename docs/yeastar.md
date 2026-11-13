@@ -550,7 +550,7 @@ section describes the behaviour once it is on.
   | My calls               | Everyone who can open the screen; the tab it opens on                      |
   | Keypad                 | Agents and above who have an extension                                     |
   | Missed calls           | Everyone who can open the screen                                           |
-  | Team calls / All calls | Team leaders (Team calls); owners and admins (All calls)                   |
+  | Team calls / All calls | Team leaders (Team calls); owners, admins and call reviewers (All calls)   |
   | By person              | Team leaders, admins and owners                                            |
   | Voicemail              | Agents and above who have an extension                                     |
 
@@ -605,6 +605,23 @@ section describes the behaviour once it is on.
   stored by the page. A recording deleted under the retention period is
   not listed, though the per-person counts still include it.
   (`GET /api/pbx/calls/recordings`.)
+- **Call reviewers** (migration 198). An owner or admin can allow any
+  staff member below admin (an HR person, say) to review every call:
+  **Settings → Members**, the headphones button on their row, _Allow
+  reviewing all calls_ (the row then carries a _Reviews all calls_
+  badge; the same button stops it). It is off for everyone by default,
+  and owners and admins never need it. Bank guests cannot have it. A
+  reviewer is treated as an admin **for calls only**: every call of
+  the workspace on the Calls screen (_All calls_, and _All_ on Missed
+  calls) and on the incoming-call card, **Team call recordings** for
+  every person with play and _Download_, and the **Call report** for
+  everyone, with customer names. It does not open the call access log,
+  unrouted calls, or anything outside calls: their chats, contacts and
+  everything else stay as their role allows, and team leaders without
+  it are unchanged. Every play and download is logged in
+  `call_access_log` as anyone else's. (`profiles.may_review_all_calls`,
+  `pbx_sees_all_calls()`; PATCH `/api/account/members/[id]`
+  `{ reviewAllCalls }`.)
 - **Outcome and notes.** After a call, the person on it (or a team
   leader and up) sets the outcome (interested, documents requested,
   call back, not eligible, wrong number) and notes, up to 4,000
