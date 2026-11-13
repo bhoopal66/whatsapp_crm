@@ -90,6 +90,7 @@ export interface AccountMember {
   /** Migration 190: an admin has allowed this member to connect a
    *  personal WhatsApp number. Absent on a database that predates it. */
   may_connect_personal_whatsapp?: boolean;
+  may_review_all_calls?: boolean;
   /** The member's personal number, if they have connected one. */
   personal_number?: { id: string; phone: string } | null;
   /** Migration 192: the member's department; 'sales' when absent. */

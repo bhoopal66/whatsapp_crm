@@ -7,7 +7,9 @@
 // Recordings are customer data, so each step gates the next:
 //  1. the call is read on the caller's client: one they cannot see is
 //     404, and nothing below runs (no log row, no path, no link);
-//  2. download is for a team leader and up (403);
+//  2. play is for an agent and up, download for a team leader and up
+//     (403); a call reviewer (migration 198, seesAllCalls) may do both
+//     whatever their role, a viewer included;
 //  3. the access is written to call_access_log on the service role
 //     (logRecordingAccess). The log's guard refuses a recording that is
 //     not playable — held until the English/Arabic notice is confirmed,
@@ -15,12 +17,13 @@
 //  4. only then is the object's path read and a link signed, on the
 //     service role (the bucket has no client policy), valid for five
 //     minutes, on the public Supabase origin, and never cached.
-// Agent+.
+// Viewer+ to reach the route; the checks above decide the rest.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { canDownloadRecording } from '@/lib/auth/roles';
+import { canDownloadRecording, hasMinRole } from '@/lib/auth/roles';
+import { seesAllCalls } from '@/lib/pbx/call-reviewers';
 import { pbxServiceDb } from '@/lib/pbx/admin';
 import {
   RECORDINGS_BUCKET,
@@ -39,7 +42,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await requireRole('agent');
+    const ctx = await requireRole('viewer');
     const { id } = await context.params;
     if (!UUID.test(id)) return fail('Call not found', 404);
     const b = await jsonObject(request);
@@ -50,8 +53,15 @@ export async function POST(
 
     const call = await visibleCall(ctx.supabase, id);
     if (!call) return fail('Call not found', 404);
-    if (action === 'download' && !canDownloadRecording(ctx.role))
-      return fail('Only a team leader or above can download a recording', 403);
+    // A reviewer (198) is asked only when the role alone would refuse.
+    const allowed =
+      action === 'download'
+        ? canDownloadRecording(ctx.role)
+        : hasMinRole(ctx.role, 'agent');
+    if (!allowed && !(await seesAllCalls(ctx)))
+      return action === 'download'
+        ? fail('Only a team leader or above can download a recording', 403)
+        : fail('Only an agent or above can play a recording', 403);
 
     const service = pbxServiceDb();
     const refused = await logRecordingAccess(service, call, ctx.userId, action);

@@ -2,7 +2,7 @@
 // GET /api/pbx/me — the caller's phone in the active workspace (module
 // 015, migration 089).
 //   → { extension, connectionId, softphoneEnabled, softphoneAvailable,
-//       pbxUrl, presence } | { extension: null }
+//       pbxUrl, presence, seesAllCalls } | { extension: null, seesAllCalls }
 //
 // The mapping is pbx_my_extension() on the caller's client (agent and
 // up; a viewer has none). softphoneAvailable says whether the PBX has
@@ -17,13 +17,16 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { pbxServiceDb } from '@/lib/pbx/admin';
+import { seesAllCalls } from '@/lib/pbx/call-reviewers';
 import { myExtension, pbxUrl } from '@/lib/pbx/calls';
 
 export async function GET() {
   try {
     const ctx = await requireRole('viewer');
+    const reviewer = await seesAllCalls(ctx);
     const ext = await myExtension(ctx.supabase);
-    if (!ext) return NextResponse.json({ extension: null });
+    if (!ext)
+      return NextResponse.json({ extension: null, seesAllCalls: reviewer });
 
     const db = pbxServiceDb();
     const [conn, secrets, presence] = await Promise.all([
@@ -51,7 +54,8 @@ export async function GET() {
     if (presence.error)
       throw new Error(`pbx_presence read failed: ${presence.error.message}`);
     const row = conn.data as { base_url: string } | null;
-    if (!row) return NextResponse.json({ extension: null });
+    if (!row)
+      return NextResponse.json({ extension: null, seesAllCalls: reviewer });
     const s = secrets.data as {
       sdk_access_id_enc: string | null;
       sdk_access_key_enc: string | null;
@@ -65,6 +69,7 @@ export async function GET() {
       pbxUrl: pbxUrl(row.base_url),
       presence:
         (presence.data as { presence: string | null } | null)?.presence ?? null,
+      seesAllCalls: reviewer,
     });
   } catch (err) {
     return toErrorResponse(err);

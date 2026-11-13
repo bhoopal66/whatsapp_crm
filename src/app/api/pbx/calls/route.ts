@@ -37,7 +37,9 @@
 // list does not. mine (the default): calls they were a party to or
 // that rang their phone (myCallsFilter); missed: inbound calls nobody
 // answered (as the month summary counts them); my_missed: both; all:
-// every call RLS shows them (a leader's teams, an admin's workspace).
+// every call RLS shows them (a leader's teams, an admin's workspace;
+// a call reviewer's too, migration 198, whose customers RLS hides are
+// named on the service role, the name only).
 // userId: only the calls that person took or placed (calls.user_id),
 // narrowing whatever the scope and RLS show (the Call report page's
 // drill-down). userIds: the same for a comma list of people (at most
@@ -51,6 +53,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { canViewAllCalls } from '@/lib/auth/roles';
 import { internalPeerExtension } from '@/lib/pbx/call-legs';
+import { reviewerContactNames, seesAllCalls } from '@/lib/pbx/call-reviewers';
 import { UNROUTED_SUMMARY_DAYS } from '@/lib/pbx/call-ui';
 import {
   MISSED_STATUSES,
@@ -111,13 +114,15 @@ export async function GET(request: Request) {
       return fail('Only an owner or admin can list unrouted calls', 403);
 
     // The Calls page shows people's calls: an agent their own, a team
-    // leader their teams', an admin everyone's. RLS also lets through the
-    // calls of every contact the caller can see (113), which stays the
-    // customer page's rule, so a list for one contact is not narrowed.
+    // leader their teams', an admin or a call reviewer (198) everyone's.
+    // RLS also lets through the calls of every contact the caller can see
+    // (113), which stays the customer page's rule, so a list for one
+    // contact is not narrowed.
+    const seesAll = await seesAllCalls(ctx);
     let teamFilter: string | null = null;
     if (
       !q.contactId &&
-      !canViewAllCalls(ctx.role) &&
+      !seesAll &&
       q.scope !== 'mine' &&
       q.scope !== 'my_missed'
     ) {
@@ -290,6 +295,19 @@ export async function GET(request: Request) {
     const contactById = new Map(
       ((contacts.data ?? []) as ContactRow[]).map((c) => [c.id, c])
     );
+    // A reviewer below admin sees every call but not every customer:
+    // name the rest (name only, no do-not-contact stamp).
+    if (seesAll && !canViewAllCalls(ctx.role))
+      for (const [id, name] of await reviewerContactNames(
+        ctx.accountId,
+        contactIds.filter((id) => !contactById.has(id))
+      ))
+        contactById.set(id, {
+          id,
+          name,
+          do_not_contact_at: null,
+          do_not_contact_reason: null,
+        });
     const userName = new Map(
       (
         (people.data ?? []) as { user_id: string; full_name: string | null }[]

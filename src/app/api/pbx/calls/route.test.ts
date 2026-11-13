@@ -6,12 +6,21 @@ import {
   type Row,
 } from '@/lib/pbx/__tests__/fake-db';
 
-const mocks = vi.hoisted(() => ({ requireRole: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  requireRole: vi.fn(),
+  service: null as unknown,
+}));
 vi.mock('@/lib/auth/account', () => ({
   requireRole: mocks.requireRole,
   toErrorResponse: vi.fn(() =>
     Response.json({ error: 'Forbidden' }, { status: 403 })
   ),
+}));
+
+// A reviewer's contact names are read on the service role.
+vi.mock('@/lib/pbx/admin', async (orig) => ({
+  ...(await orig<typeof import('@/lib/pbx/admin')>()),
+  pbxServiceDb: () => mocks.service,
 }));
 
 import { GET as list } from './route';
@@ -21,6 +30,7 @@ const A = '00000000-0000-4000-8000-00000000000a';
 const C1 = '00000000-0000-4000-8000-000000000001';
 const C2 = '00000000-0000-4000-8000-000000000002';
 let rls: FakeDb;
+let reviewer = false;
 let visible: string[] = ['me'];
 
 function as(role: AccountRole) {
@@ -55,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   n = 0;
   visible = ['me'];
+  reviewer = false;
   rls = createFakeDb(
     {
       calls: [],
@@ -62,8 +73,15 @@ beforeEach(() => {
       profiles: [{ user_id: 'me', account_id: A, full_name: 'Sara' }],
     },
     // pbx_visible_user_ids(): the caller, plus a leader's team.
-    { pbx_visible_user_ids: async () => ({ data: visible, error: null }) }
+    {
+      pbx_visible_user_ids: async () => ({ data: visible, error: null }),
+      // pbx_sees_all_calls() (198): the caller's call-reviewer flag.
+      pbx_sees_all_calls: async () => ({ data: reviewer, error: null }),
+    }
   );
+  mocks.service = createFakeDb({
+    contacts: [{ id: C1, account_id: A, name: 'Ahmed Ali' }],
+  }).db;
   as('viewer');
 });
 afterEach(() => vi.useRealTimers());
@@ -468,6 +486,16 @@ describe('GET /api/pbx/calls', () => {
         'call-4',
       ]);
       expect(await ids('scope=missed')).toEqual(['call-4']);
+    });
+
+    it('an agent who is a call reviewer: everyone, with no team filter', async () => {
+      as('agent');
+      reviewer = true;
+      const asked = () =>
+        rls.log.filter((e) => e.table === 'rpc:pbx_visible_user_ids').length;
+      expect(await ids('scope=all')).toHaveLength(6);
+      expect(await ids('scope=missed')).toEqual(['call-4', 'call-6']);
+      expect(asked()).toBe(0);
     });
 
     it('an admin: everyone, without asking who is visible', async () => {

@@ -55,10 +55,14 @@ function from(table: string) {
   );
   return chain;
 }
+// pbx_sees_all_calls() (198): a flagged call reviewer.
+let reviewer = false;
 const rpc = vi.fn(async (fn: string) =>
   fn === 'team_activity_limits'
     ? { data: [{ timezone: 'Asia/Dubai' }], error: null }
-    : { data: [LEADER, AGENT], error: null }
+    : fn === 'pbx_sees_all_calls'
+      ? { data: reviewer, error: null }
+      : { data: [LEADER, AGENT], error: null }
 );
 
 const step = (q: Query, name: string) => q.steps.find(([n]) => n === name)?.[1];
@@ -69,6 +73,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
   queries = [];
+  reviewer = false;
   answer = (q) => {
     switch (q.table) {
       case 'profiles':
@@ -150,12 +155,51 @@ const get = (query = '') =>
   GET(new Request(`http://x/api/pbx/calls/recordings${query}`));
 
 describe('GET /api/pbx/calls/recordings', () => {
-  it('is for team leaders and up', async () => {
+  it('is for staff only', async () => {
     mocks.requireRole.mockRejectedValueOnce(new Error('forbidden'));
     const res = await get();
-    expect(mocks.requireRole).toHaveBeenCalledWith('team_leader');
+    expect(mocks.requireRole).toHaveBeenCalledWith('viewer');
     expect(res.status).toBe(403);
     expect(queries).toEqual([]);
+  });
+
+  it('refuses an agent who is not a call reviewer', async () => {
+    mocks.requireRole.mockResolvedValueOnce({
+      supabase: { rpc, from },
+      accountId: 'acct-1',
+      userId: AGENT,
+      role: 'agent',
+    });
+    const res = await get();
+    expect(res.status).toBe(403);
+    expect(rpc).toHaveBeenCalledWith('pbx_sees_all_calls');
+    expect(queries).toEqual([]);
+  });
+
+  it('gives a call reviewer agent every person and every team (198)', async () => {
+    reviewer = true;
+    mocks.requireRole.mockResolvedValueOnce({
+      supabase: { rpc, from },
+      accountId: 'acct-1',
+      userId: AGENT,
+      role: 'agent',
+    });
+    const res = await get();
+    expect(res.status).toBe(200);
+    // All-scope: nobody asked who is visible, no narrowing by leader.
+    expect(rpc).not.toHaveBeenCalledWith('pbx_visible_user_ids');
+    expect(
+      step(
+        queries.find((q) => q.table === 'profiles')!,
+        'in'
+      )
+    ).toBeUndefined();
+    expect(queries.find((q) => q.table === 'teams')!.steps).not.toContainEqual([
+      'eq',
+      ['leader_user_id', AGENT],
+    ]);
+    const body = await res.json();
+    expect(body.calls.map((c: { id: string }) => c.id)).toEqual([CALL1]);
   });
 
   it('refuses a team the leader does not lead', async () => {

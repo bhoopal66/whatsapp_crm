@@ -232,7 +232,10 @@ export function canViewUnroutedCalls(role: AccountRole): boolean {
  * pbx_can_view_call). Below that a team leader sees their own calls,
  * their teams' and their customers', everyone else their own and their
  * customers'. The Calls screen's All calls view and its Missed calls
- * All toggle follow this; RLS still decides the rows.
+ * All toggle follow this; RLS still decides the rows. A staff member
+ * flagged as a call reviewer (migration 198) also sees every call; that
+ * is not a role, so it is decided by `pbx_sees_all_calls` /
+ * `seesAllCalls` in `lib/pbx/call-reviewers.ts`, not here.
  */
 export function canViewAllCalls(role: AccountRole): boolean {
   return hasMinRole(role, 'admin');

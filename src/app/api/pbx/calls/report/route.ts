@@ -4,16 +4,18 @@
 //   ?period=today|week|month|custom&from=YYYY-MM-DD&to=YYYY-MM-DD&tz=
 //   → { report: CallReport, range: { period, from, to, timeZone } }
 //
-// Team leader and up. The period is computed here, in the account's
+// Team leader and up, or a call reviewer (migration 198). The period is computed here, in the account's
 // zone (the one an admin saved for Team activity, else the viewer's
 // `tz`, else Asia/Dubai); a custom period is whole days, both
 // inclusive, at most 92. pbx_call_report decides whose rows the caller
-// gets: owners and admins everyone, a team leader their teams plus
+// gets: owners, admins and reviewers everyone, a team leader their teams plus
 // themselves.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { canLeadTeam } from '@/lib/auth/roles';
+import { seesAllCalls } from '@/lib/pbx/call-reviewers';
 import { fail } from '@/lib/pbx/calls';
 import {
   CALL_REPORT_MAX_DAYS,
@@ -32,7 +34,9 @@ const PROBLEMS = {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireRole('team_leader');
+    const ctx = await requireRole('viewer');
+    if (!canLeadTeam(ctx.role) && !(await seesAllCalls(ctx)))
+      return fail('Only a team leader or above can see the call report', 403);
     const params = new URL(request.url).searchParams;
     const period = params.get('period') ?? 'month';
     if (!isCallReportPeriod(period)) return fail('Unknown period');

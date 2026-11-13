@@ -2,8 +2,9 @@
 // /api/account/members/[userId]
 //
 //   PATCH  — change a member's role, deactivate / reactivate them,
-//            or allow personal WhatsApp ({ role }, { active },
-//            { personalWhatsapp } or { department }).   Admin+.
+//            allow personal WhatsApp, or allow reviewing every call
+//            ({ role }, { active }, { personalWhatsapp },
+//            { reviewAllCalls } or { department }).   Admin+.
 //   DELETE — remove a member.                 Admin+.
 //
 // All delegate to SECURITY DEFINER RPCs:
@@ -88,6 +89,7 @@ export async function PATCH(
           role?: unknown;
           active?: unknown;
           personalWhatsapp?: unknown;
+          reviewAllCalls?: unknown;
           department?: unknown;
         }
       | null;
@@ -100,6 +102,16 @@ export async function PATCH(
         );
       }
       return setPersonalWhatsapp(ctx, userId, body.personalWhatsapp);
+    }
+
+    if (body && "reviewAllCalls" in body) {
+      if (typeof body.reviewAllCalls !== "boolean") {
+        return NextResponse.json(
+          { error: "'reviewAllCalls' must be true or false" },
+          { status: 400 },
+        );
+      }
+      return setCallReview(ctx, userId, body.reviewAllCalls);
     }
 
     if (body && "department" in body) {
@@ -222,6 +234,41 @@ async function setPersonalWhatsapp(
     return NextResponse.json({ error: error.message }, { status: 403 });
   }
   console.error("[members route] set_member_personal_whatsapp error:", error);
+  return NextResponse.json(
+    { error: "Failed to update member" },
+    { status: 500 },
+  );
+}
+
+/**
+ * Let a member review every call of the workspace (migration 198).
+ * `set_member_call_review` authorises the caller and refuses ineligible
+ * targets; the HINT tells the two SQLSTATE 22023 refusals apart.
+ */
+async function setCallReview(
+  ctx: AccountContext,
+  userId: string,
+  allowed: boolean,
+): Promise<NextResponse> {
+  const { error } = await ctx.supabase.rpc("set_member_call_review", {
+    p_user_id: userId,
+    p_allowed: allowed,
+  });
+  if (!error) return NextResponse.json({ ok: true });
+
+  if (error.code === "22023" && error.hint === "not_eligible") {
+    return NextResponse.json({ error: "not_eligible" }, { status: 422 });
+  }
+  if (error.code === "22023") {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  if (error.code === "P0002") {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
+  if (error.code === "42501") {
+    return NextResponse.json({ error: error.message }, { status: 403 });
+  }
+  console.error("[members route] set_member_call_review error:", error);
   return NextResponse.json(
     { error: "Failed to update member" },
     { status: 500 },

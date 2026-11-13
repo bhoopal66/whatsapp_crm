@@ -73,6 +73,8 @@ interface ProfileRow {
   bank_code?: string | null;
   /** Migration 190; undefined on a database that predates it. */
   may_connect_personal_whatsapp?: boolean;
+  /** Migration 198; undefined on a database that predates it. */
+  may_review_all_calls?: boolean;
   /** Migration 192; undefined on a database that predates it. */
   department?: string | null;
 }
@@ -143,6 +145,7 @@ export async function GET() {
           bank_code: row.bank_code ?? null,
           may_connect_personal_whatsapp:
             row.may_connect_personal_whatsapp ?? false,
+          may_review_all_calls: row.may_review_all_calls ?? false,
           personal_number: personalByUser.get(row.user_id) ?? null,
           department: toDepartment(row.department),
         },

@@ -8,7 +8,8 @@
 //   → TeamRecordingsResponse (lib/pbx/team-recordings.ts):
 //     { range, people, teams, summary, summaryCapped, calls, next }
 //
-// Team leader and up (requireRole('team_leader'); an agent is a 403).
+// Team leader and up, or a call reviewer of any staff role (migration
+// 198, seesAllCalls); anyone else is a 403, a bank guest included.
 // Browse and listen only: nothing is stored here, and a play goes
 // through POST /api/pbx/calls/{id}/recording like anywhere else, which
 // logs it first (download stays team leader and up there).
@@ -17,10 +18,10 @@
 // account's zone (else the viewer's `tz`); a custom period is whole
 // days, at most 92.
 //
-// Scope. people: an owner or admin every live staff profile of the
-// active account; a team leader pbx_visible_user_ids() (113: themselves
-// and the people of the teams they lead) among those. teams: an admin
-// every team, a leader the teams they lead, each listing only members
+// Scope. people: an owner, admin or call reviewer every live staff
+// profile of the active account; a team leader pbx_visible_user_ids()
+// (113: themselves and the people of the teams they lead) among those.
+// teams: an admin or reviewer every team, a leader the teams they lead, each listing only members
 // in scope. `team` must be one of those teams and narrows to its
 // members (its leader only if a member); `user` must be one of those
 // people and narrows to them. Anything else is a 403. Calls are always
@@ -44,13 +45,15 @@
 // erased under retention has nothing to play and is dropped after that
 // read, so a page can come back short while `next` still goes on.
 // Contact names and do-not-contact stamps only for contacts RLS shows,
-// as GET /api/pbx/calls does.
+// as GET /api/pbx/calls does; a reviewer below admin also gets the
+// names (only) of the rest, read on the service role.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { canViewAllCalls } from '@/lib/auth/roles';
+import { canViewAllCalls, hasMinRole } from '@/lib/auth/roles';
 import { fail } from '@/lib/pbx/calls';
+import { reviewerContactNames, seesAllCalls } from '@/lib/pbx/call-reviewers';
 import {
   CALL_REPORT_MAX_DAYS,
   callReportRange,
@@ -111,7 +114,10 @@ const rangIds = (meta: CallRow['meta']): string[] =>
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireRole('team_leader');
+    const ctx = await requireRole('viewer');
+    const all = await seesAllCalls(ctx);
+    if (!all && !hasMinRole(ctx.role, 'team_leader'))
+      return fail('Only a team leader or a call reviewer can open this', 403);
     const params = new URL(request.url).searchParams;
     const q = parseTeamRecordingsQuery(params);
     if (typeof q === 'string') return fail(q);
@@ -135,7 +141,6 @@ export async function GET(request: Request) {
     const to = range.to.toISOString();
 
     // ---- Scope: people and teams ----
-    const all = canViewAllCalls(ctx.role);
     let visibleIds: string[] | null = null;
     if (!all) {
       const visible = await ctx.supabase.rpc('pbx_visible_user_ids');
@@ -332,6 +337,19 @@ export async function GET(request: Request) {
     const contactById = new Map(
       ((contacts.data ?? []) as ContactRow[]).map((c) => [c.id, c])
     );
+    // A reviewer below admin sees every call but not every customer:
+    // name the rest (name only, no do-not-contact stamp).
+    if (all && !canViewAllCalls(ctx.role))
+      for (const [id, name] of await reviewerContactNames(
+        ctx.accountId,
+        contactIds.filter((id) => !contactById.has(id))
+      ))
+        contactById.set(id, {
+          id,
+          name,
+          do_not_contact_at: null,
+          do_not_contact_reason: null,
+        });
     const userName = new Map(
       (
         (people.data ?? []) as { user_id: string; full_name: string | null }[]

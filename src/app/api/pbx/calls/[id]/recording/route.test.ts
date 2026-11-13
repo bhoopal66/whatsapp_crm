@@ -32,6 +32,7 @@ const call = (id: string) => ({
   remote_number: '971501234567',
 });
 let rls: FakeDb;
+let reviewer = false;
 let service: FakeDb;
 
 function as(role: AccountRole) {
@@ -50,7 +51,12 @@ const refuseLog = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   // The caller's RLS shows CALL only; the service role sees both.
-  rls = createFakeDb({ calls: [call(CALL)] });
+  reviewer = false;
+  rls = createFakeDb(
+    { calls: [call(CALL)] },
+    // pbx_sees_all_calls() (198): the caller's call-reviewer flag.
+    { pbx_sees_all_calls: async () => ({ data: reviewer, error: null }) }
+  );
   service = createFakeDb({
     calls: [call(CALL), call(HIDDEN)],
     call_recordings: [
@@ -79,11 +85,18 @@ const post = (body: unknown, id = CALL) =>
 const signs = () => service.log.filter((l) => l.op === 'sign');
 
 describe('POST /api/pbx/calls/[id]/recording', () => {
-  it('needs an agent', async () => {
+  it('refuses a viewer who is not a reviewer, before logging', async () => {
     as('viewer');
     expect((await post({ action: 'play' })).status).toBe(403);
-    expect(mocks.requireRole).toHaveBeenCalledWith('agent');
     expect(service.log).toEqual([]);
+  });
+
+  it('lets a viewer who is a call reviewer play', async () => {
+    as('viewer');
+    reviewer = true;
+    const res = await post({ action: 'play' });
+    expect(res.status).toBe(200);
+    expect(service.tables.call_access_log[0].action).toBe('play');
   });
 
   it('logs the play before signing a 5-minute link on the public origin', async () => {
@@ -129,6 +142,14 @@ describe('POST /api/pbx/calls/[id]/recording', () => {
     expect(res.status).toBe(403);
     expect(service.tables.call_access_log).toEqual([]);
     expect(signs()).toEqual([]);
+  });
+
+  it('lets an agent who is a call reviewer download', async () => {
+    reviewer = true;
+    const res = await post({ action: 'download' });
+    expect(res.status).toBe(200);
+    expect(service.tables.call_access_log[0].action).toBe('download');
+    expect(signs()[0].payload).toMatchObject({ download: true });
   });
 
   it('lets a team leader download, logged as a download', async () => {
