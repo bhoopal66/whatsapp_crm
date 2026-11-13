@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### A logged-out number no longer holds up other people's chat import
+
+**No migration.** The one-time chat history import for personal numbers
+runs one person at a time, oldest first. A person whose phone was logged
+out kept the front of the line, so everyone who linked after them stayed
+at "Preparing to import your chats…" until that phone came back. A
+paused import now steps aside for 5 minutes at a time.
+
 ### Scan again for a logged-out OpenWA number
 
 **No migration.** When an OpenWA phone is logged out, Settings → Numbers

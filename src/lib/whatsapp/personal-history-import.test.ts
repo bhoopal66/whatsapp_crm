@@ -16,6 +16,7 @@ import {
   type OpenWAHistoryMessage,
 } from './openwa-api';
 import {
+  PAUSED_RETRY_MS,
   historyMessageToRow,
   isImportableChat,
   runPersonalHistoryImportTick,
@@ -219,7 +220,10 @@ function fakeDb(tables: Record<string, Row[]>) {
         (j) =>
           ['queued', 'listing', 'running', 'paused'].includes(
             String(j.status)
-          ) && j.lease_until == null
+          ) &&
+          (j.lease_until == null ||
+            (j.lease_until !== 'leased' &&
+              Date.parse(String(j.lease_until)) < Date.now()))
       );
       if (!job) return { data: [], error: null };
       job.lease_until = 'leased';
@@ -510,9 +514,51 @@ describe('runPersonalHistoryImportTick', () => {
     });
 
     expect(res.status).toBe('paused');
-    expect(job(db)).toMatchObject({ status: 'paused', lease_until: null });
+    // It steps aside for PAUSED_RETRY_MS instead of releasing at once.
+    expect(job(db).status).toBe('paused');
+    const held = Date.parse(String(job(db).lease_until)) - Date.now();
+    expect(held).toBeGreaterThan(PAUSED_RETRY_MS - 60_000);
+    expect(held).toBeLessThanOrEqual(PAUSED_RETRY_MS);
     expect(listChatsMock).not.toHaveBeenCalled();
     expect(historyMock).not.toHaveBeenCalled();
+  });
+
+  it('lets a newer job run while an older one waits on a logged-out number', async () => {
+    const db = fakeDb({
+      whatsapp_config: [
+        configRow({ status: 'disconnected' }),
+        configRow({ id: 'cfg-2', phone_number_id: 'sess-2', user_id: 'u-2' }),
+      ],
+      personal_history_imports: [
+        {
+          config_id: CONFIG,
+          account_id: ACCOUNT,
+          user_id: OWNER,
+          status: 'paused',
+          lease_until: null,
+        },
+        {
+          config_id: 'cfg-2',
+          account_id: ACCOUNT,
+          user_id: 'u-2',
+          status: 'queued',
+          lease_until: null,
+        },
+      ],
+    });
+    listChatsMock.mockResolvedValue([]);
+
+    const first = await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 60_000,
+      ...noPause,
+    });
+    expect(first).toMatchObject({ configId: CONFIG, status: 'paused' });
+
+    const second = await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 60_000,
+      ...noPause,
+    });
+    expect(second).toMatchObject({ configId: 'cfg-2', status: 'done' });
   });
 
   it('is done when nothing is pending', async () => {

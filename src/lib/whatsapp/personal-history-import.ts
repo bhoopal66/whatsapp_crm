@@ -298,6 +298,15 @@ async function enqueue(admin: SupabaseClient): Promise<number> {
  * logged and recorded on the job's `last_error`, and the lease is
  * always released.
  */
+/**
+ * How long a job paused on a disconnected number steps aside. The claim
+ * takes the oldest open job, paused ones included, one per tick: with
+ * the lease released at once, a number logged out for hours was claimed
+ * every minute and every newer job (a person who just linked) waited
+ * behind it, `queued` at 0 of 0, for as long as that phone stayed out.
+ */
+export const PAUSED_RETRY_MS = 5 * 60_000;
+
 export async function runPersonalHistoryImportTick(
   admin: SupabaseClient,
   opts: PersonalHistoryImportTickOptions
@@ -359,13 +368,18 @@ export async function runPersonalHistoryImportTick(
     );
   }
 
-  // Always release the lease, with whatever progress was made.
+  // Always release the lease, with whatever progress was made; a job
+  // paused on a disconnected number keeps it a while so the next job in
+  // line gets the following ticks (PAUSED_RETRY_MS).
   const patch: Record<string, unknown> = {
     status: state.status,
     chats_total: state.chatsTotal,
     chats_done: state.chatsDone,
     messages_imported: state.messagesImported,
-    lease_until: null,
+    lease_until:
+      state.status === 'paused'
+        ? new Date(now() + PAUSED_RETRY_MS).toISOString()
+        : null,
     updated_at: new Date(now()).toISOString(),
   };
   if (state.lastError !== undefined) patch.last_error = state.lastError;
