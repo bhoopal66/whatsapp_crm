@@ -88,10 +88,13 @@ export function suggestMappings(
     if (ext.mapped || !ext.callerIdName) continue;
     const ws = workspaces.find((w) => w.accountId === ext.accountId);
     if (!ws) continue;
+    // Everyone competes, holders included: a namesake who already holds
+    // an extension makes the name ambiguous (this may be their second
+    // line), so it blocks the suggestion rather than handing it to the
+    // other person with that name.
     let best = 0;
     let found: { userId: string; name: string }[] = [];
     for (const p of ws.people) {
-      if (held.has(`${ws.accountId}:${p.userId}`)) continue;
       const s = nameScore(ext.callerIdName, p.name);
       if (s === 0 || s < best) continue;
       if (s > best) {
@@ -100,7 +103,10 @@ export function suggestMappings(
       }
       found.push({ userId: p.userId, name: p.name ?? '' });
     }
-    if (found.length === 1)
+    if (
+      found.length === 1 &&
+      !held.has(`${ws.accountId}:${found[0].userId}`)
+    )
       picks.push({ extensionId: ext.id, ...found[0], score: best });
   }
   // A person fitting several extensions keeps only a strictly better one.

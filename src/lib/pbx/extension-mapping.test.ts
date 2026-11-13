@@ -100,6 +100,30 @@ describe('suggestMappings', () => {
     expect(suggestMappings(rows, ws)).toEqual([]);
   });
 
+  it('a namesake who holds an extension blocks a first-name match', () => {
+    const people: MappableWorkspace[] = [
+      {
+        accountId: A,
+        name: 'Main',
+        people: [
+          { userId: 'u-ali', name: 'Ahmed Ali' },
+          { userId: 'u-khan', name: 'Ahmed Khan' },
+        ],
+      },
+    ];
+    const rows = [
+      ext('e1', '101', { userId: 'u-ali', personName: 'Ahmed Ali' }),
+      ext('e5', '105', { callerIdName: 'Ahmed' }),
+    ];
+    expect(suggestMappings(rows, people)).toEqual([]);
+    // The holder's full name on a second line is no suggestion either.
+    const full = [
+      ext('e1', '101', { userId: 'u-ali', personName: 'Ahmed Ali' }),
+      ext('e5', '105', { callerIdName: 'Ahmed Ali' }),
+    ];
+    expect(suggestMappings(full, people)).toEqual([]);
+  });
+
   it('a better name wins; equal fits for one person suggest neither', () => {
     const better = [
       ext('e1', '101', { callerIdName: 'Fatima' }),
