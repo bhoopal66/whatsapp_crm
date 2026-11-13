@@ -4021,6 +4021,8 @@
         "has": "has {extension}",
         "movesFrom": "moves from {extension}",
         "moved": "{name} moved from {from} to {to}",
+        "moveFailedKept": "Couldn't move {name} to {to}; kept on {from}",
+        "moveFailedStranded": "{name} was taken off {from} but couldn't be linked to {to}",
         "suggested": "Suggested: {name}",
         "readOnly": "Linked in {workspace}, which you don't manage",
         "softphone": "Calls in the browser",

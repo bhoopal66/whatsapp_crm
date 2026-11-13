@@ -4021,6 +4021,8 @@
         "has": "{extension} 보유",
         "movesFrom": "{extension}에서 이동",
         "moved": "{name} 님을 {from}에서 {to}(으)로 옮겼습니다",
+        "moveFailedKept": "{name} 님을 {to}(으)로 옮기지 못해 {from}에 그대로 두었습니다",
+        "moveFailedStranded": "{name} 님을 {from}에서 해제했지만 {to}에 연결하지 못했습니다",
         "suggested": "추천: {name}",
         "readOnly": "관리 권한이 없는 {workspace}에서 연결됨",
         "softphone": "브라우저 통화",

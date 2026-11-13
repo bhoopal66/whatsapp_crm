@@ -103,10 +103,7 @@ export function suggestMappings(
       }
       found.push({ userId: p.userId, name: p.name ?? '' });
     }
-    if (
-      found.length === 1 &&
-      !held.has(`${ws.accountId}:${found[0].userId}`)
-    )
+    if (found.length === 1 && !held.has(`${ws.accountId}:${found[0].userId}`))
       picks.push({ extensionId: ext.id, ...found[0], score: best });
   }
   // A person fitting several extensions keeps only a strictly better one.
@@ -289,4 +286,43 @@ export function planLink(
     ...(held ? [{ extensionId: held.id, userId: null }] : []),
     { extensionId, userId },
   ];
+}
+
+/**
+ * Whether a suggestion made earlier may still be applied as it is: the
+ * extension is still unlinked and the person still holds no extension in
+ * its workspace. Link all re-checks every suggestion against the newest
+ * rows with this, so a link made by hand meanwhile is never overwritten
+ * and nobody is ever moved (a move is a pick, never a batch).
+ */
+export function suggestionStillValid(
+  s: Pick<MappingSuggestion, 'extensionId' | 'userId'>,
+  extensions: readonly Ext[]
+): boolean {
+  const target = extensions.find((e) => e.id === s.extensionId);
+  if (!target || target.mapped || target.userId) return false;
+  return !extensions.some(
+    (e) => e.accountId === target.accountId && e.userId === s.userId
+  );
+}
+
+/**
+ * The rows after a PBX sync. The sync's rows win (they add extensions the
+ * PBX gained), except where `keepLocal` says this page wrote the row while
+ * the sync was out or still is: the sync read the row before that write,
+ * so it keeps its own state and takes only the PBX's name.
+ */
+export function mergeSynced<
+  T extends { id: string; callerIdName?: string | null; onPbx?: boolean },
+>(
+  prev: readonly T[],
+  synced: readonly T[],
+  keepLocal: (id: string) => boolean
+): T[] {
+  return synced.map((n) => {
+    const cur = prev.find((r) => r.id === n.id);
+    return cur && keepLocal(n.id)
+      ? { ...cur, callerIdName: n.callerIdName, onPbx: n.onPbx }
+      : n;
+  });
 }

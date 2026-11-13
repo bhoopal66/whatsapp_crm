@@ -36,14 +36,15 @@ import {
   filterExtensions,
   freeExtensions,
   mappingSummary,
+  mergeSynced,
   normalizeName,
   peopleRows,
   personOptions,
   planLink,
   suggestMappings,
+  suggestionStillValid,
   type ExtensionFilter,
   type MappingSuggestion,
-  type PlannedLink,
 } from '@/lib/pbx/extension-mapping';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,36 +91,48 @@ export function PhoneExtensionsPanel() {
   // The rows as the last write left them, so a sequence of PATCHes
   // (a move, Link all) always starts from the newest row.
   const rowsRef = useRef<Row[]>([]);
-  const busyRef = useRef<Set<string>>(new Set());
+  // Requests in flight per row: a count, because a move and a switch can
+  // both be on one row and the first to finish must not clear the other.
+  const busyRef = useRef<Map<string, number>>(new Map());
+  // When this page last wrote each row (a counter, not a clock), so a
+  // sync that started before the write does not roll it back.
+  const writeClock = useRef(0);
+  const writtenAt = useRef<Map<string, number>>(new Map());
 
   const update = (fn: (prev: Row[]) => Row[]) => {
     rowsRef.current = fn(rowsRef.current);
     setRows(rowsRef.current);
   };
   const flag = (ids: string[], on: boolean) => {
-    const next = new Set(busyRef.current);
+    const next = new Map(busyRef.current);
     for (const id of ids) {
-      if (on) next.add(id);
+      const n = (next.get(id) ?? 0) + (on ? 1 : -1);
+      if (n > 0) next.set(id, n);
       else next.delete(id);
     }
     busyRef.current = next;
-    setBusy(next);
+    setBusy(new Set(next.keys()));
   };
 
-  // A sync's rows win, except a row with a request in flight keeps its
-  // optimistic state and takes only the PBX's name.
-  const takeSynced = (synced: Row[]) =>
-    update((prev) =>
-      synced.map((n) => {
-        const cur = prev.find((r) => r.id === n.id);
-        return cur && busyRef.current.has(n.id)
-          ? { ...cur, callerIdName: n.callerIdName, onPbx: n.onPbx }
-          : n;
-      })
-    );
-
-  const syncFromPbx = () =>
-    pbxFetch<SyncResult>('/api/pbx/extensions/sync', { method: 'POST' });
+  // A sync's rows win, except a row with a request in flight, or written
+  // since the sync was asked for, keeps its state and takes only the
+  // PBX's name.
+  const syncFromPbx = async () => {
+    const since = writeClock.current;
+    const res = await pbxFetch<SyncResult>('/api/pbx/extensions/sync', {
+      method: 'POST',
+    });
+    if (res.ok)
+      update((prev) =>
+        mergeSynced(
+          prev,
+          res.data.extensions,
+          (id) =>
+            busyRef.current.has(id) || (writtenAt.current.get(id) ?? 0) > since
+        )
+      );
+    return res;
+  };
 
   useEffect(() => {
     let live = true;
@@ -142,8 +155,7 @@ export function PhoneExtensionsPanel() {
       // Once, quietly: the PBX's names and any new extensions.
       const s = await syncFromPbx();
       if (!live) return;
-      if (s.ok) takeSynced(s.data.extensions);
-      else setNamesFailed(true);
+      if (!s.ok) setNamesFailed(true);
     })();
     return () => {
       live = false;
@@ -156,7 +168,6 @@ export function PhoneExtensionsPanel() {
     const res = await syncFromPbx();
     setSyncing(false);
     if (res.ok) {
-      takeSynced(res.data.extensions);
       setNamesFailed(false);
       toast.success(
         tx('synced', { total: res.data.total, added: res.data.added })
@@ -165,12 +176,19 @@ export function PhoneExtensionsPanel() {
       toast.error(tx('syncFailed'), { description: res.error ?? undefined });
   };
 
-  // One optimistic PATCH; an error puts the row back. The caller flags.
-  const patch = async (id: string, p: ExtensionPatch): Promise<boolean> => {
+  // One optimistic PATCH; an error puts the row back and, unless quiet,
+  // is toasted. The caller flags.
+  const patch = async (
+    id: string,
+    p: ExtensionPatch,
+    quiet = false
+  ): Promise<{ ok: boolean; error?: string | null }> => {
     const row = rowsRef.current.find((r) => r.id === id);
-    if (!row) return false;
-    const put = (v: Row) =>
+    if (!row) return { ok: false };
+    const put = (v: Row) => {
+      writtenAt.current.set(id, ++writeClock.current);
       update((prev) => prev.map((r) => (r.id === id ? v : r)));
+    };
     put(applyExtensionPatch(row, p, workspaces));
     const res = await pbxFetch<{ extension: Row }>(
       `/api/pbx/extensions/${id}`,
@@ -182,43 +200,53 @@ export function PhoneExtensionsPanel() {
         callerIdName: row.callerIdName,
         onPbx: row.onPbx,
       });
-      return true;
+      return { ok: true };
     }
     put(row);
-    toast.error(tx('saveFailed', { extension: row.extension }), {
-      description: res.error ?? undefined,
-    });
-    return false;
-  };
-
-  const runSteps = async (steps: PlannedLink[]): Promise<boolean> => {
-    const ids = steps.map((s) => s.extensionId);
-    flag(ids, true);
-    try {
-      // In order, and a failed unlink stops the link (it would be a 409).
-      for (const s of steps)
-        if (!(await patch(s.extensionId, { userId: s.userId }))) return false;
-      return true;
-    } finally {
-      flag(ids, false);
-    }
+    if (!quiet)
+      toast.error(tx('saveFailed', { extension: row.extension }), {
+        description: res.error ?? undefined,
+      });
+    return { ok: false, error: res.error };
   };
 
   const link = async (extensionId: string, userId: string | null) => {
     const steps = planLink(extensionId, userId, rowsRef.current);
     if (steps.length === 0) return;
-    const moved = steps.length > 1;
-    const from = rowsRef.current.find((r) => r.id === steps[0].extensionId);
-    const to = rowsRef.current.find((r) => r.id === extensionId);
-    const ok = await runSteps(steps);
-    if (ok && moved && from && to)
-      toast.success(
-        t('moved', {
-          name: to.personName ?? '',
-          from: from.extension,
-          to: to.extension,
-        })
-      );
+    const ids = steps.map((s) => s.extensionId);
+    flag(ids, true);
+    try {
+      if (steps.length === 1) {
+        await patch(extensionId, { userId });
+        return;
+      }
+      // A move: off the person's old extension, then onto this one. A
+      // failed unlink stops the link (it would be a 409); a failed link
+      // puts the person back on the old one rather than leave them with
+      // none.
+      const from = rowsRef.current.find((r) => r.id === steps[0].extensionId);
+      const to = rowsRef.current.find((r) => r.id === extensionId);
+      if (!from || !to || userId === null) return;
+      const name =
+        workspaces
+          .find((w) => w.accountId === to.accountId)
+          ?.people.find((p) => p.userId === userId)?.name ??
+        from.personName ??
+        '';
+      const names = { name, from: from.extension, to: to.extension };
+      if (!(await patch(from.id, { userId: null })).ok) return;
+      const on = await patch(to.id, { userId }, true);
+      if (on.ok) {
+        toast.success(t('moved', names));
+        return;
+      }
+      const back = await patch(from.id, { userId }, true);
+      toast.error(t(back.ok ? 'moveFailedKept' : 'moveFailedStranded', names), {
+        description: on.error ?? undefined,
+      });
+    } finally {
+      flag(ids, false);
+    }
   };
 
   const setField = async (id: string, p: ExtensionPatch) => {
@@ -242,7 +270,14 @@ export function PhoneExtensionsPanel() {
   const linkAll = async () => {
     setLinkingAll(true);
     // One after another; a failure is toasted and the rest still run.
-    for (const s of suggestions) await link(s.extensionId, s.userId);
+    // The list is the one shown at the click, so each is re-checked
+    // against the newest rows: a link made by hand meanwhile wins, and
+    // Link all never moves anyone.
+    for (const s of suggestions) {
+      if (busyRef.current.has(s.extensionId)) continue;
+      if (!suggestionStillValid(s, rowsRef.current)) continue;
+      await link(s.extensionId, s.userId);
+    }
     setLinkingAll(false);
   };
 
@@ -572,6 +607,7 @@ function ByExtension({
                       row={row}
                       rows={rows}
                       workspaces={workspaces}
+                      busy={busy}
                       disabled={!editable}
                       onPick={(userId) => onLink(row.id, userId)}
                     />
@@ -650,12 +686,14 @@ function PersonPicker({
   row,
   rows,
   workspaces,
+  busy,
   disabled,
   onPick,
 }: {
   row: Row;
   rows: Row[];
   workspaces: MappableWorkspace[];
+  busy: Set<string>;
   disabled: boolean;
   onPick: (userId: string | null) => void;
 }) {
@@ -675,6 +713,9 @@ function PersonPicker({
         hint: o.holds ? t('has', { extension: o.holds }) : null,
         title: o.holds ? t('movesFrom', { extension: o.holds }) : undefined,
         selected: o.userId === row.userId,
+        // Their extension has a request in flight: moving them now would
+        // race it.
+        disabled: o.holdsId !== null && busy.has(o.holdsId),
         onPick: () => onPick(o.userId),
       }))}
     />
@@ -851,6 +892,7 @@ interface PickerItem {
   hint?: string | null;
   title?: string;
   selected?: boolean;
+  disabled?: boolean;
   onPick: () => void;
 }
 
@@ -890,6 +932,36 @@ function SearchPicker({
     setQuery('');
     fn();
   };
+  const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const options = () =>
+    Array.from(
+      listRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="option"]:not([disabled])'
+      ) ?? []
+    );
+  // ArrowUp/ArrowDown walk the options; ArrowUp from the first goes back
+  // to the search box.
+  const onListKey = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const all = options();
+    const i = all.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown') all[Math.min(i + 1, all.length - 1)]?.focus();
+    else if (i <= 0) inputRef.current?.focus();
+    else all[i - 1]?.focus();
+  };
+  const onSearchKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      options()[0]?.focus();
+    } else if (e.key === 'Enter' && q) {
+      // The first match, never "Nobody" (it is hidden while searching).
+      e.preventDefault();
+      const hit = shown.find((i) => !i.disabled);
+      if (hit) pick(hit.onPick);
+    }
+  };
 
   return (
     <Popover
@@ -923,18 +995,28 @@ function SearchPicker({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 gap-2 p-2">
         <Input
+          ref={inputRef}
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onSearchKey}
           placeholder={searchPlaceholder}
           aria-label={searchPlaceholder}
         />
-        <ul className="max-h-64 overflow-y-auto" role="listbox">
+        <ul
+          ref={listRef}
+          className="max-h-64 overflow-y-auto"
+          role="listbox"
+          aria-label={ariaLabel}
+          onKeyDown={onListKey}
+        >
           {first && !q ? (
-            <li>
+            <li role="presentation">
               <button
                 type="button"
-                className="text-muted-foreground hover:bg-muted w-full rounded-md px-2 py-1.5 text-left text-sm"
+                role="option"
+                aria-selected={false}
+                className="text-muted-foreground hover:bg-muted focus-visible:bg-muted w-full rounded-md px-2 py-1.5 text-left text-sm outline-none"
                 onClick={() => pick(first.onPick)}
               >
                 {first.label}
@@ -942,14 +1024,15 @@ function SearchPicker({
             </li>
           ) : null}
           {shown.map((i) => (
-            <li key={i.key}>
+            <li key={i.key} role="presentation">
               <button
                 type="button"
                 role="option"
                 aria-selected={!!i.selected}
+                disabled={i.disabled}
                 title={i.title}
                 className={cn(
-                  'hover:bg-muted flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm',
+                  'hover:bg-muted focus-visible:bg-muted flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none disabled:pointer-events-none disabled:opacity-50',
                   i.selected && 'bg-muted font-medium'
                 )}
                 onClick={() => pick(i.onPick)}
@@ -963,12 +1046,12 @@ function SearchPicker({
               </button>
             </li>
           ))}
-          {shown.length === 0 ? (
-            <li className="text-muted-foreground px-2 py-1.5 text-sm">
-              {q ? t('noMatches') : (emptyText ?? t('noMatches'))}
-            </li>
-          ) : null}
         </ul>
+        {shown.length === 0 ? (
+          <p className="text-muted-foreground px-2 py-1.5 text-sm">
+            {q ? t('noMatches') : (emptyText ?? t('noMatches'))}
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

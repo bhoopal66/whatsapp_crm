@@ -3,12 +3,14 @@ import {
   filterExtensions,
   freeExtensions,
   mappingSummary,
+  mergeSynced,
   nameScore,
   normalizeName,
   peopleRows,
   personOptions,
   planLink,
   suggestMappings,
+  suggestionStillValid,
 } from './extension-mapping';
 import type { MappableWorkspace } from './admin-ui';
 
@@ -277,5 +279,66 @@ describe('planLink', () => {
 
   it('does nothing for an unknown extension', () => {
     expect(planLink('nope', 'u1', rows)).toEqual([]);
+  });
+});
+
+describe('suggestionStillValid', () => {
+  const rows = [
+    ext('e1', '101', { userId: 'u1' }),
+    ext('e2', '102'),
+    ext('e3', '103', { accountId: B, userId: 'u2' }),
+  ];
+  it('holds for a free extension and a person with none there', () => {
+    expect(
+      suggestionStillValid({ extensionId: 'e2', userId: 'u2' }, rows)
+    ).toBe(true);
+  });
+  it('fails once the extension was linked meanwhile', () => {
+    const now = [...rows.slice(0, 1), ext('e2', '102', { userId: 'u9' })];
+    expect(suggestionStillValid({ extensionId: 'e2', userId: 'u2' }, now)).toBe(
+      false
+    );
+  });
+  it('fails for a person who now holds an extension there (no moves)', () => {
+    expect(
+      suggestionStillValid({ extensionId: 'e2', userId: 'u1' }, rows)
+    ).toBe(false);
+  });
+  it('fails for a mapped row with no person, and an unknown extension', () => {
+    const now = [ext('e2', '102', { mapped: true })];
+    expect(suggestionStillValid({ extensionId: 'e2', userId: 'u2' }, now)).toBe(
+      false
+    );
+    expect(suggestionStillValid({ extensionId: 'x', userId: 'u2' }, now)).toBe(
+      false
+    );
+  });
+});
+
+describe('mergeSynced', () => {
+  const local = [
+    { ...ext('e1', '101', { userId: 'u1' }), onPbx: true },
+    { ...ext('e2', '102'), onPbx: true },
+  ];
+  const synced = [
+    { ...ext('e1', '101', { callerIdName: 'Pbx One' }), onPbx: false },
+    {
+      ...ext('e2', '102', { userId: 'u7', callerIdName: 'Pbx Two' }),
+      onPbx: true,
+    },
+    { ...ext('e3', '103', { callerIdName: 'New' }), onPbx: true },
+  ];
+  it('keeps a row written since the sync began, with the PBX name', () => {
+    const out = mergeSynced(local, synced, (id) => id === 'e1');
+    expect(out[0]).toMatchObject({
+      userId: 'u1',
+      callerIdName: 'Pbx One',
+      onPbx: false,
+    });
+    expect(out[1]).toBe(synced[1]);
+    expect(out.map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+  it('takes the sync for every row when nothing was written', () => {
+    expect(mergeSynced(local, synced, () => false)).toEqual(synced);
   });
 });
