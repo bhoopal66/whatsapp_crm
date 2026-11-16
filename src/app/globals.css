@@ -184,32 +184,37 @@ html[data-mode='dark'],
   --sidebar-border: oklch(0.25 0.02 255);
 }
 
-/* Light: a cool, brand-tinted canvas (#e9eff7) under soft-white cards
- * (#f8fafd), deep navy text and the brand blue for action. History:
+/* Light: neutral surfaces with only a whisper of cool grey, so the accent
+ * is the one colour that speaks: a light grey canvas (#f1f2f5) under
+ * near-white cards (#fcfdfe), ink text and hairline borders. History:
  * pure-white cards on a near-white page were too bright to work in all
- * day (2026-10-21), and the mid-grey ramp that replaced them read as
- * dull and unfinished (2026-10-27). So no surface is pure white, but
- * cards sit clearly above the canvas and the canvas carries the brand's
- * hue instead of grey. Measured contrast: body text >= 14.6:1 and
- * secondary text >= 5.9:1 on every surface; the taamul primary 5:1 on
- * cards and 4.5:1 on the canvas; status text >= 4.7:1 on cards, the
- * canvas and its own /10 or -soft tint. Borders (1.4:1) and field edges
- * (1.8:1 against a card) stay visible on an ordinary office monitor. */
+ * day (2026-10-21); the mid-grey ramp that replaced them read as dull
+ * (2026-10-27); the brand-tinted ramp after it (#e9eff7 canvas, blue-grey
+ * cards, text and borders) cast blue over every surface and read as
+ * "poorly selected colours" (2026-11-16). So the canvas is a visible grey
+ * that carries no hue, cards sit clearly above it, and hue is left to the
+ * accent, the status colours and identity colours (tags, avatars).
+ * Measured contrast: body text >= 15.4:1 and secondary text >= 5.2:1 on
+ * every surface (canvas, card, card-2, secondary, muted, accent); the
+ * taamul primary 5.1:1 on cards and 4.7:1 on the canvas; status text
+ * >= 5.5:1 on cards and the canvas and >= 4.9:1 on its own -soft tint.
+ * Borders (1.3:1) and field edges (1.7:1 against a card) stay visible on
+ * an ordinary office monitor. */
 html[data-mode='light'] {
   color-scheme: light;
-  --background: oklch(0.95 0.012 252);
-  --foreground: oklch(0.21 0.034 260);
-  --card: oklch(0.985 0.004 250);
-  --card-2: oklch(0.968 0.007 252);
-  --card-foreground: oklch(0.21 0.034 260);
-  --popover: oklch(0.992 0.003 250);
-  --popover-foreground: oklch(0.21 0.034 260);
-  --secondary: oklch(0.935 0.014 252);
-  --secondary-foreground: oklch(0.25 0.036 260);
-  --muted: oklch(0.94 0.011 252);
-  --muted-foreground: oklch(0.46 0.03 258);
-  --accent: oklch(0.94 0.022 250);
-  --accent-foreground: oklch(0.22 0.04 258);
+  --background: oklch(0.962 0.0035 264);
+  --foreground: oklch(0.21 0.02 264);
+  --card: oklch(0.993 0.0012 264);
+  --card-2: oklch(0.976 0.0025 264);
+  --card-foreground: oklch(0.21 0.02 264);
+  --popover: oklch(0.996 0.001 264);
+  --popover-foreground: oklch(0.21 0.02 264);
+  --secondary: oklch(0.952 0.004 264);
+  --secondary-foreground: oklch(0.26 0.02 264);
+  --muted: oklch(0.958 0.0035 264);
+  --muted-foreground: oklch(0.5 0.018 264);
+  --accent: oklch(0.952 0.005 264);
+  --accent-foreground: oklch(0.21 0.02 264);
   --destructive: oklch(0.5 0.19 27);
   --destructive-soft: oklch(0.5 0.19 27 / 0.08);
   --success: oklch(0.47 0.12 155);
@@ -218,22 +223,22 @@ html[data-mode='light'] {
   --warning-soft: oklch(0.75 0.15 75 / 0.16);
   --info: oklch(0.47 0.15 245);
   --info-soft: oklch(0.47 0.15 245 / 0.09);
-  --overlay: oklch(0.25 0.04 258 / 0.28);
-  --border: oklch(0.87 0.015 252);
-  --input: oklch(0.8 0.022 252);
+  --overlay: oklch(0.21 0.02 264 / 0.32);
+  --border: oklch(0.9 0.005 264);
+  --input: oklch(0.83 0.008 264);
   --chart-2: oklch(0.6 0.12 185);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.6 0.2 15);
   --chart-5: oklch(0.56 0.19 300);
   --radius: 0.625rem;
   /* Used by the panels that sit on cards (team chat and deal room
-   * lists): the selected row takes the accent's blue tint. The main
-   * navigation is navy instead; see "NAVIGATION" below. */
-  --sidebar: oklch(0.985 0.004 250);
-  --sidebar-foreground: oklch(0.3 0.035 258);
-  --sidebar-accent: oklch(0.94 0.022 250);
-  --sidebar-accent-foreground: oklch(0.22 0.04 258);
-  --sidebar-border: oklch(0.87 0.015 252);
+   * lists). The main navigation is navy instead; see "NAVIGATION"
+   * below. */
+  --sidebar: oklch(0.993 0.0012 264);
+  --sidebar-foreground: oklch(0.3 0.02 264);
+  --sidebar-accent: oklch(0.952 0.005 264);
+  --sidebar-accent-foreground: oklch(0.21 0.02 264);
+  --sidebar-border: oklch(0.9 0.005 264);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
@@ -291,40 +296,43 @@ html[data-mode='dark'],
   --wa-warning: #fbbf24;
 }
 
+/* The light chat wallpaper is the app's own neutral grey, not WhatsApp's
+ * beige (#e9e4db): warm beige between cool panels read as a mismatch
+ * (2026-11-16). The bubbles and greens stay WhatsApp's. */
 html[data-mode='light'] {
-  --wa-panel: oklch(0.985 0.004 250);
-  --wa-panel-header: oklch(0.965 0.008 252);
-  --wa-chat: #e9e4db;
-  --wa-chat-veil: rgb(233 228 219 / 0.55);
-  --wa-row-hover: oklch(0.965 0.008 252);
-  --wa-row-active: oklch(0.94 0.022 250);
-  --wa-divider: oklch(0.87 0.015 252);
-  --wa-search: oklch(0.94 0.011 252);
-  --wa-input: oklch(0.992 0.003 250);
-  --wa-text: oklch(0.21 0.034 260);
-  --wa-text-secondary: oklch(0.46 0.03 258);
-  --wa-icon: oklch(0.5 0.028 255);
-  --wa-icon-hover: rgb(15 24 40 / 0.06);
-  --wa-bubble-in: #fdfdfc;
+  --wa-panel: oklch(0.993 0.0012 264);
+  --wa-panel-header: oklch(0.976 0.0025 264);
+  --wa-chat: oklch(0.952 0.004 264);
+  --wa-chat-veil: oklch(0.952 0.004 264 / 0.6);
+  --wa-row-hover: oklch(0.976 0.0025 264);
+  --wa-row-active: oklch(0.95 0.006 264);
+  --wa-divider: oklch(0.915 0.004 264);
+  --wa-search: oklch(0.955 0.004 264);
+  --wa-input: oklch(0.996 0.001 264);
+  --wa-text: oklch(0.21 0.02 264);
+  --wa-text-secondary: oklch(0.5 0.018 264);
+  --wa-icon: oklch(0.52 0.016 264);
+  --wa-icon-hover: rgb(20 24 34 / 0.06);
+  --wa-bubble-in: #ffffff;
   --wa-bubble-out: #d9fdd3;
-  --wa-meta: #5f6f79;
-  --wa-quote: rgb(15 24 40 / 0.05);
+  --wa-meta: #667781;
+  --wa-quote: rgb(20 24 34 / 0.05);
   --wa-quote-bar: #06cf9c;
   --wa-tick-read: #53bdeb;
-  --wa-date-chip: #fdfdfc;
-  --wa-date-chip-fg: oklch(0.46 0.03 258);
-  --wa-unread-band: rgb(253 253 252 / 0.5);
+  --wa-date-chip: #ffffff;
+  --wa-date-chip-fg: oklch(0.5 0.018 264);
+  --wa-unread-band: rgb(255 255 255 / 0.55);
   --wa-green: #1daa61;
   --wa-green-fg: #ffffff;
   --wa-teal: #008069;
   --wa-chip-active: #d9fdd3;
-  --wa-avatar: oklch(0.92 0.014 250);
-  --wa-avatar-fg: oklch(0.45 0.03 255);
-  --wa-section-gap: oklch(0.95 0.012 252);
+  --wa-avatar: oklch(0.93 0.006 264);
+  --wa-avatar-fg: oklch(0.48 0.02 264);
+  --wa-section-gap: oklch(0.962 0.0035 264);
   --wa-warning: #b45309;
 }
 
-/* The chat wallpaper: WhatsApp's beige / near-black with the doodle
+/* The chat wallpaper: a neutral grey / near-black with WhatsApp's doodle
  * tile, softened by the veil layered on top of it. */
 /* The visible screen height. 100vh on a phone counts the space under the
    browser's address bar, so a full-height layout's bottom (the chat input)
@@ -532,27 +540,26 @@ html[data-theme='rose'] [data-mode='dark'] {
  *
  * The sidebar carries data-mode="dark" so navigation stays dark next to
  * light pages (users asked for it, 2026-10-21). In light mode it takes
- * the brand's own navy instead of the dark theme's near-black, which
- * read as a black slab beside the light canvas. Only the neutral tokens
- * change, so the accent (active item, badges) still follows the theme;
- * in dark mode this block does not apply and the sidebar is unchanged.
- * The selector outranks the dark blocks above whatever their order. */
+ * the brand's own deep navy (#102138) instead of the dark theme's
+ * near-black, which read as a black slab beside the light canvas; next
+ * to the neutral page it is the one block of brand colour. Only the
+ * neutral tokens change, so the accent (active item, badges) is the dark
+ * theme's lifted one, exactly as in dark mode: on this navy every accent
+ * keeps >= 6:1, and >= 4.6:1 on the active item's raised translucent
+ * pill. In dark mode this block does not apply and the sidebar is
+ * unchanged. The selector outranks the dark blocks above whatever their
+ * order. */
 html[data-mode='light'] [data-nav='primary'][data-mode='dark'] {
-  --sidebar: oklch(0.255 0.06 254);
-  --sidebar-foreground: oklch(0.88 0.025 250);
-  --sidebar-accent: oklch(0.31 0.065 254);
-  --sidebar-accent-foreground: oklch(0.98 0.005 250);
-  --sidebar-border: oklch(0.33 0.055 254);
-  --border: oklch(0.33 0.055 254);
-  --foreground: oklch(0.97 0.006 250);
-  --muted-foreground: oklch(0.72 0.045 250);
-  --muted: oklch(0.31 0.065 254);
-  /* The active item is a raised translucent pill labelled in the accent.
-   * The dark theme's lifted accent is too dim on the navy pill (4.1 to
-   * 4.7:1 across the accents), so the navy lifts it 30% toward white
-   * (5.5 to 7:1); badges keep their dark text on it. */
-  --card: oklch(1 0 0 / 0.12);
-  --primary: color-mix(in oklab, var(--sidebar-primary) 70%, white);
+  --sidebar: oklch(0.245 0.05 257);
+  --sidebar-foreground: oklch(0.88 0.02 255);
+  --sidebar-accent: oklch(0.31 0.052 257);
+  --sidebar-accent-foreground: oklch(0.98 0.004 264);
+  --sidebar-border: oklch(0.32 0.045 257);
+  --border: oklch(0.32 0.045 257);
+  --foreground: oklch(0.97 0.004 264);
+  --muted-foreground: oklch(0.7 0.035 255);
+  --muted: oklch(0.31 0.052 257);
+  --card: oklch(1 0 0 / 0.09);
 }
 
 @layer base {

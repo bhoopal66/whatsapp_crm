@@ -2098,9 +2098,10 @@ fails if one is wired to plain `t()`.
   `text-*-300/400` without a light-mode pair: it vanishes on white.
   The default accent is `taamul` (brand blue); dark mode lifts every
   accent and puts dark text on it.
-- Light mode puts soft-white cards (`bg-card`) on a tinted canvas
-  (`bg-background`), and no surface is pure white (users found it too
-  bright). So `bg-background` inside a card reads as a grey hole: inner
+- Light mode puts near-white cards (`bg-card`) on a neutral grey canvas
+  (`bg-background`). No surface carries a hue (a blue-tinted ramp read
+  as a colour cast, 2026-11-16) and none is pure white (users found it
+  too bright). So `bg-background` inside a card reads as a grey hole: inner
   surfaces use `bg-card-2`. Don't override a field's fill:
   `Input`/`Textarea`/`SelectTrigger` own it (`bg-card`, dark
   `bg-input/30`); a native field takes `border-input bg-card

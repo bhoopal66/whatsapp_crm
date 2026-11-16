@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Light mode: neutral, professional colours
+
+No migration. Light mode drops the blue tint it put on every surface
+(the page, cards, grey text, borders and fields) for neutral greys: a
+light grey page, near-white cards, ink text and hairline borders, so
+the brand blue is the one colour that stands out (buttons, links, the
+selected item). The sidebar keeps the deep brand navy, and its selected
+item and counters now use the same blue as in dark mode. The inbox's
+chat wallpaper is a neutral grey instead of WhatsApp's beige, which
+clashed with the panels around it; the green and white bubbles are
+unchanged. Dark mode is unchanged.
+
 ### HR: its own sidebar group, screens laid out like the HR package
 
 No migration. The HR screens move out of the single "HR inbox" page into
