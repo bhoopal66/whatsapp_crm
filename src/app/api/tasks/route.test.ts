@@ -28,7 +28,7 @@ const CONTACT = '22222222-2222-4222-8222-222222222222';
 function query(result: { data: unknown; error: unknown }) {
   const calls: [string, unknown[]][] = [];
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'order', 'limit', 'insert']) {
+  for (const m of ['select', 'eq', 'like', 'order', 'limit', 'insert']) {
     builder[m] = (...args: unknown[]) => {
       calls.push([m, args]);
       return builder;
@@ -120,6 +120,31 @@ describe('GET /api/tasks', () => {
       ['eq', ['account_id', ACCOUNT]],
       ['eq', ['status', 'open']],
     ]);
+  });
+
+  it('hr=1 narrows to tasks the HR workflow rules opened', async () => {
+    const tasks = query({ data: [], error: null });
+    signIn({ tasks });
+    await GET(new Request('http://x/api/tasks?scope=all&hr=1&limit=200'));
+    expect(tasks.calls).toEqual([
+      ['select', [TASK_COLUMNS]],
+      ['eq', ['account_id', ACCOUNT]],
+      ['eq', ['status', 'open']],
+      ['eq', ['source', 'automation']],
+      ['like', ['source_ref', 'hr:%']],
+      ...ORDER,
+      ['limit', [200]],
+    ]);
+  });
+
+  it('without hr the query has no source filter, and hr only takes 1', async () => {
+    const tasks = query({ data: [], error: null });
+    signIn({ tasks });
+    await GET(new Request('http://x/api/tasks?scope=all'));
+    expect(tasks.calls.some(([m]) => m === 'like')).toBe(false);
+    expect(tasks.calls).not.toContainEqual(['eq', ['source', 'automation']]);
+    const res = await GET(new Request('http://x/api/tasks?hr=yes'));
+    expect(res.status).toBe(400);
   });
 
   it('refuses a bad query before reading', async () => {

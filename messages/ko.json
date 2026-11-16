@@ -119,7 +119,9 @@
     "bank": "은행",
     "brain": "세컨드 브레인",
     "digest": "일일 요약",
-    "opendesk": "OpenDesk"
+    "opendesk": "OpenDesk",
+    "hrTasks": "HR 작업",
+    "hrSetup": "HR 설정"
   },
   "Notifications": {
     "title": "알림",
@@ -10935,6 +10937,67 @@
       "taskDone": "완료",
       "markDone": "“{title}” 완료로 표시",
       "taskFailed": "할 일을 업데이트하지 못했습니다."
+    },
+    "tasks": {
+      "title": "HR 작업",
+      "subtitle": "HR 워크플로 규칙이 만든 후속 작업입니다. 마감이 가까운 순서로 표시됩니다.",
+      "back": "HR 받은편지함으로 돌아가기",
+      "mine": "내 작업",
+      "all": "전체",
+      "overdueOnly": "기한 지남만",
+      "colTitle": "작업",
+      "colCustomer": "고객",
+      "colAssignee": "담당자",
+      "colDue": "마감",
+      "unassigned": "미배정",
+      "noDue": "마감 시간 없음",
+      "overdue": "기한 지남",
+      "done": "완료",
+      "empty": "열린 HR 작업이 없습니다.",
+      "loadFailed": "HR 작업을 불러오지 못했습니다.",
+      "doneFailed": "작업을 완료로 표시하지 못했습니다.",
+      "openChat": "채팅 열기",
+      "unknownCustomer": "고객"
+    },
+    "setup": {
+      "title": "HR 설정",
+      "back": "HR 받은편지함으로 돌아가기",
+      "team": {
+        "title": "HR 팀",
+        "description": "각 HR 받은편지함을 담당하는 사람입니다. 팀에 속해도 더 많은 채팅이 보이지는 않습니다.",
+        "readOnly": "소유자와 관리자만 팀을 변경할 수 있습니다.",
+        "lead": "리드",
+        "member": "멤버",
+        "remove": "제거",
+        "add": "사람 추가",
+        "pick": "사람 선택",
+        "empty": "아직 아무도 없습니다.",
+        "loadFailed": "HR 팀을 불러오지 못했습니다."
+      },
+      "rules": {
+        "title": "워크플로 규칙",
+        "description": "규칙은 작업을 만들고 표시를 설정할 뿐입니다. 누구에게도 메시지를 보내지 않습니다.",
+        "readOnly": "읽기 전용: 이 받은편지함의 리드와 관리자만 규칙을 변경할 수 있습니다.",
+        "enabled": "사용",
+        "when": "조건",
+        "then": "동작",
+        "markUrgent": "채팅을 긴급으로 표시",
+        "createTask": "작업 만들기: {title}",
+        "afterHours": "경과 시간(시간)",
+        "dueHours": "마감까지(시간)",
+        "taskTitle": "작업 제목",
+        "save": "저장",
+        "saved": "저장됨",
+        "invalid": "표시된 항목을 확인하세요: 경과 1–720시간, 마감 0–720시간, 제목 1–300자.",
+        "empty": "규칙이 없습니다.",
+        "loadFailed": "워크플로 규칙을 불러오지 못했습니다."
+      },
+      "trigger": {
+        "stage": "지원자가 {label} 단계에 들어갈 때",
+        "topic": "직원 채팅에 {label} 주제가 지정될 때",
+        "replyOverdue": "마지막 메시지 후 {hours}시간이 지나도 답장이 필요할 때",
+        "noActivity": "지원자가 {hours}시간 동안 응답하지 않을 때"
+      }
     }
   }
 }

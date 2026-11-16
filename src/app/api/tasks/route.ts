@@ -19,17 +19,24 @@ import {
 import { TASK_COLUMNS } from '@/lib/tasks/types';
 
 /**
- * GET /api/tasks?scope=&contactId=&conversationId=&status=&limit=
- * (viewer+) → `{ tasks }`. Open tasks first (status DESC puts open
+ * GET /api/tasks?scope=&contactId=&conversationId=&status=&limit=&hr=
+ * (viewer+) → `{ tasks }`. `hr=1` narrows to the tasks HR workflow
+ * rules opened (migration 200: source automation, ref `hr:…`); left
+ * out, nothing changes. Open tasks first (status DESC puts open
  * before done and cancelled), then soonest due, undated last, then
  * newest.
  */
 export async function GET(request: Request) {
   try {
     const { supabase, accountId, userId } = await requireRole('viewer');
-    const parsed = parseTaskListQuery(new URL(request.url).searchParams);
+    const params = new URL(request.url).searchParams;
+    const parsed = parseTaskListQuery(params);
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const hr = params.get('hr');
+    if (hr !== null && hr !== '1') {
+      return NextResponse.json({ error: 'hr must be 1' }, { status: 400 });
     }
     const { query } = parsed;
 
@@ -45,6 +52,9 @@ export async function GET(request: Request) {
       tasks = tasks.eq('conversation_id', query.conversationId);
     }
     if (query.status !== 'all') tasks = tasks.eq('status', query.status);
+    if (hr === '1') {
+      tasks = tasks.eq('source', 'automation').like('source_ref', 'hr:%');
+    }
 
     const { data, error } = await tasks
       .order('status', { ascending: false })

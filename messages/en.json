@@ -119,7 +119,9 @@
     "bank": "Bank",
     "brain": "Second brain",
     "digest": "Daily digest",
-    "opendesk": "OpenDesk"
+    "opendesk": "OpenDesk",
+    "hrTasks": "HR tasks",
+    "hrSetup": "HR setup"
   },
   "Notifications": {
     "title": "Notifications",
@@ -10935,6 +10937,67 @@
       "taskDone": "Done",
       "markDone": "Mark “{title}” done",
       "taskFailed": "Couldn't update the task."
+    },
+    "tasks": {
+      "title": "HR tasks",
+      "subtitle": "Follow-ups the HR workflow rules opened, soonest due first.",
+      "back": "Back to HR inbox",
+      "mine": "Mine",
+      "all": "All",
+      "overdueOnly": "Overdue only",
+      "colTitle": "Task",
+      "colCustomer": "Customer",
+      "colAssignee": "Assigned to",
+      "colDue": "Due",
+      "unassigned": "Unassigned",
+      "noDue": "No due time",
+      "overdue": "Overdue",
+      "done": "Done",
+      "empty": "No open HR tasks.",
+      "loadFailed": "Couldn't load HR tasks.",
+      "doneFailed": "Couldn't mark the task done.",
+      "openChat": "Open chat",
+      "unknownCustomer": "Customer"
+    },
+    "setup": {
+      "title": "HR setup",
+      "back": "Back to HR inbox",
+      "team": {
+        "title": "HR team",
+        "description": "Who works each HR inbox. Being on the team does not show anyone more chats.",
+        "readOnly": "Only owners and admins can change the team.",
+        "lead": "Lead",
+        "member": "Member",
+        "remove": "Remove",
+        "add": "Add person",
+        "pick": "Choose a person",
+        "empty": "Nobody yet.",
+        "loadFailed": "Couldn't load the HR team."
+      },
+      "rules": {
+        "title": "Workflow rules",
+        "description": "Rules only create tasks and set flags. They never message anyone.",
+        "readOnly": "Read only: leads of this inbox and admins can change these rules.",
+        "enabled": "Enabled",
+        "when": "When",
+        "then": "Then",
+        "markUrgent": "Mark the chat urgent",
+        "createTask": "Create task: {title}",
+        "afterHours": "After (hours)",
+        "dueHours": "Due in (hours)",
+        "taskTitle": "Task title",
+        "save": "Save",
+        "saved": "Saved",
+        "invalid": "Check the highlighted fields: after 1–720 hours, due 0–720 hours, title 1–300 characters.",
+        "empty": "No rules.",
+        "loadFailed": "Couldn't load the workflow rules."
+      },
+      "trigger": {
+        "stage": "A candidate enters {label}",
+        "topic": "An employee chat is tagged {label}",
+        "replyOverdue": "A reply is still due {hours} hours after the last message",
+        "noActivity": "A candidate has not answered for {hours} hours"
+      }
     }
   }
 }
