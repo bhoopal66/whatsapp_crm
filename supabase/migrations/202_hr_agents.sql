@@ -244,6 +244,14 @@ BEGIN
   IF p_decision = 'approve' AND (d.body ~ '^[[:space:]]*$' OR d.requires_template) THEN
     PERFORM hr_refuse('INVALID', 'an empty draft or one that needs a template cannot be approved');
   END IF;
+  -- The contact may have opted out by another path since the draft was
+  -- written (the bot, the TypeSafe watch, a STOP): approving would send.
+  -- Rejecting stays allowed.
+  IF p_decision = 'approve' AND EXISTS (
+       SELECT 1 FROM conversations c JOIN contacts ct ON ct.id = c.contact_id
+        WHERE c.id = d.conversation_id AND ct.opted_out_at IS NOT NULL) THEN
+    PERFORM hr_refuse('OPTED_OUT', 'the contact has opted out');
+  END IF;
   IF v_reason IS NOT NULL AND v_reason ~ '^[[:space:]]*$' THEN
     v_reason := NULL;
   END IF;

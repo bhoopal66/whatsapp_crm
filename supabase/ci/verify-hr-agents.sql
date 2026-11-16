@@ -38,7 +38,7 @@ DECLARE
   m5 UUID := gen_random_uuid();
   m6 UUID := gen_random_uuid();
   m7 UUID := gen_random_uuid();
-  d1 UUID; d2 UUID; d3 UUID; d4 UUID; d6 UUID; d7 UUID;
+  d1 UUID; d2 UUID; d3 UUID; d4 UUID; d6 UUID; d7 UUID; d8 UUID;
   r        TEXT;
   r2       TEXT;
   i        INT;
@@ -343,6 +343,17 @@ BEGIN
   c := c || pg_temp.hr_chk('decide by a recruiter lead who cannot see the chat was not NOT_FOUND', r, 'ERROR P0002 NOT_FOUND:%');
   r := pg_temp.hr_as(u_rmem, format('SELECT (public.hr_agent_draft_decide(%L, ''reject'', repeat(''r'', 500))).reject_reason IS NOT NULL', d2));
   c := c || pg_temp.hr_chk('reject with a 500-character reason was refused', r, 'true');
+  -- The contact opts out by another path after the draft was written:
+  -- approve is OPTED_OUT and changes nothing, reject still works.
+  d8 := pg_temp.hr_as(NULL, format(create_fmt, c1, gen_random_uuid(), 'candidate_faq', 'other', 'Opt', 'en', false, NULL, NULL, NULL))::uuid;
+  UPDATE contacts SET opted_out_at = now() WHERE id = (SELECT contact_id FROM conversations WHERE id = c1);
+  r := pg_temp.hr_as(u_rmem, format('SELECT (public.hr_agent_draft_decide(%L, ''approve'')).status', d8))
+    || '/' || (SELECT status FROM hr_agent_drafts WHERE id = d8)
+    || '/' || pg_temp.hr_as(u_rmem, format('SELECT (public.hr_agent_draft_decide(%L, ''reject'')).status', d8));
+  c := c || pg_temp.hr_chk('approve for an opted-out contact was not OPTED_OUT (or reject refused)', r,
+                           'ERROR % OPTED_OUT:%/pending/rejected');
+  UPDATE contacts SET opted_out_at = NULL WHERE id = (SELECT contact_id FROM conversations WHERE id = c1);
+  DELETE FROM hr_agent_drafts WHERE id = d8;  -- keep the later status lists as they were
 
   -- ---------- flag_urgent ----------
   r := (SELECT urgent::text FROM hr_conversations WHERE conversation_id = c1);

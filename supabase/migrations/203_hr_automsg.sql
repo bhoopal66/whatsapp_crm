@@ -43,8 +43,19 @@
 --
 -- Refusals: RAISE … USING HINT = NOT_ALLOWED (42501) | NOT_FOUND (P0002)
 -- | INVALID | LIMIT | ALREADY_DECIDED (22023), through 200's hr_refuse.
--- Apply after 200. Re-runnable. No BEGIN/COMMIT.
+-- Apply after 200. Re-runnable. No BEGIN/COMMIT. Must be applied by a
+-- superuser or BYPASSRLS role (the refusal below runs before any DDL).
 -- ============================================================
+
+-- The six tables are RLS-forced with no policies, so the SECURITY
+-- DEFINER functions below read and write them only when owned by a role
+-- that bypasses RLS. Owned by any other role, every enqueue would
+-- silently write nothing.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+    RAISE EXCEPTION '203 must be applied by a superuser or BYPASSRLS role (the automated-message functions read RLS-forced tables)';
+  END IF;
+END $$;
 
 SET lock_timeout = '5s';
 
@@ -476,7 +487,12 @@ BEGIN
     PERFORM hr_refuse('LIMIT', 'the daily cap must be between 1 and 20');
   END IF;
 
-  s := hr_automsg_settings_of(v_account);
+  -- Lock the row before reading it, so two admins saving different
+  -- fields at once each keep the other's change. Insert the defaults
+  -- first when the account has no row yet, so there is always one to lock.
+  INSERT INTO hr_automsg_settings (account_id) VALUES (v_account)
+  ON CONFLICT (account_id) DO NOTHING;
+  SELECT * INTO s FROM hr_automsg_settings x WHERE x.account_id = v_account FOR UPDATE;
   IF p_kill_switch IS NOT NULL AND p_kill_switch IS DISTINCT FROM s.kill_switch THEN
     s.kill_switch := p_kill_switch;
     v_changed := v_changed || jsonb_build_object('kill_switch', p_kill_switch);
@@ -781,7 +797,10 @@ AS $$
   SELECT * FROM hr_automsg_outbox o
    WHERE o.status IN ('queued', 'held', 'failed') AND o.claim_state IS NULL AND o.attempts < 3
      AND (p_account_id IS NULL OR o.account_id = p_account_id)
-   ORDER BY o.created_at, o.id
+   -- Queued first, then failed, then held, each oldest first: many held
+   -- rows must not starve newly queued ones under the limit.
+   ORDER BY CASE o.status WHEN 'queued' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,
+            o.created_at, o.id
    LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500)
 $$;
 
@@ -857,12 +876,40 @@ DECLARE
   v_account uuid;
   v_contact uuid;
   v_now timestamptz := COALESCE(p_now, now());
+  v_conversation uuid;
+  v_trigger text;
+  s hr_automsg_settings;
 BEGIN
-  SELECT x.account_id, x.contact_id INTO v_account, v_contact
+  SELECT x.account_id, x.contact_id, x.conversation_id, x.trigger
+    INTO v_account, v_contact, v_conversation, v_trigger
     FROM hr_automsg_outbox x WHERE x.id = p_id;
   IF NOT FOUND THEN RETURN 'lost'; END IF;
   -- One claim at a time per contact, so two drains cannot both pass the cap.
   PERFORM pg_advisory_xact_lock(hashtextextended(v_account::text || ':' || v_contact::text, 0));
+  -- The drain decided the guards before calling; re-check them here, from
+  -- the database, so a kill switch turned back on, a trigger switched off,
+  -- a closed or moved chat, an opt-out or a withdrawn consent in between
+  -- never gets a send. A failure changes nothing: the next drain decides
+  -- and holds the row with the right reason.
+  s := hr_automsg_settings_of(v_account);
+  IF s.kill_switch
+     OR NOT EXISTS (SELECT 1 FROM hr_automsg_triggers t
+                     WHERE t.account_id = v_account AND t.trigger = v_trigger AND t.enabled)
+     OR NOT EXISTS (SELECT 1 FROM hr_conversations h
+                     WHERE h.conversation_id = v_conversation AND h.account_id = v_account
+                       AND h.closed_at IS NULL AND h.inbox = 'recruiter')
+     OR NOT EXISTS (SELECT 1 FROM conversations c
+                     WHERE c.id = v_conversation AND c.account_id = v_account
+                       AND c.personal_owner_id IS NULL)
+     OR NOT EXISTS (SELECT 1 FROM contacts ct
+                     WHERE ct.id = v_contact AND ct.account_id = v_account
+                       AND ct.opted_out_at IS NULL)
+     OR (s.requires_consent
+         AND NOT EXISTS (SELECT 1 FROM hr_automsg_consent k
+                          WHERE k.account_id = v_account AND k.contact_id = v_contact
+                            AND k.granted)) THEN
+    RETURN 'lost';
+  END IF;
   IF hr_automsg_sent_today(v_account, v_contact, v_now)
      >= (hr_automsg_settings_of(v_account)).daily_cap THEN
     UPDATE hr_automsg_outbox x
@@ -1011,6 +1058,11 @@ BEGIN
      AND h.reply_state = 'waiting'
      AND h.last_outbound_at <= COALESCE(p_now, now())
                                - make_interval(hours => COALESCE(r.after_hours, 72))
+     -- Only waiting periods that began after the trigger was last switched
+     -- or changed, and within the last 7 days: switching it on must not
+     -- nudge every chat that went quiet any time before.
+     AND h.last_outbound_at > t.updated_at
+     AND h.last_outbound_at >= COALESCE(p_now, now()) - interval '7 days'
      AND c.personal_owner_id IS NULL AND c.contact_id IS NOT NULL
   ON CONFLICT ON CONSTRAINT hr_automsg_outbox_dedupe DO NOTHING;
   GET DIAGNOSTICS n = ROW_COUNT;

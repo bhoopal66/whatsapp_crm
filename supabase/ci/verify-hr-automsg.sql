@@ -492,6 +492,19 @@ BEGIN
   r := pg_temp.hr_as(NULL, 'SELECT count(*)::text FROM public.hr_automsg_config()');
   c := c || pg_temp.hr_chk('hr_automsg_config was callable by the service role', r, 'ERROR 42501 %');
 
+  -- claim sends only for an open recruiter chat. c9 is opened in HR;
+  -- c8 sits in the dept inbox, so o7/o8 (k8's rows) move to a fresh
+  -- recruiter chat of a fresh contact. The cv_received rows the opens
+  -- queue are dropped.
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971502038888', 'Cand 8b')
+  RETURNING id INTO o9;
+  k[8] := o9;
+  INSERT INTO conversations (account_id, user_id, contact_id, assigned_agent_id)
+  VALUES (a_acct, u_owner, k[8], u_lead) RETURNING id INTO c8;
+  r := pg_temp.hr_as(u_lead, format('SELECT (public.hr_open(%L, ''candidate'')).stage_key', c8))
+    || pg_temp.hr_as(u_lead, format('SELECT (public.hr_open(%L, ''candidate'')).stage_key', c9));
+  IF r <> 'cv_reviewcv_review' THEN RAISE EXCEPTION 'fixture: hr_open c8/c9 %', r; END IF;
+  DELETE FROM hr_automsg_outbox o WHERE o.conversation_id IN (c8, c9);
   -- Extra rows: o2 cap candidate (k1), o3 attempts exhausted, o4 for
   -- mark-failed, o5 settle, o7 stuck review, o8 expiry, o9 workspace B.
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
@@ -511,6 +524,8 @@ BEGIN
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
   VALUES (a_out, c5, c9, 'cv_received', 'cv_ack', 'v:other', now() - interval '25 minutes') RETURNING id INTO o9;
 
+  -- The rows above are claimable only while their trigger is on.
+  PERFORM pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''interview_reminder'', true)::text');
   r := pg_temp.hr_as(NULL, format('SELECT string_agg(d.id::text, '','') FROM public.hr_automsg_due(100, %L) d', a_out));
   c := c || pg_temp.hr_chk('due with an account filter returned other rows', r, o9::text);
   r := pg_temp.hr_as(NULL, format('SELECT (count(*) FILTER (WHERE d.id = %L))::text || ''/'' || (count(*) FILTER (WHERE d.id = %L))'
@@ -532,6 +547,42 @@ BEGIN
                  j->>'contact_name', j->>'trigger_enabled', j->>'sent_today', j->'template'->>'meta_template_name',
                  j->'settings'->>'daily_cap', j->>'consent');
   c := c || pg_temp.hr_chk('row_state values', r, 't/false/recruiter/false/false/Cand 1/true/0/hr_cv_ack/3/true');
+
+  -- due order: queued first, then failed, then held (each oldest first),
+  -- so many held rows cannot starve new ones. o8 (the oldest) held and
+  -- o5 failed for the check, then put back.
+  UPDATE hr_automsg_outbox SET status = 'held', hold_reason = 'quiet_hours' WHERE id = o8;
+  UPDATE hr_automsg_outbox SET status = 'failed' WHERE id = o5;
+  r := pg_temp.hr_as(NULL, format('SELECT (string_agg(d.status, '','' ORDER BY d.ordinality) ~ ''^(queued,)+failed,held$'')::text'
+                                  ' FROM public.hr_automsg_due(500, %L) WITH ORDINALITY d', a_acct));
+  c := c || pg_temp.hr_chk('due: queued rows not before failed, failed not before held', r, 'true');
+  UPDATE hr_automsg_outbox SET status = 'queued', hold_reason = NULL WHERE id IN (o5, o8);
+
+  -- claim re-checks the guards under its lock: each failure is 'lost'
+  -- and leaves the row untouched (kill switch on, trigger off, chat
+  -- closed, contact opted out, consent
+  -- withdrawn while settings require it).
+  r := pg_temp.hr_raw(format('UPDATE hr_automsg_settings SET kill_switch = true WHERE account_id = %L', a_acct))
+    || ':' || pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1));
+  PERFORM pg_temp.hr_raw(format('UPDATE hr_automsg_settings SET kill_switch = false WHERE account_id = %L', a_acct));
+  r := r || '/' || pg_temp.hr_raw(format('UPDATE hr_automsg_triggers t SET enabled = false FROM hr_automsg_outbox o'
+                                         ' WHERE o.id = %L AND t.account_id = o.account_id AND t.trigger = o.trigger', o1))
+    || ':' || pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1));
+  PERFORM pg_temp.hr_raw(format('UPDATE hr_automsg_triggers t SET enabled = true FROM hr_automsg_outbox o'
+                                ' WHERE o.id = %L AND t.account_id = o.account_id AND t.trigger = o.trigger', o1));
+  r := r || '/' || pg_temp.hr_raw(format('UPDATE hr_conversations SET closed_at = now() WHERE conversation_id = %L', c1))
+    || ':' || pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1));
+  PERFORM pg_temp.hr_raw(format('UPDATE hr_conversations SET closed_at = NULL WHERE conversation_id = %L', c1));
+  r := r || '/' || pg_temp.hr_raw(format('UPDATE contacts SET opted_out_at = now() WHERE id = %L', k[1]))
+    || ':' || pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1));
+  PERFORM pg_temp.hr_raw(format('UPDATE contacts SET opted_out_at = NULL WHERE id = %L', k[1]));
+  r := r || '/' || pg_temp.hr_raw(format('UPDATE hr_automsg_consent SET granted = false WHERE account_id = %L AND contact_id = %L', a_acct, k[1])) || pg_temp.hr_raw(format('UPDATE hr_automsg_settings SET requires_consent = true WHERE account_id = %L', a_acct))
+    || ':' || pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1));
+  PERFORM pg_temp.hr_raw(format('UPDATE hr_automsg_consent SET granted = true WHERE account_id = %L AND contact_id = %L', a_acct, k[1]));
+  PERFORM pg_temp.hr_raw(format('UPDATE hr_automsg_settings SET requires_consent = false WHERE account_id = %L', a_acct));
+  r := r || '/' || (SELECT concat_ws('/', o.status, o.attempts, coalesce(o.claim_state, '-')) FROM hr_automsg_outbox o WHERE o.id = o1);
+  c := c || pg_temp.hr_chk('claim did not re-check kill switch / trigger / closed / opt-out / consent (lost, row untouched)', r,
+                           'ok:lost/ok:lost/ok:lost/ok:lost/okok:lost/queued/0/-');
 
   -- claim / capped / lost
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o1))
@@ -643,6 +694,20 @@ BEGIN
   r := pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
   c := c || pg_temp.hr_chk('nudges queued with reply_overdue_nudge off', r, '0');
   PERFORM pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''reply_overdue_nudge'', true)::text');
+  -- Switched on just now: c7 went quiet 100 h before that, so no nudge.
+  r := pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
+  -- Switched on 30 days ago, but c7's waiting period began 8 days ago:
+  -- older than 7 days, so no nudge either.
+  UPDATE hr_automsg_triggers SET updated_at = now() - interval '30 days'
+   WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
+  UPDATE hr_conversations h SET last_outbound_at = now() - interval '8 days', last_inbound_at = now() - interval '9 days'
+   WHERE h.conversation_id = c7;
+  r := r || '/' || pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
+  c := c || pg_temp.hr_chk('nudge queued for a waiting period from before the switch-on or older than 7 days', r, '0/0');
+  UPDATE hr_automsg_triggers SET updated_at = now() - interval '120 hours'
+   WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
+  UPDATE hr_conversations h SET last_outbound_at = now() - interval '100 hours', last_inbound_at = now() - interval '120 hours'
+   WHERE h.conversation_id = c7;
   r := pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
   r := r || '/' || (SELECT string_agg(concat_ws('/', o.trigger, o.template_kind, o.status, o.dedupe_key LIKE 'nudge:' || c7 || ':%'), ',')
                  FROM hr_automsg_outbox o WHERE o.account_id = a_acct AND o.trigger = 'reply_overdue_nudge');
