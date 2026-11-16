@@ -11069,7 +11069,10 @@
       "mine": "내 대화",
       "showClosed": "종료됨",
       "tasks": "작업",
-      "setup": "설정"
+      "setup": "설정",
+      "hireFast": "빠른 채용",
+      "automatedMessages": "자동 메시지",
+      "topicGroupsAria": "주제 그룹"
     }
   }
 }

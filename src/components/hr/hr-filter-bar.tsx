@@ -14,7 +14,14 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/use-auth';
 import { hrCounts } from '@/lib/hr/api';
+import { loadHrRoles } from '@/lib/hr/roles-cache';
+import {
+  hrInboxLinks,
+  hrTopicChips,
+  hrTopicOptGroups,
+} from '@/lib/hr/topic-ui';
 import {
   HR_TABS,
   hrTabCounts,
@@ -25,8 +32,8 @@ import {
 import {
   HR_REPLY_STATES,
   HR_STAGES,
-  HR_TOPICS,
   type HrReplyState,
+  type HrRoles,
   type HrStage,
   type HrTopic,
 } from '@/lib/hr/types';
@@ -46,6 +53,26 @@ interface HrFilterBarProps {
 export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
   const t = useTranslations('Hr');
   const [counts, setCounts] = useState<Record<HrTab, number> | null>(null);
+  const { accountId, user } = useAuth();
+  const userId = user?.id ?? null;
+  const [roles, setRoles] = useState<HrRoles | null>(null);
+
+  // Roles decide which setup links show; cached, shared with the panel.
+  useEffect(() => {
+    if (!accountId || !userId) return;
+    let alive = true;
+    loadHrRoles(accountId, userId)
+      .then((r) => {
+        if (alive) setRoles(r);
+      })
+      .catch(() => {
+        // No roles: the role-gated links stay hidden.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [accountId, userId]);
+  const links = hrInboxLinks(roles);
 
   // `filters` is a dependency on purpose: a filter change is the moment
   // the person looks at the numbers, so they are re-read then too.
@@ -145,10 +172,14 @@ export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
           }
         >
           <option value="">{t('list.anyTopic')}</option>
-          {HR_TOPICS.map((s) => (
-            <option key={s} value={s}>
-              {t(`topic.${s}`)}
-            </option>
+          {hrTopicOptGroups().map((g) => (
+            <optgroup key={g.group} label={t(g.labelKey)}>
+              {g.topics.map((s) => (
+                <option key={s} value={s}>
+                  {t(`topic.${s}`)}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       )}
@@ -189,7 +220,47 @@ export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
         onClick={() => set({ closed: !filters.closed })}
       />
 
+      {filters.tab === 'dept' && (
+        <div
+          role="group"
+          aria-label={t('list.topicGroupsAria')}
+          className="flex basis-full flex-wrap gap-1"
+        >
+          {hrTopicChips().map((chip) => {
+            const active = filters.topicGroup === chip.value;
+            return (
+              <Button
+                key={chip.value ?? 'all'}
+                type="button"
+                size="xs"
+                variant={active ? 'default' : 'outline'}
+                aria-pressed={active}
+                onClick={() => set({ topicGroup: chip.value })}
+              >
+                {t(chip.labelKey)}
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="ml-auto flex gap-2">
+        {links.hireFast && (
+          <Link
+            href="/hr-inbox/hire-fast"
+            className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          >
+            {t('list.hireFast')}
+          </Link>
+        )}
+        {links.automatedMessages && (
+          <Link
+            href="/hr-inbox/automated-messages"
+            className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          >
+            {t('list.automatedMessages')}
+          </Link>
+        )}
         <Link
           href="/hr-inbox/tasks"
           className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"

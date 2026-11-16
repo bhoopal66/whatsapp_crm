@@ -11069,7 +11069,10 @@
       "mine": "Mine",
       "showClosed": "Closed",
       "tasks": "Tasks",
-      "setup": "Setup"
+      "setup": "Setup",
+      "hireFast": "Hire fast",
+      "automatedMessages": "Automated messages",
+      "topicGroupsAria": "Topic groups"
     }
   }
 }

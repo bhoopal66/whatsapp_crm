@@ -36,6 +36,7 @@ import {
 } from '@/lib/hr/api';
 import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
+import { hrTopicOptGroups } from '@/lib/hr/topic-ui';
 import { isHrTask } from '@/lib/hr/tasks-view';
 import {
   furthestStage,
@@ -52,7 +53,6 @@ import {
 import {
   HR_FLAGS,
   HR_OUTCOMES,
-  HR_TOPICS,
   type HrConversation,
   type HrOpenKind,
   type HrOutcome,
@@ -330,7 +330,11 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
 
   const header = (
     <div className="flex items-center justify-between gap-2">
-      <h4 className="text-sm font-semibold">{t('panel.title')}</h4>
+      <h4 className="text-sm font-semibold">
+        {row?.inbox === 'dept'
+          ? t('panel.staffConversation')
+          : t('panel.title')}
+      </h4>
       {row && (
         <span className="text-muted-foreground text-xs">
           {t(`inbox.${row.inbox}`)}
@@ -372,9 +376,48 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
   const closed = row.closed_at !== null;
   const stageLabel = (s: HrStage) => t(`stage.${s}`);
 
+  const topicOptions = hrTopicOptGroups().map((g) => (
+    <optgroup key={g.group} label={t(g.labelKey)}>
+      {g.topics.map((topic) => (
+        <option key={topic} value={topic}>
+          {t(`topic.${topic}`)}
+        </option>
+      ))}
+    </optgroup>
+  ));
+
   return (
     <section className="bg-wa-panel space-y-3 px-4 py-3" aria-busy={busy}>
       {header}
+
+      {actions.topic && (
+        <label className="block space-y-1">
+          <span className="text-muted-foreground text-xs">
+            {t('panel.topic')}
+          </span>
+          {actions.edit ? (
+            <select
+              className={NATIVE_FIELD}
+              value={row.topic ?? ''}
+              disabled={busy}
+              onChange={(e) => {
+                if (e.target.value) void setTopic(e.target.value as HrTopic);
+              }}
+            >
+              {row.topic === null && (
+                <option value="" disabled>
+                  {t('panel.noTopic')}
+                </option>
+              )}
+              {topicOptions}
+            </select>
+          ) : (
+            <span className="block text-xs">
+              {row.topic ? t(`topic.${row.topic}`) : t('panel.noTopic')}
+            </span>
+          )}
+        </label>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <span
@@ -470,39 +513,6 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
         </ol>
       )}
 
-      {actions.topic && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-xs">
-            {t('panel.topic')}
-          </span>
-          {actions.edit ? (
-            <select
-              className={NATIVE_FIELD}
-              value={row.topic ?? ''}
-              disabled={busy}
-              onChange={(e) => {
-                if (e.target.value) void setTopic(e.target.value as HrTopic);
-              }}
-            >
-              {row.topic === null && (
-                <option value="" disabled>
-                  {t('panel.noTopic')}
-                </option>
-              )}
-              {HR_TOPICS.map((topic) => (
-                <option key={topic} value={topic}>
-                  {t(`topic.${topic}`)}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="block text-xs">
-              {row.topic ? t(`topic.${row.topic}`) : t('panel.noTopic')}
-            </span>
-          )}
-        </label>
-      )}
-
       {actions.moveToDept && (
         <label className="block space-y-1">
           <span className="text-muted-foreground text-xs">
@@ -519,11 +529,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
             <option value="" disabled>
               {t('panel.chooseTopic')}
             </option>
-            {HR_TOPICS.map((topic) => (
-              <option key={topic} value={topic}>
-                {t(`topic.${topic}`)}
-              </option>
-            ))}
+            {topicOptions}
           </select>
         </label>
       )}
