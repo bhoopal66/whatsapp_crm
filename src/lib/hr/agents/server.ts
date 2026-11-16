@@ -15,7 +15,7 @@ import { markOptedOut } from '@/lib/ai/opt-out';
 import { logAiUsage } from '@/lib/ai/usage';
 import type { AiConfig } from '@/lib/ai/types';
 import { HR_STAGES, type HrStage } from '@/lib/hr/types';
-import { detectLang } from './guardrails';
+import { capReached, detectLang, isOptOut } from './guardrails';
 import { createAiModelPort } from './model';
 import { run } from './orchestrator';
 import type { ModelPort } from './ports';
@@ -191,6 +191,14 @@ export async function runHrAgents(
     );
     const inboundText = source?.content_text?.trim() ?? '';
     if (!source || !inboundText) return { outcome: 'no_message' };
+    // A capped chat gets no draft whatever the model says, so spend nothing
+    // on one. An opt-out needs no model call and is still recorded below.
+    if (
+      !isOptOut(inboundText) &&
+      capReached(ctx.pending_drafts ?? 0, ctx.drafts_today ?? 0)
+    ) {
+      return { outcome: 'cap' };
+    }
     const history = await loadHistory(db, args.conversationId, source);
 
     let config: AiConfig | null;

@@ -150,6 +150,17 @@ describe('processRow', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('accepted with no chat record (messageId null) -> unconfirmed, not sent', async () => {
+    const { store, sender, sent, deps } = rig();
+    store.add(row('r1'));
+    sender.send = async (req) => {
+      sent.push(req);
+      return { providerMessageId: 'wamid-x', messageId: null };
+    };
+    expect(await processRow(row('r1'), deps)).toBe('unconfirmed');
+    expect(store.rows.get('r1')).toMatchObject({ claimState: 'unconfirmed' });
+  });
+
   it('closed or opted out -> cancelled', async () => {
     for (const k of ['closed', 'optedOut'] as const) {
       const { ctx, store, sent, deps } = rig();

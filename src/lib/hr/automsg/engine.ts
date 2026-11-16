@@ -106,6 +106,7 @@ export async function processRow(
       sentToday: st.sentToday,
     },
     now,
+    // Dedupe is enforced by the outbox's unique (account_id, dedupe_key) in SQL.
     duplicate: false,
   });
   if (!d.allow) {
@@ -151,6 +152,15 @@ export async function processRow(
   } catch (e) {
     await store.markFailed(row.id, messageOf(e));
     return 'failed';
+  }
+
+  if (sent.messageId === null) {
+    // The gateway accepted it but the chat has no record of it: say so,
+    // so the history shows it needs review.
+    await store
+      .settleUnconfirmed(row.id, sent.providerMessageId)
+      .catch(() => undefined);
+    return 'unconfirmed';
   }
 
   try {

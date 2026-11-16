@@ -27,7 +27,12 @@ const CONV = 'conv-1';
 const CONTACT = 'contact-1';
 const PHONE = '971501234567';
 
-const TEMPLATE_ROW = { id: 'tpl-1', name: 'hr_hr_interview_invite' };
+const TEMPLATE_ROW = {
+  id: 'tpl-1',
+  name: 'hr_hr_interview_invite',
+  status: 'APPROVED',
+  category: 'Utility',
+};
 
 function channel(over: Partial<WhatsAppChannel> = {}): WhatsAppChannel {
   return {
@@ -165,6 +170,23 @@ describe('createHrSendPort: Meta', () => {
     const { db } = fakeDb({});
     await expect(createHrSendPort(db).send(req())).rejects.toThrow(
       /no local template/
+    );
+    expect(gateway()).toBe(0);
+  });
+});
+
+describe('createHrSendPort: registry row check', () => {
+  it.each([
+    ['a marketing row', { category: 'Marketing' }],
+    ['a pending row', { status: 'PENDING' }],
+    ['a row with no status', { status: undefined }],
+  ])('%s throws before any gateway call', async (_n, over) => {
+    vi.mocked(resolveTemplateRow).mockResolvedValue({
+      row: { ...TEMPLATE_ROW, ...over },
+    } as unknown as Awaited<ReturnType<typeof resolveTemplateRow>>);
+    const { db } = fakeDb({});
+    await expect(createHrSendPort(db).send(req())).rejects.toThrow(
+      /approved utility/
     );
     expect(gateway()).toBe(0);
   });

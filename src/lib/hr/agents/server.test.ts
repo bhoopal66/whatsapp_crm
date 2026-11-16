@@ -273,4 +273,23 @@ describe('runHrAgents', () => {
     expect(err).toHaveBeenCalledTimes(1);
     err.mockRestore();
   });
+
+  it('a chat at the pending cap costs no AI call', async () => {
+    ctx = baseCtx({ pending_drafts: 3 });
+    const model = new StubModel();
+    const spy = vi.spyOn(model, 'complete');
+    h.config.mockClear();
+    const out = await run({ model });
+    expect(out.outcome).toBe('cap');
+    expect(h.config).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
+    expect(call('hr_agent_draft_create')).toHaveLength(0);
+  });
+
+  it('an opt-out at the cap is still recorded', async () => {
+    ctx = baseCtx({ pending_drafts: 3 });
+    messages[1].content_text = 'stop';
+    const out = await run();
+    expect(out.outcome).toBe('opted_out');
+  });
 });

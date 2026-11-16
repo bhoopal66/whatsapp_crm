@@ -138,6 +138,15 @@ async function sendHrTemplate(
           `no local template named "${req.metaTemplateName}" for this account`
         );
       }
+      // The registry send is only as good as the row it names: an HR
+      // message is a utility template Meta has approved, nothing else.
+      const status = String(row.status ?? '').toLowerCase();
+      const category = String(row.category ?? '').toLowerCase();
+      if (status !== 'approved' || category !== 'utility') {
+        throw new Error(
+          `template "${req.metaTemplateName}" must be an approved utility template`
+        );
+      }
       const bodyParams = metaBodyParams(req);
       attempt = async (to) =>
         (await sendTemplate({ channel, to, template: row, bodyParams }))

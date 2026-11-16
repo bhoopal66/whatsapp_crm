@@ -130,6 +130,8 @@ describe('POST /api/hr/agents/run', () => {
     ],
     ['a blank slot', { conversationId: CONV, slots: ['  '] }],
     ['an 81-character slot', { conversationId: CONV, slots: ['x'.repeat(81)] }],
+    ['a salary slot', { conversationId: CONV, slots: ['Mon, salary 9000'] }],
+    ['a visa slot', { conversationId: CONV, slots: ['Visa on Tuesday'] }],
     ['a non-string slot', { conversationId: CONV, slots: [5] }],
     ['slots not an array', { conversationId: CONV, slots: 'Mon' }],
     ['a bad conversation id', { conversationId: 'nope' }],

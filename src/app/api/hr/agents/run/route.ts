@@ -3,6 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { isUuid } from '@/lib/coordinators/errors';
 import { runHrAgents, type HrAgentRunResult } from '@/lib/hr/agents/server';
+import { isSensitive } from '@/lib/hr/agents/guardrails';
 import type { HrRoles } from '@/lib/hr/types';
 
 export const maxDuration = 60;
@@ -19,6 +20,9 @@ function parseSlots(raw: unknown): string[] | undefined | null {
     if (typeof s !== 'string') return null;
     const t = s.trim();
     if (t.length < 1 || t.length > SLOT_MAX_CHARS) return null;
+    // draftViolation strips slot text before checking, so a salary or visa
+    // promise must not get in through one.
+    if (isSensitive(t)) return null;
     slots.push(t);
   }
   return slots;
