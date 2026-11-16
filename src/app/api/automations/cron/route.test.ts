@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Every test re-imports the whole cron route after `vi.resetModules()`
+// (the per-process throttles must start fresh). On a busy machine that
+// import alone can pass vitest's default 5 s, and a timed-out test then
+// leaks its after() work into the next ones. The assertions do not
+// depend on wall time (timers are faked), only the import does.
+vi.setConfig({ testTimeout: 30_000 });
+
 const h = vi.hoisted(() => ({
   due: [] as Record<string, unknown>[],
   dueError: null as { message: string } | null,
