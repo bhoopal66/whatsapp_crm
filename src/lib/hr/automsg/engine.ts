@@ -143,6 +143,7 @@ export async function processRow(
       language: tpl.language,
       metaTemplateName: tpl.metaTemplateName,
       body,
+      templateBody: tpl.body,
       params,
     };
     assertTemplateOnly(req);

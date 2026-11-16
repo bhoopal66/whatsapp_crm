@@ -65,8 +65,16 @@ export interface TemplateSendRequest {
   templateKind: TemplateKind;
   language: AutoLang;
   metaTemplateName: string;
-  /** The rendered template body (for the message record), never free text. */
+  /**
+   * The rendered template body, never free text: sent as-is on a linked
+   * device (Whapi/OpenWA) and kept as the message record.
+   */
   body: string;
+  /**
+   * The stored HR template body with its {name}/{slot} tokens: their order
+   * is the Meta template's positional body-param order.
+   */
+  templateBody: string;
   params: { name: string; slot: string };
 }
 
@@ -79,6 +87,7 @@ export const SEND_REQUEST_KEYS: readonly (keyof TemplateSendRequest)[] = [
   'language',
   'metaTemplateName',
   'body',
+  'templateBody',
   'params',
 ];
 

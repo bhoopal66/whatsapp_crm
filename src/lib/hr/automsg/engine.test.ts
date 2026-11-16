@@ -80,6 +80,9 @@ describe('processRow', () => {
     expect(sent[0].body).toBe(
       `Hello Sara x, we would like to invite you to an HR interview on ${SLOT_FALLBACK}.`
     );
+    expect(sent[0].templateBody).toBe(
+      SEED_TEMPLATES.hr_interview_invite.text.en
+    );
     expect(store.rows.get('r1')).toMatchObject({
       status: 'sent',
       attempts: 1,
@@ -217,6 +220,7 @@ describe('no free-text path', () => {
     language: 'en',
     metaTemplateName: 'hr_cv_ack',
     body: 'Hello Sara',
+    templateBody: 'Hello {name}',
     params: { name: 'Sara', slot: 's' },
   };
   it('type level: a send request has no text field', () => {
