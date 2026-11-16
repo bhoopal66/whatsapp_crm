@@ -1369,7 +1369,10 @@ export function InboxPageInner({
             {activeConversation && !panel.contact ? (
               <div
                 aria-busy={!fullRowFailed}
-                className="border-wa-divider bg-wa-panel h-full w-70 border-l"
+                className={cn(
+                  'border-wa-divider bg-wa-panel h-full border-l',
+                  hrView ? 'w-96' : 'w-70'
+                )}
               >
                 {fullRowFailed && (
                   <FullRowRetry
@@ -1385,6 +1388,9 @@ export function InboxPageInner({
                 conversationId={activeConversation?.id ?? null}
                 conversation={panel.conversation}
                 inboxDepartment={activeConversation?.inbox_department ?? null}
+                assignedAgentId={activeConversation?.assigned_agent_id ?? null}
+                onAssignChange={handleAssignChange}
+                widthClass={hrView ? 'w-96' : 'w-70'}
                 notice={
                   fullRowFailed && !panel.complete ? (
                     <FullRowRetry

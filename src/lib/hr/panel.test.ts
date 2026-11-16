@@ -8,6 +8,7 @@ import {
   paneSections,
   furthestStage,
   hasReason,
+  hrOwnerChoices,
   laterStage,
   openKinds,
   outcomeToSend,
@@ -349,5 +350,62 @@ describe('closeChoices', () => {
         confirmKey: 'pane.closeConfirm',
       },
     ]);
+  });
+});
+
+describe('hrOwnerChoices', () => {
+  const assignable = ['me', 'omar', 'layla', 'sales'];
+  const base = {
+    inbox: 'recruiter' as const,
+    myUserId: 'me',
+    ownerId: null as string | null,
+    assignable,
+    teamUserIds: new Set(['me', 'omar', 'layla']),
+  };
+
+  it('an admin picks anyone assignable on the HR team, or Unassigned', () => {
+    expect(hrOwnerChoices({ ...base, roles: ADMIN })).toEqual({
+      userIds: ['me', 'omar', 'layla'],
+      unassigned: true,
+    });
+  });
+
+  it('a lead gets the team plus the current owner', () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: REC_LEAD, ownerId: 'sales' })
+    ).toEqual({ userIds: ['sales', 'me', 'omar', 'layla'], unassigned: true });
+  });
+
+  it('a lead of the other inbox gets nothing here', () => {
+    expect(hrOwnerChoices({ ...base, roles: DEPT_LEAD })).toBeNull();
+  });
+
+  it('a member may claim an unowned chat', () => {
+    expect(hrOwnerChoices({ ...base, roles: REC_MEMBER })).toEqual({
+      userIds: ['me'],
+      unassigned: true,
+    });
+  });
+
+  it('a member may release their own chat', () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: REC_MEMBER, ownerId: 'me' })
+    ).toEqual({ userIds: ['me'], unassigned: true });
+  });
+
+  it("a member sees only the name on someone else's chat", () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: REC_MEMBER, ownerId: 'omar' })
+    ).toBeNull();
+  });
+
+  it('with no HR team configured a lead keeps the assignable list', () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: REC_LEAD, teamUserIds: new Set() })
+    ).toEqual({ userIds: assignable, unassigned: true });
+  });
+
+  it('no HR role: the name only', () => {
+    expect(hrOwnerChoices({ ...base, roles: NONE })).toBeNull();
   });
 });

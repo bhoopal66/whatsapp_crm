@@ -9,6 +9,7 @@ import {
   canReopen,
   canWrite,
   hasHrAccess,
+  hrRoleFor,
   isBackwardMove,
   stageIndex,
 } from './access';
@@ -259,4 +260,58 @@ export function closeChoices(row: { inbox: string }): CloseChoice[] {
     labelKey: `outcome.${outcome}`,
     confirmKey: 'pane.closeAs',
   }));
+}
+
+/**
+ * What the pane's Owner control offers (the package's rule, layered on
+ * the inbox header's `assignableMembers` list, which already leaves out
+ * whom the assignment triggers would refuse). `null` = the name only.
+ */
+export interface HrOwnerChoices {
+  /** People to offer, in `assignable` order (current owner included). */
+  userIds: string[];
+  /** Whether "Unassigned" is offered. */
+  unassigned: boolean;
+}
+
+/**
+ * - an admin/owner or the inbox's HR lead: anyone assignable who is on
+ *   that inbox's HR team, plus the current owner, or Unassigned. With
+ *   no HR team configured the assignable list stands, so it is never
+ *   empty;
+ * - an HR member: claim an unowned chat, or release their own (self and
+ *   Unassigned); someone else's chat shows the name only;
+ * - anyone else: the name only.
+ */
+export function hrOwnerChoices({
+  roles,
+  inbox,
+  myUserId,
+  ownerId,
+  assignable,
+  teamUserIds,
+}: {
+  roles: HrRoles;
+  inbox: HrConversation['inbox'];
+  myUserId: string | null | undefined;
+  ownerId: string | null;
+  /** `assignableMembers(...)` user ids. */
+  assignable: readonly string[];
+  /** `hr_team_members` of this inbox. */
+  teamUserIds: ReadonlySet<string>;
+}): HrOwnerChoices | null {
+  const role = hrRoleFor(roles, inbox);
+  if (role === 'admin' || role === 'lead') {
+    const team =
+      teamUserIds.size > 0
+        ? assignable.filter((id) => teamUserIds.has(id))
+        : [...assignable];
+    if (ownerId && !team.includes(ownerId)) team.unshift(ownerId);
+    return { userIds: team, unassigned: true };
+  }
+  if (role === 'member' && myUserId) {
+    if (ownerId !== null && ownerId !== myUserId) return null;
+    return { userIds: [myUserId], unassigned: true };
+  }
+  return null;
 }

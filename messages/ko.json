@@ -10977,6 +10977,10 @@
     "pane": {
       "conversation": "대화",
       "inboxLine": "받은편지함: {inbox}",
+      "ownerLine": "담당자: {owner}",
+      "owner": "담당자",
+      "unassigned": "미배정",
+      "unknownOwner": "다른 사람",
       "inboxName": {
         "recruiter": "채용 HR",
         "dept": "인사부"
