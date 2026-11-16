@@ -996,3 +996,12 @@ jobs:
       # draft's identity; ai_usage_log accepts 'hr_agent'; grants.
       - name: Verify HR agents
         run: supabase db query --local --file supabase/ci/verify-hr-agents.sql
+
+      # Migration 203: HR automated messages. A recruiter-inbox stage event
+      # queues one outbox row only while its trigger is on (company chats
+      # only); settings/templates are admin-only, triggers lead/admin; the
+      # service-role sender claims under the daily cap and 3 attempts,
+      # marks, settles, reviews stuck claims, expires and nudges once; the
+      # tables have no policy or grant and the audit log is append-only.
+      - name: Verify HR automated messages
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg.sql
