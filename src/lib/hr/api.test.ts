@@ -19,6 +19,9 @@ describe('hrErrorCode', () => {
     'STAGE_UNKNOWN',
     'NEEDS_REASON',
     'INVALID',
+    'LIMIT',
+    'OPTED_OUT',
+    'ALREADY_DECIDED',
   ])('maps the hint %s', (hint) => {
     expect(hrErrorCode({ message: 'refused', code: 'P0001', hint })).toBe(hint);
   });

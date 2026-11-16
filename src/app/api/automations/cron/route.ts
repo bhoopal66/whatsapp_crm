@@ -696,7 +696,8 @@ function schedulePersonalHistoryImport() {
 
 /**
  * The HR rule sweep (migration 200) files reply-overdue and no-activity
- * tasks for every account. At most once per 5 minutes per process,
+ * tasks for every account, and expires stale recruiter-agent drafts
+ * (202). At most once per 5 minutes per process,
  * inside after(); the SQL dedupes on the event, so an overlapping run
  * creates nothing. runHrSweep never throws; a failure is only logged.
  */
@@ -707,7 +708,7 @@ function scheduleHrSweep() {
     if (!hrSweepDue()) return
     after(async () => {
       const summary = await runHrSweep()
-      if (summary && summary.created > 0) {
+      if (summary && (summary.created > 0 || summary.expired > 0)) {
         console.log('[automations-cron] hr sweep:', summary)
       }
     })

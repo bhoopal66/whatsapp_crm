@@ -110,6 +110,9 @@ export const HR_ERROR_CODES = [
   'STAGE_UNKNOWN',
   'NEEDS_REASON',
   'INVALID',
+  'LIMIT',
+  'OPTED_OUT',
+  'ALREADY_DECIDED',
   'UNKNOWN',
 ] as const;
 export type HrErrorCode = (typeof HR_ERROR_CODES)[number];
