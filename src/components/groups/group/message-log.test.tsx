@@ -112,3 +112,51 @@ describe('GroupMessageLog', () => {
     expect(theirs.name).toBe('Omar');
   });
 });
+
+describe('GroupMessageLog attachments', () => {
+  const render = (m: GroupChatMessage) =>
+    renderToStaticMarkup(
+      <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+        <GroupMessageLog messages={[m]} currentUserId={null} />
+      </NextIntlClientProvider>
+    );
+  const LINK = 'https://s3.eu-central-1.wasabisys.com/in-files/1/cv.pdf';
+
+  it('shows a document as a card that opens the file, like the inbox', () => {
+    const html = render(
+      message({
+        type: 'document',
+        body: 'CV Ahmed.pdf',
+        media: {
+          link: LINK,
+          filename: 'CV Ahmed.pdf',
+          mime_type: 'application/pdf',
+          file_size: 102400,
+        },
+      })
+    );
+    expect(html).toContain(`href="${LINK}"`);
+    expect(html).toContain('CV Ahmed.pdf');
+    expect(html).toContain('100 KB');
+    expect(html).toContain('aria-label="Download"');
+  });
+
+  it('shows a photo as an image', () => {
+    const html = render(
+      message({ type: 'image', body: null, media: { link: LINK } })
+    );
+    expect(html).toContain(`<img src="${LINK}"`);
+  });
+
+  it('says the file is unavailable when there is no link', () => {
+    const html = render(
+      message({
+        type: 'document',
+        body: 'old.pdf',
+        media: { filename: 'old.pdf' },
+      })
+    );
+    expect(html).not.toContain('href=');
+    expect(html).toContain('old.pdf unavailable');
+  });
+});

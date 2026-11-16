@@ -557,6 +557,7 @@
       "audio": "Audio",
       "unavailable": "{label} unavailable",
       "document": "Document",
+      "location": "Location",
       "locationShared": "Location shared",
       "template": "Template",
       "buttonReply": "Button reply",

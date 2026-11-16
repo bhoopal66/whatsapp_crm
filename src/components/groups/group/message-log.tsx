@@ -9,6 +9,8 @@ import {
   groupMessagesByDay,
   statusTick,
 } from '@/lib/groups/group-page';
+import { GroupMessageMedia } from '@/components/groups/group-message-media';
+import { groupMediaView } from '@/lib/groups/group-media';
 import { senderColors } from '@/lib/groups/sender-colors';
 import type { WhatsappGroupMessageRow } from '@/lib/groups/types';
 import { cn } from '@/lib/utils';
@@ -66,6 +68,7 @@ export function GroupMessageLog({
             const tick = statusTick(m.direction, m.status);
             const sender = groupMessageSender(m, currentUserId);
             const color = colorOf(m);
+            const media = groupMediaView(m.type, m.media, m.body);
             return (
               <div
                 key={m.id}
@@ -92,13 +95,17 @@ export function GroupMessageLog({
                         : sender.name
                       : t(out ? 'chat.yourNumber' : 'chat.someone')}
                   </p>
-                  <p className="break-words whitespace-pre-wrap">
-                    {m.body || (
-                      <span className="text-muted-foreground italic">
-                        {t('chat.attachment')}
-                      </span>
-                    )}
-                  </p>
+                  {media ? (
+                    <GroupMessageMedia view={media} />
+                  ) : (
+                    <p className="break-words whitespace-pre-wrap">
+                      {m.body || (
+                        <span className="text-muted-foreground italic">
+                          {t('chat.attachment')}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-muted-foreground mt-0.5 flex items-center justify-end gap-1 text-[11px]">
                     {timeLabel(m.created_at)}
                     {tick === 'clock' && <Clock className="size-3" />}

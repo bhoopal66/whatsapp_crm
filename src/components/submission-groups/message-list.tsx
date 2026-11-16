@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { AlertCircle, Ban, Check, Clock } from 'lucide-react';
 
 import { groupMessagesByDay } from '@/lib/groups/group-page';
+import { GroupMessageMedia } from '@/components/groups/group-message-media';
+import { groupMediaView } from '@/lib/groups/group-media';
 import { senderColors } from '@/lib/groups/sender-colors';
 import {
   bubbleKind,
@@ -50,6 +52,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const status = sendStatusOf(m);
             const out = kind === 'staff';
             const color = colorOf(m);
+            const media = groupMediaView(m.type, m.media, m.body);
             const sender = isAutomatic(m)
               ? t('automatic')
               : out
@@ -87,13 +90,17 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       </span>
                     )}
                   </p>
-                  <p className="break-words whitespace-pre-wrap">
-                    {m.body || (
-                      <span className="text-muted-foreground italic">
-                        {t('attachment')}
-                      </span>
-                    )}
-                  </p>
+                  {media ? (
+                    <GroupMessageMedia view={media} />
+                  ) : (
+                    <p className="break-words whitespace-pre-wrap">
+                      {m.body || (
+                        <span className="text-muted-foreground italic">
+                          {t('attachment')}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-wa-meta mt-0.5 flex items-center justify-end gap-1 text-[11px]">
                     {timeLabel(m.created_at)}
                     {status && (
