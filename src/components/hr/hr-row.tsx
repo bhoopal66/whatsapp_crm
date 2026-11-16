@@ -224,11 +224,11 @@ export function HrRowBody({
             </span>
           </span>
         </div>
-        <div className="mt-1 flex min-w-0 items-center gap-x-2 overflow-hidden">
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {view.tags.map(tag)}
           <span
             role="img"
-            className="text-wa-text-secondary ml-auto truncate pl-1 text-xs"
+            className="text-wa-text-secondary ml-auto max-w-[8rem] shrink-0 truncate pl-1 text-xs"
             aria-label={
               view.ownerFirstName
                 ? t('list.ownerAria', { name: view.ownerFirstName })

@@ -1353,8 +1353,11 @@ export function ConversationList({
   // people's chats; nobody else renders either affordance.
   // Scoped to the active workspace (RLS also returns the caller's own row
   // in every other one), and a bank guest is never listed.
+  // The HR screens hide the Agent filter (`showAssignee` is off there) but
+  // their rows still name each chat's owner, so they need the list too.
+  const needMembers = showAssignee || hrHeaderOn;
   useEffect(() => {
-    if (!showAssignee || !accountId) return;
+    if (!needMembers || !accountId) return;
     let cancelled = false;
     (async () => {
       const data = await cachedQuery(
@@ -1381,7 +1384,7 @@ export function ConversationList({
     return () => {
       cancelled = true;
     };
-  }, [showAssignee, accountId]);
+  }, [needMembers, accountId]);
 
   // Keyed by `user_id`, not `id` — `conversations.assigned_agent_id`
   // references auth.users, the same column the assign dropdown matches on.
