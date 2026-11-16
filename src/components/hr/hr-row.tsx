@@ -1,10 +1,11 @@
 'use client';
 
-import { Flag, Smartphone } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Flag, Frown } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import type { HrListRow } from '@/lib/hr/list-filters';
-import { hrRowView, initialsOf, type HrRowTag } from '@/lib/hr/row-view';
+import { hrRowView, type HrRowTag } from '@/lib/hr/row-view';
 import { HR_STAGES } from '@/lib/hr/types';
 import { cn } from '@/lib/utils';
 
@@ -25,35 +26,14 @@ const REPLY_MARK = {
   waiting: 'h-2 w-2 rounded-full border border-current',
 } as const;
 
-export interface HrRowBodyProps {
-  displayName: string;
-  /** The formatted last-message time. */
-  time: string;
-  unread: boolean;
-  /** The chat's HR row; null = "Not sorted". */
-  hr: HrListRow | null;
-  /** The assignee's display name, null when nobody holds the chat. */
-  ownerName: string | null;
-  /** The personal-chat label (migration 191), or null. */
-  personalLabel?: string | null;
-}
-
 /**
- * An HR-inbox row's avatar and two lines (the package's 023d row): name
- * and time, then one tag line closed by the owner's first name. No
- * message preview. Rendered inside the inbox's row button.
+ * An HR-inbox row's HR line: the stage marker (recruiter), the topic
+ * (dept) or "Not sorted", then the reply state or Closed, Urgent and
+ * Upset. It closes the normal inbox row, which carries everything else.
  */
-export function HrRowBody({
-  displayName,
-  time,
-  unread,
-  hr,
-  ownerName,
-  personalLabel = null,
-}: HrRowBodyProps) {
+export function HrRowTags({ hr }: { hr: HrListRow | null }) {
   const t = useTranslations('Hr');
-  const view = hrRowView(hr, ownerName);
-  const initials = initialsOf(displayName);
+  const view = hrRowView(hr);
 
   const tag = (x: HrRowTag) => {
     switch (x.kind) {
@@ -156,89 +136,48 @@ export function HrRowBody({
             {t('flag.urgent')}
           </span>
         );
-      case 'unread':
+      case 'upset':
         return (
           <span
-            key="unread"
+            key="upset"
             role="img"
-            aria-label={t('list.unread')}
-            className="bg-wa-green text-wa-green-fg inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold"
+            aria-label={t('flag.upset')}
+            className={cn(TAG, 'text-warning')}
           >
-            {t('list.unread')}
+            <Frown className="h-3 w-3" />
+            {t('flag.upset')}
           </span>
         );
     }
   };
 
-  const owner = view.ownerFirstName ?? t('list.unassigned');
-
   return (
-    <>
-      {view.staffAvatar ? (
-        <span
-          role="img"
-          aria-label={t('list.staff')}
-          className="border-primary text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold"
-        >
-          {initials}
-        </span>
-      ) : (
-        <span
-          aria-hidden
-          className="bg-muted text-muted-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-        >
-          {initials}
-        </span>
-      )}
+    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      {view.tags.map(tag)}
+    </div>
+  );
+}
 
-      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-2.5 pr-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <span
-            className={cn(
-              'text-wa-text truncate text-[15px] leading-5',
-              unread ? 'font-semibold' : 'font-medium'
-            )}
-          >
-            {displayName}
-          </span>
-          <span className="flex shrink-0 items-center gap-1.5">
-            {personalLabel && (
-              <span
-                role="img"
-                aria-label={personalLabel}
-                title={personalLabel}
-                className="text-info inline-flex"
-              >
-                <Smartphone className="h-3 w-3" />
-              </span>
-            )}
-            <span
-              className={cn(
-                'text-xs',
-                unread
-                  ? 'text-wa-green font-semibold'
-                  : 'text-wa-text-secondary'
-              )}
-            >
-              {time}
-            </span>
-          </span>
-        </div>
-        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          {view.tags.map(tag)}
-          <span
-            role="img"
-            className="text-wa-text-secondary ml-auto max-w-[8rem] shrink-0 truncate pl-1 text-xs"
-            aria-label={
-              view.ownerFirstName
-                ? t('list.ownerAria', { name: view.ownerFirstName })
-                : t('list.unassigned')
-            }
-          >
-            {owner}
-          </span>
-        </div>
-      </div>
-    </>
+/**
+ * The department view's accent: the row's own avatar inside a primary
+ * ring, labelled Staff. Any other HR row passes the avatar through.
+ */
+export function HrStaffRing({
+  hr,
+  children,
+}: {
+  hr: HrListRow | null;
+  children: ReactNode;
+}) {
+  const t = useTranslations('Hr');
+  if (!hrRowView(hr).staffAvatar) return <>{children}</>;
+  return (
+    <span
+      role="img"
+      aria-label={t('list.staff')}
+      className="border-primary inline-flex shrink-0 rounded-full border-2"
+    >
+      {children}
+    </span>
   );
 }

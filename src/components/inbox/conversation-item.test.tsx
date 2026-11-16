@@ -16,9 +16,9 @@ vi.mock('next/navigation', () => ({
 
 const { ConversationItem } = await import('./conversation-list');
 
-// The node environment renders the row server-side: the normal inbox
-// row keeps its preview line, and an HR row (the three HR screens) is
-// the package's two-line row with its tag line and no preview.
+// The node environment renders the row server-side: an HR row (the
+// three HR screens) is the normal inbox row (preview, owner line, unread
+// count) plus one HR line at the bottom, and the normal row is unchanged.
 
 const t = createTranslator({
   locale: 'en',
@@ -48,7 +48,11 @@ function conv(over: Record<string, unknown> = {}): ConversationListItem {
 
 function render(
   c: ConversationListItem,
-  extra: { hrChips?: boolean; personalLabel?: string | null } = {}
+  extra: {
+    hrChips?: boolean;
+    personalLabel?: string | null;
+    showAssignee?: boolean;
+  } = {}
 ) {
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
@@ -89,34 +93,76 @@ describe('ConversationItem, normal inbox row', () => {
     expect(html).not.toContain('Reply due');
     expect(html).not.toContain('Unassigned');
   });
+
+  it('is the same row an HR row starts with, minus the HR line', () => {
+    // Pinned markup: the HR change must not move a byte of this row.
+    const c = conv({ unread_count: 3, assigned_agent_id: 'u1' });
+    const html = render(c, { showAssignee: true });
+    expect(html).toContain('title="Assigned to Omar Farouk"');
+    expect(html).not.toContain('Stage: ');
+    expect(html).not.toContain('aria-label="Staff"');
+    const hrHtml = render(
+      conv({ unread_count: 3, assigned_agent_id: 'u1', hr: hr() }),
+      { showAssignee: true, hrChips: true }
+    );
+    // The HR row is the normal row with one line added before the
+    // text column closes.
+    const hrLine = hrHtml.slice(
+      hrHtml.indexOf('<div class="mt-1 flex min-w-0 flex-wrap'),
+      hrHtml.lastIndexOf('</div></button>')
+    );
+    expect(hrHtml.replace(hrLine, '')).toBe(html);
+  });
 });
 
 describe('ConversationItem, HR row', () => {
-  it('recruiter: stage marker, reply state, Unread, owner first name', () => {
+  it('recruiter: preview, owner, unread count, then the HR line', () => {
     const html = render(
-      conv({ assigned_agent_id: 'u1', hr: hr({ urgent: true }) }),
-      { hrChips: true }
+      conv({
+        unread_count: 2,
+        assigned_agent_id: 'u1',
+        hr: hr({ urgent: true, upset: true }),
+      }),
+      { hrChips: true, showAssignee: true }
     );
-    expect(html).not.toContain('Hello, any news');
+    expect(html).toContain('Hello, any news on my application?');
+    expect(html).toContain('title="Assigned to Omar Farouk"');
+    expect(html).toContain('>2</span>');
     expect(html).toContain('aria-label="Stage: AI interview"');
     expect(html).toContain('aria-label="Reply state: Reply due"');
     expect(html).toContain('aria-label="Urgent"');
-    expect(html).toContain('aria-label="Unread"');
-    expect(html).toContain('aria-label="Owner: Omar"');
+    expect(html).toContain('aria-label="Upset"');
+    expect(html).not.toContain('aria-label="Unread"');
     expect(html).not.toContain('aria-label="Staff"');
-    // Order on the tag line: stage, reply, urgent, unread, owner.
+    // Preview, then the owner line, then the HR line: stage, reply,
+    // urgent, upset.
     const order = [
+      'Hello, any news',
+      'Assigned to ',
       'Stage: ',
       'Reply state: ',
       '"Urgent"',
-      '"Unread"',
-      'Owner: ',
+      '"Upset"',
     ];
     const at = order.map((s) => html.indexOf(s));
+    expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 
-  it('dept: Staff avatar and topic tag', () => {
+  it('owned, not assigned: the owner; nobody: Unassigned', () => {
+    const owned = render(conv({ user_id: 'u1', hr: hr() }), {
+      hrChips: true,
+      showAssignee: true,
+    });
+    expect(owned).toContain(`title="${t('ownedBy', { name: 'Omar Farouk' })}"`);
+    const nobody = render(conv({ hr: hr() }), {
+      hrChips: true,
+      showAssignee: true,
+    });
+    expect(nobody).toContain('title="Unassigned"');
+  });
+
+  it('dept: Staff ring on the avatar and the topic tag', () => {
     const html = render(
       conv({
         hr: hr({
@@ -126,33 +172,34 @@ describe('ConversationItem, HR row', () => {
           reply_state: 'waiting',
         }),
       }),
-      { hrChips: true }
+      { hrChips: true, showAssignee: true }
     );
-    expect(html).toContain('role="img" aria-label="Staff"');
+    expect(html).toMatch(
+      /role="img" aria-label="Staff" class="border-primary[^"]*"/
+    );
     expect(html).toMatch(/aria-label="Topic: [^"]+"/);
     expect(html).toContain('aria-label="Reply state: Waiting on them"');
-    expect(html).not.toContain('aria-label="Unread"');
-    expect(html).toContain('Unassigned');
+    expect(html).toContain('Hello, any news on my application?');
   });
 
-  it('not sorted: a muted Not sorted tag only', () => {
+  it('not sorted: a muted Not sorted tag, the preview and the badge', () => {
     const html = render(conv({ hr: null }), {
       hrChips: true,
+      showAssignee: true,
       personalLabel: 'My WhatsApp',
     });
     expect(html).toContain('aria-label="Not sorted"');
     expect(html).not.toContain('Reply state: ');
-    expect(html).toContain('aria-label="My WhatsApp"');
-    expect(html).not.toContain('Hello, any news');
+    expect(html).toContain('My WhatsApp');
+    expect(html).toContain('Hello, any news on my application?');
   });
 
-  it('closed: Closed instead of the reply state, no Unread', () => {
+  it('closed: Closed instead of the reply state', () => {
     const html = render(
       conv({ hr: hr({ closed_at: '2026-11-15T10:00:00Z' }) }),
       { hrChips: true }
     );
     expect(html).toContain('aria-label="Closed"');
     expect(html).not.toContain('Reply state: ');
-    expect(html).not.toContain('aria-label="Unread"');
   });
 });
