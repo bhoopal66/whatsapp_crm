@@ -66,6 +66,11 @@ function render(
     onConfirmClose: noop,
     onReopen: noop,
     onTaskDone: noop,
+    ownerId: null,
+    ownerName: null,
+    ownerOptions: null,
+    ownerUnassign: false,
+    onOwner: noop,
     ...over,
   };
   return renderToStaticMarkup(
@@ -175,5 +180,47 @@ describe('HrPanelView: not sorted', () => {
     expect(html).toContain('Candidate');
     expect(html).toContain('Employee');
     expect(html).not.toContain('Inbox:');
+  });
+});
+
+describe('HrPanelView: Owner', () => {
+  const ownerSelect = (html: string, name: string) =>
+    (html.match(/<select[^>]*>[\s\S]*?<\/select>/g) ?? []).find((s) =>
+      s.includes(name)
+    ) ?? '';
+
+  it('a lead picks among the team or Unassigned, under Flags', () => {
+    const html = render(row(), {
+      ownerId: 'omar',
+      ownerName: 'Omar Farouk',
+      ownerOptions: [
+        { userId: 'omar', name: 'Omar Farouk' },
+        { userId: 'layla', name: 'Layla Haddad' },
+      ],
+      ownerUnassign: true,
+    });
+    expect(html).toContain('Owner: Omar Farouk');
+    const select = ownerSelect(html, 'Layla Haddad');
+    expect(select).toMatch(/Unassigned[\s\S]*Omar Farouk[\s\S]*Layla Haddad/);
+    expect(at(html, '>Flags</legend>')).toBeLessThan(at(html, '>Owner<'));
+    expect(at(html, '>Owner<')).toBeLessThan(at(html, 'Set automatically'));
+  });
+
+  it('a member on an unowned chat may only claim it', () => {
+    const html = render(row(), {
+      ownerOptions: [{ userId: 'me', name: 'Sara Ali' }],
+      ownerUnassign: true,
+    });
+    expect(html).toContain('Owner: Unassigned');
+    const select = ownerSelect(html, 'Sara Ali');
+    expect(select.match(/<option/g)).toHaveLength(2);
+    expect(select).toContain('Unassigned');
+  });
+
+  it("someone else's chat shows the name only", () => {
+    const html = render(row(), { ownerId: 'omar', ownerName: 'Omar Farouk' });
+    expect(html).toContain('Owner: Omar Farouk');
+    expect(html).toMatch(/>Owner<\/span><span class="text-xs">Omar Farouk</);
+    expect(html).not.toContain('Unassigned');
   });
 });

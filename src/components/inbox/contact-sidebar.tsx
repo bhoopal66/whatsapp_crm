@@ -37,6 +37,7 @@ import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
 import type { CustomerInsightFigures } from '@/lib/insights/customer-view';
 import { HrPanel } from '@/components/hr/hr-panel';
+import { cn } from '@/lib/utils';
 
 interface ContactSidebarProps {
   /**
@@ -52,6 +53,12 @@ interface ContactSidebarProps {
   inboxDepartment?: string | null;
   /** Shown at the top (the full row's Retry once every read missed). */
   notice?: React.ReactNode;
+  /** The open chat's `assigned_agent_id`: the HR pane's Owner. */
+  assignedAgentId?: string | null;
+  /** The inbox page's assign callback, so an HR Owner change updates the list. */
+  onAssignChange?: (conversationId: string, userId: string | null) => void;
+  /** Width class; the HR screens pass a wider one. */
+  widthClass?: string;
 }
 
 export function ContactSidebar({
@@ -60,6 +67,9 @@ export function ContactSidebar({
   conversation = null,
   inboxDepartment = null,
   notice = null,
+  assignedAgentId = null,
+  onAssignChange,
+  widthClass = 'w-70',
 }: ContactSidebarProps) {
   const tSidebar = useTranslations('Inbox.sidebar');
   const tThread = useTranslations('Inbox.messageThread');
@@ -147,7 +157,12 @@ export function ContactSidebar({
 
   if (!contact) {
     return (
-      <div className="border-wa-divider bg-wa-panel flex h-full w-70 items-center justify-center border-l">
+      <div
+        className={cn(
+          'border-wa-divider bg-wa-panel flex h-full items-center justify-center border-l',
+          widthClass
+        )}
+      >
         <p className="text-wa-text-secondary text-sm">
           {tThread('selectConversation')}
         </p>
@@ -160,7 +175,12 @@ export function ContactSidebar({
   // WhatsApp's "Contact info" drawer: white sections on a grey ground,
   // the gaps between them doing the work of dividers.
   return (
-    <div className="border-wa-divider bg-wa-section-gap flex h-full w-70 flex-col border-l">
+    <div
+      className={cn(
+        'border-wa-divider bg-wa-section-gap flex h-full flex-col border-l',
+        widthClass
+      )}
+    >
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-2 pb-4">
           {notice}
@@ -170,6 +190,8 @@ export function ContactSidebar({
               conversationId={conversationId}
               inboxDepartment={inboxDepartment}
               contactName={displayName}
+              assignedAgentId={assignedAgentId}
+              onAssignChange={onAssignChange}
             />
           )}
           {/* Contact Info */}

@@ -7,7 +7,7 @@
  * offer. Mount it keyed by the conversation id so a chat switch starts
  * from empty state; late answers are still dropped once unmounted.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,6 +24,15 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
+import {
+  REFERENCE_CACHE_TTL_MS,
+  cachedQuery,
+  membersCacheKey,
+  teamRosterCacheKey,
+} from '@/lib/client-cache';
+import { isBankGuest } from '@/lib/auth/roles';
+import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import type { Profile } from '@/types';
 import {
   hrClose,
   hrOpen,
@@ -43,6 +52,7 @@ import { HrPanelView } from './hr-panel-view';
 import {
   furthestStage,
   hasReason,
+  hrOwnerChoices,
   laterStage,
   openKinds,
   outcomeToSend,
@@ -72,16 +82,31 @@ interface HrPanelProps {
   inboxDepartment: string | null | undefined;
   /** The contact's display name, the pane's title. */
   contactName: string;
+  /** `conversations.assigned_agent_id`: the pane's Owner. */
+  assignedAgentId?: string | null;
+  /** The inbox page's `handleAssignChange`, as the thread header calls it. */
+  onAssignChange?: (conversationId: string, userId: string | null) => void;
 }
 
 export function HrPanel({
   conversationId,
   inboxDepartment,
   contactName,
+  assignedAgentId = null,
+  onAssignChange,
 }: HrPanelProps) {
   const t = useTranslations('Hr');
-  const { accountId, user } = useAuth();
+  const { accountId, user, accountRole, profileLoading } = useAuth();
   const userId = user?.id ?? null;
+
+  // The owner as last written here, until the page's row catches up.
+  const [owner, setOwner] = useState<string | null>(assignedAgentId);
+  useEffect(() => {
+    setOwner(assignedAgentId);
+  }, [assignedAgentId]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [leadable, setLeadable] = useState<Set<string>>(new Set());
+  const [teamIds, setTeamIds] = useState<Set<string>>(new Set());
 
   const [roles, setRoles] = useState<HrRoles | null>(null);
   const [row, setRow] = useState<HrConversation | null>(null);
@@ -122,6 +147,66 @@ export function HrPanel({
   }, [accountId, userId]);
 
   const hasAccess = roles !== null && hasHrAccess(roles);
+
+  // The Owner names and choices: the thread header's member list and
+  // team roster, through the same cache entries (same keys, same shape).
+  useEffect(() => {
+    if (!hasAccess || !accountId) return;
+    let alive = true;
+    void cachedQuery(
+      membersCacheKey(accountId),
+      REFERENCE_CACHE_TTL_MS,
+      async () => {
+        const { data, error } = await createClient()
+          .from('profiles')
+          .select('*')
+          .eq('account_id', accountId)
+          .order('full_name');
+        if (error) throw error;
+        return ((data as Profile[] | null) ?? []).filter(
+          (p) => !isBankGuest(p.account_role)
+        );
+      }
+    )
+      .catch(() => [] as Profile[])
+      .then((data) => {
+        if (alive) setProfiles(data);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [hasAccess, accountId]);
+
+  useEffect(() => {
+    if (!hasAccess || accountRole !== 'team_leader' || !userId) return;
+    let alive = true;
+    const leaderId = userId;
+    void cachedQuery(
+      teamRosterCacheKey(leaderId),
+      REFERENCE_CACHE_TTL_MS,
+      async () => {
+        const { data, error } = await createClient()
+          .from('teams')
+          .select('team_members(user_id)')
+          .eq('leader_user_id', leaderId);
+        if (error || !data) return null;
+        const found = new Set<string>();
+        for (const team of data as {
+          team_members: { user_id: string }[] | null;
+        }[]) {
+          for (const m of team.team_members ?? []) found.add(m.user_id);
+        }
+        return found;
+      }
+    )
+      .catch(() => null)
+      .then((ids) => {
+        if (alive && ids) setLeadable(ids);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [hasAccess, accountRole, userId]);
 
   const loadTasks = useCallback(
     async (id: string) => {
@@ -175,6 +260,59 @@ export function HrPanel({
       if (next) void loadTasks(id);
     })();
   }, [conversationId, hasAccess, isCurrent, loadTasks]);
+
+  // The inbox's HR team, which narrows a lead's Owner choices. Only a
+  // lead or an admin picks others, so nobody else pays for the read; an
+  // error leaves it empty, which keeps the header's list.
+  const rowInboxForTeam = row?.inbox ?? null;
+  const picksOthers =
+    roles !== null &&
+    rowInboxForTeam !== null &&
+    (roles.admin || roles[rowInboxForTeam] === 'lead');
+  useEffect(() => {
+    if (!picksOthers || !rowInboxForTeam) return;
+    let alive = true;
+    void createClient()
+      .from('hr_team_members')
+      .select('user_id')
+      .eq('inbox', rowInboxForTeam)
+      .then(({ data, error }) => {
+        if (!alive || error) return;
+        setTeamIds(
+          new Set(
+            ((data as { user_id: string }[] | null) ?? []).map((m) => m.user_id)
+          )
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, [picksOthers, rowInboxForTeam]);
+
+  const assignableIds = useMemo(
+    () =>
+      assignableMembers({
+        accountRole: profileLoading ? null : accountRole,
+        myUserId: userId,
+        profiles,
+        leadableUserIds: leadable,
+      }).map((p) => p.user_id),
+    [profileLoading, accountRole, userId, profiles, leadable]
+  );
+
+  const changeOwner = async (next: string | null) => {
+    const id = conversationId;
+    const prev = owner;
+    setOwner(next);
+    const result = await assignConversation(createClient(), id, next);
+    if (!result.ok) {
+      console.error('Failed to update assignment:', result.error);
+      toast.error('Failed to update assignment');
+      if (isCurrent(id)) setOwner(prev);
+      return;
+    }
+    onAssignChange?.(id, next);
+  };
 
   const rowRef = useRef<HrConversation | null>(null);
   useEffect(() => {
@@ -326,6 +464,19 @@ export function HrPanel({
   const steps = row ? stepperSteps(row, roles, furthest) : [];
   const stageLabel = (s: HrStage) => t(`stage.${s}`);
 
+  const nameOf = (id: string) =>
+    profiles.find((p) => p.user_id === id)?.full_name || t('pane.unknownOwner');
+  const ownerChoices = row
+    ? hrOwnerChoices({
+        roles,
+        inbox: row.inbox,
+        myUserId: userId,
+        ownerId: owner,
+        assignable: assignableIds,
+        teamUserIds: teamIds,
+      })
+    : null;
+
   const confirmClose = async () => {
     if (!row || !pendingClose) return;
     const ok = await run(() =>
@@ -362,6 +513,15 @@ export function HrPanel({
         setAsk({ kind: 'reopen' });
       }}
       onTaskDone={(task) => void markDone(task)}
+      ownerId={owner}
+      ownerName={owner ? nameOf(owner) : null}
+      ownerOptions={
+        ownerChoices
+          ? ownerChoices.userIds.map((id) => ({ userId: id, name: nameOf(id) }))
+          : null
+      }
+      ownerUnassign={ownerChoices?.unassigned ?? false}
+      onOwner={(next) => void changeOwner(next)}
     >
       {row?.inbox === 'recruiter' && (
         <>

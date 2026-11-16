@@ -78,6 +78,15 @@ export interface HrPanelViewProps {
   onConfirmClose: () => void;
   onReopen: () => void;
   onTaskDone: (task: Task) => void;
+  /** The chat's owner (`assigned_agent_id`); null = unassigned. */
+  ownerId: string | null;
+  /** The owner's name (null = unassigned or not found). */
+  ownerName: string | null;
+  /** What the Owner select offers (`hrOwnerChoices`); null = name only. */
+  ownerOptions: { userId: string; name: string }[] | null;
+  /** Whether the Owner select offers "Unassigned". */
+  ownerUnassign: boolean;
+  onOwner: (userId: string | null) => void;
   /** Rendered after the tasks (the recruiter-only mounts, the dialog). */
   children?: ReactNode;
 }
@@ -115,6 +124,13 @@ export function HrPanelView(props: HrPanelViewProps) {
       {row && (
         <p className="text-muted-foreground text-xs">
           {t('pane.inboxLine', { inbox: t(`pane.inboxName.${kind}`) })}
+        </p>
+      )}
+      {row && (
+        <p className="text-muted-foreground truncate text-xs">
+          {t('pane.ownerLine', {
+            owner: props.ownerName ?? t('pane.unassigned'),
+          })}
         </p>
       )}
     </div>
@@ -353,13 +369,45 @@ export function HrPanelView(props: HrPanelViewProps) {
     ),
   };
 
+  // Under Flags (the package's pane): a select for who may change it,
+  // else the name.
+  const ownerOptions = props.ownerOptions;
+  const owner = (
+    <label key="owner" className="flex items-center gap-2">
+      <span className="text-xs">{t('pane.owner')}</span>
+      {ownerOptions ? (
+        <select
+          className={NATIVE_FIELD}
+          value={props.ownerId ?? ''}
+          disabled={busy}
+          onChange={(e) => props.onOwner(e.target.value || null)}
+        >
+          {props.ownerUnassign && (
+            <option value="">{t('pane.unassigned')}</option>
+          )}
+          {ownerOptions.map((o) => (
+            <option key={o.userId} value={o.userId}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-xs">
+          {props.ownerName ?? t('pane.unassigned')}
+        </span>
+      )}
+    </label>
+  );
+
   return (
     <section className="bg-wa-panel space-y-3 px-4 py-3" aria-busy={busy}>
       {head}
       <h5 className="text-sm font-semibold">
         {kind === 'dept' ? t('panel.staffConversation') : t('pane.tags')}
       </h5>
-      {paneSections(row, actions).map((s) => sections[s]())}
+      {paneSections(row, actions).flatMap((s) =>
+        s === 'flags' ? [sections.flags(), owner] : [sections[s]()]
+      )}
 
       <div className="space-y-1">
         <h5 className="text-muted-foreground text-xs font-medium">

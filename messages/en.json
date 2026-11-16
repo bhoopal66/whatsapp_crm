@@ -10961,6 +10961,10 @@
     "pane": {
       "conversation": "Conversation",
       "inboxLine": "Inbox: {inbox}",
+      "ownerLine": "Owner: {owner}",
+      "owner": "Owner",
+      "unassigned": "Unassigned",
+      "unknownOwner": "Someone else",
       "inboxName": {
         "recruiter": "Recruiter HR",
         "dept": "HR department"
