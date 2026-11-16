@@ -199,3 +199,30 @@ export function matchesHrFilters(
   if (!f.closed && hr.closed_at !== null) return false;
   return true;
 }
+
+/** The PostgREST builder methods the HR ops use. */
+export interface HrFilterableQuery<Q> {
+  eq(column: string, value: string | boolean): Q;
+  is(column: string, value: null): Q;
+  not(column: string, operator: string, value: null): Q;
+}
+
+/**
+ * Applies the column ops to a PostgREST query. The `or` ops come back as
+ * groups instead of `.or()` calls, so the caller folds them into its
+ * single `or=` parameter (combineOrGroups in lib/inbox/pagination.ts).
+ */
+export function applyHrQueryOps<Q extends HrFilterableQuery<Q>>(
+  query: Q,
+  ops: readonly HrQueryOp[]
+): { query: Q; orGroups: string[] } {
+  let q = query;
+  const orGroups: string[] = [];
+  for (const op of ops) {
+    if (op.op === 'eq') q = q.eq(op.column, op.value);
+    else if (op.op === 'is') q = q.is(op.column, null);
+    else if (op.op === 'not_is') q = q.not(op.column, 'is', null);
+    else orGroups.push(op.filter);
+  }
+  return { query: q, orGroups };
+}

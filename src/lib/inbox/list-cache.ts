@@ -13,6 +13,7 @@
 import { sessionCache, sessionKey, type SessionKey } from '@/lib/session-cache';
 import type { AssigneeFilter } from '@/lib/inbox/conversations';
 import type { ConversationCursor } from '@/lib/inbox/pagination';
+import type { HrListFilters } from '@/lib/hr/list-filters';
 
 /** Everything the list's server query depends on, plus its view. */
 export interface InboxListQuestion {
@@ -31,6 +32,8 @@ export interface InboxListQuestion {
   insightFilters: readonly string[];
   /** A department inbox (migration 192, e.g. /hr-inbox); null/absent: main. */
   department?: string | null;
+  /** The HR inbox's filters (lib/hr/list-filters.ts); absent elsewhere. */
+  hrFilters?: HrListFilters | null;
 }
 
 /** What a list view holds: every loaded row and where the next page starts. */
@@ -46,23 +49,35 @@ const sorted = (ids: readonly string[]) => [...ids].sort();
  * the whole thing is JSON so no value can run into the next one.
  */
 export function inboxListQuestion(q: InboxListQuestion): string {
-  return (
-    'inbox:list:' +
-    JSON.stringify([
-      q.teamView ? 'team' : 'personal',
-      q.campaignOnly ? 'campaign' : 'inbox',
-      q.aiLive,
-      q.restrictToUserId,
-      sorted(q.restrictToChannelIds),
-      sorted(q.restrictToConversationIds),
-      q.status,
-      sorted(q.chatTagIds),
-      q.assignee,
-      q.campaignId,
-      sorted(q.insightFilters),
-      q.department ?? null,
-    ])
-  );
+  const parts: unknown[] = [
+    q.teamView ? 'team' : 'personal',
+    q.campaignOnly ? 'campaign' : 'inbox',
+    q.aiLive,
+    q.restrictToUserId,
+    sorted(q.restrictToChannelIds),
+    sorted(q.restrictToConversationIds),
+    q.status,
+    sorted(q.chatTagIds),
+    q.assignee,
+    q.campaignId,
+    sorted(q.insightFilters),
+    q.department ?? null,
+  ];
+  // Only the HR inbox carries filters, so every other key is unchanged.
+  const hr = q.hrFilters;
+  if (hr) {
+    parts.push([
+      'hr',
+      hr.tab,
+      hr.stage,
+      hr.topic,
+      hr.reply,
+      hr.urgent,
+      hr.mine,
+      hr.closed,
+    ]);
+  }
+  return 'inbox:list:' + JSON.stringify(parts);
 }
 
 export function inboxListCacheKey(

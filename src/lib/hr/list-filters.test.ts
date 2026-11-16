@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyHrQueryOps,
   HR_EMBED,
   HR_LIST_DEFAULTS,
   hrQueryOps,
@@ -169,5 +170,61 @@ describe('matchesHrFilters', () => {
         'u1'
       )
     ).toBe(false);
+  });
+});
+
+describe('applyHrQueryOps', () => {
+  type Call = [string, ...unknown[]];
+  class FakeQuery {
+    calls: Call[] = [];
+    eq(column: string, value: string | boolean) {
+      this.calls.push(['eq', column, value]);
+      return this;
+    }
+    is(column: string, value: null) {
+      this.calls.push(['is', column, value]);
+      return this;
+    }
+    not(column: string, operator: string, value: null) {
+      this.calls.push(['not', column, operator, value]);
+      return this;
+    }
+  }
+
+  it('maps each column op to its builder call, in order', () => {
+    const q = new FakeQuery();
+    const out = applyHrQueryOps(q, [
+      { op: 'eq', column: 'hr.inbox', value: 'recruiter' },
+      { op: 'eq', column: 'hr.urgent', value: true },
+      { op: 'is', column: 'hr.closed_at', value: null },
+      { op: 'not_is', column: 'hr_closed.closed_at', value: null },
+    ]);
+    expect(out.query).toBe(q);
+    expect(q.calls).toEqual([
+      ['eq', 'hr.inbox', 'recruiter'],
+      ['eq', 'hr.urgent', true],
+      ['is', 'hr.closed_at', null],
+      ['not', 'hr_closed.closed_at', 'is', null],
+    ]);
+    expect(out.orGroups).toEqual([]);
+  });
+
+  it('hands `or` ops back as groups instead of calling the builder', () => {
+    const q = new FakeQuery();
+    const ops = hrQueryOps({ ...HR_LIST_DEFAULTS, mine: true }, 'u1');
+    const out = applyHrQueryOps(q, ops);
+    expect(out.orGroups).toEqual([
+      'assigned_agent_id.eq.u1,and(assigned_agent_id.is.null,user_id.eq.u1)',
+    ]);
+    expect(q.calls).toEqual([
+      ['not', 'hr_closed.closed_at', 'is', null],
+      ['is', 'hr_closed', null],
+    ]);
+  });
+
+  it('touches nothing with no ops', () => {
+    const q = new FakeQuery();
+    expect(applyHrQueryOps(q, [])).toEqual({ query: q, orGroups: [] });
+    expect(q.calls).toEqual([]);
   });
 });
