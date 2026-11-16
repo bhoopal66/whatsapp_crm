@@ -10998,7 +10998,7 @@
     },
     "hireFast": {
       "title": "Hire fast",
-      "subtitle": "Recruitment candidates ranked by who needs action next. Read only.",
+      "subtitle": "Recruiter candidates ranked by who needs action next. Read only.",
       "back": "Back to HR inbox",
       "noAccess": "Hire fast is for the recruitment team and admins.",
       "stage": "Stage",

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { RefreshCw } from 'lucide-react';
+import { Flag, RefreshCw } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,11 +28,26 @@ import {
   type HireFastRow,
   type HireFastView,
 } from '@/lib/hr/hirefast';
+import { stageIndex } from '@/lib/hr/access';
 import { HR_STAGES, type HrRule, type HrStage } from '@/lib/hr/types';
 import { createClient } from '@/lib/supabase/client';
 
 const SELECT =
   'conversation_id, inbox, stage_key, urgent, upset, reply_state, last_inbound_at, last_outbound_at, closed_at, created_at, chat:conversations(assigned_agent_id, contact:contacts(name, phone))';
+
+// Same marks as the HR list rows (components/hr/hr-row.tsx): New = filled
+// dot, Reply due = half circle, Waiting on them = ring.
+const REPLY_CLASS = {
+  new: 'text-info',
+  reply_due: 'text-warning',
+  waiting: 'text-wa-text-secondary',
+} as const;
+const REPLY_MARK = {
+  new: 'h-2 w-2 rounded-full bg-current',
+  reply_due:
+    'h-2 w-2 rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]',
+  waiting: 'h-2 w-2 rounded-full border border-current',
+} as const;
 
 interface Loaded {
   rows: HireFastRow[];
@@ -131,7 +146,27 @@ export default function HrHireFastPage() {
     return hireFastViews(rows, data.now, data.overdue, data.stalledAfter);
   }, [data, stage, mine, user?.id]);
 
-  const stageLabel = (key: HrStage | null) => (key ? tStage(key) : '');
+  const stageMark = (key: HrStage | null) => {
+    if (!key) return null;
+    const reached = stageIndex(key);
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span aria-hidden className="inline-flex items-end gap-px">
+          {HR_STAGES.map((s, i) => (
+            <span
+              key={s}
+              className={
+                i <= reached
+                  ? 'bg-primary h-2.5 w-1 rounded-sm'
+                  : 'bg-muted-foreground/30 h-2.5 w-1 rounded-sm'
+              }
+            />
+          ))}
+        </span>
+        {tStage(key)}
+      </span>
+    );
+  };
   const waiting = (v: HireFastView) => {
     const w = waitingLabel(v.waitingHours);
     return w ? t(w.key, { n: w.n }) : '';
@@ -152,8 +187,20 @@ export default function HrHireFastPage() {
   );
   const status = (v: HireFastView) => (
     <span className="inline-flex flex-wrap items-center gap-1.5">
-      <span>{tReply(v.replyState)}</span>
-      {v.urgent && <Badge variant="destructive">{t('urgent')}</Badge>}
+      {v.replyState && (
+        <span
+          className={`inline-flex items-center gap-1 ${REPLY_CLASS[v.replyState]}`}
+        >
+          <span aria-hidden className={REPLY_MARK[v.replyState]} />
+          {tReply(v.replyState)}
+        </span>
+      )}
+      {v.urgent && (
+        <span className="text-destructive inline-flex items-center gap-1">
+          <Flag aria-hidden className="h-3 w-3 fill-current" />
+          {t('urgent')}
+        </span>
+      )}
     </span>
   );
   const candidate = (v: HireFastView) => (
@@ -238,7 +285,7 @@ export default function HrHireFastPage() {
                         </span>
                       </div>
                       <div className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                        {v.stageKey && <span>{stageLabel(v.stageKey)}</span>}
+                        {v.stageKey && stageMark(v.stageKey)}
                         {status(v)}
                         {waiting(v) && <span>{waiting(v)}</span>}
                       </div>
@@ -265,7 +312,7 @@ export default function HrHireFastPage() {
                           {i + 1}
                         </TableCell>
                         <TableCell>{candidate(v)}</TableCell>
-                        <TableCell>{stageLabel(v.stageKey)}</TableCell>
+                        <TableCell>{stageMark(v.stageKey)}</TableCell>
                         <TableCell>{status(v)}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {waiting(v)}
