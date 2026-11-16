@@ -1268,6 +1268,33 @@ Written only by `set_department_settings`. `docs/departments.md` is the contract
   `/api/account/members/[userId]` `{ department }`) and Settings ->
   Departments (`departments-panel.tsx`). `verify-departments.sql`.
 
+### HR workflows (`lib/hr/*`, migration 200)
+
+Release 023 ported onto 192's HR chats. `docs/hr-workflows.md` is the
+contract.
+
+- **One row per chat** (`hr_conversations`, PK `conversation_id`):
+  inbox `recruiter` (stage, outcome) or `dept` (topic), never both
+  (CHECK). No row = "Not sorted". Owner = the chat's assignee; HR
+  closure (`closed_at`, `outcome`) is not `conversations.status`.
+- **No new visibility.** HR team membership (`hr_team_members`, written
+  only by `hr_member_set`, admins) opens `/hr-inbox` but grants no chat;
+  every `hr_*` write checks `hr_can_see` (191's `conversations_select`
+  predicate: change both together) and answers NOT_FOUND otherwise. The
+  table policies read `conversations` under the caller's RLS.
+- **Reply state** is generated from `last_inbound_at` / `last_outbound_at`,
+  stamped by a `messages` AFTER INSERT trigger (customer / agent; bot
+  ignored) that must never fail an insert (exceptions become WARNINGs).
+- **Rules create `public.tasks`** (`source 'automation'`, `kind
+  'follow_up'`, `source_ref 'hr:<chat>:<rule>:<event>'`, deduped by
+  085's unique key) and set flags; they never send. Triggers on
+  `hr_conversations` fire stage/topic rules; `hr_sweep` (service role,
+  automations cron every 5 min) the time rules. History drives the
+  dedupe counts and the "not below the furthest stage" rule.
+- Lists live in SQL CHECKs and `lib/hr/types.ts` (`types.test.ts` reads
+  the migration); `lib/hr/access.ts` mirrors the role rules for the UI.
+  Refusals carry a HINT code (`hrErrorCode`). `verify-hr-workflows.sql`.
+
 ### Contact search (`lib/contacts/fuzzy-search.ts`, migration 193)
 
 `search_contacts(p_term, p_limit)` (SECURITY INVOKER, so contacts RLS
@@ -2056,6 +2083,7 @@ fails if one is wired to plain `t()`.
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
-  `customer-documents.md`, `departments.md`, `second-brain.md`.
+  `customer-documents.md`, `departments.md`, `second-brain.md`,
+  `hr-workflows.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

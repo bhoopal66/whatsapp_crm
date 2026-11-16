@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### HR workflows: Recruitment and HR department
+
+**Migration required: `200_hr_workflows.sql`** (apply before the build).
+The HR inbox now sorts HR chats in two: **Recruitment** (candidates,
+moved through CV review → AI interview → HR interview → Manager
+interview, closed as Hired / Not selected / Withdrawn) and **HR
+department** (employees, tagged Onboarding, Visa & documents, Leave &
+attendance, Payroll, Complaint or Other). Each chat shows a reply state
+(New / Reply due / Waiting on them) and Urgent / Upset flags, tracked
+from an HR panel in the chat. Eleven workflow rules create tasks (never
+messages): "Review CV" when a candidate arrives, "Respond to complaint"
+in 4 hours and Urgent for a complaint, "Reply to customer" after 4
+hours without a reply, and more. Owners and admins pick the HR team
+(Lead / Member per inbox) in HR inbox → Setup; HR team members can then
+open the HR inbox, but see no chats they could not see before. See
+`docs/hr-workflows.md`.
+
 ### A logged-out number no longer holds up other people's chat import
 
 **No migration.** The one-time chat history import for personal numbers
