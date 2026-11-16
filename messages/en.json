@@ -11211,7 +11211,7 @@
         "drafted": "Draft ready",
         "handoff": "Handed to a person",
         "optedOut": "The candidate opted out — no draft",
-        "agentsOff": "AI drafts are switched off (HR inbox → Setup)",
+        "agentsOff": "Agent drafts are switched off (HR → Rules)",
         "aiOff": "Set up AI in Settings → AI first",
         "noMessage": "No candidate message to answer",
         "cap": "Daily draft limit reached for this chat",
