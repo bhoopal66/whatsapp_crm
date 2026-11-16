@@ -175,7 +175,7 @@ export default function HrTasksPage() {
                   <span className="min-w-0 truncate text-sm">
                     {task.conversation_id ? (
                       <Link
-                        href={`/inbox?c=${task.conversation_id}`}
+                        href={`/hr-inbox?c=${task.conversation_id}`}
                         className="text-primary hover:underline"
                         title={t('openChat')}
                       >
