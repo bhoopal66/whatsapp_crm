@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canEditRow,
+  closeChoices,
+  paneKind,
+  paneMoveHintKey,
+  paneSections,
   furthestStage,
   hasReason,
   laterStage,
@@ -254,5 +258,96 @@ describe('hasReason', () => {
     expect(hasReason('')).toBe(false);
     expect(hasReason(' \t\n')).toBe(false);
     expect(hasReason(null)).toBe(false);
+  });
+});
+
+describe('paneKind', () => {
+  it('is unsorted with no row, else the inbox', () => {
+    expect(paneKind(null)).toBe('unsorted');
+    expect(paneKind(row())).toBe('recruiter');
+    expect(paneKind(dept())).toBe('dept');
+  });
+});
+
+describe('paneSections', () => {
+  const sections = (r: HrConversation, roles: HrRoles) =>
+    paneSections(r, panelActions(r, roles));
+
+  it('a recruitment chat leads with the stage, then the topic move', () => {
+    expect(sections(row(), REC_MEMBER)).toEqual([
+      'stage',
+      'topic',
+      'flags',
+      'reply',
+      'close',
+    ]);
+  });
+  it('a department chat leads with the topic, then the stage move', () => {
+    expect(sections(dept(), DEPT_MEMBER)).toEqual([
+      'topic',
+      'stage',
+      'flags',
+      'reply',
+      'close',
+    ]);
+  });
+  it('leaves out moves and Close for a viewer who cannot write', () => {
+    expect(sections(row(), DEPT_MEMBER)).toEqual(['stage', 'flags', 'reply']);
+    expect(sections(dept(), REC_LEAD)).toEqual(['topic', 'flags', 'reply']);
+  });
+  it('a closed chat keeps Close (for Closed and Reopen) but moves nowhere', () => {
+    expect(sections(closed(), REC_LEAD)).toEqual([
+      'stage',
+      'flags',
+      'reply',
+      'close',
+    ]);
+    expect(sections(closed(), DEPT_MEMBER)).toEqual([
+      'stage',
+      'flags',
+      'reply',
+      'close',
+    ]);
+  });
+});
+
+describe('paneMoveHintKey', () => {
+  it('hints only on the section that moves the chat', () => {
+    expect(paneMoveHintKey('recruiter', 'topic')).toBe('pane.movesToDept');
+    expect(paneMoveHintKey('dept', 'stage')).toBe('pane.movesToRecruiter');
+    expect(paneMoveHintKey('recruiter', 'stage')).toBeNull();
+    expect(paneMoveHintKey('dept', 'topic')).toBeNull();
+    expect(paneMoveHintKey('dept', 'close')).toBeNull();
+  });
+});
+
+describe('closeChoices', () => {
+  it('one confirmed button per outcome on a recruitment chat', () => {
+    expect(closeChoices(row())).toEqual([
+      {
+        outcome: 'hired',
+        labelKey: 'outcome.hired',
+        confirmKey: 'pane.closeAs',
+      },
+      {
+        outcome: 'not_selected',
+        labelKey: 'outcome.not_selected',
+        confirmKey: 'pane.closeAs',
+      },
+      {
+        outcome: 'withdrawn',
+        labelKey: 'outcome.withdrawn',
+        confirmKey: 'pane.closeAs',
+      },
+    ]);
+  });
+  it('a single outcome-less close on a department chat', () => {
+    expect(closeChoices(dept())).toEqual([
+      {
+        outcome: null,
+        labelKey: 'pane.closeConversation',
+        confirmKey: 'pane.closeConfirm',
+      },
+    ]);
   });
 });

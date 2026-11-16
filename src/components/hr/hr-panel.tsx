@@ -9,8 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { formatDistanceToNow } from 'date-fns';
-import { Check, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -36,11 +35,11 @@ import {
 } from '@/lib/hr/api';
 import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
-import { hrTopicOptGroups } from '@/lib/hr/topic-ui';
 import { isHrTask } from '@/lib/hr/tasks-view';
 import { mayActOnDrafts } from '@/lib/hr/agents/panel';
 import { HrAgentDrafts } from './hr-agent-drafts';
 import { HrAutomsgConsent } from './hr-automsg-consent';
+import { HrPanelView } from './hr-panel-view';
 import {
   furthestStage,
   hasReason,
@@ -51,38 +50,19 @@ import {
   showHrPanel,
   stepNeedsReason,
   stepperSteps,
+  type CloseChoice,
   type StepState,
 } from '@/lib/hr/panel';
-import {
-  HR_FLAGS,
-  HR_OUTCOMES,
-  type HrConversation,
-  type HrOpenKind,
-  type HrOutcome,
-  type HrReplyState,
-  type HrRoles,
-  type HrStage,
-  type HrTopic,
+import type {
+  HrConversation,
+  HrOpenKind,
+  HrRoles,
+  HrStage,
+  HrTopic,
 } from '@/lib/hr/types';
 import type { Task } from '@/lib/tasks/types';
-import { cn } from '@/lib/utils';
 
 export { hrRolesCacheKey } from '@/lib/hr/roles-cache';
-
-const NATIVE_FIELD =
-  'border-input bg-card dark:bg-input/30 h-7 w-full rounded-md border px-2 text-xs';
-
-const REPLY_TONE: Record<HrReplyState, string> = {
-  new: 'bg-info-soft text-info',
-  reply_due: 'bg-warning-soft text-warning',
-  waiting: 'bg-card-2 text-muted-foreground',
-};
-
-const STEP_TONE: Record<StepState['progress'], string> = {
-  done: 'bg-success-soft text-success border-transparent',
-  current: 'bg-primary text-primary-foreground border-transparent',
-  todo: 'bg-card-2 text-muted-foreground border-input',
-};
 
 type ReasonAsk = { kind: 'back'; stage: HrStage } | { kind: 'reopen' };
 
@@ -90,9 +70,15 @@ interface HrPanelProps {
   conversationId: string;
   /** `conversations.inbox_department` (migration 192). */
   inboxDepartment: string | null | undefined;
+  /** The contact's display name, the pane's title. */
+  contactName: string;
 }
 
-export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
+export function HrPanel({
+  conversationId,
+  inboxDepartment,
+  contactName,
+}: HrPanelProps) {
   const t = useTranslations('Hr');
   const { accountId, user } = useAuth();
   const userId = user?.id ?? null;
@@ -104,7 +90,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [busy, setBusy] = useState(false);
   const [doneBusy, setDoneBusy] = useState<Set<string>>(new Set());
-  const [outcome, setOutcome] = useState<HrOutcome | ''>('');
+  const [pendingClose, setPendingClose] = useState<CloseChoice | null>(null);
   const [ask, setAsk] = useState<ReasonAsk | null>(null);
   const [reason, setReason] = useState('');
 
@@ -195,11 +181,13 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
     rowRef.current = row;
   }, [row]);
 
-  // The outcome pick belongs to the row it was made on.
+  // A close waiting for confirmation belongs to the row it was asked on:
+  // a move to the other inbox, or someone else closing it, drops it.
   const rowInbox = row?.inbox;
+  const rowClosed = row?.closed_at ?? null;
   useEffect(() => {
-    setOutcome('');
-  }, [rowInbox]);
+    setPendingClose(null);
+  }, [rowInbox, rowClosed]);
 
   // Live: another person's write (or a rule's flag) lands here too.
   const onChangeRef = useRef<(next: HrConversation | null) => void>(() => {});
@@ -300,7 +288,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
         : await run(() => hrReopen(sb(), conversationId, reason.trim()));
     if (ok) {
       setAsk(null);
-      if (ask.kind === 'reopen') setOutcome('');
+      if (ask.kind === 'reopen') setPendingClose(null);
     }
   };
 
@@ -331,348 +319,51 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
   if (!roles || !showHrPanel(roles, inboxDepartment, row !== null) || !loaded)
     return null;
 
-  const header = (
-    <div className="flex items-center justify-between gap-2">
-      <h4 className="text-sm font-semibold">
-        {row?.inbox === 'dept'
-          ? t('panel.staffConversation')
-          : t('panel.title')}
-      </h4>
-      {row && (
-        <span className="text-muted-foreground text-xs">
-          {t(`inbox.${row.inbox}`)}
-        </span>
-      )}
-    </div>
-  );
+  const kinds = row ? [] : openKinds(roles);
+  if (!row && kinds.length === 0) return null;
 
-  if (!row) {
-    const kinds = openKinds(roles);
-    if (kinds.length === 0) return null;
-    return (
-      <section className="bg-wa-panel space-y-2 px-4 py-3">
-        {header}
-        <p className="text-muted-foreground text-xs">{t('panel.trackAs')}</p>
-        <div className="flex flex-wrap gap-2">
-          {kinds.map((kind) => (
-            <Button
-              key={kind}
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void open(kind)}
-            >
-              {t(
-                kind === 'candidate'
-                  ? 'panel.kindCandidate'
-                  : 'panel.kindEmployee'
-              )}
-            </Button>
-          ))}
-        </div>
-      </section>
-    );
-  }
-
-  const actions = panelActions(row, roles);
-  const steps = stepperSteps(row, roles, furthest);
-  const closed = row.closed_at !== null;
+  const actions = row ? panelActions(row, roles) : null;
+  const steps = row ? stepperSteps(row, roles, furthest) : [];
   const stageLabel = (s: HrStage) => t(`stage.${s}`);
 
-  const topicOptions = hrTopicOptGroups().map((g) => (
-    <optgroup key={g.group} label={t(g.labelKey)}>
-      {g.topics.map((topic) => (
-        <option key={topic} value={topic}>
-          {t(`topic.${topic}`)}
-        </option>
-      ))}
-    </optgroup>
-  ));
+  const confirmClose = async () => {
+    if (!row || !pendingClose) return;
+    const ok = await run(() =>
+      hrClose(
+        sb(),
+        conversationId,
+        outcomeToSend(row, pendingClose.outcome ?? '')
+      )
+    );
+    if (ok) setPendingClose(null);
+  };
 
   return (
-    <section className="bg-wa-panel space-y-3 px-4 py-3" aria-busy={busy}>
-      {header}
-
-      {actions.topic && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-xs">
-            {t('panel.topic')}
-          </span>
-          {actions.edit ? (
-            <select
-              className={NATIVE_FIELD}
-              value={row.topic ?? ''}
-              disabled={busy}
-              onChange={(e) => {
-                if (e.target.value) void setTopic(e.target.value as HrTopic);
-              }}
-            >
-              {row.topic === null && (
-                <option value="" disabled>
-                  {t('panel.noTopic')}
-                </option>
-              )}
-              {topicOptions}
-            </select>
-          ) : (
-            <span className="block text-xs">
-              {row.topic ? t(`topic.${row.topic}`) : t('panel.noTopic')}
-            </span>
-          )}
-        </label>
-      )}
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span
-          aria-label={t('panel.replyState')}
-          className={cn(
-            'rounded-full px-2 py-0.5 text-[11px] font-medium',
-            REPLY_TONE[row.reply_state]
-          )}
-        >
-          {t(`replyState.${row.reply_state}`)}
-        </span>
-        {HR_FLAGS.map((flag) => {
-          const on = row[flag];
-          const tone =
-            flag === 'urgent'
-              ? 'bg-destructive-soft text-destructive'
-              : 'bg-warning-soft text-warning';
-          return actions.edit ? (
-            <Button
-              key={flag}
-              size="xs"
-              variant="outline"
-              aria-pressed={on}
-              disabled={busy}
-              className={cn(on && tone, on && 'border-transparent')}
-              onClick={() =>
-                void run(() => hrSetFlag(sb(), conversationId, flag, !on))
-              }
-            >
-              {t(`flag.${flag}`)}
-            </Button>
-          ) : on ? (
-            <span
-              key={flag}
-              className={cn(
-                'rounded-full px-2 py-0.5 text-[11px] font-medium',
-                tone
-              )}
-            >
-              {t(`flag.${flag}`)}
-            </span>
-          ) : null;
-        })}
-        {!actions.edit && !closed && (
-          <span className="text-muted-foreground text-[11px]">
-            {t('panel.readOnly')}
-          </span>
-        )}
-      </div>
-
-      {actions.stepper && (
-        <ol className="grid grid-cols-2 gap-1" aria-label={t('panel.stage')}>
-          {steps.map((step) => {
-            const clickable =
-              step.move === 'forward' || step.move === 'backward';
-            const label =
-              step.progress === 'done'
-                ? t('panel.stepDone', { stage: stageLabel(step.stage) })
-                : step.progress === 'current'
-                  ? t('panel.stepCurrent', { stage: stageLabel(step.stage) })
-                  : stageLabel(step.stage);
-            return (
-              <li key={step.stage}>
-                <button
-                  type="button"
-                  disabled={!clickable || busy}
-                  aria-current={
-                    step.progress === 'current' ? 'step' : undefined
-                  }
-                  aria-label={
-                    clickable
-                      ? t('panel.moveTo', { stage: stageLabel(step.stage) })
-                      : label
-                  }
-                  title={step.move === 'locked' ? t('panel.lockedStep') : label}
-                  onClick={() => pickStage(step)}
-                  className={cn(
-                    'flex w-full items-center gap-1 rounded-md border px-2 py-1 text-left text-[11px] leading-tight',
-                    STEP_TONE[step.progress],
-                    clickable &&
-                      'hover:ring-ring/50 cursor-pointer hover:ring-2',
-                    !clickable && 'cursor-default'
-                  )}
-                >
-                  {step.progress === 'done' && (
-                    <Check className="size-3 shrink-0" aria-hidden />
-                  )}
-                  <span className="truncate">{stageLabel(step.stage)}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-
-      {actions.moveToDept && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-xs">
-            {t('panel.moveToDept')}
-          </span>
-          <select
-            className={NATIVE_FIELD}
-            value=""
-            disabled={busy}
-            onChange={(e) => {
-              if (e.target.value) void setTopic(e.target.value as HrTopic);
-            }}
-          >
-            <option value="" disabled>
-              {t('panel.chooseTopic')}
-            </option>
-            {topicOptions}
-          </select>
-        </label>
-      )}
-
-      {actions.moveToRecruitment && (
-        <label className="block space-y-1">
-          <span className="text-muted-foreground text-xs">
-            {t('panel.moveToRecruitment')}
-          </span>
-          <select
-            className={NATIVE_FIELD}
-            value=""
-            disabled={busy}
-            onChange={(e) => {
-              const step = steps.find((s) => s.stage === e.target.value);
-              if (step) pickStage(step);
-            }}
-          >
-            <option value="" disabled>
-              {t('panel.chooseStage')}
-            </option>
-            {steps.map((step) => (
-              <option
-                key={step.stage}
-                value={step.stage}
-                disabled={step.move === 'locked' || step.move === 'none'}
-              >
-                {stageLabel(step.stage)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {actions.close && (
-        <div className="flex items-end gap-2">
-          {actions.close.needsOutcome && (
-            <label className="min-w-0 flex-1 space-y-1">
-              <span className="text-muted-foreground text-xs">
-                {t('panel.outcome')}
-              </span>
-              <select
-                className={NATIVE_FIELD}
-                value={outcome}
-                disabled={busy}
-                onChange={(e) => setOutcome(e.target.value as HrOutcome | '')}
-              >
-                <option value="" disabled>
-                  {t('panel.chooseOutcome')}
-                </option>
-                {HR_OUTCOMES.map((o) => (
-                  <option key={o} value={o}>
-                    {t(`outcome.${o}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || (actions.close.needsOutcome && outcome === '')}
-            onClick={() =>
-              void (async () => {
-                const ok = await run(() =>
-                  hrClose(sb(), conversationId, outcomeToSend(row, outcome))
-                );
-                if (ok) setOutcome('');
-              })()
-            }
-          >
-            {t('panel.close')}
-          </Button>
-        </div>
-      )}
-
-      {closed && (
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">
-            {row.outcome
-              ? t('panel.closedWith', { outcome: t(`outcome.${row.outcome}`) })
-              : t('panel.closed')}
-          </span>
-          {actions.reopen && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setReason('');
-                setAsk({ kind: 'reopen' });
-              }}
-            >
-              {t('panel.reopen')}
-            </Button>
-          )}
-        </div>
-      )}
-
-      <div className="space-y-1">
-        <h5 className="text-muted-foreground text-xs font-medium">
-          {t('panel.tasks')}
-        </h5>
-        {tasks.length === 0 ? (
-          <p className="text-muted-foreground text-xs">{t('panel.noTasks')}</p>
-        ) : (
-          <ul className="space-y-1">
-            {tasks.map((task) => (
-              <li
-                key={task.id}
-                className="bg-card-2 flex items-center gap-2 rounded-md px-2 py-1"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs">{task.title}</p>
-                  <p className="text-muted-foreground text-[11px]">
-                    {task.due_at
-                      ? t('panel.due', {
-                          when: formatDistanceToNow(new Date(task.due_at), {
-                            addSuffix: true,
-                          }),
-                        })
-                      : t('panel.noDue')}
-                  </p>
-                </div>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  aria-label={t('panel.markDone', { title: task.title })}
-                  disabled={doneBusy.has(task.id)}
-                  onClick={() => void markDone(task)}
-                >
-                  {t('panel.taskDone')}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {row.inbox === 'recruiter' && (
+    <HrPanelView
+      contactName={contactName}
+      busy={busy}
+      row={row}
+      kinds={kinds}
+      actions={actions}
+      steps={steps}
+      tasks={tasks}
+      doneBusy={doneBusy}
+      pendingClose={pendingClose}
+      onOpen={(kind) => void open(kind)}
+      onTopic={(topic) => void setTopic(topic)}
+      onPickStage={pickStage}
+      onFlag={(flag, on) =>
+        void run(() => hrSetFlag(sb(), conversationId, flag, on))
+      }
+      onAskClose={setPendingClose}
+      onConfirmClose={() => void confirmClose()}
+      onReopen={() => {
+        setReason('');
+        setAsk({ kind: 'reopen' });
+      }}
+      onTaskDone={(task) => void markDone(task)}
+    >
+      {row?.inbox === 'recruiter' && (
         <>
           <HrAgentDrafts
             conversationId={conversationId}
@@ -717,6 +408,6 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </HrPanelView>
   );
 }

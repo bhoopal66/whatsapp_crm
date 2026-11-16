@@ -10958,6 +10958,24 @@
       "taskFailed": "Couldn't update the task.",
       "staffConversation": "Staff conversation"
     },
+    "pane": {
+      "conversation": "Conversation",
+      "inboxLine": "Inbox: {inbox}",
+      "inboxName": {
+        "recruiter": "Recruiter HR",
+        "dept": "HR department"
+      },
+      "tags": "Tags",
+      "noTopic": "No topic",
+      "movesToDept": "Moves to HR department",
+      "movesToRecruiter": "Moves to Recruiter HR",
+      "flags": "Flags",
+      "replyAuto": "Set automatically from who wrote last",
+      "closeConversation": "Close conversation",
+      "closeAs": "Close as {outcome}?",
+      "closeConfirm": "Close this conversation?",
+      "closedWith": "Closed: {outcome}"
+    },
     "hireFast": {
       "title": "Hire fast",
       "subtitle": "Recruitment candidates ranked by who needs action next. Read only.",

@@ -169,6 +169,7 @@ export function ContactSidebar({
               key={conversationId}
               conversationId={conversationId}
               inboxDepartment={inboxDepartment}
+              contactName={displayName}
             />
           )}
           {/* Contact Info */}

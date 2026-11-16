@@ -13,6 +13,7 @@ import {
   stageIndex,
 } from './access';
 import {
+  HR_OUTCOMES,
   HR_STAGES,
   type HrConversation,
   type HrOpenKind,
@@ -171,4 +172,91 @@ export function outcomeToSend(
 /** A non-blank reason (what NEEDS_REASON checks with `^[[:space:]]*$`). */
 export function hasReason(reason: string | null | undefined): boolean {
   return typeof reason === 'string' && /\S/u.test(reason);
+}
+
+/** Which "Conversation" pane the chat gets: not yet tracked, or its inbox. */
+export type PaneKind = 'unsorted' | 'recruiter' | 'dept';
+
+export function paneKind(row: { inbox: string } | null): PaneKind {
+  if (!row) return 'unsorted';
+  return row.inbox === 'dept' ? 'dept' : 'recruiter';
+}
+
+export type PaneSection = 'stage' | 'topic' | 'flags' | 'reply' | 'close';
+
+/**
+ * The fieldsets of a tracked chat's pane, top to bottom (the package's
+ * "Conversation" pane). A recruitment chat leads with its stage and
+ * offers a topic only as the move to the HR department; a department
+ * chat leads with its topic and offers the stage only as the move to
+ * recruitment. A move the viewer may not make is left out; Close shows
+ * while the viewer may close or the chat is closed (Closed + Reopen).
+ */
+export function paneSections(
+  row: HrConversation,
+  actions: PanelActions
+): PaneSection[] {
+  const closeShown = actions.close !== false || row.closed_at !== null;
+  const order: [PaneSection, boolean][] =
+    paneKind(row) === 'dept'
+      ? [
+          ['topic', actions.topic],
+          ['stage', actions.moveToRecruitment],
+          ['flags', true],
+          ['reply', true],
+          ['close', closeShown],
+        ]
+      : [
+          ['stage', actions.stepper],
+          ['topic', actions.moveToDept],
+          ['flags', true],
+          ['reply', true],
+          ['close', closeShown],
+        ];
+  return order.filter(([, shown]) => shown).map(([s]) => s);
+}
+
+/**
+ * The hint under a section that moves the chat to the other inbox: the
+ * topic on a recruitment chat, the stage on a department chat. An `Hr`
+ * message key, or null when the section moves nothing.
+ */
+export function paneMoveHintKey(
+  kind: PaneKind,
+  section: PaneSection
+): string | null {
+  if (kind === 'recruiter' && section === 'topic') return 'pane.movesToDept';
+  if (kind === 'dept' && section === 'stage') return 'pane.movesToRecruiter';
+  return null;
+}
+
+/** One button in the Close fieldset; `outcome` null closes without one. */
+export interface CloseChoice {
+  outcome: HrOutcome | null;
+  /** `Hr` message key of the button. */
+  labelKey: string;
+  /** `Hr` message key of the confirm question (takes `{outcome}`). */
+  confirmKey: string;
+}
+
+/**
+ * A recruitment chat closes with one of its outcomes, one button each;
+ * a department chat has a single "Close conversation". Every close asks
+ * first, because undoing it (Reopen) needs a reason.
+ */
+export function closeChoices(row: { inbox: string }): CloseChoice[] {
+  if (row.inbox !== 'recruiter') {
+    return [
+      {
+        outcome: null,
+        labelKey: 'pane.closeConversation',
+        confirmKey: 'pane.closeConfirm',
+      },
+    ];
+  }
+  return HR_OUTCOMES.map((outcome) => ({
+    outcome,
+    labelKey: `outcome.${outcome}`,
+    confirmKey: 'pane.closeAs',
+  }));
 }
