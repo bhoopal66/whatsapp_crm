@@ -11127,7 +11127,11 @@
       "setup": "설정",
       "hireFast": "빠른 채용",
       "automatedMessages": "자동 메시지",
-      "topicGroupsAria": "주제 그룹"
+      "topicGroupsAria": "주제 그룹",
+      "unread": "읽지 않음",
+      "unassigned": "미배정",
+      "staff": "직원",
+      "ownerAria": "담당자: {name}"
     },
     "agents": {
       "title": "에이전트 초안",

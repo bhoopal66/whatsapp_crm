@@ -113,7 +113,7 @@ import { InsightLegend } from '@/components/insights/insight-legend';
 import { toast } from 'sonner';
 import { ImportantBadge } from './important-badge';
 import { InsightChips } from './insight-badge';
-import { HrChips } from '@/components/hr/hr-chips';
+import { HrRowBody } from '@/components/hr/hr-row';
 import {
   applyHrQueryOps,
   HR_EMBED,
@@ -2263,7 +2263,7 @@ export const ROW_PREFETCH_DELAY_MS = 100;
 // not all of them. Every prop is stable across unrelated renders
 // (`onSelect` via a ref, `memberName` via useCallback, `chatTagTree`
 // memoised by useChatTags, `today` changes once a day).
-const ConversationItem = memo(function ConversationItem({
+export const ConversationItem = memo(function ConversationItem({
   conversation,
   isActive,
   onSelect,
@@ -2419,14 +2419,13 @@ const ConversationItem = memo(function ConversationItem({
   const hrRow = hrChips
     ? ((conversation as HrConversationRow).hr ?? null)
     : null;
-  const hasMeta =
-    rowHasMetaLine({
-      numberName,
-      campaignName,
-      sharedBank,
-      showAssignee,
-      personalLabel,
-    }) || hrRow !== null;
+  const hasMeta = rowHasMetaLine({
+    numberName,
+    campaignName,
+    sharedBank,
+    showAssignee,
+    personalLabel,
+  });
 
   const row = (
     <button
@@ -2453,147 +2452,164 @@ const ConversationItem = memo(function ConversationItem({
           : important && 'shadow-[inset_3px_0_0_var(--destructive)]'
       )}
     >
-      <ContactAvatar contact={contact} name={displayName} size={48} />
+      {hrChips ? (
+        // The HR screens: the package's two-line row (tag line, owner,
+        // no preview); the inbox's own row stays below as it was.
+        <HrRowBody
+          displayName={displayName}
+          time={time}
+          unread={unread}
+          hr={hrRow}
+          ownerName={
+            conversation.assigned_agent_id
+              ? memberName(conversation.assigned_agent_id)
+              : null
+          }
+          personalLabel={personalLabel}
+        />
+      ) : (
+        <>
+          <ContactAvatar contact={contact} name={displayName} size={48} />
 
-      {/* The divider runs under the text only, starting past the
+          {/* The divider runs under the text only, starting past the
           avatar, the way WhatsApp draws it. */}
-      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <span
-            className={cn(
-              'text-wa-text truncate text-[15px] leading-5',
-              unread ? 'font-semibold' : 'font-normal'
-            )}
-          >
-            {displayName}
-          </span>
-          <span className="flex shrink-0 items-baseline gap-1.5">
-            {similar && (
+          <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
+            <div className="flex items-baseline justify-between gap-2">
               <span
-                title={similar.hint}
-                className="bg-info-soft text-info self-center rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+                className={cn(
+                  'text-wa-text truncate text-[15px] leading-5',
+                  unread ? 'font-semibold' : 'font-normal'
+                )}
               >
-                {similar.label}
+                {displayName}
               </span>
-            )}
-            {/* No meta line to carry them: the chips ride here, always
+              <span className="flex shrink-0 items-baseline gap-1.5">
+                {similar && (
+                  <span
+                    title={similar.hint}
+                    className="bg-info-soft text-info self-center rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+                  >
+                    {similar.label}
+                  </span>
+                )}
+                {/* No meta line to carry them: the chips ride here, always
                 as dots, so the name truncates by a few pixels at most. */}
-            {!hasMeta && chips.length > 0 && (
-              <InsightChips
-                conversation={conversation}
-                chips={chips}
-                dotsOnly
-                className="self-center"
-              />
-            )}
-            {important && (
-              <ImportantBadge
-                label={
-                  pinLabelKey
-                    ? `${tInsights(pinLabelKey)} · ${t('important')}`
-                    : t('important')
-                }
-              />
-            )}
-            {!important && pinLabelKey && pinLabel?.reason && (
-              <span
+                {!hasMeta && chips.length > 0 && (
+                  <InsightChips
+                    conversation={conversation}
+                    chips={chips}
+                    dotsOnly
+                    className="self-center"
+                  />
+                )}
+                {important && (
+                  <ImportantBadge
+                    label={
+                      pinLabelKey
+                        ? `${tInsights(pinLabelKey)} · ${t('important')}`
+                        : t('important')
+                    }
+                  />
+                )}
+                {!important && pinLabelKey && pinLabel?.reason && (
+                  <span
+                    className={cn(
+                      'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
+                      paletteFor('attention', pinLabel.reason).chip
+                    )}
+                  >
+                    {tInsights(pinLabelKey)}
+                  </span>
+                )}
+                {canHandle ? (
+                  // Handled takes the time's place while the chat is pinned.
+                  // The button itself sits outside the row button (below);
+                  // this invisible copy holds its width so the name
+                  // truncates instead of running under it.
+                  <span aria-hidden className={cn(HANDLED_CLASS, 'invisible')}>
+                    {tInsights('handled')}
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      'text-xs',
+                      unread
+                        ? 'text-wa-green font-semibold'
+                        : 'text-wa-text-secondary'
+                    )}
+                  >
+                    {time}
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="mt-0.5 flex items-center justify-between gap-2">
+              <p
                 className={cn(
-                  'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
-                  paletteFor('attention', pinLabel.reason).chip
+                  'truncate text-[13.5px] leading-5',
+                  unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
                 )}
               >
-                {tInsights(pinLabelKey)}
-              </span>
-            )}
-            {canHandle ? (
-              // Handled takes the time's place while the chat is pinned.
-              // The button itself sits outside the row button (below);
-              // this invisible copy holds its width so the name
-              // truncates instead of running under it.
-              <span aria-hidden className={cn(HANDLED_CLASS, 'invisible')}>
-                {tInsights('handled')}
-              </span>
-            ) : (
-              <span
-                className={cn(
-                  'text-xs',
-                  unread
-                    ? 'text-wa-green font-semibold'
-                    : 'text-wa-text-secondary'
-                )}
-              >
-                {time}
-              </span>
-            )}
-          </span>
-        </div>
-        <div className="mt-0.5 flex items-center justify-between gap-2">
-          <p
-            className={cn(
-              'truncate text-[13.5px] leading-5',
-              unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
-            )}
-          >
-            {conversation.last_message_text || t('noMessagesYet')}
-          </p>
-          {/* The chat tag sits on the right, beside the unread count:
+                {conversation.last_message_text || t('noMessagesYet')}
+              </p>
+              {/* The chat tag sits on the right, beside the unread count:
               one pill, the main tag tinted in its colour and its
               sub-tag joined on fainter. It may take most of the line;
               the preview truncates first, and the count never does. */}
-          <div className="flex max-w-[65%] min-w-0 shrink-0 items-center justify-end gap-1.5">
-            {chatTag.main && chatTagText && (
-              <ChatTagPill
-                main={chatTag.main}
-                sub={chatTag.sub}
-                size="sm"
-                title={chatTagText}
-                className="min-w-0"
-              />
-            )}
-            {unread && (
-              <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
-                {conversation.unread_count > 99
-                  ? '99+'
-                  : conversation.unread_count}
-              </span>
-            )}
-          </div>
-        </div>
+              <div className="flex max-w-[65%] min-w-0 shrink-0 items-center justify-end gap-1.5">
+                {chatTag.main && chatTagText && (
+                  <ChatTagPill
+                    main={chatTag.main}
+                    sub={chatTag.sub}
+                    size="sm"
+                    title={chatTagText}
+                    className="min-w-0"
+                  />
+                )}
+                {unread && (
+                  <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
+                    {conversation.unread_count > 99
+                      ? '99+'
+                      : conversation.unread_count}
+                  </span>
+                )}
+              </div>
+            </div>
 
-        {hasMeta && (
-          <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
-            {personalLabel && (
-              <span className="text-info inline-flex shrink-0 items-center gap-1 font-medium">
-                <Smartphone className="h-3 w-3 shrink-0" />
-                {personalLabel}
-              </span>
-            )}
+            {hasMeta && (
+              <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+                {personalLabel && (
+                  <span className="text-info inline-flex shrink-0 items-center gap-1 font-medium">
+                    <Smartphone className="h-3 w-3 shrink-0" />
+                    {personalLabel}
+                  </span>
+                )}
 
-            {sharedBank && (
-              <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
-                <Share2 className="h-3 w-3 shrink-0" />
-                {t('sharedWithMe', { bank: sharedBank })}
-              </span>
-            )}
+                {sharedBank && (
+                  <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
+                    <Share2 className="h-3 w-3 shrink-0" />
+                    {t('sharedWithMe', { bank: sharedBank })}
+                  </span>
+                )}
 
-            {numberName && (
-              <span className="inline-flex min-w-0 shrink items-center gap-1">
-                <Phone className="h-3 w-3 shrink-0" />
-                <span className="truncate">{numberName}</span>
-              </span>
-            )}
+                {numberName && (
+                  <span className="inline-flex min-w-0 shrink items-center gap-1">
+                    <Phone className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{numberName}</span>
+                  </span>
+                )}
 
-            {/* Campaign inbox: which campaign the chat came from. No
+                {/* Campaign inbox: which campaign the chat came from. No
                 bot state: every chat listed there is one the bot is
                 answering, and a hand-off moves it to the Inbox. */}
-            {campaignName && (
-              <span className="inline-flex min-w-0 shrink items-center gap-1">
-                <Radio className="h-3 w-3 shrink-0" />
-                <span className="truncate">{campaignName}</span>
-              </span>
-            )}
+                {campaignName && (
+                  <span className="inline-flex min-w-0 shrink items-center gap-1">
+                    <Radio className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{campaignName}</span>
+                  </span>
+                )}
 
-            {/* Who answers for this thread. Only rendered for a viewer
+                {/* Who answers for this thread. Only rendered for a viewer
                 whose list mixes owners — see `showAssignee`.
                 The name is whoever the row can actually name: the
                 assignee, or its owner when nobody pressed Assign. The
@@ -2601,50 +2617,50 @@ const ConversationItem = memo(function ConversationItem({
                 still nobody's formally, the one thing on this screen
                 that needs an action. A row with no name at all falls
                 back to the word itself. */}
-            {showAssignee && (
-              <span
-                className="inline-flex min-w-0 shrink items-center gap-1"
-                title={
-                  handler && handlerName
-                    ? handler.kind === 'assigned'
-                      ? t('assignedTo', { name: handlerName })
-                      : t('ownedBy', { name: handlerName })
-                    : t('unassigned')
-                }
-              >
-                <UserRound
-                  className={cn(
-                    'h-3 w-3 shrink-0',
-                    handler?.kind !== 'assigned' && 'text-warning'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'truncate',
-                    handler?.kind !== 'assigned' && 'text-warning'
-                  )}
-                >
-                  {handlerName ?? t('unassigned')}
-                </span>
-              </span>
-            )}
+                {showAssignee && (
+                  <span
+                    className="inline-flex min-w-0 shrink items-center gap-1"
+                    title={
+                      handler && handlerName
+                        ? handler.kind === 'assigned'
+                          ? t('assignedTo', { name: handlerName })
+                          : t('ownedBy', { name: handlerName })
+                        : t('unassigned')
+                    }
+                  >
+                    <UserRound
+                      className={cn(
+                        'h-3 w-3 shrink-0',
+                        handler?.kind !== 'assigned' && 'text-warning'
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        'truncate',
+                        handler?.kind !== 'assigned' && 'text-warning'
+                      )}
+                    >
+                      {handlerName ?? t('unassigned')}
+                    </span>
+                  </span>
+                )}
 
-            {hrRow && <HrChips hr={hrRow} />}
-
-            {/* Insight chips close the meta line, right-aligned: named
+                {/* Insight chips close the meta line, right-aligned: named
                 chips on a wide row, coloured dots on a narrow one (a
                 container query on the row). They never shrink; the
                 number and the name truncate instead. */}
-            {chips.length > 0 && (
-              <InsightChips
-                conversation={conversation}
-                chips={chips}
-                className="ml-auto"
-              />
+                {chips.length > 0 && (
+                  <InsightChips
+                    conversation={conversation}
+                    chips={chips}
+                    className="ml-auto"
+                  />
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </button>
   );
 
