@@ -16,6 +16,7 @@ import {
   HR_STAGES,
   type HrConversation,
   type HrOpenKind,
+  type HrOutcome,
   type HrRoles,
   type HrStage,
 } from './types';
@@ -156,16 +157,15 @@ export function panelActions(
 }
 
 /**
- * A task the HR rules opened for this chat: `source_ref` is
- * `hr:<conversation id>:<dedupe key>`, `meta.hr_rule` names the rule.
+ * The outcome a close carries: only a recruitment row takes one (the
+ * server answers INVALID for an outcome on a department row), so a
+ * stale pick is never sent for any other.
  */
-export function isHrTask(task: {
-  source_ref?: string | null;
-  meta?: Record<string, unknown> | null;
-}): boolean {
-  if (typeof task.source_ref === 'string' && task.source_ref.startsWith('hr:'))
-    return true;
-  return typeof task.meta?.hr_rule === 'string';
+export function outcomeToSend(
+  row: { inbox: string },
+  selected: HrOutcome | ''
+): HrOutcome | null {
+  return row.inbox === 'recruiter' && selected !== '' ? selected : null;
 }
 
 /** A non-blank reason (what NEEDS_REASON checks with `^[[:space:]]*$`). */

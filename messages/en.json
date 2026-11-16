@@ -10956,6 +10956,7 @@
       "empty": "No open HR tasks.",
       "loadFailed": "Couldn't load HR tasks.",
       "doneFailed": "Couldn't mark the task done.",
+      "doneTask": "Mark “{title}” done",
       "openChat": "Open chat",
       "unknownCustomer": "Customer"
     },

@@ -36,12 +36,13 @@ import {
 } from '@/lib/hr/api';
 import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
+import { isHrTask } from '@/lib/hr/tasks-view';
 import {
   furthestStage,
   hasReason,
-  isHrTask,
   laterStage,
   openKinds,
+  outcomeToSend,
   panelActions,
   showHrPanel,
   stepNeedsReason,
@@ -99,6 +100,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
   const [furthest, setFurthest] = useState<HrStage | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [busy, setBusy] = useState(false);
+  const [doneBusy, setDoneBusy] = useState<Set<string>>(new Set());
   const [outcome, setOutcome] = useState<HrOutcome | ''>('');
   const [ask, setAsk] = useState<ReasonAsk | null>(null);
   const [reason, setReason] = useState('');
@@ -139,6 +141,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
           scope: 'conversation',
           conversationId: id,
           status: 'open',
+          hr: '1',
         });
         const res = await fetch(`/api/tasks?${params}`);
         if (!res.ok) return;
@@ -184,15 +187,35 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
     })();
   }, [conversationId, hasAccess, isCurrent, loadTasks]);
 
+  const rowRef = useRef<HrConversation | null>(null);
+  useEffect(() => {
+    rowRef.current = row;
+  }, [row]);
+
+  // The outcome pick belongs to the row it was made on.
+  const rowInbox = row?.inbox;
+  useEffect(() => {
+    setOutcome('');
+  }, [rowInbox]);
+
   // Live: another person's write (or a rule's flag) lands here too.
   const onChangeRef = useRef<(next: HrConversation | null) => void>(() => {});
   useEffect(() => {
     onChangeRef.current = (next) => {
       if (!isCurrent(conversationId)) return;
+      const prev = rowRef.current;
       setRow(next);
       if (next) {
         setFurthest((f) => laterStage(f, next.stage_key));
-        void loadTasks(conversationId);
+        // Message stamps change only last_*_at; they open no tasks.
+        if (
+          !prev ||
+          prev.stage_key !== next.stage_key ||
+          prev.topic !== next.topic ||
+          prev.inbox !== next.inbox ||
+          prev.closed_at !== next.closed_at
+        )
+          void loadTasks(conversationId);
       }
     };
   });
@@ -227,7 +250,14 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
     async (write: () => Promise<HrResult<HrConversation>>) => {
       const id = conversationId;
       setBusy(true);
-      const res = await write();
+      let res: HrResult<HrConversation>;
+      try {
+        res = await write();
+      } catch {
+        if (isCurrent(id)) setBusy(false);
+        toast.error(t('error.UNKNOWN'));
+        return false;
+      }
       if (!isCurrent(id)) return;
       setBusy(false);
       if ('error' in res) {
@@ -265,11 +295,16 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
       ask.kind === 'back'
         ? await setStage(ask.stage, reason.trim())
         : await run(() => hrReopen(sb(), conversationId, reason.trim()));
-    if (ok) setAsk(null);
+    if (ok) {
+      setAsk(null);
+      if (ask.kind === 'reopen') setOutcome('');
+    }
   };
 
   const markDone = async (task: Task) => {
     const id = conversationId;
+    if (doneBusy.has(task.id)) return;
+    setDoneBusy((s) => new Set(s).add(task.id));
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
@@ -281,6 +316,12 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
         setTasks((list) => list.filter((x) => x.id !== task.id));
     } catch {
       toast.error(t('panel.taskFailed'));
+    } finally {
+      setDoneBusy((s) => {
+        const n = new Set(s);
+        n.delete(task.id);
+        return n;
+      });
     }
   };
 
@@ -546,9 +587,12 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
             variant="outline"
             disabled={busy || (actions.close.needsOutcome && outcome === '')}
             onClick={() =>
-              void run(() =>
-                hrClose(sb(), conversationId, outcome === '' ? null : outcome)
-              )
+              void (async () => {
+                const ok = await run(() =>
+                  hrClose(sb(), conversationId, outcomeToSend(row, outcome))
+                );
+                if (ok) setOutcome('');
+              })()
             }
           >
             {t('panel.close')}
@@ -608,6 +652,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
                   size="xs"
                   variant="ghost"
                   aria-label={t('panel.markDone', { title: task.title })}
+                  disabled={doneBusy.has(task.id)}
                   onClick={() => void markDone(task)}
                 >
                   {t('panel.taskDone')}

@@ -16,6 +16,39 @@ export function isHrTask(task: Pick<Task, 'source' | 'source_ref'>): boolean {
   );
 }
 
+/** The chat ids a task list points at, each once. */
+export function taskConversationIds(
+  tasks: Pick<Task, 'conversation_id'>[]
+): string[] {
+  return [
+    ...new Set(
+      tasks.map((t) => t.conversation_id).filter((id): id is string => !!id)
+    ),
+  ];
+}
+
+/**
+ * A customer name per task id, read through the task's chat (an HR task
+ * carries no `contact_id`, for privacy). A chat the viewer cannot see,
+ * or a nameless contact, gets no entry.
+ */
+export function customerNamesByTask(
+  tasks: Pick<Task, 'id' | 'conversation_id'>[],
+  chats: { id: string; contact: { name: string | null } | null }[]
+): Record<string, string> {
+  const byChat = new Map<string, string>();
+  for (const c of chats) {
+    const name = c.contact?.name?.trim();
+    if (name) byChat.set(c.id, name);
+  }
+  const out: Record<string, string> = {};
+  for (const t of tasks) {
+    const name = t.conversation_id ? byChat.get(t.conversation_id) : undefined;
+    if (name) out[t.id] = name;
+  }
+  return out;
+}
+
 /** Open and past its due time. */
 export function isOverdue(
   task: Pick<Task, 'status' | 'due_at'>,
