@@ -12,6 +12,30 @@ and polish.
 
 ## [Unreleased]
 
+### HR: its own sidebar group, screens laid out like the HR package
+
+No migration. The HR screens move out of the single "HR inbox" page into
+a sidebar group **HR**, as the HR package designs them:
+
+- **Recruiter HR** (`/hr/recruiter`), **HR department**
+  (`/hr/department`) and **Not sorted** (`/hr/unsorted`, HR chats nobody
+  has tracked as a candidate or an employee yet), each with its open
+  count; then **Tasks** (`/hr/tasks`), **Rules** (`/hr/rules`, formerly
+  Setup), **Hire fast** and **Automated messages**.
+- The list column has the package's header (title, search, quick
+  filters All / Unread / Mine / Urgent with counts, stage or topic and
+  reply-state dropdowns, removable filter chips, Closed) and two-line
+  rows (stage bars or topic, reply state, Urgent, Unread, owner).
+- The chat's right pane is the package's **Conversation** pane: stage
+  buttons, topic, flags, an **Owner** select (admins and leads hand the
+  chat to someone on that inbox's HR team they may assign to; a member
+  claims or releases), reply state, Close with Hired / Not selected /
+  Withdrawn (confirmed), Reopen; then HR tasks, **Agent drafts**
+  (Approve / reason / Reject in place) and consent.
+- Automated messages and Hire fast are laid out like the package.
+- Old `/hr-inbox` links keep working: they open the same chat in its
+  new screen.
+
 ### HR: more topics, AI reply drafts, Hire fast and automated messages
 
 **Migration required: `201_hr_topics.sql`, `202_hr_agents.sql`,

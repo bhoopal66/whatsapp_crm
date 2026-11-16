@@ -1278,7 +1278,8 @@ contract.
   (CHECK). No row = "Not sorted". Owner = the chat's assignee; HR
   closure (`closed_at`, `outcome`) is not `conversations.status`.
 - **No new visibility.** HR team membership (`hr_team_members`, written
-  only by `hr_member_set`, admins) opens `/hr-inbox` but grants no chat;
+  only by `hr_member_set`, admins) opens the `/hr/*` screens (sidebar
+  group "HR"; old `/hr-inbox` links redirect) but grants no chat;
   every `hr_*` write and both read policies use `hr_can_see` (191's
   `conversations_select` predicate, so a coordinator share does not
   reach HR rows: change both together); NOT_FOUND otherwise.

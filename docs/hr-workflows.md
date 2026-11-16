@@ -5,6 +5,23 @@ Migration 200. Built on the HR inbox of migration 192
 carries `conversations.inbox_department = 'hr'`. HR workflows add a
 second layer on those chats, so the HR team can sort and track them.
 
+## Screens (sidebar group "HR")
+
+| Item | Route | Who sees it |
+|---|---|---|
+| Recruiter HR | `/hr/recruiter` | admins, recruiter HR roles |
+| HR department | `/hr/department` | admins, dept HR roles |
+| Not sorted | `/hr/unsorted` | admins, any HR role |
+| Tasks, Rules | `/hr/tasks`, `/hr/rules` | admins, any HR role |
+| Hire fast | `/hr/hire-fast` | admins, recruiter HR roles |
+| Automated messages | `/hr/automated-messages` | admins, recruiter leads |
+
+The three inbox screens are the WhatsApp inbox with the HR list header,
+two-line HR rows and the HR Conversation pane on the right (desktop).
+Old `/hr-inbox` URLs redirect (`src/lib/hr/routes.ts`); `/hr-inbox?c=`
+opens the chat in its own inbox. Every `/hr` path needs a session
+(`src/middleware.ts`) and passes `HrAccessLayout`.
+
 ## Two HR inboxes
 
 | Inbox | Who is in it | How a chat is sorted |
@@ -37,7 +54,7 @@ The owner of a tracked chat is the chat's ordinary assignee.
 
 ## The HR team
 
-Owners and admins add people in **HR inbox → Setup**: for each inbox, a
+Owners and admins add people in **HR → Rules**: for each inbox, a
 person is a **Lead** or a **Member**. Someone can be in both inboxes.
 Being in the HR team lets a person open the HR inbox, but it **does not
 let them see more chats**: they see exactly the chats they saw before
@@ -61,7 +78,7 @@ admin moves them with a reason.
 
 Rules never send anything to anyone. They create **tasks** (the ordinary
 tasks of `docs/tasks.md`, with the usual due-time ring, listed in the
-chat's HR panel and in HR inbox → Tasks) and set flags. An HR task is
+chat's HR panel and in HR → Tasks) and set flags. An HR task is
 linked to the chat but not to the contact, so it is not on the customer
 page: under the tasks rules a contact link would show "Respond to
 complaint" to anyone who can see the contact. It is seen by its
@@ -131,7 +148,7 @@ chat like any other message.
   equivalents) is opted out (`contacts.opted_out_at`, the same opt-out
   campaigns use) and their waiting drafts are withdrawn. This happens
   only while AI drafts or automated messages are switched on.
-- **Switches.** HR inbox → Setup → Recruiter AI drafts: "Draft replies"
+- **Switches.** HR → Rules → Recruiter AI drafts: "Draft replies"
   is the master switch; each agent can be switched off on its own (its
   messages then go to a person). Admins and recruiter leads change
   them. Auto-send does not exist.
@@ -141,7 +158,7 @@ of chats they can see, and approve or reject them.
 
 ## Hire fast
 
-HR inbox → Hire fast ranks the open Recruitment candidates the user can
+HR → Hire fast ranks the open Recruitment candidates the user can
 see by who needs action next, read only: +100 when the candidate is
 waiting on us (10 when we wait on them), +50 Urgent, +30 Upset, +1 per
 hour waited (up to 72), +5/10/15 for the later stages, +20 for an
@@ -150,7 +167,7 @@ No activity rule. Filters: stage and Mine (assigned to me).
 
 ## Automated messages (migration 203)
 
-HR inbox → Automated messages sends fixed, approved templates to
+HR → Automated messages sends fixed, approved templates to
 candidates. It is for admins (everything) and Recruitment leads
 (switch triggers, cancel queued messages).
 
