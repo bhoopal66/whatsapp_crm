@@ -341,3 +341,108 @@ export function hrInboxUrl(
   const q = out.toString();
   return q ? `${basePath}?${q}` : basePath;
 }
+
+/**
+ * The list header's quick filters (package 023d-1): All / Unread / Mine /
+ * Urgent, one at a time. Unread means a reply is due (`reply_state =
+ * 'reply_due'`, as `hr_counts().unread` counts it), so it is the reply
+ * filter's `reply_due` value, not a separate flag. Not sorted has no HR
+ * row, so only All and Mine apply there.
+ */
+export const HR_QUICK_FILTERS = ['all', 'unread', 'mine', 'urgent'] as const;
+export type HrQuickFilter = (typeof HR_QUICK_FILTERS)[number];
+
+/** The quick filters the tab offers. */
+export function hrQuickFilters(tab: HrTab): readonly HrQuickFilter[] {
+  return tab === 'unsorted' ? ['all', 'mine'] : HR_QUICK_FILTERS;
+}
+
+/** Which quick filter is lit; the first that holds wins. */
+export function activeHrQuick(f: HrListFilters): HrQuickFilter {
+  if (f.urgent) return 'urgent';
+  if (f.mine) return 'mine';
+  if (f.reply === 'reply_due') return 'unread';
+  return 'all';
+}
+
+/**
+ * Picks quick filter `q`: it owns Urgent, Mine and the reply state
+ * `reply_due`, so it sets its own and clears the others (All clears all
+ * three); another reply state from the dropdown stays unless Unread
+ * replaces it. Stage, topic and Closed are left alone.
+ */
+export function applyHrQuick(
+  f: HrListFilters,
+  q: HrQuickFilter
+): HrListFilters {
+  const unsorted = f.tab === 'unsorted';
+  return {
+    ...f,
+    urgent: q === 'urgent' && !unsorted,
+    mine: q === 'mine',
+    reply: unsorted
+      ? null
+      : q === 'unread'
+        ? 'reply_due'
+        : f.reply === 'reply_due'
+          ? null
+          : f.reply,
+  };
+}
+
+/**
+ * The quick filters' numbers from `hr_counts()`, by tab; a filter with
+ * no figure (Mine on Not sorted, or no answer yet) is missing.
+ */
+export function hrQuickCounts(
+  c: HrCounts | null,
+  tab: HrTab
+): Partial<Record<HrQuickFilter, number>> {
+  if (!c) return {};
+  if (tab === 'unsorted') return { all: c.unsorted };
+  if (tab === 'all')
+    return {
+      all: c.recruiter.all + c.dept.all + c.unsorted,
+      unread: c.recruiter.unread + c.dept.unread,
+      urgent: c.recruiter.urgent + c.dept.urgent,
+    };
+  return { ...c[tab] };
+}
+
+/** One removable chip under the header, for a filter that is on. */
+export type HrActiveChip =
+  | { key: 'stage'; value: HrStage }
+  | { key: 'topic'; value: HrTopic }
+  | { key: 'topicGroup'; value: HrTopicFilter }
+  | { key: 'reply'; value: HrReplyState }
+  | { key: 'urgent' }
+  | { key: 'mine' }
+  | { key: 'closed' };
+
+/** The filters that are on, in the header's order. */
+export function hrActiveChips(f: HrListFilters): HrActiveChip[] {
+  const out: HrActiveChip[] = [];
+  if (f.mine) out.push({ key: 'mine' });
+  if (f.urgent) out.push({ key: 'urgent' });
+  if (f.topicGroup) out.push({ key: 'topicGroup', value: f.topicGroup });
+  if (f.stage) out.push({ key: 'stage', value: f.stage });
+  if (f.topic) out.push({ key: 'topic', value: f.topic });
+  if (f.reply) out.push({ key: 'reply', value: f.reply });
+  if (f.closed) out.push({ key: 'closed' });
+  return out;
+}
+
+/** Turns off the one filter a chip's × names. */
+export function clearHrChip(
+  f: HrListFilters,
+  key: HrActiveChip['key']
+): HrListFilters {
+  switch (key) {
+    case 'urgent':
+    case 'mine':
+    case 'closed':
+      return { ...f, [key]: false };
+    default:
+      return { ...f, [key]: null };
+  }
+}

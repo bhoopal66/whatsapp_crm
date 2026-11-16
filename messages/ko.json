@@ -11131,7 +11131,21 @@
       "unread": "읽지 않음",
       "unassigned": "미배정",
       "staff": "직원",
-      "ownerAria": "담당자: {name}"
+      "ownerAria": "담당자: {name}",
+      "titleAll": "HR 받은편지함",
+      "titleRecruiter": "채용 HR",
+      "titleDept": "HR 부서",
+      "deptSubtitle": "입사한 직원",
+      "titleUnsorted": "미분류",
+      "quickAria": "빠른 필터",
+      "quickAll": "전체",
+      "quickUnread": "읽지 않음",
+      "quickMine": "내 대화",
+      "quickUrgent": "긴급",
+      "any": "전체",
+      "replyStateLabel": "답장 상태",
+      "activeAria": "적용된 필터",
+      "removeChip": "필터 제거: {label}"
     },
     "agents": {
       "title": "에이전트 초안",
