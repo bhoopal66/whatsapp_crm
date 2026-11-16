@@ -10,7 +10,7 @@ second layer on those chats, so the HR team can sort and track them.
 | Inbox | Who is in it | How a chat is sorted |
 |---|---|---|
 | Recruitment (`recruiter`) | Job candidates | One of four stages, in order: CV review, AI interview, HR interview, Manager interview |
-| HR department (`dept`) | Employees | One topic: Onboarding, Visa & documents, Leave & attendance, Payroll, Complaint, Other |
+| HR department (`dept`) | Employees | One topic (migration 201): Offer letter, Onboarding, Visa & documents, Leave & attendance, Payroll, Training (Staff admin); Warning letter, Complaint, Termination (Conduct); Message, Other |
 
 A chat is in at most one of them (`hr_conversations`, one row per chat).
 An HR chat with no row yet is **Not sorted**. In the chat's side panel
@@ -98,10 +98,116 @@ are checked every 5 minutes by the automations cron
 team message they wait on. Closed chats and switched-off rules fire
 nothing.
 
+The HR department list has quick chips over the topics: All, Letters
+(offer and warning letters), Training, Leave, Messages and Exits
+(termination); they combine with the other filters. The five topics
+added by 201 fire no rule.
+
+## AI reply drafts (migration 202)
+
+In a Recruitment chat the HR panel can suggest a reply to the
+candidate. **Nothing is ever sent from it**: a person approves or
+rejects each draft, and an approved draft is copied and sent from the
+chat like any other message.
+
+- **When.** On each new message from a tracked, open candidate, and on
+  **Draft a reply** in the panel (with optional interview times, the
+  only dates a draft may mention). Personal chats included.
+- **How.** An orchestrator reads the message and the chat's last ten
+  messages, works out what the candidate wants and hands it to one
+  agent: CV screening, Interview scheduling, Candidate questions or
+  Escalation. It uses the workspace's own AI key (Settings → AI); the
+  spend shows as "HR agent drafts" in the AI usage panel.
+- **Safety rules, in code.** Salary, offer, visa, contract and legal
+  questions get only an acknowledgement and go to a person; an upset
+  candidate is marked Urgent; a draft never promises salary, an offer,
+  a visa or a date other than the supplied interview times; every draft
+  ends with "This is an automated assistant; a recruiter will confirm."
+  On a Meta (Cloud API) number more than 24 hours after the candidate's
+  last message a free reply is not allowed, so the draft only says a
+  template is needed. At most 3 drafts wait per chat and 5 are made per
+  chat a day; a waiting draft expires after 24 hours.
+- **STOP.** A candidate who writes stop / unsubscribe (or the Arabic
+  equivalents) is opted out (`contacts.opted_out_at`, the same opt-out
+  campaigns use) and their waiting drafts are withdrawn. This happens
+  only while AI drafts or automated messages are switched on.
+- **Switches.** HR inbox → Setup → Recruiter AI drafts: "Draft replies"
+  is the master switch; each agent can be switched off on its own (its
+  messages then go to a person). Admins and recruiter leads change
+  them. Auto-send does not exist.
+
+Members and leads of the Recruitment inbox (and admins) see the drafts
+of chats they can see, and approve or reject them.
+
+## Hire fast
+
+HR inbox → Hire fast ranks the open Recruitment candidates the user can
+see by who needs action next, read only: +100 when the candidate is
+waiting on us (10 when we wait on them), +50 Urgent, +30 Upset, +1 per
+hour waited (up to 72), +5/10/15 for the later stages, +20 for an
+overdue HR task, +20 when they have gone quiet longer than the
+No activity rule. Filters: stage and Mine (assigned to me).
+
+## Automated messages (migration 203)
+
+HR inbox → Automated messages sends fixed, approved templates to
+candidates. It is for admins (everything) and Recruitment leads
+(switch triggers, cancel queued messages).
+
+| Trigger | When | Template |
+|---|---|---|
+| CV received | a chat is tracked as a candidate | CV acknowledgement |
+| Moved to AI / HR / manager interview | the candidate enters that stage | the interview invite |
+| Reply nudge | the candidate has not answered for the No activity rule's hours (72) | "We are still waiting for your reply" |
+| Interview reminder | not available yet (wacrm stores no interview times) | — |
+
+- **Off until switched on.** The master switch starts ON (blocking
+  every message) and every trigger OFF. While a trigger is off its
+  events record nothing. With a trigger on and the master switch still
+  on, the history shows what would have been sent, held "Kill switch".
+- **Who receives it.** Only company chats: never a personal number. The
+  message goes from the chat's own number (its pinned number, else the
+  number the candidate wrote to) and appears in the chat as a bot
+  message.
+- **Templates.** One per message kind and language (English, Arabic),
+  edited by admins: only `{name}` and `{slot}` placeholders, Utility
+  category only, promotional wording refused (discounts, offers, other
+  vacancies, links…). A template must be marked Approved to be sent; on
+  a Meta number it must also exist, approved and Utility, in Templates
+  under the same name (its `{{1}}`/`{{2}}` in the order the text uses
+  name and time).
+- **Guards, in order** (the first that applies holds the message): the
+  master switch, the trigger switched off, the chat closed, the
+  candidate opted out, no consent (on by default: record it in the
+  chat's HR panel), quiet hours (21:00–08:00 Asia/Dubai), no approved
+  template, the daily cap (3 per candidate). A closed chat or an
+  opt-out cancels the message instead.
+- **Delivery.** The automations cron drains due messages every minute.
+  Each message is claimed before it is sent, so two runs never send it
+  twice; a failed send is retried up to 3 times; a message held or
+  failing for more than 24 hours is cancelled, never sent late. A
+  message the gateway accepted but wacrm could not record is marked
+  "not confirmed" and never resent; one stuck in sending for 15 minutes
+  is marked for review. The nudge counts only conversations that went
+  quiet after the trigger was switched on, and within the last 7 days.
+- **History.** Every message with its status (queued, held and why,
+  sent, failed, cancelled); leads and admins cancel a waiting one,
+  admins can run the queue now.
+
+Check with legal (UAE PDPL: consent, retention, privacy notice) before
+switching any of this on.
+
 ## For operators
 
 - Apply `supabase/migrations/200_hr_workflows.sql` before deploying the
   build. It is re-runnable and seeds the rules for every workspace.
+- Then `201_hr_topics.sql`, `202_hr_agents.sql`, `203_hr_automsg.sql`,
+  in that order, before the build that uses them. 201 re-creates
+  `hr_set_topic`: re-running 200 after it narrows the topics again, so
+  re-run 201 too. 203 refuses to apply except as a superuser or
+  BYPASSRLS role (its tables are reached only through its functions).
+  `supabase/ci/verify-hr-agents.sql` and `verify-hr-automsg.sql` assert
+  them.
 - Nothing happens until an admin adds people to the HR team and someone
   tracks a chat; owners and admins can do both straight away.
 - The tables are read through RLS (a tracked chat's row is visible to
@@ -111,3 +217,14 @@ nothing.
   ported: its separate conversation store and owner field (wacrm uses
   its own chats and assignee), the IT read-only role, Arabic task
   titles, and its own task table (wacrm's tasks are used).
+- Topics, AI drafts, Hire fast and automated messages are ported from
+  releases 024–028 (2026-11-16). Differences: drafts answer the chat's
+  real messages (no typed candidate text) with the workspace's AI key
+  rather than a server key; one opt-out (`contacts.opted_out_at`) rather
+  than a separate list; automated messages really send (the package's
+  sender was a stub) and events are queued in SQL; "CV received" fires
+  when a chat is tracked as a candidate. Not ported: release 028 (a
+  Voicenter call event triggering a WhatsApp message), the interview
+  reminder's event source, the staff avatar style, per-topic colours
+  (red stays for Urgent), and the Arabic wording review the package
+  flags as pending.

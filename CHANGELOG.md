@@ -12,6 +12,44 @@ and polish.
 
 ## [Unreleased]
 
+### HR: more topics, AI reply drafts, Hire fast and automated messages
+
+**Migration required: `201_hr_topics.sql`, `202_hr_agents.sql`,
+`203_hr_automsg.sql`** (apply in order, before the build; 203 refuses
+to apply except as a superuser or BYPASSRLS role). Everything new is
+off until an admin switches it on.
+
+- **Eleven HR department topics.** Offer letter, Training, Warning
+  letter, Message and Termination join the six. The HR department list
+  gets quick chips (All, Letters, Training, Leave, Messages, Exits), the
+  topic picker is grouped (Staff admin, Conduct, Other), and a
+  department chat's panel is headed "Staff conversation".
+- **AI reply drafts for candidates.** In a Recruitment chat the HR panel
+  can suggest a reply, written with the workspace's own AI key
+  (Settings → AI): on each new candidate message, or on "Draft a reply".
+  A person approves or rejects every draft and sends it from the chat
+  themselves; nothing is ever sent automatically. Salary, offer, visa
+  and contract questions go to a person, an upset candidate is marked
+  Urgent, and a candidate who writes STOP is opted out. Admins and
+  recruiter leads switch it on in HR inbox → Setup. Works on personal
+  chats too.
+- **Hire fast.** HR inbox → Hire fast ranks the open candidates by who
+  needs action next (reply due, urgent, upset, how long they waited,
+  stage, an overdue task, gone quiet). Read only.
+- **Automated messages to candidates.** HR inbox → Automated messages
+  sends fixed, admin-approved templates from each chat's own WhatsApp
+  number when a chat is tracked as a candidate, moves to an interview
+  stage, or the candidate stops answering. The master switch starts ON
+  (blocking everything) and every trigger OFF. Quiet hours (21:00–08:00
+  Dubai), at most 3 per candidate a day, consent required by default
+  (recorded in the chat's HR panel), opt-outs honoured, Utility
+  templates only and promotional wording refused; on a Meta number the
+  template must also exist, approved, in Templates. Never from a
+  personal number. A history lists every message sent, held or
+  cancelled. Check with legal (UAE PDPL) before switching it on.
+
+See `docs/hr-workflows.md`.
+
 ### HR workflows: Recruitment and HR department
 
 **Migration required: `200_hr_workflows.sql`** (apply before the build).
