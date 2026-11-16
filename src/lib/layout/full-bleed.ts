@@ -19,7 +19,11 @@ import { isMeetingRoomPath } from '@/lib/meetings/session/paths';
 export const FULL_BLEED_ROOTS = [
   '/inbox',
   '/team-inbox',
-  '/hr-inbox',
+  // The HR inboxes (migration 200); /hr/tasks, /hr/rules and the other
+  // HR screens are ordinary scrolling pages.
+  '/hr/recruiter',
+  '/hr/department',
+  '/hr/unsorted',
   '/broadcasts/inbox',
   '/groups',
   '/submission-groups',

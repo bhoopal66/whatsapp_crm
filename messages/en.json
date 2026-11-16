@@ -57,7 +57,8 @@
       "collaboration": "Collaboration",
       "team": "Team",
       "automation": "Campaigns & automation",
-      "integrations": "Integrations"
+      "integrations": "Integrations",
+      "hr": "HR"
     },
     "roleBankGuest": "Bank guest",
     "switchWorkspace": "Switch workspace",
@@ -79,7 +80,15 @@
     "banks": "Banks",
     "brain": "Second brain",
     "digest": "Daily digest",
-    "opendesk": "OpenDesk"
+    "opendesk": "OpenDesk",
+    "hrRecruiter": "Recruiter HR",
+    "hrDepartment": "HR department",
+    "hrUnsorted": "Not sorted",
+    "hrTasks": "Tasks",
+    "hrRules": "Rules",
+    "hrHireFast": "Hire fast",
+    "hrAutomatedMessages": "Automated messages",
+    "openHrChats": "{count, plural, one {# open chat} other {# open chats}}"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -121,7 +130,14 @@
     "digest": "Daily digest",
     "opendesk": "OpenDesk",
     "hrTasks": "HR tasks",
-    "hrSetup": "HR setup"
+    "hrSetup": "HR setup",
+    "hrRecruiter": "Recruiter HR",
+    "hrDepartment": "HR department",
+    "hrUnsorted": "Not sorted",
+    "hrRules": "Rules",
+    "hrHireFast": "Hire fast",
+    "hrAutomatedMessages": "Automated messages",
+    "hr": "HR"
   },
   "Notifications": {
     "title": "Notifications",
@@ -11030,7 +11046,7 @@
       "unknownCustomer": "Customer"
     },
     "setup": {
-      "title": "HR setup",
+      "title": "Rules",
       "back": "Back to HR inbox",
       "team": {
         "title": "HR team",

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The HR inbox's filter bar (`/hr-inbox`, migration 200): the four tabs
+ * The HR inbox's filter bar (`/hr/*`, migration 200): the four tabs
  * with their `hr_counts()` numbers, the stage / topic / reply selects,
  * the Urgent, Mine and Closed toggles, and the links to HR tasks and
  * setup. It owns no filter state: the page reads the filters from the
@@ -48,9 +48,19 @@ const NATIVE_FIELD =
 interface HrFilterBarProps {
   filters: HrListFilters;
   onChange: (next: HrListFilters) => void;
+  /**
+   * The route fixes the tab (/hr/recruiter, /hr/department,
+   * /hr/unsorted): the tab row and the links block are not shown, as the
+   * sidebar's HR group carries both.
+   */
+  fixedTab?: boolean;
 }
 
-export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
+export function HrFilterBar({
+  filters,
+  onChange,
+  fixedTab = false,
+}: HrFilterBarProps) {
   const t = useTranslations('Hr');
   const [counts, setCounts] = useState<Record<HrTab, number> | null>(null);
   const { accountId, user } = useAuth();
@@ -109,40 +119,42 @@ export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
       aria-label={t('list.filtersAria')}
       className="bg-card flex flex-wrap items-center gap-1.5 border-b px-3 py-2 text-xs"
     >
-      <div
-        role="group"
-        aria-label={t('list.tabsAria')}
-        className="flex flex-wrap gap-1"
-      >
-        {HR_TABS.map((tab) => {
-          const label = tabLabel(tab);
-          const n = counts?.[tab];
-          return (
-            <Button
-              key={tab}
-              type="button"
-              size="xs"
-              variant={filters.tab === tab ? 'default' : 'outline'}
-              aria-pressed={filters.tab === tab}
-              aria-label={
-                n === undefined
-                  ? label
-                  : t('list.tabCountAria', { label, count: n })
-              }
-              onClick={() => {
-                if (filters.tab !== tab) onChange(switchHrTab(filters, tab));
-              }}
-            >
-              {label}
-              {n !== undefined && (
-                <span aria-hidden className="tabular-nums opacity-70">
-                  {n}
-                </span>
-              )}
-            </Button>
-          );
-        })}
-      </div>
+      {!fixedTab && (
+        <div
+          role="group"
+          aria-label={t('list.tabsAria')}
+          className="flex flex-wrap gap-1"
+        >
+          {HR_TABS.map((tab) => {
+            const label = tabLabel(tab);
+            const n = counts?.[tab];
+            return (
+              <Button
+                key={tab}
+                type="button"
+                size="xs"
+                variant={filters.tab === tab ? 'default' : 'outline'}
+                aria-pressed={filters.tab === tab}
+                aria-label={
+                  n === undefined
+                    ? label
+                    : t('list.tabCountAria', { label, count: n })
+                }
+                onClick={() => {
+                  if (filters.tab !== tab) onChange(switchHrTab(filters, tab));
+                }}
+              >
+                {label}
+                {n !== undefined && (
+                  <span aria-hidden className="tabular-nums opacity-70">
+                    {n}
+                  </span>
+                )}
+              </Button>
+            );
+          })}
+        </div>
+      )}
 
       {filters.tab === 'recruiter' && (
         <select
@@ -244,36 +256,38 @@ export function HrFilterBar({ filters, onChange }: HrFilterBarProps) {
         </div>
       )}
 
-      <div className="ml-auto flex gap-2">
-        {links.hireFast && (
+      {!fixedTab && (
+        <div className="ml-auto flex gap-2">
+          {links.hireFast && (
+            <Link
+              href="/hr/hire-fast"
+              className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+            >
+              {t('list.hireFast')}
+            </Link>
+          )}
+          {links.automatedMessages && (
+            <Link
+              href="/hr/automated-messages"
+              className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+            >
+              {t('list.automatedMessages')}
+            </Link>
+          )}
           <Link
-            href="/hr-inbox/hire-fast"
+            href="/hr/tasks"
             className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
           >
-            {t('list.hireFast')}
+            {t('list.tasks')}
           </Link>
-        )}
-        {links.automatedMessages && (
           <Link
-            href="/hr-inbox/automated-messages"
+            href="/hr/rules"
             className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
           >
-            {t('list.automatedMessages')}
+            {t('list.setup')}
           </Link>
-        )}
-        <Link
-          href="/hr-inbox/tasks"
-          className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-        >
-          {t('list.tasks')}
-        </Link>
-        <Link
-          href="/hr-inbox/setup"
-          className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-        >
-          {t('list.setup')}
-        </Link>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

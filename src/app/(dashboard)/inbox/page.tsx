@@ -43,6 +43,7 @@ import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import { HrFilterBar } from '@/components/hr/hr-filter-bar';
+import type { HrInboxRoute } from '@/lib/hr/routes';
 import {
   hrInboxUrl,
   parseHrListParams,
@@ -132,19 +133,23 @@ export default function InboxPage() {
  * everything RLS allows. Admins are left alone: their inbox has always
  * been the account-wide triage view and still is.
  *
- * `departmentView` (/hr-inbox, owners and admins) lists one
- * department's chats (migration 192) the way the Team inbox lists
- * everything; the other views leave department chats out except the
- * viewer's own.
+ * `departmentView` (the /hr/* inboxes, owners, admins and HR teams)
+ * lists one department's chats (migration 192) the way the Team inbox
+ * lists everything; the other views leave department chats out except
+ * the viewer's own. `hrInbox` fixes the HR view's tab to the route's
+ * inbox (/hr/recruiter, /hr/department, /hr/unsorted): the URL's
+ * `hrTab` is ignored and never written, the other HR filters still are.
  */
 export function InboxPageInner({
   teamView = false,
   campaignView = false,
   departmentView,
+  hrInbox,
 }: {
   teamView?: boolean;
   campaignView?: boolean;
   departmentView?: InboxDepartment;
+  hrInbox?: HrInboxRoute;
 } = {}) {
   const t = useTranslations('Inbox.page');
   const { user, accountId, accountRole, profileLoading, department } =
@@ -215,21 +220,23 @@ export function InboxPageInner({
   const hrKey = hrView
     ? writeHrListParams(
         new URLSearchParams(),
-        parseHrListParams(searchParams)
+        parseHrListParams(searchParams, hrInbox),
+        hrInbox
       ).toString()
     : null;
   const hrFilters = useMemo<HrListFilters | undefined>(
     () =>
       hrKey === null
         ? undefined
-        : parseHrListParams(new URLSearchParams(hrKey)),
-    [hrKey]
+        : parseHrListParams(new URLSearchParams(hrKey), hrInbox),
+    [hrKey, hrInbox]
   );
   const handleHrFiltersChange = useCallback(
     (next: HrListFilters) => {
       const params = writeHrListParams(
         new URLSearchParams(window.location.search),
-        next
+        next,
+        hrInbox
       ).toString();
       window.history.replaceState(
         null,
@@ -237,17 +244,17 @@ export function InboxPageInner({
         params ? `${basePath}?${params}` : basePath
       );
     },
-    [basePath]
+    [basePath, hrInbox]
   );
   // The thread-selection URL: the HR view keeps its filter keys.
   const selectionUrl = useCallback(
     (convId: string | null) =>
       hrView
-        ? hrInboxUrl(basePath, window.location.search, convId)
+        ? hrInboxUrl(basePath, window.location.search, convId, hrInbox)
         : convId
           ? `${basePath}?c=${convId}`
           : basePath,
-    [basePath, hrView]
+    [basePath, hrView, hrInbox]
   );
 
   // List rows hold only the list's columns (CONVERSATION_LIST_SELECT);
@@ -1235,7 +1242,11 @@ export function InboxPageInner({
           on a phone only with the list showing, like the list itself. */}
       {hrFilters && (
         <div className={cn('shrink-0', hasActiveConv && 'hidden lg:block')}>
-          <HrFilterBar filters={hrFilters} onChange={handleHrFiltersChange} />
+          <HrFilterBar
+            filters={hrFilters}
+            onChange={handleHrFiltersChange}
+            fixedTab={!!hrInbox}
+          />
         </div>
       )}
 

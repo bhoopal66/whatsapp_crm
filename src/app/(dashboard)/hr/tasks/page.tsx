@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
-import { ArrowLeft, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
@@ -106,13 +106,6 @@ export default function HrTasksPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
-      <Link
-        href="/hr-inbox"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-      >
-        <ArrowLeft className="size-4" />
-        {t('back')}
-      </Link>
       <div>
         <h1 className="text-xl font-semibold">{t('title')}</h1>
         <p className="text-muted-foreground text-sm">{t('subtitle')}</p>

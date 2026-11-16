@@ -290,7 +290,7 @@ describe('hire fast view', () => {
     const c = row({}, null);
     const views = hireFastViews([c, b, a], NOW, NONE, null);
     expect(views.map((v) => v.name)).toEqual(['Sara', '+971500000002', null]);
-    expect(views[0].href).toBe(`/hr-inbox?c=${a.conversation_id}`);
+    expect(views[0].href).toBe(`/hr/recruiter?c=${a.conversation_id}`);
   });
 
   it('filters by stage and by the viewer as assignee', () => {

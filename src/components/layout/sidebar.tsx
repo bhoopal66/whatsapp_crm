@@ -17,6 +17,8 @@ import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import { useBrainNav } from '@/hooks/use-brain-nav';
 import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
+import { useHrCounts } from '@/hooks/use-hr-counts';
+import { hasHrAccess } from '@/lib/hr/access';
 import {
   ArrowLeftRight,
   Crown,
@@ -125,13 +127,16 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
   const brainOn = useBrainNav();
-  const hrTeam = useHrTeamNav();
+  const hrRoles = useHrTeamNav();
+  // The HR group's open counts; polled only for someone with an HR role
+  // (an owner/admin's hr_my_roles() says admin).
+  const hrCounts = useHrCounts(!!hrRoles && hasHrAccess(hrRoles));
   const navGroups = visibleNavGroups(profileLoading ? null : accountRole, {
     pbx: callsNav.visible,
     brain: brainOn,
     salesRestricted,
     callReviewer: reviewsAllCalls,
-    hrTeam,
+    hrRoles,
   });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();
@@ -196,12 +201,24 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           label: t('unreadConversations', { count: unreadChats.team }),
           className: PRIMARY_BADGE,
         };
-      case '/hr-inbox':
+      // The HR inboxes: open chats (hr_counts), as the package's
+      // sidebar shows them, not unread.
+      case '/hr/recruiter':
+      case '/hr/department':
+      case '/hr/unsorted': {
+        if (!hrCounts) return null;
+        const count =
+          href === '/hr/recruiter'
+            ? hrCounts.recruiter.all
+            : href === '/hr/department'
+              ? hrCounts.dept.all
+              : hrCounts.unsorted;
         return {
-          count: unreadChats.hr,
-          label: t('unreadConversations', { count: unreadChats.hr }),
+          count,
+          label: t('openHrChats', { count }),
           className: PRIMARY_BADGE,
         };
+      }
       case '/chat':
         return {
           count: chatUnread,

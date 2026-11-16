@@ -288,12 +288,40 @@ describe('switchHrTab', () => {
 describe('hrInboxUrl', () => {
   it('keeps the HR keys, sets c and drops the rest', () => {
     expect(
-      hrInboxUrl('/hr-inbox', '?hrTab=dept&hrTopic=payroll&c=old&tag=x', 'new')
-    ).toBe('/hr-inbox?hrTab=dept&hrTopic=payroll&c=new');
+      hrInboxUrl('/hr/all', '?hrTab=dept&hrTopic=payroll&c=old&tag=x', 'new')
+    ).toBe('/hr/all?hrTab=dept&hrTopic=payroll&c=new');
   });
 
   it('is the bare path with nothing to keep', () => {
-    expect(hrInboxUrl('/hr-inbox', '?c=old', null)).toBe('/hr-inbox');
+    expect(hrInboxUrl('/hr/recruiter', '?c=old', null, 'recruiter')).toBe(
+      '/hr/recruiter'
+    );
+  });
+
+  it("on a fixed inbox, ignores the URL's tab and never writes it", () => {
+    expect(
+      hrInboxUrl(
+        '/hr/department',
+        '?hrTab=recruiter&hrTopic=payroll&hrStage=cv_review&hrMine=1&c=old',
+        'new',
+        'dept'
+      )
+    ).toBe('/hr/department?hrTopic=payroll&hrMine=1&c=new');
+    expect(
+      hrInboxUrl('/hr/recruiter', '?hrStage=hr_interview', 'x', 'recruiter')
+    ).toBe('/hr/recruiter?hrStage=hr_interview&c=x');
+  });
+});
+
+describe('a fixed tab', () => {
+  it('wins over hrTab when parsing and is left out when writing', () => {
+    const params = new URLSearchParams('hrTab=dept&hrStage=hr_interview');
+    const f = parseHrListParams(params, 'recruiter');
+    expect(f.tab).toBe('recruiter');
+    expect(f.stage).toBe('hr_interview');
+    expect(
+      writeHrListParams(new URLSearchParams('c=1'), f, 'recruiter').toString()
+    ).toBe('c=1&hrStage=hr_interview');
   });
 });
 

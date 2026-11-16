@@ -6,7 +6,9 @@ describe('isFullBleedPath', () => {
   it.each([
     '/inbox',
     '/team-inbox',
-    '/hr-inbox',
+    '/hr/recruiter',
+    '/hr/department',
+    '/hr/unsorted',
     '/broadcasts/inbox',
     '/groups',
     '/groups/abc',
@@ -27,6 +29,9 @@ describe('isFullBleedPath', () => {
     '/contacts',
     '/settings',
     '/groupsx',
+    '/hr/tasks',
+    '/hr/rules',
+    '/hr-inbox',
     null,
     undefined,
   ])('%s keeps the padded, scrolling page', (path) => {

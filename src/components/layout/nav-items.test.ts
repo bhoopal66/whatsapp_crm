@@ -39,6 +39,31 @@ const AGENT = {
 
 const TEAM = ['/team-inbox', '/team-contacts', '/team-activity'];
 
+/** The HR group (migration 200), as an owner or admin sees it. */
+const HR_ALL = [
+  '/hr/recruiter',
+  '/hr/department',
+  '/hr/unsorted',
+  '/hr/tasks',
+  '/hr/rules',
+  '/hr/hire-fast',
+  '/hr/automated-messages',
+];
+
+/**
+ * The source of the nearest layout on `href`'s path, '' for none: the
+ * HR screens share /hr/layout.tsx.
+ */
+function routeLayout(appDir: string, href: string): string {
+  const parts = href.slice(1).split('/');
+  const file = parts
+    .map((_, i) =>
+      join(appDir, ...parts.slice(0, parts.length - i), 'layout.tsx')
+    )
+    .find((f) => existsSync(f));
+  return file ? readFileSync(file, 'utf8') : '';
+}
+
 const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
 describe('visibleNavGroups', () => {
@@ -63,7 +88,8 @@ describe('visibleNavGroups', () => {
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
       ...AGENT,
-      team: ['/team-inbox', '/hr-inbox', ...TEAM.slice(1)],
+      team: TEAM,
+      hr: HR_ALL,
       automation: ['/broadcasts', '/automations', '/flows'],
       integrations: ['/compass', '/opendesk'],
     });
@@ -77,6 +103,7 @@ describe('visibleNavGroups', () => {
       'customers',
       'submissions',
       'team',
+      'hr',
       'automation',
       'integrations',
     ]);
@@ -194,25 +221,81 @@ describe('visibleNavGroups', () => {
     );
   });
 
-  it('shows the HR inbox to HR team members below admin (200)', () => {
-    const hrefs = (
+  describe('the HR group (200)', () => {
+    const hrRows = (
       role: AccountRole | null,
       ctx: Parameters<typeof visibleNavGroups>[1]
-    ) => visibleNavGroups(role, ctx).flatMap((g) => g.items.map((i) => i.href));
-    expect(hrefs('agent', { hrTeam: true })).toContain('/hr-inbox');
-    // HR people sit in a restricted department; /hr-inbox is not a sales area.
-    expect(hrefs('agent', { hrTeam: true, salesRestricted: true })).toContain(
-      '/hr-inbox'
-    );
-    expect(hrefs('agent', {})).not.toContain('/hr-inbox');
-    expect(hrefs('admin', {})).toContain('/hr-inbox');
-    // Never a guest, nor while the role loads.
-    for (const role of [null, 'bank_guest'] as const)
-      expect(hrefs(role, { hrTeam: true }), String(role)).not.toContain(
-        '/hr-inbox'
+    ) =>
+      visibleNavGroups(role, ctx)
+        .find((g) => g.id === 'hr')
+        ?.items.map((i) => i.href) ?? [];
+    const roles = (
+      recruiter: 'lead' | 'member' | null,
+      dept: 'lead' | 'member' | null
+    ) => ({ admin: false, recruiter, dept });
+
+    it('shows an admin every HR screen, roles known or not', () => {
+      expect(hrRows('admin', {})).toEqual(HR_ALL);
+      expect(hrRows('owner', { hrRoles: null })).toEqual(HR_ALL);
+    });
+
+    it('shows a recruiter lead the recruitment screens, not HR department', () => {
+      expect(hrRows('agent', { hrRoles: roles('lead', null) })).toEqual([
+        '/hr/recruiter',
+        '/hr/unsorted',
+        '/hr/tasks',
+        '/hr/rules',
+        '/hr/hire-fast',
+        '/hr/automated-messages',
+      ]);
+    });
+
+    it('shows a recruiter member Hire fast but not Automated messages', () => {
+      expect(hrRows('agent', { hrRoles: roles('member', null) })).toEqual([
+        '/hr/recruiter',
+        '/hr/unsorted',
+        '/hr/tasks',
+        '/hr/rules',
+        '/hr/hire-fast',
+      ]);
+    });
+
+    it('shows a dept member no Recruiter HR and no Hire fast', () => {
+      expect(hrRows('agent', { hrRoles: roles(null, 'member') })).toEqual([
+        '/hr/department',
+        '/hr/unsorted',
+        '/hr/tasks',
+        '/hr/rules',
+      ]);
+      // A dept lead leads no recruitment: still no Automated messages.
+      expect(hrRows('agent', { hrRoles: roles(null, 'lead') })).not.toContain(
+        '/hr/automated-messages'
       );
-    // The flag waives only the HR inbox row's role floor.
-    expect(hrefs('agent', { hrTeam: true })).not.toContain('/team-inbox');
+    });
+
+    it('keeps the HR rows for a restricted department (HR people are one)', () => {
+      expect(
+        hrRows('agent', {
+          hrRoles: roles(null, 'member'),
+          salesRestricted: true,
+        })
+      ).toContain('/hr/department');
+    });
+
+    it('hides the group from staff with no HR role, a guest and a loading role', () => {
+      expect(hrRows('agent', {})).toEqual([]);
+      expect(hrRows('team_leader', { hrRoles: roles(null, null) })).toEqual([]);
+      for (const role of [null, 'bank_guest'] as const)
+        expect(
+          hrRows(role, { hrRoles: roles('lead', 'lead') }),
+          String(role)
+        ).toEqual([]);
+    });
+
+    it('opens nothing outside the HR group', () => {
+      const all = visibleNavGroups('agent', { hrRoles: roles('lead', 'lead') });
+      expect(layout(all)).toEqual({ ...AGENT, hr: HR_ALL });
+    });
   });
 
   it('shows a guestVisible row to a guest and to staff alike', () => {
@@ -271,20 +354,19 @@ describe('nav model', () => {
   it("gates each row exactly as its route's layout does", () => {
     const appDir = join(process.cwd(), 'src', 'app', '(dashboard)');
     for (const item of ALL_ITEMS) {
-      const file = join(appDir, item.href.slice(1), 'layout.tsx');
-      const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const source = routeLayout(appDir, item.href);
       // CallReviewerLayout is team leader and up, plus a call reviewer
       // (migration 198), whom `callReviewerVisible` lets past minRole.
       const reviewerGuard = source.includes('CallReviewerLayout');
       expect(!!item.callReviewerVisible, item.href).toBe(reviewerGuard);
-      // HrAccessLayout is admin and up, plus an HR team member (migration
-      // 200), whom `hrTeamVisible` lets past minRole.
+      // HrAccessLayout is admin and up, plus anyone with an HR role
+      // (migration 200): an `hr` row, gated by hrGateOpen, not minRole.
       const hrGuard = source.includes('HrAccessLayout');
-      expect(!!item.hrTeamVisible, item.href).toBe(hrGuard);
+      expect(!!item.hr, item.href).toBe(hrGuard);
       const guard: AccountRole | undefined =
         source.includes('TeamLeaderOnlyLayout') || reviewerGuard
           ? 'team_leader'
-          : source.includes('AdminOnlyLayout') || hrGuard
+          : source.includes('AdminOnlyLayout')
             ? 'admin'
             : source.includes('AgentOnlyLayout')
               ? 'agent'
@@ -302,8 +384,7 @@ describe('nav model', () => {
   it("marks a row guarded exactly when its route's layout guards it", () => {
     const appDir = join(process.cwd(), 'src', 'app', '(dashboard)');
     for (const item of ALL_ITEMS) {
-      const file = join(appDir, item.href.slice(1), 'layout.tsx');
-      const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const source = routeLayout(appDir, item.href);
       const guarded =
         /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(source) ||
         /\b(CallReviewer|HrAccess)Layout\b/.test(source);
@@ -344,7 +425,7 @@ describe('navPrefetch', () => {
         '/compass',
         '/flows',
         '/groups',
-        '/hr-inbox',
+        ...HR_ALL,
         '/journeys',
         '/meetings',
         '/opendesk',

@@ -1,9 +1,9 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
-import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
+import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls';
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     serverSupabaseUrl(),
@@ -15,20 +15,24 @@ export async function middleware(request: NextRequest) {
       cookieOptions: { name: AUTH_COOKIE_NAME },
       cookies: {
         getAll() {
-          return request.cookies.getAll()
+          return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            request.cookies.set(name, value)
+          );
+          supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
-          )
+          );
         },
       },
     }
-  )
+  );
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // getUser() transparently refreshes an expired access token, which
   // ROTATES the refresh token and writes the new cookies onto
@@ -42,10 +46,10 @@ export async function middleware(request: NextRequest) {
   // refreshed cookies onto whatever response we hand back to fix that.
   const withRefreshedCookies = <T extends NextResponse>(response: T): T => {
     supabaseResponse.cookies.getAll().forEach((cookie) => {
-      response.cookies.set(cookie)
-    })
-    return response
-  }
+      response.cookies.set(cookie);
+    });
+    return response;
+  };
 
   // Auth pages - redirect to dashboard if already logged in.
   // Exception: when an invite token is in the query string we
@@ -56,20 +60,21 @@ export async function middleware(request: NextRequest) {
   // `/signup` is not listed because it no longer exists — this CRM
   // has no self-service signup; admins provision logins from
   // Settings -> Members.
-  if (user && (
-    request.nextUrl.pathname === '/login' ||
-    request.nextUrl.pathname === '/forgot-password'
-  )) {
-    const url = request.nextUrl.clone()
-    const inviteToken = request.nextUrl.searchParams.get('invite')
+  if (
+    user &&
+    (request.nextUrl.pathname === '/login' ||
+      request.nextUrl.pathname === '/forgot-password')
+  ) {
+    const url = request.nextUrl.clone();
+    const inviteToken = request.nextUrl.searchParams.get('invite');
     if (inviteToken && request.nextUrl.pathname === '/login') {
-      url.pathname = `/join/${encodeURIComponent(inviteToken)}`
-      url.search = ''
+      url.pathname = `/join/${encodeURIComponent(inviteToken)}`;
+      url.search = '';
     } else {
-      url.pathname = '/dashboard'
-      url.search = ''
+      url.pathname = '/dashboard';
+      url.search = '';
     }
-    return withRefreshedCookies(NextResponse.redirect(url))
+    return withRefreshedCookies(NextResponse.redirect(url));
   }
 
   // Protected pages - redirect to login if not authenticated. This is
@@ -83,6 +88,9 @@ export async function middleware(request: NextRequest) {
     '/inbox',
     '/team-inbox',
     '/hr-inbox',
+    // The HR screens (/hr/recruiter, /hr/tasks, …). With the slash, so
+    // this prefix test cannot catch an unrelated /hr… route.
+    '/hr/',
     '/contacts',
     '/team-contacts',
     '/team-activity',
@@ -107,11 +115,14 @@ export async function middleware(request: NextRequest) {
     '/banks',
     '/brain',
     '/digest',
-  ]
-  if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return withRefreshedCookies(NextResponse.redirect(url))
+  ];
+  if (
+    !user &&
+    protectedPaths.some((path) => request.nextUrl.pathname.startsWith(path))
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    return withRefreshedCookies(NextResponse.redirect(url));
   }
 
   // API routes that need auth. Some authenticate themselves rather
@@ -120,16 +131,19 @@ export async function middleware(request: NextRequest) {
   // cron endpoints (`x-cron-secret`, like /api/automations/cron and
   // /api/flows/cron, which sit outside this prefix and never hit this
   // gate).
-  if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook') &&
-      request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron' &&
-      request.nextUrl.pathname !== '/api/whatsapp/health/cron') {
+  if (
+    !user &&
+    request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
+    !request.nextUrl.pathname.includes('/webhook') &&
+    request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron' &&
+    request.nextUrl.pathname !== '/api/whatsapp/health/cron'
+  ) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
+    );
   }
 
-  return supabaseResponse
+  return supabaseResponse;
 }
 
 export const config = {
@@ -138,4 +152,4 @@ export const config = {
     // (service-worker update checks, install prompts): no session work.
     '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|meeting-effects/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
-}
+};
