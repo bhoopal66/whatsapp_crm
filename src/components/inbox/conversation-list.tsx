@@ -114,6 +114,7 @@ import { InsightLegend } from '@/components/insights/insight-legend';
 import { toast } from 'sonner';
 import { ImportantBadge } from './important-badge';
 import { InsightChips } from './insight-badge';
+import { showsSalesInsights } from '@/lib/hr/sales-only';
 import { HrRowTags, HrStaffRing } from '@/components/hr/hr-row';
 import {
   applyHrQueryOps,
@@ -761,9 +762,13 @@ export function ConversationList({
   // and the Urgent pin exist only while the workspace has signals on.
   // Off, the filters read as empty and no Urgent query is made, so the
   // list fetches and renders exactly as it did before.
-  const { settings: insightSettings, loading: insightLoading } =
+  const { settings: insightSettings, loading: insightLoadingRaw } =
     useInsightSettings();
-  const signalsOn = !!insightSettings?.signalsEnabled;
+  // The HR screens never show them (lead signals are a sales tool):
+  // there they read as switched off, filters, chips and pins included.
+  const salesInsights = showsSalesInsights({ hrScreen: hrHeaderOn });
+  const insightLoading = salesInsights && insightLoadingRaw;
+  const signalsOn = salesInsights && !!insightSettings?.signalsEnabled;
   // Handled is the customer card's capability (agents and up): the RPC
   // refuses a viewer, so a viewer is never offered the button.
   const canSendMessages = useCan('send-messages');

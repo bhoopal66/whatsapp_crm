@@ -35,6 +35,7 @@ import { ContactDocumentsRow } from './contact-documents-row';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
+import { showsSalesInsights } from '@/lib/hr/sales-only';
 import type { CustomerInsightFigures } from '@/lib/insights/customer-view';
 import { HrPanel } from '@/components/hr/hr-panel';
 import { cn } from '@/lib/utils';
@@ -285,17 +286,20 @@ export function ContactSidebar({
             </div>
           </section>
 
-          {/* Smart insights (docs/jev-insights.md) */}
-          <CustomerInsightsCard
-            conversation={conversation}
-            tone="wa"
-            frame={(title, body) => (
-              <section className="bg-wa-panel px-5 py-4">
-                <SectionTitle icon={Sparkles}>{title}</SectionTitle>
-                <div className="mt-2.5">{body}</div>
-              </section>
-            )}
-          />
+          {/* Smart insights (docs/jev-insights.md): lead signals are a
+              sales tool, never shown for an HR chat. */}
+          {showsSalesInsights({ hrScreen: false, inboxDepartment }) && (
+            <CustomerInsightsCard
+              conversation={conversation}
+              tone="wa"
+              frame={(title, body) => (
+                <section className="bg-wa-panel px-5 py-4">
+                  <SectionTitle icon={Sparkles}>{title}</SectionTitle>
+                  <div className="mt-2.5">{body}</div>
+                </section>
+              )}
+            />
+          )}
 
           {/* Deal rooms (module 014c) */}
           <DealRoomLinks
