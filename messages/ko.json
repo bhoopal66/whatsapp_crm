@@ -11321,22 +11321,21 @@
         "title": "템플릿",
         "metaNote": "Meta 번호에서는 같은 이름의 템플릿이 템플릿 메뉴에도 승인된 유틸리티 템플릿으로 있어야 하며, 본문에 이름과 시간이 나오는 순서대로 {{1}} / {{2}}를 써야 합니다.",
         "leadNote": "템플릿은 관리자만 수정할 수 있습니다.",
-        "cardTitle": "{kind} · {language}",
+        "cardTitle": "{kind} ({language})",
         "languages": {
           "en": "영어",
           "ar": "아랍어"
         },
         "seedNote": "기본 문구이며 아직 저장되지 않았습니다",
-        "body": "메시지 내용",
+        "body": "메시지",
+        "counter": "{count} / {max}자",
         "metaName": "Meta 템플릿 이름",
-        "metaNameHelp": "영문 소문자, 숫자, 밑줄만 쓸 수 있습니다.",
         "approval": "승인 상태",
         "approvalStatus": {
           "draft": "초안",
           "approved": "승인됨"
         },
-        "utility": "유틸리티",
-        "save": "저장",
+        "save": "템플릿 저장",
         "saved": "템플릿을 저장했습니다",
         "check": {
           "missingPlaceholder": "{slot}이(가) 들어가야 합니다",
@@ -11348,7 +11347,7 @@
         }
       },
       "history": {
-        "title": "메시지 기록",
+        "title": "기록",
         "filter": {
           "all": "전체",
           "queued": "대기 중",
@@ -11358,9 +11357,11 @@
           "cancelled": "취소됨"
         },
         "time": "시간",
-        "candidate": "지원자",
+        "contact": "연락처",
         "trigger": "트리거",
         "statusHead": "상태",
+        "holdHead": "보류 사유",
+        "noHold": "-",
         "attempts": "시도",
         "attemptsCount": "{count, plural, other {#회 시도}}",
         "unnamed": "이름 없는 지원자",

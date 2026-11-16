@@ -11321,22 +11321,21 @@
         "title": "Templates",
         "metaNote": "On a Meta number the template must also exist, approved and Utility, in Templates under the same name, with {{1}} / {{2}} in the order the text uses the name and the time.",
         "leadNote": "Only admins can edit templates.",
-        "cardTitle": "{kind} · {language}",
+        "cardTitle": "{kind} ({language})",
         "languages": {
           "en": "English",
           "ar": "Arabic"
         },
         "seedNote": "Default text, not saved yet",
-        "body": "Message text",
+        "body": "Message",
+        "counter": "{count} / {max} characters",
         "metaName": "Meta template name",
-        "metaNameHelp": "Lowercase letters, digits and underscores.",
         "approval": "Approval",
         "approvalStatus": {
           "draft": "Draft",
           "approved": "Approved"
         },
-        "utility": "Utility",
-        "save": "Save",
+        "save": "Save template",
         "saved": "Template saved",
         "check": {
           "missingPlaceholder": "Must contain {slot}",
@@ -11348,7 +11347,7 @@
         }
       },
       "history": {
-        "title": "Message history",
+        "title": "History",
         "filter": {
           "all": "All",
           "queued": "Queued",
@@ -11358,9 +11357,11 @@
           "cancelled": "Cancelled"
         },
         "time": "Time",
-        "candidate": "Candidate",
+        "contact": "Contact",
         "trigger": "Trigger",
         "statusHead": "Status",
+        "holdHead": "Hold reason",
+        "noHold": "-",
         "attempts": "Attempts",
         "attemptsCount": "{count, plural, one {# attempt} other {# attempts}}",
         "unnamed": "Unnamed candidate",

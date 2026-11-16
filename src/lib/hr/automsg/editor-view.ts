@@ -98,9 +98,9 @@ export function editorInitial(
   };
 }
 
-/** "n / 1024". */
-export function editorCounter(body: string): string {
-  return `${body.length} / ${MAX_TEMPLATE_BODY}`;
+/** The counter's values for `templates.counter` ("n / 1024 characters"). */
+export function editorCounter(body: string): { count: number; max: number } {
+  return { count: body.length, max: MAX_TEMPLATE_BODY };
 }
 
 /** Meta's template names: lowercase letters, digits and underscores. */
@@ -168,7 +168,7 @@ export function editorMessages(
 export interface EditorView {
   /** Leads (and anyone not an admin) see the fields read-only. */
   readOnly: boolean;
-  counter: string;
+  counter: { count: number; max: number };
   messages: EditorMessage[];
   canSave: boolean;
 }
