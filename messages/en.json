@@ -10855,5 +10855,48 @@
     "similar": "Similar",
     "closeMatches": "Close matches",
     "similarHint": "Close match: not an exact match for your search"
+  },
+  "Hr": {
+    "inbox": {
+      "recruiter": "Recruitment",
+      "dept": "HR department"
+    },
+    "stage": {
+      "cv_review": "CV review",
+      "ai_interview": "AI interview",
+      "hr_interview": "HR interview",
+      "manager_interview": "Manager interview"
+    },
+    "topic": {
+      "onboarding": "Onboarding",
+      "visa_documents": "Visa & documents",
+      "leave_attendance": "Leave & attendance",
+      "payroll": "Payroll",
+      "complaint": "Complaint",
+      "other": "Other"
+    },
+    "outcome": {
+      "hired": "Hired",
+      "not_selected": "Not selected",
+      "withdrawn": "Withdrawn"
+    },
+    "replyState": {
+      "new": "New",
+      "reply_due": "Reply due",
+      "waiting": "Waiting on them"
+    },
+    "flag": {
+      "urgent": "Urgent",
+      "upset": "Upset"
+    },
+    "error": {
+      "NOT_ALLOWED": "You don't have permission to do this.",
+      "NOT_FOUND": "This chat no longer exists, or you can't see it.",
+      "CLOSED": "This HR conversation is closed. Reopen it first.",
+      "STAGE_UNKNOWN": "That stage doesn't exist.",
+      "NEEDS_REASON": "Give a reason for this change.",
+      "INVALID": "That value isn't allowed here.",
+      "UNKNOWN": "Something went wrong. Try again."
+    }
   }
 }

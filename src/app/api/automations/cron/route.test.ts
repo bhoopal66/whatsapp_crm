@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   chatFiles: vi.fn(),
   push: vi.fn(),
   recurring: vi.fn(),
+  hrSweep: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -112,6 +113,7 @@ vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
 vi.mock('@/lib/calendar/reminders', () => ({
   runRecurringReminders: h.recurring,
 }));
+vi.mock('@/lib/hr/sweep', () => ({ runHrSweep: h.hrSweep }));
 
 /** Calls of one RPC: the edge purge, push purge and calendar sweep share `rpc`. */
 const rpcCalls = (name: string) =>
@@ -149,6 +151,7 @@ beforeEach(() => {
     failed: 0,
   });
   h.recurring.mockReset().mockResolvedValue(0);
+  h.hrSweep.mockReset().mockResolvedValue({ created: 0, skipped: 0 });
   h.submissionGroups.mockReset().mockResolvedValue({ errors: [] });
   h.caseSla.mockReset().mockResolvedValue({
     evaluated: 0,
@@ -179,6 +182,27 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('GET /api/automations/cron — HR rule sweep piggy-back', () => {
+  it('runs the HR sweep at most every 5 minutes', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    await GET(req());
+    await runAfter();
+    expect(h.hrSweep).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:04:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.hrSweep).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:05:00Z'));
+    h.hrSweep.mockResolvedValue(null);
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(h.hrSweep).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('GET /api/automations/cron — meeting lapse piggy-back', () => {

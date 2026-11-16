@@ -8,6 +8,7 @@ import {
   runChannelHealthCheck,
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
+import { runHrSweep } from '@/lib/hr/sweep'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
@@ -694,6 +695,31 @@ function schedulePersonalHistoryImport() {
 }
 
 /**
+ * The HR rule sweep (migration 200) files reply-overdue and no-activity
+ * tasks for every account. At most once per 5 minutes per process,
+ * inside after(); the SQL dedupes on the event, so an overlapping run
+ * creates nothing. runHrSweep never throws; a failure is only logged.
+ */
+const hrSweepDue = everyInterval(5 * 60_000)
+
+function scheduleHrSweep() {
+  try {
+    if (!hrSweepDue()) return
+    after(async () => {
+      const summary = await runHrSweep()
+      if (summary && summary.created > 0) {
+        console.log('[automations-cron] hr sweep:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the hr sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -741,6 +767,7 @@ export async function GET(request: Request) {
     scheduleCalendarReminders()
     scheduleAssistHousekeeping()
     schedulePersonalHistoryImport()
+    scheduleHrSweep()
   }
 }
 

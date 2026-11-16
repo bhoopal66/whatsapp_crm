@@ -10855,5 +10855,48 @@
     "similar": "유사",
     "closeMatches": "유사한 결과",
     "similarHint": "유사 항목: 검색어와 정확히 일치하지 않습니다"
+  },
+  "Hr": {
+    "inbox": {
+      "recruiter": "채용",
+      "dept": "인사부"
+    },
+    "stage": {
+      "cv_review": "이력서 검토",
+      "ai_interview": "AI 면접",
+      "hr_interview": "인사 면접",
+      "manager_interview": "관리자 면접"
+    },
+    "topic": {
+      "onboarding": "온보딩",
+      "visa_documents": "비자 및 서류",
+      "leave_attendance": "휴가 및 근태",
+      "payroll": "급여",
+      "complaint": "불만 사항",
+      "other": "기타"
+    },
+    "outcome": {
+      "hired": "채용 확정",
+      "not_selected": "불합격",
+      "withdrawn": "지원 철회"
+    },
+    "replyState": {
+      "new": "신규",
+      "reply_due": "답장 필요",
+      "waiting": "상대방 응답 대기"
+    },
+    "flag": {
+      "urgent": "긴급",
+      "upset": "불만"
+    },
+    "error": {
+      "NOT_ALLOWED": "이 작업을 할 권한이 없습니다.",
+      "NOT_FOUND": "이 채팅이 더 이상 없거나 볼 수 없습니다.",
+      "CLOSED": "이 HR 대화는 종료되었습니다. 먼저 다시 여세요.",
+      "STAGE_UNKNOWN": "존재하지 않는 단계입니다.",
+      "NEEDS_REASON": "이 변경의 사유를 입력하세요.",
+      "INVALID": "여기에서 허용되지 않는 값입니다.",
+      "UNKNOWN": "문제가 발생했습니다. 다시 시도하세요."
+    }
   }
 }

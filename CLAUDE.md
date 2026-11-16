@@ -1751,7 +1751,7 @@ Cron / GitHub Actions / any pinger):
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders, the assist pending sweep and the
   personal-number history import (1 min),
-  closing empty instant meetings (5 min),
+  closing empty instant meetings and the HR rule sweep (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and
   the unsent-attachment sweep (24 h). An install that pings
   only this one is covered. A new background job joins this list.
