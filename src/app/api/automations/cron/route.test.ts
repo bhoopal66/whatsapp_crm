@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   push: vi.fn(),
   recurring: vi.fn(),
   hrSweep: vi.fn(),
+  automsgDrain: vi.fn(),
+  automsgNudges: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -114,6 +116,10 @@ vi.mock('@/lib/calendar/reminders', () => ({
   runRecurringReminders: h.recurring,
 }));
 vi.mock('@/lib/hr/sweep', () => ({ runHrSweep: h.hrSweep }));
+vi.mock('@/lib/hr/automsg/drain', () => ({
+  runHrAutomsgDrain: h.automsgDrain,
+  runHrAutomsgNudges: h.automsgNudges,
+}));
 
 /** Calls of one RPC: the edge purge, push purge and calendar sweep share `rpc`. */
 const rpcCalls = (name: string) =>
@@ -152,6 +158,8 @@ beforeEach(() => {
   });
   h.recurring.mockReset().mockResolvedValue(0);
   h.hrSweep.mockReset().mockResolvedValue({ created: 0, skipped: 0 });
+  h.automsgDrain.mockReset().mockResolvedValue(null);
+  h.automsgNudges.mockReset().mockResolvedValue(0);
   h.submissionGroups.mockReset().mockResolvedValue({ errors: [] });
   h.caseSla.mockReset().mockResolvedValue({
     evaluated: 0,
@@ -202,6 +210,97 @@ describe('GET /api/automations/cron — HR rule sweep piggy-back', () => {
     expect((await GET(req())).status).toBe(200);
     await expect(runAfter()).resolves.toBeUndefined();
     expect(h.hrSweep).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('GET /api/automations/cron — HR automated messages', () => {
+  it('drains after the response, at most once a minute', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    await GET(req());
+    expect(h.automsgDrain).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.automsgDrain).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.automsgDrain).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.automsgDrain).toHaveBeenCalledTimes(2);
+  });
+
+  it('queues nudges after the HR sweep, in the same 5-minute pass', async () => {
+    vi.resetModules();
+    const order: string[] = [];
+    h.hrSweep.mockImplementation(async () => {
+      order.push('sweep');
+      return null;
+    });
+    h.automsgNudges.mockImplementation(async () => {
+      order.push('nudges');
+      return 2;
+    });
+    const { GET } = await import('./route');
+    await GET(req());
+    expect(h.automsgNudges).not.toHaveBeenCalled();
+    await runAfter();
+    expect(order).toEqual(['sweep', 'nudges']);
+
+    vi.setSystemTime(new Date('2026-09-29T13:04:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.automsgNudges).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays quiet when the drain finds nothing or returns null', async () => {
+    vi.resetModules();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    h.automsgDrain.mockResolvedValue({ reviewed: 0, expired: 0, outcomes: {} });
+    const { GET } = await import('./route');
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(log).not.toHaveBeenCalledWith(
+      '[automations-cron] hr automsg drain:',
+      expect.anything()
+    );
+    log.mockRestore();
+  });
+
+  it('only logs a drain that throws and still answers', async () => {
+    vi.resetModules();
+    h.automsgDrain.mockRejectedValue(new Error('boom'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('./route');
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] hr automsg drain failed:',
+      'boom'
+    );
+    log.mockRestore();
+  });
+
+  it('logs a drain that did work', async () => {
+    vi.resetModules();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    h.automsgDrain.mockResolvedValue({
+      reviewed: 0,
+      expired: 1,
+      outcomes: { sent: 2 },
+    });
+    const { GET } = await import('./route');
+    await GET(req());
+    await runAfter();
+    expect(log).toHaveBeenCalledWith('[automations-cron] hr automsg drain:', {
+      reviewed: 0,
+      expired: 1,
+      outcomes: { sent: 2 },
+    });
+    log.mockRestore();
   });
 });
 

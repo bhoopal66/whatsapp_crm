@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
+import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
@@ -711,10 +712,53 @@ function scheduleHrSweep() {
       if (summary && (summary.created > 0 || summary.expired > 0)) {
         console.log('[automations-cron] hr sweep:', summary)
       }
+      // The automated-message nudges ride the same 5-minute pass; they
+      // run even when the sweep failed, and never throw.
+      const nudges = await runHrAutomsgNudges()
+      if (nudges) {
+        console.log('[automations-cron] hr automsg nudges queued:', nudges)
+      }
     })
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the hr sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * The HR automated-message drain (migration 203): settles stuck rows,
+ * expires stale ones and sends the due ones. At most once a minute per
+ * process, inside after(). runHrAutomsgDrain never throws; a failure is
+ * only logged and the next pass picks the work up.
+ */
+const hrAutomsgDue = everyInterval(60_000)
+
+function scheduleHrAutomsgDrain() {
+  try {
+    if (!hrAutomsgDue()) return
+    after(async () => {
+      try {
+        const summary = await runHrAutomsgDrain()
+        if (
+          summary &&
+          (summary.reviewed > 0 ||
+            summary.expired > 0 ||
+            Object.keys(summary.outcomes).length > 0)
+        ) {
+          console.log('[automations-cron] hr automsg drain:', summary)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] hr automsg drain failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the hr automsg drain:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -769,6 +813,7 @@ export async function GET(request: Request) {
     scheduleAssistHousekeeping()
     schedulePersonalHistoryImport()
     scheduleHrSweep()
+    scheduleHrAutomsgDrain()
   }
 }
 
