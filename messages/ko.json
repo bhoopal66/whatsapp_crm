@@ -10957,6 +10957,37 @@
       "taskFailed": "할 일을 업데이트하지 못했습니다.",
       "staffConversation": "직원 대화"
     },
+    "hireFast": {
+      "title": "빠른 채용",
+      "subtitle": "다음 조치가 필요한 순서대로 정렬한 채용 지원자입니다. 읽기 전용입니다.",
+      "back": "HR 받은편지함으로 돌아가기",
+      "noAccess": "빠른 채용은 채용팀과 관리자만 사용할 수 있습니다.",
+      "stage": "단계",
+      "anyStage": "모든 단계",
+      "mine": "내 담당",
+      "refresh": "새로고침",
+      "loadFailed": "지원자를 불러오지 못했습니다. 다시 시도하세요.",
+      "empty": "지금 조치가 필요한 지원자가 없습니다",
+      "rank": "#",
+      "candidate": "지원자",
+      "status": "상태",
+      "waiting": "대기",
+      "score": "점수",
+      "why": "이유",
+      "contact": "연락처",
+      "urgent": "긴급",
+      "waitingHours": "{n}시간 대기",
+      "waitingDays": "{n}일 대기",
+      "reason": {
+        "reply_due": "답장 필요",
+        "urgent": "긴급",
+        "upset": "불만",
+        "waiting_long": "오래 대기",
+        "late_stage": "후반 단계",
+        "task_overdue": "기한 지난 작업",
+        "stalled": "진행 정체"
+      }
+    },
     "tasks": {
       "title": "HR 작업",
       "subtitle": "HR 워크플로 규칙이 만든 후속 작업입니다. 마감이 가까운 순서로 표시됩니다.",

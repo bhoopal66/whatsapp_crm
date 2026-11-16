@@ -10957,6 +10957,37 @@
       "taskFailed": "Couldn't update the task.",
       "staffConversation": "Staff conversation"
     },
+    "hireFast": {
+      "title": "Hire fast",
+      "subtitle": "Recruitment candidates ranked by who needs action next. Read only.",
+      "back": "Back to HR inbox",
+      "noAccess": "Hire fast is for the recruitment team and admins.",
+      "stage": "Stage",
+      "anyStage": "Any stage",
+      "mine": "Mine",
+      "refresh": "Refresh",
+      "loadFailed": "Couldn't load the candidates. Try again.",
+      "empty": "Nobody needs action right now",
+      "rank": "#",
+      "candidate": "Candidate",
+      "status": "Status",
+      "waiting": "Waiting",
+      "score": "Score",
+      "why": "Why",
+      "contact": "Contact",
+      "urgent": "Urgent",
+      "waitingHours": "Waiting {n} h",
+      "waitingDays": "Waiting {n} d",
+      "reason": {
+        "reply_due": "Reply due",
+        "urgent": "Urgent",
+        "upset": "Upset",
+        "waiting_long": "Waiting long",
+        "late_stage": "Late stage",
+        "task_overdue": "Task overdue",
+        "stalled": "Stalled"
+      }
+    },
     "tasks": {
       "title": "HR tasks",
       "subtitle": "Follow-ups the HR workflow rules opened, soonest due first.",
