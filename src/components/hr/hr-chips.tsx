@@ -21,22 +21,18 @@ const TOPIC_CLASS =
 /**
  * The HR chips on an HR-inbox row (migration 200): stage marker or
  * topic tag, reply state, Urgent, Upset. They sit on the meta line and
- * never replace the message preview; every chip carries words and an
- * aria-label.
+ * never replace the message preview; every chip carries words, and a
+ * screen-reader-only prefix names what it is (an aria-label on a
+ * role-less span is not announced).
  */
 export function HrChips({ hr }: { hr: HrListRow | null | undefined }) {
   const t = useTranslations('Hr');
   if (!hr) return null;
   const reached = stageIndex(hr.stage_key);
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
+    <span className="inline-flex shrink-0 flex-nowrap items-center gap-1">
       {hr.inbox === 'recruiter' && hr.stage_key ? (
-        <span
-          className={`${CHIP} bg-muted text-foreground`}
-          aria-label={t('list.stageAria', {
-            stage: t(`stage.${hr.stage_key}`),
-          })}
-        >
+        <span className={`${CHIP} bg-muted text-foreground`}>
           <span aria-hidden className="inline-flex items-end gap-px">
             {HR_STAGES.map((s, i) => (
               <span
@@ -49,47 +45,35 @@ export function HrChips({ hr }: { hr: HrListRow | null | undefined }) {
               />
             ))}
           </span>
-          {t(`stage.${hr.stage_key}`)}
+          <span className="sr-only">{t('list.stagePrefix')}</span>
+          <span className="sr-only sm:not-sr-only">
+            {t(`stage.${hr.stage_key}`)}
+          </span>
         </span>
       ) : null}
       {hr.inbox === 'dept' && hr.topic ? (
-        <span
-          className={`${CHIP} ${TOPIC_CLASS}`}
-          aria-label={t('list.topicAria', { topic: t(`topic.${hr.topic}`) })}
-        >
+        <span className={`${CHIP} ${TOPIC_CLASS}`}>
+          <span className="sr-only">{t('list.topicPrefix')}</span>
           {t(`topic.${hr.topic}`)}
         </span>
       ) : null}
       {hr.closed_at === null ? (
-        <span
-          className={`${CHIP} ${REPLY_CLASS[hr.reply_state]}`}
-          aria-label={t('list.replyAria', {
-            state: t(`replyState.${hr.reply_state}`),
-          })}
-        >
+        <span className={`${CHIP} ${REPLY_CLASS[hr.reply_state]}`}>
+          <span className="sr-only">{t('list.replyPrefix')}</span>
           {t(`replyState.${hr.reply_state}`)}
         </span>
       ) : (
-        <span
-          className={`${CHIP} bg-muted text-muted-foreground`}
-          aria-label={t('list.closed')}
-        >
+        <span className={`${CHIP} bg-muted text-muted-foreground`}>
           {t('list.closed')}
         </span>
       )}
       {hr.urgent ? (
-        <span
-          className={`${CHIP} bg-destructive-soft text-destructive`}
-          aria-label={t('flag.urgent')}
-        >
+        <span className={`${CHIP} bg-destructive-soft text-destructive`}>
           {t('flag.urgent')}
         </span>
       ) : null}
       {hr.upset ? (
-        <span
-          className={`${CHIP} bg-warning-soft text-warning`}
-          aria-label={t('flag.upset')}
-        >
+        <span className={`${CHIP} bg-warning-soft text-warning`}>
           {t('flag.upset')}
         </span>
       ) : null}

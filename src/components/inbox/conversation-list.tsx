@@ -120,6 +120,7 @@ import {
   HR_LIST_DEFAULTS,
   hrQueryOps,
   hrSelectEmbeds,
+  hrChangeAction,
   matchesHrFilters,
   type HrListFilters,
   type HrListRow,
@@ -991,7 +992,14 @@ export function ConversationList({
     (conversationId: string, hr: HrListRow | null) => {
       const params = listParamsRef.current;
       if (!params.hr) return;
-      if (heldIdsRef.current.has(conversationId)) {
+      const action = hrChangeAction(
+        heldIdsRef.current.has(conversationId),
+        hr,
+        params.hr.filters,
+        params.hr.viewerId
+      );
+      if (action === 'ignore') return;
+      if (action === 'patch') {
         setHrPatches((prev) => {
           const byId = new Map(prev.params === params ? prev.byId : []);
           byId.set(conversationId, hr);
@@ -999,10 +1007,8 @@ export function ConversationList({
         });
         return;
       }
-      // Not held: if it may now belong here, reload the first page
-      // (debounced). Its owner is unknown here, so "mine" is not asked.
-      const f = { ...params.hr.filters, mine: false };
-      if (!matchesHrFilters({ hr }, f, params.hr.viewerId)) return;
+      // Not held, but it may now belong here: reload the first page
+      // (debounced).
       if (hrRefetchTimer.current !== null) return;
       hrRefetchTimer.current = setTimeout(() => {
         hrRefetchTimer.current = null;
@@ -1099,6 +1105,8 @@ export function ConversationList({
     const startMode = signalsRef.current.mode;
 
     const deliver = (snap: InboxListSnapshot<ConversationListItem>) => {
+      // A first page is newer than any patch laid over earlier rows.
+      setHrPatches({ params: null, byId: new Map() });
       cursorRef.current = snap.cursor;
       setHasMore(snap.cursor !== null);
       setPageCount((n) => n + 1);

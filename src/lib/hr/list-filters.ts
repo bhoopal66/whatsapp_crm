@@ -201,6 +201,26 @@ export function matchesHrFilters(
   return true;
 }
 
+/**
+ * What a realtime hr_conversations change does to the list. `hr` null is
+ * a DELETE, which Realtime delivers from every workspace (it neither
+ * filters nor RLS-checks DELETE), so a delete of a chat the list does
+ * not hold is ignored.
+ */
+export function hrChangeAction(
+  held: boolean,
+  hr: HrListRow | null,
+  f: HrListFilters,
+  viewerId: string | null
+): 'patch' | 'reload' | 'ignore' {
+  if (held) return 'patch';
+  if (hr === null) return 'ignore';
+  // Owner unknown here, so "mine" is not asked.
+  return matchesHrFilters({ hr }, { ...f, mine: false }, viewerId)
+    ? 'reload'
+    : 'ignore';
+}
+
 /** The PostgREST builder methods the HR ops use. */
 export interface HrFilterableQuery<Q> {
   eq(column: string, value: string | boolean): Q;
