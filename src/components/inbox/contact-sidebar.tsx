@@ -36,6 +36,7 @@ import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
 import type { CustomerInsightFigures } from '@/lib/insights/customer-view';
+import { HrPanel } from '@/components/hr/hr-panel';
 
 interface ContactSidebarProps {
   /**
@@ -47,6 +48,8 @@ interface ContactSidebarProps {
   conversationId?: string | null;
   /** The open chat's full row: its Smart insights figures, kept live. */
   conversation?: CustomerInsightFigures | null;
+  /** The open chat's `inbox_department` (192): an HR chat shows the HR panel. */
+  inboxDepartment?: string | null;
   /** Shown at the top (the full row's Retry once every read missed). */
   notice?: React.ReactNode;
 }
@@ -55,6 +58,7 @@ export function ContactSidebar({
   contact,
   conversationId = null,
   conversation = null,
+  inboxDepartment = null,
   notice = null,
 }: ContactSidebarProps) {
   const tSidebar = useTranslations('Inbox.sidebar');
@@ -160,6 +164,13 @@ export function ContactSidebar({
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-2 pb-4">
           {notice}
+          {conversationId && (
+            <HrPanel
+              key={conversationId}
+              conversationId={conversationId}
+              inboxDepartment={inboxDepartment}
+            />
+          )}
           {/* Contact Info */}
           <section className="bg-wa-panel flex flex-col items-center px-5 pt-6 pb-4 text-center">
             <ContactAvatar contact={contact} name={displayName} size={88} />
