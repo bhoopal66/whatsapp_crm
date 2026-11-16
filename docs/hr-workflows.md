@@ -60,8 +60,12 @@ admin moves them with a reason.
 ## Workflow rules
 
 Rules never send anything to anyone. They create **tasks** (the ordinary
-tasks of `docs/tasks.md`: on the customer page, in HR inbox → Tasks,
-with the usual due-time ring) and set flags. Each workspace starts with
+tasks of `docs/tasks.md`, with the usual due-time ring, listed in the
+chat's HR panel and in HR inbox → Tasks) and set flags. An HR task is
+linked to the chat but not to the contact, so it is not on the customer
+page: under the tasks rules a contact link would show "Respond to
+complaint" to anyone who can see the contact. It is seen by its
+assignee, the assignee's team leader, and owners and admins. Each workspace starts with
 these eleven, all on:
 
 | Rule | When | Does | Due |
@@ -81,6 +85,9 @@ these eleven, all on:
 A rule's switch, hours and task title can be changed in Setup; what
 triggers it and what it does cannot. A task goes to the chat's assignee
 (else its owner, else nobody).
+
+Each rule fires once per event (`hr_rule_fired`): a task someone deletes
+is not created again.
 
 Each event creates its task once: setting the same stage or topic again
 creates nothing, a candidate moved back and forward again gets a fresh

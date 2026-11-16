@@ -1279,15 +1279,17 @@ contract.
   closure (`closed_at`, `outcome`) is not `conversations.status`.
 - **No new visibility.** HR team membership (`hr_team_members`, written
   only by `hr_member_set`, admins) opens `/hr-inbox` but grants no chat;
-  every `hr_*` write checks `hr_can_see` (191's `conversations_select`
-  predicate: change both together) and answers NOT_FOUND otherwise. The
-  table policies read `conversations` under the caller's RLS.
+  every `hr_*` write and both read policies use `hr_can_see` (191's
+  `conversations_select` predicate, so a coordinator share does not
+  reach HR rows: change both together); NOT_FOUND otherwise.
 - **Reply state** is generated from `last_inbound_at` / `last_outbound_at`,
   stamped by a `messages` AFTER INSERT trigger (customer / agent; bot
   ignored) that must never fail an insert (exceptions become WARNINGs).
 - **Rules create `public.tasks`** (`source 'automation'`, `kind
-  'follow_up'`, `source_ref 'hr:<chat>:<rule>:<event>'`, deduped by
-  085's unique key) and set flags; they never send. Triggers on
+  'follow_up'`, `source_ref 'hr:<chat>:<rule>:<event>'`, `contact_id`
+  NULL so 085's contact branch can't show an HR topic) and set flags;
+  they never send. Each event fires once through the `hr_rule_fired`
+  ledger (a deleted task is not re-created). Triggers on
   `hr_conversations` fire stage/topic rules; `hr_sweep` (service role,
   automations cron every 5 min) the time rules. History drives the
   dedupe counts and the "not below the furthest stage" rule.
