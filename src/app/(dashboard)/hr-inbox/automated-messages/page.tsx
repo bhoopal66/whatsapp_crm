@@ -6,6 +6,8 @@ import { useTranslations } from 'next-intl';
 import { ArrowLeft, Play, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { AutomsgHistory } from '@/components/hr/automsg-history';
+import { AutomsgTemplates } from '@/components/hr/automsg-templates';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -69,6 +71,7 @@ export default function HrAutomatedMessagesPage() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
 
   useEffect(() => {
     if (!accountId) return;
@@ -153,6 +156,8 @@ export default function HrAutomatedMessagesPage() {
       const res = await automsgReleaseNow();
       if ('error' in res) toast.error(t('banner.runFailed'));
       else toast.success(t('banner.runDone', releaseCounts(res.data)));
+      setHistoryKey((k) => k + 1);
+      await load();
     } finally {
       setBusy(false);
     }
@@ -370,7 +375,13 @@ export default function HrAutomatedMessagesPage() {
             </Table>
           </section>
 
-          {/* Templates and History: added by part 2 */}
+          <AutomsgTemplates
+            templates={config.templates}
+            role={role}
+            onSaved={load}
+          />
+
+          <AutomsgHistory role={role} refreshKey={historyKey} />
 
           <Dialog open={confirmOn} onOpenChange={setConfirmOn}>
             <DialogContent>
