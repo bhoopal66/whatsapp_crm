@@ -1296,6 +1296,40 @@ contract.
 - Lists live in SQL CHECKs and `lib/hr/types.ts` (`types.test.ts` reads
   the migration); `lib/hr/access.ts` mirrors the role rules for the UI.
   Refusals carry a HINT code (`hrErrorCode`). `verify-hr-workflows.sql`.
+- **Topics (201).** Eleven department topics; `HR_TOPICS` /
+  `HR_TOPIC_GROUPS` / `HR_TOPIC_FILTERS` are pinned to 201 by
+  `types.test.ts`. 201 re-creates `hr_set_topic`, so re-running 200
+  after it narrows the list again: apply in order, once.
+- **AI reply drafts (202, `lib/hr/agents/*`, release 024/026).** Drafts
+  only: no send path anywhere in the module. Recruitment inbox only,
+  company and personal chats. `inbound.ts` runs from both branches of
+  `processMessage` (personal before its early return), after the
+  idempotency boundary, via `later`; it costs one indexed read unless
+  the account's 'orchestrator' switch is on. A STOP is recorded
+  (`contacts.opted_out_at` + `hr_agent_supersede`) only while agents or
+  automated messages are on (`hr_automsg_active`). The model is the
+  workspace's AI config (`createAiModelPort`); spend is
+  `ai_usage_log.mode` 'hr_agent' (the 202 CHECK, `LogAiUsageArgs` and
+  the usage route's `byMode` change together). Candidate text only
+  inside `prompts.ts`'s data block (`sanitizeData`). Caps (3 pending,
+  5 a day) are checked before any AI call; drafts expire in the HR
+  sweep. `verify-hr-agents.sql`.
+- **Automated messages (203, `lib/hr/automsg/*`, release 025-027).**
+  Template-only, from the chat's own number (`send.ts`), never a
+  personal chat or number; a Meta send needs the local
+  `message_templates` row approved and utility, params in the HR
+  text's `{name}`/`{slot}` order. Rows are queued in SQL
+  (`hr_automsg_on_history`, only while that trigger is on); the
+  automations cron drains every minute (`drain.ts` → `engine.ts`
+  `processDue`). The claim re-checks the switches, opt-out, consent and
+  the cap under an advisory lock, so `row_state` → claim never sends
+  past a fresh STOP; accepted-but-unrecorded is 'unconfirmed' and never
+  resent. Tables are FORCE RLS with no grants (203 refuses to apply
+  except as BYPASSRLS). Promotional phrases and required placeholders
+  are TypeScript (`templates.ts`, imported by the client too);
+  structural body rules are SQL. `verify-hr-automsg.sql`.
+- **Hire fast** (`lib/hr/hirefast.ts`): pure ranking over the rows RLS
+  shows the caller; `assigned_agent_id` is an auth user id.
 
 ### Contact search (`lib/contacts/fuzzy-search.ts`, migration 193)
 
@@ -1779,8 +1813,10 @@ Cron / GitHub Actions / any pinger):
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders, the assist pending sweep and the
-  personal-number history import (1 min),
-  closing empty instant meetings and the HR rule sweep (5 min),
+  personal-number history import and the HR automated-message drain
+  (1 min),
+  closing empty instant meetings and the HR rule sweep with draft
+  expiry and reply nudges (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and
   the unsent-attachment sweep (24 h). An install that pings
   only this one is covered. A new background job joins this list.
