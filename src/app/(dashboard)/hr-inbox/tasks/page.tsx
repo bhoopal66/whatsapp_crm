@@ -9,7 +9,12 @@ import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/hooks/use-auth';
-import { isOverdue, visibleHrTasks } from '@/lib/hr/tasks-view';
+import {
+  customerNamesByTask,
+  isOverdue,
+  taskConversationIds,
+  visibleHrTasks,
+} from '@/lib/hr/tasks-view';
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
@@ -29,7 +34,7 @@ export default function HrTasksPage() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [mine, setMine] = useState(false);
   const [overdueOnly, setOverdueOnly] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
   const [doneError, setDoneError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -41,19 +46,18 @@ export default function HrTasksPage() {
       setTasks(body.tasks);
       setFailed(false);
       setNow(Date.now());
-      const ids = [
-        ...new Set(body.tasks.map((x) => x.contact_id).filter(Boolean)),
-      ] as string[];
+      const ids = taskConversationIds(body.tasks);
       if (ids.length > 0) {
         const { data } = await createClient()
-          .from('contacts')
-          .select('id, name')
+          .from('conversations')
+          .select('id, contact:contacts(name)')
           .in('id', ids);
         setNames(
-          Object.fromEntries(
-            ((data as { id: string; name: string | null }[] | null) ?? []).map(
-              (c) => [c.id, c.name ?? '']
-            )
+          customerNamesByTask(
+            body.tasks,
+            (data as unknown as
+              | { id: string; contact: { name: string | null } | null }[]
+              | null) ?? []
           )
         );
       }
@@ -78,7 +82,8 @@ export default function HrTasksPage() {
   );
 
   async function markDone(id: string) {
-    setBusy(id);
+    if (busy.has(id)) return;
+    setBusy((s) => new Set(s).add(id));
     setDoneError(false);
     try {
       const res = await fetch(`/api/tasks/${id}`, {
@@ -91,7 +96,11 @@ export default function HrTasksPage() {
     } catch {
       setDoneError(true);
     } finally {
-      setBusy(null);
+      setBusy((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
@@ -115,6 +124,7 @@ export default function HrTasksPage() {
             <button
               key={String(value)}
               type="button"
+              aria-pressed={mine === value}
               onClick={() => setMine(value)}
               className={cn(
                 'rounded px-3 py-1 text-sm',
@@ -158,9 +168,7 @@ export default function HrTasksPage() {
           <ul className="divide-border divide-y">
             {shown.map((task) => {
               const late = isOverdue(task, now);
-              const customer =
-                (task.contact_id && names[task.contact_id]) ||
-                t('unknownCustomer');
+              const customer = names[task.id] || t('unknownCustomer');
               return (
                 <li
                   key={task.id}
@@ -213,7 +221,8 @@ export default function HrTasksPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={busy === task.id}
+                      aria-label={t('doneTask', { title: task.title })}
+                      disabled={busy.has(task.id)}
                       onClick={() => void markDone(task.id)}
                     >
                       <Check className="size-4" />

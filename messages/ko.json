@@ -10956,6 +10956,7 @@
       "empty": "열린 HR 작업이 없습니다.",
       "loadFailed": "HR 작업을 불러오지 못했습니다.",
       "doneFailed": "작업을 완료로 표시하지 못했습니다.",
+      "doneTask": "“{title}” 완료 처리",
       "openChat": "채팅 열기",
       "unknownCustomer": "고객"
     },

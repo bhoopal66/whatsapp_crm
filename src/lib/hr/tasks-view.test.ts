@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { Task } from '@/lib/tasks/types';
 
-import { isHrTask, isOverdue, visibleHrTasks } from './tasks-view';
+import {
+  customerNamesByTask,
+  isHrTask,
+  isOverdue,
+  taskConversationIds,
+  visibleHrTasks,
+} from './tasks-view';
 
 const NOW = Date.parse('2026-11-16T12:00:00Z');
 
@@ -82,5 +88,26 @@ describe('visibleHrTasks', () => {
     expect(
       visibleHrTasks(all, { ...base, overdueOnly: true }).map((t) => t.id)
     ).toEqual(['late']);
+  });
+});
+
+describe('customer names through the chat', () => {
+  const tasks = [
+    task({ id: 'a', conversation_id: 'c1', contact_id: null }),
+    task({ id: 'b', conversation_id: 'c1', contact_id: null }),
+    task({ id: 'c', conversation_id: 'c2', contact_id: null }),
+    task({ id: 'd', conversation_id: null, contact_id: null }),
+  ];
+
+  it('collects each chat id once', () => {
+    expect(taskConversationIds(tasks)).toEqual(['c1', 'c2']);
+  });
+
+  it('names a task with contact_id NULL through its conversation_id', () => {
+    const names = customerNamesByTask(tasks, [
+      { id: 'c1', contact: { name: 'Sara' } },
+      { id: 'c2', contact: null },
+    ]);
+    expect(names).toEqual({ a: 'Sara', b: 'Sara' });
   });
 });

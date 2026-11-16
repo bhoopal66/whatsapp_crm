@@ -4,9 +4,9 @@ import {
   canEditRow,
   furthestStage,
   hasReason,
-  isHrTask,
   laterStage,
   openKinds,
+  outcomeToSend,
   panelActions,
   showHrPanel,
   stepNeedsReason,
@@ -238,17 +238,13 @@ describe('panelActions', () => {
   });
 });
 
-describe('isHrTask', () => {
-  it('matches the hr: source_ref or an hr_rule in meta', () => {
-    expect(isHrTask({ source_ref: 'hr:c1:stage_cv_review', meta: {} })).toBe(
-      true
-    );
-    expect(
-      isHrTask({ source_ref: null, meta: { hr_rule: 'topic_payroll' } })
-    ).toBe(true);
-    expect(isHrTask({ source_ref: 'pbx:123', meta: {} })).toBe(false);
-    expect(isHrTask({ source_ref: null, meta: null })).toBe(false);
-    expect(isHrTask({ source_ref: 'xhr:1', meta: { hr_rule: 5 } })).toBe(false);
+describe('outcomeToSend', () => {
+  it('sends the pick only on a recruiter row', () => {
+    expect(outcomeToSend({ inbox: 'recruiter' }, 'hired')).toBe('hired');
+    expect(outcomeToSend({ inbox: 'recruiter' }, '')).toBeNull();
+  });
+  it('is null on a dept row even when an outcome is selected', () => {
+    expect(outcomeToSend({ inbox: 'dept' }, 'hired')).toBeNull();
   });
 });
 
