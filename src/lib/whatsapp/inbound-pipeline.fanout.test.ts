@@ -39,6 +39,7 @@ const h = vi.hoisted(() => ({
   watch: vi.fn(),
   insights: vi.fn(),
   reminder: vi.fn(),
+  hrAgents: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
   classify: vi.fn(),
@@ -161,6 +162,9 @@ vi.mock('@/lib/insights/inbound', () => ({
 vi.mock('@/lib/reminders/suggest', () => ({
   suggestReminderForMessage: (...args: unknown[]) => h.reminder(...args),
 }));
+vi.mock('@/lib/hr/agents/inbound', () => ({
+  handleHrInboundMessage: (...args: unknown[]) => h.hrAgents(...args),
+}));
 vi.mock('@/lib/insights/auto-tag', () => ({
   autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
 }));
@@ -258,6 +262,7 @@ beforeEach(() => {
   h.watch.mockReset().mockResolvedValue(undefined);
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.reminder.mockReset().mockResolvedValue({ status: 'off' });
+  h.hrAgents.mockReset().mockResolvedValue(undefined);
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
   h.recipientRows = [];
@@ -441,6 +446,51 @@ describe('processMessage — reminder suggestions', () => {
   });
 });
 
+// Recruiter agents (migration 202) draft on company and personal chats
+// alike, with our messages row id, inside the promise handed to later.
+describe('processMessage — recruiter agents hook', () => {
+  const expected = {
+    accountId: 'acct-1',
+    conversationId: 'conv-1',
+    contactId: 'contact-1',
+    messageId: 'row-1',
+    text: 'hello',
+  };
+
+  it('runs on a company chat and is handed to later', async () => {
+    const later: Promise<unknown>[] = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel, later);
+    expect(h.hrAgents).toHaveBeenCalledTimes(1);
+    expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
+    expect(later).toContain(h.hrAgents.mock.results[0].value);
+  });
+
+  it('runs on a personal chat and is handed to later', async () => {
+    const later: Promise<unknown>[] = [];
+    await processMessage(
+      message,
+      'acct-1',
+      'owner-1',
+      { ...channel, isPersonal: true, personalUserId: 'owner-1' },
+      later
+    );
+    expect(h.hrAgents).toHaveBeenCalledTimes(1);
+    expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
+    expect(later).toContain(h.hrAgents.mock.results[0].value);
+  });
+
+  it('never runs over the rate limit (fanOut: false) or on a replay', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    info.mockRestore();
+    expect(h.hrAgents).not.toHaveBeenCalled();
+  });
+});
+
 // The journey bot (module 016) runs after Flows, only when no Flow took
 // the message; when it consumes, content automations and the AI reply
 // stand down as they do for a Flow.
@@ -545,8 +595,8 @@ describe('processMessage — Smart insights', () => {
     const later: Promise<unknown>[] = [];
     await processMessage(message, 'acct-1', 'owner-1', channel, later);
 
-    // The insights chain and the reminder suggestion.
-    expect(later).toHaveLength(2);
+    // The insights chain, the reminder suggestion and the HR agents hook.
+    expect(later).toHaveLength(3);
     expect(h.watch).toHaveBeenCalledTimes(1);
     expect(h.insights).not.toHaveBeenCalled();
 

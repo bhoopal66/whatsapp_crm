@@ -54,6 +54,7 @@ import {
 } from '@/lib/broadcasts/reply-class';
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
+import { handleHrInboundMessage } from '@/lib/hr/agents/inbound';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush, shouldPushInbound } from '@/lib/push/inbound';
@@ -1018,6 +1019,17 @@ export async function processMessage(
     });
     if (later) later.push(personalWatch);
     else await personalWatch;
+    // Recruiter agents (migration 202, docs/hr-workflows.md) draft on
+    // personal HR chats too: drafts only, a recruiter sends. Never throws.
+    const personalHr = handleHrInboundMessage({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      messageId: insertedRows[0].id,
+      text: contentText ?? message.text ?? '',
+    });
+    if (later) later.push(personalHr);
+    else await personalHr;
     await fileDocumentLater();
     return;
   }
@@ -1326,6 +1338,20 @@ export async function processMessage(
   });
   if (later) later.push(reminder);
   else await reminder;
+
+  // Recruiter agents (migration 202): a candidate's message in the
+  // Recruiter HR inbox may get a draft reply for a recruiter to approve.
+  // Nothing is sent; off unless switched on; never throws. Handed to
+  // `later` like the reminder so after() keeps it alive.
+  const hrAgents = handleHrInboundMessage({
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    messageId: insertedRows[0].id,
+    text: inboundText,
+  });
+  if (later) later.push(hrAgents);
+  else await hrAgents;
 
   // The customer document's own copy, if it needs one (see above).
   await fileDocumentLater();
