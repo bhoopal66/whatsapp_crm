@@ -297,15 +297,23 @@ export function hrOwnerChoices({
   ownerId: string | null;
   /** `assignableMembers(...)` user ids. */
   assignable: readonly string[];
-  /** `hr_team_members` of this inbox. */
-  teamUserIds: ReadonlySet<string>;
+  /**
+   * `hr_team_members` of this inbox; null while it is not read yet (or
+   * the read failed). Unknown never widens the list: until the team is
+   * known a lead or admin is offered only the current owner and
+   * Unassigned. A known EMPTY team means none is set up, and then the
+   * assignable list is used.
+   */
+  teamUserIds: ReadonlySet<string> | null;
 }): HrOwnerChoices | null {
   const role = hrRoleFor(roles, inbox);
   if (role === 'admin' || role === 'lead') {
     const team =
-      teamUserIds.size > 0
-        ? assignable.filter((id) => teamUserIds.has(id))
-        : [...assignable];
+      teamUserIds === null
+        ? []
+        : teamUserIds.size > 0
+          ? assignable.filter((id) => teamUserIds.has(id))
+          : [...assignable];
     if (ownerId && !team.includes(ownerId)) team.unshift(ownerId);
     return { userIds: team, unassigned: true };
   }

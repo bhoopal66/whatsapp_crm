@@ -106,7 +106,9 @@ export function HrPanel({
   }, [assignedAgentId]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [leadable, setLeadable] = useState<Set<string>>(new Set());
-  const [teamIds, setTeamIds] = useState<Set<string>>(new Set());
+  const [team, setTeam] = useState<{ inbox: string; ids: Set<string> } | null>(
+    null
+  );
 
   const [roles, setRoles] = useState<HrRoles | null>(null);
   const [row, setRow] = useState<HrConversation | null>(null);
@@ -262,8 +264,10 @@ export function HrPanel({
   }, [conversationId, hasAccess, isCurrent, loadTasks]);
 
   // The inbox's HR team, which narrows a lead's Owner choices. Only a
-  // lead or an admin picks others, so nobody else pays for the read; an
-  // error leaves it empty, which keeps the header's list.
+  // lead or an admin picks others, so nobody else pays for the read. The
+  // list is kept with the inbox it was read for, so a switch to a chat
+  // in the other inbox never shows the old team; until it is read (or
+  // when the read fails) the choices stay at the owner and Unassigned.
   const rowInboxForTeam = row?.inbox ?? null;
   const picksOthers =
     roles !== null &&
@@ -278,11 +282,12 @@ export function HrPanel({
       .eq('inbox', rowInboxForTeam)
       .then(({ data, error }) => {
         if (!alive || error) return;
-        setTeamIds(
-          new Set(
+        setTeam({
+          inbox: rowInboxForTeam,
+          ids: new Set(
             ((data as { user_id: string }[] | null) ?? []).map((m) => m.user_id)
-          )
-        );
+          ),
+        });
       });
     return () => {
       alive = false;
@@ -473,7 +478,7 @@ export function HrPanel({
         myUserId: userId,
         ownerId: owner,
         assignable: assignableIds,
-        teamUserIds: teamIds,
+        teamUserIds: team && team.inbox === row.inbox ? team.ids : null,
       })
     : null;
 

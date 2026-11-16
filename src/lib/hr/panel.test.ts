@@ -380,6 +380,26 @@ describe('hrOwnerChoices', () => {
     expect(hrOwnerChoices({ ...base, roles: DEPT_LEAD })).toBeNull();
   });
 
+  it('until the team is known an admin gets only the owner and Unassigned, never everyone', () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: ADMIN, teamUserIds: null })
+    ).toEqual({ userIds: [], unassigned: true });
+    expect(
+      hrOwnerChoices({
+        ...base,
+        roles: ADMIN,
+        teamUserIds: null,
+        ownerId: 'omar',
+      })
+    ).toEqual({ userIds: ['omar'], unassigned: true });
+  });
+
+  it('a known empty team (none set up) falls back to the assignable list', () => {
+    expect(
+      hrOwnerChoices({ ...base, roles: ADMIN, teamUserIds: new Set() })
+    ).toEqual({ userIds: assignable, unassigned: true });
+  });
+
   it('a member may claim an unowned chat', () => {
     expect(hrOwnerChoices({ ...base, roles: REC_MEMBER })).toEqual({
       userIds: ['me'],
