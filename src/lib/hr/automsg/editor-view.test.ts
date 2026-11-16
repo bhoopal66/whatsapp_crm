@@ -131,7 +131,7 @@ describe('editorMessages', () => {
 
 describe('editorView', () => {
   it('counts characters', () => {
-    expect(editorCounter('abc')).toBe('3 / 1024');
+    expect(editorCounter('abc')).toEqual({ count: 3, max: 1024 });
   });
 
   it('lets an admin save a valid form only', () => {

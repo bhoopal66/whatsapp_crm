@@ -100,17 +100,21 @@ export function AutomsgHistory({
   return (
     <section className="border-border bg-card space-y-3 rounded-lg border p-4">
       <h2 className="font-medium">{t('history.title')}</h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1">
         {HISTORY_FILTERS.map((f) => (
-          <Button
+          <button
             key={f}
-            size="sm"
-            variant={filter === f ? 'default' : 'outline'}
+            type="button"
             aria-pressed={filter === f}
             onClick={() => setFilter(f)}
+            className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+              filter === f
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-input bg-card dark:bg-input/30 hover:bg-card-2'
+            }`}
           >
             {t(`history.filter.${f}`)}
-          </Button>
+          </button>
         ))}
       </div>
 
@@ -126,90 +130,113 @@ export function AutomsgHistory({
       ) : items.length === 0 ? (
         <p className="text-muted-foreground text-sm">{t('history.empty')}</p>
       ) : (
-        <>
-          <div className="hidden sm:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('history.time')}</TableHead>
-                  <TableHead>{t('history.candidate')}</TableHead>
-                  <TableHead>{t('history.trigger')}</TableHead>
-                  <TableHead>{t('history.statusHead')}</TableHead>
-                  <TableHead>{t('history.attempts')}</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map(({ row, view }) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="align-top text-xs whitespace-nowrap">
-                      {formatTime(row)}
-                    </TableCell>
-                    <TableCell className="align-top">
-                      <CandidateLink row={row} view={view} />
-                    </TableCell>
-                    <TableCell className="align-top text-sm whitespace-normal">
-                      {t(`triggers.${row.trigger}`)}
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <StatusCell view={view} />
-                    </TableCell>
-                    <TableCell className="align-top text-sm">
-                      {row.attempts}
-                    </TableCell>
-                    <TableCell className="text-right align-top">
-                      {view.canCancel && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busyId !== null}
-                          onClick={() => void cancel(row.id)}
-                        >
-                          {t('history.cancel')}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          <ul className="space-y-2 sm:hidden">
-            {items.map(({ row, view }) => (
-              <li
-                key={row.id}
-                className="border-border bg-card-2 space-y-1.5 rounded-lg border p-3"
-              >
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <CandidateLink row={row} view={view} />
-                    <p className="text-muted-foreground text-xs">
-                      {formatTime(row)}
-                    </p>
-                  </div>
-                  {view.canCancel && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId !== null}
-                      onClick={() => void cancel(row.id)}
-                    >
-                      {t('history.cancel')}
-                    </Button>
-                  )}
-                </div>
-                <p className="text-sm">{t(`triggers.${row.trigger}`)}</p>
-                <StatusCell view={view} />
-                <p className="text-muted-foreground text-xs">
-                  {t('history.attemptsCount', { count: row.attempts })}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </>
+        <AutomsgHistoryList
+          items={items}
+          busy={busyId !== null}
+          onCancel={(id) => void cancel(id)}
+        />
       )}
     </section>
+  );
+}
+
+/**
+ * The history rows: a table on wider screens (Time, Contact, Trigger,
+ * Status, Hold reason, Attempts, Cancel), stacked cards on phones.
+ */
+export function AutomsgHistoryList({
+  items,
+  busy,
+  onCancel,
+}: {
+  items: readonly { row: AutoMsgOutboxRow; view: HistoryRowView }[];
+  busy: boolean;
+  onCancel: (id: string) => void;
+}) {
+  const t = useTranslations('Hr.automsg');
+  const cancelButton = (id: string) => (
+    <Button size="xs" disabled={busy} onClick={() => onCancel(id)}>
+      {t('history.cancel')}
+    </Button>
+  );
+  return (
+    <>
+      <div className="hidden sm:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('history.time')}</TableHead>
+              <TableHead>{t('history.contact')}</TableHead>
+              <TableHead>{t('history.trigger')}</TableHead>
+              <TableHead>{t('history.statusHead')}</TableHead>
+              <TableHead>{t('history.holdHead')}</TableHead>
+              <TableHead>{t('history.attempts')}</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map(({ row, view }) => (
+              <TableRow key={row.id}>
+                <TableCell className="text-sm whitespace-nowrap">
+                  {formatTime(row)}
+                </TableCell>
+                <TableCell>
+                  <CandidateLink row={row} view={view} />
+                </TableCell>
+                <TableCell className="text-sm whitespace-normal">
+                  {t(`triggers.${row.trigger}`)}
+                </TableCell>
+                <TableCell className="whitespace-normal">
+                  <StatusCell view={view} />
+                </TableCell>
+                <TableCell className="text-sm whitespace-normal">
+                  {view.holdKey
+                    ? t(`history.hold.${view.holdKey}`)
+                    : t('history.noHold')}
+                </TableCell>
+                <TableCell className="text-sm tabular-nums">
+                  {row.attempts}
+                </TableCell>
+                <TableCell className="text-right">
+                  {view.canCancel && cancelButton(row.id)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <ul className="space-y-2 sm:hidden">
+        {items.map(({ row, view }) => (
+          <li
+            key={row.id}
+            className="border-border bg-card-2 space-y-1.5 rounded-lg border p-3"
+          >
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <CandidateLink row={row} view={view} />
+                <p className="text-muted-foreground text-xs">
+                  {formatTime(row)}
+                </p>
+              </div>
+              {view.canCancel && cancelButton(row.id)}
+            </div>
+            <p className="text-sm">{t(`triggers.${row.trigger}`)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusCell view={view} />
+              {view.holdKey && (
+                <span className="text-muted-foreground text-xs">
+                  {t(`history.hold.${view.holdKey}`)}
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {t('history.attemptsCount', { count: row.attempts })}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -247,11 +274,6 @@ function StatusCell({ view }: { view: HistoryRowView }) {
       >
         {t(`status.${view.statusKey}`)}
       </span>
-      {view.holdKey && (
-        <p className="text-muted-foreground text-xs">
-          {t(`hold.${view.holdKey}`)}
-        </p>
-      )}
       {view.claimKey && (
         <p className="text-warning text-xs">{t(`claim.${view.claimKey}`)}</p>
       )}

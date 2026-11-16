@@ -47,7 +47,7 @@ export function AutomsgTemplates({
         )}
         <p className="text-muted-foreground text-xs">{t.raw('metaNote')}</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {editorSlots(templates).map((slot) => (
           <TemplateCard
             key={slot.key}
@@ -61,7 +61,7 @@ export function AutomsgTemplates({
   );
 }
 
-function TemplateCard({
+export function TemplateCard({
   slot,
   role,
   onSaved,
@@ -95,18 +95,13 @@ function TemplateCard({
   };
 
   return (
-    <div className="border-border bg-card-2 space-y-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="min-w-0 flex-1 text-sm font-medium">
-          {t('templates.cardTitle', {
-            kind: t(`templateKinds.${slot.kind}`),
-            language: t(`templates.languages.${slot.language}`),
-          })}
-        </h3>
-        <span className="bg-info-soft text-info rounded-full px-2 py-0.5 text-xs">
-          {t('templates.utility')}
-        </span>
-      </div>
+    <fieldset className="border-border bg-card-2 min-w-0 space-y-2 rounded-lg border px-3 pt-1 pb-3">
+      <legend className="px-1 text-sm font-medium">
+        {t('templates.cardTitle', {
+          kind: t(`templateKinds.${slot.kind}`),
+          language: t(`templates.languages.${slot.language}`),
+        })}
+      </legend>
       {!slot.stored && (
         <p className="text-muted-foreground text-xs">
           {t('templates.seedNote')}
@@ -114,20 +109,23 @@ function TemplateCard({
       )}
 
       <div className="space-y-1">
-        <label htmlFor={`${id}-body`} className="text-sm font-medium">
+        <label htmlFor={`${id}-body`} className="text-sm">
           {t('templates.body')}
         </label>
         <Textarea
           id={`${id}-body`}
           dir={slot.language === 'ar' ? 'rtl' : 'ltr'}
-          rows={5}
+          rows={4}
           value={form.body}
           readOnly={view.readOnly}
           onChange={(e) => setForm({ ...form, body: e.target.value })}
-          className="min-h-28"
+          className="min-h-24"
         />
-        <div className="flex flex-wrap items-start gap-2">
-          <ul className="min-w-0 flex-1 space-y-0.5" aria-live="polite">
+        <p className="text-muted-foreground text-xs tabular-nums">
+          {t('templates.counter', view.counter)}
+        </p>
+        {view.messages.length > 0 && (
+          <ul className="space-y-0.5" aria-live="polite">
             {view.messages.map((m, i) => (
               <li key={`${m.key}-${i}`} className="text-destructive text-xs">
                 {'values' in m
@@ -136,57 +134,51 @@ function TemplateCard({
               </li>
             ))}
           </ul>
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {view.counter}
-          </span>
-        </div>
+        )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <label htmlFor={`${id}-name`} className="text-sm font-medium">
-            {t('templates.metaName')}
-          </label>
-          <Input
-            id={`${id}-name`}
-            dir="ltr"
-            value={form.metaTemplateName}
-            readOnly={view.readOnly}
-            onChange={(e) =>
-              setForm({ ...form, metaTemplateName: e.target.value })
-            }
-          />
-          <p className="text-muted-foreground text-xs">
-            {t('templates.metaNameHelp')}
-          </p>
-        </div>
-        <div className="space-y-1">
-          <label htmlFor={`${id}-approval`} className="text-sm font-medium">
-            {t('templates.approval')}
-          </label>
-          <select
-            id={`${id}-approval`}
-            value={form.approvalStatus}
-            disabled={view.readOnly}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                approvalStatus: e.target.value as ApprovalStatus,
-              })
-            }
-            className="border-input bg-card dark:bg-input/30 h-8 w-full rounded-md border px-2 text-sm disabled:opacity-60"
-          >
-            {APPROVAL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`templates.approvalStatus.${s}`)}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex items-center gap-2">
+        <label
+          htmlFor={`${id}-name`}
+          className="shrink-0 text-sm whitespace-nowrap"
+        >
+          {t('templates.metaName')}
+        </label>
+        <Input
+          id={`${id}-name`}
+          dir="ltr"
+          className="min-w-0 flex-1"
+          value={form.metaTemplateName}
+          readOnly={view.readOnly}
+          onChange={(e) =>
+            setForm({ ...form, metaTemplateName: e.target.value })
+          }
+        />
       </div>
 
-      {!view.readOnly && (
-        <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${id}-approval`} className="text-sm">
+          {t('templates.approval')}
+        </label>
+        <select
+          id={`${id}-approval`}
+          value={form.approvalStatus}
+          disabled={view.readOnly}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              approvalStatus: e.target.value as ApprovalStatus,
+            })
+          }
+          className="border-input bg-card dark:bg-input/30 h-8 rounded-md border px-2 text-sm disabled:opacity-60"
+        >
+          {APPROVAL_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {t(`templates.approvalStatus.${s}`)}
+            </option>
+          ))}
+        </select>
+        {!view.readOnly && (
           <Button
             size="sm"
             disabled={!view.canSave}
@@ -194,8 +186,8 @@ function TemplateCard({
           >
             {t('templates.save')}
           </Button>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </fieldset>
   );
 }
