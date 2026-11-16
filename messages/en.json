@@ -11123,7 +11123,11 @@
       "setup": "Setup",
       "hireFast": "Hire fast",
       "automatedMessages": "Automated messages",
-      "topicGroupsAria": "Topic groups"
+      "topicGroupsAria": "Topic groups",
+      "unread": "Unread",
+      "unassigned": "Unassigned",
+      "staff": "Staff",
+      "ownerAria": "Owner: {name}"
     },
     "agents": {
       "title": "Agent drafts",
