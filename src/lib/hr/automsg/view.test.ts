@@ -7,6 +7,7 @@ import {
   automsgErrorKey,
   automsgRole,
   bannerView,
+  nextSettingsForm,
   releaseCounts,
   settingsForm,
   toTimeInput,
@@ -229,5 +230,34 @@ describe('refusals and Run now', () => {
         },
       })
     ).toEqual({ sent: 2, held: 4, other: 2 });
+  });
+});
+
+describe('nextSettingsForm', () => {
+  const typed: SettingsForm = {
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    tz: 'Asia/Dubai',
+    dailyCap: '9',
+    requiresConsent: false,
+  };
+
+  it('fills the form on the first load', () => {
+    expect(nextSettingsForm(null, config.settings, 'other')).toEqual(
+      settingsForm(config.settings)
+    );
+    expect(nextSettingsForm(typed, config.settings, 'first')).toEqual(
+      settingsForm(config.settings)
+    );
+  });
+
+  it('resets after a successful settings save', () => {
+    expect(nextSettingsForm(typed, config.settings, 'settings-saved')).toEqual(
+      settingsForm(config.settings)
+    );
+  });
+
+  it('keeps unsaved edits on any other reload', () => {
+    expect(nextSettingsForm(typed, config.settings, 'other')).toBe(typed);
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -59,11 +59,15 @@ export function AutomsgHistory({
   const [failed, setFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const seq = useRef(0);
+
   const load = useCallback(async (f: HistoryFilter) => {
+    const mine = ++seq.current;
     const res = await automsgOutbox(createClient(), {
       status: historyStatusArg(f),
       limit: HISTORY_LIMIT,
     });
+    if (mine !== seq.current) return;
     if ('error' in res) {
       setFailed(true);
       return;

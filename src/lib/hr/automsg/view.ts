@@ -159,6 +159,23 @@ export function settingsForm(s: AutoMsgSettingsView): SettingsForm {
   };
 }
 
+/** Why the config was (re)loaded: decides whether the form is reset. */
+export type ConfigLoadReason = 'first' | 'settings-saved' | 'other';
+
+/**
+ * The settings form after a config load. Only the first load and a
+ * successful settings save replace it; any other reload (a trigger flip,
+ * a template save, Run now) keeps what the admin has typed.
+ */
+export function nextSettingsForm(
+  current: SettingsForm | null,
+  loaded: AutoMsgSettingsView,
+  reason: ConfigLoadReason
+): SettingsForm {
+  if (current === null || reason !== 'other') return settingsForm(loaded);
+  return current;
+}
+
 export type SettingsCheck =
   | { ok: true; patch: Required<Omit<AutoMsgSettingsPatch, 'killSwitch'>> }
   | { ok: false; invalid: SettingsField[] };

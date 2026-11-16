@@ -44,7 +44,8 @@ import {
   automsgRole,
   bannerView,
   releaseCounts,
-  settingsForm,
+  nextSettingsForm,
+  type ConfigLoadReason,
   triggerRows,
   validateSettingsForm,
   type AutomsgRole,
@@ -84,7 +85,7 @@ export default function HrAutomatedMessagesPage() {
     };
   }, [accountId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (reason: ConfigLoadReason = 'other') => {
     const res = await automsgConfig(createClient());
     if ('error' in res) {
       setFailed(true);
@@ -92,12 +93,12 @@ export default function HrAutomatedMessagesPage() {
     }
     setFailed(false);
     setConfig(res.data);
-    setForm(settingsForm(res.data.settings));
-    setInvalid([]);
+    setForm((cur) => nextSettingsForm(cur, res.data.settings, reason));
+    if (reason !== 'other') setInvalid([]);
   }, []);
 
   useEffect(() => {
-    if (role) void load();
+    if (role) void load('first');
   }, [role, load]);
 
   const refusal = (code: string) =>
@@ -106,14 +107,15 @@ export default function HrAutomatedMessagesPage() {
   /** Runs a write, toasts a refusal in words, then reloads the config. */
   const save = async (
     write: () => Promise<{ data: unknown } | { error: string }>,
-    done: string
+    done: string,
+    reason: ConfigLoadReason = 'other'
   ) => {
     setBusy(true);
     try {
       const res = await write();
       if ('error' in res) refusal(res.error);
       else toast.success(done);
-      await load();
+      await load('error' in res ? 'other' : reason);
     } finally {
       setBusy(false);
     }
@@ -135,7 +137,8 @@ export default function HrAutomatedMessagesPage() {
     setInvalid([]);
     void save(
       () => automsgSaveSettings(createClient(), check.patch),
-      t('settings.saved')
+      t('settings.saved'),
+      'settings-saved'
     );
   };
 
@@ -378,7 +381,7 @@ export default function HrAutomatedMessagesPage() {
           <AutomsgTemplates
             templates={config.templates}
             role={role}
-            onSaved={load}
+            onSaved={() => load()}
           />
 
           <AutomsgHistory role={role} refreshKey={historyKey} />
@@ -475,7 +478,7 @@ function Banner({
             disabled={busy}
             onClick={onRunNow}
           >
-            <Play className="size-4" />
+            <Play className="size-4" aria-hidden />
             {t('runNow')}
           </Button>
         )}

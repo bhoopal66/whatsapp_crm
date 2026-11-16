@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditRule, canManageTeam } from '@/lib/hr/access';
 import { agentSettings, setAgentSetting } from '@/lib/hr/agents/api';
+import { decideErrorKey } from '@/lib/hr/agents/panel';
 import { agentSwitchView } from '@/lib/hr/agents/setup-switches';
 import { AGENT_KINDS, type AgentKind } from '@/lib/hr/agents/types';
 import { hrMemberSet, hrMyRoles, hrRuleSet, hrRulesList } from '@/lib/hr/api';
@@ -58,6 +59,7 @@ export default function HrSetupPage() {
   const [rules, setRules] = useState<HrRule[] | null>(null);
   const [rulesError, setRulesError] = useState<HrErrorCode | null>(null);
   const [agents, setAgents] = useState<Record<AgentKind, boolean> | null>(null);
+  const [savingAgents, setSavingAgents] = useState<AgentKind[]>([]);
   const [agentsFailed, setAgentsFailed] = useState(false);
   const [picks, setPicks] = useState<Record<HrInbox, string>>({
     recruiter: '',
@@ -109,11 +111,18 @@ export default function HrSetupPage() {
   );
 
   async function toggleAgent(kind: AgentKind, enabled: boolean) {
+    if (savingAgents.includes(kind)) return;
+    setSavingAgents((prev) => [...prev, kind]);
     setAgents((prev) => (prev ? { ...prev, [kind]: enabled } : prev));
-    const res = await setAgentSetting(supabase, kind, enabled);
-    if ('error' in res) {
-      setAgents((prev) => (prev ? { ...prev, [kind]: !enabled } : prev));
-      toast.error(t(`error.${res.error}`));
+    try {
+      const res = await setAgentSetting(supabase, kind, enabled);
+      if ('error' in res) {
+        toast.error(t(decideErrorKey(res.error)));
+        const fresh = await agentSettings(supabase);
+        if ('data' in fresh) setAgents(fresh.data);
+      }
+    } finally {
+      setSavingAgents((prev) => prev.filter((k) => k !== kind));
     }
   }
 
@@ -289,7 +298,9 @@ export default function HrSetupPage() {
                   {t(`setup.agents.kinds.${kind}`)}
                   <Switch
                     checked={agents[kind]}
-                    disabled={agentView.disabled[kind]}
+                    disabled={
+                      agentView.disabled[kind] || savingAgents.includes(kind)
+                    }
                     onCheckedChange={(v: boolean) => void toggleAgent(kind, v)}
                   />
                 </label>

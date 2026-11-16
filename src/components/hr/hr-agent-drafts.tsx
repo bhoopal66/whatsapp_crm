@@ -119,7 +119,8 @@ export function HrAgentDrafts({
   async function decide(
     draft: HrAgentDraftRow,
     decision: DraftDecision,
-    why?: string
+    why?: string,
+    doneKey?: string
   ): Promise<boolean> {
     const id = conversationId;
     setBusy(true);
@@ -128,7 +129,10 @@ export function HrAgentDrafts({
     if ('error' in res) toast.error(t(decideErrorKey(res.error)));
     else
       toast.success(
-        t(decision === 'approve' ? 'agents.approved' : 'agents.rejected')
+        t(
+          doneKey ??
+            (decision === 'approve' ? 'agents.approved' : 'agents.rejected')
+        )
       );
     await load(id);
     return !('error' in res);
@@ -286,7 +290,9 @@ export function HrAgentDrafts({
                       size="xs"
                       variant="ghost"
                       disabled={busy}
-                      onClick={() => void decide(d, 'reject')}
+                      onClick={() =>
+                        void decide(d, 'reject', undefined, 'agents.dismissed')
+                      }
                     >
                       {t('agents.dismiss')}
                     </Button>
