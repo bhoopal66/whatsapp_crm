@@ -10998,6 +10998,12 @@
         "replyOverdue": "A reply is still due {hours} hours after the last message",
         "noActivity": "A candidate has not answered for {hours} hours"
       }
+    },
+    "list": {
+      "stageAria": "Stage: {stage}",
+      "topicAria": "Topic: {topic}",
+      "replyAria": "Reply state: {state}",
+      "closed": "Closed"
     }
   }
 }

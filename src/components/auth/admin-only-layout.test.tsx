@@ -20,6 +20,7 @@ vi.mock('@/lib/auth/account', () => ({ getCurrentAccount: mocks.getCurrentAccoun
 import {
   AdminOnlyLayout,
   CallReviewerLayout,
+  HrAccessLayout,
   SalesOnlyLayout,
   StaffOnlyLayout,
 } from './admin-only-layout';
@@ -204,6 +205,74 @@ describe('CallReviewerLayout', () => {
 
   it('sends a signed-out caller to login', async () => {
     const { page } = await renderReviewer(null);
+    await expect(page).rejects.toThrow('REDIRECT:/login');
+  });
+});
+
+describe('HrAccessLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // `rpc` answers hr_my_roles() (migration 200) as the caller.
+  const renderHr = async (
+    role: string | null,
+    rpc: () => Promise<{ data: unknown; error: unknown }> = async () => ({
+      data: { admin: false, recruiter: null, dept: null },
+      error: null,
+    })
+  ) => {
+    const rpcMock = vi.fn(rpc);
+    if (role === null)
+      mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
+    else
+      mocks.getCurrentAccount.mockResolvedValue({
+        role,
+        accountId: 'a1',
+        userId: 'u1',
+        supabase: { rpc: rpcMock },
+      });
+    return { page: HrAccessLayout({ children: 'PAGE' }), rpcMock };
+  };
+
+  it.each(['admin', 'owner'])('renders the page for an %s without asking', async (role) => {
+    const { page, rpcMock } = await renderHr(role);
+    await expect(page).resolves.toBeDefined();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { recruiter: 'member', dept: null },
+    { recruiter: null, dept: 'lead' },
+  ])('renders the page for an HR team member (%o)', async (team) => {
+    const { page, rpcMock } = await renderHr('agent', async () => ({
+      data: { admin: false, ...team },
+      error: null,
+    }));
+    await expect(page).resolves.toBeDefined();
+    expect(rpcMock).toHaveBeenCalledWith('hr_my_roles');
+  });
+
+  it('redirects an agent on no HR team to the dashboard', async () => {
+    const { page } = await renderHr('agent');
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('fails closed when the check errors (e.g. 200 not applied)', async () => {
+    const { page } = await renderHr('team_leader', async () => ({
+      data: null,
+      error: { code: 'PGRST202', message: 'not found' },
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('treats a check that throws as a refusal, not a sign-out', async () => {
+    const { page } = await renderHr('agent', async () => {
+      throw new Error('network');
+    });
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    const { page } = await renderHr(null);
     await expect(page).rejects.toThrow('REDIRECT:/login');
   });
 });

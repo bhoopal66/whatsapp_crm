@@ -194,3 +194,40 @@ export async function SalesOnlyLayout({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
+
+/**
+ * Server-side gate for the HR inbox and its screens (migration 200):
+ * owners and admins, plus anyone on an HR team (`hr_team_members`),
+ * which `hr_my_roles()` answers as the caller. Membership grants no
+ * chat visibility: what the list shows is still decided by RLS. Without
+ * 200 the function is missing, the call errors and only admins pass
+ * (fail closed). Same shape as {@link AdminOnlyLayout}, redirects
+ * outside the try.
+ */
+export async function HrAccessLayout({ children }: { children: ReactNode }) {
+  let signedIn = true;
+  let allowed = false;
+
+  let ctx: Awaited<ReturnType<typeof getCurrentAccount>> | null = null;
+  try {
+    ctx = await getCurrentAccount();
+    allowed = canEditSettings(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+  if (ctx && !allowed && !isBankGuest(ctx.role)) {
+    try {
+      const { data, error } = await ctx.supabase.rpc('hr_my_roles');
+      const roles = data as { recruiter?: unknown; dept?: unknown } | null;
+      allowed =
+        !error && !!roles && (roles.recruiter != null || roles.dept != null);
+    } catch {
+      // A failed check is a refusal, never a sign-out.
+    }
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}

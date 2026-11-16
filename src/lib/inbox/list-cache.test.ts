@@ -12,6 +12,7 @@ import {
   type InboxListSnapshot,
 } from './list-cache';
 import { resetSessionCacheForTests, sessionCache } from '@/lib/session-cache';
+import { HR_LIST_DEFAULTS } from '@/lib/hr/list-filters';
 
 const BASE: InboxListQuestion = {
   teamView: false,
@@ -47,11 +48,42 @@ describe('inboxListQuestion', () => {
     ['campaign', { campaignId: 'b1' }],
     ['insight filter', { insightFilters: ['hot'] }],
     ['department inbox', { department: 'hr' }],
+    [
+      'HR filters',
+      { department: 'hr', hrFilters: { ...HR_LIST_DEFAULTS, tab: 'dept' } },
+    ],
+    [
+      'HR closed filter',
+      { department: 'hr', hrFilters: { ...HR_LIST_DEFAULTS, closed: true } },
+    ],
   ];
 
   it.each(variants)('names the %s', (_label, change) => {
     expect(inboxListQuestion({ ...BASE, ...change })).not.toBe(
       inboxListQuestion(BASE)
+    );
+  });
+
+  it('leaves keys without HR filters as they were', () => {
+    expect(inboxListQuestion({ ...BASE, hrFilters: null })).toBe(
+      inboxListQuestion(BASE)
+    );
+    expect(inboxListQuestion({ ...BASE, department: 'hr' })).toBe(
+      'inbox:list:' +
+        JSON.stringify([
+          'personal',
+          'inbox',
+          true,
+          null,
+          [],
+          [],
+          'all',
+          [],
+          null,
+          null,
+          [],
+          'hr',
+        ])
     );
   });
 

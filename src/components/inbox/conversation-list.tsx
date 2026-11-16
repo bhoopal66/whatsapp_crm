@@ -113,6 +113,18 @@ import { InsightLegend } from '@/components/insights/insight-legend';
 import { toast } from 'sonner';
 import { ImportantBadge } from './important-badge';
 import { InsightChips } from './insight-badge';
+import { HrChips } from '@/components/hr/hr-chips';
+import {
+  applyHrQueryOps,
+  HR_EMBED,
+  HR_LIST_DEFAULTS,
+  hrQueryOps,
+  hrSelectEmbeds,
+  matchesHrFilters,
+  type HrListFilters,
+  type HrListRow,
+} from '@/lib/hr/list-filters';
+import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
 import {
   chatTagFilterOrGroup,
@@ -241,6 +253,11 @@ interface ConversationListProps {
    */
   departmentView?: DepartmentView;
   /**
+   * The HR inbox's filters (lib/hr/list-filters.ts). Read only in the
+   * HR department view; undefined there means HR_LIST_DEFAULTS.
+   */
+  hrFilters?: HrListFilters;
+  /**
    * Conversation id -> bank code, for the chats shared with the viewer
    * as a coordinator. Those rows carry a "Shared · BANK" label.
    */
@@ -338,7 +355,17 @@ interface ListQueryParams {
    */
   search: string;
   searchContactIds: readonly string[];
+  /** The HR department view's filters and viewer; null in every other view. */
+  hr: HrQuery | null;
 }
+
+interface HrQuery {
+  filters: HrListFilters;
+  viewerId: string | null;
+}
+
+/** A list row; only the HR view's select carries `hr`. */
+type HrConversationRow = ConversationListItem & { hr?: HrListRow | null };
 
 /** Whether the workspace has Smart insights signals on, once known. */
 type SignalsMode = 'unknown' | 'on' | 'off';
@@ -393,7 +420,16 @@ function conversationsQuery(
   // Not on a delta, like the other facets: the held rows are re-matched
   // client-side (matchesInboxSearchOrHit).
   const searching = !opts.since && !!p.search;
-  let query = supabase.from('conversations').select(CONVERSATION_LIST_SELECT);
+  // The HR view adds its embeds; a delta takes the plain one (no
+  // `!inner`), so a row that left the filters comes back to be dropped.
+  // Typed as the base select: the row type stays ConversationListItem,
+  // and the extra `hr` is read through HrConversationRow.
+  const select = (
+    p.hr
+      ? `${CONVERSATION_LIST_SELECT},${opts.since ? HR_EMBED : hrSelectEmbeds(p.hr.filters)}`
+      : CONVERSATION_LIST_SELECT
+  ) as typeof CONVERSATION_LIST_SELECT;
+  let query = supabase.from('conversations').select(select);
   const groups: (string | null)[] = [];
   // One half of the search (see searchPart), beside the view's groups,
   // so every view filter still applies.
@@ -430,6 +466,12 @@ function conversationsQuery(
         ? mainInboxGroup(p.mainInboxOf, p.mainInboxDepartment)
         : 'inbox_department.is.null'
     );
+  }
+  // The HR filters are facets: not on a delta (matchesHrFilters re-checks).
+  if (p.hr && !opts.since) {
+    const hr = applyHrQueryOps(query, hrQueryOps(p.hr.filters, p.hr.viewerId));
+    query = hr.query;
+    groups.push(...hr.orGroups);
   }
   if (p.campaignOnly) {
     query = query.not('campaign_broadcast_id', 'is', null);
@@ -593,6 +635,7 @@ export function ConversationList({
   restrictToConversationIds = NO_CHANNELS,
   ownPersonalChatsOf = null,
   departmentView,
+  hrFilters,
   sharedBanks = null,
   showAssignee = false,
   numberNames = null,
@@ -851,6 +894,19 @@ export function ConversationList({
     departmentView && 'mainFor' in departmentView
       ? (departmentView.ownDepartment ?? null)
       : null;
+  const { accountId, user } = useAuth();
+  const viewerId = user?.id ?? null;
+  // Keyed by content, so a parent passing a fresh but equal object does
+  // not refire the fetch.
+  const hrFiltersKey =
+    department === 'hr' ? JSON.stringify(hrFilters ?? HR_LIST_DEFAULTS) : null;
+  const hrQuery = useMemo<HrQuery | null>(
+    () =>
+      hrFiltersKey === null
+        ? null
+        : { filters: JSON.parse(hrFiltersKey) as HrListFilters, viewerId },
+    [hrFiltersKey, viewerId]
+  );
   const listParams = useMemo<ListQueryParams>(
     () => ({
       restrictToUserId,
@@ -871,6 +927,7 @@ export function ConversationList({
       // query never runs with the previous term's ids.
       search: searchHits?.term ?? '',
       searchContactIds: searchHits?.ids ?? NO_IDS,
+      hr: hrQuery,
     }),
     [
       restrictToUserId,
@@ -888,6 +945,7 @@ export function ConversationList({
       selectedCampaignId,
       insightFilters,
       searchHits,
+      hrQuery,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -916,17 +974,105 @@ export function ConversationList({
   // Forces a first-page reload when a delta turns out too big.
   const [reloadNonce, setReloadNonce] = useState(0);
 
+  // HR view realtime (hr_conversations): the latest `hr` of each held
+  // chat, laid over the rows. Tied to the params it was received under,
+  // so a filter change starts with none.
+  const [hrPatches, setHrPatches] = useState<{
+    params: ListQueryParams | null;
+    byId: ReadonlyMap<string, HrListRow | null>;
+  }>({ params: null, byId: new Map() });
+  const hrPatchById = hrPatches.params === listParams ? hrPatches.byId : null;
+  const heldIdsRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    heldIdsRef.current = new Set(conversations.map((c) => c.id));
+  }, [conversations]);
+  const hrRefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onHrChange = useCallback(
+    (conversationId: string, hr: HrListRow | null) => {
+      const params = listParamsRef.current;
+      if (!params.hr) return;
+      if (heldIdsRef.current.has(conversationId)) {
+        setHrPatches((prev) => {
+          const byId = new Map(prev.params === params ? prev.byId : []);
+          byId.set(conversationId, hr);
+          return { params, byId };
+        });
+        return;
+      }
+      // Not held: if it may now belong here, reload the first page
+      // (debounced). Its owner is unknown here, so "mine" is not asked.
+      const f = { ...params.hr.filters, mine: false };
+      if (!matchesHrFilters({ hr }, f, params.hr.viewerId)) return;
+      if (hrRefetchTimer.current !== null) return;
+      hrRefetchTimer.current = setTimeout(() => {
+        hrRefetchTimer.current = null;
+        setReloadNonce((n) => n + 1);
+      }, 1000);
+    },
+    []
+  );
+  const onHrChangeRef = useRef(onHrChange);
+  useEffect(() => {
+    onHrChangeRef.current = onHrChange;
+  });
+  const hrView = hrQuery !== null;
+  useEffect(() => {
+    if (!enabled || !hrView) return;
+    const bindings = scopedChangeBindings(
+      'hr_conversations',
+      'account_id',
+      accountId
+    );
+    if (!bindings) return;
+    const supabase = createClient();
+    let channel = supabase.channel(`inbox-hr-list:${accountId}`);
+    for (const binding of bindings) {
+      channel = channel.on('postgres_changes', binding, (payload) => {
+        const row = (
+          payload.eventType === 'DELETE' ? payload.old : payload.new
+        ) as Partial<HrListRow & { conversation_id: string }>;
+        if (!row.conversation_id) return;
+        if (payload.eventType === 'DELETE') {
+          onHrChangeRef.current(row.conversation_id, null);
+          return;
+        }
+        // A partial row (no inbox / reply state) is not one to lay over.
+        if (!row.inbox || !row.reply_state) return;
+        onHrChangeRef.current(row.conversation_id, {
+          inbox: row.inbox,
+          stage_key: row.stage_key ?? null,
+          topic: row.topic ?? null,
+          urgent: !!row.urgent,
+          upset: !!row.upset,
+          reply_state: row.reply_state,
+          outcome: row.outcome ?? null,
+          closed_at: row.closed_at ?? null,
+        });
+      });
+    }
+    channel.subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+      if (hrRefetchTimer.current !== null) {
+        clearTimeout(hrRefetchTimer.current);
+        hrRefetchTimer.current = null;
+      }
+    };
+  }, [enabled, hrView, accountId]);
+
   // The list view's session-cache entry (lib/inbox/list-cache.ts):
   // shown at once on a revisit, always revalidated below.
-  const { accountId, user } = useAuth();
-  const viewerId = user?.id ?? null;
   // A search's results are not cached: one entry per typed term would
   // pile up, and the plain list's entry must not take search rows.
   const cacheKey = useMemo(
     () =>
       listParams.search
         ? null
-        : inboxListCacheKey(accountId, viewerId, { ...listParams, teamView }),
+        : inboxListCacheKey(accountId, viewerId, {
+            ...listParams,
+            teamView,
+            hrFilters: listParams.hr?.filters ?? null,
+          }),
     [accountId, viewerId, listParams, teamView]
   );
   // The last first page handed to the parent: its key, and the rows the
@@ -1246,6 +1392,15 @@ export function ConversationList({
 
   const filtered = useMemo(() => {
     let result = applyHandled(conversations, handled).filter(hasMessages);
+    // The HR view: realtime `hr` patches laid over, then its filters
+    // re-checked (a patch can move a chat out of the tab).
+    if (hrQuery) {
+      result = result
+        .map((c): HrConversationRow =>
+          hrPatchById?.has(c.id) ? { ...c, hr: hrPatchById.get(c.id) } : c
+        )
+        .filter((c) => matchesHrFilters(c, hrQuery.filters, hrQuery.viewerId));
+    }
     // A realtime patch can move a held chat into or out of a department
     // (migration 192): the list keeps only its own slice.
     if (department) {
@@ -1325,6 +1480,8 @@ export function ConversationList({
     department,
     mainInboxOf,
     mainInboxDepartment,
+    hrQuery,
+    hrPatchById,
   ]);
 
   // Pinned chats the AI handed over, among those the filters show.
@@ -1901,6 +2058,7 @@ export function ConversationList({
                       : null
                   }
                   conversation={conv}
+                  hrChips={hrQuery !== null}
                   isActive={conv.id === activeConversationId}
                   onSelect={handleSelect}
                   onPrefetch={prefetchMessages}
@@ -2086,6 +2244,8 @@ interface ConversationItemProps {
    * on an exact match and outside a search.
    */
   similar?: { label: string; hint: string } | null;
+  /** The HR department view: the row's HR chips ride the meta line. */
+  hrChips?: boolean;
 }
 
 /** Hover or focus this long before a row's messages are prefetched. */
@@ -2113,6 +2273,7 @@ const ConversationItem = memo(function ConversationItem({
   onHandled,
   onPrefetch,
   similar = null,
+  hrChips = false,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -2247,13 +2408,17 @@ const ConversationItem = memo(function ConversationItem({
   // Chips never earn this line (rowHasMetaLine): they ride on it when
   // it is there and on the top line when it is not, so a row is no
   // taller with signals than without, and the preview line is today's.
-  const hasMeta = rowHasMetaLine({
-    numberName,
-    campaignName,
-    sharedBank,
-    showAssignee,
-    personalLabel,
-  });
+  const hrRow = hrChips
+    ? ((conversation as HrConversationRow).hr ?? null)
+    : null;
+  const hasMeta =
+    rowHasMetaLine({
+      numberName,
+      campaignName,
+      sharedBank,
+      showAssignee,
+      personalLabel,
+    }) || hrRow !== null;
 
   const row = (
     <button
@@ -2455,6 +2620,8 @@ const ConversationItem = memo(function ConversationItem({
                 </span>
               </span>
             )}
+
+            {hrRow && <HrChips hr={hrRow} />}
 
             {/* Insight chips close the meta line, right-aligned: named
                 chips on a wide row, coloured dots on a narrow one (a
