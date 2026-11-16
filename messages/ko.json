@@ -10875,7 +10875,25 @@
       "leave_attendance": "휴가 및 근태",
       "payroll": "급여",
       "complaint": "불만 사항",
+      "other": "기타",
+      "offer_letter": "채용 제안서",
+      "training": "교육",
+      "warning_letter": "경고장",
+      "message": "메시지",
+      "termination": "퇴사"
+    },
+    "topicGroup": {
+      "staff_admin": "직원 행정",
+      "conduct": "품행",
       "other": "기타"
+    },
+    "topicFilter": {
+      "all": "전체",
+      "letters": "서류",
+      "training": "교육",
+      "leave": "휴가",
+      "messages": "메시지",
+      "exits": "퇴사"
     },
     "outcome": {
       "hired": "채용 확정",
@@ -10936,7 +10954,8 @@
       "noDue": "마감일 없음",
       "taskDone": "완료",
       "markDone": "“{title}” 완료로 표시",
-      "taskFailed": "할 일을 업데이트하지 못했습니다."
+      "taskFailed": "할 일을 업데이트하지 못했습니다.",
+      "staffConversation": "직원 대화"
     },
     "tasks": {
       "title": "HR 작업",

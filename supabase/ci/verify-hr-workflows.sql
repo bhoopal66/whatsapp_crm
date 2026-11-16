@@ -249,6 +249,18 @@ BEGIN
     || '/' || pg_temp.hr_as(u_dmem, format('SELECT (public.hr_set_topic(%L, ''payroll'')).topic', c3));
   r := r || '/' || (SELECT count(*) FROM tasks t WHERE t.conversation_id = c3 AND t.title = 'Check payroll query');
   c := c || pg_temp.hr_chk('payroll task not exactly once per dept stay', r, 'payroll/complaint/payroll/1');
+  -- 201: eleven topics.
+  r := pg_temp.hr_as(u_dmem, format('SELECT (public.hr_set_topic(%L, ''termination'')).topic', c3))
+    || '/' || pg_temp.hr_as(u_dmem, format('SELECT (public.hr_set_topic(%L, ''offer_letter'')).topic', c3));
+  c := c || pg_temp.hr_chk('termination / offer_letter were not accepted as topics', r, 'termination/offer_letter');
+  r := pg_temp.hr_as(u_dmem, format('SELECT (public.hr_set_topic(%L, ''ai_interview'')).topic', c3));
+  c := c || pg_temp.hr_chk('topic ai_interview was not INVALID', r, 'ERROR 22023 INVALID:%');
+  r := pg_temp.hr_as(u_dmem, format('SELECT (public.hr_set_topic(%L, ''leave'')).topic', c3));
+  c := c || pg_temp.hr_chk('topic leave was not INVALID', r, 'ERROR 22023 INVALID:%');
+  r := (SELECT array_length(regexp_split_to_array(
+          substring(pg_get_constraintdef(k.oid) FROM 'ARRAY\[(.*)\]'), ', '), 1)::text
+          FROM pg_constraint k WHERE k.conname = 'hr_conversations_topic_check');
+  c := c || pg_temp.hr_chk('the topic CHECK did not list eleven values', r, '11');
 
   -- ---------- Close / reopen ----------
   r := pg_temp.hr_as(u_rlead, format('SELECT (public.hr_close(%L)).outcome', c2));

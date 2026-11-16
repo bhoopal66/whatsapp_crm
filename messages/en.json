@@ -10875,7 +10875,25 @@
       "leave_attendance": "Leave & attendance",
       "payroll": "Payroll",
       "complaint": "Complaint",
+      "other": "Other",
+      "offer_letter": "Offer letter",
+      "training": "Training",
+      "warning_letter": "Warning letter",
+      "message": "Message",
+      "termination": "Termination"
+    },
+    "topicGroup": {
+      "staff_admin": "Staff admin",
+      "conduct": "Conduct",
       "other": "Other"
+    },
+    "topicFilter": {
+      "all": "All",
+      "letters": "Letters",
+      "training": "Training",
+      "leave": "Leave",
+      "messages": "Messages",
+      "exits": "Exits"
     },
     "outcome": {
       "hired": "Hired",
@@ -10936,7 +10954,8 @@
       "noDue": "No due date",
       "taskDone": "Done",
       "markDone": "Mark “{title}” done",
-      "taskFailed": "Couldn't update the task."
+      "taskFailed": "Couldn't update the task.",
+      "staffConversation": "Staff conversation"
     },
     "tasks": {
       "title": "HR tasks",

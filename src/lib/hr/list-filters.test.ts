@@ -185,6 +185,10 @@ describe('applyHrQueryOps', () => {
       this.calls.push(['eq', column, value]);
       return this;
     }
+    in(column: string, values: string[]) {
+      this.calls.push(['in', column, values]);
+      return this;
+    }
     is(column: string, value: null) {
       this.calls.push(['is', column, value]);
       return this;
@@ -309,5 +313,56 @@ describe('hrChangeAction', () => {
     expect(hrChangeAction(false, row(), f({ tab: 'dept' }), 'v')).toBe(
       'ignore'
     );
+  });
+});
+
+describe('topic chips (migration 201)', () => {
+  it('round-trips on the dept tab and is dropped elsewhere', () => {
+    const want = f({ tab: 'dept', topicGroup: 'letters' });
+    const out = writeHrListParams(new URLSearchParams(), want);
+    expect(out.get('hrTopicGroup')).toBe('letters');
+    expect(parseHrListParams(out)).toEqual(want);
+    out.set('hrTab', 'recruiter');
+    expect(parseHrListParams(out).topicGroup).toBeNull();
+    out.set('hrTab', 'dept');
+    out.set('hrTopicGroup', 'nope');
+    expect(parseHrListParams(out).topicGroup).toBeNull();
+  });
+
+  it('is pushed as an in op and applied as .in()', () => {
+    const ops = hrQueryOps(f({ tab: 'dept', topicGroup: 'letters' }), null);
+    expect(ops).toContainEqual({
+      op: 'in',
+      column: 'hr.topic',
+      values: ['offer_letter', 'warning_letter'],
+    });
+    const calls: unknown[][] = [];
+    const q = {
+      eq: () => q,
+      is: () => q,
+      not: () => q,
+      in: (...a: unknown[]) => (calls.push(a), q),
+    };
+    applyHrQueryOps(q, ops);
+    expect(calls).toEqual([['hr.topic', ['offer_letter', 'warning_letter']]]);
+  });
+
+  it('is re-checked client-side and combines with the topic select', () => {
+    const d = f({ tab: 'dept', topicGroup: 'letters' });
+    const r = (topic: HrListRow['topic']) =>
+      row({ inbox: 'dept', stage_key: null, topic });
+    expect(matchesHrFilters({ hr: r('offer_letter') }, d, null)).toBe(true);
+    expect(matchesHrFilters({ hr: r('payroll') }, d, null)).toBe(false);
+    expect(matchesHrFilters({ hr: r(null) }, d, null)).toBe(false);
+    const both = { ...d, topic: 'warning_letter' as const };
+    expect(matchesHrFilters({ hr: r('offer_letter') }, both, null)).toBe(false);
+    expect(matchesHrFilters({ hr: r('warning_letter') }, both, null)).toBe(
+      true
+    );
+  });
+
+  it('is cleared on a tab move', () => {
+    const d = f({ tab: 'dept', topicGroup: 'exits' });
+    expect(switchHrTab(d, 'all').topicGroup).toBeNull();
   });
 });

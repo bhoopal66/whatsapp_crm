@@ -14,12 +14,14 @@
 import {
   HR_REPLY_STATES,
   HR_STAGES,
+  HR_TOPIC_FILTERS,
   HR_TOPICS,
   type HrConversation,
   type HrCounts,
   type HrReplyState,
   type HrStage,
   type HrTopic,
+  type HrTopicFilter,
 } from './types';
 
 export const HR_TABS = ['all', 'recruiter', 'dept', 'unsorted'] as const;
@@ -31,6 +33,8 @@ export interface HrListFilters {
   stage: HrStage | null;
   /** HR department tab only. */
   topic: HrTopic | null;
+  /** HR department tab only: a chip of topics (migration 201). */
+  topicGroup: HrTopicFilter | null;
   reply: HrReplyState | null;
   urgent: boolean;
   mine: boolean;
@@ -42,6 +46,7 @@ export const HR_LIST_DEFAULTS: HrListFilters = {
   tab: 'all',
   stage: null,
   topic: null,
+  topicGroup: null,
   reply: null,
   urgent: false,
   mine: false,
@@ -69,6 +74,7 @@ const K = {
   tab: 'hrTab',
   stage: 'hrStage',
   topic: 'hrTopic',
+  topicGroup: 'hrTopicGroup',
   reply: 'hrReply',
   urgent: 'hrUrgent',
   mine: 'hrMine',
@@ -90,6 +96,13 @@ export function parseHrListParams(params: Params): HrListFilters {
     tab,
     stage: tab === 'recruiter' ? oneOf(HR_STAGES, params.get(K.stage)) : null,
     topic: tab === 'dept' ? oneOf(HR_TOPICS, params.get(K.topic)) : null,
+    topicGroup:
+      tab === 'dept'
+        ? oneOf(
+            Object.keys(HR_TOPIC_FILTERS) as HrTopicFilter[],
+            params.get(K.topicGroup)
+          )
+        : null,
     reply:
       tab === 'unsorted' ? null : oneOf(HR_REPLY_STATES, params.get(K.reply)),
     urgent: tab !== 'unsorted' && params.get(K.urgent) === '1',
@@ -109,6 +122,7 @@ export function writeHrListParams(
   set(K.tab, f.tab === 'all' ? null : f.tab);
   set(K.stage, f.stage);
   set(K.topic, f.topic);
+  set(K.topicGroup, f.topicGroup);
   set(K.reply, f.reply);
   set(K.urgent, f.urgent ? '1' : null);
   set(K.mine, f.mine ? '1' : null);
@@ -135,6 +149,7 @@ export function hrSelectEmbeds(f: HrListFilters): string {
 
 export type HrQueryOp =
   | { op: 'eq'; column: string; value: string | boolean }
+  | { op: 'in'; column: string; values: string[] }
   | { op: 'is'; column: string; value: null }
   | { op: 'not_is'; column: string; value: null }
   | { op: 'or'; filter: string };
@@ -152,6 +167,12 @@ export function hrQueryOps(
       ops.push({ op: 'eq', column: 'hr.inbox', value: f.tab });
     if (f.stage) ops.push({ op: 'eq', column: 'hr.stage_key', value: f.stage });
     if (f.topic) ops.push({ op: 'eq', column: 'hr.topic', value: f.topic });
+    if (f.topicGroup)
+      ops.push({
+        op: 'in',
+        column: 'hr.topic',
+        values: [...HR_TOPIC_FILTERS[f.topicGroup]],
+      });
     if (f.reply)
       ops.push({ op: 'eq', column: 'hr.reply_state', value: f.reply });
     if (f.urgent) ops.push({ op: 'eq', column: 'hr.urgent', value: true });
@@ -195,6 +216,13 @@ export function matchesHrFilters(
   if (f.tab !== 'all' && hr.inbox !== f.tab) return false;
   if (f.stage && hr.stage_key !== f.stage) return false;
   if (f.topic && hr.topic !== f.topic) return false;
+  if (
+    f.topicGroup &&
+    !(HR_TOPIC_FILTERS[f.topicGroup] as readonly (string | null)[]).includes(
+      hr.topic
+    )
+  )
+    return false;
   if (f.reply && hr.reply_state !== f.reply) return false;
   if (f.urgent && !hr.urgent) return false;
   if (!f.closed && hr.closed_at !== null) return false;
@@ -224,6 +252,7 @@ export function hrChangeAction(
 /** The PostgREST builder methods the HR ops use. */
 export interface HrFilterableQuery<Q> {
   eq(column: string, value: string | boolean): Q;
+  in(column: string, values: string[]): Q;
   is(column: string, value: null): Q;
   not(column: string, operator: string, value: null): Q;
 }
@@ -241,6 +270,7 @@ export function applyHrQueryOps<Q extends HrFilterableQuery<Q>>(
   const orGroups: string[] = [];
   for (const op of ops) {
     if (op.op === 'eq') q = q.eq(op.column, op.value);
+    else if (op.op === 'in') q = q.in(op.column, op.values);
     else if (op.op === 'is') q = q.is(op.column, null);
     else if (op.op === 'not_is') q = q.not(op.column, 'is', null);
     else orGroups.push(op.filter);
@@ -262,7 +292,7 @@ export function hrTabCounts(c: HrCounts): Record<HrTab, number> {
 }
 
 /**
- * Moving to `tab` clears the stage and the topic (each belongs to one
+ * Moving to `tab` clears the stage, topic and topic chip (each belongs to one
  * tab), and on Not sorted the reply state and Urgent too, which need an
  * HR row; the result is what {@link parseHrListParams} would read back.
  */
@@ -273,6 +303,7 @@ export function switchHrTab(f: HrListFilters, tab: HrTab): HrListFilters {
     tab,
     stage: null,
     topic: null,
+    topicGroup: null,
     reply: unsorted ? null : f.reply,
     urgent: unsorted ? false : f.urgent,
   };

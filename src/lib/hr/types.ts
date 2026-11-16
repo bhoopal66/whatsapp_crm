@@ -1,6 +1,6 @@
 /**
  * HR workflows (migration 200, `docs/hr-workflows` once written). The
- * lists here mirror 200's CHECK constraints and its rule seed:
+ * lists here mirror 200's CHECK (topics: 201's) constraints and its rule seed:
  * `types.test.ts` reads the migration and pins every one. Change one,
  * change both. Labels live in the `Hr` i18n namespace, never here.
  *
@@ -29,8 +29,38 @@ export const HR_TOPICS = [
   'payroll',
   'complaint',
   'other',
+  'offer_letter',
+  'training',
+  'warning_letter',
+  'message',
+  'termination',
 ] as const;
 export type HrTopic = (typeof HR_TOPICS)[number];
+
+/** The topic select's groups (migration 201): each topic is in exactly one. */
+export const HR_TOPIC_GROUPS = {
+  staff_admin: [
+    'offer_letter',
+    'onboarding',
+    'visa_documents',
+    'leave_attendance',
+    'payroll',
+    'training',
+  ],
+  conduct: ['warning_letter', 'complaint', 'termination'],
+  other: ['message', 'other'],
+} as const satisfies Record<string, readonly HrTopic[]>;
+export type HrTopicGroup = keyof typeof HR_TOPIC_GROUPS;
+
+/** The department list's filter chips (All = no filter). */
+export const HR_TOPIC_FILTERS = {
+  letters: ['offer_letter', 'warning_letter'],
+  training: ['training'],
+  leave: ['leave_attendance'],
+  messages: ['message'],
+  exits: ['termination'],
+} as const satisfies Record<string, readonly HrTopic[]>;
+export type HrTopicFilter = keyof typeof HR_TOPIC_FILTERS;
 
 /** Close outcomes, recruiter only; a department chat closes with none. */
 export const HR_OUTCOMES = ['hired', 'not_selected', 'withdrawn'] as const;
