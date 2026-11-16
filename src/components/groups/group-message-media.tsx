@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, FileText, MapPin } from 'lucide-react';
 
@@ -11,11 +12,16 @@ import { cn } from '@/lib/utils';
  * A group message's attachment, drawn like the inbox draws one (photo,
  * video, voice / audio, a document card with its name and size, a
  * location): WhatsApp groups and submission groups both use it. The
- * bytes come straight from the gateway's https link (`group-media.ts`).
+ * bytes come straight from the gateway's https link (`group-media.ts`),
+ * which stops working after about 30 days: a photo, video or audio
+ * whose link fails to load turns into the same "unavailable" line the
+ * inbox shows, never a broken image.
  */
 export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
   const t = useTranslations('Inbox.bubble');
-  const { url } = view;
+  const [broken, setBroken] = useState(false);
+  const url = broken ? null : view.url;
+  const onError = () => setBroken(true);
 
   let content: React.ReactNode;
   switch (view.kind) {
@@ -28,6 +34,7 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
             src={url}
             alt={view.caption ?? t('photo')}
             loading="lazy"
+            onError={onError}
             className={cn(
               'rounded-md',
               view.kind === 'sticker'
@@ -46,6 +53,7 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
           src={url}
           controls
           preload="metadata"
+          onError={onError}
           className="max-h-64 max-w-60 rounded-md"
         />
       ) : (
@@ -54,7 +62,13 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
       break;
     case 'audio':
       content = url ? (
-        <audio src={url} controls preload="none" className="w-60 max-w-full" />
+        <audio
+          src={url}
+          controls
+          preload="none"
+          onError={onError}
+          className="w-60 max-w-full"
+        />
       ) : (
         <MediaUnavailable label={t('audio')} t={t} />
       );
