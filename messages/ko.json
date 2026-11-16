@@ -10935,6 +10935,12 @@
       "taskDone": "완료",
       "markDone": "“{title}” 완료로 표시",
       "taskFailed": "할 일을 업데이트하지 못했습니다."
+    },
+    "list": {
+      "stageAria": "단계: {stage}",
+      "topicAria": "주제: {topic}",
+      "replyAria": "답장 상태: {state}",
+      "closed": "종료됨"
     }
   }
 }

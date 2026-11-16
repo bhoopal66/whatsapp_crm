@@ -10935,6 +10935,12 @@
       "taskDone": "Done",
       "markDone": "Mark “{title}” done",
       "taskFailed": "Couldn't update the task."
+    },
+    "list": {
+      "stageAria": "Stage: {stage}",
+      "topicAria": "Topic: {topic}",
+      "replyAria": "Reply state: {state}",
+      "closed": "Closed"
     }
   }
 }
