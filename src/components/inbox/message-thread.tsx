@@ -105,7 +105,7 @@ import { ForwardDialog } from './forward-dialog';
 import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
-import { canAssignToOthers } from '@/lib/auth/conversation-visibility';
+import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
 import {
   isShareOnlyViewer,
   isSharedChatNumberRefusal,
@@ -1805,14 +1805,14 @@ export function MessageThread({
     async (agentId: string | null) => {
       if (!conversation) return;
 
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('conversations')
-        .update({ assigned_agent_id: agentId })
-        .eq('id', conversation.id);
+      const result = await assignConversation(
+        createClient(),
+        conversation.id,
+        agentId
+      );
 
-      if (error) {
-        console.error('Failed to update assignment:', error);
+      if (!result.ok) {
+        console.error('Failed to update assignment:', result.error);
         toast.error('Failed to update assignment');
         return;
       }
@@ -1853,27 +1853,15 @@ export function MessageThread({
       : null;
   const assignedAgentId = conversation.assigned_agent_id ?? null;
 
-  // Handing a conversation to someone ELSE is an admin power — it
-  // decides who can see the chat at all now that visibility follows
-  // ownership (migration 042). A non-admin gets only themselves in the
-  // list, which keeps the "take this one" path working (and matches
-  // what the database will actually accept: the assignment trigger
-  // rejects anything else).
-  const canAssignOthers = canAssignToOthers(
-    profileLoading ? null : accountRole
-  );
-  // A team leader assigns within their own team. The database has the
-  // final say (the assignment trigger, migration 044) — this only
-  // decides who is worth offering, so the dropdown never lists someone
-  // the save would bounce. Deactivated members (migration 069) can't
-  // sign in to work a chat, so they are never offered.
-  const assignableProfiles = (
-    canAssignOthers
-      ? profiles
-      : profiles.filter(
-          (p) => p.user_id === user?.id || leadableUserIds.has(p.user_id)
-        )
-  ).filter((p) => !p.deactivated_at);
+  // Who the Assign menu offers: admins everyone, anyone else themselves
+  // plus the people they lead, never a deactivated member
+  // (lib/inbox/assign.ts). Until the role loads, the narrow list.
+  const assignableProfiles = assignableMembers({
+    accountRole: profileLoading ? null : accountRole,
+    myUserId: user?.id,
+    profiles,
+    leadableUserIds,
+  });
   // Who to name in the header. `assigned_agent_id` is only filled in
   // when somebody actually pressed Assign, which on an inbound chat is
   // usually never — so the header used to read a bare "Assign" for most
