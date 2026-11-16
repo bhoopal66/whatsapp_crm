@@ -11256,6 +11256,83 @@
         "INVALID": "That value isn't allowed here.",
         "LIMIT": "The daily cap must be between 1 and 20.",
         "UNKNOWN": "Something went wrong. Try again."
+      },
+      "templates": {
+        "title": "Templates",
+        "metaNote": "On a Meta number the template must also exist, approved and Utility, in Templates under the same name, with {{1}} / {{2}} in the order the text uses the name and the time.",
+        "leadNote": "Only admins can edit templates.",
+        "cardTitle": "{kind} · {language}",
+        "languages": {
+          "en": "English",
+          "ar": "Arabic"
+        },
+        "seedNote": "Default text, not saved yet",
+        "body": "Message text",
+        "metaName": "Meta template name",
+        "metaNameHelp": "Lowercase letters, digits and underscores.",
+        "approval": "Approval",
+        "approvalStatus": {
+          "draft": "Draft",
+          "approved": "Approved"
+        },
+        "utility": "Utility",
+        "save": "Save",
+        "saved": "Template saved",
+        "check": {
+          "missingPlaceholder": "Must contain {slot}",
+          "promotional": "Promotional wording is not allowed: \"{phrase}\"",
+          "tooLong": "Too long: at most {max} characters.",
+          "invalid": "This text isn't allowed. Use only the {name} and {slot} placeholders, with no stray braces.",
+          "nameFormat": "Use lowercase letters, digits and underscores only.",
+          "approvedNeedsName": "An approved template needs its Meta template name."
+        }
+      },
+      "history": {
+        "title": "Message history",
+        "filter": {
+          "all": "All",
+          "queued": "Queued",
+          "held": "Held",
+          "sent": "Sent",
+          "failed": "Failed",
+          "cancelled": "Cancelled"
+        },
+        "time": "Time",
+        "candidate": "Candidate",
+        "trigger": "Trigger",
+        "statusHead": "Status",
+        "attempts": "Attempts",
+        "attemptsCount": "{count, plural, one {# attempt} other {# attempts}}",
+        "unnamed": "Unnamed candidate",
+        "status": {
+          "queued": "Queued",
+          "held": "Held",
+          "sent": "Sent",
+          "failed": "Failed",
+          "cancelled": "Cancelled"
+        },
+        "hold": {
+          "killSwitch": "Kill switch is on",
+          "disabled": "Trigger is off",
+          "closed": "Chat closed",
+          "optedOut": "Opted out",
+          "noConsent": "No consent",
+          "quietHours": "Quiet hours",
+          "noTemplate": "No approved template",
+          "dailyCap": "Daily cap reached",
+          "duplicate": "Duplicate"
+        },
+        "claim": {
+          "sending": "Sending",
+          "unconfirmed": "Sent — not confirmed",
+          "needsReview": "Needs review: check the chat"
+        },
+        "cancel": "Cancel",
+        "cancelled": "Message cancelled",
+        "alreadyDecided": "Already sent or cancelled",
+        "empty": "No automated messages here yet.",
+        "loadFailed": "Couldn't load the message history.",
+        "retry": "Retry"
       }
     }
   }
