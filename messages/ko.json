@@ -11000,9 +11000,9 @@
       }
     },
     "list": {
-      "stageAria": "단계: {stage}",
-      "topicAria": "주제: {topic}",
-      "replyAria": "답장 상태: {state}",
+      "stagePrefix": "단계: ",
+      "topicPrefix": "주제: ",
+      "replyPrefix": "답변 상태: ",
       "closed": "종료됨",
       "filtersAria": "인사 받은편지함 필터",
       "tabsAria": "인사 받은편지함",

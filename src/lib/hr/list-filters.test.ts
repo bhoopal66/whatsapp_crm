@@ -4,6 +4,7 @@ import {
   applyHrQueryOps,
   HR_EMBED,
   HR_LIST_DEFAULTS,
+  hrChangeAction,
   hrInboxUrl,
   hrQueryOps,
   hrSelectEmbeds,
@@ -289,5 +290,24 @@ describe('hrInboxUrl', () => {
 
   it('is the bare path with nothing to keep', () => {
     expect(hrInboxUrl('/hr-inbox', '?c=old', null)).toBe('/hr-inbox');
+  });
+});
+
+describe('hrChangeAction', () => {
+  it('ignores a DELETE of a chat the list does not hold', () => {
+    expect(hrChangeAction(false, null, f({}), 'v')).toBe('ignore');
+    expect(hrChangeAction(false, null, f({ tab: 'unsorted' }), 'v')).toBe(
+      'ignore'
+    );
+  });
+  it('patches a held chat, deleted or not', () => {
+    expect(hrChangeAction(true, null, f({}), 'v')).toBe('patch');
+    expect(hrChangeAction(true, row(), f({}), 'v')).toBe('patch');
+  });
+  it('reloads for an unheld chat that may now belong', () => {
+    expect(hrChangeAction(false, row(), f({}), 'v')).toBe('reload');
+    expect(hrChangeAction(false, row(), f({ tab: 'dept' }), 'v')).toBe(
+      'ignore'
+    );
   });
 });

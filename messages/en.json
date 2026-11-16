@@ -11000,9 +11000,9 @@
       }
     },
     "list": {
-      "stageAria": "Stage: {stage}",
-      "topicAria": "Topic: {topic}",
-      "replyAria": "Reply state: {state}",
+      "stagePrefix": "Stage: ",
+      "topicPrefix": "Topic: ",
+      "replyPrefix": "Reply state: ",
       "closed": "Closed",
       "filtersAria": "HR inbox filters",
       "tabsAria": "HR inbox",
