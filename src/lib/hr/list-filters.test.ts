@@ -229,6 +229,8 @@ describe('applyHrQueryOps', () => {
     const q = new FakeQuery();
     expect(applyHrQueryOps(q, [])).toEqual({ query: q, orGroups: [] });
     expect(q.calls).toEqual([]);
+  });
+});
 
 describe('hrTabCounts', () => {
   it('adds both inboxes and the unsorted chats for All', () => {

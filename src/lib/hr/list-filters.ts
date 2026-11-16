@@ -226,6 +226,7 @@ export function applyHrQueryOps<Q extends HrFilterableQuery<Q>>(
     else orGroups.push(op.filter);
   }
   return { query: q, orGroups };
+}
 
 /**
  * The filter bar's tab numbers from `hr_counts()`: All is both inboxes
