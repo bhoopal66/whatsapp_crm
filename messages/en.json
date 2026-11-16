@@ -10897,6 +10897,12 @@
       "NEEDS_REASON": "Give a reason for this change.",
       "INVALID": "That value isn't allowed here.",
       "UNKNOWN": "Something went wrong. Try again."
+    },
+    "list": {
+      "stageAria": "Stage: {stage}",
+      "topicAria": "Topic: {topic}",
+      "replyAria": "Reply state: {state}",
+      "closed": "Closed"
     }
   }
 }

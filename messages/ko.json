@@ -10897,6 +10897,12 @@
       "NEEDS_REASON": "이 변경의 사유를 입력하세요.",
       "INVALID": "여기에서 허용되지 않는 값입니다.",
       "UNKNOWN": "문제가 발생했습니다. 다시 시도하세요."
+    },
+    "list": {
+      "stageAria": "단계: {stage}",
+      "topicAria": "주제: {topic}",
+      "replyAria": "답장 상태: {state}",
+      "closed": "종료됨"
     }
   }
 }
