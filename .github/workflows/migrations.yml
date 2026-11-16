@@ -973,3 +973,15 @@ jobs:
       # 113's rules, the access log stays admin-only, other workspaces shut.
       - name: Verify call reviewers
         run: supabase db query --local --file supabase/ci/verify-call-reviewers.sql
+
+      # Migration 200: HR workflows. The hr_* RPCs keep today's chat
+      # visibility (an unseen chat or another workspace's is NOT_FOUND) and
+      # add the role matrix (admin, recruiter/dept lead or member); stage
+      # moves forward for members, back only for a lead with a reason (dept
+      # -> recruiter below the furthest stage included); rules fire tasks
+      # once per entry (re-entry fires again), complaint sets urgent once;
+      # close/reopen rules; the messages trigger keeps the reply state;
+      # hr_sweep (service role only) raises reply-overdue and no-activity
+      # tasks once each, never for a closed chat; no client writes.
+      - name: Verify HR workflows
+        run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
