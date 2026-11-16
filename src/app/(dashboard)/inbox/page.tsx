@@ -1315,6 +1315,7 @@ export function InboxPageInner({
                 contact={panel.contact}
                 conversationId={activeConversation?.id ?? null}
                 conversation={panel.conversation}
+                inboxDepartment={activeConversation?.inbox_department ?? null}
                 notice={
                   fullRowFailed && !panel.complete ? (
                     <FullRowRetry
