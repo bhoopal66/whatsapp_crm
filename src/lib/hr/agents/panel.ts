@@ -1,5 +1,5 @@
 /**
- * What the HR panel's "AI drafts" section offers (pure; the component in
+ * What the HR panel's "Agent drafts" section offers (pure; the component in
  * `components/hr/hr-agent-drafts.tsx` only renders it). Message keys are
  * relative to the `Hr` namespace. Nothing here sends: an approved draft
  * is copied into the chat by a person.

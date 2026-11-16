@@ -80,10 +80,10 @@ export function HrAutomsgConsent({
   const state = view?.state;
 
   return (
-    <div className="space-y-1">
-      <h5 className="text-muted-foreground text-xs font-medium">
+    <fieldset className="border-input space-y-1.5 rounded-md border px-3 pt-1 pb-2.5">
+      <legend className="text-muted-foreground px-1 text-xs font-medium">
         {t('consent.title')}
-      </h5>
+      </legend>
       {!view || !state ? (
         failed ? (
           <p className="text-muted-foreground text-xs">
@@ -156,6 +156,6 @@ export function HrAutomsgConsent({
           )}
         </>
       )}
-    </div>
+    </fieldset>
   );
 }

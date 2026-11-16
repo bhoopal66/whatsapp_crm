@@ -11092,7 +11092,7 @@
       "topicGroupsAria": "Topic groups"
     },
     "agents": {
-      "title": "AI drafts",
+      "title": "Agent drafts",
       "note": "Drafts only. Nothing is sent from here.",
       "empty": "No drafts yet.",
       "loadFailed": "Couldn't load the drafts.",
@@ -11125,7 +11125,7 @@
       },
       "handedOff": "Handed to a person: {reason}",
       "status": {
-        "pending": "Waiting",
+        "pending": "Pending",
         "approved": "Approved",
         "rejected": "Rejected",
         "expired": "Expired",
@@ -11144,8 +11144,6 @@
       "rejected": "Draft rejected",
       "dismissed": "Draft dismissed",
       "alreadyDecided": "Someone already decided this draft",
-      "rejectTitle": "Reject this draft?",
-      "rejectHint": "Optional: say why, so the team can see it later.",
       "rejectReason": "Reason (optional)",
       "draft": "Draft a reply",
       "slots": "Interview times",
