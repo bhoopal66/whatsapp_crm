@@ -194,6 +194,27 @@ describe('visibleNavGroups', () => {
     );
   });
 
+  it('shows the HR inbox to HR team members below admin (200)', () => {
+    const hrefs = (
+      role: AccountRole | null,
+      ctx: Parameters<typeof visibleNavGroups>[1]
+    ) => visibleNavGroups(role, ctx).flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs('agent', { hrTeam: true })).toContain('/hr-inbox');
+    // HR people sit in a restricted department; /hr-inbox is not a sales area.
+    expect(hrefs('agent', { hrTeam: true, salesRestricted: true })).toContain(
+      '/hr-inbox'
+    );
+    expect(hrefs('agent', {})).not.toContain('/hr-inbox');
+    expect(hrefs('admin', {})).toContain('/hr-inbox');
+    // Never a guest, nor while the role loads.
+    for (const role of [null, 'bank_guest'] as const)
+      expect(hrefs(role, { hrTeam: true }), String(role)).not.toContain(
+        '/hr-inbox'
+      );
+    // The flag waives only the HR inbox row's role floor.
+    expect(hrefs('agent', { hrTeam: true })).not.toContain('/team-inbox');
+  });
+
   it('shows a guestVisible row to a guest and to staff alike', () => {
     const chat = {
       href: '/chat',
@@ -256,10 +277,14 @@ describe('nav model', () => {
       // (migration 198), whom `callReviewerVisible` lets past minRole.
       const reviewerGuard = source.includes('CallReviewerLayout');
       expect(!!item.callReviewerVisible, item.href).toBe(reviewerGuard);
+      // HrAccessLayout is admin and up, plus an HR team member (migration
+      // 200), whom `hrTeamVisible` lets past minRole.
+      const hrGuard = source.includes('HrAccessLayout');
+      expect(!!item.hrTeamVisible, item.href).toBe(hrGuard);
       const guard: AccountRole | undefined =
         source.includes('TeamLeaderOnlyLayout') || reviewerGuard
           ? 'team_leader'
-          : source.includes('AdminOnlyLayout')
+          : source.includes('AdminOnlyLayout') || hrGuard
             ? 'admin'
             : source.includes('AgentOnlyLayout')
               ? 'agent'
@@ -281,7 +306,7 @@ describe('nav model', () => {
       const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
       const guarded =
         /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(source) ||
-        /\bCallReviewerLayout\b/.test(source);
+        /\b(CallReviewer|HrAccess)Layout\b/.test(source);
       expect(!!item.guarded, item.href).toBe(guarded);
     }
   });

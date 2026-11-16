@@ -16,6 +16,7 @@ import { useSubmissionGroupsUnread } from '@/hooks/use-submission-groups-unread'
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import { useBrainNav } from '@/hooks/use-brain-nav';
+import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
 import {
   ArrowLeftRight,
   Crown,
@@ -124,11 +125,13 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
   const brainOn = useBrainNav();
+  const hrTeam = useHrTeamNav();
   const navGroups = visibleNavGroups(profileLoading ? null : accountRole, {
     pbx: callsNav.visible,
     brain: brainOn,
     salesRestricted,
     callReviewer: reviewsAllCalls,
+    hrTeam,
   });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();

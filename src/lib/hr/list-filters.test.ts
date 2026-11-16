@@ -4,10 +4,13 @@ import {
   applyHrQueryOps,
   HR_EMBED,
   HR_LIST_DEFAULTS,
+  hrInboxUrl,
   hrQueryOps,
   hrSelectEmbeds,
+  hrTabCounts,
   matchesHrFilters,
   parseHrListParams,
+  switchHrTab,
   writeHrListParams,
   type HrListFilters,
   type HrListRow,
@@ -226,5 +229,63 @@ describe('applyHrQueryOps', () => {
     const q = new FakeQuery();
     expect(applyHrQueryOps(q, [])).toEqual({ query: q, orGroups: [] });
     expect(q.calls).toEqual([]);
+
+describe('hrTabCounts', () => {
+  it('adds both inboxes and the unsorted chats for All', () => {
+    const inbox = (all: number) => ({ all, unread: 9, mine: 9, urgent: 9 });
+    expect(
+      hrTabCounts({ recruiter: inbox(3), dept: inbox(5), unsorted: 2 })
+    ).toEqual({ all: 10, recruiter: 3, dept: 5, unsorted: 2 });
+  });
+});
+
+describe('switchHrTab', () => {
+  const busy = f({
+    tab: 'recruiter',
+    stage: 'hr_interview',
+    reply: 'reply_due',
+    urgent: true,
+    mine: true,
+    closed: true,
+  });
+
+  it('clears the stage on leaving Recruitment and keeps the rest', () => {
+    expect(switchHrTab(busy, 'dept')).toEqual({
+      ...busy,
+      tab: 'dept',
+      stage: null,
+    });
+  });
+
+  it('clears the topic on leaving HR department', () => {
+    const dept = f({ tab: 'dept', topic: 'payroll' });
+    expect(switchHrTab(dept, 'recruiter')).toEqual(f({ tab: 'recruiter' }));
+  });
+
+  it('drops reply and Urgent on Not sorted (no HR row to match)', () => {
+    expect(switchHrTab(busy, 'unsorted')).toEqual(
+      f({ tab: 'unsorted', mine: true, closed: true })
+    );
+  });
+
+  it('is what the URL reads back', () => {
+    for (const tab of ['all', 'recruiter', 'dept', 'unsorted'] as const) {
+      const next = switchHrTab(busy, tab);
+      expect(
+        parseHrListParams(writeHrListParams(new URLSearchParams(), next))
+      ).toEqual(next);
+    }
+  });
+});
+
+describe('hrInboxUrl', () => {
+  it('keeps the HR keys, sets c and drops the rest', () => {
+    expect(
+      hrInboxUrl('/hr-inbox', '?hrTab=dept&hrTopic=payroll&c=old&tag=x', 'new')
+    ).toBe('/hr-inbox?hrTab=dept&hrTopic=payroll&c=new');
+  });
+
+  it('is the bare path with nothing to keep', () => {
+    expect(hrInboxUrl('/hr-inbox', '?c=old', null)).toBe('/hr-inbox');
   });
 });

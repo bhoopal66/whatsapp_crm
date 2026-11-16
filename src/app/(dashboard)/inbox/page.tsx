@@ -42,6 +42,13 @@ import type { ChatTagRowPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
+import { HrFilterBar } from '@/components/hr/hr-filter-bar';
+import {
+  hrInboxUrl,
+  parseHrListParams,
+  writeHrListParams,
+  type HrListFilters,
+} from '@/lib/hr/list-filters';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
@@ -199,6 +206,48 @@ export function InboxPageInner({
   // as the list's starting filters.
   const [initialFilters] = useState(() =>
     parseInboxFilterParams(searchParams, user?.id ?? null)
+  );
+  // The HR view's tabs and filters live in the URL (`hr*` keys, written
+  // by the filter bar through the History API like `?c=`). Keyed on
+  // their own serialisation so opening a chat (`?c=`) keeps the same
+  // object and the list does not refetch.
+  const hrView = departmentView === 'hr';
+  const hrKey = hrView
+    ? writeHrListParams(
+        new URLSearchParams(),
+        parseHrListParams(searchParams)
+      ).toString()
+    : null;
+  const hrFilters = useMemo<HrListFilters | undefined>(
+    () =>
+      hrKey === null
+        ? undefined
+        : parseHrListParams(new URLSearchParams(hrKey)),
+    [hrKey]
+  );
+  const handleHrFiltersChange = useCallback(
+    (next: HrListFilters) => {
+      const params = writeHrListParams(
+        new URLSearchParams(window.location.search),
+        next
+      ).toString();
+      window.history.replaceState(
+        null,
+        '',
+        params ? `${basePath}?${params}` : basePath
+      );
+    },
+    [basePath]
+  );
+  // The thread-selection URL: the HR view keeps its filter keys.
+  const selectionUrl = useCallback(
+    (convId: string | null) =>
+      hrView
+        ? hrInboxUrl(basePath, window.location.search, convId)
+        : convId
+          ? `${basePath}?c=${convId}`
+          : basePath,
+    [basePath, hrView]
   );
 
   // List rows hold only the list's columns (CONVERSATION_LIST_SELECT);
@@ -1046,12 +1095,12 @@ export function InboxPageInner({
       // tunnel. Next keeps `useSearchParams` in sync with
       // `history.replaceState` (see settings/page.tsx), so `?c=` still
       // reads back on reload and on back/forward.
-      window.history.replaceState(null, '', `${basePath}?c=${conv.id}`);
+      window.history.replaceState(null, '', selectionUrl(conv.id));
     },
     [
       activeConversation?.id,
       fullRowFailed,
-      basePath,
+      selectionUrl,
       openConversationById,
       retryFullRow,
     ]
@@ -1069,11 +1118,11 @@ export function InboxPageInner({
       if (activeConversation?.id === convId) return;
       void openConversationById(convId);
       autoSelectedForDeepLinkRef.current = convId;
-      window.history.replaceState(null, '', `${basePath}?c=${convId}`);
+      window.history.replaceState(null, '', selectionUrl(convId));
     },
     [
       activeConversation?.id,
-      basePath,
+      selectionUrl,
       handleSelectConversation,
       openConversationById,
     ]
@@ -1089,8 +1138,8 @@ export function InboxPageInner({
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits ?c=<same-id> again — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
-    window.history.replaceState(null, '', basePath);
-  }, [basePath]);
+    window.history.replaceState(null, '', selectionUrl(null));
+  }, [selectionUrl]);
 
   // Accepts an updater too: the thread prepends older pages and merges
   // resyncs against the freshest state, not a render-time snapshot.
@@ -1182,6 +1231,14 @@ export function InboxPageInner({
         </div>
       )}
 
+      {/* The HR view's tabs and filters (migration 200), across the top;
+          on a phone only with the list showing, like the list itself. */}
+      {hrFilters && (
+        <div className={cn('shrink-0', hasActiveConv && 'hidden lg:block')}>
+          <HrFilterBar filters={hrFilters} onChange={handleHrFiltersChange} />
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
@@ -1199,6 +1256,7 @@ export function InboxPageInner({
           )}
         >
           <ConversationList
+            hrFilters={hrFilters}
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
             initialInsightFilters={initialFilters.insightFilters}

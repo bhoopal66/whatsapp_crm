@@ -24,11 +24,9 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
-import { REFERENCE_CACHE_TTL_MS, cachedQuery } from '@/lib/client-cache';
 import { createClient } from '@/lib/supabase/client';
 import {
   hrClose,
-  hrMyRoles,
   hrOpen,
   hrReopen,
   hrSetFlag,
@@ -37,6 +35,7 @@ import {
   type HrResult,
 } from '@/lib/hr/api';
 import { hasHrAccess } from '@/lib/hr/access';
+import { loadHrRoles } from '@/lib/hr/roles-cache';
 import {
   furthestStage,
   hasReason,
@@ -64,10 +63,7 @@ import {
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
-/** The roles question, per account and user (client-cache.ts's rule). */
-export function hrRolesCacheKey(accountId: string, userId: string): string {
-  return `hr-roles:${accountId}:${userId}`;
-}
+export { hrRolesCacheKey } from '@/lib/hr/roles-cache';
 
 const NATIVE_FIELD =
   'border-input bg-card dark:bg-input/30 h-7 w-full rounded-md border px-2 text-xs';
@@ -122,15 +118,7 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
   useEffect(() => {
     if (!accountId || !userId) return;
     let alive = true;
-    cachedQuery(
-      hrRolesCacheKey(accountId, userId),
-      REFERENCE_CACHE_TTL_MS,
-      async () => {
-        const res = await hrMyRoles(createClient());
-        if ('error' in res) throw new Error(res.error);
-        return res.data;
-      }
-    )
+    loadHrRoles(accountId, userId)
       .then((r) => {
         if (alive) setRoles(r);
       })
