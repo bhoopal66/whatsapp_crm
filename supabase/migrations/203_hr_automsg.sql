@@ -97,13 +97,23 @@ CREATE TABLE IF NOT EXISTS public.hr_automsg_templates (
     'interview_reminder', 'reply_nudge')),
   CONSTRAINT hr_automsg_templates_language_check CHECK (language IN ('en', 'ar')),
   CONSTRAINT hr_automsg_templates_body_check CHECK (char_length(body) BETWEEN 1 AND 1024),
-  CONSTRAINT hr_automsg_templates_name_check CHECK (meta_template_name ~ '^[a-z0-9_]{0,512}$'),
+  -- POSIX regexes cap a {m,n} bound at 255, so the length is checked apart.
+  CONSTRAINT hr_automsg_templates_name_check CHECK (
+    meta_template_name ~ '^[a-z0-9_]*$' AND char_length(meta_template_name) <= 512),
   CONSTRAINT hr_automsg_templates_status_check CHECK (approval_status IN ('draft', 'approved')),
   CONSTRAINT hr_automsg_templates_category_check CHECK (
     category IN ('utility', 'marketing', 'authentication')),
   CONSTRAINT hr_automsg_templates_approved_named CHECK (
     approval_status = 'draft' OR meta_template_name <> '')
 );
+
+-- An install that applied the first cut of 203 holds a name check with a
+-- {0,512} bound, which fails every insert (invalid repetition count).
+ALTER TABLE public.hr_automsg_templates
+  DROP CONSTRAINT IF EXISTS hr_automsg_templates_name_check;
+ALTER TABLE public.hr_automsg_templates
+  ADD CONSTRAINT hr_automsg_templates_name_check CHECK (
+    meta_template_name ~ '^[a-z0-9_]*$' AND char_length(meta_template_name) <= 512);
 
 CREATE TABLE IF NOT EXISTS public.hr_automsg_consent (
   account_id uuid NOT NULL,
@@ -585,10 +595,11 @@ BEGIN
   IF replace(replace(p_body, '{name}', ''), '{slot}', '') ~ '[{}]' THEN
     PERFORM hr_refuse('INVALID', 'the only placeholders allowed are {name} and {slot}');
   END IF;
-  IF p_approval_status = 'approved' AND v_name !~ '^[a-z0-9_]{1,512}$' THEN
+  IF p_approval_status = 'approved'
+     AND (v_name !~ '^[a-z0-9_]+$' OR char_length(v_name) > 512) THEN
     PERFORM hr_refuse('INVALID', 'an approved template needs its Meta template name');
   END IF;
-  IF v_name !~ '^[a-z0-9_]{0,512}$' THEN
+  IF v_name !~ '^[a-z0-9_]*$' OR char_length(v_name) > 512 THEN
     PERFORM hr_refuse('INVALID', 'a Meta template name is lower-case letters, digits and _');
   END IF;
 
