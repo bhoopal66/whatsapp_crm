@@ -178,7 +178,9 @@ export function HrAgentDrafts({
               ? t('agents.slotsTooMany')
               : slotError === 'tooLong'
                 ? t('agents.slotsTooLong')
-                : t('agents.slotsHint')}
+                : slotError === 'sensitive'
+                  ? t('agents.slotsSensitive')
+                  : t('agents.slotsHint')}
           </p>
           <Button
             size="xs"

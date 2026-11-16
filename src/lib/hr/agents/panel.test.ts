@@ -156,6 +156,18 @@ describe('parseSlots', () => {
     expect(parseSlots('')).toEqual({ slots: [] });
   });
 
+  it('refuses a slot that carries a salary, offer or visa promise', () => {
+    expect(parseSlots('Mon 10:00, salary 20000 AED')).toEqual({
+      error: 'sensitive',
+    });
+    expect(parseSlots('Tue 14:00 (visa interview room)')).toEqual({
+      error: 'sensitive',
+    });
+    expect(parseSlots('Mon 10:00, Tue 14:00')).toEqual({
+      slots: ['Mon 10:00', 'Tue 14:00'],
+    });
+  });
+
   it('accepts five and rejects six slots', () => {
     expect(parseSlots('a,b,c,d,e')).toEqual({
       slots: ['a', 'b', 'c', 'd', 'e'],

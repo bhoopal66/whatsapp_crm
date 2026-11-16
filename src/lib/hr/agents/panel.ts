@@ -7,6 +7,7 @@
 import type { HrErrorCode, HrRoles } from '@/lib/hr/types';
 
 import type { HrAgentDraftRow } from './api';
+import { isSensitive } from './guardrails';
 
 /** Mirrors the route's limits (`app/api/hr/agents/run/route.ts`). */
 export const MAX_SLOTS = 5;
@@ -123,7 +124,8 @@ export function decideErrorKey(code: HrErrorCode): string {
   return SHARED_ERRORS.includes(code) ? `error.${code}` : 'error.UNKNOWN';
 }
 
-export type SlotParse = { slots: string[] } | { error: 'tooMany' | 'tooLong' };
+export type SlotParse =
+  { slots: string[] } | { error: 'tooMany' | 'tooLong' | 'sensitive' };
 
 /** "Interview times": comma separated, blanks dropped, ≤ 5 of ≤ 80 chars. */
 export function parseSlots(input: string): SlotParse {
@@ -133,6 +135,9 @@ export function parseSlots(input: string): SlotParse {
     .filter((s) => s.length > 0);
   if (slots.length > MAX_SLOTS) return { error: 'tooMany' };
   if (slots.some((s) => s.length > SLOT_MAX_CHARS)) return { error: 'tooLong' };
+  // The route refuses these too: a slot is the one text a draft may
+  // repeat, so it must not carry a salary / offer / visa promise.
+  if (slots.some((s) => isSensitive(s))) return { error: 'sensitive' };
   return { slots };
 }
 

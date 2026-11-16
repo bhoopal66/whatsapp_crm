@@ -11150,6 +11150,7 @@
       "slotsHint": "Optional. Separate times with commas (up to 5).",
       "slotsTooMany": "Give at most 5 interview times.",
       "slotsTooLong": "Each interview time can be at most 80 characters.",
+      "slotsSensitive": "Interview times can't mention salary, offers, visas or contracts.",
       "run": {
         "drafted": "Draft ready",
         "handoff": "Handed to a person",
