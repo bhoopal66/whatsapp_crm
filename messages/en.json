@@ -11123,7 +11123,21 @@
       "setup": "Setup",
       "hireFast": "Hire fast",
       "automatedMessages": "Automated messages",
-      "topicGroupsAria": "Topic groups"
+      "topicGroupsAria": "Topic groups",
+      "titleAll": "HR inbox",
+      "titleRecruiter": "Recruiter HR",
+      "titleDept": "HR department",
+      "deptSubtitle": "Onboarded staff",
+      "titleUnsorted": "Not sorted",
+      "quickAria": "Quick filters",
+      "quickAll": "All",
+      "quickUnread": "Unread",
+      "quickMine": "Mine",
+      "quickUrgent": "Urgent",
+      "any": "Any",
+      "replyStateLabel": "Reply state",
+      "activeAria": "Active filters",
+      "removeChip": "Remove filter: {label}"
     },
     "agents": {
       "title": "Agent drafts",

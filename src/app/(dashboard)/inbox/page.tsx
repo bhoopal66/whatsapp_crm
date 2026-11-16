@@ -42,7 +42,7 @@ import type { ChatTagRowPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
-import { HrFilterBar } from '@/components/hr/hr-filter-bar';
+import { HrListHeader, HrListTitle } from '@/components/hr/hr-list-header';
 import type { HrInboxRoute } from '@/lib/hr/routes';
 import {
   hrInboxUrl,
@@ -1238,18 +1238,6 @@ export function InboxPageInner({
         </div>
       )}
 
-      {/* The HR view's tabs and filters (migration 200), across the top;
-          on a phone only with the list showing, like the list itself. */}
-      {hrFilters && (
-        <div className={cn('shrink-0', hasActiveConv && 'hidden lg:block')}>
-          <HrFilterBar
-            filters={hrFilters}
-            onChange={handleHrFiltersChange}
-            fixedTab={!!hrInbox}
-          />
-        </div>
-      )}
-
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
@@ -1268,6 +1256,20 @@ export function InboxPageInner({
         >
           <ConversationList
             hrFilters={hrFilters}
+            hrHeader={
+              hrFilters && {
+                // The HR view's list header (migration 200, package
+                // 023d-1), inside the list column.
+                title: <HrListTitle tab={hrFilters.tab} />,
+                controls: (
+                  <HrListHeader
+                    filters={hrFilters}
+                    onChange={handleHrFiltersChange}
+                    fixedTab={!!hrInbox}
+                  />
+                ),
+              }
+            }
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
             initialInsightFilters={initialFilters.insightFilters}

@@ -8,6 +8,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  type ReactNode,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -258,6 +259,13 @@ interface ConversationListProps {
    * HR department view; undefined there means HR_LIST_DEFAULTS.
    */
   hrFilters?: HrListFilters;
+  /**
+   * The HR screens' list header (components/hr/hr-list-header.tsx): the
+   * title above the search and the HR filters below it. When set, the
+   * generic All/Unread chips and the agent filter, which it replaces,
+   * are hidden and do not narrow the list.
+   */
+  hrHeader?: { title: ReactNode; controls: ReactNode };
   /**
    * Conversation id -> bank code, for the chats shared with the viewer
    * as a coordinator. Those rows carry a "Shared · BANK" label.
@@ -637,8 +645,9 @@ export function ConversationList({
   ownPersonalChatsOf = null,
   departmentView,
   hrFilters,
+  hrHeader,
   sharedBanks = null,
-  showAssignee = false,
+  showAssignee: showAssigneeProp = false,
   numberNames = null,
   campaignOnly = false,
   aiLive = false,
@@ -720,6 +729,10 @@ export function ConversationList({
   const [loading, setLoading] = useState(true);
   // Contact-based filter (issue #272): exact match on the company field.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // The HR header replaces the All/Unread chips and the agent filter;
+  // rows still show who holds each thread (`showAssigneeProp`).
+  const hrHeaderOn = hrHeader !== undefined;
+  const showAssignee = showAssigneeProp && !hrHeaderOn;
   // Who the list is narrowed to (a user id, UNASSIGNED, or null).
   // Only meaningful when `showAssignee` — read through `assigneeFilter`
   // below so a filter can never survive, invisible, into a view that
@@ -1422,7 +1435,7 @@ export function ConversationList({
       );
     }
 
-    if (filter === 'unread') {
+    if (filter === 'unread' && !hrHeaderOn) {
       result = result.filter((c) => c.unread_count > 0);
     }
 
@@ -1475,6 +1488,7 @@ export function ConversationList({
     conversations,
     handled,
     filter,
+    hrHeaderOn,
     chatTagFilterIds,
     search,
     liveHits,
@@ -1653,6 +1667,7 @@ export function ConversationList({
     <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-r lg:w-80 2xl:w-96">
       {/* Search + Filter */}
       <div className="space-y-2 px-3 pt-3 pb-2">
+        {hrHeader?.title}
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
             <Search className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
@@ -1681,32 +1696,34 @@ export function ConversationList({
               '[mask-image:linear-gradient(to_right,black_calc(100%_-_2.5rem),transparent)]'
           )}
         >
-          <div
-            role="radiogroup"
-            aria-label={t('filterAll')}
-            className="flex gap-1"
-          >
-            {FILTER_OPTIONS.map((opt) => {
-              const active = filter === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
-                    active
-                      ? 'bg-wa-chip-active text-wa-teal font-medium'
-                      : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
-                  )}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
+          {!hrHeaderOn && (
+            <div
+              role="radiogroup"
+              aria-label={t('filterAll')}
+              className="flex gap-1"
+            >
+              {FILTER_OPTIONS.map((opt) => {
+                const active = filter === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setFilter(opt.value)}
+                    className={cn(
+                      'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+                      active
+                        ? 'bg-wa-chip-active text-wa-teal font-medium'
+                        : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {/* The chats the AI handed to a person, pinned on top: a tap
               narrows the list to them. Only there while there are some. */}
           {importantCount > 0 && (
@@ -1758,6 +1775,8 @@ export function ConversationList({
             </div>
           )}
         </div>
+
+        {hrHeader?.controls}
 
         {chatTagTree.mains.length > 0 ||
         (campaignOnly && campaigns.length > 0) ||
@@ -2073,7 +2092,7 @@ export function ConversationList({
                   t={t}
                   today={today}
                   locale={locale}
-                  showAssignee={showAssignee}
+                  showAssignee={showAssigneeProp}
                   memberName={memberName}
                   chatTagTree={chatTagTree}
                   insights={signalsOn}
