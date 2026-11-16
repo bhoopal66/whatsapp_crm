@@ -11181,6 +11181,81 @@
       "withdraw": "동의 철회",
       "recorded": "동의를 기록했습니다",
       "withdrawnToast": "동의를 철회했습니다"
+    },
+    "automsg": {
+      "back": "HR 받은편지함",
+      "title": "자동 메시지",
+      "subtitle": "채용 단계가 바뀌면 지원자에게 고정된 WhatsApp 템플릿을 보냅니다.",
+      "noAccess": "자동 메시지는 관리자와 채용팀 리더만 열 수 있습니다.",
+      "loadFailed": "자동 메시지 설정을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "banner": {
+        "offTitle": "자동 메시지가 꺼져 있습니다",
+        "onTitle": "자동 메시지가 켜져 있습니다",
+        "safety": "각 채팅의 WhatsApp 번호에서 고정된 템플릿만 보냅니다. AI 초안은 절대 자동으로 보내지 않습니다.",
+        "turnOn": "자동 메시지 켜기",
+        "turnOff": "끄기",
+        "confirmTitle": "자동 메시지를 켤까요?",
+        "confirmBody": "켜 둔 트리거마다 지원자가 각 채팅의 번호로 이 메시지를 받게 됩니다. 개인 번호로는 보내지 않습니다. 켜기 전에 법무팀(UAE PDPL)과 확인하세요.",
+        "confirm": "켜기",
+        "cancel": "취소",
+        "turnedOn": "자동 메시지를 켰습니다.",
+        "turnedOff": "자동 메시지를 껐습니다.",
+        "runNow": "지금 실행",
+        "runDone": "완료: 발송 {sent}건, 보류 {held}건, 기타 {other}건.",
+        "runFailed": "발송을 실행하지 못했습니다. 다시 시도하세요."
+      },
+      "settings": {
+        "title": "설정",
+        "leadNote": "이 설정은 관리자만 바꿀 수 있습니다.",
+        "quietStart": "방해 금지 시작",
+        "quietEnd": "방해 금지 종료",
+        "quietHelp": "이 시간 사이에는 아무것도 보내지 않습니다.",
+        "tz": "시간대",
+        "dailyCap": "지원자별 하루 최대 발송 수",
+        "requiresConsent": "먼저 동의 받기",
+        "save": "저장",
+        "saved": "설정을 저장했습니다.",
+        "invalid": {
+          "quietStart": "시작 시간을 HH:MM 형식으로 입력하세요.",
+          "quietEnd": "종료 시간을 HH:MM 형식으로 입력하세요.",
+          "tz": "Asia/Dubai 같은 시간대를 입력하세요.",
+          "dailyCap": "1에서 20 사이의 정수를 입력하세요."
+        }
+      },
+      "triggersTable": {
+        "title": "트리거",
+        "trigger": "트리거",
+        "template": "템플릿",
+        "approved": "승인됨",
+        "approvedLine": "영어 {en}, 아랍어 {ar}",
+        "on": "사용",
+        "needsInterviewTimes": "면접 시간이 필요합니다 (아직 지원되지 않음)",
+        "noApproved": "승인된 템플릿이 없어 메시지가 보류됩니다",
+        "saved": "트리거를 바꿨습니다."
+      },
+      "triggers": {
+        "cv_received": "이력서 접수 — 채팅이 지원자로 등록될 때",
+        "stage_ai_interview": "AI 면접 단계로 이동",
+        "stage_hr_interview": "HR 면접 단계로 이동",
+        "stage_manager_interview": "매니저 면접 단계로 이동",
+        "interview_reminder": "면접 알림",
+        "reply_overdue_nudge": "답장 재촉 — 지원자가 답하지 않음"
+      },
+      "templateKinds": {
+        "cv_ack": "이력서 접수 안내",
+        "ai_interview_invite": "AI 면접 초대",
+        "hr_interview_invite": "HR 면접 초대",
+        "manager_interview_invite": "매니저 면접 초대",
+        "interview_reminder": "면접 알림",
+        "reply_nudge": "답장 재촉"
+      },
+      "error": {
+        "NOT_ALLOWED": "이 항목을 바꿀 권한이 없습니다.",
+        "INVALID": "여기에 허용되지 않는 값입니다.",
+        "LIMIT": "하루 최대 발송 수는 1에서 20 사이여야 합니다.",
+        "UNKNOWN": "문제가 발생했습니다. 다시 시도하세요."
+      }
     }
   }
 }

@@ -11181,6 +11181,81 @@
       "withdraw": "Withdraw consent",
       "recorded": "Consent recorded",
       "withdrawnToast": "Consent withdrawn"
+    },
+    "automsg": {
+      "back": "HR inbox",
+      "title": "Automated messages",
+      "subtitle": "Fixed WhatsApp templates sent to candidates when a recruiting event happens.",
+      "noAccess": "Only admins and recruiter team leads can open automated messages.",
+      "loadFailed": "Couldn't load the automated message settings.",
+      "retry": "Try again",
+      "banner": {
+        "offTitle": "Automated messages are OFF",
+        "onTitle": "Automated messages are ON",
+        "safety": "Only fixed templates are sent, from each chat's own WhatsApp number. AI drafts are never sent automatically.",
+        "turnOn": "Turn automated messages on",
+        "turnOff": "Turn off",
+        "confirmTitle": "Turn automated messages on?",
+        "confirmBody": "Candidates will receive these messages from each chat's own number for the triggers you switch on. Personal numbers never send. Check with legal (UAE PDPL) before turning this on.",
+        "confirm": "Turn on",
+        "cancel": "Cancel",
+        "turnedOn": "Automated messages are on.",
+        "turnedOff": "Automated messages are off.",
+        "runNow": "Run now",
+        "runDone": "Done: {sent} sent, {held} held, {other} other.",
+        "runFailed": "Couldn't run the send pass. Try again."
+      },
+      "settings": {
+        "title": "Settings",
+        "leadNote": "Only admins can change these settings.",
+        "quietStart": "Quiet hours start",
+        "quietEnd": "Quiet hours end",
+        "quietHelp": "Nothing is sent between these times.",
+        "tz": "Time zone",
+        "dailyCap": "Daily cap per candidate",
+        "requiresConsent": "Ask for consent first",
+        "save": "Save",
+        "saved": "Settings saved.",
+        "invalid": {
+          "quietStart": "Enter the start as HH:MM.",
+          "quietEnd": "Enter the end as HH:MM.",
+          "tz": "Enter a time zone, such as Asia/Dubai.",
+          "dailyCap": "Enter a whole number from 1 to 20."
+        }
+      },
+      "triggersTable": {
+        "title": "Triggers",
+        "trigger": "Trigger",
+        "template": "Template",
+        "approved": "Approved",
+        "approvedLine": "English {en}, Arabic {ar}",
+        "on": "On",
+        "needsInterviewTimes": "Needs interview times (not available yet)",
+        "noApproved": "No approved template — messages will be held",
+        "saved": "Trigger updated."
+      },
+      "triggers": {
+        "cv_received": "CV received — when a chat is tracked as a candidate",
+        "stage_ai_interview": "Moved to AI interview",
+        "stage_hr_interview": "Moved to HR interview",
+        "stage_manager_interview": "Moved to manager interview",
+        "interview_reminder": "Interview reminder",
+        "reply_overdue_nudge": "Reply nudge — candidate has not answered"
+      },
+      "templateKinds": {
+        "cv_ack": "CV received",
+        "ai_interview_invite": "AI interview invitation",
+        "hr_interview_invite": "HR interview invitation",
+        "manager_interview_invite": "Manager interview invitation",
+        "interview_reminder": "Interview reminder",
+        "reply_nudge": "Reply nudge"
+      },
+      "error": {
+        "NOT_ALLOWED": "You don't have permission to change this.",
+        "INVALID": "That value isn't allowed here.",
+        "LIMIT": "The daily cap must be between 1 and 20.",
+        "UNKNOWN": "Something went wrong. Try again."
+      }
     }
   }
 }
