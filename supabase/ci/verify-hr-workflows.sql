@@ -303,6 +303,11 @@ BEGIN
   r := pg_temp.hr_as(NULL, format('SELECT (public.hr_sweep(%L))->>''created''', t0 + interval '5 hours'));
   r := r || '/' || (SELECT count(*) FROM tasks t WHERE t.conversation_id = c5 AND t.title = 'Reply to customer');
   c := c || pg_temp.hr_chk('second reply_overdue sweep created tasks again', r, '0/1');
+  r := pg_temp.hr_as(NULL, format(
+         'DELETE FROM public.tasks WHERE conversation_id = %L AND title = ''Reply to customer''', c5));
+  r := r || '/' || pg_temp.hr_as(NULL, format('SELECT (public.hr_sweep(%L))->>''created''', t0 + interval '5 hours'));
+  r := r || '/' || (SELECT count(*) FROM tasks t WHERE t.conversation_id = c5 AND t.title = 'Reply to customer');
+  c := c || pg_temp.hr_chk('sweep re-created a task a person deleted', r, 'ok/0/0');
   r := (SELECT count(*) FROM tasks t WHERE t.conversation_id = c8 AND t.title = 'Reply to customer')::text;
   c := c || pg_temp.hr_chk('sweep created a task for a closed chat', r, '0');
   r := pg_temp.hr_as(u_rmem, format('SELECT (public.hr_open(%L, ''candidate'')).stage_key', c7))
@@ -357,16 +362,57 @@ BEGIN
           FROM unnest(ARRAY['public.hr_fire_rules(uuid, text, text)',
                             'public.hr_apply_rule(public.hr_workflow_rules, uuid, text, timestamptz)',
                             'public.hr_role(uuid, uuid, text)',
-                            'public.hr_can_see(uuid)',
                             'public.hr_sweep(timestamptz)']) f
          WHERE has_function_privilege('authenticated', f, 'EXECUTE'));
   c := c || pg_temp.hr_chk('authenticated may execute internal HR functions', r, 'none');
+  -- hr_can_see is granted on purpose: the read policies call it as the caller.
+  r := has_function_privilege('authenticated', 'public.hr_can_see(uuid)', 'EXECUTE')::text
+    || '/' || has_function_privilege('anon', 'public.hr_can_see(uuid)', 'EXECUTE')::text;
+  c := c || pg_temp.hr_chk('hr_can_see is not executable by authenticated only', r, 'true/false');
 
   -- ---------- Cross-account ----------
   r := pg_temp.hr_as(u_out, format('SELECT (public.hr_open(%L, ''candidate'')).inbox', c1))
     || '|' || pg_temp.hr_as(u_out, format('SELECT (public.hr_set_stage(%L, ''manager_interview'')).inbox', c1));
   c := c || pg_temp.hr_chk('an admin of another workspace was not NOT_FOUND', r,
                            'ERROR P0002 NOT_FOUND:%|ERROR P0002 NOT_FOUND:%');
+
+  -- ---------- HR tasks carry no contact ----------
+  -- u_plain owns c1's contact (so sees it) but cannot see the chat.
+  UPDATE contacts SET user_id = u_plain WHERE id = k[1];
+  r := pg_temp.hr_as(u_plain, format('SELECT count(*)::text FROM public.contacts WHERE id = %L', k[1]))
+    || '/' || pg_temp.hr_as(u_plain, format('SELECT count(*)::text FROM public.conversations WHERE id = %L', c1));
+  c := c || pg_temp.hr_chk('fixture: u_plain sees c1''s contact but not the chat', r, '1/0');
+  r := pg_temp.hr_as(u_plain, format(
+         'SELECT count(*)::text FROM public.tasks WHERE conversation_id = %L OR source_ref LIKE %L',
+         c1, 'hr:' || c1::text || ':%'))
+    || '/' || (SELECT count(*) FROM tasks t WHERE t.conversation_id = c1 AND t.contact_id IS NOT NULL);
+  c := c || pg_temp.hr_chk('an HR task reached a contact-only viewer (or carries a contact)', r, '0/0');
+  r := pg_temp.hr_as(u_rmem, format(
+         'SELECT (count(*) > 0)::text FROM public.tasks WHERE conversation_id = %L AND assigned_to = %L', c1, u_rmem));
+  c := c || pg_temp.hr_chk('the assignee does not see their HR task', r, 'true');
+
+  -- ---------- Coordinator share grants no HR read ----------
+  INSERT INTO case_banks (account_id, code, name) VALUES (a_acct, 'HRCI', 'HR CI Bank')
+  ON CONFLICT DO NOTHING;
+  INSERT INTO coordinator_banks (account_id, user_id, bank_code) VALUES (a_acct, u_blind, 'HRCI');
+  INSERT INTO conversation_coordinator_shares (account_id, conversation_id, coordinator_user_id, bank_code, shared_by)
+  VALUES (a_acct, c1, u_blind, 'HRCI', u_owner);
+  r := pg_temp.hr_as(u_blind, format('SELECT count(*)::text FROM public.conversations WHERE id = %L', c1));
+  c := c || pg_temp.hr_chk('fixture: the coordinator share does not show c1', r, '1');
+  r := pg_temp.hr_as(u_blind, format('SELECT count(*)::text FROM public.hr_conversations WHERE conversation_id = %L', c1))
+    || '/' || pg_temp.hr_as(u_blind, format('SELECT count(*)::text FROM public.hr_stage_history WHERE conversation_id = %L', c1));
+  c := c || pg_temp.hr_chk('a coordinator share holder reads HR rows', r, '0/0');
+  r := pg_temp.hr_as(u_rmem, format('SELECT count(*)::text FROM public.hr_conversations WHERE conversation_id = %L', c1))
+    || '/' || pg_temp.hr_as(u_rmem, format('SELECT (count(*) > 0)::text FROM public.hr_stage_history WHERE conversation_id = %L', c1));
+  c := c || pg_temp.hr_chk('the assignee no longer reads their HR row and history', r, '1/true');
+
+  -- ---------- Removing a departed member ----------
+  UPDATE profiles SET deactivated_at = now() WHERE user_id = u_blind AND account_id = a_acct;
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_member_set(%L, ''dept'', ''member'')', u_blind))
+    || '/' || pg_temp.hr_as(u_owner, format('SELECT public.hr_member_set(%L, ''recruiter'', NULL)', u_blind));
+  r := r || '/' || (SELECT count(*) FROM hr_team_members m WHERE m.user_id = u_blind);
+  c := c || pg_temp.hr_chk('a departed member could be added, or could not be removed', r,
+                           'ERROR P0002 NOT_FOUND:%/ok/0');
 
   -- Undo every fixture; `c` survives the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT200', MESSAGE = 'verify-hr-workflows rollback';

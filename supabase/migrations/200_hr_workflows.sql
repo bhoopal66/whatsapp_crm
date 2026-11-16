@@ -10,19 +10,28 @@
 --   1. Tables: hr_team_members (who works which HR inbox, lead|member),
 --      hr_conversations (ONE row per chat, PK = conversation_id),
 --      hr_stage_history (append-only), hr_workflow_rules (per account,
---      seeded by hr_seed_rules: 11 rules).
+--      seeded by hr_seed_rules: 11 rules), hr_rule_fired (the ledger of
+--      fired rule events; RLS on, no policy, no client grants).
 --   2. Visibility is unchanged. HR team membership grants NO chat
 --      visibility: every HR action also needs the caller to see the chat
 --      under the conversations_select predicate of 191 (hr_can_see). A
 --      chat the caller cannot see, or of another account, is NOT_FOUND.
---      The SELECT policies reach hr_conversations through an EXISTS on
---      conversations, which runs under the caller's conversations RLS.
+--      The SELECT policies on hr_conversations and hr_stage_history are
+--      exactly that predicate (current account AND hr_can_see), not an
+--      EXISTS on conversations: that would also pass 133's coordinator
+--      share policy and hand a bank coordinator HR outcomes and reasons.
 --   3. The owner is the chat's assignment (conversations.assigned_agent_id;
 --      unassigned → conversations.user_id). No HR owner column.
 --   4. Rules create public.tasks rows (085; source 'automation', kind
---      'follow_up', source_ref 'hr:<conversation>:<rule key>:<event>',
---      unique per account+source → ON CONFLICT DO NOTHING is the dedupe)
---      or set a flag. They never message anyone.
+--      'follow_up', source_ref 'hr:<conversation>:<rule key>:<event>')
+--      or set a flag. They never message anyone. Each (chat, rule, event)
+--      fires once: hr_apply_rule claims it in hr_rule_fired first and acts
+--      only on a new claim, so a task a person deletes is not re-created
+--      by the next sweep and an overdue chat costs one PK probe per tick
+--      (the task's ON CONFLICT on source_ref stays as a second net).
+--      HR tasks carry NO contact_id: 085's tasks_select shows a task to
+--      anyone who can see its contact, which would leak an employee's HR
+--      topic past the HR chat's visibility. conversation_id stays.
 --      Firing: AFTER INSERT / AFTER UPDATE OF stage_key, topic, inbox,
 --      guarded by pg_trigger_depth() so a rule's own flag write never
 --      fires rules. Stage events are 'stage:<stage>:<n>', n = earlier
@@ -155,36 +164,35 @@ CREATE TABLE IF NOT EXISTS public.hr_workflow_rules (
     OR (action = 'set_flag' AND flag IS NOT NULL AND title IS NULL AND due_hours IS NULL))
 );
 
+CREATE TABLE IF NOT EXISTS public.hr_rule_fired (
+  conversation_id uuid NOT NULL REFERENCES public.hr_conversations(conversation_id) ON DELETE CASCADE,
+  rule_key        text NOT NULL,
+  event           text NOT NULL,
+  fired_at        timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_rule_fired_pkey PRIMARY KEY (conversation_id, rule_key, event)
+);
+
 COMMENT ON TABLE public.hr_conversations IS
   'HR tracking of one chat (recruiter stage or dept topic, flags, reply state, HR closure). Grants no visibility: the SELECT policy goes through the caller''s conversations RLS. Migration 200.';
 COMMENT ON TABLE public.hr_workflow_rules IS
   'Per-account HR workflow rules (create a public.tasks row or set a flag; never send). Seeded by hr_seed_rules. Migration 200.';
 
 -- ------------------------------------------------------------
--- 2. RLS, grants (no client writes on any of the four tables)
+-- 2. RLS, grants (no client writes on any of the five tables)
 -- ------------------------------------------------------------
 
 ALTER TABLE public.hr_team_members   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hr_conversations  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hr_stage_history  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hr_workflow_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_rule_fired     ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS hr_team_members_select ON public.hr_team_members;
 CREATE POLICY hr_team_members_select ON public.hr_team_members
   FOR SELECT USING (account_id = (SELECT current_account_id()));
 
-DROP POLICY IF EXISTS hr_conversations_select ON public.hr_conversations;
-CREATE POLICY hr_conversations_select ON public.hr_conversations
-  FOR SELECT USING (
-    account_id = (SELECT current_account_id())
-    AND EXISTS (SELECT 1 FROM public.conversations c
-                 WHERE c.id = hr_conversations.conversation_id));
-
-DROP POLICY IF EXISTS hr_stage_history_select ON public.hr_stage_history;
-CREATE POLICY hr_stage_history_select ON public.hr_stage_history
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.hr_conversations h
-             WHERE h.conversation_id = hr_stage_history.conversation_id));
+-- hr_conversations_select / hr_stage_history_select are created after
+-- hr_can_see (section 3), which they call.
 
 DROP POLICY IF EXISTS hr_workflow_rules_select ON public.hr_workflow_rules;
 CREATE POLICY hr_workflow_rules_select ON public.hr_workflow_rules
@@ -196,6 +204,8 @@ REVOKE ALL ON public.hr_team_members, public.hr_conversations,
 GRANT SELECT ON public.hr_team_members, public.hr_conversations,
                 public.hr_stage_history, public.hr_workflow_rules
   TO authenticated, service_role;
+REVOKE ALL ON public.hr_rule_fired
+  FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.hr_stage_history_id_seq
   FROM PUBLIC, anon, authenticated, service_role;
 
@@ -212,7 +222,7 @@ BEGIN
 END $$;
 
 -- ------------------------------------------------------------
--- 3. Internal helpers (not granted)
+-- 3. Internal helpers (not granted; hr_can_see only to authenticated)
 -- ------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.hr_refuse(p_hint text, p_message text)
@@ -295,6 +305,21 @@ AS $$
       FROM conversations c WHERE c.id = p_conversation_id), false)
 $$;
 
+-- The read policies: exactly the conversations_select predicate (191),
+-- never an EXISTS on conversations, which 133's coordinator share
+-- policy would also pass.
+DROP POLICY IF EXISTS hr_conversations_select ON public.hr_conversations;
+CREATE POLICY hr_conversations_select ON public.hr_conversations
+  FOR SELECT USING (
+    account_id = (SELECT current_account_id())
+    AND public.hr_can_see(conversation_id));
+
+DROP POLICY IF EXISTS hr_stage_history_select ON public.hr_stage_history;
+CREATE POLICY hr_stage_history_select ON public.hr_stage_history
+  FOR SELECT USING (
+    account_id = (SELECT current_account_id())
+    AND public.hr_can_see(conversation_id));
+
 -- Lock and return the caller's HR row: NOT_FOUND unless the caller can
 -- see the chat and it has an HR row; NOT_ALLOWED unless the caller is
 -- member/lead/admin of the row's current inbox.
@@ -356,7 +381,8 @@ $$;
 -- ------------------------------------------------------------
 
 -- Apply one rule to one HR row. Returns 1 when a task was created, 0
--- when deduplicated (or for a flag).
+-- when already fired (or for a flag). The hr_rule_fired claim comes
+-- first: an event fires once, even after its task is deleted.
 CREATE OR REPLACE FUNCTION public.hr_apply_rule(
   p_rule public.hr_workflow_rules, p_conversation_id uuid, p_event text, p_now timestamptz)
 RETURNS integer
@@ -369,6 +395,12 @@ DECLARE
   v_assignee uuid;
   n integer;
 BEGIN
+  INSERT INTO hr_rule_fired (conversation_id, rule_key, event, fired_at)
+  VALUES (p_conversation_id, p_rule.key, p_event, p_now)
+  ON CONFLICT ON CONSTRAINT hr_rule_fired_pkey DO NOTHING;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n = 0 THEN RETURN 0; END IF;
+
   IF p_rule.action = 'set_flag' THEN
     UPDATE hr_conversations x
        SET urgent = CASE WHEN p_rule.flag = 'urgent' THEN true ELSE x.urgent END,
@@ -387,7 +419,8 @@ BEGIN
 
   INSERT INTO tasks (account_id, kind, title, contact_id, conversation_id, assigned_to,
                      due_at, source, source_ref, meta, created_by)
-  VALUES (cv.account_id, 'follow_up', p_rule.title, cv.contact_id, cv.id, v_assignee,
+  -- contact_id NULL on purpose: see the header, point 4.
+  VALUES (cv.account_id, 'follow_up', p_rule.title, NULL, cv.id, v_assignee,
           p_now + make_interval(hours => p_rule.due_hours), 'automation',
           'hr:' || cv.id::text || ':' || p_rule.key || ':' || p_event,
           jsonb_build_object('hr_rule', p_rule.key, 'hr_inbox', p_rule.inbox), NULL)
@@ -502,6 +535,12 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF NEW.sender_type NOT IN ('customer', 'agent') THEN RETURN NULL; END IF;
+  -- A PK probe before the sub-transaction: a chat with no HR row (nearly
+  -- every message, bulk history imports included) never opens one.
+  IF NEW.conversation_id IS NULL OR NOT EXISTS (
+       SELECT 1 FROM hr_conversations x WHERE x.conversation_id = NEW.conversation_id) THEN
+    RETURN NULL;
+  END IF;
   BEGIN
     UPDATE hr_conversations x
        SET last_inbound_at = CASE WHEN NEW.sender_type = 'customer'
@@ -588,6 +627,16 @@ BEGIN
     INSERT INTO hr_stage_history (conversation_id, account_id, event, from_stage, to_stage,
                                   from_inbox, to_inbox, actor)
     VALUES (p_conversation_id, v_account, 'open', NULL, v_stage, NULL, v_inbox, v_uid);
+    -- A message committed between the reads above and the insert was
+    -- stamped by nobody (its trigger found no row): read again.
+    UPDATE hr_conversations x
+       SET last_inbound_at = GREATEST(x.last_inbound_at,
+             (SELECT max(m.created_at) FROM messages m
+               WHERE m.conversation_id = p_conversation_id AND m.sender_type = 'customer')),
+           last_outbound_at = GREATEST(x.last_outbound_at,
+             (SELECT max(m.created_at) FROM messages m
+               WHERE m.conversation_id = p_conversation_id AND m.sender_type = 'agent'))
+     WHERE x.conversation_id = p_conversation_id;
   END IF;
 
   SELECT * INTO h FROM hr_conversations x WHERE x.conversation_id = p_conversation_id;
@@ -770,7 +819,15 @@ BEGIN
      OR (p_role IS NOT NULL AND p_role NOT IN ('lead', 'member')) THEN
     PERFORM hr_refuse('INVALID', 'inbox is recruiter|dept and role lead|member (or null to remove)');
   END IF;
-  IF NOT hr_is_live_staff(v_account, p_user_id) THEN
+  -- Removal works on any row of this workspace (a departed member must
+  -- be removable); adds and changes need live staff.
+  IF p_role IS NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM hr_team_members m
+                    WHERE m.account_id = v_account AND m.user_id = p_user_id AND m.inbox = p_inbox)
+       AND NOT hr_is_live_staff(v_account, p_user_id) THEN
+      PERFORM hr_refuse('NOT_FOUND', 'no such staff member in this workspace');
+    END IF;
+  ELSIF NOT hr_is_live_staff(v_account, p_user_id) THEN
     PERFORM hr_refuse('NOT_FOUND', 'no such staff member in this workspace');
   END IF;
   IF p_role IS NULL THEN
@@ -979,6 +1036,10 @@ GRANT EXECUTE ON FUNCTION
   TO authenticated;
 
 GRANT EXECUTE ON FUNCTION public.hr_sweep(timestamptz) TO service_role;
+
+-- The read policies call it as the caller; it only answers whether the
+-- caller can see a chat.
+GRANT EXECUTE ON FUNCTION public.hr_can_see(uuid) TO authenticated;
 
 -- ------------------------------------------------------------
 -- 10. Seed every existing account's rules
