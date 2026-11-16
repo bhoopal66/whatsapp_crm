@@ -277,7 +277,7 @@ export function hireFastViews(
     return {
       ...item,
       name,
-      href: `/hr-inbox?c=${encodeURIComponent(item.conversationId)}`,
+      href: `/hr/recruiter?c=${encodeURIComponent(item.conversationId)}`,
     };
   });
 }

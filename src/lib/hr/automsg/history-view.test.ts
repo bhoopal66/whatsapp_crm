@@ -46,7 +46,7 @@ describe('historyRowView', () => {
       statusKey: 'held',
       holdKey: 'quietHours',
       claimKey: 'unconfirmed',
-      href: '/hr-inbox?c=c-1',
+      href: '/hr/recruiter?c=c-1',
     });
     expect(historyRowView(row('sent'), 'admin').holdKey).toBeNull();
   });

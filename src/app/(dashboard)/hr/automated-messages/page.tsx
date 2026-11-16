@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, Play, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Play, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AutomsgHistory } from '@/components/hr/automsg-history';
@@ -170,13 +169,6 @@ export default function HrAutomatedMessagesPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
-      <Link
-        href="/hr-inbox"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-      >
-        <ArrowLeft className="size-4" />
-        {t('back')}
-      </Link>
       <div>
         <h1 className="text-xl font-semibold">{t('title')}</h1>
         <p className="text-muted-foreground text-sm">{t('subtitle')}</p>

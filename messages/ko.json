@@ -57,7 +57,8 @@
       "collaboration": "협업",
       "team": "팀",
       "automation": "캠페인 및 자동화",
-      "integrations": "연동"
+      "integrations": "연동",
+      "hr": "HR"
     },
     "roleBankGuest": "은행 게스트",
     "switchWorkspace": "워크스페이스 전환",
@@ -79,7 +80,15 @@
     "banks": "은행",
     "brain": "세컨드 브레인",
     "digest": "일일 요약",
-    "opendesk": "OpenDesk"
+    "opendesk": "OpenDesk",
+    "hrRecruiter": "채용 HR",
+    "hrDepartment": "HR 부서",
+    "hrUnsorted": "미분류",
+    "hrTasks": "작업",
+    "hrRules": "규칙",
+    "hrHireFast": "빠른 채용",
+    "hrAutomatedMessages": "자동 메시지",
+    "openHrChats": "{count, plural, other {열린 채팅 #개}}"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -121,7 +130,14 @@
     "digest": "일일 요약",
     "opendesk": "OpenDesk",
     "hrTasks": "HR 작업",
-    "hrSetup": "HR 설정"
+    "hrSetup": "HR 설정",
+    "hrRecruiter": "채용 HR",
+    "hrDepartment": "HR 부서",
+    "hrUnsorted": "미분류",
+    "hrRules": "규칙",
+    "hrHireFast": "빠른 채용",
+    "hrAutomatedMessages": "자동 메시지",
+    "hr": "HR"
   },
   "Notifications": {
     "title": "알림",
@@ -11012,7 +11028,7 @@
       "unknownCustomer": "고객"
     },
     "setup": {
-      "title": "HR 설정",
+      "title": "규칙",
       "back": "HR 받은편지함으로 돌아가기",
       "team": {
         "title": "HR 팀",

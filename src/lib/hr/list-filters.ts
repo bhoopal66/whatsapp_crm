@@ -89,9 +89,16 @@ const oneOf = <T extends string>(
 
 type Params = Pick<URLSearchParams, 'get'>;
 
-/** Unknown values fall back to the defaults; a stage outside Recruitment is dropped. */
-export function parseHrListParams(params: Params): HrListFilters {
-  const tab = oneOf(HR_TABS, params.get(K.tab)) ?? 'all';
+/**
+ * Unknown values fall back to the defaults; a stage outside Recruitment is
+ * dropped. A `fixedTab` (the route's own inbox, /hr/recruiter …) wins over
+ * the URL's `hrTab`.
+ */
+export function parseHrListParams(
+  params: Params,
+  fixedTab?: HrTab
+): HrListFilters {
+  const tab = fixedTab ?? oneOf(HR_TABS, params.get(K.tab)) ?? 'all';
   return {
     tab,
     stage: tab === 'recruiter' ? oneOf(HR_STAGES, params.get(K.stage)) : null,
@@ -111,15 +118,19 @@ export function parseHrListParams(params: Params): HrListFilters {
   };
 }
 
-/** Writes the filters into a copy of `params`, leaving every other key. */
+/**
+ * Writes the filters into a copy of `params`, leaving every other key.
+ * With `fixedTab` the route names the tab, so `hrTab` is not written.
+ */
 export function writeHrListParams(
   params: URLSearchParams,
-  f: HrListFilters
+  f: HrListFilters,
+  fixedTab?: HrTab
 ): URLSearchParams {
   const out = new URLSearchParams(params);
   const set = (key: string, v: string | null) =>
     v === null ? out.delete(key) : out.set(key, v);
-  set(K.tab, f.tab === 'all' ? null : f.tab);
+  set(K.tab, fixedTab || f.tab === 'all' ? null : f.tab);
   set(K.stage, f.stage);
   set(K.topic, f.topic);
   set(K.topicGroup, f.topicGroup);
@@ -312,16 +323,19 @@ export function switchHrTab(f: HrListFilters, tab: HrTab): HrListFilters {
 /**
  * The inbox's URL for opening (`c`) or closing (null) a chat in the HR
  * view: `basePath` with the HR filter keys of `search` kept and every
- * other key dropped, as the other views drop them.
+ * other key dropped, as the other views drop them. `fixedTab`: the route
+ * is one inbox (/hr/recruiter …), so `hrTab` is ignored and not written.
  */
 export function hrInboxUrl(
   basePath: string,
   search: string,
-  c: string | null
+  c: string | null,
+  fixedTab?: HrTab
 ): string {
   const out = writeHrListParams(
     new URLSearchParams(),
-    parseHrListParams(new URLSearchParams(search))
+    parseHrListParams(new URLSearchParams(search), fixedTab),
+    fixedTab
   );
   if (c) out.set('c', c);
   const q = out.toString();

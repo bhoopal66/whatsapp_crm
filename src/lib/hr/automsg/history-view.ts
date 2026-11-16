@@ -81,7 +81,7 @@ export function historyRowView(
       (role === 'admin' || role === 'lead') &&
       CANCELLABLE_STATUSES.includes(row.status) &&
       row.claimState === null,
-    href: `/hr-inbox?c=${encodeURIComponent(row.conversationId)}`,
+    href: `/hr/recruiter?c=${encodeURIComponent(row.conversationId)}`,
   };
 }
 

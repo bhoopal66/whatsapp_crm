@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
@@ -139,13 +138,6 @@ export default function HrSetupPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
-      <Link
-        href="/hr-inbox"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-      >
-        <ArrowLeft className="size-4" />
-        {t('setup.back')}
-      </Link>
       <h1 className="text-xl font-semibold">{t('setup.title')}</h1>
 
       <section className="border-border bg-card space-y-3 rounded-lg border p-4">

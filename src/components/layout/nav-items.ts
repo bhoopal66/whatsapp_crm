@@ -26,9 +26,18 @@ import {
   Zap,
   type LucideIcon,
   AudioLines,
+  IdCard,
+  ListTodo,
+  MessageSquareText,
+  Rocket,
+  SlidersHorizontal,
+  UserSearch,
 } from 'lucide-react';
 
 import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
+import { hasHrAccess } from '@/lib/hr/access';
+import { hrInboxLinks } from '@/lib/hr/topic-ui';
+import type { HrRoles } from '@/lib/hr/types';
 
 /**
  * The sidebar's information architecture.
@@ -87,12 +96,13 @@ export interface NavItem {
    */
   callReviewerVisible?: boolean;
   /**
-   * Also shown, below `minRole`, to a member or lead of an HR team
-   * (migration 200, `hr_my_roles()`; `ctx.hrTeam`). Only the minRole
-   * check is waived, as for {@link callReviewerVisible}; the HR inbox is
-   * not a sales area, so a restricted department keeps it.
+   * An HR screen (migration 200): shown to owners and admins, and to
+   * the HR roles (`hr_my_roles()`, `ctx.hrRoles`) the gate names, see
+   * {@link hrGateOpen}. `minRole` is not read. The HR screens are not a
+   * sales area, so a restricted department (HR people are one) keeps
+   * them; each route's HrAccessLayout is the server-side guard.
    */
-  hrTeamVisible?: boolean;
+  hr?: HrNavGate;
   /**
    * The route's own layout guards it on the server (one of the
    * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
@@ -113,8 +123,32 @@ export interface NavContext {
   brain?: boolean;
   /** Allowed to review every call (migration 198, `reviewsAllCalls`). */
   callReviewer?: boolean;
-  /** On an HR team, recruitment or HR department (migration 200). */
-  hrTeam?: boolean;
+  /** The person's HR roles (migration 200); null/absent: none known. */
+  hrRoles?: HrRoles | null;
+}
+
+/**
+ * Which HR roles open an HR row: `recruiter` / `dept` a role in that
+ * inbox, `any` either, `hireFast` / `automatedMessages` what
+ * `hrInboxLinks` offers (the pages' own rule).
+ */
+export type HrNavGate =
+  'recruiter' | 'dept' | 'any' | 'hireFast' | 'automatedMessages';
+
+/** Does `roles` open an HR row gated by `gate`? (Admins: always.) */
+export function hrGateOpen(gate: HrNavGate, roles: HrRoles | null): boolean {
+  if (!roles) return false;
+  switch (gate) {
+    case 'recruiter':
+      return roles.admin || roles.recruiter !== null;
+    case 'dept':
+      return roles.admin || roles.dept !== null;
+    case 'any':
+      return hasHrAccess(roles);
+    case 'hireFast':
+    case 'automatedMessages':
+      return hrInboxLinks(roles)[gate];
+  }
 }
 
 export interface NavGroup {
@@ -125,6 +159,7 @@ export interface NavGroup {
     | 'submissions'
     | 'collaboration'
     | 'team'
+    | 'hr'
     | 'automation'
     | 'integrations';
   /** Heading key in the `Sidebar` namespace; null renders no heading. */
@@ -279,17 +314,6 @@ export const NAV_GROUPS: NavGroup[] = [
         minRole: 'team_leader',
         guarded: true,
       },
-      // HR people's chats (migration 192), which leave the two inboxes
-      // above; owners, admins and HR team members (migration 200, the
-      // route's HrAccessLayout).
-      {
-        href: '/hr-inbox',
-        labelKey: 'hrInbox',
-        icon: Inbox,
-        minRole: 'admin',
-        hrTeamVisible: true,
-        guarded: true,
-      },
       {
         href: '/team-contacts',
         labelKey: 'teamContacts',
@@ -318,6 +342,67 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamActivity',
         icon: Activity,
         minRole: 'team_leader',
+        guarded: true,
+      },
+    ],
+  },
+  // HR (migrations 192, 200): HR people's chats, which leave the
+  // inboxes above, one route per inbox, then the HR tools. Owners and
+  // admins see every row; an HR team member the rows their roles open
+  // (`hr`, see hrGateOpen). Each route's HrAccessLayout guards it.
+  {
+    id: 'hr',
+    labelKey: 'groups.hr',
+    items: [
+      {
+        href: '/hr/recruiter',
+        labelKey: 'hrRecruiter',
+        icon: UserSearch,
+        hr: 'recruiter',
+        guarded: true,
+      },
+      {
+        href: '/hr/department',
+        labelKey: 'hrDepartment',
+        icon: IdCard,
+        hr: 'dept',
+        guarded: true,
+      },
+      // HR-department chats with no HR row yet (neither a candidate
+      // nor an employee topic), so they have somewhere to be sorted.
+      {
+        href: '/hr/unsorted',
+        labelKey: 'hrUnsorted',
+        icon: Inbox,
+        hr: 'any',
+        guarded: true,
+      },
+      {
+        href: '/hr/tasks',
+        labelKey: 'hrTasks',
+        icon: ListTodo,
+        hr: 'any',
+        guarded: true,
+      },
+      {
+        href: '/hr/rules',
+        labelKey: 'hrRules',
+        icon: SlidersHorizontal,
+        hr: 'any',
+        guarded: true,
+      },
+      {
+        href: '/hr/hire-fast',
+        labelKey: 'hrHireFast',
+        icon: Rocket,
+        hr: 'hireFast',
+        guarded: true,
+      },
+      {
+        href: '/hr/automated-messages',
+        labelKey: 'hrAutomatedMessages',
+        icon: MessageSquareText,
+        hr: 'automatedMessages',
         guarded: true,
       },
     ],
@@ -420,9 +505,9 @@ export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
  * May `role` see `item`? A bank guest sees only `guestVisible` rows;
  * staff are gated by `minRole` (none = every staff member), and a
  * `needsPbx` row by `ctx.pbx`; a `callReviewerVisible` row passes its
- * `minRole` for a call reviewer (`ctx.callReviewer`), a `hrTeamVisible`
- * row for an HR team member (`ctx.hrTeam`). Null (the profile
- * still loading) shows the ungated rows, as above.
+ * `minRole` for a call reviewer (`ctx.callReviewer`); an `hr` row is
+ * for admins and the HR roles its gate names (`ctx.hrRoles`). Null (the
+ * profile still loading) shows the ungated rows, as above.
  */
 export function isNavItemVisible(
   item: NavItem,
@@ -434,7 +519,11 @@ export function isNavItemVisible(
   if (item.needsPbx && !(role && ctx.pbx)) return false;
   if (item.needsBrain && !(role && ctx.brain)) return false;
   if (item.callReviewerVisible && role && ctx.callReviewer) return true;
-  if (item.hrTeamVisible && role && ctx.hrTeam) return true;
+  if (item.hr)
+    return (
+      !!role &&
+      (hasMinRole(role, 'admin') || hrGateOpen(item.hr, ctx.hrRoles ?? null))
+    );
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 
