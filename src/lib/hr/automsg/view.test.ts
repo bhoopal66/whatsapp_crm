@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { mapConfig, type AutoMsgTemplateView } from './api';
 import { TRIGGERS } from './types';
 import {
+  approvalChips,
   automsgControls,
   automsgErrorKey,
   automsgRole,
@@ -259,5 +260,32 @@ describe('nextSettingsForm', () => {
 
   it('keeps unsaved edits on any other reload', () => {
     expect(nextSettingsForm(typed, config.settings, 'other')).toBe(typed);
+  });
+});
+
+describe('approvalChips', () => {
+  const keys = (en: boolean, ar: boolean) =>
+    approvalChips({ en, ar }).map((c) => c.key);
+
+  it('names each language, approved or not', () => {
+    expect(keys(true, true)).toEqual(['enApproved', 'arApproved']);
+    expect(keys(true, false)).toEqual(['enApproved', 'arMissing']);
+    expect(keys(false, true)).toEqual(['enMissing', 'arApproved']);
+  });
+
+  it('warns that only a draft exists when no language is approved', () => {
+    expect(keys(false, false)).toEqual(['enMissing', 'arMissing', 'draftOnly']);
+    expect(approvalChips({ en: false, ar: false }).map((c) => c.tone)).toEqual([
+      'missing',
+      'missing',
+      'warning',
+    ]);
+  });
+
+  it('marks approved languages with the ok tone', () => {
+    expect(approvalChips({ en: true, ar: false }).map((c) => c.tone)).toEqual([
+      'ok',
+      'missing',
+    ]);
   });
 });

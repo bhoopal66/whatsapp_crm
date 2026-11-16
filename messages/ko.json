@@ -11246,10 +11246,11 @@
       "noAccess": "자동 메시지는 관리자와 채용팀 리더만 열 수 있습니다.",
       "loadFailed": "자동 메시지 설정을 불러오지 못했습니다.",
       "retry": "다시 시도",
+      "runRelease": "지금 발송 실행",
       "banner": {
         "offTitle": "자동 메시지가 꺼져 있습니다",
         "onTitle": "자동 메시지가 켜져 있습니다",
-        "safety": "각 채팅의 WhatsApp 번호에서 고정된 템플릿만 보냅니다. AI 초안은 절대 자동으로 보내지 않습니다.",
+        "safety": "고정된 템플릿만 보냅니다. AI 초안은 절대 자동으로 보내지 않습니다.",
         "turnOn": "자동 메시지 켜기",
         "turnOff": "끄기",
         "confirmTitle": "자동 메시지를 켤까요?",
@@ -11258,7 +11259,6 @@
         "cancel": "취소",
         "turnedOn": "자동 메시지를 켰습니다.",
         "turnedOff": "자동 메시지를 껐습니다.",
-        "runNow": "지금 실행",
         "runDone": "완료: 발송 {sent}건, 보류 {held}건, 기타 {other}건.",
         "runFailed": "발송을 실행하지 못했습니다. 다시 시도하세요."
       },
@@ -11267,11 +11267,10 @@
         "leadNote": "이 설정은 관리자만 바꿀 수 있습니다.",
         "quietStart": "방해 금지 시작",
         "quietEnd": "방해 금지 종료",
-        "quietHelp": "이 시간 사이에는 아무것도 보내지 않습니다.",
         "tz": "시간대",
-        "dailyCap": "지원자별 하루 최대 발송 수",
-        "requiresConsent": "먼저 동의 받기",
-        "save": "저장",
+        "dailyCap": "연락처별 하루 최대 발송 수",
+        "requiresConsent": "동의 필요",
+        "save": "설정 저장",
         "saved": "설정을 저장했습니다.",
         "invalid": {
           "quietStart": "시작 시간을 HH:MM 형식으로 입력하세요.",
@@ -11284,11 +11283,16 @@
         "title": "트리거",
         "trigger": "트리거",
         "template": "템플릿",
-        "approved": "승인됨",
-        "approvedLine": "영어 {en}, 아랍어 {ar}",
-        "on": "사용",
+        "approved": "승인된 템플릿",
+        "enabled": "사용",
+        "chips": {
+          "enApproved": "영어: 승인됨",
+          "enMissing": "영어: 승인된 템플릿 없음",
+          "arApproved": "아랍어: 승인됨",
+          "arMissing": "아랍어: 승인된 템플릿 없음",
+          "draftOnly": "초안 템플릿 - 24시간 창 밖에서는 보낼 수 없음"
+        },
         "needsInterviewTimes": "면접 시간이 필요합니다 (아직 지원되지 않음)",
-        "noApproved": "승인된 템플릿이 없어 메시지가 보류됩니다",
         "saved": "트리거를 바꿨습니다."
       },
       "triggers": {
