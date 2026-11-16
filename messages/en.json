@@ -11224,10 +11224,11 @@
       "noAccess": "Only admins and recruiter team leads can open automated messages.",
       "loadFailed": "Couldn't load the automated message settings.",
       "retry": "Try again",
+      "runRelease": "Run release now",
       "banner": {
         "offTitle": "Automated messages are OFF",
         "onTitle": "Automated messages are ON",
-        "safety": "Only fixed templates are sent, from each chat's own WhatsApp number. AI drafts are never sent automatically.",
+        "safety": "Only fixed templates are sent. AI drafts are never sent automatically.",
         "turnOn": "Turn automated messages on",
         "turnOff": "Turn off",
         "confirmTitle": "Turn automated messages on?",
@@ -11236,7 +11237,6 @@
         "cancel": "Cancel",
         "turnedOn": "Automated messages are on.",
         "turnedOff": "Automated messages are off.",
-        "runNow": "Run now",
         "runDone": "Done: {sent} sent, {held} held, {other} other.",
         "runFailed": "Couldn't run the send pass. Try again."
       },
@@ -11245,11 +11245,10 @@
         "leadNote": "Only admins can change these settings.",
         "quietStart": "Quiet hours start",
         "quietEnd": "Quiet hours end",
-        "quietHelp": "Nothing is sent between these times.",
         "tz": "Time zone",
-        "dailyCap": "Daily cap per candidate",
-        "requiresConsent": "Ask for consent first",
-        "save": "Save",
+        "dailyCap": "Daily cap per contact",
+        "requiresConsent": "Requires consent",
+        "save": "Save settings",
         "saved": "Settings saved.",
         "invalid": {
           "quietStart": "Enter the start as HH:MM.",
@@ -11262,11 +11261,16 @@
         "title": "Triggers",
         "trigger": "Trigger",
         "template": "Template",
-        "approved": "Approved",
-        "approvedLine": "English {en}, Arabic {ar}",
-        "on": "On",
+        "approved": "Approved templates",
+        "enabled": "Enabled",
+        "chips": {
+          "enApproved": "English: approved",
+          "enMissing": "English: no approved template",
+          "arApproved": "Arabic: approved",
+          "arMissing": "Arabic: no approved template",
+          "draftOnly": "Draft template - not allowed outside the 24h window"
+        },
         "needsInterviewTimes": "Needs interview times (not available yet)",
-        "noApproved": "No approved template — messages will be held",
         "saved": "Trigger updated."
       },
       "triggers": {

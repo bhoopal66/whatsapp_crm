@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { Play, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AutomsgHistory } from '@/components/hr/automsg-history';
@@ -18,7 +17,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -38,8 +36,10 @@ import {
 } from '@/lib/hr/automsg/api';
 import { TEMPLATE_KINDS, type TemplateKind } from '@/lib/hr/automsg/types';
 import {
+  approvalChips,
   automsgControls,
   automsgErrorKey,
+  type ApprovalChip,
   automsgRole,
   bannerView,
   releaseCounts,
@@ -193,7 +193,6 @@ export default function HrAutomatedMessagesPage() {
             busy={busy}
             onTurnOn={() => setConfirmOn(true)}
             onTurnOff={() => void setKillSwitch(true)}
-            onRunNow={() => void runNow()}
           />
 
           <section className="border-border bg-card space-y-4 rounded-lg border p-4">
@@ -205,7 +204,7 @@ export default function HrAutomatedMessagesPage() {
                 </p>
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
               <Field
                 label={t('settings.quietStart')}
                 error={
@@ -216,6 +215,7 @@ export default function HrAutomatedMessagesPage() {
               >
                 <Input
                   type="time"
+                  className="w-32"
                   value={form.quietStart}
                   disabled={!controls.editSettings}
                   onChange={(e) =>
@@ -233,6 +233,7 @@ export default function HrAutomatedMessagesPage() {
               >
                 <Input
                   type="time"
+                  className="w-32"
                   value={form.quietEnd}
                   disabled={!controls.editSettings}
                   onChange={(e) =>
@@ -240,14 +241,12 @@ export default function HrAutomatedMessagesPage() {
                   }
                 />
               </Field>
-              <p className="text-muted-foreground -mt-2 text-xs sm:col-span-2">
-                {t('settings.quietHelp')}
-              </p>
               <Field
                 label={t('settings.tz')}
                 error={invalid.includes('tz') ? t('settings.invalid.tz') : null}
               >
                 <Input
+                  className="w-56"
                   value={form.tz}
                   placeholder="Asia/Dubai"
                   disabled={!controls.editSettings}
@@ -267,6 +266,7 @@ export default function HrAutomatedMessagesPage() {
                   min={1}
                   max={20}
                   step={1}
+                  className="w-20"
                   value={form.dailyCap}
                   disabled={!controls.editSettings}
                   onChange={(e) =>
@@ -274,17 +274,17 @@ export default function HrAutomatedMessagesPage() {
                   }
                 />
               </Field>
+              <label className="inline-flex h-8 items-center gap-2 text-sm">
+                <Checkbox
+                  checked={form.requiresConsent}
+                  disabled={!controls.editSettings}
+                  onCheckedChange={(v) =>
+                    setForm({ ...form, requiresConsent: v === true })
+                  }
+                />
+                {t('settings.requiresConsent')}
+              </label>
             </div>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={form.requiresConsent}
-                disabled={!controls.editSettings}
-                onCheckedChange={(v) =>
-                  setForm({ ...form, requiresConsent: v === true })
-                }
-              />
-              {t('settings.requiresConsent')}
-            </label>
             {controls.editSettings && (
               <div>
                 <Button size="sm" disabled={busy} onClick={saveSettings}>
@@ -302,8 +302,8 @@ export default function HrAutomatedMessagesPage() {
                   <TableHead>{t('triggersTable.trigger')}</TableHead>
                   <TableHead>{t('triggersTable.template')}</TableHead>
                   <TableHead>{t('triggersTable.approved')}</TableHead>
-                  <TableHead className="text-right">
-                    {t('triggersTable.on')}
+                  <TableHead className="text-center">
+                    {t('triggersTable.enabled')}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -342,25 +342,24 @@ export default function HrAutomatedMessagesPage() {
                       </select>
                     </TableCell>
                     <TableCell className="align-top whitespace-normal">
-                      <div className="text-sm">
-                        {t('triggersTable.approvedLine', {
-                          en: row.approved.en ? '✓' : '—',
-                          ar: row.approved.ar ? '✓' : '—',
-                        })}
+                      <div className="flex flex-wrap gap-1.5">
+                        {approvalChips(row.approved).map((chip) => (
+                          <span
+                            key={chip.key}
+                            className={`rounded-full px-2 py-0.5 text-xs ${CHIP_TONE[chip.tone]}`}
+                          >
+                            {t(`triggersTable.chips.${chip.key}`)}
+                          </span>
+                        ))}
                       </div>
-                      {row.noApproved && (
-                        <p className="text-warning text-xs">
-                          {t('triggersTable.noApproved')}
-                        </p>
-                      )}
                     </TableCell>
-                    <TableCell className="text-right align-top">
-                      <Switch
+                    <TableCell className="text-center align-top">
+                      <Checkbox
                         aria-label={t(`triggers.${row.trigger}`)}
                         checked={row.enabled}
                         disabled={row.switchDisabled || busy}
-                        onCheckedChange={(v: boolean) =>
-                          void setTrigger(row, v, null)
+                        onCheckedChange={(v) =>
+                          void setTrigger(row, v === true, null)
                         }
                       />
                     </TableCell>
@@ -376,7 +375,14 @@ export default function HrAutomatedMessagesPage() {
             onSaved={() => load()}
           />
 
-          <AutomsgHistory role={role} refreshKey={historyKey} />
+          <div className="space-y-2">
+            {role === 'admin' && (
+              <Button size="sm" disabled={busy} onClick={() => void runNow()}>
+                {t('runRelease')}
+              </Button>
+            )}
+            <AutomsgHistory role={role} refreshKey={historyKey} />
+          </div>
 
           <Dialog open={confirmOn} onOpenChange={setConfirmOn}>
             <DialogContent>
@@ -412,42 +418,32 @@ function Banner({
   busy,
   onTurnOn,
   onTurnOff,
-  onRunNow,
 }: {
   config: AutoMsgConfig;
   role: AutomsgRole;
   busy: boolean;
   onTurnOn: () => void;
   onTurnOff: () => void;
-  onRunNow: () => void;
 }) {
   const t = useTranslations('Hr.automsg.banner');
   const view = bannerView(config.settings, role);
   const off = view.state === 'off';
-  const Icon = off ? ShieldAlert : ShieldCheck;
   return (
     <div
       className={
         off
-          ? 'border-warning/40 bg-warning-soft flex flex-wrap items-start gap-3 rounded-lg border p-4'
-          : 'border-success/40 bg-success-soft flex flex-wrap items-start gap-3 rounded-lg border p-4'
+          ? 'border-warning bg-warning-soft space-y-1.5 rounded-lg border-l-4 px-4 py-3'
+          : 'border-success bg-success-soft space-y-1.5 rounded-lg border-l-4 px-4 py-3'
       }
     >
-      <Icon
-        className={off ? 'text-warning size-5' : 'text-success size-5'}
-        aria-hidden
-      />
-      <div className="min-w-0 flex-1 space-y-1">
+      <div className="flex flex-wrap items-center gap-3">
         <p
           className={
-            off ? 'text-warning font-medium' : 'text-success font-medium'
+            off ? 'text-warning font-semibold' : 'text-success font-semibold'
           }
         >
           {t(off ? 'offTitle' : 'onTitle')}
         </p>
-        <p className="text-sm">{t('safety')}</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
         {view.action === 'turnOn' && (
           <Button size="sm" disabled={busy} onClick={onTurnOn}>
             {t('turnOn')}
@@ -463,21 +459,20 @@ function Banner({
             {t('turnOff')}
           </Button>
         )}
-        {role === 'admin' && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={onRunNow}
-          >
-            <Play className="size-4" aria-hidden />
-            {t('runNow')}
-          </Button>
-        )}
       </div>
+      <p className={off ? 'text-warning text-xs' : 'text-success text-xs'}>
+        {t('safety')}
+      </p>
     </div>
   );
 }
+
+/** Chip colours for the "Approved templates" cell (status tokens). */
+const CHIP_TONE: Record<ApprovalChip['tone'], string> = {
+  ok: 'bg-success-soft text-success',
+  missing: 'bg-muted text-muted-foreground',
+  warning: 'bg-warning-soft text-warning',
+};
 
 function Field({
   label,
@@ -489,9 +484,11 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="space-y-1 text-sm">
-      <span className="font-medium">{label}</span>
-      {children}
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="inline-flex items-center gap-2">
+        <span className="font-medium whitespace-nowrap">{label}</span>
+        {children}
+      </span>
       {error && <span className="text-destructive block text-xs">{error}</span>}
     </label>
   );

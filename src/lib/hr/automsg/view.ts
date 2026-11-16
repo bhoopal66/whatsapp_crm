@@ -126,6 +126,37 @@ export function triggerRows(
   return rows;
 }
 
+export type ApprovalChipKey =
+  'enApproved' | 'enMissing' | 'arApproved' | 'arMissing' | 'draftOnly';
+
+export interface ApprovalChip {
+  /** Label key under `automsg.triggersTable.chips`. */
+  key: ApprovalChipKey;
+  tone: 'ok' | 'missing' | 'warning';
+}
+
+/**
+ * The "Approved templates" cell: one chip per language for the trigger's
+ * template, then a warning chip when no language has an approved version
+ * (only a draft exists, which Meta refuses outside the 24 h window).
+ */
+export function approvalChips(
+  approved: Readonly<Record<AutoLang, boolean>>
+): ApprovalChip[] {
+  const chips: ApprovalChip[] = [
+    approved.en
+      ? { key: 'enApproved', tone: 'ok' }
+      : { key: 'enMissing', tone: 'missing' },
+    approved.ar
+      ? { key: 'arApproved', tone: 'ok' }
+      : { key: 'arMissing', tone: 'missing' },
+  ];
+  if (!approved.en && !approved.ar) {
+    chips.push({ key: 'draftOnly', tone: 'warning' });
+  }
+  return chips;
+}
+
 // ---- settings form ----------------------------------------------------------
 
 export const DAILY_CAP_MIN = 1;
