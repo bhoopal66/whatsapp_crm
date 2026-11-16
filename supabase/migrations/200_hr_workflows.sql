@@ -920,6 +920,10 @@ AS $$
       FROM hr_conversations h
       JOIN conversations c ON c.id = h.conversation_id
      WHERE h.account_id = current_account_id() AND h.closed_at IS NULL
+       -- The HR inbox list's own predicate (inbox_department = 'hr', a
+       -- chat with a message), so a tab's number is the list's length.
+       AND c.inbox_department = 'hr'
+       AND c.last_message_at IS NOT NULL
   ), per AS (
     SELECT i.inbox,
            jsonb_build_object(
@@ -937,7 +941,7 @@ AS $$
     'unsorted',  (SELECT count(*) FROM conversations c
                    WHERE c.account_id = current_account_id()
                      AND c.inbox_department = 'hr'
-                     AND c.status IS DISTINCT FROM 'closed'
+                     AND c.last_message_at IS NOT NULL
                      AND NOT EXISTS (SELECT 1 FROM hr_conversations h
                                       WHERE h.conversation_id = c.id)))
 $$;
