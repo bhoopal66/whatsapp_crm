@@ -985,3 +985,14 @@ jobs:
       # tasks once each, never for a closed chat; no client writes.
       - name: Verify HR workflows
         run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
+
+      # Migration 202: recruiter AI agent drafts. Drafts and the per-kind
+      # switches are read through RLS (a recruiter role, and for drafts
+      # hr_can_see on the chat) and written only by definer functions: the
+      # user's settings_set / draft_decide (refusals by HINT), and the
+      # service role's context / create (idempotent source, 3-pending
+      # limit, closed / opted-out / dept refusals) / flag_urgent /
+      # supersede / expire (decided_by stays NULL); the guard freezes a
+      # draft's identity; ai_usage_log accepts 'hr_agent'; grants.
+      - name: Verify HR agents
+        run: supabase db query --local --file supabase/ci/verify-hr-agents.sql
