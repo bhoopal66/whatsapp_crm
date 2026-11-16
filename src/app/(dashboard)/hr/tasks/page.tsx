@@ -105,7 +105,7 @@ export default function HrTasksPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-4">
       <div>
         <h1 className="text-xl font-semibold">{t('title')}</h1>
         <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
