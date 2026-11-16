@@ -10940,7 +10940,22 @@
       "stageAria": "단계: {stage}",
       "topicAria": "주제: {topic}",
       "replyAria": "답장 상태: {state}",
-      "closed": "종료됨"
+      "closed": "종료됨",
+      "filtersAria": "인사 받은편지함 필터",
+      "tabsAria": "인사 받은편지함",
+      "tabAll": "전체",
+      "tabUnsorted": "미분류",
+      "tabCountAria": "{label}, {count}개",
+      "stageLabel": "단계",
+      "anyStage": "모든 단계",
+      "topicLabel": "주제",
+      "anyTopic": "모든 주제",
+      "replyLabel": "답장",
+      "anyReply": "모든 답장 상태",
+      "mine": "내 대화",
+      "showClosed": "종료됨",
+      "tasks": "작업",
+      "setup": "설정"
     }
   }
 }

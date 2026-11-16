@@ -87,6 +87,13 @@ export interface NavItem {
    */
   callReviewerVisible?: boolean;
   /**
+   * Also shown, below `minRole`, to a member or lead of an HR team
+   * (migration 200, `hr_my_roles()`; `ctx.hrTeam`). Only the minRole
+   * check is waived, as for {@link callReviewerVisible}; the HR inbox is
+   * not a sales area, so a restricted department keeps it.
+   */
+  hrTeamVisible?: boolean;
+  /**
    * The route's own layout guards it on the server (one of the
    * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
    * the session there makes the route dynamic, so the default `auto`
@@ -106,6 +113,8 @@ export interface NavContext {
   brain?: boolean;
   /** Allowed to review every call (migration 198, `reviewsAllCalls`). */
   callReviewer?: boolean;
+  /** On an HR team, recruitment or HR department (migration 200). */
+  hrTeam?: boolean;
 }
 
 export interface NavGroup {
@@ -271,12 +280,14 @@ export const NAV_GROUPS: NavGroup[] = [
         guarded: true,
       },
       // HR people's chats (migration 192), which leave the two inboxes
-      // above; owners and admins only (the route's AdminOnlyLayout).
+      // above; owners, admins and HR team members (migration 200, the
+      // route's HrAccessLayout).
       {
         href: '/hr-inbox',
         labelKey: 'hrInbox',
         icon: Inbox,
         minRole: 'admin',
+        hrTeamVisible: true,
         guarded: true,
       },
       {
@@ -409,7 +420,8 @@ export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
  * May `role` see `item`? A bank guest sees only `guestVisible` rows;
  * staff are gated by `minRole` (none = every staff member), and a
  * `needsPbx` row by `ctx.pbx`; a `callReviewerVisible` row passes its
- * `minRole` for a call reviewer (`ctx.callReviewer`). Null (the profile
+ * `minRole` for a call reviewer (`ctx.callReviewer`), a `hrTeamVisible`
+ * row for an HR team member (`ctx.hrTeam`). Null (the profile
  * still loading) shows the ungated rows, as above.
  */
 export function isNavItemVisible(
@@ -422,6 +434,7 @@ export function isNavItemVisible(
   if (item.needsPbx && !(role && ctx.pbx)) return false;
   if (item.needsBrain && !(role && ctx.brain)) return false;
   if (item.callReviewerVisible && role && ctx.callReviewer) return true;
+  if (item.hrTeamVisible && role && ctx.hrTeam) return true;
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 

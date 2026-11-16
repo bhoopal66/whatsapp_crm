@@ -16,6 +16,7 @@ import {
   HR_STAGES,
   HR_TOPICS,
   type HrConversation,
+  type HrCounts,
   type HrReplyState,
   type HrStage,
   type HrTopic,
@@ -198,4 +199,53 @@ export function matchesHrFilters(
   if (f.urgent && !hr.urgent) return false;
   if (!f.closed && hr.closed_at !== null) return false;
   return true;
+}
+
+/**
+ * The filter bar's tab numbers from `hr_counts()`: All is both inboxes
+ * plus the chats not sorted into one yet.
+ */
+export function hrTabCounts(c: HrCounts): Record<HrTab, number> {
+  return {
+    all: c.recruiter.all + c.dept.all + c.unsorted,
+    recruiter: c.recruiter.all,
+    dept: c.dept.all,
+    unsorted: c.unsorted,
+  };
+}
+
+/**
+ * Moving to `tab` clears the stage and the topic (each belongs to one
+ * tab), and on Not sorted the reply state and Urgent too, which need an
+ * HR row; the result is what {@link parseHrListParams} would read back.
+ */
+export function switchHrTab(f: HrListFilters, tab: HrTab): HrListFilters {
+  const unsorted = tab === 'unsorted';
+  return {
+    ...f,
+    tab,
+    stage: null,
+    topic: null,
+    reply: unsorted ? null : f.reply,
+    urgent: unsorted ? false : f.urgent,
+  };
+}
+
+/**
+ * The inbox's URL for opening (`c`) or closing (null) a chat in the HR
+ * view: `basePath` with the HR filter keys of `search` kept and every
+ * other key dropped, as the other views drop them.
+ */
+export function hrInboxUrl(
+  basePath: string,
+  search: string,
+  c: string | null
+): string {
+  const out = writeHrListParams(
+    new URLSearchParams(),
+    parseHrListParams(new URLSearchParams(search))
+  );
+  if (c) out.set('c', c);
+  const q = out.toString();
+  return q ? `${basePath}?${q}` : basePath;
 }
