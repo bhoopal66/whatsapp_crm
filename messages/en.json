@@ -11089,6 +11089,98 @@
       "hireFast": "Hire fast",
       "automatedMessages": "Automated messages",
       "topicGroupsAria": "Topic groups"
+    },
+    "agents": {
+      "title": "AI drafts",
+      "note": "Drafts only. Nothing is sent from here.",
+      "empty": "No drafts yet.",
+      "loadFailed": "Couldn't load the drafts.",
+      "kind": {
+        "orchestrator": "Orchestrator",
+        "cv_screening": "CV screening",
+        "scheduling": "Scheduling",
+        "candidate_faq": "Candidate questions",
+        "escalation": "Escalation"
+      },
+      "intent": {
+        "cv_received": "CV received",
+        "schedule_interview": "Interview scheduling",
+        "question_role": "Question about the role",
+        "question_process": "Question about the process",
+        "salary_offer_visa": "Salary, offer or visa",
+        "upset": "Upset",
+        "opt_out": "Opt-out",
+        "other": "Other"
+      },
+      "handoff": {
+        "keyword": "a keyword in the message",
+        "no_knowledge": "no answer on file",
+        "model": "the AI asked for a person",
+        "error": "something went wrong",
+        "cap": "the daily limit was reached",
+        "triage": "this kind of message needs a person",
+        "guardrail": "the safety check held it",
+        "kb": "a sensitive topic"
+      },
+      "handedOff": "Handed to a person: {reason}",
+      "status": {
+        "pending": "Waiting",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "expired": "Expired",
+        "superseded": "Replaced"
+      },
+      "needsTemplate": "Needs an approved template (outside the 24-hour window)",
+      "approvedHint": "Approved — send it from this chat",
+      "rejectedWith": "Reason: {reason}",
+      "approve": "Approve",
+      "reject": "Reject",
+      "dismiss": "Dismiss",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy. Select the text and copy it instead.",
+      "approved": "Draft approved",
+      "rejected": "Draft rejected",
+      "alreadyDecided": "Someone already decided this draft",
+      "rejectTitle": "Reject this draft?",
+      "rejectHint": "Optional: say why, so the team can see it later.",
+      "rejectReason": "Reason (optional)",
+      "draft": "Draft a reply",
+      "slots": "Interview times",
+      "slotsHint": "Optional. Separate times with commas (up to 5).",
+      "slotsTooMany": "Give at most 5 interview times.",
+      "slotsTooLong": "Each interview time can be at most 80 characters.",
+      "run": {
+        "drafted": "Draft ready",
+        "handoff": "Handed to a person",
+        "optedOut": "The candidate opted out — no draft",
+        "agentsOff": "AI drafts are switched off (HR inbox → Setup)",
+        "aiOff": "Set up AI in Settings → AI first",
+        "noMessage": "No candidate message to answer",
+        "cap": "Daily draft limit reached for this chat",
+        "limit": "Three drafts are already waiting",
+        "closed": "This chat is closed",
+        "failed": "Couldn't draft a reply. Try again."
+      }
+    },
+    "consent": {
+      "title": "Automated messages",
+      "personal": "Automated messages never go out from a personal number.",
+      "optedOut": "Opted out — no automated messages",
+      "given": "Consent given",
+      "withdrawn": "Consent withdrawn",
+      "none": "Consent not recorded",
+      "loadFailed": "Couldn't load the consent record.",
+      "source": {
+        "recruiter_confirmed": "Confirmed with the candidate",
+        "candidate_wrote": "Candidate agreed in the chat",
+        "form": "Form"
+      },
+      "sourceLabel": "How was consent given?",
+      "record": "Record consent",
+      "withdraw": "Withdraw consent",
+      "recorded": "Consent recorded",
+      "withdrawnToast": "Consent withdrawn"
     }
   }
 }

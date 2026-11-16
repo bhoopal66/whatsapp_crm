@@ -38,6 +38,9 @@ import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
 import { hrTopicOptGroups } from '@/lib/hr/topic-ui';
 import { isHrTask } from '@/lib/hr/tasks-view';
+import { mayActOnDrafts } from '@/lib/hr/agents/panel';
+import { HrAgentDrafts } from './hr-agent-drafts';
+import { HrAutomsgConsent } from './hr-automsg-consent';
 import {
   furthestStage,
   hasReason,
@@ -668,6 +671,20 @@ export function HrPanel({ conversationId, inboxDepartment }: HrPanelProps) {
           </ul>
         )}
       </div>
+
+      {row.inbox === 'recruiter' && (
+        <>
+          <HrAgentDrafts
+            conversationId={conversationId}
+            canAct={mayActOnDrafts(roles)}
+            closedAt={row.closed_at}
+          />
+          <HrAutomsgConsent
+            conversationId={conversationId}
+            canAct={mayActOnDrafts(roles)}
+          />
+        </>
+      )}
 
       <Dialog open={ask !== null} onOpenChange={(o) => !o && setAsk(null)}>
         <DialogContent className="sm:max-w-sm">

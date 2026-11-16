@@ -11089,6 +11089,98 @@
       "hireFast": "빠른 채용",
       "automatedMessages": "자동 메시지",
       "topicGroupsAria": "주제 그룹"
+    },
+    "agents": {
+      "title": "AI 초안",
+      "note": "초안일 뿐입니다. 여기서는 아무것도 보내지 않습니다.",
+      "empty": "아직 초안이 없습니다.",
+      "loadFailed": "초안을 불러오지 못했습니다.",
+      "kind": {
+        "orchestrator": "총괄",
+        "cv_screening": "이력서 검토",
+        "scheduling": "일정 조율",
+        "candidate_faq": "지원자 질문",
+        "escalation": "담당자 연결"
+      },
+      "intent": {
+        "cv_received": "이력서 접수",
+        "schedule_interview": "면접 일정",
+        "question_role": "직무 문의",
+        "question_process": "채용 절차 문의",
+        "salary_offer_visa": "급여·오퍼·비자",
+        "upset": "불만",
+        "opt_out": "수신 거부",
+        "other": "기타"
+      },
+      "handoff": {
+        "keyword": "메시지에 지정된 키워드가 있음",
+        "no_knowledge": "등록된 답변이 없음",
+        "model": "AI가 담당자 연결을 요청함",
+        "error": "오류가 발생함",
+        "cap": "하루 한도에 도달함",
+        "triage": "담당자가 직접 다뤄야 하는 메시지",
+        "guardrail": "안전 점검에서 보류됨",
+        "kb": "민감한 주제"
+      },
+      "handedOff": "담당자에게 넘김: {reason}",
+      "status": {
+        "pending": "대기 중",
+        "approved": "승인됨",
+        "rejected": "거절됨",
+        "expired": "만료됨",
+        "superseded": "대체됨"
+      },
+      "needsTemplate": "승인된 템플릿이 필요합니다 (24시간 창 밖)",
+      "approvedHint": "승인됨 — 이 채팅에서 보내세요",
+      "rejectedWith": "사유: {reason}",
+      "approve": "승인",
+      "reject": "거절",
+      "dismiss": "닫기",
+      "copy": "복사",
+      "copied": "복사했습니다",
+      "copyFailed": "복사하지 못했습니다. 텍스트를 선택해 직접 복사하세요.",
+      "approved": "초안을 승인했습니다",
+      "rejected": "초안을 거절했습니다",
+      "alreadyDecided": "다른 사람이 이미 이 초안을 처리했습니다",
+      "rejectTitle": "이 초안을 거절할까요?",
+      "rejectHint": "선택 사항: 나중에 팀이 볼 수 있도록 이유를 남기세요.",
+      "rejectReason": "사유 (선택)",
+      "draft": "답장 초안 만들기",
+      "slots": "면접 가능 시간",
+      "slotsHint": "선택 사항. 쉼표로 구분해 최대 5개까지 입력하세요.",
+      "slotsTooMany": "면접 시간은 최대 5개까지 입력할 수 있습니다.",
+      "slotsTooLong": "면접 시간은 각각 80자 이내로 입력하세요.",
+      "run": {
+        "drafted": "초안이 준비되었습니다",
+        "handoff": "담당자에게 넘겼습니다",
+        "optedOut": "지원자가 수신을 거부했습니다 — 초안 없음",
+        "agentsOff": "AI 초안이 꺼져 있습니다 (HR 받은편지함 → 설정)",
+        "aiOff": "먼저 설정 → AI에서 AI를 설정하세요",
+        "noMessage": "답할 지원자 메시지가 없습니다",
+        "cap": "이 채팅의 하루 초안 한도에 도달했습니다",
+        "limit": "이미 초안 3개가 대기 중입니다",
+        "closed": "이 채팅은 종료되었습니다",
+        "failed": "답장 초안을 만들지 못했습니다. 다시 시도하세요."
+      }
+    },
+    "consent": {
+      "title": "자동 메시지",
+      "personal": "개인 번호로는 자동 메시지를 보내지 않습니다.",
+      "optedOut": "수신 거부 — 자동 메시지 없음",
+      "given": "동의함",
+      "withdrawn": "동의 철회됨",
+      "none": "동의 기록 없음",
+      "loadFailed": "동의 기록을 불러오지 못했습니다.",
+      "source": {
+        "recruiter_confirmed": "지원자에게 직접 확인함",
+        "candidate_wrote": "지원자가 채팅에서 동의함",
+        "form": "양식"
+      },
+      "sourceLabel": "어떻게 동의를 받았나요?",
+      "record": "동의 기록",
+      "withdraw": "동의 철회",
+      "recorded": "동의를 기록했습니다",
+      "withdrawnToast": "동의를 철회했습니다"
     }
   }
 }
