@@ -11048,6 +11048,22 @@
         "topic": "직원 채팅에 {label} 주제가 지정될 때",
         "replyOverdue": "마지막 메시지 후 {hours}시간이 지나도 답장이 필요할 때",
         "noActivity": "지원자가 {hours}시간 동안 응답하지 않을 때"
+      },
+      "agents": {
+        "title": "채용 AI 초안",
+        "description": "AI가 채용 받은편지함의 지원자에게 보낼 답장을 제안합니다. 모든 초안은 담당자가 승인해야 하며, 자동으로 발송되는 메시지는 없습니다. 이 워크스페이스의 AI 키(설정 → AI)를 사용합니다.",
+        "legal": "켜기 전에 법무팀(UAE PDPL)에 확인하세요.",
+        "readOnly": "소유자, 관리자, 채용 리드만 이 스위치를 변경할 수 있습니다.",
+        "loadFailed": "AI 초안 스위치를 불러오지 못했습니다.",
+        "autoSend": "자동 발송: 꺼짐(사용할 수 없음)",
+        "masterOff": "나머지를 사용하려면 \"답장 초안\"을 먼저 켜세요.",
+        "kinds": {
+          "orchestrator": "답장 초안",
+          "cv_screening": "이력서 검토",
+          "scheduling": "면접 일정 조율",
+          "candidate_faq": "지원자 질문",
+          "escalation": "에스컬레이션 안내"
+        }
       }
     },
     "list": {

@@ -11048,6 +11048,22 @@
         "topic": "An employee chat is tagged {label}",
         "replyOverdue": "A reply is still due {hours} hours after the last message",
         "noActivity": "A candidate has not answered for {hours} hours"
+      },
+      "agents": {
+        "title": "Recruiter AI drafts",
+        "description": "The AI suggests replies to candidates in the Recruitment inbox. A person approves every draft; nothing is sent automatically. It uses this workspace's AI key (Settings → AI).",
+        "legal": "Check with legal (UAE PDPL) before switching this on.",
+        "readOnly": "Only owners, admins and recruiter leads can change these switches.",
+        "loadFailed": "Could not load the AI draft switches.",
+        "autoSend": "Auto-send: off (not available)",
+        "masterOff": "Switch on \"Draft replies\" to use the others.",
+        "kinds": {
+          "orchestrator": "Draft replies",
+          "cv_screening": "CV screening",
+          "scheduling": "Interview scheduling",
+          "candidate_faq": "Candidate questions",
+          "escalation": "Escalation acknowledgements"
+        }
       }
     },
     "list": {

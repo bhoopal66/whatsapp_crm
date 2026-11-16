@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditRule, canManageTeam } from '@/lib/hr/access';
+import { agentSettings, setAgentSetting } from '@/lib/hr/agents/api';
+import { agentSwitchView } from '@/lib/hr/agents/setup-switches';
+import { AGENT_KINDS, type AgentKind } from '@/lib/hr/agents/types';
 import { hrMemberSet, hrMyRoles, hrRuleSet, hrRulesList } from '@/lib/hr/api';
 import {
   addableStaff,
@@ -53,6 +57,8 @@ export default function HrSetupPage() {
   const [teamError, setTeamError] = useState<HrErrorCode | null>(null);
   const [rules, setRules] = useState<HrRule[] | null>(null);
   const [rulesError, setRulesError] = useState<HrErrorCode | null>(null);
+  const [agents, setAgents] = useState<Record<AgentKind, boolean> | null>(null);
+  const [agentsFailed, setAgentsFailed] = useState(false);
   const [picks, setPicks] = useState<Record<HrInbox, string>>({
     recruiter: '',
     dept: '',
@@ -76,6 +82,10 @@ export default function HrSetupPage() {
       if ('data' in r) setRoles(r.data ?? NO_ROLES);
     });
     void loadTeam();
+    void agentSettings(supabase).then((r) => {
+      if ('data' in r) setAgents(r.data);
+      else setAgentsFailed(true);
+    });
     void hrRulesList(supabase).then((r) => {
       if ('data' in r) setRules(r.data);
       else setRulesError(r.error);
@@ -88,6 +98,24 @@ export default function HrSetupPage() {
     [team, nameOf]
   );
   const ruleGroups = useMemo(() => rulesByInbox(rules ?? []), [rules]);
+
+  const agentView = agentSwitchView(
+    roles,
+    agents ??
+      (Object.fromEntries(AGENT_KINDS.map((k) => [k, false])) as Record<
+        AgentKind,
+        boolean
+      >)
+  );
+
+  async function toggleAgent(kind: AgentKind, enabled: boolean) {
+    setAgents((prev) => (prev ? { ...prev, [kind]: enabled } : prev));
+    const res = await setAgentSetting(supabase, kind, enabled);
+    if ('error' in res) {
+      setAgents((prev) => (prev ? { ...prev, [kind]: !enabled } : prev));
+      toast.error(t(`error.${res.error}`));
+    }
+  }
 
   async function setMember(
     userId: string,
@@ -231,6 +259,53 @@ export default function HrSetupPage() {
           })}
         </div>
       </section>
+
+      {agentView.visible && (
+        <section className="border-border bg-card space-y-3 rounded-lg border p-4">
+          <div>
+            <h2 className="font-semibold">{t('setup.agents.title')}</h2>
+            <p className="text-muted-foreground text-sm">
+              {t('setup.agents.description')}
+            </p>
+            <p className="text-warning text-sm">{t('setup.agents.legal')}</p>
+            {agentView.disabled.orchestrator && (
+              <p className="text-muted-foreground text-sm">
+                {t('setup.agents.readOnly')}
+              </p>
+            )}
+          </div>
+          {agentsFailed && (
+            <p className="text-destructive text-sm">
+              {t('setup.agents.loadFailed')}
+            </p>
+          )}
+          {agents && (
+            <div className="bg-card-2 space-y-2 rounded-md p-3">
+              {AGENT_KINDS.map((kind) => (
+                <label
+                  key={kind}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  {t(`setup.agents.kinds.${kind}`)}
+                  <Switch
+                    checked={agents[kind]}
+                    disabled={agentView.disabled[kind]}
+                    onCheckedChange={(v: boolean) => void toggleAgent(kind, v)}
+                  />
+                </label>
+              ))}
+              {!agents.orchestrator && (
+                <p className="text-muted-foreground text-xs">
+                  {t('setup.agents.masterOff')}
+                </p>
+              )}
+            </div>
+          )}
+          <p className="text-muted-foreground text-sm">
+            {t('setup.agents.autoSend')}
+          </p>
+        </section>
+      )}
 
       <section className="border-border bg-card space-y-3 rounded-lg border p-4">
         <div>
