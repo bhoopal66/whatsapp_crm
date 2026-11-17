@@ -98,6 +98,11 @@ jobs:
       - name: Verify team activity for team leaders
         run: supabase db query --local --file supabase/ci/verify-team-activity-leaders.sql
 
+      # Hard restrictions (204): each rule on its own, the owner-only
+      # exemption, company phone numbers only, and who reads the blocks.
+      - name: Verify team activity hard restrictions
+        run: supabase db query --local --file supabase/ci/verify-team-activity-enforcement.sql
+
       # Deactivation (069) is enforced in the RLS helpers and the
       # profile guard, so a deactivated member's still-valid access
       # token reads nothing. Only real Postgres can show that.
