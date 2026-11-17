@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   MIRROR_BUCKET,
+  MIRROR_FOLDER,
   mirrorFileName,
   mirrorInboundMedia,
   normalizeMimeType,
 } from "./mirror-inbound-media";
-import { MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
+import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 
 const ACCOUNT = "11111111-2222-3333-4444-555555555555";
 const MEDIA_ID = "1234567890123456";
@@ -117,6 +118,36 @@ describe("mirrorFileName", () => {
       messageTimestamp: "1754899200",
     });
     expect(name.replace(/\.[^.]+$/, "").length).toBeLessThanOrEqual(40);
+  });
+
+  it("gives every OpenWA attachment of one chat its own object", () => {
+    // OpenWA ids are `<chat>/<message id>` and share a 40+ character
+    // prefix per chat; cut at 40 they all landed on one object and each
+    // upload overwrote the last.
+    const chat = "971501234567@c.us";
+    const paths = ["3EB0AAAA1111", "3EB0BBBB2222", "3EB0CCCC3333"].map(
+      (hash) =>
+        buildMediaPath(
+          "acc",
+          mirrorFileName({
+            mediaId: `${chat}/false_${chat}_${hash}`,
+            mimeType: "application/pdf",
+            fileName: "passport.pdf",
+          }),
+          null,
+          MIRROR_FOLDER,
+        ),
+    );
+    expect(new Set(paths).size).toBe(3);
+    // Stable across a redelivery, and the key is still hidden from the
+    // download name (basenameFromUrl strips a leading run of digits).
+    const again = mirrorFileName({
+      mediaId: `${chat}/false_${chat}_3EB0AAAA1111`,
+      mimeType: "application/pdf",
+      fileName: "passport.pdf",
+    });
+    expect(paths[0].endsWith(again)).toBe(true);
+    expect(again).toMatch(/^\d{20}-passport\.pdf$/);
   });
 
   it("falls back to a .bin extension for an unknown MIME", () => {

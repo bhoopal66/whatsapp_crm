@@ -6,6 +6,7 @@ import { downloadMedia as metaDownloadMedia, isMetaMediaHost } from "./meta-api"
 import { extensionForMime } from "@/lib/media/filename";
 import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { toPublicSupabaseUrl } from "@/lib/supabase/urls";
+import { createHash } from "node:crypto";
 
 /**
  * Copies inbound WhatsApp media into the `chat-media` bucket so it
@@ -144,13 +145,34 @@ function kindForMime(mimeType: string | null): string {
  * already spends half of that. Hence `image-<epoch>` rather than
  * `whatsapp-image-<epoch>` — the latter truncates.
  */
+/**
+ * The media id as it goes into the object name. A short all-digit id
+ * (Meta's) is used as is. Anything else becomes a stable 20-digit digest
+ * of it.
+ *
+ * An OpenWA id is `<chat>/<message id>`, and the message id repeats the
+ * chat (`false_<chat>_<hash>`), so every attachment from one customer
+ * shares a 40-character prefix. `buildMediaPath` cuts the basename at
+ * 40, which used to leave all of them on ONE object: with `upsert: true`
+ * each new file overwrote the last, and every document in the thread
+ * opened as whichever arrived last. A digest keeps the path unique and
+ * stable across redeliveries, and being all digits it is still dropped
+ * from the download name by `basenameFromUrl`.
+ */
+export function mirrorKey(mediaId: string): string {
+  if (/^\d{1,19}$/.test(mediaId)) return mediaId;
+  const hex = createHash("sha256").update(mediaId).digest("hex").slice(0, 16);
+  return BigInt(`0x${hex}`).toString().padStart(20, "0");
+}
+
 export function mirrorFileName(args: {
   mediaId: string;
   mimeType: string | null;
   fileName?: string | null;
   messageTimestamp?: string | number | null;
 }): string {
-  const { mediaId, mimeType, fileName, messageTimestamp } = args;
+  const { mimeType, fileName, messageTimestamp } = args;
+  const mediaId = mirrorKey(args.mediaId);
   const ext = extensionForMime(mimeType);
 
   // A document's own name is the best download name there is, so keep
