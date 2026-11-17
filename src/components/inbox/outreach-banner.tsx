@@ -9,15 +9,15 @@ import { cn } from '@/lib/utils';
 /**
  * Warnings above the composer when the next message risks the Whapi
  * number: the day's new-chat limit, a contact who stopped answering,
- * or a first message to someone new (migration 068). Warns; the
- * optional block is enforced by the server, not here.
+ * or a first message to someone new (migration 068). Warns; a block
+ * is the server's (204-205), and the wording says when it applies.
  */
 export function OutreachBanner({ notices }: { notices: OutreachNotice[] }) {
   const t = useTranslations('TeamActivity.guard');
   if (notices.length === 0) return null;
 
   return (
-    <div className="bg-wa-panel-header border-t border-warning/40">
+    <div className="bg-wa-panel-header border-warning/40 border-t">
       {notices.map((n) => {
         const Icon =
           n.severity === 'critical'
@@ -28,13 +28,23 @@ export function OutreachBanner({ notices }: { notices: OutreachNotice[] }) {
         let message: string;
         switch (n.kind) {
           case 'limit_reached':
-            message = t(n.blocked ? 'limitReachedBlocked' : 'limitReached', {
+            message = t(
+              n.throttled
+                ? 'limitReachedThrottled'
+                : n.blocked
+                  ? 'limitReachedBlocked'
+                  : 'limitReached',
+              { started: n.started, limit: n.limit }
+            );
+            break;
+          case 'limit_near':
+            message = t(n.throttled ? 'limitNearThrottled' : 'limitNear', {
               started: n.started,
               limit: n.limit,
             });
             break;
-          case 'limit_near':
-            message = t('limitNear', { started: n.started, limit: n.limit });
+          case 'quiet_hours':
+            message = t('quietHours', { end: n.end });
             break;
           case 'number_limit':
             message = t(n.blocked ? 'numberLimitBlocked' : 'numberLimit', {
@@ -43,7 +53,9 @@ export function OutreachBanner({ notices }: { notices: OutreachNotice[] }) {
             });
             break;
           case 'unanswered':
-            message = t('unanswered', { count: n.count });
+            message = t(n.blocked ? 'unansweredBlocked' : 'unanswered', {
+              count: n.count,
+            });
             break;
           case 'new_contact_tip':
             message = t('newContactTip');
