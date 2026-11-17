@@ -32,7 +32,46 @@ export interface TeamActivityLimits {
   notify: boolean;
   /** Refuse a person's new chat once they, or the number, are at the limit. */
   blockOverLimit: boolean;
+  // Migration 204: which rules the block enforces, and the knobs.
+  enforceDailyUser: boolean;
+  enforceDailyNumber: boolean;
+  enforceBurst: boolean;
+  enforceQuietHours: boolean;
+  enforceChase: boolean;
+  enforceLinksFirst: boolean;
+  enforceSameOpener: boolean;
+  enforceReplyRate: boolean;
+  enforceJev: boolean;
+  enforceAutoSenders: boolean;
+  allowUnlockRequests: boolean;
+  agentViewEnabled: boolean;
+  leaderViewEnabled: boolean;
+  /** Identical openers allowed on one number before the next is refused. */
+  sameOpenerMax: number;
+  /** Percent of min reply rate below which new chats are throttled. */
+  replyRateThrottlePct: number;
+  /** Jev probability (two decimals) at which a send is blocked. */
+  jevBlockMinP: number;
 }
+
+/** The on/off fields, in one place (migrations 068 and 204). */
+export const BOOLEAN_LIMITS = [
+  'notify',
+  'blockOverLimit',
+  'enforceDailyUser',
+  'enforceDailyNumber',
+  'enforceBurst',
+  'enforceQuietHours',
+  'enforceChase',
+  'enforceLinksFirst',
+  'enforceSameOpener',
+  'enforceReplyRate',
+  'enforceJev',
+  'enforceAutoSenders',
+  'allowUnlockRequests',
+  'agentViewEnabled',
+  'leaderViewEnabled',
+] as const;
 
 export const TEAM_ACTIVITY_DEFAULTS: Readonly<TeamActivityLimits> = {
   dailyNewChatsPerUser: 20,
@@ -44,13 +83,32 @@ export const TEAM_ACTIVITY_DEFAULTS: Readonly<TeamActivityLimits> = {
   quietHoursEnd: 8,
   timezone: null,
   notify: true,
-  blockOverLimit: false,
+  blockOverLimit: true,
+  enforceDailyUser: true,
+  enforceDailyNumber: true,
+  enforceBurst: true,
+  enforceQuietHours: true,
+  enforceChase: true,
+  enforceLinksFirst: true,
+  enforceSameOpener: true,
+  enforceReplyRate: true,
+  enforceJev: true,
+  enforceAutoSenders: true,
+  allowUnlockRequests: true,
+  agentViewEnabled: true,
+  leaderViewEnabled: true,
+  sameOpenerMax: 3,
+  replyRateThrottlePct: 50,
+  jevBlockMinP: 0.85,
 };
 
 type NumericLimit = Exclude<
   keyof TeamActivityLimits,
-  'timezone' | 'notify' | 'blockOverLimit'
+  'timezone' | (typeof BOOLEAN_LIMITS)[number]
 >;
+
+/** The one limit that is a decimal (two places) rather than a whole number. */
+const DECIMAL_LIMITS: ReadonlySet<NumericLimit> = new Set(['jevBlockMinP']);
 
 /** Inclusive bounds; the table's CHECK constraints say the same. */
 export const LIMIT_BOUNDS: Readonly<Record<NumericLimit, [number, number]>> = {
@@ -61,6 +119,9 @@ export const LIMIT_BOUNDS: Readonly<Record<NumericLimit, [number, number]>> = {
   burstNewChats10min: [1, 500],
   quietHoursStart: [0, 23],
   quietHoursEnd: [0, 23],
+  sameOpenerMax: [1, 50],
+  replyRateThrottlePct: [10, 100],
+  jevBlockMinP: [0.5, 0.99],
 };
 
 /** The camelCase field ↔ the settings table's column. */
@@ -76,6 +137,22 @@ export const LIMIT_COLUMNS: Readonly<Record<keyof TeamActivityLimits, string>> =
     timezone: 'timezone',
     notify: 'notify',
     blockOverLimit: 'block_over_limit',
+    enforceDailyUser: 'enforce_daily_user',
+    enforceDailyNumber: 'enforce_daily_number',
+    enforceBurst: 'enforce_burst',
+    enforceQuietHours: 'enforce_quiet_hours',
+    enforceChase: 'enforce_chase',
+    enforceLinksFirst: 'enforce_links_first',
+    enforceSameOpener: 'enforce_same_opener',
+    enforceReplyRate: 'enforce_reply_rate',
+    enforceJev: 'enforce_jev',
+    enforceAutoSenders: 'enforce_auto_senders',
+    allowUnlockRequests: 'allow_unlock_requests',
+    agentViewEnabled: 'agent_view_enabled',
+    leaderViewEnabled: 'leader_view_enabled',
+    sameOpenerMax: 'same_opener_max',
+    replyRateThrottlePct: 'reply_rate_throttle_pct',
+    jevBlockMinP: 'jev_block_min_p',
   };
 
 /**
@@ -148,6 +225,18 @@ function intOr(value: unknown, fallback: number): number {
     : fallback;
 }
 
+function boolOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/** A numeric column may arrive as a string (Postgres numeric). */
+function decimalOr(value: unknown, fallback: number): number {
+  const n = typeof value === 'string' && value.trim() ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n)
+    ? Math.round(n * 100) / 100
+    : fallback;
+}
+
 /**
  * Limits from a settings row or the `limits` object the report and
  * `team_activity_my_day` return (both snake_case). Missing or malformed
@@ -174,11 +263,27 @@ export function limitsFromRow(
     quietHoursEnd: intOr(r.quiet_hours_end, d.quietHoursEnd),
     timezone:
       typeof r.timezone === 'string' && r.timezone.trim() ? r.timezone : null,
-    notify: typeof r.notify === 'boolean' ? r.notify : d.notify,
-    blockOverLimit:
-      typeof r.block_over_limit === 'boolean'
-        ? r.block_over_limit
-        : d.blockOverLimit,
+    notify: boolOr(r.notify, d.notify),
+    blockOverLimit: boolOr(r.block_over_limit, d.blockOverLimit),
+    enforceDailyUser: boolOr(r.enforce_daily_user, d.enforceDailyUser),
+    enforceDailyNumber: boolOr(r.enforce_daily_number, d.enforceDailyNumber),
+    enforceBurst: boolOr(r.enforce_burst, d.enforceBurst),
+    enforceQuietHours: boolOr(r.enforce_quiet_hours, d.enforceQuietHours),
+    enforceChase: boolOr(r.enforce_chase, d.enforceChase),
+    enforceLinksFirst: boolOr(r.enforce_links_first, d.enforceLinksFirst),
+    enforceSameOpener: boolOr(r.enforce_same_opener, d.enforceSameOpener),
+    enforceReplyRate: boolOr(r.enforce_reply_rate, d.enforceReplyRate),
+    enforceJev: boolOr(r.enforce_jev, d.enforceJev),
+    enforceAutoSenders: boolOr(r.enforce_auto_senders, d.enforceAutoSenders),
+    allowUnlockRequests: boolOr(r.allow_unlock_requests, d.allowUnlockRequests),
+    agentViewEnabled: boolOr(r.agent_view_enabled, d.agentViewEnabled),
+    leaderViewEnabled: boolOr(r.leader_view_enabled, d.leaderViewEnabled),
+    sameOpenerMax: intOr(r.same_opener_max, d.sameOpenerMax),
+    replyRateThrottlePct: intOr(
+      r.reply_rate_throttle_pct,
+      d.replyRateThrottlePct
+    ),
+    jevBlockMinP: decimalOr(r.jev_block_min_p, d.jevBlockMinP),
   };
 }
 
@@ -218,9 +323,21 @@ export function parseLimitsInput(
   for (const key of Object.keys(LIMIT_BOUNDS) as NumericLimit[]) {
     const value = body[key];
     const [min, max] = LIMIT_BOUNDS[key];
-    if (typeof value !== 'number' || !Number.isInteger(value)) {
+    if (DECIMAL_LIMITS.has(key)) {
+      if (
+        typeof value !== 'number' ||
+        !Number.isFinite(value) ||
+        Math.round(value * 100) / 100 !== value
+      ) {
+        return {
+          ok: false,
+          error: `${key} must be a number with at most two decimals.`,
+        };
+      }
+    } else if (typeof value !== 'number' || !Number.isInteger(value)) {
       return { ok: false, error: `${key} must be a whole number.` };
     }
+    if (typeof value !== 'number') continue;
     if (value < min || value > max) {
       return {
         ok: false,
@@ -230,7 +347,7 @@ export function parseLimitsInput(
     out[key] = value;
   }
 
-  for (const key of ['notify', 'blockOverLimit'] as const) {
+  for (const key of BOOLEAN_LIMITS) {
     if (typeof body[key] !== 'boolean') {
       return { ok: false, error: `${key} must be true or false.` };
     }
