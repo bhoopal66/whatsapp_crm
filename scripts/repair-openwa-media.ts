@@ -32,7 +32,8 @@ import { join } from 'node:path';
 
 loadEnv({ path: '.env.local' });
 
-const USAGE = 'usage: npx tsx scripts/repair-openwa-media.ts [--apply]';
+const USAGE =
+  'usage: npx tsx scripts/repair-openwa-media.ts [--contact <name or company>] [--apply]';
 const PAGE = 1000;
 const CHUNK = 100;
 const QUARANTINE = '.repair-2026-11-17';
@@ -70,7 +71,20 @@ async function fileSha(path: string): Promise<string | null> {
 
 async function main() {
   const args = process.argv.slice(2);
-  const unknown = args.filter((a) => a !== '--apply');
+  // --contact <text>: only chats of contacts whose name or company
+  // contains <text> (case-insensitive).
+  const ci = args.indexOf('--contact');
+  const contactFilter = ci >= 0 ? (args[ci + 1] ?? '').trim() : null;
+  if (
+    contactFilter !== null &&
+    !/^[\p{L}\p{N} .&-]{3,60}$/u.test(contactFilter)
+  ) {
+    console.error('--contact needs 3-60 letters, digits or spaces');
+    process.exit(2);
+  }
+  const unknown = args.filter(
+    (a, i) => a !== '--apply' && a !== '--contact' && !(ci >= 0 && i === ci + 1)
+  );
   if (unknown.length || args.includes('--help')) {
     console.log(USAGE);
     process.exit(unknown.length ? 2 : 0);
@@ -94,17 +108,41 @@ async function main() {
   const nasRoot =
     process.env.CUSTOMER_DOCS_NAS_ROOT || '/mnt/nas-share/Customer Documents';
 
+  // Optional scope: the conversations of the matching contacts.
+  let conversationIds: string[] | null = null;
+  if (contactFilter) {
+    const pat = `%${contactFilter}%`;
+    const { data: cs, error: cErr } = await db
+      .from('contacts')
+      .select('id, name, company')
+      .or(`name.ilike.${pat},company.ilike.${pat}`);
+    if (cErr) throw new Error(`contacts: ${cErr.message}`);
+    for (const c of cs ?? [])
+      console.log(`contact ${c.id}: ${c.name ?? ''} / ${c.company ?? ''}`);
+    const { data: cv, error: vErr } = await db
+      .from('conversations')
+      .select('id')
+      .in(
+        'contact_id',
+        (cs ?? []).map((c) => c.id as string)
+      );
+    if (vErr) throw new Error(`conversations: ${vErr.message}`);
+    conversationIds = (cv ?? []).map((c) => c.id as string);
+    console.log(`${conversationIds.length} conversation(s) in scope`);
+    if (!conversationIds.length) return;
+  }
+
   // 1. Messages on a shared inbound object.
   const all: Msg[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+    let q = db
       .from('messages')
       .select(
         'id, channel_id, message_id, media_url, media_type, content_type, content_text, created_at'
       )
-      .like('media_url', '%/chat-media/%/inbound/%')
-      .order('id')
-      .range(from, from + PAGE - 1);
+      .like('media_url', '%/chat-media/%/inbound/%');
+    if (conversationIds) q = q.in('conversation_id', conversationIds);
+    const { data, error } = await q.order('id').range(from, from + PAGE - 1);
     if (error) throw new Error(`messages: ${error.message}`);
     all.push(...(data as Msg[]));
     if (!data || data.length < PAGE) break;
