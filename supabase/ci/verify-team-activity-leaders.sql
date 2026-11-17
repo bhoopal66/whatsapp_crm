@@ -538,6 +538,24 @@ BEGIN
       failed := array_append(failed, ('leader drill-down outside their RLS or account: '
         || coalesce(r, 'null') || ' / ' || coalesce(r2, 'null'))::text);
     END IF;
+    -- Self scope counts every start the caller made (206): c14 is X's
+    -- start, then a leader hands it to a1, so X can no longer see it;
+    -- X's own figure still counts it (the enforcement does too).
+    rep := pg_temp.lt_val('authenticated', u_x, q)::jsonb;
+    k := coalesce((pg_temp.lt_sender(rep, 'person', u_x) ->> 'chats_started')::int, -1);
+    cv := pg_temp.lt_conv(a_acct, u_x, w1, 'LT c14', u_x);
+    PERFORM pg_temp.lt_msg(cv, 'agent', u_x, 'Hello from X, reassigned', today0 + 18 * step, w1);
+    UPDATE conversations SET user_id = u_a1, assigned_agent_id = u_a1 WHERE id = cv;
+    r := pg_temp.lt_val('authenticated', u_x, format(
+           'SELECT count(*)::text FROM conversations WHERE id = %L', cv));
+    rep := pg_temp.lt_val('authenticated', u_x, q)::jsonb;
+    n := n + 1;
+    IF r IS DISTINCT FROM '0' OR k < 0
+       OR coalesce((pg_temp.lt_sender(rep, 'person', u_x) ->> 'chats_started')::int, -1) <> k + 1 THEN
+      failed := array_append(failed, ('agent self report drops a reassigned own start: '
+        || coalesce(r, 'null') || ' ' || k || ' -> '
+        || coalesce((pg_temp.lt_sender(rep, 'person', u_x) ->> 'chats_started'), 'null'))::text);
+    END IF;
     RAISE EXCEPTION USING ERRCODE = 'ZT075', MESSAGE = 'verify-team-activity-leaders definer rollback';
   EXCEPTION WHEN SQLSTATE 'ZT075' THEN
     NULL;

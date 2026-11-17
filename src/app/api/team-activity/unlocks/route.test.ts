@@ -18,7 +18,7 @@ import { GET, POST } from './route';
 
 function builder() {
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'order', 'limit']) {
+  for (const m of ['select', 'eq', 'order', 'limit']) {
     b[m] = (...args: unknown[]) => {
       mocks.calls.push([m, ...args]);
       return b;
@@ -40,6 +40,7 @@ beforeEach(() => {
   mocks.calls.length = 0;
   vi.spyOn(console, 'error').mockImplementation(() => {});
   mocks.requireRole.mockResolvedValue({
+    userId: 'me-1',
     supabase: { from: vi.fn(() => builder()), rpc: mocks.rpc },
   });
 });
@@ -50,6 +51,14 @@ describe('GET /api/team-activity/unlocks', () => {
     const res = await GET();
     expect(mocks.requireRole).toHaveBeenCalledWith('agent');
     expect(res.status).toBe(403);
+  });
+
+  it("mine=1 keeps only the caller's requests; otherwise no filter", async () => {
+    await GET(new Request('http://localhost/api/team-activity/unlocks?mine=1'));
+    expect(mocks.calls).toContainEqual(['eq', 'requester_id', 'me-1']);
+    mocks.calls.length = 0;
+    await GET(new Request('http://localhost/api/team-activity/unlocks'));
+    expect(mocks.calls.some((c) => c[0] === 'eq')).toBe(false);
   });
 
   it('returns newest 200 and marks a lapsed approval expired', async () => {

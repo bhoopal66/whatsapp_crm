@@ -15,11 +15,12 @@ const MAX_DAYS = 92;
  *
  * Sends the restriction layer refused (migration 204), newest first,
  * 500 at most. The caller's RLS client decides whose rows come back.
- * Default range is the last 7 days, at most 92.
+ * Default range is the last 7 days, at most 92. `mine=1` keeps only
+ * the caller's own.
  */
 export async function GET(request: Request) {
   try {
-    const { supabase } = await requireRole('agent');
+    const { supabase, userId } = await requireRole('agent');
     const params = new URL(request.url).searchParams;
 
     const toRaw = params.get('to');
@@ -47,13 +48,17 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('team_activity_blocks')
       .select(
         'id, user_id, conversation_id, channel_id, rule, source, detail, created_at'
       )
       .gte('created_at', from.toISOString())
-      .lte('created_at', to.toISOString())
+      .lte('created_at', to.toISOString());
+    // `?mine=1`: only the caller's own rows, even where RLS shows more
+    // (a leader or admin reading My activity).
+    if (params.get('mine') === '1') query = query.eq('user_id', userId);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(500);
 
