@@ -12,6 +12,37 @@ and polish.
 
 ## [Unreleased]
 
+### Team activity: hard restrictions, unlock requests and My activity
+
+**Migration required:** apply `204_team_activity_enforcement.sql`,
+`205_team_activity_unlocks.sql` and `206_team_activity_self_view.sql`, in
+that order, **before** deploying this build. The new build calls the
+three-argument `team_activity_start_check`; before 204 every human send
+would be allowed.
+- The limits are now enforced, on by default (admins can switch any rule
+  or the whole thing off). Everyone except the owner is bound, on company
+  Whapi and OpenWA numbers only; personal numbers and Meta are never
+  restricted.
+- A new chat is refused when it breaks a rule: too many unanswered
+  messages in a row, quiet hours, the person's or the number's daily
+  limit (cut down for someone with a low reply rate), a burst, a link in
+  the first message, the same opening text too often, or Jev judging it a
+  cold pitch. The send answers `429` with code `restricted` (replacing
+  `new_chat_limit`); the composer explains why and keeps the text.
+- A blocked person can ask to unlock with a reason. A team leader, admin
+  or owner approves or denies it from the bell or the new **Unlock
+  requests** tab; an approval covers the next send in that chat within 2
+  hours.
+- Broadcasts, the public API, flows and automations stop at a number's
+  daily limit (API: `429` `number_daily_limit`). A stopped broadcast
+  stays "sending" until someone presses Resume after the day turns. The
+  AI auto-reply, Compass notifications, HR automated messages and the
+  journey bot are not checked.
+- Agents get a **My activity** page; team leaders and admins get a
+  **Blocked sends** tab. Settings → limits has a Restrictions section.
+- Every check lets the message through if it fails unexpectedly. Blocks
+  are kept 90 days.
+
 ### Light mode: neutral, professional colours
 
 No migration. Light mode drops the blue tint it put on every surface

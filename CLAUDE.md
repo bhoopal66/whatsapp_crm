@@ -569,11 +569,20 @@ identical openers in first messages, failures, response times.
 - **Employee side.** `team_activity_my_day()` (SECURITY DEFINER, caller's
   own counts only) feeds `thread-guard.ts`, which warns above the
   composer on phone (Whapi or OpenWA) numbers.
-- **The optional block.** `team_activity_start_check()` runs in
-  `send-message.ts` before the gateway, for human sends on a phone
-  number (Whapi or OpenWA) only. It
-  **fails open**: any error lets the message through. Replies, owners and
-  admins always pass.
+- **Hard restrictions (204-206).** Default ON (no settings row = on;
+  `block_over_limit` is the master switch, set once by 204), owner exempt,
+  company Whapi/OpenWA numbers only (never personal, never Meta).
+  `team_activity_start_check(conv, channel, text)` runs in `send-message.ts`
+  before the gateway: unlock, chase, then for starts quiet hours, daily
+  person (throttled by low reply rate), daily number, burst, link first,
+  same opener, then Jev `cold_pitch` in TS (1.5 s, ≥ `jev_block_min_p`).
+  Refusal is 429 `restricted`; blocks land in `team_activity_blocks` (90
+  days, no text). An approved unlock (205, 2 h, one use) bypasses all.
+  Broadcast, API v1, flows and automations use `team_activity_auto_check`
+  (number limit only); AI reply, Compass notify, HR automsg and the journey
+  bot are unchecked. It **fails open** on any error. Agents read `/my-activity`
+  (206). Apply 204, 205, 206 before the build. `docs/team-activity.md`;
+  `verify-team-activity-enforcement.sql`.
 - **Bell alerts.** `team_activity_alert_sweep()` (service role, at most
   every 5 minutes from the automation cron) dedups through
   `team_activity_alerts`. It skips any account whose limits were never

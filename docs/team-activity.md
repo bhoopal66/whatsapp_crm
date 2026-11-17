@@ -3,12 +3,18 @@
 Team activity (sidebar → Team → **Team activity**, owners and admins) shows who
 starts WhatsApp chats, how many of those chats get an answer, and the
 sending habits that get a phone number restricted. It also drives three
-things employees see: warnings above the composer, bell alerts, and an
-optional block on new chats.
+things employees see: warnings above the composer, bell alerts, and the
+hard restrictions that refuse a send over the limits (on by default, see
+**Hard restrictions**).
 
 It needs migrations `068_team_activity.sql` and
 `073_team_activity_accuracy.sql`, and `145_team_activity_openwa.sql` for
-OpenWA numbers.
+OpenWA numbers. The hard restrictions, unlock requests and the My activity
+page need `204_team_activity_enforcement.sql`,
+`205_team_activity_unlocks.sql` and `206_team_activity_self_view.sql`,
+applied in that order **before** the build that uses them: the new build
+calls the three-argument `team_activity_start_check`, and before 204 every
+human send would be allowed.
 
 ## Phone numbers and official numbers
 
@@ -126,7 +132,7 @@ first two.
 | Quiet hours | 22:00–08:00 | night starts. Equal hours turn it off |
 | Time zone | viewer's, until saved | what "today" means everywhere. Must be a named zone (`Asia/Dubai`): offsets like `+04` are refused, because Postgres reads their sign backwards |
 | Bell alerts | on | see below |
-| Block new chats over the limit | off | see below |
+| Hard restrictions | on | the master switch for **Hard restrictions** below |
 
 A limit is reached when the count is equal to it, not only when it goes
 over. The page, the bell alerts, the composer warnings, the block and a
@@ -159,16 +165,93 @@ composer warnings, the alerts and the block all use the same day.
   are told. Each alert fires once per person or number per local day
   (`team_activity_alerts`, kept 90 days). Turn alerts off with **Bell
   alerts**.
-- **The block** (off by default). With it on, a person's message that
-  would start a chat on a phone (Whapi or OpenWA) number is refused before it reaches the
-  gateway once they, or the number, are at today's limit. They get a
-  `429` with code `new_chat_limit` and a message saying why. The inbox
-  shows it and keeps the text for later.
-  - Replies always go out: a message is a reply when the chat moved in
-    the last 24 hours, or when the customer wrote last (however late).
-  - API and bot sends are never blocked.
-  - Owners and admins are never blocked.
-  - Any error in the check lets the message through.
+- **The block** is the hard restrictions below. It is no longer an
+  option that is off by default.
+
+## Hard restrictions
+
+Migrations 204-206. The limits above stop being advice: a human send
+that breaks a rule is refused before it reaches the gateway.
+
+**Who and where.** On by default, also for an account that never saved
+its limits (a missing settings row means every default below). Everyone
+is bound except the **owner**; admins, team leaders and agents are not
+exempt. Only company phone numbers are checked (Whapi and OpenWA with
+`is_personal = false`), and only company chats. Personal numbers and Meta
+numbers are never restricted. An admin switches the whole thing off with
+**Hard restrictions** (`block_over_limit`, the master switch), or any
+single rule off in Settings → limits → Restrictions (owners and admins).
+Migration 204 turns the master switch on once for existing accounts;
+re-running it does not undo a later "off".
+
+**Start and reply.** A *start* is the definition above: no non-failed
+message in the chat for 24 hours, unless the customer wrote last. Only
+the chase rule also applies to messages that are not starts.
+
+**The rules**, checked in this order; the first that applies refuses the
+send. Each has its own switch (default on).
+
+| Rule | Refuses when | Setting (default) |
+|---|---|---|
+| Unlock | not a rule: an approved unlock for this person and chat is spent and the send goes out, past every rule below including Jev | see Unlock requests |
+| `chase` | the customer did not write last and this send would make more steps in a row than the limit. Messages less than 10 minutes after the previous one are one step; failed messages are not counted | `enforce_chase`, messages in a row 3 |
+| `quiet_hours` | a start, with the account's local time inside the quiet hours (wrapping midnight; equal hours turn it off) | `enforce_quiet_hours`, 22:00-08:00 |
+| `daily_user` | a start, and the person's starts today on company phone numbers have reached the limit | `enforce_daily_user`, 20 a day |
+| `daily_user_throttled` | the same, but the limit is cut to `reply_rate_throttle_pct` of itself (rounded up) because the person's reply rate over the last 7 days is below the minimum. Needs 5 starts older than 24 hours | `enforce_reply_rate`, 50%, minimum reply rate 30% |
+| `daily_number` | a start, and the number's starts today, by anyone (people, bots, the API), have reached its limit (warm-up aware) | `enforce_daily_number`, 50 a day |
+| `burst` | a start, and the person started as many chats in the last 10 minutes as the limit allows | `enforce_burst`, 10 |
+| `link_first` | a start whose text contains `http(s)://`, `www.` or `wa.me/` | `enforce_links_first` |
+| `same_opener` | a start whose text (same normalisation as *Similar first message*) matches that many of the person's own starts today | `enforce_same_opener`, 3 (1-50) |
+| `jev_cold_pitch` | a start that Jev judges a cold pitch with probability at or above the threshold | `enforce_jev`, 0.85 (0.50-0.99) |
+
+A blocked send returns HTTP `429` with code `restricted`, the rule, the
+figures and whether it can be unlocked (the old `new_chat_limit` code is
+gone). The composer shows a card naming the rule in plain words, keeps
+the text, and offers **Ask to unlock** when unlocks are on. Every block is
+recorded in `team_activity_blocks` (person, chat, number, rule, figures,
+never the message text) and kept 90 days.
+
+**Jev.** For a start that passes the rules above, the text goes to the
+same cold-pitch question as the pre-send message check, with a 1.5 s
+deadline, whatever the message-check mode is. Only the redacted state Jev
+already gets leaves the server. Any Jev failure, timeout or mismatch lets
+the message through.
+
+**Unlock requests.** A blocked person, within 24 hours of the block,
+asks with a reason of 5-500 characters (`allow_unlock_requests`, default
+on; one pending request per person and chat). Every live owner and admin,
+and the live leaders of the person's teams, get a bell
+(`team_activity_unlock_request`, which never carries the reason) and
+approve or deny it on **Team activity → Unlock requests**. Nobody
+decides their own. An approval lasts 2 hours and covers the person's next
+send in that chat, once; it is then used up. The person gets a bell with
+the decision.
+
+**Automatic senders.** Broadcasts, public API v1 sends, flows and
+automations are checked against the number's daily limit only
+(`enforce_auto_senders`, default on, together with `enforce_daily_number`).
+A blocked broadcast stops on that number and its remaining recipients
+stay pending: the campaign stays "sending" until someone presses Resume
+after the day turns (the cron only picks up scheduled campaigns). The
+API answers `429` `number_daily_limit`. A flow or automation records a
+failed step. **Known limit:** the AI auto-reply (it only answers), Compass
+notifications, HR automated messages and the journey bot are not
+checked, and the last three can start a chat.
+
+**Fails open.** Every SQL check lets the message through on an unexpected
+error, and so does a Jev failure. A deliberate block is never swallowed.
+
+**Who sees what.**
+- Agents open **My activity** (`/my-activity`) with their own figures
+  (today, 7 days, 30 days), findings worded for them, their blocks and
+  their unlock requests. Switch `agent_view_enabled`, default on.
+- Team leaders see their team's report (as under *Team leaders*) while
+  `leader_view_enabled` is on, default on. With either switch off the
+  report refuses that role.
+- Team activity has a **Blocked sends** tab (by person and rule) and an
+  **Unlock requests** tab with Approve and Deny, for leaders, owners and
+  admins. Blocks are readable by the person, their leader and owners
+  and admins (RLS).
 
 ## Whapi Safety Meter
 
@@ -192,7 +275,8 @@ the browser. An overall rating of 1 or 2 is flagged on the number.
 
 ## Access
 
-- The page and the report route are open to team leaders and up
+- The page and the report route are open to team leaders and up; agents
+  read their own figures through `/my-activity` while `agent_view_enabled`
   (`TeamLeaderOnlyLayout`, `requireRole('team_leader')`); the settings
   and Safety Meter routes stay owner/admin only.
 - `team_activity_report` and `team_activity_chats` refuse anyone below
