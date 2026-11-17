@@ -19,6 +19,8 @@ import {
 } from '@/lib/whatsapp/channels';
 import {
   describeGroupFailure,
+  gatewayFor,
+  GroupCreateUnsupportedError,
   GroupsUnsupportedError,
   isGroupId,
   ourRoleIn,
@@ -28,6 +30,8 @@ import {
 import { normalizePhone, phoneVariants } from '@/lib/whatsapp/phone-utils';
 import { probeChannel } from '@/lib/whatsapp/provider';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
+import { OpenWAError } from '@/lib/whatsapp/openwa-api';
+import { OpenWAGroupUnsupportedError } from '@/lib/whatsapp/openwa-groups';
 
 import { parseGroupSettings, type WhatsappGroupRow } from './types';
 
@@ -64,7 +68,7 @@ export class GroupHttpError extends Error {
 }
 
 const FAILURES: Record<GroupFailureKey, [number, string]> = {
-  not_whapi: [400, 'WhatsApp groups need a Whapi number'],
+  not_whapi: [400, 'WhatsApp groups need a Whapi or company OpenWA number'],
   not_admin: [403, "Your number isn't an admin of this group"],
   group_not_found: [404, "This group isn't on the number any more"],
   already_member: [409, 'That person is already in the group'],
@@ -75,6 +79,14 @@ const FAILURES: Record<GroupFailureKey, [number, string]> = {
   gateway_unavailable: [502, 'WhatsApp did not respond; try again'],
   // Never thrown by a call; listed so the map stays total.
   time_budget: [503, 'Stopped before the time limit; try again'],
+  create_unsupported: [
+    422,
+    "This number's WhatsApp gateway can't create groups. Create the group on a Whapi number; this number can still join, chat in and manage groups.",
+  ],
+  unsupported: [
+    422,
+    "This number's WhatsApp gateway doesn't support that action.",
+  ],
   unknown: [502, 'WhatsApp refused the request'],
 };
 
@@ -99,11 +111,17 @@ export function groupErrorResponse(err: unknown): NextResponse {
       { status: err.status }
     );
   }
-  if (err instanceof WhapiError || err instanceof GroupsUnsupportedError) {
+  if (
+    err instanceof WhapiError ||
+    err instanceof OpenWAError ||
+    err instanceof GroupsUnsupportedError ||
+    err instanceof GroupCreateUnsupportedError ||
+    err instanceof OpenWAGroupUnsupportedError
+  ) {
     const code = describeGroupFailure(err);
     const { status, error } = groupFailure(code);
     if (code === 'unknown' || code === 'gateway_unavailable') {
-      console.error('[groups] whapi call failed', err);
+      console.error('[groups] gateway call failed', err);
     }
     return NextResponse.json({ error, code }, { status });
   }
@@ -163,8 +181,8 @@ export async function callerCanManage(
   return data === true;
 }
 
-/** The account's Whapi number by id, token decrypted. */
-export async function loadWhapiChannel(
+/** The account's group-capable number (Whapi or company OpenWA) by id. */
+export async function loadGroupChannel(
   accountId: string,
   channelId: string | null
 ): Promise<WhatsAppChannel> {
@@ -179,17 +197,15 @@ export async function loadWhapiChannel(
       "The group's number is no longer connected"
     );
   }
-  if (channel.provider !== 'whapi') {
-    throw new GroupsUnsupportedError(channel.provider);
-  }
+  gatewayFor(channel); // throws GroupsUnsupportedError for Meta / personal
   return channel;
 }
 
-/** The number a group lives on, ready to call Whapi with. */
+/** The number a group lives on, ready to call its gateway with. */
 export function channelForGroup(
   group: Pick<WhatsappGroupRow, 'account_id' | 'channel_id'>
 ): Promise<WhatsAppChannel> {
-  return loadWhapiChannel(group.account_id, group.channel_id);
+  return loadGroupChannel(group.account_id, group.channel_id);
 }
 
 /**
@@ -205,8 +221,14 @@ export async function isAlreadyOutOfGroup(
   err: unknown,
   channel: WhatsAppChannel
 ): Promise<boolean> {
-  if (!(err instanceof WhapiError) || !err.isGroupNotFound) return false;
-  if (/service not found/i.test(err.message)) return false;
+  if (err instanceof OpenWAError) {
+    // OpenWA: a 404 on the group path is the group; on the session path
+    // it is the session, which never counts.
+    if (err.status !== 404 || err.route !== 'message') return false;
+  } else {
+    if (!(err instanceof WhapiError) || !err.isGroupNotFound) return false;
+    if (/service not found/i.test(err.message)) return false;
+  }
   try {
     return (await probeChannel(channel))?.authorized === true;
   } catch (probeErr) {
@@ -223,6 +245,12 @@ export function leaveFailureReason(err: unknown): string {
   // Leaving needs no admin rights, so a 401/403 here is the number. So
   // is a 404: it only gets here when `isAlreadyOutOfGroup` said no.
   if (err instanceof WhapiError && (err.isAuthError || err.isGroupNotFound)) {
+    return groupFailure('channel_disconnected').error;
+  }
+  if (
+    err instanceof OpenWAError &&
+    (err.status === 401 || err.status === 403 || err.status === 404)
+  ) {
     return groupFailure('channel_disconnected').error;
   }
   return groupFailure(describeGroupFailure(err)).error;
