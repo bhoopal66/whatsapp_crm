@@ -14,5 +14,13 @@ export function isMissingTable(error: { code?: string } | null): boolean {
   return error?.code === 'PGRST205' || error?.code === '42P01';
 }
 
+export const UNLOCKS_UNAVAILABLE_MESSAGE =
+  'Unlock requests are not available yet';
+
+/** Any of the "table or function is not there" codes. */
+export function isMissingObject(error: { code?: string } | null): boolean {
+  return isMissingTable(error) || isMissingFunction(error);
+}
+
 export const NOT_MIGRATED_MESSAGE =
   'Team activity needs database migration 068.';

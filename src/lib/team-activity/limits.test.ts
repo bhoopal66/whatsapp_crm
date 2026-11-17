@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  BOOLEAN_LIMITS,
   LIMIT_BOUNDS,
   LIMIT_COLUMNS,
   TEAM_ACTIVITY_DEFAULTS,
@@ -18,7 +19,35 @@ const SQL = readFileSync(
   'utf8'
 );
 
-const NUMERIC = Object.keys(LIMIT_BOUNDS) as Array<keyof typeof LIMIT_BOUNDS>;
+// 204 is read separately below; it lands on this branch from another
+// change, so until then those cases fail (the file is missing), on purpose.
+const SQL_204 = (() => {
+  try {
+    return readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/204_team_activity_enforcement.sql'
+      ),
+      'utf8'
+    );
+  } catch {
+    return null;
+  }
+})();
+
+type NumericKey = keyof typeof LIMIT_BOUNDS;
+const NEW_NUMERIC = [
+  'sameOpenerMax',
+  'replyRateThrottlePct',
+  'jevBlockMinP',
+] as const satisfies readonly NumericKey[];
+const NUMERIC = (Object.keys(LIMIT_BOUNDS) as NumericKey[]).filter(
+  (k) => !(NEW_NUMERIC as readonly string[]).includes(k)
+);
+const OLD_BOOLEAN = ['notify', 'blockOverLimit'] as const;
+const NEW_BOOLEAN = BOOLEAN_LIMITS.filter(
+  (k) => !(OLD_BOOLEAN as readonly string[]).includes(k)
+);
 
 describe('defaults and bounds match migration 068', () => {
   it.each(NUMERIC)(
@@ -44,7 +73,7 @@ describe('defaults and bounds match migration 068', () => {
     }
   );
 
-  it.each(['notify', 'blockOverLimit'] as const)('%s default', (key) => {
+  it.each(['notify'] as const)('%s default', (key) => {
     const column = LIMIT_COLUMNS[key];
     const def = new RegExp(
       `\\n\\s+${column}\\s+boolean NOT NULL DEFAULT (true|false)`
@@ -54,6 +83,48 @@ describe('defaults and bounds match migration 068', () => {
     );
     expect(def?.[1]).toBe(String(TEAM_ACTIVITY_DEFAULTS[key]));
     expect(fn?.[1]).toBe(String(TEAM_ACTIVITY_DEFAULTS[key]));
+  });
+});
+
+describe('defaults match migration 204', () => {
+  const sql = () => {
+    if (SQL_204 === null) {
+      throw new Error(
+        'supabase/migrations/204_team_activity_enforcement.sql is missing'
+      );
+    }
+    return SQL_204;
+  };
+
+  it.each(NEW_BOOLEAN)('%s default', (key) => {
+    const column = LIMIT_COLUMNS[key];
+    const def = new RegExp(
+      `\\b${column}\\s+boolean\\s+NOT\\s+NULL\\s+DEFAULT\\s+(true|false)`,
+      'i'
+    ).exec(sql());
+    expect(def, `no column default for ${column}`).not.toBeNull();
+    expect(def![1].toLowerCase()).toBe(String(TEAM_ACTIVITY_DEFAULTS[key]));
+  });
+
+  it.each([
+    ['sameOpenerMax', 'int'],
+    ['replyRateThrottlePct', 'int'],
+    ['jevBlockMinP', 'numeric\\(3,\\s*2\\)'],
+  ] as const)('%s default', (key, type) => {
+    const column = LIMIT_COLUMNS[key];
+    const def = new RegExp(
+      `\\b${column}\\s+${type}\\s+NOT\\s+NULL\\s+DEFAULT\\s+([\\d.]+)`,
+      'i'
+    ).exec(sql());
+    expect(def, `no column default for ${column}`).not.toBeNull();
+    expect(Number(def![1])).toBe(TEAM_ACTIVITY_DEFAULTS[key]);
+  });
+
+  it('block_over_limit now defaults to true', () => {
+    expect(
+      /ALTER\s+COLUMN\s+block_over_limit\s+SET\s+DEFAULT\s+true/i.test(sql())
+    ).toBe(true);
+    expect(TEAM_ACTIVITY_DEFAULTS.blockOverLimit).toBe(true);
   });
 });
 
@@ -81,9 +152,20 @@ describe('limitsFromRow', () => {
         quiet_hours_end: 9,
         timezone: 'Asia/Dubai',
         notify: false,
-        block_over_limit: true,
+        block_over_limit: false,
+        enforce_burst: false,
+        agent_view_enabled: false,
+        same_opener_max: 7,
+        reply_rate_throttle_pct: 40,
+        jev_block_min_p: '0.9',
       })
     ).toEqual({
+      ...TEAM_ACTIVITY_DEFAULTS,
+      enforceBurst: false,
+      agentViewEnabled: false,
+      sameOpenerMax: 7,
+      replyRateThrottlePct: 40,
+      jevBlockMinP: 0.9,
       dailyNewChatsPerUser: 12,
       dailyNewChatsPerNumber: 40,
       minReplyRate: 35,
@@ -93,7 +175,7 @@ describe('limitsFromRow', () => {
       quietHoursEnd: 9,
       timezone: 'Asia/Dubai',
       notify: false,
-      blockOverLimit: true,
+      blockOverLimit: false,
     });
   });
 });
@@ -103,6 +185,12 @@ describe('parseLimitsInput', () => {
 
   it('accepts a complete, in-bounds body', () => {
     expect(parseLimitsInput(valid)).toEqual({ ok: true, value: valid });
+  });
+
+  it('accepts a decimal Jev threshold at both bounds', () => {
+    expect(parseLimitsInput({ ...valid, jevBlockMinP: 0.5 }).ok).toBe(true);
+    expect(parseLimitsInput({ ...valid, jevBlockMinP: 0.99 }).ok).toBe(true);
+    expect(parseLimitsInput({ ...valid, jevBlockMinP: 0.91 }).ok).toBe(true);
   });
 
   it('trims the time zone', () => {
@@ -120,6 +208,13 @@ describe('parseLimitsInput', () => {
     ['above the bound', { ...valid, minReplyRate: 101 }],
     ['an hour of 24', { ...valid, quietHoursEnd: 24 }],
     ['a non-boolean switch', { ...valid, blockOverLimit: 'true' }],
+    ['a non-boolean enforce switch', { ...valid, enforceJev: 1 }],
+    ['a fractional same-opener max', { ...valid, sameOpenerMax: 2.5 }],
+    ['a throttle below 10', { ...valid, replyRateThrottlePct: 9 }],
+    ['a Jev threshold below 0.50', { ...valid, jevBlockMinP: 0.49 }],
+    ['a Jev threshold above 0.99', { ...valid, jevBlockMinP: 1 }],
+    ['a Jev threshold of three decimals', { ...valid, jevBlockMinP: 0.855 }],
+    ['a string Jev threshold', { ...valid, jevBlockMinP: '0.85' }],
     ['an unknown zone', { ...valid, timezone: 'Mars/Olympus' }],
     ['an offset zone', { ...valid, timezone: '+04' }],
     ['no zone', { ...valid, timezone: null }],
@@ -145,7 +240,23 @@ describe('rowFromLimits', () => {
       quiet_hours_end: 8,
       timezone: 'UTC',
       notify: true,
-      block_over_limit: false,
+      block_over_limit: true,
+      enforce_daily_user: true,
+      enforce_daily_number: true,
+      enforce_burst: true,
+      enforce_quiet_hours: true,
+      enforce_chase: true,
+      enforce_links_first: true,
+      enforce_same_opener: true,
+      enforce_reply_rate: true,
+      enforce_jev: true,
+      enforce_auto_senders: true,
+      allow_unlock_requests: true,
+      agent_view_enabled: true,
+      leader_view_enabled: true,
+      same_opener_max: 3,
+      reply_rate_throttle_pct: 50,
+      jev_block_min_p: 0.85,
     });
   });
 });
