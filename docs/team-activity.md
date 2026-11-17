@@ -193,9 +193,9 @@ send. Each has its own switch (default on).
 
 | Rule | Refuses when | Setting (default) |
 |---|---|---|
-| Unlock | not a rule: an approved unlock for this person and chat is spent and the send goes out, past every rule below including Jev | see Unlock requests |
-| `chase` | the customer did not write last and this send would make more steps in a row than the limit. Messages less than 10 minutes after the previous one are one step; failed messages are not counted | `enforce_chase`, messages in a row 3 |
-| `quiet_hours` | a start, with the account's local time inside the quiet hours (wrapping midnight; equal hours turn it off) | `enforce_quiet_hours`, 22:00-08:00 |
+| Unlock | not a rule: when a rule (or Jev) would block, an approved unlock for this person and chat is spent instead and the send goes out. A send no rule blocks leaves the unlock alone, and one the gateway then refuses gives it back | see Unlock requests |
+| `chase` | the customer did not write last and this send would make more steps in a row than the limit. Only the last 7 days count, so old campaign messages never lock a chat. Messages less than 10 minutes after the previous one are one step; failed messages are not counted | `enforce_chase`, messages in a row 3 |
+| `quiet_hours` | a start, with the account's local time inside the quiet hours (wrapping midnight; equal hours turn it off). Only once an admin has saved the limits: until then the time zone is unknown and the rule is skipped | `enforce_quiet_hours`, 22:00-08:00 |
 | `daily_user` | a start, and the person's starts today on company phone numbers have reached the limit | `enforce_daily_user`, 20 a day |
 | `daily_user_throttled` | the same, but the limit is cut to `reply_rate_throttle_pct` of itself (rounded up) because the person's reply rate over the last 7 days is below the minimum. Needs 5 starts older than 24 hours | `enforce_reply_rate`, 50%, minimum reply rate 30% |
 | `daily_number` | a start, and the number's starts today, by anyone (people, bots, the API), have reached its limit (warm-up aware) | `enforce_daily_number`, 50 a day |
@@ -247,7 +247,9 @@ error, and so does a Jev failure. A deliberate block is never swallowed.
   their unlock requests. Switch `agent_view_enabled`, default on.
 - Team leaders see their team's report (as under *Team leaders*) while
   `leader_view_enabled` is on, default on. With either switch off the
-  report refuses that role.
+  report refuses that role, and that includes a leader's own My activity
+  page. A person's own figures count every chat they started, including
+  one later reassigned out of their sight, as the limits do.
 - Team activity has a **Blocked sends** tab (by person and rule) and an
   **Unlock requests** tab with Approve and Deny, for leaders, owners and
   admins. Blocks are readable by the person, their leader and owners
