@@ -16,8 +16,9 @@
  *              NAS copies to `<root>/.repair-2026-11-17/<ref>/`, and
  *              start the copier again. It re-copies the reset rows.
  *
- * Affected = an `/inbound/` chat-media URL shared by more than one
- * message, on an OpenWA number. A message whose file OpenWA no longer
+ * Affected = a message still on an `/inbound/` object named the old
+ * OpenWA way (shared or not), on an OpenWA number. Downloads are paced
+ * for OpenWA's rate limit. A message whose file OpenWA no longer
  * has is listed and left alone. Tokens and URLs are never printed.
  *
  * Reads `.env.local` (Supabase, ENCRYPTION_KEY, OPENWA_URL). Archive
@@ -57,6 +58,35 @@ function chunks<T>(xs: T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
   return out;
+}
+
+/** `account-<id>/inbound/<digits>_lid_false_…`: the pre-`mirrorKey` cut. */
+function isOldOpenwaObject(url: string): boolean {
+  return /\/inbound\/[0-9]+_(?:lid|c_us|g_us)_(?:true|false)_[^/]*$/.test(url);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let lastCall = 0;
+
+/**
+ * OpenWA allows 10 requests a second and 100 a minute, and the live app
+ * needs the same gateway for incoming media: one download per 1.5 s, and
+ * a 429 waits 30 s and tries again (5 times).
+ */
+async function paced<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    const wait = lastCall + 1500 - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCall = Date.now();
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (attempt >= 5 || !/\b429\b/.test(msg)) throw e;
+      console.log(`  (OpenWA busy, waiting 30 s, try ${attempt + 1}/5)`);
+      await sleep(30_000);
+    }
+  }
 }
 
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
@@ -147,14 +177,15 @@ async function main() {
     all.push(...(data as Msg[]));
     if (!data || data.length < PAGE) break;
   }
-  const byUrl = new Map<string, Msg[]>();
-  for (const m of all)
-    byUrl.set(m.media_url, [...(byUrl.get(m.media_url) ?? []), m]);
-  const affected = [...byUrl.values()].filter((g) => g.length > 1).flat();
+  // Affected = still on an object named the old OpenWA way (the 40-char
+  // cut of `<chat>/<message id>`), shared or not: a group a previous run
+  // only partly repaired leaves its last message unshared but still on
+  // the overwritten object. Whapi and Meta names (`pdf-<hex>-…`, digits)
+  // are unique per media item, so a shared one is the same file twice.
+  const affected = all.filter((m) => isOldOpenwaObject(m.media_url));
+  const objects = new Set(affected.map((m) => m.media_url)).size;
   console.log(
-    `${all.length} mirrored inbound messages; ${affected.length} share one of ${
-      [...byUrl.values()].filter((g) => g.length > 1).length
-    } objects`
+    `${all.length} mirrored inbound messages; ${affected.length} on ${objects} old OpenWA objects`
   );
 
   // 2. Their channels, decrypted.
@@ -187,10 +218,9 @@ async function main() {
     }
     try {
       const info = await provider.getMediaUrl({ channel, mediaId });
-      const { buffer, contentType } = await provider.downloadMedia({
-        channel,
-        downloadUrl: info.url,
-      });
+      const { buffer, contentType } = await paced(() =>
+        provider.downloadMedia({ channel, downloadUrl: info.url })
+      );
       let newUrl: string | null = null;
       if (apply) {
         const isFile =
