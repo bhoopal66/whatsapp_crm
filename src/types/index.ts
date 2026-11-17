@@ -398,6 +398,11 @@ export type NotificationType =
   // new-chat limit, or a Whapi number reached its own. Sent to owners,
   // admins and the person concerned, no conversation.
   | 'team_activity_alert'
+  // Hard restrictions (205): an unlock request for a blocked send, to
+  // the requester's leaders and the admins; and its answer, to the
+  // requester. meta = {unlock_id, ...}.
+  | 'team_activity_unlock_request'
+  | 'team_activity_unlock_decided'
   // AI agent v2 (077): the bot handed this chat to a person.
   | 'ai_handoff'
   // Tasks (085): a task was assigned to you (the tasks trigger); the

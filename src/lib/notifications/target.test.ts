@@ -196,6 +196,22 @@ describe('notificationTarget', () => {
     expect(notificationTarget({ type }, undefined)).toBeNull();
   });
 
+  it('an unlock request opens the Unlock requests tab for leaders and up', () => {
+    const type = 'team_activity_unlock_request';
+    expect(notificationTarget({ type }, 'admin')).toBe(
+      '/team-activity?tab=unlocks'
+    );
+    expect(notificationTarget({ type }, 'team_leader')).toBe(
+      '/team-activity?tab=unlocks'
+    );
+    expect(notificationTarget({ type }, 'agent')).toBeNull();
+  });
+
+  it('an unlock decision opens My activity', () => {
+    const type = 'team_activity_unlock_decided';
+    expect(notificationTarget({ type }, 'agent')).toBe('/my-activity');
+  });
+
   it.each(['chat_mention', 'chat_dm', 'chat_thread_reply', 'chat_broadcast'])(
     '%s opens team chat',
     (type) => {

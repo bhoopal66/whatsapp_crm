@@ -29,6 +29,8 @@ export const PUSH_KINDS = [
   'pbx_connection_silent',
   'pbx_connection_restored',
   'team_activity_alert',
+  'team_activity_unlock_request',
+  'team_activity_unlock_decided',
   'meeting_invite',
   'meeting_reminder',
   'event_reminder',

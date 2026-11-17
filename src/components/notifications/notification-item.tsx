@@ -55,6 +55,8 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   channel_reconnected: Wifi,
   meta_number_alert: ShieldAlert,
   team_activity_alert: ShieldAlert,
+  team_activity_unlock_request: ShieldAlert,
+  team_activity_unlock_decided: ShieldAlert,
   ai_handoff: Bot,
   task_assigned: ListTodo,
   task_due: CalendarClock,

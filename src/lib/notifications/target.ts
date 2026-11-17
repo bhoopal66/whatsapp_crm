@@ -114,6 +114,12 @@ function hrefFor(
         : null;
     case 'team_activity_alert':
       return role && canLeadTeam(role) ? '/team-activity' : null;
+    // Hard restrictions (204-205): a blocked person asked to unlock a
+    // send (to their leader and the admins), and the answer (to them).
+    case 'team_activity_unlock_request':
+      return role && canLeadTeam(role) ? '/team-activity?tab=unlocks' : null;
+    case 'team_activity_unlock_decided':
+      return '/my-activity';
     case 'chat_mention':
     case 'chat_dm':
     case 'chat_thread_reply':
