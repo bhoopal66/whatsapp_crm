@@ -37,6 +37,17 @@ const rpc = vi.fn<
 vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: () => ({
     rpc: (name: string, args: unknown) => rpc(name, args),
+    // The recipient's company chat, for the daily-limit check (204).
+    from: () => {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        is: () => chain,
+        limit: () => chain,
+        maybeSingle: async () => ({ data: { id: 'cv-9' }, error: null }),
+      };
+      return chain;
+    },
   }),
 }));
 
@@ -224,7 +235,7 @@ describe('createBroadcast atomicity (#370)', () => {
     expect(calls.usedDirectInsert).toBe(0);
     expect(plan.broadcastId).toBe('b-1');
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', phone: '14155550123', params: [] },
+      { recipientRowId: 'r-1', contactId: 'c1', phone: '14155550123', params: [] },
     ]);
   });
 
@@ -278,7 +289,7 @@ describe('createBroadcast recipient numbers', () => {
       phone: '971501234567',
     });
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', phone: '971501234567', params: [] },
+      { recipientRowId: 'r-1', contactId: 'c1', phone: '971501234567', params: [] },
     ]);
     expect(calls.rpc).toHaveLength(1);
   });
@@ -357,7 +368,7 @@ describe('createBroadcast opted-out customers', () => {
       p_contact_ids: ['c-ok'],
     });
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', phone: '14155550123', params: [] },
+      { recipientRowId: 'r-1', contactId: 'c-ok', phone: '14155550123', params: [] },
     ]);
     expect(plan.skippedOptedOut).toBe(1);
     expect(plan.rejected).toBe(0);
@@ -511,6 +522,94 @@ describe('deliverBroadcast', () => {
       whatsapp_message_id: 'wamid.1',
       error_message: null,
     });
+  });
+});
+
+describe('deliverBroadcast and the number daily limit (migration 204)', () => {
+  it('stops the pass at the first refused start, leaving the rest pending', async () => {
+    sendTemplate.mockClear();
+    rpc.mockClear();
+    rpc.mockImplementation(async (name: string) =>
+      name === 'team_activity_auto_check'
+        ? {
+            data: {
+              blocked: true,
+              rule: 'daily_number',
+              block_id: 'blk-1',
+              detail: { started: 50, limit: 50, warming_up: false },
+            },
+            error: null,
+          }
+        : { data: 0, error: null }
+    );
+    const updates: { payload: Record<string, unknown>; statuses?: unknown }[] =
+      [];
+    const db = {
+      from: () => ({
+        update: (payload: Record<string, unknown>) => {
+          const entry: { payload: Record<string, unknown>; statuses?: unknown } =
+            { payload };
+          updates.push(entry);
+          const chain = {
+            eq: () => chain,
+            in: async (_c: string, statuses: unknown) => {
+              entry.statuses = statuses;
+              return { error: null };
+            },
+            then: (r: (v: { error: null }) => void) => r({ error: null }),
+          };
+          return chain;
+        },
+        select: () => ({
+          eq: () => ({
+            eq: async () => ({ count: 1 }),
+            then: (r: (v: { count: number }) => void) => r({ count: 2 }),
+          }),
+        }),
+      }),
+    } as unknown as SupabaseClient;
+
+    const plan: BroadcastPlan = {
+      broadcastId: 'bc-2',
+      templateName: 'promo',
+      templateLanguage: 'en_US',
+      channelId: 'ch-1',
+      channel: {
+        id: 'cfg-1',
+        accountId: 'acct-1',
+        provider: 'openwa',
+        phoneNumberId: 'ch-1',
+        accessToken: 'tok',
+      } as BroadcastPlan['channel'],
+      templateRow: { name: 'promo', language: 'en_US' } as BroadcastPlan['templateRow'],
+      planned: [
+        { recipientRowId: 'r1', contactId: 'c1', phone: '15551234567', params: [] },
+        { recipientRowId: 'r2', contactId: 'c2', phone: '15551234568', params: [] },
+      ],
+      rejected: 0,
+      skippedOptedOut: 0,
+    };
+
+    await deliverBroadcast(db, plan);
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+    // Asked once, not once per recipient.
+    expect(
+      rpc.mock.calls.filter(([n]) => n === 'team_activity_auto_check')
+    ).toEqual([
+      [
+        'team_activity_auto_check',
+        { p_account: 'acct-1', p_conversation: 'cv-9', p_channel_id: 'cfg-1' },
+      ],
+    ]);
+    // The refused recipient keeps its status and says why; nothing is
+    // stamped failed, so Resume picks the pass up again.
+    expect(updates).toHaveLength(1);
+    expect(updates[0].payload).toEqual({
+      error_message: expect.stringMatching(/started 50 new chats today/),
+    });
+    expect(updates[0].statuses).toEqual(['pending', 'failed']);
+    rpc.mockImplementation(async () => ({ data: 0, error: null }));
   });
 });
 

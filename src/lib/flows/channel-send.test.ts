@@ -4,6 +4,7 @@ const h = vi.hoisted(() => ({
   sendText: vi.fn(),
   loadChannels: vi.fn(),
   resolveBotChannel: vi.fn(),
+  assertAutoStart: vi.fn(),
   inserts: [] as { table: string; row: Record<string, unknown> }[],
 }));
 
@@ -16,6 +17,9 @@ vi.mock('@/lib/whatsapp/provider', () => ({
 vi.mock('@/lib/whatsapp/channels', () => ({
   loadChannels: h.loadChannels,
   resolveBotChannel: h.resolveBotChannel,
+}));
+vi.mock('@/lib/team-activity/auto-guard', () => ({
+  assertAutoStartAllowed: h.assertAutoStart,
 }));
 vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
@@ -60,6 +64,33 @@ beforeEach(() => {
   h.sendText.mockResolvedValue({ messageId: 'wamid-1' });
   h.loadChannels.mockResolvedValue([META, WHAPI]);
   h.resolveBotChannel.mockResolvedValue(META);
+  h.assertAutoStart.mockReset();
+  h.assertAutoStart.mockResolvedValue(undefined);
+});
+
+describe('engineSendText and the number daily limit (migration 204)', () => {
+  it('sends nothing when a flow would start a chat over the limit', async () => {
+    h.resolveBotChannel.mockResolvedValue(WHAPI);
+    h.assertAutoStart.mockRejectedValue(new Error('at its daily limit'));
+    await expect(
+      engineSendText({ ...ARGS, surface: 'flow' })
+    ).rejects.toThrow('at its daily limit');
+    expect(h.assertAutoStart).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'conv-1',
+      WHAPI,
+      'flows'
+    );
+    expect(h.sendText).not.toHaveBeenCalled();
+    expect(h.inserts).toEqual([]);
+  });
+
+  it('leaves the AI auto-reply alone', async () => {
+    await engineSendText(ARGS);
+    expect(h.assertAutoStart).not.toHaveBeenCalled();
+    expect(h.sendText).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('engineSendText channel', () => {

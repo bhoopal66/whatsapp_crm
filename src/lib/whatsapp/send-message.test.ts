@@ -233,6 +233,17 @@ interface AdminWrite {
   filters: [string, unknown][];
 }
 const adminWrites = vi.hoisted(() => [] as AdminWrite[]);
+// The automatic senders' daily-number check (migration 204); allows by
+// default, so only the tests that say otherwise see a refusal.
+const autoCheck = vi.hoisted(() =>
+  vi.fn<(...args: unknown[]) => Promise<{ blocked: boolean; limit?: number }>>(
+    async () => ({ blocked: false })
+  )
+);
+vi.mock('@/lib/team-activity/auto-guard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/team-activity/auto-guard')>()),
+  checkAutoStartAllowed: (...args: unknown[]) => autoCheck(...args),
+}));
 vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: () => ({
     from: (table: string) => ({
@@ -1019,6 +1030,60 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
       expect.anything()
     );
     expect(openwaSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an API start over the number daily limit (204), before the gateway', async () => {
+    openwaSendText.mockClear();
+    autoCheck.mockClear();
+    autoCheck.mockResolvedValueOnce({
+      blocked: true,
+      limit: 30,
+    });
+    const { db } = withCheck(
+      { data: { blocked: false }, error: null },
+      'openwa'
+    );
+    const error = await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      surface: 'api',
+      enforceNumberDailyLimit: true,
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({
+      code: 'number_daily_limit',
+      status: 429,
+      definite: true,
+    });
+    expect((error as Error).message).toMatch(/started 30 new chats today/);
+    expect(autoCheck).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'cv-1',
+      expect.objectContaining({ id: 'cfg-1', provider: 'openwa' })
+    );
+    expect(openwaSendText).not.toHaveBeenCalled();
+  });
+
+  it('does not ask unless the caller opts in, or for the Meta number', async () => {
+    autoCheck.mockClear();
+    const { db } = withCheck({ data: { blocked: false }, error: null });
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Your order shipped',
+    });
+    const meta = withCheck({ data: { blocked: false }, error: null }, 'meta');
+    await sendMessageToConversation(meta.db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      enforceNumberDailyLimit: true,
+    });
+    expect(autoCheck).not.toHaveBeenCalled();
   });
 
   it("does not ask for a person's send on the Meta number", async () => {

@@ -83,6 +83,7 @@ may be reworded.
 | 401    | `unauthorized` | Missing / malformed / unknown / revoked / expired key, or its workspace is archived |
 | 403    | `forbidden`    | Valid key, but missing the required scope                                           |
 | 429    | `rate_limited` | Per-key rate limit exceeded                                                         |
+| 429    | `number_daily_limit` | `POST /api/v1/messages` would start a new chat on a phone (Whapi or OpenWA) number that has reached its daily new-chat limit, with the workspace's hard restrictions on. Replies to existing chats still go out; new chats can start again tomorrow |
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
 | 500    | `internal`     | Server error                                                                        |
