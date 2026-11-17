@@ -4812,7 +4812,7 @@
         "dailyUserPlain": "You have reached your daily limit of new chats. Replies to existing chats still go out.",
         "dailyUserThrottled": "Few customers answered you this week ({rate}%), so your limit today is {limit} new chats, and you have reached it.",
         "dailyUserThrottledPlain": "Few customers answered you this week, so your limit today is {limit} new chats, and you have reached it.",
-        "dailyNumber": "This phone number has started {limit} new chats today, its daily limit. New chats on it start again tomorrow.",
+        "dailyNumber": "This phone number has opened {limit} new chats today, its daily limit. It can open new chats again tomorrow.",
         "dailyNumberWarmingUp": "This phone number is new and limited to {limit} new chats a day while it warms up. It has reached that today.",
         "dailyNumberPlain": "This phone number has reached its daily limit of new chats.",
         "burst": "You started {limit} new chats in the last 10 minutes. Wait about {minutes, plural, one {# minute} other {# minutes}} before starting another.",
