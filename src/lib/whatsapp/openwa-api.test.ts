@@ -496,7 +496,7 @@ describe('provisioning', () => {
     expect(err.status).toBe(502);
   });
 
-  it('registers the webhook with the five events and the secret', async () => {
+  it('registers the webhook with every event and the secret', async () => {
     fetchMock.mockImplementation(async () => json(201, { id: 'wh-1' }));
     const url = 'http://host.docker.internal:3000/api/whatsapp/openwa/webhook';
     await createWebhook({
@@ -517,6 +517,10 @@ describe('provisioning', () => {
         'message.ack',
         'message.failed',
         'session.status',
+        'group.join',
+        'group.leave',
+        'group.join_request',
+        'group.update',
       ],
       secret: 'f'.repeat(64),
     });
@@ -661,6 +665,10 @@ describe('updateWebhookEvents', () => {
     'message.ack',
     'message.failed',
     'session.status',
+    'group.join',
+    'group.leave',
+    'group.join_request',
+    'group.update',
   ];
 
   it('makes no PUT when nothing is missing', async () => {
@@ -689,6 +697,10 @@ describe('updateWebhookEvents', () => {
       'message.sent',
       'message.failed',
       'session.status',
+      'group.join',
+      'group.leave',
+      'group.join_request',
+      'group.update',
     ]);
   });
 });
