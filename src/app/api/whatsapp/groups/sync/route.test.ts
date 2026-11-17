@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   loadChannels: vi.fn(),
   listGroups: vi.fn(),
+  complete: true,
   persist: vi.fn(),
   existing: [] as Array<Record<string, unknown>>,
   submissions: [] as Array<Record<string, unknown>>,
@@ -25,7 +26,10 @@ vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
 }));
 vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
-  listGroups: mocks.listGroups,
+  listGroupsWithStatus: async (args: unknown) => ({
+    groups: await mocks.listGroups(args),
+    complete: mocks.complete,
+  }),
 }));
 vi.mock('@/lib/groups/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/groups/server')>()),
@@ -78,6 +82,7 @@ beforeEach(() => {
   mocks.submissions = [];
   mocks.tombstones = [];
   mocks.readError = null;
+  mocks.complete = true;
   mocks.existing = [
     { id: 'row-1', wa_group_id: gid(1), our_role: 'admin' },
     { id: 'row-9', wa_group_id: gid(9), our_role: 'member' },
@@ -186,6 +191,44 @@ describe('POST /api/whatsapp/groups/sync', () => {
     const body = await res.json();
     expect(body).toMatchObject({
       synced: SYNC_GROUPS_PER_CHANNEL,
+      truncated: true,
+      left: 0,
+    });
+    expect(mocks.updates).toEqual([]);
+  });
+
+  it('walks company OpenWA numbers, not personal ones', async () => {
+    mocks.loadChannels.mockResolvedValue([
+      {
+        id: CH,
+        accountId: 'acct-1',
+        provider: 'openwa',
+        isPersonal: false,
+        status: 'connected',
+      },
+      {
+        id: 'personal-1',
+        accountId: 'acct-1',
+        provider: 'openwa',
+        isPersonal: true,
+        status: 'connected',
+      },
+    ]);
+    const res = await POST();
+    expect(await res.json()).toMatchObject({ channels: 1, synced: 2 });
+    expect(mocks.listGroups).toHaveBeenCalledTimes(1);
+    expect(mocks.listGroups.mock.calls[0][0].channel.id).toBe(CH);
+    expect(mocks.listGroups.mock.calls[0][0].deadline).toEqual(
+      expect.any(Number)
+    );
+  });
+
+  it('marks nothing left when the listing was incomplete', async () => {
+    // An OpenWA walk that ran out of time or failed a group read.
+    mocks.complete = false;
+    const res = await POST();
+    expect(await res.json()).toMatchObject({
+      synced: 2,
       truncated: true,
       left: 0,
     });

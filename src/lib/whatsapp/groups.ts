@@ -507,9 +507,27 @@ type GroupRef = { channel: WhatsAppChannel; groupId: string };
 export async function listGroups(
   args: TimeBudget & { channel: WhatsAppChannel; maxGroups?: number }
 ): Promise<whapi.WhapiGroup[]> {
+  return (await listGroupsWithStatus(args)).groups;
+}
+
+/**
+ * `listGroups`, saying whether the list is the number's whole set.
+ * `complete: false` when the OpenWA walk ran out of time or a group's
+ * read failed: a caller that marks unlisted groups as left (Sync) must
+ * not do so from a partial list.
+ */
+export async function listGroupsWithStatus(
+  args: TimeBudget & { channel: WhatsAppChannel; maxGroups?: number }
+): Promise<{ groups: whapi.WhapiGroup[]; complete: boolean }> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'whapi') {
-    return whapi.listAllGroups({ token: gw.token, maxGroups: args.maxGroups });
+    return {
+      groups: await whapi.listAllGroups({
+        token: gw.token,
+        maxGroups: args.maxGroups,
+      }),
+      complete: true,
+    };
   }
   const budget: TimeBudget = {
     deadline: args.deadline ?? groupDeadline(args.now?.()),
@@ -521,21 +539,30 @@ export async function listGroups(
       ? summaries
       : summaries.slice(0, args.maxGroups);
   const groups: whapi.WhapiGroup[] = [];
+  let complete = true;
   for (const summary of wanted) {
     if (!withinBudget(budget)) {
       console.warn(
         `[groups] OpenWA list stopped at the time budget: read ${groups.length} of ${wanted.length} groups`
       );
+      complete = false;
       break;
     }
-    groups.push(
-      await openwa.getGroup(
-        openwaCreds(gw.creds, callTimeoutMs(budget)),
-        summary.id
-      )
-    );
+    try {
+      groups.push(
+        await openwa.getGroup(
+          openwaCreds(gw.creds, callTimeoutMs(budget)),
+          summary.id
+        )
+      );
+    } catch (err) {
+      // One unreadable group (a community parent, a group just left)
+      // must not hide the rest; the list is then not the whole set.
+      console.error('[groups] OpenWA group read failed', summary.id, err);
+      complete = false;
+    }
   }
-  return groups;
+  return { groups, complete };
 }
 
 export function getGroup(

@@ -286,6 +286,7 @@ export const INVITE_STOP_ON: readonly GroupFailureKey[] = [
   'rate_limited',
   'channel_disconnected',
   'billing',
+  'unsupported',
 ];
 
 /** Our number's wa_id is among `waIds`. */

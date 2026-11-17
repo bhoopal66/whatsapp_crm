@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
-import { canSyncGroups } from '@/lib/groups/access';
+import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
 import {
   GroupHttpError,
   groupErrorResponse,
@@ -20,7 +20,7 @@ import {
   supabaseAdmin,
 } from '@/lib/groups/server';
 import { loadChannels } from '@/lib/whatsapp/channels';
-import { listGroups } from '@/lib/whatsapp/groups';
+import { listGroupsWithStatus } from '@/lib/whatsapp/groups';
 
 export const maxDuration = 60;
 
@@ -45,7 +45,11 @@ export async function POST() {
     const admin = supabaseAdmin();
     // loadChannels skips a number whose token will not decrypt.
     const channels = (await loadChannels(admin, ctx.accountId)).filter(
-      (c) => c.provider === 'whapi' && c.status !== 'disconnected'
+      (c) =>
+        isGroupCapableNumber({
+          provider: c.provider,
+          is_personal: c.isPersonal,
+        }) && c.status !== 'disconnected'
     );
 
     let synced = 0;
@@ -91,9 +95,11 @@ export async function POST() {
           ),
         ]);
         skip = new Set([...submissions, ...tombstones]);
-        listed = await listGroups({
+        listed = await listGroupsWithStatus({
           channel,
           maxGroups: SYNC_GROUPS_PER_CHANNEL + 1,
+          // OpenWA reads group by group: stop before the route must.
+          deadline: started + HARD_STOP_MS,
         });
       } catch (err) {
         // One number down must not stop the others. Without the skip
@@ -103,9 +109,10 @@ export async function POST() {
         continue;
       }
       done++;
-      let complete = listed.length <= SYNC_GROUPS_PER_CHANNEL;
+      let complete =
+        listed.complete && listed.groups.length <= SYNC_GROUPS_PER_CHANNEL;
       const seen = new Set<string>();
-      for (const group of listed.slice(0, SYNC_GROUPS_PER_CHANNEL)) {
+      for (const group of listed.groups.slice(0, SYNC_GROUPS_PER_CHANNEL)) {
         if (elapsed() > HARD_STOP_MS) {
           complete = false;
           break;
