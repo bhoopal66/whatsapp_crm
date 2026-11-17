@@ -8,10 +8,10 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { RESTRICTION_RULES } from '@/lib/team-activity/blocked-send';
 import {
-  blockRuleMessage,
   sortBlocks,
   summarizeBlocks,
   type BlockCount,
+  blockFigures,
   type TeamBlock,
 } from '@/lib/team-activity/team-blocks';
 
@@ -24,12 +24,17 @@ export function useRuleName() {
       : rule;
 }
 
-/** A block's sentence (TeamActivity.blocked.rule), with its figures. */
+/**
+ * A block as a team leader or admin reads it: the rule's short name and
+ * its figures. Not the composer's sentence, which speaks to the person
+ * who was blocked ("you").
+ */
 export function useRuleSentence() {
-  const t = useTranslations('TeamActivity.blocked.rule');
+  const ruleName = useRuleName();
+  const t = useTranslations('TeamActivity.blocksTab');
   return (rule: string, detail: Record<string, unknown>) => {
-    const m = blockRuleMessage(rule, detail);
-    return m.key === null ? m.text : t(m.key as never, m.values as never);
+    const f = blockFigures(rule, detail);
+    return f ? `${ruleName(rule)} · ${t(f.key, f.values)}` : ruleName(rule);
   };
 }
 

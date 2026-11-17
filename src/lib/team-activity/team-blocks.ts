@@ -241,3 +241,30 @@ export function decisionFailure(status: number): DecisionFailure {
 
 /** A decision note's bound (the route takes at most 500 characters). */
 export const DECISION_NOTE_MAX = 500;
+
+/**
+ * The figures of a block for a team leader or admin, who read about
+ * someone else: the composer's sentences (TeamActivity.blocked.rule)
+ * say "you". Returns the message key under TeamActivity.blocksTab and
+ * its values, or null when the block carries no figures.
+ */
+export function blockFigures(
+  rule: string,
+  detail: Record<string, unknown>
+): { key: 'figures' | 'jevFigure'; values: Record<string, number> } | null {
+  const num = (k: string) =>
+    typeof detail[k] === 'number' && Number.isFinite(detail[k])
+      ? (detail[k] as number)
+      : null;
+  if (rule === 'jev_cold_pitch') {
+    const p = num('p');
+    return p === null
+      ? null
+      : { key: 'jevFigure', values: { p: Math.round(p * 100) } };
+  }
+  const limit = num('limit');
+  const count = num('started') ?? num('steps') ?? num('count');
+  return limit === null || count === null
+    ? null
+    : { key: 'figures', values: { count, limit } };
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  blockFigures,
   applyDecision,
   blockRuleMessage,
   decisionFailure,
@@ -232,5 +233,32 @@ describe('decisionFailure', () => {
     expect(decisionFailure(403)).toBe('forbidden');
     expect(decisionFailure(404)).toBe('notFound');
     expect(decisionFailure(500)).toBe('failed');
+  });
+});
+
+describe('blockFigures', () => {
+  it('reads the count and limit each rule carries', () => {
+    expect(blockFigures('daily_user', { started: 20, limit: 20 })).toEqual({
+      key: 'figures',
+      values: { count: 20, limit: 20 },
+    });
+    expect(blockFigures('chase', { steps: 4, limit: 3 })?.values).toEqual({
+      count: 4,
+      limit: 3,
+    });
+    expect(blockFigures('same_opener', { count: 3, limit: 3 })?.values).toEqual(
+      { count: 3, limit: 3 }
+    );
+  });
+  it('gives Jev its probability as a percentage', () => {
+    expect(blockFigures('jev_cold_pitch', { p: 0.912 })).toEqual({
+      key: 'jevFigure',
+      values: { p: 91 },
+    });
+  });
+  it('is null without figures', () => {
+    expect(blockFigures('link_first', {})).toBeNull();
+    expect(blockFigures('quiet_hours', { start: 22, end: 8 })).toBeNull();
+    expect(blockFigures('daily_user', { started: '20', limit: 20 })).toBeNull();
   });
 });

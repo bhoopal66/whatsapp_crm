@@ -4868,7 +4868,9 @@
         "link_first": "첫 메시지의 링크",
         "same_opener": "같은 첫 메시지",
         "jev_cold_pitch": "요청하지 않은 판매 권유"
-      }
+      },
+      "figures": "{limit} 중 {count}",
+      "jevFigure": "Jev 확신도 {p}%"
     },
     "unlocksTab": {
       "pendingTitle": "결정 대기 중",

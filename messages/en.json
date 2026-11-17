@@ -4868,7 +4868,9 @@
         "link_first": "Link in a first message",
         "same_opener": "Same first message",
         "jev_cold_pitch": "Unasked sales pitch"
-      }
+      },
+      "figures": "{count} of {limit}",
+      "jevFigure": "Jev {p}% sure"
     },
     "unlocksTab": {
       "pendingTitle": "Waiting for you",
