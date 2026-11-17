@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import { NEW_CHAT_NOTICE_CACHE_PREFIX } from '@/hooks/use-new-chat-notice';
+import { invalidateCached } from '@/lib/client-cache';
 import {
   NOTICE_TEXT_MAX,
   type NewChatNotice,
@@ -72,6 +74,9 @@ export function NewChatNoticeSection() {
         toast.error(body?.error ?? t('settings.saveFailed'));
         return;
       }
+      // The inbox reads it through the reference cache: drop it so this
+      // device's next chat shows the saved reminder, not the old one.
+      invalidateCached(NEW_CHAT_NOTICE_CACHE_PREFIX);
       toast.success(t('settings.saved'));
     } catch {
       toast.error(t('settings.saveFailed'));

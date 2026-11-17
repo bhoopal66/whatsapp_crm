@@ -57,6 +57,7 @@ import {
 } from '@/lib/insights/tag-note';
 import type { ConversationEvent } from '@/types';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
+import { putConversationSendChannel } from '@/lib/inbox/switch-send-channel';
 
 /**
  * The chat's timeline notes, loaded once per conversation and kept
@@ -214,18 +215,10 @@ export function ThreadChannelSwitcher({
     setPin(next);
     setSaving(true);
     try {
-      const res = await fetch(
-        `/api/whatsapp/conversations/${conversation.id}/channel`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel_id: next }),
-        }
-      );
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const result = await putConversationSendChannel(conversation.id, next);
+      if (!result.ok) {
         setPin(previous);
-        toast.error(body?.error || t('failed'));
+        toast.error(result.error || t('failed'));
         return;
       }
       const target = next ? byId.get(next) : undefined;
@@ -235,9 +228,6 @@ export function ThreadChannelSwitcher({
           : t('switchedAuto')
       );
       onSwitched?.();
-    } catch {
-      setPin(previous);
-      toast.error(t('failed'));
     } finally {
       setSaving(false);
     }

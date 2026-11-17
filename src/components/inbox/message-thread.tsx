@@ -19,12 +19,23 @@ import {
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
-import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import {
+  useAccountNumbers,
+  useAllNumberAllocations,
+} from '@/hooks/use-whatsapp-numbers';
 import { useMyOutreach } from '@/hooks/use-my-outreach';
+import { useNewChatNotice } from '@/hooks/use-new-chat-notice';
 import {
   outreachNotices,
   wouldStartChat,
 } from '@/lib/team-activity/thread-guard';
+import {
+  offersMarketingSwitch,
+  shouldShowNewChatNotice,
+} from '@/lib/team-activity/new-chat-notice';
+import { hasMinRole } from '@/lib/auth/roles';
+import { usableNumbers } from '@/lib/whatsapp/channel-management';
+import { NewChatNoticeCard } from './new-chat-notice';
 import { cn } from '@/lib/utils';
 import type {
   Conversation,
@@ -713,6 +724,57 @@ export function MessageThread({
     myOutreach,
     outreachNow,
   ]);
+
+  // The standing "use the marketing number" reminder (migration 207):
+  // shown while the next send would open a chat, on a company chat,
+  // not already going out from the marketing number. Its switch is
+  // offered on the switcher's terms (numbers the person may use).
+  const newChatNotice = useNewChatNotice();
+  const numberAllocations = useAllNumberAllocations();
+  const startsNewChat = useMemo(
+    () => wouldStartChat(messages, outreachNow),
+    [messages, outreachNow]
+  );
+  const showNewChatNotice =
+    !!newChatNotice &&
+    !!conversation &&
+    !!accountNumbers &&
+    !!accountRole &&
+    canSendMessages(accountRole) &&
+    shouldShowNewChatNotice({
+      notice: newChatNotice,
+      wouldStartChat: startsNewChat,
+      isPersonalChat: !!conversation.personal_owner_id,
+      sendingChannelId:
+        predictSendingNumber(accountNumbers, {
+          channel_id: threadChannelId,
+          send_channel_id: threadPin,
+        })?.id ?? null,
+    });
+  const offerMarketingSwitch =
+    showNewChatNotice &&
+    !!newChatNotice &&
+    !!conversation &&
+    offersMarketingSwitch({
+      notice: newChatNotice,
+      usableIds:
+        accountNumbers && numberAllocations
+          ? usableNumbers(
+              accountNumbers,
+              numberAllocations,
+              viewerId,
+              !!accountRole && hasMinRole(accountRole, 'admin')
+            )
+              .filter((n) => !n.is_personal)
+              .map((n) => n.id)
+          : null,
+      locked: isShareOnlyViewer(
+        accountRole,
+        viewerId,
+        conversation,
+        !!sharedBank
+      ),
+    });
 
   // Fetch the latest page whenever the selected conversation changes.
   // Kept separate from the unread-reset effect so that incoming messages
@@ -2232,6 +2294,15 @@ export function MessageThread({
         {/* New-chat limits and unanswered runs (migration 068). Warns;
           the optional block is the server's. */}
         <OutreachBanner notices={guardNotices} />
+        {showNewChatNotice && newChatNotice && (
+          <NewChatNoticeCard
+            notice={newChatNotice}
+            conversationId={conversation.id}
+            canSwitch={offerMarketingSwitch}
+            onSwitched={() => void reloadThreadEvents()}
+            className="border-info/30 border-t"
+          />
+        )}
         {(() => {
           const card = cardFor(blockedCards, conversation.id);
           return card ? (

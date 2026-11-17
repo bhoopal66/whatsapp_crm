@@ -30,6 +30,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
+import { useNewChatNotice } from '@/hooks/use-new-chat-notice';
+import { NewChatNoticeCard } from './new-chat-notice';
 import {
   useAccountNumbers,
   useMyNumberIds,
@@ -81,6 +83,7 @@ export function NewChatButton({
   const t = useTranslations('Inbox.newChat');
   const tForm = useTranslations('Contacts.form');
   const { user, accountId } = useAuth();
+  const newChatNotice = useNewChatNotice();
 
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState('');
@@ -279,6 +282,15 @@ export function NewChatButton({
                 : t('desc')}
             </DialogDescription>
           </DialogHeader>
+          {/* A chat opened from here is new to the caller, so the
+            reminder (207) shows whenever it is on. No switch here: the
+            chat does not exist yet. */}
+          {newChatNotice?.enabled && (
+            <NewChatNoticeCard
+              notice={newChatNotice}
+              className="border-info/30 rounded-md border"
+            />
+          )}
           {composeFor ? (
             <div>
               <div className="flex flex-wrap gap-2">
