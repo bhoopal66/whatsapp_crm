@@ -103,6 +103,9 @@ jobs:
       - name: Verify team activity hard restrictions
         run: supabase db query --local --file supabase/ci/verify-team-activity-enforcement.sql
 
+      - name: Verify team activity unlock requests
+        run: supabase db query --local --file supabase/ci/verify-team-activity-unlocks.sql
+
       # Deactivation (069) is enforced in the RLS helpers and the
       # profile guard, so a deactivated member's still-valid access
       # token reads nothing. Only real Postgres can show that.
