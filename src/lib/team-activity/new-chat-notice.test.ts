@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_NEW_CHAT_NOTICE,
   marketingNumberName,
+  newChatNoticeWording,
+  offersMarketingSwitch,
   parseNewChatNotice,
   parseNoticeInput,
   shouldShowNewChatNotice,
@@ -130,5 +132,60 @@ describe('marketingNumberName', () => {
     ).toBe('M');
     expect(marketingNumberName(notice({ channelPhone: '1' }))).toBe('1');
     expect(marketingNumberName(notice())).toBeNull();
+  });
+});
+
+describe('newChatNoticeWording', () => {
+  it('uses the admin text verbatim', () => {
+    expect(
+      newChatNoticeWording(
+        notice({ text: 'Use Marketing', channelId: ID, channelLabel: 'M' })
+      )
+    ).toEqual({ kind: 'custom', text: 'Use Marketing' });
+  });
+  it('names the marketing number: label, else phone', () => {
+    expect(
+      newChatNoticeWording(notice({ channelId: ID, channelLabel: 'Mkt' }))
+    ).toEqual({ kind: 'named', name: 'Mkt' });
+    expect(
+      newChatNoticeWording(notice({ channelId: ID, channelPhone: '+9715' }))
+    ).toEqual({ kind: 'named', name: '+9715' });
+  });
+  it('falls back to the generic wording', () => {
+    expect(newChatNoticeWording(notice())).toEqual({ kind: 'default' });
+    expect(newChatNoticeWording(notice({ channelId: ID }))).toEqual({
+      kind: 'default',
+    });
+  });
+});
+
+describe('offersMarketingSwitch', () => {
+  const set = notice({ channelId: ID });
+  it('offers it when the caller may use the marketing number', () => {
+    expect(
+      offersMarketingSwitch({ notice: set, usableIds: [ID], locked: false })
+    ).toBe(true);
+  });
+  it('not without a marketing number', () => {
+    expect(
+      offersMarketingSwitch({
+        notice: notice(),
+        usableIds: [ID],
+        locked: false,
+      })
+    ).toBe(false);
+  });
+  it('not when the caller may not send from it, or before numbers load', () => {
+    expect(
+      offersMarketingSwitch({ notice: set, usableIds: ['x'], locked: false })
+    ).toBe(false);
+    expect(
+      offersMarketingSwitch({ notice: set, usableIds: null, locked: false })
+    ).toBe(false);
+  });
+  it('not on a chat locked to its own number', () => {
+    expect(
+      offersMarketingSwitch({ notice: set, usableIds: [ID], locked: true })
+    ).toBe(false);
   });
 });

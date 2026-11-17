@@ -113,3 +113,39 @@ export function shouldShowNewChatNotice(args: {
 export function marketingNumberName(notice: NewChatNotice): string | null {
   return notice.channelLabel ?? notice.channelPhone ?? null;
 }
+
+export type NewChatNoticeWording =
+  | { kind: 'custom'; text: string }
+  | { kind: 'named'; name: string }
+  | { kind: 'default' };
+
+/**
+ * What the reminder says: the admin's own text verbatim, else the
+ * default wording, naming the marketing number when one is set.
+ */
+export function newChatNoticeWording(
+  notice: NewChatNotice
+): NewChatNoticeWording {
+  if (notice.text) return { kind: 'custom', text: notice.text };
+  const name = notice.channelId ? marketingNumberName(notice) : null;
+  return name ? { kind: 'named', name } : { kind: 'default' };
+}
+
+/**
+ * Whether the reminder offers "Switch to marketing number": one is set,
+ * the caller may send from it (`usableIds`, the switcher's list), and
+ * the chat is not locked to its own number (a coordinator share, 133).
+ */
+export function offersMarketingSwitch(args: {
+  notice: NewChatNotice;
+  usableIds: readonly string[] | null;
+  locked: boolean;
+}): boolean {
+  const { notice, usableIds, locked } = args;
+  return (
+    !locked &&
+    notice.channelId !== null &&
+    !!usableIds &&
+    usableIds.includes(notice.channelId)
+  );
+}
