@@ -4,12 +4,37 @@ The **Groups** screen (`/groups`) lets staff create and work WhatsApp
 groups from a connected number. It is the operator and user contract for
 migration 114 (`lib/groups/*`).
 
-## Whapi numbers only
+## Which numbers
 
-Groups run on a Whapi channel. A Meta Cloud API number cannot host them
-(its own deal-room groups are a separate feature, see
+Groups run on a **Whapi** number or a **company OpenWA** number (migration
+208). Not on a personal OpenWA number (a staff member's own phone), and
+not on the Meta Cloud API number: Meta only lets a group invite people by
+link, so its groups are the separate deal-room feature (see
 `meta-cloud-api.md`). The number has to be connected and, for most
 actions, an admin of the group.
+
+### On an OpenWA number
+
+What OpenWA can do depends on the gateway's engine, which is one setting
+for the whole gateway:
+
+- **Creating a group** works only on the Baileys engine. On
+  whatsapp-web.js (the default) the gateway refuses it, and the app says
+  so: create the group on a Whapi number instead. Changing the engine
+  moves every OpenWA number, personal ones included, and they usually
+  need their QR code scanned again.
+- **Everything else works on either engine:** chat in the group, add and
+  remove people, promote and demote admins, change the name, description,
+  picture and settings, share or reset the invite link, join requests.
+- **Groups the number is already in** (or is added to from a phone)
+  appear after **Sync**: OpenWA does not announce a new group to the app.
+- **Settings:** OpenWA has no "approve new participants" switch; changing
+  it on an OpenWA group is refused.
+- **Admin changes** made by someone else on WhatsApp are not reported by
+  OpenWA, so the member list catches up on **Refresh** or **Sync**.
+  Joins, leaves, join requests and name/description changes arrive live.
+- **Attachments** people send in an OpenWA group show as their caption
+  and type; the file itself is not copied into the app yet.
 
 ## Who can do what
 

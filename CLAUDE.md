@@ -1140,7 +1140,12 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
 
 ### WhatsApp groups (`lib/groups/*`, migration 114)
 
-Groups on a Whapi number, at `/groups`. `docs/whatsapp-groups.md` is the contract.
+Groups on a Whapi or company OpenWA number (208: `whatsapp_group_can_create`
+and `whatsapp_groups_guard`, mirrored by `isGroupCapableNumber`;
+`verify-groups-on-openwa.sql`), at `/groups`. OpenWA goes through
+`openwa-groups.ts` behind the same facade; on whatsapp-web.js the gateway
+cannot create (501 → `create_unsupported`). `docs/whatsapp-groups.md` is
+the contract.
 
 - **Separate tables** (groups, participants, managers, invite link, the
   group's own message log): group traffic never enters `messages`, so the

@@ -23,7 +23,8 @@ lose, warm it up, and don't cold-message strangers in bulk.
 | Customer profile pictures                                                 | yes                                                                                                                          |
 | Connection alerts (`channel_disconnected` / `channel_reconnected`)        | yes, from the health sweep                                                                                                   |
 | Safety Meter                                                              | no (Whapi only)                                                                                                              |
-| WhatsApp groups (`/groups`) and submission groups                         | no (Whapi only)                                                                                                              |
+| WhatsApp groups (`/groups`)                                               | company numbers only (migration 208); creating one needs the Baileys engine, see `whatsapp-groups.md`                        |
+| Submission groups                                                         | no (Whapi only)                                                                                                              |
 | Team activity limits and the composer warning                             | yes, counted like Whapi numbers (migration 145)                                                                              |
 
 A flow waiting on a menu maps the typed answer back to its option: the

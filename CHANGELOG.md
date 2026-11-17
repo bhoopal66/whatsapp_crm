@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Groups on company OpenWA numbers
+
+**Migration required:** apply `208_groups_on_openwa.sql` (as a superuser
+or BYPASSRLS role, like 114) before deploying this build. Apply in order,
+once: re-applying 114 afterwards puts back the Whapi-only rule, so re-apply
+208 after it.
+- The Groups screen works on company OpenWA numbers as well as Whapi:
+  chat, add and remove people, admins, settings, invite links, join
+  requests, Sync. Personal numbers and the Meta number are not offered.
+- Creating a group on an OpenWA number needs the gateway's Baileys
+  engine; on whatsapp-web.js the app says to create it on a Whapi number.
+- Attachments received in an OpenWA group show as caption and type only.
+
 ### Groups: owners and admins can add people who opted out
 
 - Under the left-out list (after creating a group, and in Add members) an
