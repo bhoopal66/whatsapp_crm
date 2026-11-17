@@ -19,11 +19,17 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { hourLabel } from '@/lib/team-activity/format';
 import {
+  BOOLEAN_LIMITS,
   LIMIT_BOUNDS,
   TEAM_ACTIVITY_DEFAULTS,
   isValidTimeZone,
   type TeamActivityLimits,
 } from '@/lib/team-activity/limits';
+import {
+  RESTRICTION_RULES,
+  limitValueValid,
+  ruleSwitchesDisabled,
+} from '@/lib/team-activity/restrictions';
 
 type NumericKey = keyof typeof LIMIT_BOUNDS;
 
@@ -34,6 +40,24 @@ const NUMBER_FIELDS: NumericKey[] = [
   'maxUnansweredInRow',
   'burstNewChats10min',
 ];
+
+type BooleanKey = (typeof BOOLEAN_LIMITS)[number];
+
+const RESTRICTION_NUMBER_FIELDS: {
+  key: 'sameOpenerMax' | 'replyRateThrottlePct' | 'jevBlockMinP';
+  step: number;
+  width: string;
+}[] = [
+  { key: 'sameOpenerMax', step: 1, width: 'w-32' },
+  { key: 'replyRateThrottlePct', step: 1, width: 'w-32' },
+  { key: 'jevBlockMinP', step: 0.01, width: 'w-32' },
+];
+
+const ACCESS_FLAGS = [
+  'allowUnlockRequests',
+  'agentViewEnabled',
+  'leaderViewEnabled',
+] as const;
 
 function browserZone(): string {
   try {
@@ -68,11 +92,17 @@ export function LimitsDialog({
   const [saving, setSaving] = useState(false);
 
   const zoneValid = isValidTimeZone(zone.trim());
-  const outOfBounds = NUMBER_FIELDS.some((k) => {
-    const v = form[k];
-    const [min, max] = LIMIT_BOUNDS[k];
-    return !Number.isInteger(v) || v < min || v > max;
-  });
+  const outOfBounds =
+    NUMBER_FIELDS.some((k) => {
+      const v = form[k];
+      const [min, max] = LIMIT_BOUNDS[k];
+      return !Number.isInteger(v) || v < min || v > max;
+    }) ||
+    RESTRICTION_NUMBER_FIELDS.some((f) => !limitValueValid(f.key, form[f.key]));
+  const rulesOff = ruleSwitchesDisabled(form);
+
+  const setFlag = (key: BooleanKey, checked: boolean) =>
+    setForm((f) => ({ ...f, [key]: checked }));
 
   const setNumber = (key: NumericKey, raw: string) => {
     const n = raw === '' ? Number.NaN : Number(raw);
@@ -225,22 +255,94 @@ export function LimitsDialog({
             />
           </div>
 
-          <div className="border-border flex items-start justify-between gap-4 rounded-lg border p-3">
-            <div>
-              <p className="text-foreground text-sm font-medium">
-                {t('block.label')}
-              </p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {t('block.help')}
-              </p>
+          <div className="border-border space-y-3 rounded-lg border p-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('restrictions.master.label')}
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {t('restrictions.master.help')}
+                </p>
+              </div>
+              <Switch
+                checked={form.blockOverLimit}
+                onCheckedChange={(checked) =>
+                  setFlag('blockOverLimit', checked)
+                }
+                aria-label={t('restrictions.master.label')}
+              />
             </div>
-            <Switch
-              checked={form.blockOverLimit}
-              onCheckedChange={(checked) =>
-                setForm((f) => ({ ...f, blockOverLimit: checked }))
-              }
-              aria-label={t('block.label')}
-            />
+
+            <div className="bg-card-2 space-y-3 rounded-md p-3">
+              {RESTRICTION_RULES.map((key) => (
+                <div
+                  key={key}
+                  className="flex items-start justify-between gap-4"
+                >
+                  <div className={rulesOff ? 'opacity-60' : undefined}>
+                    <p className="text-foreground text-sm font-medium">
+                      {t(`restrictions.${key}.label`)}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {t(`restrictions.${key}.help`, {
+                        n: form.maxUnansweredInRow,
+                        max: form.sameOpenerMax,
+                        pct: form.replyRateThrottlePct,
+                      })}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form[key]}
+                    disabled={rulesOff}
+                    onCheckedChange={(checked) => setFlag(key, checked)}
+                    aria-label={t(`restrictions.${key}.label`)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {RESTRICTION_NUMBER_FIELDS.map(({ key, step, width }) => {
+              const [min, max] = LIMIT_BOUNDS[key];
+              const value = form[key];
+              return (
+                <div key={key} className="grid gap-1.5">
+                  <Label htmlFor={`ta-${key}`}>
+                    {t(`restrictions.${key}.label`)}
+                  </Label>
+                  <Input
+                    id={`ta-${key}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={Number.isFinite(value) ? String(value) : ''}
+                    onChange={(e) => setNumber(key, e.target.value)}
+                    aria-invalid={!limitValueValid(key, value)}
+                    className={width}
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    {t(`restrictions.${key}.help`)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="border-border space-y-3 rounded-lg border p-3">
+            {ACCESS_FLAGS.map((key) => (
+              <div key={key} className="flex items-start justify-between gap-4">
+                <p className="text-foreground text-sm">
+                  {t(`restrictions.${key}.label`)}
+                </p>
+                <Switch
+                  checked={form[key]}
+                  onCheckedChange={(checked) => setFlag(key, checked)}
+                  aria-label={t(`restrictions.${key}.label`)}
+                />
+              </div>
+            ))}
           </div>
         </div>
 

@@ -4597,15 +4597,78 @@
         "label": "Bell alerts",
         "help": "Tell owners, admins, the team leader and the person when someone reaches their daily limit, or a number reaches its own. Once a day each."
       },
-      "block": {
-        "label": "Stop new chats at the limit",
-        "help": "Don't send a person's message to someone new on a phone number once they, or the number, reach today's limit. Replies always go out; owners and admins are never stopped."
-      },
       "reset": "Use recommended",
       "cancel": "Cancel",
       "save": "Save",
       "saved": "Limits saved",
-      "saveFailed": "Couldn't save the limits."
+      "saveFailed": "Couldn't save the limits.",
+      "restrictions": {
+        "master": {
+          "label": "Hard restrictions",
+          "help": "Refuse sends that put a company number at risk of a WhatsApp ban. The owner is never blocked; personal numbers are only monitored."
+        },
+        "enforceChase": {
+          "label": "Follow-ups",
+          "help": "Stop follow-ups after {n} unanswered messages."
+        },
+        "enforceQuietHours": {
+          "label": "Quiet hours",
+          "help": "Refuse new chats inside quiet hours."
+        },
+        "enforceDailyUser": {
+          "label": "Daily limit per person",
+          "help": "Refuse a person's new chats once they reach their daily limit."
+        },
+        "enforceReplyRate": {
+          "label": "Low reply rate",
+          "help": "Lower a person's daily limit to {pct}% when few customers reply."
+        },
+        "enforceDailyNumber": {
+          "label": "Daily limit per number",
+          "help": "Refuse new chats once a number reaches its daily limit; lower while a number warms up."
+        },
+        "enforceBurst": {
+          "label": "Many chats at once",
+          "help": "Refuse too many new chats in 10 minutes."
+        },
+        "enforceLinksFirst": {
+          "label": "Links in first messages",
+          "help": "Refuse a first message that contains a link."
+        },
+        "enforceSameOpener": {
+          "label": "Same first message",
+          "help": "Refuse the same first message more than {max} times a day."
+        },
+        "enforceJev": {
+          "label": "Jev sales-pitch check",
+          "help": "Jev blocks first messages that read like cold sales pitches."
+        },
+        "enforceAutoSenders": {
+          "label": "Automatic senders",
+          "help": "Broadcasts, API, flows and automations count toward the number's limit and stop at it."
+        },
+        "sameOpenerMax": {
+          "label": "Same first message per day",
+          "help": "How many times one first message may be sent in a day (1-50)."
+        },
+        "replyRateThrottlePct": {
+          "label": "Reduced limit (%)",
+          "help": "Percent of the daily limit that applies when few customers reply (10-100)."
+        },
+        "jevBlockMinP": {
+          "label": "Jev confidence needed to block",
+          "help": "Between 0.50 and 0.99. Higher blocks fewer messages."
+        },
+        "allowUnlockRequests": {
+          "label": "People can ask their team leader or an admin for a one-time unlock (2 hours)"
+        },
+        "agentViewEnabled": {
+          "label": "Agents see their own activity at My activity"
+        },
+        "leaderViewEnabled": {
+          "label": "Team leaders see their team's activity"
+        }
+      }
     },
     "findings": {
       "reply_rate_low": {
