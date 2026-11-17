@@ -32,6 +32,7 @@ import {
 import {
   sendMessageToConversation,
   SendMessageError,
+  RestrictedSendError,
 } from '@/lib/whatsapp/send-message';
 
 type Params = { params: Promise<{ conversationId: string }> };
@@ -156,6 +157,9 @@ export async function POST(request: Request, { params }: Params) {
           .select('id');
         if (restoreErr) {
           console.error('[ai/pending-draft] restore error:', restoreErr);
+        }
+        if (err instanceof RestrictedSendError) {
+          return NextResponse.json(err.toBody(), { status: err.status });
         }
         if (err instanceof SendMessageError) {
           return NextResponse.json(

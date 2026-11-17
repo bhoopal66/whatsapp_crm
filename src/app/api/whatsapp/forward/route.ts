@@ -4,6 +4,7 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   sendMessageToConversation,
   SendMessageError,
+  RestrictedSendError,
 } from '@/lib/whatsapp/send-message';
 import {
   loadChannels,
@@ -200,11 +201,13 @@ export async function POST(request: Request) {
         });
       } catch (err) {
         if (!(err instanceof SendMessageError)) throw err;
-        results.push({
-          conversation_id: conversationId,
-          ok: false,
-          error: err.message,
-        });
+        // A hard restriction (204) refuses one target, not the batch:
+        // the per-target result carries what the composer's card needs.
+        results.push(
+          err instanceof RestrictedSendError
+            ? { conversation_id: conversationId, ok: false, ...err.toBody() }
+            : { conversation_id: conversationId, ok: false, error: err.message }
+        );
       }
     }
 
