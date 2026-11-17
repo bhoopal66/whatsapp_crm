@@ -34,6 +34,16 @@ requests. **Refresh** re-reads the group from WhatsApp.
   admin approval. Each new request rings a bell for the group's managers
   and admins; the bell opens the tab.
 
+### Adding people who opted out
+
+Creating a group or adding members skips anyone who opted out or is
+marked do-not-contact, and lists them as left out. An owner or admin
+sees **Add anyway** under that list (after creating a group, or in the
+Add members dialog) and can add those people regardless. Anyone else
+cannot: the server answers 403 `not_allowed`. The create step itself
+still skips them. Each override is logged on the server with a count
+only, no names or numbers.
+
 ### Deleting a group
 
 An owner or admin can delete any group on the Groups page, permanently:
