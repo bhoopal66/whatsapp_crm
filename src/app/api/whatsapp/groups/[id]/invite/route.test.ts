@@ -238,6 +238,42 @@ describe('POST invite', () => {
   });
 });
 
+describe('POST invite send: consent override', () => {
+  const body = {
+    action: 'send',
+    contactIds: [C2],
+    phones: ['971503333333'],
+    overrideConsent: true,
+  };
+
+  it('refuses an agent 403 not_allowed before any send', async () => {
+    const res = await post(body);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'not_allowed' });
+    expect(mocks.sendInviteLink).not.toHaveBeenCalled();
+  });
+
+  it("sends an admin's link to the refused people", async () => {
+    mocks.getCurrentAccount.mockImplementation(async () => ({
+      supabase: fakeSupabase(mocks.rls),
+      userId: 'admin-1',
+      accountId: 'acct-1',
+      role: 'admin',
+    }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await post(body);
+    expect(res.status).toBe(200);
+    const sentTo = mocks.sendInviteLink.mock.calls.map((c) => c[0].to);
+    expect(sentTo).toEqual(['971502222222', '971503333333']);
+    expect(await res.json()).toMatchObject({ sent: 2, skipped: 0 });
+    expect(warn).toHaveBeenCalledWith('[groups] consent override', {
+      groupId: G,
+      userId: 'admin-1',
+      count: 2,
+    });
+  });
+});
+
 describe('POST invite send: time budget', () => {
   it('stops before maxDuration and reports the rest as time_budget', async () => {
     let t = Date.now();

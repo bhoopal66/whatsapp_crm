@@ -359,6 +359,15 @@ export function canDeleteGroups(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: add someone to a WhatsApp group, or send them its
+ * invite link, although they opted out or are do-not-contact ("Add
+ * anyway", `overrideConsent`). Everyone else is screened as before.
+ */
+export function canOverrideGroupConsent(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
  * Roles a coordinator share can grant to (migration 133's
  * `coordinator_share_grants`): agents and team leaders. Admins see every
  * chat anyway; viewers and bank guests get nothing from a share.

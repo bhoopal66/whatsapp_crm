@@ -29,7 +29,16 @@ describe('member-requests parsers', () => {
     expect(parseAddMembers({ phones: [' 1 ', '1'], contactIds: [U] })).toEqual({
       phones: ['1'],
       contactIds: [U],
+      overrideConsent: false,
     });
+    expect(
+      parseAddMembers({ phones: ['1'], overrideConsent: true }).overrideConsent
+    ).toBe(true);
+    for (const bad of ['true', 1, null]) {
+      expect(
+        code(() => parseAddMembers({ phones: ['1'], overrideConsent: bad }))
+      ).toBe(400);
+    }
     expect(code(() => parseAddMembers({}))).toBe(400);
     expect(code(() => parseAddMembers({ contactIds: ['x'] }))).toBe(400);
     expect(code(() => parseAddMembers([]))).toBe(400);
@@ -50,7 +59,29 @@ describe('member-requests parsers', () => {
     expect(parseInviteAction({ action: 'reset' })).toEqual({ action: 'reset' });
     expect(
       parseInviteAction({ action: 'send', phones: ['1'], message: '  ' })
-    ).toEqual({ action: 'send', phones: ['1'], contactIds: [], message: null });
+    ).toEqual({
+      action: 'send',
+      phones: ['1'],
+      contactIds: [],
+      message: null,
+      overrideConsent: false,
+    });
+    expect(
+      parseInviteAction({
+        action: 'send',
+        phones: ['1'],
+        overrideConsent: true,
+      })
+    ).toMatchObject({ overrideConsent: true });
+    expect(
+      code(() =>
+        parseInviteAction({
+          action: 'send',
+          phones: ['1'],
+          overrideConsent: 'y',
+        })
+      )
+    ).toBe(400);
     expect(code(() => parseInviteAction({ action: 'send' }))).toBe(400);
     expect(code(() => parseInviteAction({ action: 'x' }))).toBe(400);
   });

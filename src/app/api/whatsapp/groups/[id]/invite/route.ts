@@ -5,7 +5,7 @@
 // under an hour old, else asks Whapi and caches it. POST `reset`
 // revokes it and caches the new one; POST `send` sends it 1:1 from the
 // group's number, paced, skipping anyone who opted out or is marked
-// do-not-contact.
+// do-not-contact (unless an owner/admin sends `overrideConsent: true`).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -16,9 +16,10 @@ import {
   isFreshInvite,
   parseInviteAction,
   planInviteSends,
+  requireConsentOverride,
   requireGroupAdmin,
 } from '@/lib/groups/member-requests';
-import { screenRecipients } from '@/lib/groups/recipients';
+import { logConsentOverride, screenRecipients } from '@/lib/groups/recipients';
 import {
   channelForGroup,
   groupErrorResponse,
@@ -126,7 +127,11 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json(invite);
     }
 
-    const screened = await screenRecipients(ctx, supabaseAdmin(), action);
+    if (action.overrideConsent) requireConsentOverride(ctx.role);
+    const screened = await screenRecipients(ctx, supabaseAdmin(), action, {
+      overrideConsent: action.overrideConsent,
+    });
+    logConsentOverride(group.id, ctx.userId, screened.overridden);
     const results: SendResult[] = [
       ...screened.skipped.map((s) => ({
         ...s,

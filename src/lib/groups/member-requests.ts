@@ -13,11 +13,9 @@ import {
   type GroupFailureKey,
 } from '@/lib/whatsapp/groups';
 
-import {
-  ICON_MAX_BYTES,
-  ICON_TYPES,
-  INVITE_MESSAGE_MAX,
-} from './limits';
+import { canOverrideGroupConsent, type AccountRole } from '@/lib/auth/roles';
+
+import { ICON_MAX_BYTES, ICON_TYPES, INVITE_MESSAGE_MAX } from './limits';
 import { GroupHttpError, isUuid } from './server';
 
 // Client components import these from './limits' (this file reaches
@@ -61,6 +59,18 @@ export interface RecipientInput {
   contactIds: string[];
 }
 
+/**
+ * `overrideConsent`: owner/admin "Add anyway" (the route checks the
+ * role). Absent means false; anything but a boolean is a 400.
+ */
+function overrideFlag(b: Record<string, unknown>): boolean {
+  if (b.overrideConsent === undefined) return false;
+  if (typeof b.overrideConsent !== 'boolean') {
+    throw bad('overrideConsent must be true or false');
+  }
+  return b.overrideConsent;
+}
+
 function recipientInput(b: Record<string, unknown>): RecipientInput {
   const out = {
     phones: stringList(b.phones, 'phones'),
@@ -75,9 +85,23 @@ function recipientInput(b: Record<string, unknown>): RecipientInput {
   return out;
 }
 
-/** POST participants: `{ phones?, contactIds? }`. */
-export function parseAddMembers(raw: unknown): RecipientInput {
-  return recipientInput(asObject(raw));
+/** `overrideConsent` is owner/admin only (403 `not_allowed`). */
+export function requireConsentOverride(role: AccountRole) {
+  if (!canOverrideGroupConsent(role)) {
+    throw new GroupHttpError(
+      403,
+      'not_allowed',
+      'Only owners and admins can add people who opted out'
+    );
+  }
+}
+
+/** POST participants: `{ phones?, contactIds?, overrideConsent? }`. */
+export function parseAddMembers(
+  raw: unknown
+): RecipientInput & { overrideConsent: boolean } {
+  const b = asObject(raw);
+  return { ...recipientInput(b), overrideConsent: overrideFlag(b) };
 }
 
 function waIdList(value: unknown): string[] {
@@ -114,7 +138,11 @@ export const GROUP_TEXT_MAX = 4096;
 
 export type InviteAction =
   | { action: 'reset' }
-  | ({ action: 'send'; message: string | null } & RecipientInput);
+  | ({
+      action: 'send';
+      message: string | null;
+      overrideConsent: boolean;
+    } & RecipientInput);
 
 /** POST invite: `{ action: 'reset' }` or `{ action: 'send', … }`. */
 export function parseInviteAction(raw: unknown): InviteAction {
@@ -129,7 +157,12 @@ export function parseInviteAction(raw: unknown): InviteAction {
     }
     message = b.message.trim() || null;
   }
-  return { action: 'send', message, ...recipientInput(b) };
+  return {
+    action: 'send',
+    message,
+    overrideConsent: overrideFlag(b),
+    ...recipientInput(b),
+  };
 }
 
 /** POST requests: `{ applicant, action: 'approve' | 'reject' }`. */
@@ -157,7 +190,6 @@ export function parseManagerSet(raw: unknown): { userIds: string[] } {
   }
   return { userIds };
 }
-
 
 /** An uploaded icon's type and size, checked before Whapi sees it. */
 export function checkIconUpload(file: unknown): {
