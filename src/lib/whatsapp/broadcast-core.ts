@@ -26,6 +26,7 @@ import {
 import {
   resolveChannelForSurface,
   ChannelError,
+  isLinkedDeviceProvider,
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
 import {
@@ -38,6 +39,11 @@ import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import {
+  checkAutoStartAllowed,
+  companyConversationId,
+  numberDailyLimitMessage,
+} from '@/lib/team-activity/auto-guard';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -88,6 +94,11 @@ export interface CreateBroadcastParams {
 
 interface PlannedRecipient {
   recipientRowId: string;
+  /**
+   * The recipient's contact, for the number's daily new-chat limit
+   * (migration 204). Absent on a plan built before it was carried.
+   */
+  contactId?: string | null;
   phone: string;
   params: string[];
 }
@@ -411,6 +422,7 @@ export async function createBroadcast(
       const r = byContact.get(row.contact_id)!;
       return {
         recipientRowId: row.recipient_id,
+        contactId: row.contact_id,
         phone: r.phone,
         params: r.params,
       };
@@ -454,9 +466,42 @@ export async function deliverBroadcast(
   // of Resume and the cron, which plan from 'pending' — so the pass
   // stops and leaves this and every later recipient pending instead.
   let channelFailure: unknown = null;
+  // Set when the number reached its daily new-chat limit (migration
+  // 204). Handled like `channelFailure`: every later start on this
+  // number would be refused too, so the pass stops instead of asking
+  // once per recipient, and the rest stay pending for a Resume once the
+  // day turns.
+  let dailyLimit: string | null = null;
   let attempted = 0;
 
   for (const recipient of plan.planned) {
+    if (
+      recipient.contactId &&
+      plan.channel.accountId &&
+      isLinkedDeviceProvider(plan.channel.provider)
+    ) {
+      const admin = supabaseAdmin();
+      const check = await checkAutoStartAllowed(
+        admin,
+        plan.channel.accountId,
+        await companyConversationId(
+          admin,
+          plan.channel.accountId,
+          recipient.contactId
+        ),
+        plan.channel
+      );
+      if (check.blocked) {
+        dailyLimit = numberDailyLimitMessage(check);
+        await db
+          .from('broadcast_recipients')
+          .update({ error_message: dailyLimit })
+          .eq('id', recipient.recipientRowId)
+          .in('status', ['pending', 'failed']);
+        break;
+      }
+    }
+
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
@@ -532,6 +577,11 @@ export async function deliverBroadcast(
     console.error(
       `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; the rest stay pending for Resume.`,
       describeSendFailure(channelFailure)
+    );
+  }
+  if (dailyLimit) {
+    console.warn(
+      `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; ${dailyLimit} The rest stay pending for Resume.`
     );
   }
 

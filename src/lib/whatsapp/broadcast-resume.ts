@@ -140,6 +140,7 @@ interface RecipientContact {
 interface RecipientRow {
   id: string;
   template_params: unknown;
+  contact_id?: string | null;
   contact: RecipientContact | RecipientContact[] | null;
 }
 
@@ -183,7 +184,9 @@ export async function planBroadcastResume(
   const statuses = scopeStatuses(scope);
   const { data: rawRows, error: recError } = await db
     .from('broadcast_recipients')
-    .select('id, template_params, contact:contacts(phone, opted_out_at)')
+    .select(
+      'id, template_params, contact_id, contact:contacts(phone, opted_out_at)'
+    )
     .eq('broadcast_id', broadcastId)
     .in('status', statuses)
     // Oldest first, so repeated capped passes chew through the backlog
@@ -310,6 +313,7 @@ export async function planBroadcastResume(
     headerMediaUrl,
     planned: slice.map((row) => ({
       recipientRowId: row.id,
+      contactId: row.contact_id ?? null,
       phone: sanitizePhoneForMeta(contactPhone(row) ?? ''),
       params: Array.isArray(row.template_params)
         ? row.template_params.filter((p): p is string => typeof p === 'string')

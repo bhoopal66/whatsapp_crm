@@ -64,6 +64,11 @@ import {
   newChatLimitMessage,
 } from '@/lib/team-activity/start-guard';
 import {
+  checkAutoStartAllowed,
+  numberDailyLimitMessage,
+  NUMBER_DAILY_LIMIT_CODE,
+} from '@/lib/team-activity/auto-guard';
+import {
   consentRefusal,
   CONSENT_REFUSAL_MESSAGES,
 } from '@/lib/whatsapp/send-origin';
@@ -203,6 +208,15 @@ export interface SendMessageParams {
    * out "through the consent register"; ordinary sends leave it unset.
    */
   respectConsent?: boolean;
+  /**
+   * Hold this automatic send to the number's daily new-chat limit
+   * (migration 204, `team_activity_auto_check`): a START on a company
+   * phone number at its limit is refused with `number_daily_limit`
+   * (429) before the gateway. Set by the public API, which has no
+   * person behind it; ignored when `senderUserId` is set, since a
+   * person's send has its own check (068).
+   */
+  enforceNumberDailyLimit?: boolean;
 }
 
 export interface SendMessageResult {
@@ -471,6 +485,7 @@ export async function sendMessageToConversation(
     forwarded = false,
     pauseActiveFlows = true,
     respectConsent = false,
+    enforceNumberDailyLimit = false,
   } = params;
 
   if (!conversationId) {
@@ -653,6 +668,25 @@ export async function sendMessageToConversation(
       throw new SendMessageError(
         'new_chat_limit',
         newChatLimitMessage(check),
+        429
+      );
+    }
+  }
+  if (
+    enforceNumberDailyLimit &&
+    !senderUserId &&
+    isLinkedDeviceProvider(channel.provider)
+  ) {
+    const check = await checkAutoStartAllowed(
+      supabaseAdmin(),
+      accountId,
+      conversationId,
+      channel
+    );
+    if (check.blocked) {
+      throw new SendMessageError(
+        NUMBER_DAILY_LIMIT_CODE,
+        numberDailyLimitMessage(check),
         429
       );
     }

@@ -223,6 +223,7 @@ function recipient(
   return {
     id,
     template_params: params,
+    contact_id: `contact-${id}`,
     contact: phone ? { phone, opted_out_at: optedOutAt } : null,
   };
 }
@@ -254,11 +255,13 @@ describe('planBroadcastResume', () => {
     expect(plan.planned).toEqual([
       {
         recipientRowId: 'r1',
+        contactId: 'contact-r1',
         phone: '15551234567',
         params: ['A123', 'Friday'],
       },
       {
         recipientRowId: 'r2',
+        contactId: 'contact-r2',
         phone: '15559876543',
         params: ['B456', 'Monday'],
       },

@@ -125,6 +125,9 @@ export async function POST(request: Request) {
         // moving the dashboard composer. Like the composer, a reply into
         // an existing thread still follows the channel the customer used.
         surface: 'api',
+        // A start on a company phone number at its daily new-chat limit
+        // is refused 429 `number_daily_limit` (migration 204).
+        enforceNumberDailyLimit: true,
         replyToMessageId:
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id

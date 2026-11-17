@@ -22,6 +22,7 @@ import {
   isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils'
 import { supabaseAdmin } from './admin-client'
+import { assertAutoStartAllowed } from '@/lib/team-activity/auto-guard'
 
 // ------------------------------------------------------------
 // Flows-side Whapi sender (interactive variants).
@@ -140,6 +141,17 @@ export async function engineSendText(
         args.surface ?? 'flow',
         args.conversationId,
       )
+  // The number's daily new-chat limit (migration 204) holds flows, not
+  // the AI auto-reply that shares this sender (it only ever answers).
+  if ((args.surface ?? 'flow') === 'flow') {
+    await assertAutoStartAllowed(
+      db,
+      args.accountId,
+      args.conversationId,
+      channel,
+      'flows',
+    )
+  }
 
   const attempt = async (phone: string): Promise<string> => {
     const r = await sendText({
@@ -248,6 +260,13 @@ export async function engineSendMedia(
     args.accountId,
     'flow',
     args.conversationId,
+  )
+  await assertAutoStartAllowed(
+    db,
+    args.accountId,
+    args.conversationId,
+    channel,
+    'flows',
   )
 
   const attempt = async (phone: string): Promise<string> => {
@@ -399,6 +418,14 @@ async function sendInteractiveViaWhapi(
     input.accountId,
     'flow',
     input.conversationId,
+  )
+  // Automations send interactive messages through here too.
+  await assertAutoStartAllowed(
+    db,
+    input.accountId,
+    input.conversationId,
+    channel,
+    'flows',
   )
 
   const attempt = async (phone: string): Promise<string> => {

@@ -16,6 +16,7 @@ import {
   templateContentText,
 } from '@/lib/whatsapp/template-body'
 import { supabaseAdmin } from './admin-client'
+import { assertAutoStartAllowed } from '@/lib/team-activity/auto-guard'
 
 // ------------------------------------------------------------
 // Automation-side Whapi sender.
@@ -146,6 +147,16 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     input.accountId,
     'automation',
     input.conversationId,
+  )
+  // The number's daily new-chat limit (migration 204): a refused start
+  // throws here, before the gateway, and the engine records the step
+  // as failed.
+  await assertAutoStartAllowed(
+    db,
+    input.accountId,
+    input.conversationId,
+    channel,
+    'automations',
   )
 
   // Local template row. Under Whapi this is not merely a bookkeeping
