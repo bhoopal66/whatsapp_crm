@@ -25,7 +25,8 @@ const sendTemplate = vi.fn(async (_args: unknown) => ({
 }));
 vi.mock('@/lib/whatsapp/provider', () => ({
   sendTemplate: (args: unknown) => sendTemplate(args),
-  describeSendFailure: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+  describeSendFailure: (e: unknown) =>
+    e instanceof Error ? e.message : String(e),
   // A channel-wide failure is marked on the thrown error by the tests.
   isChannelLevelFailure: (e: unknown) =>
     (e as { channelDown?: boolean } | null)?.channelDown === true,
@@ -235,7 +236,12 @@ describe('createBroadcast atomicity (#370)', () => {
     expect(calls.usedDirectInsert).toBe(0);
     expect(plan.broadcastId).toBe('b-1');
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', contactId: 'c1', phone: '14155550123', params: [] },
+      {
+        recipientRowId: 'r-1',
+        contactId: 'c1',
+        phone: '14155550123',
+        params: [],
+      },
     ]);
   });
 
@@ -289,7 +295,12 @@ describe('createBroadcast recipient numbers', () => {
       phone: '971501234567',
     });
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', contactId: 'c1', phone: '971501234567', params: [] },
+      {
+        recipientRowId: 'r-1',
+        contactId: 'c1',
+        phone: '971501234567',
+        params: [],
+      },
     ]);
     expect(calls.rpc).toHaveLength(1);
   });
@@ -352,7 +363,9 @@ describe('createBroadcast opted-out customers', () => {
     );
     const { db, calls } = makeDb(
       {
-        data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c-ok' }],
+        data: [
+          { broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c-ok' },
+        ],
         error: null,
       },
       { optedOut: ['c-out'] }
@@ -368,16 +381,22 @@ describe('createBroadcast opted-out customers', () => {
       p_contact_ids: ['c-ok'],
     });
     expect(plan.planned).toEqual([
-      { recipientRowId: 'r-1', contactId: 'c-ok', phone: '14155550123', params: [] },
+      {
+        recipientRowId: 'r-1',
+        contactId: 'c-ok',
+        phone: '14155550123',
+        params: [],
+      },
     ]);
     expect(plan.skippedOptedOut).toBe(1);
     expect(plan.rejected).toBe(0);
   });
 
   it('refuses, persisting nothing, when every recipient opted out', async () => {
-    vi.mocked(findOrCreateContact).mockImplementation(
-      async () => ({ id: 'c-out', created: false })
-    );
+    vi.mocked(findOrCreateContact).mockImplementation(async () => ({
+      id: 'c-out',
+      created: false,
+    }));
     const { db, calls } = makeDb(
       { data: [], error: null },
       { optedOut: ['c-out'] }
@@ -405,7 +424,7 @@ describe('createBroadcast opted-out customers', () => {
 function statusDb(
   counts: Record<string, number>,
   total: number,
-  writes: { update?: Record<string, unknown> },
+  writes: { update?: Record<string, unknown> }
 ) {
   return {
     from(table: string) {
@@ -434,7 +453,10 @@ function statusDb(
 describe('finalizeBroadcastStatus', () => {
   it('leaves a capped pass in "sending" while recipients are still pending', async () => {
     const writes: { update?: Record<string, unknown> } = {};
-    await finalizeBroadcastStatus(statusDb({ pending: 25 }, 1025, writes), 'b-1');
+    await finalizeBroadcastStatus(
+      statusDb({ pending: 25 }, 1025, writes),
+      'b-1'
+    );
     // No write at all — the UI keeps offering Resume.
     expect(writes.update).toBeUndefined();
   });
@@ -443,7 +465,7 @@ describe('finalizeBroadcastStatus', () => {
     const writes: { update?: Record<string, unknown> } = {};
     await finalizeBroadcastStatus(
       statusDb({ pending: 0, failed: 10 }, 10, writes),
-      'b-1',
+      'b-1'
     );
     expect(writes.update?.status).toBe('failed');
   });
@@ -452,7 +474,7 @@ describe('finalizeBroadcastStatus', () => {
     const writes: { update?: Record<string, unknown> } = {};
     await finalizeBroadcastStatus(
       statusDb({ pending: 0, failed: 3 }, 10, writes),
-      'b-1',
+      'b-1'
     );
     // 7 people got the message; failed_count carries the other 3.
     expect(writes.update?.status).toBe('sent');
@@ -464,7 +486,7 @@ describe('finalizeBroadcastStatus', () => {
     // failed. Pre-fix this wrote 'failed' off a pass-local counter.
     await finalizeBroadcastStatus(
       statusDb({ pending: 0, failed: 200 }, 1000, writes),
-      'b-1',
+      'b-1'
     );
     expect(writes.update?.status).toBe('sent');
   });
@@ -500,7 +522,10 @@ describe('deliverBroadcast', () => {
         phoneNumberId: 'ch-1',
         accessToken: 'tok',
       } as BroadcastPlan['channel'],
-      templateRow: { name: 'promo', language: 'en_US' } as BroadcastPlan['templateRow'],
+      templateRow: {
+        name: 'promo',
+        language: 'en_US',
+      } as BroadcastPlan['templateRow'],
       headerMediaUrl: 'https://cdn.example.com/promo.jpg',
       planned: [{ recipientRowId: 'r1', phone: '15551234567', params: ['A'] }],
       rejected: 0,
@@ -547,8 +572,10 @@ describe('deliverBroadcast and the number daily limit (migration 204)', () => {
     const db = {
       from: () => ({
         update: (payload: Record<string, unknown>) => {
-          const entry: { payload: Record<string, unknown>; statuses?: unknown } =
-            { payload };
+          const entry: {
+            payload: Record<string, unknown>;
+            statuses?: unknown;
+          } = { payload };
           updates.push(entry);
           const chain = {
             eq: () => chain,
@@ -581,10 +608,23 @@ describe('deliverBroadcast and the number daily limit (migration 204)', () => {
         phoneNumberId: 'ch-1',
         accessToken: 'tok',
       } as BroadcastPlan['channel'],
-      templateRow: { name: 'promo', language: 'en_US' } as BroadcastPlan['templateRow'],
+      templateRow: {
+        name: 'promo',
+        language: 'en_US',
+      } as BroadcastPlan['templateRow'],
       planned: [
-        { recipientRowId: 'r1', contactId: 'c1', phone: '15551234567', params: [] },
-        { recipientRowId: 'r2', contactId: 'c2', phone: '15551234568', params: [] },
+        {
+          recipientRowId: 'r1',
+          contactId: 'c1',
+          phone: '15551234567',
+          params: [],
+        },
+        {
+          recipientRowId: 'r2',
+          contactId: 'c2',
+          phone: '15551234568',
+          params: [],
+        },
       ],
       rejected: 0,
       skippedOptedOut: 0,
@@ -606,7 +646,8 @@ describe('deliverBroadcast and the number daily limit (migration 204)', () => {
     // stamped failed, so Resume picks the pass up again.
     expect(updates).toHaveLength(1);
     expect(updates[0].payload).toEqual({
-      error_message: expect.stringMatching(/started 50 new chats today/),
+      error_message:
+        'This number reached its daily limit of 50 new chats. Press Resume tomorrow to send the rest.',
     });
     expect(updates[0].statuses).toEqual(['pending', 'failed']);
     rpc.mockImplementation(async () => ({ data: 0, error: null }));
@@ -614,11 +655,18 @@ describe('deliverBroadcast and the number daily limit (migration 204)', () => {
 });
 
 describe('createBroadcast header media (Meta)', () => {
-  const VIDEO = { header_type: 'video', name: 'pos_intro_offer_video', language: 'en' };
+  const VIDEO = {
+    header_type: 'video',
+    name: 'pos_intro_offer_video',
+    language: 'en',
+  };
 
   it('refuses a media template with no media before anything is persisted', async () => {
     const { db, calls } = makeDb(
-      { data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }], error: null },
+      {
+        data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }],
+        error: null,
+      },
       { provider: 'meta', template: VIDEO }
     );
     const err = await createBroadcast(db, 'acc', 'user', {
@@ -637,10 +685,16 @@ describe('createBroadcast header media (Meta)', () => {
 
   it('lets it through when the template carries its media', async () => {
     const { db, calls } = makeDb(
-      { data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }], error: null },
+      {
+        data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }],
+        error: null,
+      },
       {
         provider: 'meta',
-        template: { ...VIDEO, header_media_url: 'https://cdn.example.com/v.mp4' },
+        template: {
+          ...VIDEO,
+          header_media_url: 'https://cdn.example.com/v.mp4',
+        },
       }
     );
     await createBroadcast(db, 'acc', 'user', {
@@ -652,7 +706,10 @@ describe('createBroadcast header media (Meta)', () => {
 
   it('does not apply to Whapi, which renders the template as text', async () => {
     const { db, calls } = makeDb(
-      { data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }], error: null },
+      {
+        data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }],
+        error: null,
+      },
       { provider: 'whapi', template: VIDEO }
     );
     await createBroadcast(db, 'acc', 'user', {
@@ -725,7 +782,10 @@ function plan3(): BroadcastPlan {
       phoneNumberId: 'ch-1',
       accessToken: 'tok',
     } as BroadcastPlan['channel'],
-    templateRow: { name: 'promo', language: 'en_US' } as BroadcastPlan['templateRow'],
+    templateRow: {
+      name: 'promo',
+      language: 'en_US',
+    } as BroadcastPlan['templateRow'],
     planned: [
       { recipientRowId: 'r1', phone: '15551234567', params: [] },
       { recipientRowId: 'r2', phone: '15551234568', params: [] },
@@ -852,7 +912,10 @@ describe('reconcileBroadcastStatuses', () => {
 
   it('never throws, whatever the RPC does', async () => {
     const errored = vi.spyOn(console, 'error').mockImplementation(() => {});
-    rpc.mockResolvedValueOnce({ data: null, error: { code: 'XX000', message: 'boom' } });
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'XX000', message: 'boom' },
+    });
     expect(await reconcileBroadcastStatuses()).toBeNull();
     rpc.mockRejectedValueOnce(new Error('network'));
     expect(await reconcileBroadcastStatuses()).toBeNull();
@@ -892,7 +955,10 @@ function settleDb(
           resolve(
             updating
               ? { error: null }
-              : { count: status === null ? total : (counts[status] ?? 0), error: null }
+              : {
+                  count: status === null ? total : (counts[status] ?? 0),
+                  error: null,
+                }
           ),
       };
       return b;

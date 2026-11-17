@@ -35,8 +35,17 @@ export interface SendAllowed {
   blocked: false;
   /** The send would start a chat (no message for 24 h, customer not last). */
   isStart: boolean;
-  /** An approved unlock was spent on this send: every rule, Jev included, is skipped. */
+  /**
+   * An approved unlock was spent on this send because a rule would have
+   * blocked it: every rule, Jev included, is skipped.
+   */
   unlockUsed: boolean;
+  /**
+   * An approved, unused unlock exists for this chat but was NOT spent,
+   * because no rule blocked. Spend it ({@link spendUnlock}) only if Jev
+   * would refuse the send.
+   */
+  unlockAvailable: boolean;
   /** Ask Jev whether this start is a cold pitch, refusing at P >= minP. */
   jev: { enabled: boolean; minP: number };
 }
@@ -62,6 +71,7 @@ const ALLOW: SendAllowed = {
   blocked: false,
   isStart: false,
   unlockUsed: false,
+  unlockAvailable: false,
   jev: { enabled: false, minP: JEV_DEFAULT_MIN_P },
 };
 let missingLogged = false;
@@ -97,8 +107,8 @@ function asRecord(v: unknown): Record<string, unknown> {
 /**
  * Ask the database whether this person may send this text in this
  * conversation on this number. `db` must be the sender's own client:
- * the check reads `auth.uid()`. Spends an approved unlock when one
- * applies.
+ * the check reads `auth.uid()`. Spends an approved unlock only when a
+ * rule would block; otherwise reports it as available.
  */
 export async function checkHumanSend(
   db: SupabaseClient,
@@ -136,6 +146,7 @@ export async function checkHumanSend(
       blocked: false,
       isStart,
       unlockUsed: o.unlock_used === true,
+      unlockAvailable: o.unlock_available === true,
       jev: {
         enabled: jev.enabled === true,
         minP:
@@ -148,6 +159,53 @@ export async function checkHumanSend(
     logFailure(err);
     return ALLOW;
   }
+}
+
+async function unlockRpc(
+  db: SupabaseClient,
+  fn: 'team_activity_use_unlock' | 'team_activity_release_unlock',
+  conversationId: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await db.rpc(fn, {
+      p_conversation: conversationId,
+    });
+    if (error) {
+      console.error(`[team-activity] ${fn} failed:`, error.message);
+      return false;
+    }
+    return data === true;
+  } catch (err) {
+    console.error(
+      `[team-activity] ${fn} failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return false;
+  }
+}
+
+/**
+ * Spend this chat's approved unlock (team_activity_use_unlock), exactly
+ * once. True only when it was spent; any error is false, so the send
+ * that needed it stays refused. `db` is the sender's own client.
+ */
+export function spendUnlock(
+  db: SupabaseClient,
+  conversationId: string
+): Promise<boolean> {
+  return unlockRpc(db, 'team_activity_use_unlock', conversationId);
+}
+
+/**
+ * Give back the caller's unlock spent on this chat in the last 10
+ * minutes (team_activity_release_unlock), after the send it was spent
+ * on certainly did not go out. Best-effort: never throws.
+ */
+export function releaseUnlock(
+  db: SupabaseClient,
+  conversationId: string
+): Promise<boolean> {
+  return unlockRpc(db, 'team_activity_release_unlock', conversationId);
 }
 
 /**

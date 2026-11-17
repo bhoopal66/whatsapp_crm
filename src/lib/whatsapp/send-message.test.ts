@@ -971,6 +971,128 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
     expect(sendTextMessage).toHaveBeenCalledTimes(1);
   });
 
+  // The SQL spends an unlock only when a rule would block; an unused
+  // one is reported as available and spent here only for Jev.
+  function withUnlock(check: Record<string, unknown>, spent = true) {
+    sendTextMessage.mockClear();
+    coldPitch.mockReset();
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured, { provider: 'whapi' });
+    const rpc = vi.fn(async (name: string) =>
+      name === 'team_activity_start_check'
+        ? { data: { blocked: false, is_start: true, ...check }, error: null }
+        : name === 'team_activity_use_unlock'
+          ? { data: spent, error: null }
+          : name === 'team_activity_release_unlock'
+            ? { data: true, error: null }
+            : { data: 'b-jev', error: null }
+    );
+    const db = {
+      from: (table: string) => inner.from(table),
+      rpc,
+    } as unknown as SupabaseClient;
+    const send = () =>
+      sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'text',
+        contentText: 'Great loan offers for you!',
+        senderUserId: 'u-1',
+      }).then(
+        () => null,
+        (e: unknown) => e
+      );
+    return { rpc, send };
+  }
+  const JEV_ON = { jev: { enabled: true, min_p: 0.5 } };
+
+  it('spends an available unlock when Jev would refuse, and sends', async () => {
+    const { rpc, send } = withUnlock({ ...JEV_ON, unlock_available: true });
+    coldPitch.mockResolvedValue(0.99);
+    expect(await send()).toBeNull();
+    expect(rpc).toHaveBeenCalledWith('team_activity_use_unlock', {
+      p_conversation: 'cv-1',
+    });
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_record_block',
+      expect.anything()
+    );
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses when the available unlock cannot be spent', async () => {
+    const { rpc, send } = withUnlock(
+      { ...JEV_ON, unlock_available: true },
+      false
+    );
+    coldPitch.mockResolvedValue(0.99);
+    expect(await send()).toMatchObject({ rule: 'jev_cold_pitch' });
+    expect(rpc).toHaveBeenCalledWith('team_activity_use_unlock', {
+      p_conversation: 'cv-1',
+    });
+    expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('leaves an available unlock alone when Jev does not refuse', async () => {
+    const { rpc, send } = withUnlock({ ...JEV_ON, unlock_available: true });
+    coldPitch.mockResolvedValue(0.1);
+    expect(await send()).toBeNull();
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_use_unlock',
+      expect.anything()
+    );
+  });
+
+  it('gives a spent unlock back when the gateway definitely refused', async () => {
+    const { rpc, send } = withUnlock({ unlock_used: true });
+    sendTextMessage.mockImplementationOnce(async () => {
+      throw new WhapiError('bad recipient', 400);
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = await send();
+    log.mockRestore();
+    expect(error).toMatchObject({ code: 'whatsapp_error', definite: true });
+    expect(rpc).toHaveBeenCalledWith('team_activity_release_unlock', {
+      p_conversation: 'cv-1',
+    });
+  });
+
+  it('keeps a spent unlock when the send may have gone out', async () => {
+    const { rpc, send } = withUnlock({ unlock_used: true });
+    sendTextMessage.mockImplementationOnce(async () => {
+      throw new WhapiError('Whapi request failed: timeout', 503);
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = await send();
+    log.mockRestore();
+    expect(error).toMatchObject({ code: 'whatsapp_error', definite: false });
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_release_unlock',
+      expect.anything()
+    );
+  });
+
+  it('checks the rendered body of a template send', async () => {
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([TEMPLATE_ROW], captured, { provider: 'whapi' });
+    const rpc = vi.fn(async () => ({ data: { blocked: false }, error: null }));
+    const db = {
+      from: (table: string) => inner.from(table),
+      rpc,
+    } as unknown as SupabaseClient;
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'template',
+      templateName: 'order_update',
+      templateParams: ['A123', 'Friday'],
+      senderUserId: 'u-1',
+    });
+    expect(rpc).toHaveBeenCalledWith('team_activity_start_check', {
+      p_conversation: 'cv-1',
+      p_channel_id: 'cfg-1',
+      p_text: 'Your order A123 ships on Friday',
+    });
+  });
+
   it('does not ask for a send no person made', async () => {
     const { db, rpc } = withCheck({ data: { blocked: true }, error: null });
     await sendMessageToConversation(db, 'acct-1', {

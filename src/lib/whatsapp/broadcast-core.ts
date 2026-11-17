@@ -42,7 +42,7 @@ import { findOrCreateContact } from '@/lib/api/v1/contacts';
 import {
   checkAutoStartAllowed,
   companyConversationId,
-  numberDailyLimitMessage,
+  campaignDailyLimitMessage,
 } from '@/lib/team-activity/auto-guard';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
@@ -492,7 +492,7 @@ export async function deliverBroadcast(
         plan.channel
       );
       if (check.blocked) {
-        dailyLimit = numberDailyLimitMessage(check);
+        dailyLimit = campaignDailyLimitMessage(check);
         await db
           .from('broadcast_recipients')
           .update({ error_message: dailyLimit })
@@ -581,7 +581,7 @@ export async function deliverBroadcast(
   }
   if (dailyLimit) {
     console.warn(
-      `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; ${dailyLimit} The rest stay pending for Resume.`
+      `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; ${dailyLimit}`
     );
   }
 

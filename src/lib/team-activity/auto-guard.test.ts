@@ -6,6 +6,7 @@ import {
   checkAutoStartAllowed,
   NumberDailyLimitError,
   numberDailyLimitMessage,
+  campaignDailyLimitMessage,
 } from './auto-guard';
 
 function client(result: unknown): SupabaseClient {
@@ -138,6 +139,20 @@ describe('numberDailyLimitMessage', () => {
     ).toMatch(/while it warms up/);
     expect(numberDailyLimitMessage({ blocked: true })).toMatch(
       /reached its daily limit/
+    );
+  });
+});
+
+describe('campaignDailyLimitMessage', () => {
+  it('tells the sender to resume the campaign tomorrow', () => {
+    expect(campaignDailyLimitMessage({ blocked: true, limit: 50 })).toBe(
+      'This number reached its daily limit of 50 new chats. Press Resume tomorrow to send the rest.'
+    );
+    expect(
+      campaignDailyLimitMessage({ blocked: true, limit: 10, warmingUp: true })
+    ).toMatch(/of 10 new chats while it warms up\. Press Resume tomorrow/);
+    expect(campaignDailyLimitMessage({ blocked: true })).toBe(
+      'This number reached its daily limit of new chats. Press Resume tomorrow to send the rest.'
     );
   });
 });

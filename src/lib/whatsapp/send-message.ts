@@ -62,6 +62,8 @@ import {
 import {
   checkHumanSend,
   recordJevBlock,
+  releaseUnlock,
+  spendUnlock,
   restrictionMessage,
   type RestrictionDetail,
 } from '@/lib/team-activity/start-guard';
@@ -697,6 +699,42 @@ export async function sendMessageToConversation(
     );
   }
 
+  // Template row — needed for the send-builder's header + button
+  // components AND for the body we persist. The lookup tolerates the
+  // en / en_US split so a caller that omits the language still resolves
+  // a row (see resolveTemplateRow). Resolved before the team-activity
+  // check, which needs the rendered text of a template send.
+  let templateRow: MessageTemplate | null = null;
+  if (messageType === 'template' && templateName) {
+    const resolved = await resolveTemplateRow(
+      db,
+      accountId,
+      templateName,
+      templateLanguage
+    );
+    if (resolved.malformed) {
+      throw new SendMessageError(
+        'template_malformed',
+        'Template row is malformed locally — open Settings → Templates and re-save it.',
+        500,
+        // Before the gateway call: nothing went out.
+        true
+      );
+    }
+    templateRow = resolved.row;
+    if (!templateRow) {
+      // Whapi renders templates locally, so with no row there is
+      // nothing to send. Checked here rather than inside `attempt`
+      // below: that runs once per phone variant and its catch-all
+      // would relabel this precondition as a gateway failure.
+      throw new SendMessageError(
+        'template_not_found',
+        `No template named "${templateName}" exists on this account.`,
+        404
+      );
+    }
+  }
+
   // Team activity hard restrictions (migration 204): on a company
   // phone number (a linked device: Whapi or OpenWA), a person's message
   // is refused before anything reaches the gateway when it would chase a
@@ -705,11 +743,30 @@ export async function sendMessageToConversation(
   // scope (owner exempt, company numbers and chats only) and spends an
   // approved unlock. API and bot sends are never asked here, and any
   // error in the check lets the message through.
+  //
+  // An unlock spent on this send (by the SQL, or below for Jev) is given
+  // back when the send then certainly fails (`releaseSpentUnlock`).
+  let unlockSpent = false;
+  const releaseSpentUnlock = async (err: unknown) => {
+    if (unlockSpent && err instanceof SendMessageError && err.definite) {
+      unlockSpent = false;
+      await releaseUnlock(db, conversationId);
+    }
+  };
   if (senderUserId && isLinkedDeviceProvider(channel.provider)) {
+    // A template send without the composer's pre-rendered text is
+    // checked on the body it will render to, so the link, same-opener
+    // and Jev rules see what the customer reads.
     const outgoingText =
       messageType === 'interactive'
         ? (interactivePayload?.body ?? null)
-        : (contentText ?? null);
+        : messageType === 'template'
+          ? templateContentText(
+              templateRow,
+              templateBodyParams(templateParams, templateMessageParams),
+              contentText
+            )
+          : (contentText ?? null);
     const check = await checkHumanSend(
       db,
       conversationId,
@@ -719,8 +776,11 @@ export async function sendMessageToConversation(
     if (check.blocked) {
       throw new RestrictedSendError(check);
     }
+    unlockSpent = check.unlockUsed;
     // Jev (spec S5): a start that reads as a cold sales pitch. Any Jev
-    // failure, timeout or mismatch sends; an unlock skips it.
+    // failure, timeout or mismatch sends; an unlock skips it. The SQL
+    // spends an unlock only when one of its own rules blocks, so an
+    // available one is spent here only when Jev would refuse.
     if (
       check.jev.enabled &&
       !check.unlockUsed &&
@@ -729,15 +789,26 @@ export async function sendMessageToConversation(
     ) {
       const p = await coldPitchProbability(accountId, outgoingText);
       if (p !== null && p >= check.jev.minP) {
-        const blockId = await recordJevBlock(db, conversationId, channel.id, p);
-        throw new RestrictedSendError({
-          rule: 'jev_cold_pitch',
-          blockId,
-          // Unlocking needs the block row; the request RPC re-checks
-          // the account's allow_unlock_requests switch.
-          unlockable: blockId !== null,
-          detail: { p },
-        });
+        // The chat's approved unlock covers Jev too; if it cannot be
+        // spent (gone, or the RPC failed) the send stays refused.
+        if (check.unlockAvailable && (await spendUnlock(db, conversationId))) {
+          unlockSpent = true;
+        } else {
+          const blockId = await recordJevBlock(
+            db,
+            conversationId,
+            channel.id,
+            p
+          );
+          throw new RestrictedSendError({
+            rule: 'jev_cold_pitch',
+            blockId,
+            // Unlocking needs the block row; the request RPC re-checks
+            // the account's allow_unlock_requests switch.
+            unlockable: blockId !== null,
+            detail: { p },
+          });
+        }
       }
     }
   }
@@ -774,11 +845,13 @@ export async function sendMessageToConversation(
       .maybeSingle();
 
     if (parentError || !parent) {
-      throw new SendMessageError(
+      const err = new SendMessageError(
         'bad_request',
         'reply_to_message_id not found in this conversation',
         400
       );
+      await releaseSpentUnlock(err);
+      throw err;
     }
     // A WhatsApp message id only means something to the gateway that
     // carried it. Since a chat can switch numbers mid-conversation
@@ -813,41 +886,6 @@ export async function sendMessageToConversation(
       );
     } else {
       quotedMessageId = parent.message_id;
-    }
-  }
-
-  // Template row — needed for the send-builder's header + button
-  // components AND for the body we persist. The lookup tolerates the
-  // en / en_US split so a caller that omits the language still resolves
-  // a row (see resolveTemplateRow).
-  let templateRow: MessageTemplate | null = null;
-  if (messageType === 'template' && templateName) {
-    const resolved = await resolveTemplateRow(
-      db,
-      accountId,
-      templateName,
-      templateLanguage
-    );
-    if (resolved.malformed) {
-      throw new SendMessageError(
-        'template_malformed',
-        'Template row is malformed locally — open Settings → Templates and re-save it.',
-        500,
-        // Before the gateway call: nothing went out.
-        true
-      );
-    }
-    templateRow = resolved.row;
-    if (!templateRow) {
-      // Whapi renders templates locally, so with no row there is
-      // nothing to send. Checked here rather than inside `attempt`
-      // below: that runs once per phone variant and its catch-all
-      // would relabel this precondition as a gateway failure.
-      throw new SendMessageError(
-        'template_not_found',
-        `No template named "${templateName}" exists on this account.`,
-        404
-      );
     }
   }
 
@@ -960,7 +998,7 @@ export async function sendMessageToConversation(
       message,
       gatewayErrorFields(err)
     );
-    throw new SendMessageError(
+    const failure = new SendMessageError(
       'whatsapp_error',
       `WhatsApp API error: ${message}`,
       502,
@@ -969,6 +1007,8 @@ export async function sendMessageToConversation(
       // customer, and the inbox must not offer to send it again.
       isDefiniteSendRefusal(err)
     );
+    await releaseSpentUnlock(failure);
+    throw failure;
   }
 
   if (workingPhone !== sanitizedPhone) {
