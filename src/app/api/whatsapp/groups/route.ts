@@ -31,7 +31,7 @@ import {
   GROUP_COLUMNS,
   GroupHttpError,
   groupErrorResponse,
-  loadWhapiChannel,
+  loadGroupChannel,
   persistGroupSnapshot,
   supabaseAdmin,
 } from '@/lib/groups/server';
@@ -300,7 +300,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const channel = await loadWhapiChannel(ctx.accountId, body.channelId);
+    const channel = await loadGroupChannel(ctx.accountId, body.channelId);
     const outcome = await createGroup({
       channel,
       name: body.name,

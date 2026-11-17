@@ -39,6 +39,8 @@ export const GROUP_REASON_CODES = [
   'unavailable',
   'invalid_body',
   'time_budget',
+  'create_unsupported',
+  'unsupported',
   'no_participants',
   'saved_failed_run_sync',
   'unknown',

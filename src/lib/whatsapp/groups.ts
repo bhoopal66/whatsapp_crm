@@ -16,6 +16,13 @@ import type { WhatsAppChannel } from './channels';
 import { isValidE164, normalizePhone } from './phone-utils';
 import * as whapi from './whapi-api';
 import { WhapiError } from './whapi-api';
+import * as openwa from './openwa-groups';
+import {
+  OpenWAGroupUnsupportedError,
+  type OpenWAGroupCreds,
+} from './openwa-groups';
+import * as openwaApi from './openwa-api';
+import { OpenWAError } from './openwa-api';
 
 export type {
   WhapiGroup as Group,
@@ -35,19 +42,52 @@ export {
   isWhapiGroupId as isGroupId,
 } from './whapi-api';
 
-/** The channel is not a Whapi number; groups are Whapi-only. */
+/** The channel cannot host groups: Meta (deal rooms) or a personal number. */
 export class GroupsUnsupportedError extends Error {
   constructor(provider: string) {
-    super(`WhatsApp groups need a Whapi number; this one is ${provider}.`);
+    super(
+      `WhatsApp groups need a Whapi or company OpenWA number; this one is ${provider}.`
+    );
     this.name = 'GroupsUnsupportedError';
   }
 }
 
-function whapiToken(channel: WhatsAppChannel): string {
-  if (channel.provider !== 'whapi') {
-    throw new GroupsUnsupportedError(channel.provider);
+/** The gateway cannot create groups (OpenWA answers 501). */
+export class GroupCreateUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GroupCreateUnsupportedError';
   }
-  return channel.accessToken;
+}
+
+export type GroupGateway =
+  | { kind: 'whapi'; token: string }
+  | { kind: 'openwa'; creds: OpenWAGroupCreds };
+
+/** Which group gateway serves this number; refuses Meta and personal numbers. */
+export function gatewayFor(channel: WhatsAppChannel): GroupGateway {
+  const provider = channel.provider;
+  switch (provider) {
+    case 'whapi':
+      return { kind: 'whapi', token: channel.accessToken };
+    case 'openwa':
+      if (channel.isPersonal) {
+        throw new GroupsUnsupportedError('a personal OpenWA number');
+      }
+      return {
+        kind: 'openwa',
+        creds: {
+          sessionId: channel.phoneNumberId,
+          apiKey: channel.accessToken,
+        },
+      };
+    case 'meta':
+      throw new GroupsUnsupportedError(provider);
+    default: {
+      const unknown: never = provider;
+      throw new GroupsUnsupportedError(String(unknown));
+    }
+  }
 }
 
 // ------------------------------------------------------------
@@ -194,6 +234,8 @@ export type GroupFailureKey =
   | 'invalid_request'
   | 'gateway_unavailable'
   | 'time_budget'
+  | 'create_unsupported'
+  | 'unsupported'
   | 'unknown';
 
 /**
@@ -204,6 +246,9 @@ export type GroupFailureKey =
  */
 export function describeGroupFailure(err: unknown): GroupFailureKey {
   if (err instanceof GroupsUnsupportedError) return 'not_whapi';
+  if (err instanceof GroupCreateUnsupportedError) return 'create_unsupported';
+  if (err instanceof OpenWAGroupUnsupportedError) return 'unsupported';
+  if (err instanceof OpenWAError) return describeOpenWAFailure(err);
   if (!(err instanceof WhapiError)) return 'unknown';
   if (err.isNotGroupAdmin) return 'not_admin';
   if (err.isGroupNotFound) return 'group_not_found';
@@ -212,6 +257,25 @@ export function describeGroupFailure(err: unknown): GroupFailureKey {
   if (err.isBillingError) return 'billing';
   if (err.status === 401) return 'channel_disconnected';
   if (err.status === 400) return 'invalid_request';
+  if (err.status >= 500) return 'gateway_unavailable';
+  return 'unknown';
+}
+
+/**
+ * OpenWA's statuses after a group call. A 409 is the session not being
+ * connected (on Whapi it means already a member), and a 404 on the
+ * session route is the session itself missing, not the group.
+ */
+function describeOpenWAFailure(err: OpenWAError): GroupFailureKey {
+  if (err.status === 403) return 'not_admin';
+  if (err.status === 401) return 'channel_disconnected';
+  if (err.status === 404) {
+    return err.route === 'message' ? 'group_not_found' : 'channel_disconnected';
+  }
+  if (err.status === 409) return 'channel_disconnected';
+  if (err.status === 429) return 'rate_limited';
+  if (err.status === 400) return 'invalid_request';
+  if (err.status === 501) return 'unsupported';
   if (err.status >= 500) return 'gateway_unavailable';
   return 'unknown';
 }
@@ -245,6 +309,19 @@ export interface CreateGroupOutcome extends AddOutcome {
 const sleepFor = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function openwaCreds(
+  creds: OpenWAGroupCreds,
+  timeoutMs: number | undefined
+): OpenWAGroupCreds {
+  return timeoutMs === undefined ? creds : { ...creds, timeoutMs };
+}
+
+/** A digits or `<digits>@lid` wa_id as the identity shape routes store. */
+function openwaIdentity(waId: string): whapi.WhapiIdentity {
+  const id = openwa.toOpenWAParticipantId(waId);
+  return id ? openwa.fromOpenWAParticipantId(id) : { jid: waId, waId };
+}
+
 /**
  * Create a group with its first members. WhatsApp needs at least one
  * participant at creation; the rest go in through paced batches, so a
@@ -257,7 +334,7 @@ export async function createGroup(
       sleep?: (ms: number) => Promise<void>;
     }
 ): Promise<CreateGroupOutcome> {
-  const token = whapiToken(input.channel);
+  const gw = gatewayFor(input.channel);
   const name = input.name.trim();
   if (!name || name.length > GROUP_NAME_MAX) {
     throw new WhapiError(
@@ -271,15 +348,45 @@ export async function createGroup(
   if (!first) {
     throw new WhapiError('A group needs at least one valid participant.', 400);
   }
-  const created = await whapi.createGroup({
-    token,
-    subject: name,
-    participants: first,
-    timeoutMs: callTimeoutMs(input),
-  });
+  let group: whapi.WhapiGroup;
+  let added: whapi.WhapiIdentity[];
+  let refused: whapi.WhapiIdentity[];
+  if (gw.kind === 'whapi') {
+    const created = await whapi.createGroup({
+      token: gw.token,
+      subject: name,
+      participants: first,
+      timeoutMs: callTimeoutMs(input),
+    });
+    group = created.group;
+    added = created.processed;
+    refused = created.failed;
+  } else {
+    const creds = openwaCreds(gw.creds, callTimeoutMs(input));
+    let groupId: string;
+    try {
+      ({ groupId } = await openwa.createGroup(creds, {
+        name,
+        participants: first,
+      }));
+    } catch (err) {
+      if (err instanceof OpenWAError && err.status === 501) {
+        throw new GroupCreateUnsupportedError(err.message);
+      }
+      throw err;
+    }
+    // The create answer does not say who got in: read the group back.
+    group = await openwa.getGroup(creds, groupId);
+    const present = new Set(group.participants.map((p) => p.waId));
+    added = [];
+    refused = [];
+    for (const waId of first) {
+      (present.has(waId) ? added : refused).push(openwaIdentity(waId));
+    }
+  }
   const more = await addBatches({
-    token,
-    groupId: created.group.id,
+    gw,
+    groupId: group.id,
     batches: rest,
     pauseMs: input.pauseMs,
     sleep: input.sleep,
@@ -287,30 +394,31 @@ export async function createGroup(
     now: input.now,
   });
   return {
-    group: created.group,
-    added: [...created.processed, ...more.added],
-    refused: [...created.failed, ...more.refused],
+    group,
+    added: [...added, ...more.added],
+    refused: [...refused, ...more.refused],
     notAttempted: [...more.notAttempted, ...plan.overflow],
-    invalid,
+    invalid: [...invalid, ...more.invalid],
     error: more.error,
   };
 }
 
 async function addBatches(
   args: TimeBudget & {
-    token: string;
+    gw: GroupGateway;
     groupId: string;
     batches: string[][];
     pauseMs?: number;
     sleep?: (ms: number) => Promise<void>;
   }
-): Promise<Omit<AddOutcome, 'invalid'>> {
+): Promise<AddOutcome> {
   const pauseMs = args.pauseMs ?? GROUP_ADD_POLICY.pauseMs;
   const sleep = args.sleep ?? sleepFor;
-  const out: Omit<AddOutcome, 'invalid'> = {
+  const out: AddOutcome = {
     added: [],
     refused: [],
     notAttempted: [],
+    invalid: [],
     error: null,
   };
   for (let i = 0; i < args.batches.length; i++) {
@@ -324,14 +432,26 @@ async function addBatches(
     }
     if (wait > 0) await sleep(wait);
     try {
-      const res = await whapi.addGroupParticipants({
-        token: args.token,
-        groupId: args.groupId,
-        participants: args.batches[i],
-        timeoutMs: callTimeoutMs(args),
-      });
-      out.added.push(...res.processed);
-      out.refused.push(...res.failed);
+      if (args.gw.kind === 'whapi') {
+        const res = await whapi.addGroupParticipants({
+          token: args.gw.token,
+          groupId: args.groupId,
+          participants: args.batches[i],
+          timeoutMs: callTimeoutMs(args),
+        });
+        out.added.push(...res.processed);
+        out.refused.push(...res.failed);
+      } else {
+        const results = await openwa.addParticipants(
+          openwaCreds(args.gw.creds, callTimeoutMs(args)),
+          args.groupId,
+          args.batches[i]
+        );
+        const res = openwa.classifyAddResults(args.batches[i], results);
+        out.added.push(...res.added);
+        out.refused.push(...res.refused);
+        out.invalid.push(...res.invalid);
+      }
     } catch (err) {
       // Stop: a failure here (not admin, rate limit, number down) will
       // repeat on every later batch, and pressing on is what WhatsApp
@@ -358,11 +478,11 @@ export async function addParticipants(
     sleep?: (ms: number) => Promise<void>;
   }
 ): Promise<AddOutcome> {
-  const token = whapiToken(args.channel);
+  const gw = gatewayFor(args.channel);
   const { waIds, invalid } = normaliseParticipants(args.participants);
   const plan = planParticipantBatches(waIds);
   const res = await addBatches({
-    token,
+    gw,
     groupId: args.groupId,
     batches: plan.batches,
     pauseMs: args.pauseMs,
@@ -373,36 +493,69 @@ export async function addParticipants(
   return {
     ...res,
     notAttempted: [...res.notAttempted, ...plan.overflow],
-    invalid,
+    invalid: [...invalid, ...res.invalid],
   };
 }
 
 type GroupRef = { channel: WhatsAppChannel; groupId: string };
 
-export function listGroups(args: {
-  channel: WhatsAppChannel;
-  maxGroups?: number;
-}) {
-  return whapi.listAllGroups({
-    token: whapiToken(args.channel),
-    maxGroups: args.maxGroups,
-  });
+/**
+ * Every group the number is in. OpenWA lists ids and names only, so each
+ * group is read one by one while the time budget lasts; past it, the
+ * groups read so far are returned (the next Sync picks up the rest).
+ */
+export async function listGroups(
+  args: TimeBudget & { channel: WhatsAppChannel; maxGroups?: number }
+): Promise<whapi.WhapiGroup[]> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'whapi') {
+    return whapi.listAllGroups({ token: gw.token, maxGroups: args.maxGroups });
+  }
+  const budget: TimeBudget = {
+    deadline: args.deadline ?? groupDeadline(args.now?.()),
+    now: args.now,
+  };
+  const summaries = await openwa.listGroupSummaries(gw.creds);
+  const wanted =
+    args.maxGroups === undefined
+      ? summaries
+      : summaries.slice(0, args.maxGroups);
+  const groups: whapi.WhapiGroup[] = [];
+  for (const summary of wanted) {
+    if (!withinBudget(budget)) {
+      console.warn(
+        `[groups] OpenWA list stopped at the time budget: read ${groups.length} of ${wanted.length} groups`
+      );
+      break;
+    }
+    groups.push(
+      await openwa.getGroup(
+        openwaCreds(gw.creds, callTimeoutMs(budget)),
+        summary.id
+      )
+    );
+  }
+  return groups;
 }
 
 export function getGroup(
   args: GroupRef & { resync?: boolean; timeoutMs?: number }
 ) {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.getGroup(openwaCreds(gw.creds, args.timeoutMs), args.groupId);
+  }
   return whapi.getGroup({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     resync: args.resync,
     timeoutMs: args.timeoutMs,
   });
 }
 
-export function updateGroupInfo(
+export async function updateGroupInfo(
   args: GroupRef & { name?: string; description?: string }
-) {
+): Promise<void> {
   const name = args.name?.trim();
   if (name !== undefined && (!name || name.length > GROUP_NAME_MAX)) {
     throw new WhapiError(
@@ -410,8 +563,18 @@ export function updateGroupInfo(
       400
     );
   }
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    if (name !== undefined) {
+      await openwa.setSubject(gw.creds, args.groupId, name);
+    }
+    if (args.description !== undefined) {
+      await openwa.setDescription(gw.creds, args.groupId, args.description);
+    }
+    return;
+  }
   return whapi.updateGroupInfo({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     subject: name,
     description: args.description,
@@ -423,9 +586,19 @@ export function updateGroupSetting(
     setting: whapi.WhapiGroupSetting;
     policy: whapi.WhapiGroupPolicy;
   }
-) {
+): Promise<void> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    // approve_participants throws OpenWAGroupUnsupportedError (→ unsupported).
+    return openwa.updateSetting(
+      gw.creds,
+      args.groupId,
+      args.setting,
+      args.policy
+    );
+  }
   return whapi.updateGroupSetting({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     setting: args.setting,
     policy: args.policy,
@@ -433,8 +606,15 @@ export function updateGroupSetting(
 }
 
 export function leaveGroup(args: GroupRef & { timeoutMs?: number }) {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.leaveGroup(
+      openwaCreds(gw.creds, args.timeoutMs),
+      args.groupId
+    );
+  }
   return whapi.leaveGroup({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     timeoutMs: args.timeoutMs,
   });
@@ -442,8 +622,12 @@ export function leaveGroup(args: GroupRef & { timeoutMs?: number }) {
 
 /** The current invite link (admin only). */
 export async function getInviteLink(args: GroupRef) {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.getInviteCode(gw.creds, args.groupId);
+  }
   const code = await whapi.getGroupInviteCode({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
   });
   return { code, link: whapi.groupInviteLink(code) };
@@ -451,12 +635,20 @@ export async function getInviteLink(args: GroupRef) {
 
 /** Revoke the link and return the new one. */
 export async function resetInviteLink(args: GroupRef) {
-  const token = whapiToken(args.channel);
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.revokeInviteCode(gw.creds, args.groupId);
+  }
+  const token = gw.token;
   await whapi.revokeGroupInvite({ token, groupId: args.groupId });
   const code = await whapi.getGroupInviteCode({ token, groupId: args.groupId });
   return { code, link: whapi.groupInviteLink(code) };
 }
 
+/**
+ * The invite link 1:1. OpenWA has no invite message type, so it goes as
+ * plain text: the body (if any), then the link.
+ */
 export function sendInviteLink(
   args: TimeBudget & {
     channel: WhatsAppChannel;
@@ -464,9 +656,19 @@ export function sendInviteLink(
     to: string;
     body?: string;
   }
-) {
+): Promise<{ messageId: string }> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    const link = whapi.groupInviteLink(args.inviteCode);
+    const body = args.body?.trim();
+    return openwaApi.sendTextMessage({
+      ...openwaCreds(gw.creds, callTimeoutMs(args)),
+      to: args.to,
+      text: body ? `${body}\n\n${link}` : link,
+    });
+  }
   return whapi.sendGroupInvite({
-    token: whapiToken(args.channel),
+    token: gw.token,
     inviteCode: args.inviteCode,
     to: args.to,
     body: args.body,
@@ -478,8 +680,12 @@ export function previewInvite(args: {
   channel: WhatsAppChannel;
   inviteCode: string;
 }) {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.getJoinInfo(gw.creds, args.inviteCode);
+  }
   return whapi.getGroupByInviteCode({
-    token: whapiToken(args.channel),
+    token: gw.token,
     inviteCode: args.inviteCode,
   });
 }
@@ -487,9 +693,13 @@ export function previewInvite(args: {
 export function joinByInvite(args: {
   channel: WhatsAppChannel;
   inviteCode: string;
-}) {
+}): Promise<string> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.joinGroup(gw.creds, args.inviteCode);
+  }
   return whapi.acceptGroupInvite({
-    token: whapiToken(args.channel),
+    token: gw.token,
     inviteCode: args.inviteCode,
   });
 }
@@ -502,80 +712,186 @@ function participantList(inputs: string[]): string[] {
   return waIds;
 }
 
-export function removeParticipants(
+/** OpenWA participants: stored wa_ids, digits or `<digits>@lid`. */
+function openwaParticipantList(inputs: string[]): string[] {
+  const waIds = inputs
+    .map((x) => x.trim())
+    .filter((x) => openwa.toOpenWAParticipantId(x) !== null);
+  if (waIds.length === 0) {
+    throw new WhapiError('No valid WhatsApp numbers given.', 400);
+  }
+  return waIds;
+}
+
+export async function removeParticipants(
   args: GroupRef & { participants: string[] }
-) {
+): Promise<whapi.ParticipantsResult> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    const results = await openwa.removeParticipants(
+      gw.creds,
+      args.groupId,
+      openwaParticipantList(args.participants)
+    );
+    const out: whapi.ParticipantsResult = { processed: [], failed: [] };
+    for (const r of results) {
+      (r.success ? out.processed : out.failed).push(
+        openwa.fromOpenWAParticipantId(r.id)
+      );
+    }
+    return out;
+  }
   return whapi.removeGroupParticipants({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     participants: participantList(args.participants),
   });
 }
 
-export function promoteAdmins(args: GroupRef & { participants: string[] }) {
+export async function promoteAdmins(
+  args: GroupRef & { participants: string[] }
+): Promise<void> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    await openwa.promoteParticipants(
+      gw.creds,
+      args.groupId,
+      openwaParticipantList(args.participants)
+    );
+    return;
+  }
   return whapi.promoteGroupAdmins({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     participants: participantList(args.participants),
   });
 }
 
-export function demoteAdmins(args: GroupRef & { participants: string[] }) {
+export async function demoteAdmins(
+  args: GroupRef & { participants: string[] }
+): Promise<void> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    await openwa.demoteParticipants(
+      gw.creds,
+      args.groupId,
+      openwaParticipantList(args.participants)
+    );
+    return;
+  }
   return whapi.demoteGroupAdmins({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     participants: participantList(args.participants),
   });
 }
 
-export function getIcon(args: GroupRef) {
-  return whapi.getGroupIcon({
-    token: whapiToken(args.channel),
-    groupId: args.groupId,
-  });
+/** Only WhatsApp's own CDN is fetched for an OpenWA picture URL. */
+function isWhatsAppPictureUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname.endsWith('.whatsapp.net');
+  } catch {
+    return false;
+  }
 }
 
-export function setIcon(args: GroupRef & { media: string; mimeType?: string }) {
+export async function getIcon(
+  args: GroupRef & { fetchImpl?: typeof fetch }
+): Promise<whapi.WhapiGroupIcon | null> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'whapi') {
+    return whapi.getGroupIcon({ token: gw.token, groupId: args.groupId });
+  }
+  const url = await openwa.getPictureUrl(gw.creds, args.groupId);
+  if (!url || !isWhatsAppPictureUrl(url)) return null;
+  const res = await (args.fetchImpl ?? fetch)(url, {
+    redirect: 'error',
+    signal: AbortSignal.timeout(GROUP_CALL_TIMEOUT_MS),
+  });
+  if (!res.ok) return null;
+  return {
+    bytes: await res.arrayBuffer(),
+    contentType: res.headers.get('content-type') ?? 'image/jpeg',
+  };
+}
+
+export function setIcon(
+  args: GroupRef & { media: string; mimeType?: string }
+): Promise<void> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.setPicture(gw.creds, args.groupId, {
+      base64: args.media,
+      mimetype: args.mimeType ?? 'image/jpeg',
+    });
+  }
   return whapi.setGroupIcon({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     media: args.media,
     mimeType: args.mimeType,
   });
 }
 
-export function deleteIcon(args: GroupRef) {
-  return whapi.deleteGroupIcon({
-    token: whapiToken(args.channel),
-    groupId: args.groupId,
-  });
+export function deleteIcon(args: GroupRef): Promise<void> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    return openwa.deletePicture(gw.creds, args.groupId);
+  }
+  return whapi.deleteGroupIcon({ token: gw.token, groupId: args.groupId });
 }
 
-export function listJoinRequests(args: GroupRef) {
+export async function listJoinRequests(
+  args: GroupRef
+): Promise<{ requests: whapi.WhapiJoinRequest[]; total: number | null }> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    const requests = await openwa.listJoinRequests(gw.creds, args.groupId);
+    return { requests, total: requests.length };
+  }
   return whapi.listGroupJoinRequests({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
   });
 }
 
-export function approveJoinRequest(args: GroupRef & { applicant: string }) {
+export async function approveJoinRequest(
+  args: GroupRef & { applicant: string }
+): Promise<{ ok: boolean; error: string | null }> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    await openwa.approveJoinRequest(gw.creds, args.groupId, args.applicant);
+    return { ok: true, error: null };
+  }
   return whapi.approveGroupJoinRequest({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     applicant: args.applicant,
   });
 }
 
-export function rejectJoinRequest(args: GroupRef & { applicant: string }) {
+export async function rejectJoinRequest(
+  args: GroupRef & { applicant: string }
+): Promise<{ ok: boolean; error: string | null }> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind === 'openwa') {
+    await openwa.rejectJoinRequest(gw.creds, args.groupId, args.applicant);
+    return { ok: true, error: null };
+  }
   return whapi.rejectGroupJoinRequest({
-    token: whapiToken(args.channel),
+    token: gw.token,
     groupId: args.groupId,
     applicant: args.applicant,
   });
 }
 
-function groupRecipient(groupId: string): string {
-  if (!whapi.isWhapiGroupId(groupId)) {
+function groupRecipient(gw: GroupGateway, groupId: string): string {
+  const ok =
+    gw.kind === 'openwa'
+      ? /^[^@\s]+@g\.us$/.test(groupId)
+      : whapi.isWhapiGroupId(groupId);
+  if (!ok) {
     throw new WhapiError(`Not a WhatsApp group id: ${groupId}`, 400);
   }
   return groupId;
@@ -584,10 +900,20 @@ function groupRecipient(groupId: string): string {
 /** Text into a group (`to` = the `…@g.us` id, passed through untouched). */
 export function sendGroupText(
   args: GroupRef & { text: string; quotedMessageId?: string | null }
-) {
+): Promise<{ messageId: string }> {
+  const gw = gatewayFor(args.channel);
+  const to = groupRecipient(gw, args.groupId);
+  if (gw.kind === 'openwa') {
+    return openwaApi.sendTextMessage({
+      ...gw.creds,
+      to,
+      text: args.text,
+      quotedMessageId: args.quotedMessageId,
+    });
+  }
   return whapi.sendTextMessage({
-    token: whapiToken(args.channel),
-    to: groupRecipient(args.groupId),
+    token: gw.token,
+    to,
     text: args.text,
     quotedMessageId: args.quotedMessageId,
   });
@@ -601,10 +927,23 @@ export function sendGroupMedia(
     filename?: string;
     mimeType?: string;
   }
-) {
+): Promise<{ messageId: string }> {
+  const gw = gatewayFor(args.channel);
+  const to = groupRecipient(gw, args.groupId);
+  if (gw.kind === 'openwa') {
+    return openwaApi.sendMediaMessage({
+      ...gw.creds,
+      to,
+      kind: args.kind,
+      link: args.link,
+      caption: args.caption,
+      filename: args.filename,
+      mimeType: args.mimeType,
+    });
+  }
   return whapi.sendMediaMessage({
-    token: whapiToken(args.channel),
-    to: groupRecipient(args.groupId),
+    token: gw.token,
+    to,
     kind: args.kind,
     link: args.link,
     caption: args.caption,
