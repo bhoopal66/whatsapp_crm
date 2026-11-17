@@ -4597,15 +4597,78 @@
         "label": "알림",
         "help": "누군가 하루 한도에 도달하거나 번호가 한도에 도달하면 소유자, 관리자, 팀 리더, 본인에게 알립니다. 각각 하루 한 번입니다."
       },
-      "block": {
-        "label": "한도에서 새 대화 막기",
-        "help": "본인이나 전화번호가 오늘 한도에 도달하면 새 사람에게 보내는 메시지를 보내지 않습니다. 답장은 항상 보내지며, 소유자와 관리자는 막히지 않습니다."
-      },
       "reset": "권장값 사용",
       "cancel": "취소",
       "save": "저장",
       "saved": "한도를 저장했습니다",
-      "saveFailed": "한도를 저장하지 못했습니다."
+      "saveFailed": "한도를 저장하지 못했습니다.",
+      "restrictions": {
+        "master": {
+          "label": "강력 제한",
+          "help": "WhatsApp 차단 위험이 있는 발송을 거부합니다. 소유자는 막히지 않으며 개인 번호는 모니터링만 합니다."
+        },
+        "enforceChase": {
+          "label": "후속 메시지",
+          "help": "답이 없는 메시지가 {n}건 쌓이면 후속 발송을 중단합니다."
+        },
+        "enforceQuietHours": {
+          "label": "야간 시간",
+          "help": "야간 시간의 새 대화를 거부합니다."
+        },
+        "enforceDailyUser": {
+          "label": "1인당 하루 한도",
+          "help": "하루 한도에 도달한 사람의 새 대화를 거부합니다."
+        },
+        "enforceReplyRate": {
+          "label": "낮은 답장률",
+          "help": "답장하는 고객이 적으면 1인당 하루 한도를 {pct}%로 낮춥니다."
+        },
+        "enforceDailyNumber": {
+          "label": "번호당 하루 한도",
+          "help": "번호가 하루 한도에 도달하면 새 대화를 거부하며, 새 번호는 더 낮게 적용됩니다."
+        },
+        "enforceBurst": {
+          "label": "한꺼번에 많은 대화",
+          "help": "10분 안에 새 대화가 너무 많으면 거부합니다."
+        },
+        "enforceLinksFirst": {
+          "label": "첫 메시지의 링크",
+          "help": "링크가 들어 있는 첫 메시지를 거부합니다."
+        },
+        "enforceSameOpener": {
+          "label": "같은 첫 메시지",
+          "help": "같은 첫 메시지를 하루 {max}번보다 많이 보내면 거부합니다."
+        },
+        "enforceJev": {
+          "label": "Jev 영업 문구 검사",
+          "help": "Jev가 콜드 영업 문구처럼 읽히는 첫 메시지를 막습니다."
+        },
+        "enforceAutoSenders": {
+          "label": "자동 발송",
+          "help": "일괄 발송, API, 플로우, 자동화도 번호의 한도에 포함되며 한도에서 멈춥니다."
+        },
+        "sameOpenerMax": {
+          "label": "하루 같은 첫 메시지 횟수",
+          "help": "같은 첫 메시지를 하루에 보낼 수 있는 횟수입니다 (1-50)."
+        },
+        "replyRateThrottlePct": {
+          "label": "낮춘 한도 (%)",
+          "help": "답장하는 고객이 적을 때 적용되는 하루 한도의 비율입니다 (10-100)."
+        },
+        "jevBlockMinP": {
+          "label": "차단에 필요한 Jev 확신도",
+          "help": "0.50에서 0.99 사이입니다. 높을수록 덜 막습니다."
+        },
+        "allowUnlockRequests": {
+          "label": "팀 리더나 관리자에게 1회 잠금 해제(2시간)를 요청할 수 있습니다"
+        },
+        "agentViewEnabled": {
+          "label": "상담원은 내 활동에서 자신의 활동을 봅니다"
+        },
+        "leaderViewEnabled": {
+          "label": "팀 리더는 팀의 활동을 봅니다"
+        }
+      }
     },
     "findings": {
       "reply_rate_low": {
