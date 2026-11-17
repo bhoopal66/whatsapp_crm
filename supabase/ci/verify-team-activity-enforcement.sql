@@ -34,6 +34,7 @@ DECLARE
   tm    UUID;
   cv    UUID;
   cv2   UUID;
+  saved JSONB;
   h     INT := extract(hour FROM now() AT TIME ZONE 'UTC')::int;
   j     JSONB;
   r     TEXT;
@@ -274,6 +275,29 @@ BEGIN
   n := n + 1; failed := array_append(failed, pg_temp.ev_allow('master off', u_a, cv, w, 'see https://x.example'));
   PERFORM pg_temp.ev_only(acct, '{}');
   n := n + 1; failed := array_append(failed, pg_temp.ev_allow('quiet off', u_a, cv, w, 'Hello'));
+  -- Quiet hours need saved settings: an unsaved account's zone is UTC,
+  -- not where its people work. my_day reports the rule off without the
+  -- row; the check never answers quiet_hours without it (meaningful
+  -- while the UTC hour is inside the 22-8 defaults).
+  PERFORM pg_temp.ev_only(acct, '{quiet_hours}');
+  r := pg_temp.lt_val('authenticated', u_a, $q$SELECT team_activity_my_day('UTC')::text$q$);
+  n := n + 1;
+  IF r NOT LIKE '{%' OR r::jsonb #>> '{restrictions,rules,quiet_hours}' IS DISTINCT FROM 'true' THEN
+    failed := array_append(failed, ('my_day quiet_hours with a saved row: ' || left(coalesce(r, 'null'), 300))::text);
+  END IF;
+  SELECT to_jsonb(s) INTO saved FROM team_activity_settings s WHERE s.account_id = acct;
+  DELETE FROM team_activity_settings WHERE account_id = acct;
+  r := pg_temp.lt_val('authenticated', u_a, $q$SELECT team_activity_my_day('UTC')::text$q$);
+  n := n + 1;
+  IF r NOT LIKE '{%' OR r::jsonb #>> '{restrictions,rules,quiet_hours}' IS DISTINCT FROM 'false' THEN
+    failed := array_append(failed, ('my_day quiet_hours without a row: ' || left(coalesce(r, 'null'), 300))::text);
+  END IF;
+  j := pg_temp.ev_chk(u_a, pg_temp.lt_conv(acct, u_o, w, 'EV quiet unsaved'), w, 'Hello unsaved');
+  n := n + 1;
+  IF j ? 'error' OR j ->> 'rule' = 'quiet_hours' THEN
+    failed := array_append(failed, ('quiet hours without saved settings: ' || j::text)::text);
+  END IF;
+  INSERT INTO team_activity_settings SELECT * FROM jsonb_populate_record(NULL::team_activity_settings, saved);
   UPDATE team_activity_settings SET quiet_hours_start = 0, quiet_hours_end = 0 WHERE account_id = acct;
 
   -- ---------------------------------------------------------------
@@ -431,8 +455,25 @@ BEGIN
   n := n + 1; failed := array_append(failed, pg_temp.ev_allow('same_opener off', u_e, cv, w,
     'Dear customer, a great card offer for you'));
 
+  -- chase forgets steps older than 7 days: four old steps and two
+  -- recent ones are 2 + this send = 3, at the limit, not over it.
+  cv := pg_temp.lt_conv(acct, u_o, w, 'EV chase old');
+  PERFORM pg_temp.lt_msg(cv, 'customer', NULL, 'Hi', now() - interval '20 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Old one', now() - interval '15 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Old two', now() - interval '12 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Old three', now() - interval '10 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Old four', now() - interval '8 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Recent one', now() - interval '3 days', w);
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Recent two', now() - interval '30 hours', w);
+  PERFORM pg_temp.ev_only(acct, '{chase}');
+  n := n + 1; failed := array_append(failed, pg_temp.ev_allow('chase older than 7 days', u_a, cv, w, 'Any news?'));
+  PERFORM pg_temp.lt_msg(cv, 'agent', u_a, 'Recent three', now() - interval '2 hours', w);
+  n := n + 1; failed := array_append(failed, pg_temp.ev_block('chase within 7 days', u_a, cv, w, 'Any news?', 'chase'));
+  PERFORM pg_temp.ev_only(acct, '{}');
+
   -- ---------------------------------------------------------------
-  -- The Jev block recorder: jev_cold_pitch only.
+  -- The Jev block recorder: jev_cold_pitch only, {p} only, and only
+  -- on a chat the caller can see.
   -- ---------------------------------------------------------------
   r := pg_temp.lt_val('authenticated', u_a, format(
          $q$SELECT team_activity_record_block(%L, %L, 'chase', '{}'::jsonb)::text$q$, cv, w));
@@ -440,12 +481,33 @@ BEGIN
   IF r NOT LIKE 'ERROR 22023%' THEN
     failed := array_append(failed, ('record_block took chase: ' || r)::text);
   END IF;
+  -- cv is the owner's chat: a cannot see it.
   r := pg_temp.lt_val('authenticated', u_a, format(
          $q$SELECT team_activity_record_block(%L, %L, 'jev_cold_pitch', '{"p": 0.9}'::jsonb)::text$q$, cv, w));
   n := n + 1;
+  IF r NOT LIKE 'ERROR 42501%' THEN
+    failed := array_append(failed, ('record_block on an invisible chat: ' || coalesce(r, 'null'))::text);
+  END IF;
+  UPDATE conversations SET assigned_agent_id = u_a WHERE id = cv;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         $q$SELECT team_activity_record_block(%L, %L, 'jev_cold_pitch', '{}'::jsonb)::text$q$, cv, w));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023%' THEN
+    failed := array_append(failed, ('record_block without p: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         $q$SELECT team_activity_record_block(%L, %L, 'jev_cold_pitch', '{"p": "0.9"}'::jsonb)::text$q$, cv, w));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023%' THEN
+    failed := array_append(failed, ('record_block with a text p: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         $q$SELECT team_activity_record_block(%L, %L, 'jev_cold_pitch', '{"p": 0.9, "text": "Dear customer"}'::jsonb)::text$q$, cv, w));
+  n := n + 1;
   IF r LIKE 'ERROR%' OR NOT EXISTS (
        SELECT 1 FROM team_activity_blocks b WHERE b.id::text = r AND b.rule = 'jev_cold_pitch'
-         AND b.user_id = u_a AND b.account_id = acct) THEN
+         AND b.user_id = u_a AND b.account_id = acct
+         AND b.detail = '{"p": 0.9}'::jsonb) THEN
     failed := array_append(failed, ('record_block jev_cold_pitch: ' || coalesce(r, 'null'))::text);
   END IF;
 

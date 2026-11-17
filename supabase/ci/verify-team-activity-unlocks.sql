@@ -35,6 +35,7 @@ DECLARE
   cv0   UUID;
   cv1   UUID;
   cv2   UUID;
+  cv3   UUID;
   blk   UUID;
   ul1   UUID;
   ul2   UUID;
@@ -198,6 +199,9 @@ BEGIN
   cv0 := pg_temp.lt_conv(acct, u_o, w, 'UL old');
   cv1 := pg_temp.lt_conv(acct, u_o, w, 'UL main');
   cv2 := pg_temp.lt_conv(acct, u_o, w, 'UL expiry');
+  -- a works these three; cv3 stays the owner's, out of a's sight.
+  UPDATE conversations SET assigned_agent_id = u_a WHERE id IN (cv0, cv1, cv2);
+  cv3 := pg_temp.lt_conv(acct, u_o, w, 'UL hidden');
 
   -- ---------------------------------------------------------------
   -- Asking: every refusal, and none writes a row.
@@ -245,6 +249,13 @@ BEGIN
   n := n + 1;
   IF ul1 IS NULL OR r IS DISTINCT FROM 'ERR 22023 block_too_old' THEN
     failed := array_append(failed, ('old block: ' || coalesce(r, 'null'))::text);
+  END IF;
+  -- A block in a chat the requester cannot see.
+  ul1 := pg_temp.ul_block(u_a, cv3, w);
+  r := pg_temp.ul_req(u_a, ul1, v_reason);
+  n := n + 1;
+  IF ul1 IS NULL OR r IS DISTINCT FROM 'ERR 42501 not_allowed' THEN
+    failed := array_append(failed, ('request on an invisible chat: ' || coalesce(r, 'null'))::text);
   END IF;
   n := n + 1;
   IF EXISTS (SELECT 1 FROM team_activity_unlocks WHERE account_id = acct) THEN
@@ -371,6 +382,21 @@ BEGIN
   END IF;
 
   -- ---------------------------------------------------------------
+  -- A send no rule blocks leaves the approval alone and reports it.
+  -- ---------------------------------------------------------------
+  j := pg_temp.ev_chk(u_a, cv1, w, 'Hello, no link here');
+  n := n + 1;
+  IF j ->> 'blocked' IS DISTINCT FROM 'false' OR j ->> 'unlock_used' IS DISTINCT FROM 'false'
+     OR j ->> 'unlock_available' IS DISTINCT FROM 'true' THEN
+    failed := array_append(failed, ('an unblocked send and the approval: ' || j::text)::text);
+  END IF;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM team_activity_unlocks WHERE id = ul1 AND status = 'approved'
+                 AND used_at IS NULL) THEN
+    failed := array_append(failed, 'an unblocked send spent the approval'::text);
+  END IF;
+
+  -- ---------------------------------------------------------------
   -- 204 spends the approval once, then blocks again.
   -- ---------------------------------------------------------------
   j := pg_temp.ev_chk(u_a, cv1, w, 'Brochure: https://x.example');
@@ -387,6 +413,35 @@ BEGIN
   n := n + 1;
   IF j ->> 'blocked' IS DISTINCT FROM 'true' OR j ->> 'rule' IS DISTINCT FROM 'link_first' THEN
     failed := array_append(failed, ('an unlock was spent twice: ' || j::text)::text);
+  END IF;
+
+  -- The app's round trip: give back (gateway refused), spend (Jev
+  -- would block), nothing left; nobody else gives it back.
+  r := pg_temp.lt_val('authenticated', u_b, format(
+         'SELECT team_activity_release_unlock(%L::uuid)::text', cv1));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'false' THEN
+    failed := array_append(failed, ('release by another person: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         'SELECT team_activity_release_unlock(%L::uuid)::text', cv1));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true' OR NOT EXISTS (
+       SELECT 1 FROM team_activity_unlocks WHERE id = ul1 AND status = 'approved' AND used_at IS NULL) THEN
+    failed := array_append(failed, ('release_unlock: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         'SELECT team_activity_use_unlock(%L::uuid)::text', cv1));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true' OR NOT EXISTS (
+       SELECT 1 FROM team_activity_unlocks WHERE id = ul1 AND status = 'used' AND used_at IS NOT NULL) THEN
+    failed := array_append(failed, ('use_unlock: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.lt_val('authenticated', u_a, format(
+         'SELECT team_activity_use_unlock(%L::uuid)::text', cv1));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'false' THEN
+    failed := array_append(failed, ('use_unlock twice: ' || coalesce(r, 'null'))::text);
   END IF;
 
   -- A denial (by an admin) leaves nothing to spend.
