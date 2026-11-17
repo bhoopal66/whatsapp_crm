@@ -1,7 +1,8 @@
 // ============================================================
 // /api/whatsapp/groups/[id]/participants — who is in a group (114).
 // Managers only, and our number must be a group admin. POST adds people
-// (skipping anyone who opted out or is do-not-contact), DELETE removes
+// (skipping anyone who opted out or is do-not-contact, unless an
+// owner/admin sends `overrideConsent: true`), DELETE removes
 // them, PATCH promotes or demotes. Our own number can be neither
 // removed nor demoted: that would strand the group. After a change the
 // snapshot is re-read, best effort.
@@ -12,13 +13,14 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount } from '@/lib/auth/account';
 import {
   namesOurNumber,
+  requireConsentOverride,
   parseAddMembers,
   parseMemberList,
   parseRoleChange,
   requireActive,
   requireGroupAdmin,
 } from '@/lib/groups/member-requests';
-import { screenRecipients } from '@/lib/groups/recipients';
+import { logConsentOverride, screenRecipients } from '@/lib/groups/recipients';
 import { resyncGroup } from '@/lib/groups/resync';
 import {
   channelForGroup,
@@ -54,11 +56,15 @@ export async function POST(request: Request, { params }: Params) {
     const { id } = await params;
     const input = parseAddMembers(await request.json().catch(() => null));
     const group = await loadGroupForCaller(ctx, id, { manage: true });
+    if (input.overrideConsent) requireConsentOverride(ctx.role);
     requireActive(group);
     requireGroupAdmin(group);
     const channel = await channelForGroup(group);
 
-    const screened = await screenRecipients(ctx, supabaseAdmin(), input);
+    const screened = await screenRecipients(ctx, supabaseAdmin(), input, {
+      overrideConsent: input.overrideConsent,
+    });
+    logConsentOverride(group.id, ctx.userId, screened.overridden);
     const outcome =
       screened.recipients.length > 0
         ? await addParticipants({

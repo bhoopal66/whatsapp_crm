@@ -7646,6 +7646,10 @@
     }
   },
   "Groups": {
+    "consentOverride": {
+      "warning": "These people opted out or asked not to be contacted. As an admin you can add them anyway.",
+      "addAnyway": "Add anyway"
+    },
     "title": "WhatsApp groups",
     "subtitle": "Groups on your WhatsApp numbers: create them, add people and keep them tidy.",
     "search": "Search groups",
@@ -7751,6 +7755,7 @@
       "resultNotAttempted": "not attempted",
       "resultSkipped": "Left out ({count})",
       "resultSkippedNote": "They opted out or are marked do-not-contact, so they weren't added or invited.",
+      "overrideResult": "{added, plural, one {# person added} other {# people added}}, {refused} still left out or needing an invite.",
       "skippedOptedOut": "opted out",
       "skippedDoNotContact": "do not contact",
       "resultNone": "Nobody was added yet — send the invite link from the group's Invite tab.",

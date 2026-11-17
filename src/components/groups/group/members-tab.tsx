@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Loader2, MoreVertical, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { ConsentOverride } from '@/components/groups/consent-override';
 import { MemberPicker } from '@/components/groups/member-picker';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -385,6 +386,19 @@ function AddMembersDialog({
                 <p className="text-muted-foreground text-xs">
                   {m('resultSkippedNote')}
                 </p>
+                <ConsentOverride
+                  groupId={groupId}
+                  skippedWaIds={summary.skipped}
+                  onResult={(next) => {
+                    setSummary(next);
+                    if (next.added.length > 0) {
+                      toast.success(
+                        m('toastAdded', { count: next.added.length })
+                      );
+                      onAdded();
+                    }
+                  }}
+                />
               </section>
             )}
             {summary.invalid.length > 0 && (

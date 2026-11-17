@@ -3,6 +3,8 @@
 // screened against the consent register (do-not-contact, opted out).
 // A phone that belongs to a refusing contact of the account is skipped
 // too, whoever can see that contact: opt-out is honoured everywhere.
+// `overrideConsent` (owner/admin "Add anyway", checked by the route)
+// still runs the lookup but lets the refused through as recipients.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -32,6 +34,13 @@ export interface ScreenedRecipients {
   invalid: string[];
   /** Contact ids the caller cannot see. */
   notFound: string[];
+  /** Refused people let through as recipients by `overrideConsent`. */
+  overridden: number;
+}
+
+export interface ScreenOptions {
+  /** Owner/admin only (the route checks): refused people are recipients. */
+  overrideConsent?: boolean;
 }
 
 type ConsentRow = {
@@ -45,14 +54,17 @@ type ConsentRow = {
 export async function screenRecipients(
   caller: { supabase: SupabaseClient; accountId: string },
   admin: SupabaseClient,
-  input: RecipientInput
+  input: RecipientInput,
+  opts: ScreenOptions = {}
 ): Promise<ScreenedRecipients> {
   const out: ScreenedRecipients = {
     recipients: [],
     skipped: [],
     invalid: [],
     notFound: [],
+    overridden: 0,
   };
+  const override = opts.overrideConsent === true;
   const seen = new Set<string>();
 
   if (input.contactIds.length > 0) {
@@ -80,8 +92,12 @@ export async function screenRecipients(
       if (seen.has(waId)) continue;
       seen.add(waId);
       const reason = consentRefusal(c);
-      if (reason) out.skipped.push({ waId, contactId: id, reason });
-      else out.recipients.push({ waId, contactId: id });
+      if (reason && !override) {
+        out.skipped.push({ waId, contactId: id, reason });
+      } else {
+        if (reason) out.overridden++;
+        out.recipients.push({ waId, contactId: id });
+      }
     }
   }
 
@@ -115,11 +131,26 @@ export async function screenRecipients(
   }
   for (const [waId, vs] of variants) {
     const hit = vs.find((v) => refusalOf.has(v));
-    if (hit) {
+    if (hit && !override) {
       out.skipped.push({ waId, contactId: null, reason: refusalOf.get(hit)! });
     } else {
+      if (hit) out.overridden++;
       out.recipients.push({ waId, contactId: null });
     }
   }
   return out;
+}
+
+/**
+ * One server line per request whose override let a refused person
+ * through: counts only, never a phone number.
+ */
+export function logConsentOverride(
+  groupId: string,
+  userId: string,
+  count: number
+) {
+  if (count > 0) {
+    console.warn('[groups] consent override', { groupId, userId, count });
+  }
 }

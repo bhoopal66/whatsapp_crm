@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Groups: owners and admins can add people who opted out
+
+- Under the left-out list (after creating a group, and in Add members) an
+  owner or admin gets **Add anyway**, which adds people who opted out or
+  are do-not-contact. Everyone else is still refused.
+
 ### Inbox: reminder to use the marketing number for new chats
 
 **Migration required:** apply `207_new_chat_notice.sql` before deploying

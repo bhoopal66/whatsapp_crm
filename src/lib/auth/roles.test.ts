@@ -24,6 +24,7 @@ import {
   canCreateGroups,
   canSyncGroups,
   canDeleteGroups,
+  canOverrideGroupConsent,
   canViewAllCalls,
   canViewAllGroups,
   canViewUnroutedCalls,
@@ -361,6 +362,12 @@ describe('group capabilities (114)', () => {
   });
   it('deleting a left group from the CRM is owner and admin only', () => {
     expect(ACCOUNT_ROLES.filter((r) => canDeleteGroups(r))).toEqual([
+      'admin',
+      'owner',
+    ]);
+  });
+  it('overriding group consent is owner and admin only', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canOverrideGroupConsent(r))).toEqual([
       'admin',
       'owner',
     ]);

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   demoteAdmins: vi.fn(),
   getGroup: vi.fn(),
   persistGroupSnapshot: vi.fn(),
+  screenRecipients: vi.fn(),
   rls: null as unknown as FakeDb,
   admin: null as unknown as FakeDb,
 }));
@@ -40,6 +41,12 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   supabaseAdmin: () => fakeSupabase(mocks.admin),
   persistGroupSnapshot: mocks.persistGroupSnapshot,
 }));
+
+vi.mock('@/lib/groups/recipients', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/groups/recipients')>();
+  mocks.screenRecipients.mockImplementation(real.screenRecipients);
+  return { ...real, screenRecipients: mocks.screenRecipients };
+});
 
 import { DELETE, PATCH, POST } from './route';
 
@@ -127,6 +134,60 @@ beforeEach(() => {
   mocks.demoteAdmins.mockResolvedValue(undefined);
   mocks.getGroup.mockResolvedValue({ id: '120363000000000001@g.us' });
   mocks.persistGroupSnapshot.mockResolvedValue({});
+});
+
+describe('consent override', () => {
+  const asRole = (role: string) =>
+    mocks.getCurrentAccount.mockImplementation(async () => ({
+      supabase: fakeSupabase(mocks.rls),
+      userId: 'user-1',
+      accountId: 'acct-1',
+      role,
+    }));
+
+  it('refuses an agent 403 not_allowed before Whapi', async () => {
+    const res = await call(POST, { contactIds: [C2], overrideConsent: true });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'not_allowed' });
+    expect(mocks.screenRecipients).not.toHaveBeenCalled();
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin add an opted-out contact, logging counts only', async () => {
+    asRole('admin');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await call(POST, { contactIds: [C2], overrideConsent: true });
+    expect(res.status).toBe(200);
+    expect(mocks.screenRecipients).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ contactIds: [C2] }),
+      { overrideConsent: true }
+    );
+    expect(mocks.addParticipants).toHaveBeenCalledWith(
+      expect.objectContaining({ participants: ['971502222222'] })
+    );
+    expect((await res.json()).skipped).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('[groups] consent override', {
+      groupId: G,
+      userId: 'user-1',
+      count: 1,
+    });
+  });
+
+  it('still skips for an admin who did not ask', async () => {
+    asRole('admin');
+    const res = await call(POST, { contactIds: [C2] });
+    expect((await res.json()).skipped).toHaveLength(1);
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 to a non-boolean overrideConsent', async () => {
+    asRole('admin');
+    const res = await call(POST, { contactIds: [C2], overrideConsent: 'yes' });
+    expect(res.status).toBe(400);
+    expect(mocks.screenRecipients).not.toHaveBeenCalled();
+  });
 });
 
 describe('access', () => {

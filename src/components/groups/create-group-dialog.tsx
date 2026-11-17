@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ManagersPicker } from '@/components/groups/managers-picker';
+import { ConsentOverride } from '@/components/groups/consent-override';
 import { MemberPicker } from '@/components/groups/member-picker';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { useAuth } from '@/hooks/use-auth';
@@ -31,6 +32,7 @@ import {
 } from '@/hooks/use-whatsapp-numbers';
 import { canEditSettings } from '@/lib/auth/roles';
 import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
+import type { AddMembersSummary } from '@/lib/groups/group-page';
 import { GROUP_SETTINGS } from '@/lib/groups/types';
 import {
   buildCreateBody,
@@ -279,6 +281,7 @@ export function CreateGroupDialog({
                 : null
             }
             onDone={() => onOpenChange(false)}
+            groupId={phase.groupId}
           />
         ) : (
           <form
@@ -451,12 +454,15 @@ function ResultView({
   summary,
   onOpen,
   onDone,
+  groupId,
 }: {
+  groupId: string | null;
   summary: ResultSummary;
   onOpen: (() => void) | null;
   onDone: () => void;
 }) {
   const t = useTranslations('Groups.create');
+  const [override, setOverride] = useState<AddMembersSummary | null>(null);
   const label = (p: ResultPerson) =>
     p.name ? `${p.name} (${formatWaId(p.waId)})` : formatWaId(p.waId);
   const warnings = summary.warnings;
@@ -518,6 +524,25 @@ function ResultView({
               ))}
             </ul>
             <p className="text-xs">{t('resultSkippedNote')}</p>
+            {groupId && (
+              <ConsentOverride
+                groupId={groupId}
+                skippedWaIds={
+                  override
+                    ? override.skipped
+                    : summary.skipped.map((p) => p.waId)
+                }
+                onResult={setOverride}
+              />
+            )}
+            {override && (
+              <p className="text-foreground text-xs">
+                {t('overrideResult', {
+                  added: override.added.length,
+                  refused: override.skipped.length + override.needInvite.length,
+                })}
+              </p>
+            )}
           </section>
         )}
         {summary.invalid.length > 0 && (
