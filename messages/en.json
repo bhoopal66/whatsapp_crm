@@ -4732,7 +4732,11 @@
       "numberLimit": "This phone number has reached {started} new chats today (limit {limit}). Use it only for replies until tomorrow.",
       "numberLimitBlocked": "This phone number has reached its limit of {limit} new chats today. A message to someone new will not be sent until tomorrow.",
       "unanswered": "This contact has not answered your last {count} messages. Wait for a reply before sending more.",
-      "newContactTip": "This is your first message to this person. Say who you are, write it yourself, and send links only after they reply."
+      "newContactTip": "This is your first message to this person. Say who you are, write it yourself, and send links only after they reply.",
+      "limitReachedThrottled": "You have reached today's limit of {limit} new people. It is lower than usual because few customers replied to you this week. A message to someone new will not be sent; replies to existing chats still go out.",
+      "limitNearThrottled": "You have messaged {started} of your {limit} new people for today. Your limit is lower than usual because few customers replied to you this week.",
+      "quietHours": "New chats are blocked until {end}. Replies to customers who wrote to you still go out.",
+      "unansweredBlocked": "This contact has not answered your last {count} messages. The next message will be blocked until they reply."
     },
     "blocked": {
       "title": "This message was not sent",

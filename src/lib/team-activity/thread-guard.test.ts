@@ -328,3 +328,183 @@ describe('number limit: >= and warm-up (D5, D6)', () => {
     ]);
   });
 });
+
+describe('restrictions (204-205)', () => {
+  const rules = {
+    daily_user: true,
+    daily_number: true,
+    burst: true,
+    quiet_hours: true,
+    chase: true,
+    links_first: true,
+    same_opener: true,
+    reply_rate: true,
+    jev: true,
+  };
+  const restricted = (
+    over: Partial<NonNullable<MyOutreachDay['restrictions']>> = {}
+  ): NonNullable<MyOutreachDay['restrictions']> => ({
+    on: true,
+    ownerExempt: false,
+    rules,
+    quietHours: null,
+    effectiveUserLimit: null,
+    throttled: false,
+    maxUnansweredInRow: null,
+    ...over,
+  });
+  const base = { channelId: 'c1', provider: 'whapi' as const, now: NOW };
+
+  it('parses the block, and leaves it out for an older server', () => {
+    const old = parseMyOutreachDay({ started: 1, limits: {} });
+    expect(old).not.toBeNull();
+    expect(old && 'restrictions' in old).toBe(false);
+    const parsed = parseMyOutreachDay({
+      started: 1,
+      limits: {},
+      restrictions: {
+        on: true,
+        owner_exempt: false,
+        rules: { daily_user: true, chase: 'yes' },
+        quiet_hours: { start: 21, end: '08:00', tz: 'Asia/Dubai' },
+        effective_user_limit: 8,
+        throttled: true,
+        max_unanswered_in_row: 2,
+      },
+    });
+    expect(parsed?.restrictions).toEqual({
+      on: true,
+      ownerExempt: false,
+      rules: {
+        daily_user: true,
+        daily_number: false,
+        burst: false,
+        quiet_hours: false,
+        chase: false,
+        links_first: false,
+        same_opener: false,
+        reply_rate: false,
+        jev: false,
+      },
+      quietHours: { start: '21', end: '08:00', tz: 'Asia/Dubai' },
+      effectiveUserLimit: 8,
+      throttled: true,
+      maxUnansweredInRow: 2,
+    });
+  });
+
+  it('words everything as before without restrictions', () => {
+    const notices = outreachNotices({
+      ...base,
+      messages: [msg('agent', 30), msg('agent', 29), msg('agent', 28)],
+      day: day({ started: 20, blockedWhenOver: true }),
+    });
+    expect(notices).toEqual([
+      {
+        kind: 'limit_reached',
+        severity: 'critical',
+        started: 20,
+        limit: 20,
+        blocked: true,
+      },
+      { kind: 'unanswered', severity: 'warning', count: 3, max: 3 },
+    ]);
+  });
+
+  it('says blocked from the daily_user rule, not blocked_when_over', () => {
+    const [n] = limitNotices({
+      ...base,
+      starting: true,
+      day: day({ started: 20, restrictions: restricted() }),
+    });
+    expect(n).toMatchObject({ kind: 'limit_reached', blocked: true });
+    const [off] = limitNotices({
+      ...base,
+      starting: true,
+      day: day({
+        started: 20,
+        blockedWhenOver: true,
+        restrictions: restricted({ rules: { ...rules, daily_user: false } }),
+      }),
+    });
+    expect(off).toMatchObject({ kind: 'limit_reached', blocked: false });
+    const [exempt] = limitNotices({
+      ...base,
+      starting: true,
+      day: day({
+        started: 20,
+        restrictions: restricted({ ownerExempt: true }),
+      }),
+    });
+    expect(exempt).toMatchObject({ blocked: false });
+  });
+
+  it('uses the throttled limit and says so', () => {
+    const notices = limitNotices({
+      ...base,
+      starting: true,
+      day: day({
+        started: 8,
+        restrictions: restricted({ throttled: true, effectiveUserLimit: 8 }),
+      }),
+    });
+    expect(notices).toEqual([
+      {
+        kind: 'limit_reached',
+        severity: 'critical',
+        started: 8,
+        limit: 8,
+        blocked: true,
+        throttled: true,
+      },
+    ]);
+  });
+
+  it('blocks new chats inside quiet hours, in their time zone', () => {
+    // NOW is 10:00 UTC = 14:00 in Dubai.
+    const inside = restricted({
+      quietHours: { start: '13:00', end: '15', tz: 'Asia/Dubai' },
+    });
+    const run = (r: ReturnType<typeof restricted>, starting = true) =>
+      limitNotices({ ...base, starting, day: day({ restrictions: r }) });
+    expect(run(inside)).toEqual([
+      { kind: 'quiet_hours', severity: 'critical', end: '15:00' },
+    ]);
+    // A reply is never a start.
+    expect(run(inside, false)).toEqual([]);
+    // Wrapping past midnight, now outside.
+    expect(
+      run(
+        restricted({
+          quietHours: { start: '21:00', end: '08:00', tz: 'Asia/Dubai' },
+        })
+      )
+    ).toEqual([]);
+    // Rule off: nothing.
+    expect(
+      run(
+        restricted({
+          quietHours: inside.quietHours,
+          rules: { ...rules, quiet_hours: false },
+        })
+      )
+    ).toEqual([]);
+  });
+
+  it('says the next message is blocked when the chase rule is at its limit', () => {
+    const notices = outreachNotices({
+      ...base,
+      messages: [msg('customer', 5), msg('agent', 4), msg('agent', 3)],
+      day: day({ restrictions: restricted({ maxUnansweredInRow: 2 }) }),
+    });
+    expect(notices).toEqual([
+      {
+        kind: 'unanswered',
+        severity: 'critical',
+        count: 2,
+        max: 2,
+        blocked: true,
+      },
+    ]);
+  });
+});

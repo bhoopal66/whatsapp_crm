@@ -66,6 +66,14 @@ import {
   lastMessageFromCustomer as newestIsCustomer,
 } from '@/lib/ai/banner-state';
 import { OutreachBanner } from './outreach-banner';
+import { BlockedSendCard } from './blocked-send-card';
+import {
+  cardFor,
+  parseSendRestriction,
+  unlockCardReducer,
+  type BlockedCards,
+  type UnlockCardEvent,
+} from '@/lib/team-activity/blocked-send';
 import {
   ThreadChannelNote,
   useConversationEvents,
@@ -392,6 +400,31 @@ export function MessageThread({
   // since the inbox loaded, so switching away and back does not lose
   // them. They live only in the browser (lib/inbox/failed-send.ts).
   const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  // A send a team-activity rule refused (204-205), per chat: switching
+  // chats shows that chat's card, never another's.
+  const [blockedCards, setBlockedCards] = useState<BlockedCards>({});
+  const dispatchBlockedCard = useCallback(
+    (conversationId: string, event: UnlockCardEvent) =>
+      setBlockedCards((prev) => {
+        const card = prev[conversationId];
+        if (!card) return prev;
+        const state = unlockCardReducer(card.state, event);
+        return state === card.state
+          ? prev
+          : { ...prev, [conversationId]: { ...card, state } };
+      }),
+    []
+  );
+  const dismissBlockedCard = useCallback(
+    (conversationId: string) =>
+      setBlockedCards((prev) => {
+        if (!prev[conversationId]) return prev;
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      }),
+    []
+  );
   // Their optimistic bubbles in the inbox's own list. Those are hidden
   // and <FailedSendRow> draws them instead, also after a Retry, when
   // the old bubble may still be in the list with status 'failed'.
@@ -1354,12 +1387,26 @@ export function MessageThread({
             ? tFailedSend('personalNumber')
             : sendFailureReason(res.status, payload);
       console.error(`Failed to send ${message.content_type}:`, reason);
-      toast.error(
-        `${toastPrefix}: ${reason}`,
-        shouldWarnMaybeSent(res.status, payload)
-          ? { description: tFailedSend('maybeSent') }
-          : undefined
-      );
+      // A team-activity rule's refusal gets the chat's own card (with
+      // the unlock request) instead of a toast; Retry stays below.
+      const restriction = parseSendRestriction(res.status, payload);
+      if (restriction) {
+        setBlockedCards((prev) => ({
+          ...prev,
+          [message.conversation_id]: {
+            restriction,
+            state: { phase: 'blocked' },
+          },
+        }));
+        setOutreachRefresh((k) => k + 1);
+      } else {
+        toast.error(
+          `${toastPrefix}: ${reason}`,
+          shouldWarnMaybeSent(res.status, payload)
+            ? { description: tFailedSend('maybeSent') }
+            : undefined
+        );
+      }
       // Mark the optimistic bubble as failed so the user sees what happened
       onUpdateMessage(message.id, { status: 'failed' });
       // The usual cause is a dropped number. Re-read the numbers now
@@ -2185,6 +2232,18 @@ export function MessageThread({
         {/* New-chat limits and unanswered runs (migration 068). Warns;
           the optional block is the server's. */}
         <OutreachBanner notices={guardNotices} />
+        {(() => {
+          const card = cardFor(blockedCards, conversation.id);
+          return card ? (
+            <BlockedSendCard
+              key={conversation.id}
+              restriction={card.restriction}
+              state={card.state}
+              onEvent={(event) => dispatchBlockedCard(conversation.id, event)}
+              onDismiss={() => dismissBlockedCard(conversation.id)}
+            />
+          ) : null;
+        })()}
 
         {/* Composer */}
         <MessageComposer

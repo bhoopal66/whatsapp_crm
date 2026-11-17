@@ -48,6 +48,38 @@ export interface MyOutreachDay {
   };
   /** Whether a send past the limit is refused for this person. */
   blockedWhenOver: boolean;
+  /**
+   * The hard restrictions (migrations 204-205), when the server sends
+   * them. Absent from an older server: every notice is then worded as
+   * before.
+   */
+  restrictions?: OutreachRestrictions;
+}
+
+export const RESTRICTION_RULE_KEYS = [
+  'daily_user',
+  'daily_number',
+  'burst',
+  'quiet_hours',
+  'chase',
+  'links_first',
+  'same_opener',
+  'reply_rate',
+  'jev',
+] as const;
+
+export type RestrictionRuleKey = (typeof RESTRICTION_RULE_KEYS)[number];
+
+export interface OutreachRestrictions {
+  on: boolean;
+  ownerExempt: boolean;
+  rules: Record<RestrictionRuleKey, boolean>;
+  /** Hours as the server sent them (an hour number or "HH:MM"). */
+  quietHours: { start: string; end: string; tz: string } | null;
+  /** Today's per-person limit after the reply-rate throttle. */
+  effectiveUserLimit: number | null;
+  throttled: boolean;
+  maxUnansweredInRow: number | null;
 }
 
 export interface ThreadMessageLike {
@@ -63,8 +95,16 @@ export type OutreachNotice =
       started: number;
       limit: number;
       blocked: boolean;
+      /** The limit was cut by the reply-rate throttle. */
+      throttled?: boolean;
     }
-  | { kind: 'limit_near'; severity: 'warning'; started: number; limit: number }
+  | {
+      kind: 'limit_near';
+      severity: 'warning';
+      started: number;
+      limit: number;
+      throttled?: boolean;
+    }
   | {
       kind: 'number_limit';
       severity: 'critical';
@@ -75,7 +115,15 @@ export type OutreachNotice =
       /** The number is new and on its warm-up limit (D6). */
       warmingUp: boolean;
     }
-  | { kind: 'unanswered'; severity: 'warning'; count: number; max: number }
+  | {
+      kind: 'unanswered';
+      severity: 'warning' | 'critical';
+      count: number;
+      max: number;
+      /** The chase rule refuses the next message. */
+      blocked?: boolean;
+    }
+  | { kind: 'quiet_hours'; severity: 'critical'; end: string }
   | { kind: 'new_contact_tip'; severity: 'info' };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -90,6 +138,7 @@ export function parseMyOutreachDay(raw: unknown): MyOutreachDay | null {
   const int = (v: unknown, fallback: number) =>
     typeof v === 'number' && Number.isFinite(v) ? v : fallback;
   if (typeof o.started !== 'number') return null;
+  const restrictions = parseRestrictions(o.restrictions);
   return {
     started: o.started,
     numbers: Array.isArray(o.numbers)
@@ -113,7 +162,98 @@ export function parseMyOutreachDay(raw: unknown): MyOutreachDay | null {
       maxUnansweredInRow: int(limits.max_unanswered_in_row, 3),
     },
     blockedWhenOver: o.blocked_when_over === true,
+    ...(restrictions ? { restrictions } : {}),
   };
+}
+
+const finiteOrNull = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+function hourText(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 24) {
+    return String(v);
+  }
+  return typeof v === 'string' && /^\d{1,2}(:\d{2})?/.test(v) ? v : null;
+}
+
+function parseRestrictions(raw: unknown): OutreachRestrictions | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const rulesRaw =
+    o.rules && typeof o.rules === 'object'
+      ? (o.rules as Record<string, unknown>)
+      : {};
+  const rules = Object.fromEntries(
+    RESTRICTION_RULE_KEYS.map((k) => [k, rulesRaw[k] === true])
+  ) as Record<RestrictionRuleKey, boolean>;
+  const q =
+    o.quiet_hours && typeof o.quiet_hours === 'object'
+      ? (o.quiet_hours as Record<string, unknown>)
+      : null;
+  const start = hourText(q?.start);
+  const end = hourText(q?.end);
+  return {
+    on: o.on === true,
+    ownerExempt: o.owner_exempt === true,
+    rules,
+    quietHours:
+      start && end && typeof q?.tz === 'string' && q.tz
+        ? { start, end, tz: q.tz }
+        : null,
+    effectiveUserLimit: finiteOrNull(o.effective_user_limit),
+    throttled: o.throttled === true,
+    maxUnansweredInRow: finiteOrNull(o.max_unanswered_in_row),
+  };
+}
+
+/** Whether a rule refuses this person's sends (restrictions on, not exempt). */
+function ruleEnforced(
+  r: OutreachRestrictions | undefined,
+  rule: RestrictionRuleKey
+): boolean {
+  return !!r && r.on && !r.ownerExempt && r.rules[rule];
+}
+
+/** Minutes past midnight of an "H", "HH" or "HH:MM" hour; null if not one. */
+function minutesOf(v: string): number | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?/.exec(v);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2] ?? '0');
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+/**
+ * The quiet hours' end ("HH:MM") when `now` falls inside them in their
+ * time zone, else null. A window may wrap past midnight (21:00-08:00);
+ * start == end is no window. An unknown time zone is no window.
+ */
+export function quietHoursEnd(
+  q: { start: string; end: string; tz: string },
+  now: number
+): string | null {
+  const start = minutesOf(q.start);
+  const end = minutesOf(q.end);
+  if (start === null || end === null || start === end) return null;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: q.tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(now));
+  } catch {
+    return null;
+  }
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  const t = hour * 60 + minute;
+  const inside = start < end ? t >= start && t < end : t >= start || t < end;
+  if (!inside) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
 }
 
 /** Whether a message reached (or may have reached) the customer. */
@@ -184,14 +324,32 @@ export function limitNotices(args: {
   }
 
   const notices: OutreachNotice[] = [];
-  const limit = day.limits.dailyNewChatsPerUser;
+  const r = day.restrictions;
+
+  // Quiet hours refuse every new chat, whatever the counts.
+  if (ruleEnforced(r, 'quiet_hours') && r?.quietHours && now !== undefined) {
+    const end = quietHoursEnd(r.quietHours, now);
+    if (end) notices.push({ kind: 'quiet_hours', severity: 'critical', end });
+  }
+
+  // With restrictions sent, the rule decides whether a send past the
+  // limit is refused, and a throttled person's limit is the cut one.
+  const userEnforced = ruleEnforced(r, 'daily_user');
+  const throttled =
+    userEnforced && r!.throttled && r!.effectiveUserLimit !== null;
+  const limit = throttled
+    ? r!.effectiveUserLimit!
+    : day.limits.dailyNewChatsPerUser;
+  const userBlocked = r ? userEnforced : day.blockedWhenOver;
+  const throttleField = r ? { throttled } : {};
   if (day.started >= limit) {
     notices.push({
       kind: 'limit_reached',
       severity: 'critical',
       started: day.started,
       limit,
-      blocked: day.blockedWhenOver,
+      blocked: userBlocked,
+      ...throttleField,
     });
   } else if (day.started >= Math.ceil(limit * NEAR_SHARE)) {
     notices.push({
@@ -199,6 +357,7 @@ export function limitNotices(args: {
       severity: 'warning',
       started: day.started,
       limit,
+      ...throttleField,
     });
   }
 
@@ -221,7 +380,7 @@ export function limitNotices(args: {
       severity: 'critical',
       started: onNumber.started,
       limit: numberLimit,
-      blocked: day.blockedWhenOver,
+      blocked: r ? ruleEnforced(r, 'daily_number') : day.blockedWhenOver,
       warmingUp,
     });
   }
@@ -252,10 +411,26 @@ export function outreachNotices(args: {
     now,
   });
 
-  const max = day?.limits.maxUnansweredInRow ?? 3;
+  // With the chase rule enforced, the run at its limit means the next
+  // message is refused, not merely unwise.
+  const chase = ruleEnforced(day?.restrictions, 'chase');
+  const max =
+    (chase ? day?.restrictions?.maxUnansweredInRow : null) ??
+    day?.limits.maxUnansweredInRow ??
+    3;
   const run = unansweredRun(messages);
   if (run >= max) {
-    notices.push({ kind: 'unanswered', severity: 'warning', count: run, max });
+    notices.push(
+      chase
+        ? {
+            kind: 'unanswered',
+            severity: 'critical',
+            count: run,
+            max,
+            blocked: true,
+          }
+        : { kind: 'unanswered', severity: 'warning', count: run, max }
+    );
   }
 
   if (
