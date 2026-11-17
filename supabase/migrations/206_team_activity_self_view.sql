@@ -145,7 +145,10 @@ BEGIN
     -- conversations the leader can see.
     WHERE v_team IS NULL
        OR (s.sender_type = 'agent' AND s.sender_id = ANY (v_team)
-           AND s.conversation_id = ANY (v_convs))
+           -- Self scope counts every start the caller made, as
+           -- team_activity_start_check does: a chat reassigned away
+           -- stays in their own figures (it is their message).
+           AND (v_self OR s.conversation_id = ANY (v_convs)))
   ),
   -- Same text opening five or more chats on one number.
   openers AS (

@@ -17,7 +17,7 @@ import { GET } from './route';
 
 function builder() {
   const b: Record<string, unknown> = {};
-  for (const m of ['select', 'gte', 'lte', 'order', 'limit']) {
+  for (const m of ['select', 'gte', 'lte', 'eq', 'order', 'limit']) {
     b[m] = (...args: unknown[]) => {
       mocks.calls.push([m, ...args]);
       return b;
@@ -36,6 +36,7 @@ describe('GET /api/team-activity/blocks', () => {
     mocks.calls.length = 0;
     mocks.result = { data: [{ id: 'b1' }], error: null };
     mocks.requireRole.mockResolvedValue({
+      userId: 'me-1',
       supabase: { from: vi.fn(() => builder()) },
     });
   });
@@ -57,6 +58,14 @@ describe('GET /api/team-activity/blocks', () => {
       { ascending: false },
     ]);
     expect(mocks.calls).toContainEqual(['limit', 500]);
+  });
+
+  it("mine=1 keeps only the caller's rows; otherwise no user filter", async () => {
+    await GET(req('?mine=1'));
+    expect(mocks.calls).toContainEqual(['eq', 'user_id', 'me-1']);
+    mocks.calls.length = 0;
+    await GET(req());
+    expect(mocks.calls.some((c) => c[0] === 'eq')).toBe(false);
   });
 
   it('defaults to the last 7 days', async () => {

@@ -151,10 +151,10 @@ export default function MyActivityPage() {
         // The two lists are extras: a failure leaves them empty rather
         // than hiding the figures.
         const [blocks, unlocks] = await Promise.all([
-          getJson(`/api/team-activity/blocks?${blockParams}`)
+          getJson(`/api/team-activity/blocks?${blockParams}&mine=1`)
             .then(({ res: r, body: x }) => (r.ok ? myBlocks(x, me) : []))
             .catch(() => []),
-          getJson('/api/team-activity/unlocks')
+          getJson('/api/team-activity/unlocks?mine=1')
             .then(({ res: r, body: x }) => (r.ok ? myUnlocks(x, me) : []))
             .catch(() => []),
         ]);

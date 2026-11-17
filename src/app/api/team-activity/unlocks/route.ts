@@ -16,15 +16,20 @@ const UUID_RE =
  * Unlock requests (migration 204), newest 200, as the caller's RLS
  * shows them. An approved one past its expiry reads as `expired`.
  */
-export async function GET() {
+export async function GET(request?: Request) {
   try {
-    const { supabase } = await requireRole('agent');
+    const { supabase, userId } = await requireRole('agent');
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('team_activity_unlocks')
       .select(
         'id, block_id, requester_id, conversation_id, rule, reason, status, decided_by, decided_at, decision_note, expires_at, used_at, created_at'
-      )
+      );
+    // `?mine=1`: only the caller's own requests, even where RLS shows more.
+    if (request && new URL(request.url).searchParams.get('mine') === '1') {
+      query = query.eq('requester_id', userId);
+    }
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(200);
 
