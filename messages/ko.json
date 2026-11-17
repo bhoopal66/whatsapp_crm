@@ -50,6 +50,7 @@
     "teamRecordings": "팀 통화 녹음",
     "compass": "Compass",
     "teamActivity": "팀 활동",
+    "myActivity": "내 활동",
     "groups": {
       "conversations": "대화",
       "customers": "고객",
@@ -107,6 +108,7 @@
     "menuSettings": "설정",
     "menuSignOut": "로그아웃",
     "teamActivity": "팀 활동",
+    "myActivity": "내 활동",
     "chat": "팀 채팅",
     "meetings": "회의",
     "calendar": "캘린더",
@@ -11484,6 +11486,53 @@
         "title": "고객이 답을 기다리고 있음",
         "body": "고객 {count}명이 지난 하루 안에 메시지를 보내고 내 답을 기다리고 있습니다. 새 대화를 시작하기 전에 먼저 답하세요."
       }
+    },
+    "page": {
+      "title": "내 활동",
+      "description": "WhatsApp 번호를 안전하게 지키는 한도에 비해 내 새 대화가 어떤지, 고칠 점, 차단된 발송을 보여 줍니다.",
+      "period": "기간",
+      "periods": {
+        "today": "오늘",
+        "7d": "7일",
+        "30d": "30일"
+      },
+      "refresh": "새로 고침",
+      "loading": "내 활동을 불러오는 중…",
+      "loadFailed": "내 활동을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
+      "turnedOff": "관리자가 이 페이지를 껐습니다.",
+      "figures": "내 수치",
+      "noActivity": "이 기간에 보낸 메시지가 없습니다.",
+      "whatToFix": "고칠 점",
+      "allGood": "고칠 점이 없습니다 — 계속 이렇게 하세요.",
+      "blockedTitle": "차단된 발송",
+      "blockedNone": "이 기간에 차단된 발송이 없습니다.",
+      "times": "{count, plural, other {#회}}",
+      "blockedMore": "최근 {total}건 중 {shown}건을 표시합니다.",
+      "openChat": "대화 열기",
+      "unknownRule": "발송 한도 때문에 이 발송이 중단되었습니다.",
+      "ruleName": {
+        "chase": "계속 메시지 보냄",
+        "quiet_hours": "조용한 시간",
+        "daily_user": "내 일일 한도",
+        "daily_user_throttled": "낮아진 일일 한도",
+        "daily_number": "번호 일일 한도",
+        "burst": "한꺼번에 너무 많음",
+        "link_first": "첫 메시지의 링크",
+        "same_opener": "같은 첫 메시지",
+        "jev_cold_pitch": "무작위 판매 권유",
+        "other": "기타"
+      },
+      "unlocksTitle": "잠금 해제 요청",
+      "unlocksNone": "잠금 해제를 요청한 적이 없습니다.",
+      "unlockStatus": {
+        "pending": "대기 중",
+        "approved": "승인됨",
+        "denied": "거절됨",
+        "used": "사용됨",
+        "expired": "만료됨"
+      },
+      "yourReason": "내 사유:",
+      "decisionNote": "답변:"
     }
   }
 }

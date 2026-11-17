@@ -50,6 +50,7 @@
     "teamRecordings": "Team recordings",
     "compass": "Compass",
     "teamActivity": "Team activity",
+    "myActivity": "My activity",
     "groups": {
       "conversations": "Conversations",
       "customers": "Customers",
@@ -107,6 +108,7 @@
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
     "teamActivity": "Team activity",
+    "myActivity": "My activity",
     "chat": "Team chat",
     "meetings": "Meetings",
     "calendar": "Calendar",
@@ -11484,6 +11486,53 @@
         "title": "Customers are waiting for you",
         "body": "{count} customers wrote in the last day and are waiting for your answer. Answer them before you start new chats."
       }
+    },
+    "page": {
+      "title": "My activity",
+      "description": "How your new chats are going against the limits that keep our WhatsApp numbers safe, what to fix, and any sends that were stopped.",
+      "period": "Period",
+      "periods": {
+        "today": "Today",
+        "7d": "7 days",
+        "30d": "30 days"
+      },
+      "refresh": "Refresh",
+      "loading": "Loading your activity…",
+      "loadFailed": "Couldn't load your activity. Try again in a moment.",
+      "turnedOff": "Your admin has turned this page off.",
+      "figures": "Your figures",
+      "noActivity": "You haven't sent any messages in this period.",
+      "whatToFix": "What to fix",
+      "allGood": "Nothing to fix — keep it up.",
+      "blockedTitle": "Blocked sends",
+      "blockedNone": "None of your sends were blocked in this period.",
+      "times": "{count, plural, one {# time} other {# times}}",
+      "blockedMore": "Showing the latest {shown} of {total}.",
+      "openChat": "Open chat",
+      "unknownRule": "This send was stopped by a sending limit.",
+      "ruleName": {
+        "chase": "Kept messaging",
+        "quiet_hours": "Quiet hours",
+        "daily_user": "Your daily limit",
+        "daily_user_throttled": "Lowered daily limit",
+        "daily_number": "Number's daily limit",
+        "burst": "Too many at once",
+        "link_first": "Link in first message",
+        "same_opener": "Same first message",
+        "jev_cold_pitch": "Cold sales pitch",
+        "other": "Other"
+      },
+      "unlocksTitle": "Unlock requests",
+      "unlocksNone": "You haven't asked for any unlocks.",
+      "unlockStatus": {
+        "pending": "Waiting",
+        "approved": "Approved",
+        "denied": "Declined",
+        "used": "Used",
+        "expired": "Expired"
+      },
+      "yourReason": "Your reason:",
+      "decisionNote": "Reply:"
     }
   }
 }
