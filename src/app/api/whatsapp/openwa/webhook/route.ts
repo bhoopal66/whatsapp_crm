@@ -16,6 +16,13 @@ import { persistOwnSend, resolveOpenWALidPhone } from '@/lib/whatsapp/own-send';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
+  applyGroupEvents,
+  applyGroupStatuses,
+  persistGroupMessages,
+  type GroupChannel,
+  type GroupInboundMessage,
+} from '@/lib/groups/inbound';
+import {
   clientIp,
   confirmAccepted,
   RateLimiter,
@@ -128,7 +135,13 @@ export async function POST(request: Request) {
 
   // Pure and never throws on a well-shaped body; normalised before the
   // response only because screening keys on the message list.
-  const event = normalizeOpenWAWebhook(payload);
+  const normalized = normalizeOpenWAWebhook(payload);
+  // Groups are company-number-only: a personal number's group traffic
+  // is dropped exactly as before groups came to OpenWA.
+  const event =
+    config.is_personal === true
+      ? { ...normalized, groupMessages: [], groupEvents: [] }
+      : normalized;
   if (event.unmappedLidSenders > 0) {
     // Counted, not identified: a lid is a privacy id, and neither it nor
     // the body belongs in a log.
@@ -156,12 +169,22 @@ export async function POST(request: Request) {
   // freezes the function after the response (issues #301, #409).
   after(async () => {
     const screened = applyScreen(event, screen.decisions);
+    let groupsOk = true;
     try {
       if (screened.duplicates + screened.ipLimited > 0) {
         console.warn(
           `[openwa-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`
         );
       }
+      // Groups first and isolated: a failure there never stops the inbox
+      // work. Group events carry no id to screen, so an IP-limited
+      // delivery skips them, as on the Whapi route.
+      groupsOk = await processOpenWAGroups(
+        config,
+        screened.event.groupMessages,
+        screened.ipLimited > 0 ? [] : screened.event.groupEvents,
+        screened.event.statuses
+      );
       await processOpenWAWebhook(screened.event, config, screened.overLimit);
     } catch (error) {
       // A claim is confirmed only once its event is persisted. These
@@ -170,6 +193,9 @@ export async function POST(request: Request) {
       console.error('[openwa-webhook] processing failed:', error);
       return;
     }
+    // Group messages whose write failed keep their claims unconfirmed,
+    // so a redelivery stores them (the write is idempotent).
+    if (!groupsOk) return;
     await confirmAccepted(edgeCtx(), screen.decisions);
   });
 
@@ -243,9 +269,17 @@ function screenEvents(
       kind: 'message',
     });
   }
-  // Own sends last; no sender key, since they are not a sender's flood.
+  // Own sends next; no sender key, since they are not a sender's flood.
   for (const own of event.ownSends) {
     events.push({ key: `openwa:own:${configId}:${own.id}`, kind: 'status' });
+  }
+  // Group messages last, as `status` kind like the Whapi route's: replay
+  // and the IP limit apply, but a busy group spends no sender budget.
+  for (const message of event.groupMessages) {
+    events.push({
+      key: `openwa:group:${configId}:${message.id}`,
+      kind: 'status',
+    });
   }
   return events;
 }
@@ -293,12 +327,66 @@ function applyScreen(
     else skip(outcome);
   }
 
+  const groupMessages: GroupInboundMessage[] = [];
+  for (const message of event.groupMessages) {
+    const { outcome } = decisions[next++];
+    if (outcome === 'accept') groupMessages.push(message);
+    else skip(outcome);
+  }
+
   return {
-    event: { ...event, statuses, messages, ownSends },
+    event: { ...event, statuses, messages, ownSends, groupMessages },
     overLimit,
     duplicates,
     ipLimited,
   };
+}
+
+/**
+ * Group traffic of one authenticated callback on a company number
+ * (migration 114), through the Whapi route's writers: group messages
+ * into `whatsapp_group_messages`, receipts onto our group sends, `group.*`
+ * events onto known groups of this number. Submission groups are
+ * Whapi-only and not touched. Never throws; false when the group
+ * messages could not be stored.
+ */
+async function processOpenWAGroups(
+  config: OpenWAConfigRow,
+  messages: GroupInboundMessage[],
+  events: NormalizedOpenWAWebhook['groupEvents'],
+  statuses: NormalizedOpenWAWebhook['statuses']
+): Promise<boolean> {
+  if (config.is_personal === true) return true;
+  if (messages.length === 0 && events.length === 0 && statuses.length === 0) {
+    return true;
+  }
+  const channel: GroupChannel = {
+    id: config.id,
+    accountId: config.account_id,
+    // Our own number; NULL until the session's phone is known, which
+    // only skips the "is this us" checks in `applyGroupEvents`.
+    wabaId: config.waba_id ?? null,
+  };
+  const admin = supabaseAdmin();
+  let ok = true;
+  try {
+    await persistGroupMessages(admin, channel, messages);
+  } catch (error) {
+    ok = false;
+    console.error('[openwa-webhook] group messages failed:', error);
+  }
+  try {
+    // A 1:1 receipt matches no group row, so every receipt goes here too.
+    if (statuses.length > 0) await applyGroupStatuses(admin, channel, statuses);
+  } catch (error) {
+    console.error('[openwa-webhook] group statuses failed:', error);
+  }
+  try {
+    await applyGroupEvents(admin, channel, events);
+  } catch (error) {
+    console.error('[openwa-webhook] group events failed:', error);
+  }
+  return ok;
 }
 
 /**

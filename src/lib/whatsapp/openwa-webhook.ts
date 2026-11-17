@@ -5,9 +5,10 @@
  * `{ event, timestamp (ISO), sessionId, idempotencyKey, deliveryId, data }`
  * (OpenWA v0.25.0 `docs/06-api-specification.md` §6.6). Only three
  * events reach the inbox: `message.received` becomes a message, and
- * `message.ack` / `message.failed` become a status. Everything else
- * (`session.*`, groups, reactions, edits, revokes) normalises to an
- * empty webhook, which the route answers 200.
+ * `message.ack` / `message.failed` become a status. Group chats and
+ * `group.*` events become group traffic (migration 114), kept apart
+ * from the inbox. Everything else (`session.*`, reactions, edits,
+ * revokes) normalises to an empty webhook, which the route answers 200.
  *
  * Pure and synchronous, like `whapi-webhook.ts`, whose filtering
  * decisions this mirrors.
@@ -22,6 +23,11 @@ import type {
   NormalizedWebhook,
 } from './inbound';
 import { toOpenWAMediaId } from './openwa-api';
+import type { GroupInboundMessage } from '@/lib/groups/inbound';
+import type {
+  GroupParticipantAction,
+  WhapiGroupEvent,
+} from './whapi-group-events';
 
 // ============================================================
 // Raw shapes (only the fields read here)
@@ -48,6 +54,8 @@ export interface RawOpenWAMessage {
   kind?: string;
   fromMe?: boolean;
   chatId?: string;
+  /** A group message's sender: `<phone>@c.us` or `<lid>@lid`. */
+  author?: string;
   media?: RawOpenWAMedia;
   contact?: { name?: string; pushName?: string };
   /** MSISDN digits for an `@lid` sender (RESOLVE_LID_TO_PHONE), or null. */
@@ -92,6 +100,25 @@ export interface NormalizedOpenWAWebhook extends NormalizedWebhook {
    * them (own-send.ts), and never through the inbound pipeline.
    */
   ownSends: NormalizedOpenWAOwnSend[];
+  /**
+   * Group traffic (migration 114), for `lib/groups/inbound.ts`; never
+   * the inbound pipeline. The route keeps it only on a company number.
+   */
+  groupMessages: GroupInboundMessage[];
+  groupEvents: WhapiGroupEvent[];
+}
+
+export interface RawOpenWAGroupEvent {
+  groupId?: string;
+  participantIds?: unknown;
+  timestamp?: number;
+  actorId?: string;
+  changes?: {
+    subject?: string;
+    description?: string;
+    announce?: boolean;
+    locked?: boolean;
+  };
 }
 
 /** One own send. The peer is a phone, or an `@lid` the route resolves. */
@@ -377,6 +404,163 @@ export function normalizeOpenWAOwnSend(
 }
 
 // ============================================================
+// Group normalisation (migration 114)
+// ============================================================
+
+const GROUP_CHAT = /@g\.us$/;
+/** 114's CHECK on participant and sender wa ids. */
+const GROUP_WA_ID = /^[0-9]{5,25}(@lid)?$/;
+
+/**
+ * A group sender as 114 stores it: phone digits, else `<digits>@lid`.
+ * A lid sender with a `senderPhone` is filed under the phone, which is
+ * how the group's participant rows are keyed.
+ */
+function groupSenderOf(raw: RawOpenWAMessage): string | null {
+  const author = raw.author ?? '';
+  let id: string | null = null;
+  if (author.endsWith('@lid')) {
+    const phone = raw.senderPhone ? raw.senderPhone.replace(/\D/g, '') : '';
+    id = phone || `${digitsOf(author)}@lid`;
+  } else if (author) {
+    id = digitsOf(author);
+  }
+  return id && GROUP_WA_ID.test(id) ? id : null;
+}
+
+const GROUP_TYPES: Record<string, string> = {
+  text: 'text',
+  image: 'image',
+  video: 'video',
+  document: 'document',
+  audio: 'audio',
+  voice: 'audio',
+  sticker: 'sticker',
+  location: 'location',
+  contact: 'contacts',
+};
+
+/**
+ * Map one `message.received` / `message.sent` data object of a group
+ * chat, or null. Attachments keep their type and caption only: the
+ * gateway's copy of the bytes has no browser-loadable link, so `media`
+ * carries just a location.
+ */
+export function normalizeOpenWAGroupMessage(
+  raw: RawOpenWAMessage
+): GroupInboundMessage | null {
+  if (!raw || typeof raw.id !== 'string' || !raw.id) return null;
+  if (chatKind(raw) !== 'group') return null;
+  const chatId = raw.chatId ?? (raw.fromMe === true ? raw.to : raw.from) ?? '';
+  if (!GROUP_CHAT.test(chatId)) return null;
+  const type = GROUP_TYPES[raw.type ?? ''];
+  if (!type) return null;
+
+  let body = nonEmpty(raw.body);
+  let media: Record<string, unknown> | null = null;
+  if (type === 'location') {
+    const loc = raw.location;
+    if (
+      !loc ||
+      typeof loc.latitude !== 'number' ||
+      typeof loc.longitude !== 'number'
+    ) {
+      return null;
+    }
+    media = {
+      location: {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        name: loc.description,
+        address: loc.address,
+      },
+    };
+    body = nonEmpty(loc.description);
+  } else if (type === 'contacts') {
+    const card = body ? parseVcard(body) : null;
+    if (!card) return null;
+    body = contactCardsText([card]);
+  } else if (type === 'audio') {
+    body = null;
+  } else if (type === 'text' && !body) {
+    return null;
+  }
+
+  return {
+    id: raw.id,
+    waGroupId: chatId,
+    fromMe: raw.fromMe === true,
+    senderWaId: groupSenderOf(raw),
+    senderName: nonEmpty(raw.contact?.pushName) ?? nonEmpty(raw.contact?.name),
+    type,
+    body,
+    media,
+    sentAt: new Date(Number(secondsString(raw.timestamp)) * 1000).toISOString(),
+  };
+}
+
+const GROUP_EVENT_ACTIONS: Record<string, GroupParticipantAction> = {
+  'group.join': 'add',
+  'group.leave': 'remove',
+  'group.join_request': 'request',
+};
+
+/**
+ * Map one `group.*` event, or null. OpenWA has no promote/demote event.
+ * A participant with no phone (`@lid`) is counted, not listed, as in
+ * the Whapi parser.
+ */
+export function normalizeOpenWAGroupEvent(
+  event: string,
+  raw: RawOpenWAGroupEvent
+): WhapiGroupEvent | null {
+  const groupId = raw?.groupId;
+  if (typeof groupId !== 'string' || !GROUP_CHAT.test(groupId)) return null;
+
+  if (event === 'group.update') {
+    const c = raw.changes;
+    if (!c || typeof c !== 'object') return null;
+    const changes: Extract<
+      WhapiGroupEvent,
+      { kind: 'group_update' }
+    >['changes'] = {};
+    if (typeof c.subject === 'string') changes.name = c.subject;
+    if (typeof c.description === 'string') {
+      changes.description = c.description || null;
+    }
+    const settings: NonNullable<typeof changes.settings> = {};
+    if (typeof c.announce === 'boolean') {
+      settings.send_messages = c.announce ? 'admins' : 'anyone';
+    }
+    if (typeof c.locked === 'boolean') {
+      settings.edit_group_info = c.locked ? 'admins' : 'anyone';
+    }
+    if (Object.keys(settings).length > 0) changes.settings = settings;
+    if (Object.keys(changes).length === 0) return null;
+    return { kind: 'group_update', groupId, changes };
+  }
+
+  const action = GROUP_EVENT_ACTIONS[event];
+  if (!action || !Array.isArray(raw.participantIds)) return null;
+  const waIds: string[] = [];
+  let unresolved = 0;
+  for (const p of raw.participantIds) {
+    const id = typeof p === 'string' && p.endsWith('@c.us') ? digitsOf(p) : '';
+    if (id && GROUP_WA_ID.test(id)) waIds.push(id);
+    else unresolved++;
+  }
+  if (waIds.length === 0 && unresolved === 0) return null;
+  return {
+    kind: 'participants',
+    groupId,
+    action,
+    waIds: [...new Set(waIds)],
+    unresolved,
+    performedBy: null,
+  };
+}
+
+// ============================================================
 // Status normalisation
 // ============================================================
 
@@ -431,6 +615,8 @@ export function normalizeOpenWAWebhook(
     statuses: [],
     unmappedLidSenders: 0,
     ownSends: [],
+    groupMessages: [],
+    groupEvents: [],
   };
   const data = payload?.data;
   if (!data || typeof data !== 'object') return out;
@@ -440,11 +626,34 @@ export function normalizeOpenWAWebhook(
       const result = normalizeOpenWAMessage(data as RawOpenWAMessage);
       if (result.message) out.messages.push(result.message);
       else if (result.reason === 'unmapped_lid') out.unmappedLidSenders++;
+      else if (
+        result.reason === 'not_individual' ||
+        result.reason === 'from_me'
+      ) {
+        const group = normalizeOpenWAGroupMessage(data as RawOpenWAMessage);
+        if (group) out.groupMessages.push(group);
+      }
       break;
     }
     case 'message.sent': {
       const own = normalizeOpenWAOwnSend(data as RawOpenWAMessage);
       if (own) out.ownSends.push(own);
+      else {
+        // A send into a group: recorded as ours (deduped on its id).
+        const group = normalizeOpenWAGroupMessage(data as RawOpenWAMessage);
+        if (group?.fromMe) out.groupMessages.push(group);
+      }
+      break;
+    }
+    case 'group.join':
+    case 'group.leave':
+    case 'group.join_request':
+    case 'group.update': {
+      const group = normalizeOpenWAGroupEvent(
+        out.eventType,
+        data as RawOpenWAGroupEvent
+      );
+      if (group) out.groupEvents.push(group);
       break;
     }
     // `message.failed` is sent in addition to the `message.ack` with
