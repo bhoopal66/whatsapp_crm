@@ -30,7 +30,7 @@ import {
   useMyNumberIds,
 } from '@/hooks/use-whatsapp-numbers';
 import { canEditSettings } from '@/lib/auth/roles';
-import { canSyncGroups } from '@/lib/groups/access';
+import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
 import { GROUP_SETTINGS } from '@/lib/groups/types';
 import {
   buildCreateBody,
@@ -87,11 +87,12 @@ export function CreateGroupDialog({
   const { members: staff } = useWorkspaceMembers();
   const canSync = !!accountRole && canSyncGroups(accountRole);
 
-  // Only the Whapi numbers this person may send from (can_use_channel).
+  // Only the group-capable numbers (Whapi or company OpenWA, 208) this
+  // person may send from (can_use_channel).
   const options = useMemo(
     () =>
       usableNumbers(
-        (numbers ?? []).filter((n) => n.provider === 'whapi'),
+        (numbers ?? []).filter(isGroupCapableNumber),
         allocations ?? [],
         user?.id ?? null,
         !!accountRole && canEditSettings(accountRole)
@@ -118,8 +119,13 @@ export function CreateGroupDialog({
 
   // Preselect the number a new chat would start from: one the person is
   // allocated to, else the default, else the oldest (pickChannelForUser).
+  // Whapi first: the live OpenWA engine (whatsapp-web.js) cannot create.
   const preselected = useMemo(
-    () => predictNumber(options, 'whapi', myIds ?? [])?.id ?? null,
+    () =>
+      (
+        predictNumber(options, 'whapi', myIds ?? []) ??
+        predictNumber(options, 'openwa', myIds ?? [])
+      )?.id ?? null,
     [options, myIds]
   );
   const channelId = values.channelId ?? preselected;

@@ -23,7 +23,7 @@ import {
   useAllNumberAllocations,
 } from '@/hooks/use-whatsapp-numbers';
 import { canEditSettings } from '@/lib/auth/roles';
-import { canSyncGroups } from '@/lib/groups/access';
+import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
 import { canCreateGroups, canDeleteGroups } from '@/lib/auth/roles';
 import { GROUP_DELETED_EVENT, parseDeleteOutcome } from '@/lib/groups/delete';
 import {
@@ -104,12 +104,12 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
   const canSync = !!accountRole && canSyncGroups(accountRole);
   const canDelete = !!accountRole && canDeleteGroups(accountRole);
   const isAdmin = !!accountRole && canEditSettings(accountRole);
-  const hasWhapi = numbers?.some((n) => n.provider === 'whapi') ?? null;
+  const hasWhapi = numbers?.some(isGroupCapableNumber) ?? null;
   // New group needs a number this person may send from (the wizard's filter).
   const canUseWhapi =
     numbers && allocations
       ? usableNumbers(
-          numbers.filter((n) => n.provider === 'whapi'),
+          numbers.filter(isGroupCapableNumber),
           allocations,
           user?.id ?? null,
           isAdmin
