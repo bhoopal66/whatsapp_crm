@@ -17,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { NewChatNoticeSection } from '@/components/team-activity/new-chat-notice-section';
 import { hourLabel } from '@/lib/team-activity/format';
 import {
   BOOLEAN_LIMITS,
@@ -344,6 +345,8 @@ export function LimitsDialog({
               </div>
             ))}
           </div>
+
+          <NewChatNoticeSection />
         </div>
 
         <DialogFooter className="flex-row flex-wrap justify-between gap-2 sm:justify-between">

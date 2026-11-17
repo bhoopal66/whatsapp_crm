@@ -4906,6 +4906,26 @@
         "notFound": "This request no longer exists.",
         "failed": "Could not save the decision. Try again."
       }
+    },
+    "newChatNotice": {
+      "default": "Opening a chat with a new client just to send details? Use the marketing number.",
+      "defaultNamed": "Opening a chat with a new client just to send details? Use the marketing number ({name}).",
+      "switchButton": "Switch to marketing number",
+      "switched": "Sending from the marketing number",
+      "settings": {
+        "title": "New chat reminder",
+        "description": "A reminder shown to anyone about to open a chat with a new client.",
+        "enabled": "Show the reminder when someone opens a new chat",
+        "number": "Marketing number",
+        "none": "None",
+        "numberHelp": "Company numbers only. The reminder hides when the chat is already sent from this number.",
+        "text": "Reminder wording (optional)",
+        "textHelp": "Up to {max} characters. Leave empty to use the standard wording.",
+        "save": "Save reminder",
+        "saved": "Reminder saved",
+        "saveFailed": "Could not save the reminder",
+        "loadFailed": "Could not load the reminder settings"
+      }
     }
   },
   "AiAgents": {
