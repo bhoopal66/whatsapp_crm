@@ -56,6 +56,12 @@ export interface ForwardTargetResult {
   /** Our `messages.id` for the new row, on success. */
   message_id?: string;
   error?: string;
+  /** A Team activity hard restriction (204) refused this target. */
+  code?: string;
+  rule?: string;
+  blockId?: string | null;
+  unlockable?: boolean;
+  detail?: Record<string, unknown>;
 }
 
 export type ForwardSource = Pick<

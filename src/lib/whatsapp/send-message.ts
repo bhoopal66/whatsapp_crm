@@ -60,9 +60,12 @@ import {
   templateContentText,
 } from '@/lib/whatsapp/template-body';
 import {
-  checkNewChatAllowed,
-  newChatLimitMessage,
+  checkHumanSend,
+  recordJevBlock,
+  restrictionMessage,
+  type RestrictionDetail,
 } from '@/lib/team-activity/start-guard';
+import { coldPitchProbability } from '@/lib/team-activity/jev-pitch';
 import {
   consentRefusal,
   CONSENT_REFUSAL_MESSAGES,
@@ -112,6 +115,44 @@ export class SendMessageError extends Error {
     this.code = code;
     this.status = status;
     this.definite = definite;
+  }
+}
+
+/**
+ * A person's send refused by the Team activity hard restrictions
+ * (migration 204): code `restricted`, 429, refused before the gateway.
+ * The routes answer `{ error, code, rule, blockId, unlockable, detail }`
+ * so the composer can name the rule and offer "Ask to unlock".
+ */
+export class RestrictedSendError extends SendMessageError {
+  readonly rule: string;
+  readonly blockId: string | null;
+  readonly unlockable: boolean;
+  readonly detail: RestrictionDetail;
+  constructor(r: {
+    rule: string;
+    blockId: string | null;
+    unlockable: boolean;
+    detail: RestrictionDetail;
+  }) {
+    super('restricted', restrictionMessage(r.rule, r.detail), 429, true);
+    this.name = 'RestrictedSendError';
+    this.rule = r.rule;
+    this.blockId = r.blockId;
+    this.unlockable = r.unlockable;
+    this.detail = r.detail;
+  }
+
+  /** The dashboard routes' response body. */
+  toBody() {
+    return {
+      error: this.message,
+      code: this.code,
+      rule: this.rule,
+      blockId: this.blockId,
+      unlockable: this.unlockable,
+      detail: this.detail,
+    };
   }
 }
 
@@ -641,20 +682,48 @@ export async function sendMessageToConversation(
     );
   }
 
-  // Team activity (migration 068): with "Block new chats over the
-  // limit" on, a person's message that would START a chat on a phone
-  // number (a linked device: Whapi or OpenWA, migration 145) is refused once they, or the number, are at the day's
-  // limit — before anything reaches the gateway. Replies, API and bot
-  // sends, owners and admins are never refused, and any error in the
-  // check lets the message through.
+  // Team activity hard restrictions (migration 204): on a company
+  // phone number (a linked device: Whapi or OpenWA), a person's message
+  // is refused before anything reaches the gateway when it would chase a
+  // silent customer or START a chat against a rule (quiet hours, daily
+  // and burst limits, a link, a repeated opener). The SQL decides the
+  // scope (owner exempt, company numbers and chats only) and spends an
+  // approved unlock. API and bot sends are never asked here, and any
+  // error in the check lets the message through.
   if (senderUserId && isLinkedDeviceProvider(channel.provider)) {
-    const check = await checkNewChatAllowed(db, conversationId, channel.id);
+    const outgoingText =
+      messageType === 'interactive'
+        ? (interactivePayload?.body ?? null)
+        : (contentText ?? null);
+    const check = await checkHumanSend(
+      db,
+      conversationId,
+      channel.id,
+      outgoingText
+    );
     if (check.blocked) {
-      throw new SendMessageError(
-        'new_chat_limit',
-        newChatLimitMessage(check),
-        429
-      );
+      throw new RestrictedSendError(check);
+    }
+    // Jev (spec S5): a start that reads as a cold sales pitch. Any Jev
+    // failure, timeout or mismatch sends; an unlock skips it.
+    if (
+      check.jev.enabled &&
+      !check.unlockUsed &&
+      outgoingText &&
+      outgoingText.trim()
+    ) {
+      const p = await coldPitchProbability(accountId, outgoingText);
+      if (p !== null && p >= check.jev.minP) {
+        const blockId = await recordJevBlock(db, conversationId, channel.id, p);
+        throw new RestrictedSendError({
+          rule: 'jev_cold_pitch',
+          blockId,
+          // Unlocking needs the block row; the request RPC re-checks
+          // the account's allow_unlock_requests switch.
+          unlockable: blockId !== null,
+          detail: { p },
+        });
+      }
     }
   }
 

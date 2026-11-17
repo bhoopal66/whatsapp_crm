@@ -187,6 +187,11 @@ const getChannelInfo = vi.fn();
 
 // Stub only the senders — the module also exports INTERACTIVE_LIMITS,
 // which `interactive.ts` needs for the payload validation covered above.
+const coldPitch = vi.hoisted(() => vi.fn(async () => null as number | null));
+vi.mock('@/lib/team-activity/jev-pitch', () => ({
+  coldPitchProbability: coldPitch,
+}));
+
 vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   sendTextMessage: (...args: unknown[]) =>
@@ -816,7 +821,14 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
   it("refuses a person's new chat when the check says so, before the gateway", async () => {
     sendTextMessage.mockClear();
     const { db, rpc } = withCheck({
-      data: { blocked: true, reason: 'user', started: 20, limit: 20 },
+      data: {
+        blocked: true,
+        rule: 'daily_user',
+        block_id: 'b-1',
+        unlockable: true,
+        detail: { started: 20, limit: 20 },
+        is_start: true,
+      },
       error: null,
     });
     const error = await sendMessageToConversation(db, 'acct-1', {
@@ -829,14 +841,19 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
       (e: unknown) => e
     );
     expect(error).toMatchObject({
-      code: 'new_chat_limit',
+      code: 'restricted',
       status: 429,
       definite: true,
+      rule: 'daily_user',
+      blockId: 'b-1',
+      unlockable: true,
+      detail: { started: 20, limit: 20 },
     });
     expect((error as Error).message).toMatch(/started 20 new chats today/);
     expect(rpc).toHaveBeenCalledWith('team_activity_start_check', {
-      p_conversation_id: 'cv-1',
+      p_conversation: 'cv-1',
       p_channel_id: 'cfg-1',
+      p_text: 'Hello',
     });
     expect(sendTextMessage).not.toHaveBeenCalled();
   });
@@ -857,6 +874,92 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
     expect(captured.message).toMatchObject({ sender_id: 'u-1' });
   });
 
+  function withJev(minP = 0.85, unlockUsed = false) {
+    sendTextMessage.mockClear();
+    coldPitch.mockReset();
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured, { provider: 'whapi' });
+    const rpc = vi.fn(async (name: string) =>
+      name === 'team_activity_record_block'
+        ? { data: 'b-jev', error: null }
+        : {
+            data: {
+              blocked: false,
+              is_start: true,
+              unlock_used: unlockUsed,
+              jev: { enabled: true, min_p: minP },
+            },
+            error: null,
+          }
+    );
+    const db = {
+      from: (table: string) => inner.from(table),
+      rpc,
+    } as unknown as SupabaseClient;
+    const send = () =>
+      sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'text',
+        contentText: 'Great loan offers for you!',
+        senderUserId: 'u-1',
+      }).then(
+        () => null,
+        (e: unknown) => e
+      );
+    return { rpc, send, captured };
+  }
+
+  it('refuses a start Jev reads as a cold pitch at or over the threshold', async () => {
+    const { rpc, send } = withJev(0.85);
+    coldPitch.mockResolvedValue(0.85);
+    const error = await send();
+    expect(coldPitch).toHaveBeenCalledWith(
+      'acct-1',
+      'Great loan offers for you!'
+    );
+    expect(error).toMatchObject({
+      code: 'restricted',
+      status: 429,
+      rule: 'jev_cold_pitch',
+      blockId: 'b-jev',
+      unlockable: true,
+      detail: { p: 0.85 },
+    });
+    expect(rpc).toHaveBeenCalledWith('team_activity_record_block', {
+      p_conversation: 'cv-1',
+      p_channel_id: 'cfg-1',
+      p_rule: 'jev_cold_pitch',
+      p_detail: { p: 0.85 },
+    });
+    expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends when Jev is under the threshold', async () => {
+    const { rpc, send } = withJev(0.85);
+    coldPitch.mockResolvedValue(0.84);
+    expect(await send()).toBeNull();
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_record_block',
+      expect.anything()
+    );
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends when Jev fails (no figure)', async () => {
+    const { send } = withJev(0.5);
+    coldPitch.mockResolvedValue(null);
+    expect(await send()).toBeNull();
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips Jev when an unlock was spent on this send', async () => {
+    const { send } = withJev(0.5, true);
+    coldPitch.mockResolvedValue(0.99);
+    expect(await send()).toBeNull();
+    expect(coldPitch).not.toHaveBeenCalled();
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('does not ask for a send no person made', async () => {
     const { db, rpc } = withCheck({ data: { blocked: true }, error: null });
     await sendMessageToConversation(db, 'acct-1', {
@@ -871,7 +974,13 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
     openwaSendText.mockClear();
     const { db, rpc } = withCheck(
       {
-        data: { blocked: true, reason: 'number', started: 50, limit: 50 },
+        data: {
+          blocked: true,
+          rule: 'daily_number',
+          block_id: 'b-2',
+          unlockable: false,
+          detail: { started: 50, limit: 50 },
+        },
         error: null,
       },
       'openwa'
@@ -885,10 +994,11 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
       () => null,
       (e: unknown) => e
     );
-    expect(error).toMatchObject({ code: 'new_chat_limit', status: 429 });
+    expect(error).toMatchObject({ code: 'restricted', status: 429 });
     expect(rpc).toHaveBeenCalledWith('team_activity_start_check', {
-      p_conversation_id: 'cv-1',
+      p_conversation: 'cv-1',
       p_channel_id: 'cfg-1',
+      p_text: 'Hello',
     });
     expect(openwaSendText).not.toHaveBeenCalled();
   });

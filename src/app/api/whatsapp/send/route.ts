@@ -11,6 +11,7 @@ import {
   sendMessageToConversation,
   validateSendMessageParams,
   SendMessageError,
+  RestrictedSendError,
   isPersonalChatRefusal,
 } from '@/lib/whatsapp/send-message';
 import { isWhatsAppProvider, loadChannels } from '@/lib/whatsapp/channels';
@@ -307,6 +308,11 @@ export async function POST(request: Request) {
  * carry this.
  */
 function sendErrorResponse(err: SendMessageError) {
+  // A Team activity hard restriction (204): the composer's card needs
+  // the rule, its figures and whether an unlock may be asked for.
+  if (err instanceof RestrictedSendError) {
+    return NextResponse.json(err.toBody(), { status: err.status });
+  }
   return NextResponse.json(
     { error: err.message, code: err.code, retryable: err.definite },
     { status: err.status }
