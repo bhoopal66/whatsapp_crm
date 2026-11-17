@@ -23,6 +23,7 @@ import type {
   NormalizedWebhook,
 } from './inbound';
 import { toOpenWAMediaId } from './openwa-api';
+import { fromOpenWAParticipantId } from './openwa-groups';
 import type { GroupInboundMessage } from '@/lib/groups/inbound';
 import type {
   GroupParticipantAction,
@@ -106,6 +107,12 @@ export interface NormalizedOpenWAWebhook extends NormalizedWebhook {
    */
   groupMessages: GroupInboundMessage[];
   groupEvents: WhapiGroupEvent[];
+  /**
+   * The envelope's `idempotencyKey`: stable across redeliveries of one
+   * event, so the route can replay-screen group events (which carry no
+   * id of their own). Null when the gateway sent none.
+   */
+  envelopeKey: string | null;
 }
 
 export interface RawOpenWAGroupEvent {
@@ -545,7 +552,10 @@ export function normalizeOpenWAGroupEvent(
   const waIds: string[] = [];
   let unresolved = 0;
   for (const p of raw.participantIds) {
-    const id = typeof p === 'string' && p.endsWith('@c.us') ? digitsOf(p) : '';
+    // The same mapping Sync stores participants under (digits, or
+    // `<digits>@lid`), so a leave finds the row Sync wrote.
+    const id =
+      typeof p === 'string' ? (fromOpenWAParticipantId(p).waId ?? '') : '';
     if (id && GROUP_WA_ID.test(id)) waIds.push(id);
     else unresolved++;
   }
@@ -617,6 +627,10 @@ export function normalizeOpenWAWebhook(
     ownSends: [],
     groupMessages: [],
     groupEvents: [],
+    envelopeKey:
+      typeof payload?.idempotencyKey === 'string' && payload.idempotencyKey
+        ? payload.idempotencyKey
+        : null,
   };
   const data = payload?.data;
   if (!data || typeof data !== 'object') return out;

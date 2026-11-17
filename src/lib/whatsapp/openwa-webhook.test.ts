@@ -575,8 +575,9 @@ describe('OpenWA group traffic (migration 114)', () => {
         kind: 'participants',
         groupId: '120363000000000001@g.us',
         action: 'add',
-        waIds: ['971500000001'],
-        unresolved: 1,
+        // A lid is kept as `<digits>@lid`, the form Sync stores it in.
+        waIds: ['971500000001', '123456789012345@lid'],
+        unresolved: 0,
         performedBy: null,
       },
     ]);

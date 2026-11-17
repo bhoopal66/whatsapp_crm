@@ -1,4 +1,5 @@
 import { NextResponse, after } from 'next/server';
+import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
@@ -154,7 +155,7 @@ export async function POST(request: Request) {
   // authenticated it.
   const screen = await screenWebhook(edgeCtx(), {
     ip: clientIp(request.headers),
-    events: screenEvents(event, config.id),
+    events: screenEvents(event, config.id, groupEventKey(event, rawBody)),
   });
   if (screen.status === 503) {
     // Another delivery holds a claim on one of these events and has not
@@ -177,12 +178,12 @@ export async function POST(request: Request) {
         );
       }
       // Groups first and isolated: a failure there never stops the inbox
-      // work. Group events carry no id to screen, so an IP-limited
-      // delivery skips them, as on the Whapi route.
+      // work. Group events are screened by their envelope key, so a
+      // redelivery or an IP-limited delivery applies nothing twice.
       groupsOk = await processOpenWAGroups(
         config,
         screened.event.groupMessages,
-        screened.ipLimited > 0 ? [] : screened.event.groupEvents,
+        screened.event.groupEvents,
         screened.event.statuses
       );
       await processOpenWAWebhook(screened.event, config, screened.overLimit);
@@ -253,7 +254,8 @@ async function findOpenWAConfigBySessionId(
  */
 function screenEvents(
   event: NormalizedOpenWAWebhook,
-  configId: string
+  configId: string,
+  groupKey: string
 ): ScreenEvent[] {
   const events: ScreenEvent[] = [];
   for (const status of event.statuses) {
@@ -281,7 +283,29 @@ function screenEvents(
       kind: 'status',
     });
   }
+  // Group events last. They carry no id, so the key is the envelope's:
+  // without it a redelivered join/leave would move the member count again.
+  event.groupEvents.forEach((_, i) => {
+    events.push({
+      key: `openwa:gevt:${configId}:${groupKey}:${i}`,
+      kind: 'status',
+    });
+  });
   return events;
+}
+
+/**
+ * What names this delivery's group events across redeliveries: the
+ * envelope's idempotency key, else a hash of the signed body.
+ */
+function groupEventKey(
+  event: NormalizedOpenWAWebhook,
+  rawBody: string
+): string {
+  return (
+    event.envelopeKey ??
+    `h:${createHash('sha256').update(rawBody).digest('hex').slice(0, 32)}`
+  );
 }
 
 /**
@@ -334,8 +358,22 @@ function applyScreen(
     else skip(outcome);
   }
 
+  const groupEvents: NormalizedOpenWAWebhook['groupEvents'] = [];
+  for (const groupEvent of event.groupEvents) {
+    const { outcome } = decisions[next++];
+    if (outcome === 'accept') groupEvents.push(groupEvent);
+    else skip(outcome);
+  }
+
   return {
-    event: { ...event, statuses, messages, ownSends, groupMessages },
+    event: {
+      ...event,
+      statuses,
+      messages,
+      ownSends,
+      groupMessages,
+      groupEvents,
+    },
     overLimit,
     duplicates,
     ipLimited,

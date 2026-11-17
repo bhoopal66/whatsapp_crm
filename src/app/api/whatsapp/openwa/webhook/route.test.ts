@@ -536,6 +536,39 @@ describe('OpenWA webhook: groups (migration 114)', () => {
     );
   });
 
+  const joinEvent = {
+    event: 'group.join',
+    sessionId: 'session-1',
+    idempotencyKey: 'idem-77',
+    data: {
+      groupId: '120363000000000001@g.us',
+      participantIds: ['971500000002@c.us'],
+      timestamp: 1_763_366_400,
+    },
+  };
+
+  it('screens a group event under the envelope key', async () => {
+    await post(joinEvent);
+    await runAfter();
+    expect(h.screenWebhook.mock.calls[0][1].events).toEqual([
+      { key: 'openwa:gevt:cfg-openwa-1:idem-77:0', kind: 'status' },
+    ]);
+  });
+
+  it('applies no group event from a redelivery or an IP-limited delivery', async () => {
+    for (const outcome of ['duplicate', 'ip_limited']) {
+      h.applyGroupEvents.mockClear();
+      h.screenWebhook.mockResolvedValueOnce({
+        status: 200,
+        decisions: [{ key: 'k', outcome }],
+      });
+      await post(joinEvent);
+      await runAfter();
+      const applied = h.applyGroupEvents.mock.calls.flatMap((c) => c[2]);
+      expect(applied).toEqual([]);
+    }
+  });
+
   it('leaves claims unconfirmed when the group write fails, and never throws', async () => {
     h.persistGroupMessages.mockRejectedValue(new Error('db down'));
     const res = await post(groupEvent());
