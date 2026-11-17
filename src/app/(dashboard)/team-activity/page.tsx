@@ -1,9 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Info, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
+
+import { BlocksTab } from '@/components/team-activity/blocks-tab';
+import { UnlocksTab } from '@/components/team-activity/unlocks-tab';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  applyDecision,
+  decisionFailure,
+  parseBlocks,
+  parseUnlocks,
+  pendingCount,
+  tabFromParam,
+  type TeamActivityTab,
+  type TeamBlock,
+  type UnlockRequest,
+} from '@/lib/team-activity/team-blocks';
 
 import {
   DailyChart,
@@ -76,8 +92,32 @@ function viewerZone(): string {
   }
 }
 
+// `useSearchParams` (the `?tab=` deep link the unlock bell opens)
+// needs a Suspense boundary or the production build bails to CSR.
 export default function TeamActivityPage() {
+  return (
+    <Suspense fallback={null}>
+      <TeamActivityPageInner />
+    </Suspense>
+  );
+}
+
+function TeamActivityPageInner() {
   const t = useTranslations('TeamActivity.page');
+  const tt = useTranslations('TeamActivity.tabs');
+  const tb = useTranslations('TeamActivity.blocksTab');
+  const tu = useTranslations('TeamActivity.unlocksTab');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const tab = tabFromParam(searchParams.get('tab'));
+  const setTab = (next: TeamActivityTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const th = useTranslations('TeamActivity.how');
   // The limits and the Safety Meter stay admin-only (their routes
   // refuse anyone else); a team leader reads the page.
@@ -153,6 +193,99 @@ export default function TeamActivityPage() {
     setLoading(true);
     setReloadKey((k) => k + 1);
   }, []);
+
+  // Blocked sends for the report's own range (migration 204).
+  const [blocks, setBlocks] = useState<TeamBlock[] | null>(null);
+  const [blocksError, setBlocksError] = useState(false);
+  const rangeFrom = loaded?.range.from;
+  const rangeTo = loaded?.range.to;
+  const [blocksKey, setBlocksKey] = useState(0);
+  useEffect(() => {
+    if (!rangeFrom || !rangeTo) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ from: rangeFrom, to: rangeTo });
+    void fetch(`/api/team-activity/blocks?${params}`)
+      .then(async (res) => {
+        const body: unknown = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setBlocksError(true);
+          return;
+        }
+        setBlocksError(false);
+        setBlocks(parseBlocks(body));
+      })
+      .catch(() => {
+        if (!cancelled) setBlocksError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rangeFrom, rangeTo, blocksKey]);
+
+  // Unlock requests are not range-bound; loaded once and on refresh.
+  const [unlocks, setUnlocks] = useState<UnlockRequest[] | null>(null);
+  const [unlocksError, setUnlocksError] = useState(false);
+  const [unlocksKey, setUnlocksKey] = useState(0);
+  const [deciding, setDeciding] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/team-activity/unlocks')
+      .then(async (res) => {
+        const body: unknown = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setUnlocksError(true);
+          return;
+        }
+        setUnlocksError(false);
+        setUnlocks(parseUnlocks(body));
+      })
+      .catch(() => {
+        if (!cancelled) setUnlocksError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocksKey, reloadKey]);
+
+  const refetchUnlocks = useCallback(() => setUnlocksKey((k) => k + 1), []);
+
+  const decide = useCallback(
+    async (id: string, approve: boolean, note: string | null) => {
+      const before = unlocks;
+      setDeciding(id);
+      setUnlocks((prev) =>
+        prev
+          ? applyDecision(prev, id, approve, note, new Date().toISOString())
+          : prev
+      );
+      try {
+        const res = await fetch(
+          `/api/team-activity/unlocks/${encodeURIComponent(id)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(note ? { approve, note } : { approve }),
+          }
+        );
+        if (res.ok) {
+          toast.success(tu(approve ? 'approved' : 'denied'));
+        } else {
+          // Put the row back; the refetch below shows who decided it.
+          setUnlocks(before);
+          toast.error(tu(`errors.${decisionFailure(res.status)}`));
+        }
+      } catch {
+        setUnlocks(before);
+        toast.error(tu('errors.failed'));
+      } finally {
+        setDeciding(null);
+        refetchUnlocks();
+      }
+    },
+    [unlocks, refetchUnlocks, tu]
+  );
 
   const recalculate = useCallback(
     async (channelId: string) => {
@@ -243,6 +376,33 @@ export default function TeamActivityPage() {
     }
     return items;
   }, [report, t]);
+
+  // Names for the blocks and requests: the report's senders (auth
+  // user ids), else a generic label.
+  const nameOf = useCallback(
+    (userId: string | null): string => {
+      const s = userId
+        ? report?.senders.find(
+            (x) => x.kind === 'person' && x.userId === userId
+          )
+        : undefined;
+      return s ? senderName(s) : tb('unknownPerson');
+    },
+    [report, senderName, tb]
+  );
+  const numberOf = useCallback(
+    (channelId: string | null): string | null => {
+      if (!channelId) return null;
+      const n = report?.numbers.find((x) => x.channelId === channelId);
+      return n ? (numberDisplayName(n) ?? null) : null;
+    },
+    [report]
+  );
+  const blocksById = useMemo(
+    () => new Map((blocks ?? []).map((b) => [b.id, b])),
+    [blocks]
+  );
+  const waiting = unlocks ? pendingCount(unlocks) : 0;
 
   const onLimitsSaved = useCallback(
     (limits: TeamActivityLimits) => {
@@ -381,94 +541,142 @@ export default function TeamActivityPage() {
         </div>
       )}
 
-      {!report || !assessment ? (
-        loading && <OverviewSkeleton />
-      ) : (
-        <div
-          className={cn(
-            'space-y-8 transition-opacity',
-            loading && 'opacity-60'
-          )}
-        >
-          {/* 2. */}
-          <AttentionList items={attention} />
-
-          {/* 3. */}
-          <GlanceTiles
-            glance={glanceOf(report)}
-            limits={report.limits}
-            periodLabel={t(
-              `periodsInline.${preset as (typeof PERIODS)[number]}`
+      <Tabs value={tab} onValueChange={(v) => setTab(tabFromParam(String(v)))}>
+        <TabsList>
+          <TabsTrigger value="overview">{tt('overview')}</TabsTrigger>
+          <TabsTrigger value="blocks">{tt('blocks')}</TabsTrigger>
+          <TabsTrigger value="unlocks">
+            {tt('unlocks')}
+            {waiting > 0 && (
+              <span
+                className="bg-destructive ml-1 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold text-white"
+                aria-label={tt('pendingBadge', { count: waiting })}
+              >
+                {waiting}
+              </span>
             )}
-          />
+          </TabsTrigger>
+        </TabsList>
 
-          {/* 4. */}
-          <PeopleGrid
-            people={assessment.people}
-            title={t(team ? 'peopleTeam' : 'people')}
-            onOpen={setOpenPerson}
+        <TabsContent value="blocks" className="pt-4">
+          <BlocksTab
+            blocks={blocks}
+            error={blocksError}
+            onRetry={() => setBlocksKey((k) => k + 1)}
+            nameOf={nameOf}
+            numberOf={numberOf}
           />
-          <AutomaticSenders senders={automatic} findings={assessment.owner} />
+        </TabsContent>
 
-          {/* 5. */}
-          <NumbersPanel
-            numbers={assessment.numbers}
-            report={report}
-            admin={admin}
-            safety={safety}
-            safetyLoading={safetyLoading}
-            recalculating={recalculating}
-            onRecalculate={(id) => void recalculate(id)}
+        <TabsContent value="unlocks" className="pt-4">
+          <UnlocksTab
+            unlocks={unlocks}
+            error={unlocksError}
+            onRetry={refetchUnlocks}
+            blocksById={blocksById}
+            nameOf={nameOf}
+            deciding={deciding}
+            onDecide={(id, approve, note) => void decide(id, approve, note)}
           />
+        </TabsContent>
 
-          {/* 6. */}
-          <Accordion className="border-border bg-card rounded-xl border px-4">
-            <AccordionItem value="charts">
-              <AccordionTrigger className="text-base">
-                {t('chartsTitle')}
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="grid grid-cols-1 gap-4 pt-2 xl:grid-cols-2">
-                  <DailyChart daily={report.daily} />
-                  <HourlyChart hourly={report.hourly} limits={report.limits} />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="how">
-              <AccordionTrigger className="text-base">
-                {th('title')}
-              </AccordionTrigger>
-              <AccordionContent>
-                <ul className="text-muted-foreground list-disc space-y-1.5 pl-5 text-sm">
-                  <li>{th('newChat')}</li>
-                  <li>{th('replied')}</li>
-                  <li>
-                    {th('tenMinutes', { max: limits.maxUnansweredInRow })}
-                  </li>
-                  <li>
-                    {th('limits', {
-                      perPerson: limits.dailyNewChatsPerUser,
-                      perNumber: limits.dailyNewChatsPerNumber,
-                      warm: WARM_UP_DAILY_LIMIT,
-                    })}
-                  </li>
-                  <li>{th('official')}</li>
-                  <li>
-                    {quietOff
-                      ? th('hoursOff')
-                      : th('hours', {
-                          from: hourLabel(limits.quietHoursEnd),
-                          to: hourLabel(limits.quietHoursStart),
+        <TabsContent value="overview" className="pt-4">
+          {!report || !assessment ? (
+            loading && <OverviewSkeleton />
+          ) : (
+            <div
+              className={cn(
+                'space-y-8 transition-opacity',
+                loading && 'opacity-60'
+              )}
+            >
+              {/* 2. */}
+              <AttentionList items={attention} />
+
+              {/* 3. */}
+              <GlanceTiles
+                glance={glanceOf(report)}
+                limits={report.limits}
+                periodLabel={t(
+                  `periodsInline.${preset as (typeof PERIODS)[number]}`
+                )}
+              />
+
+              {/* 4. */}
+              <PeopleGrid
+                people={assessment.people}
+                title={t(team ? 'peopleTeam' : 'people')}
+                onOpen={setOpenPerson}
+              />
+              <AutomaticSenders
+                senders={automatic}
+                findings={assessment.owner}
+              />
+
+              {/* 5. */}
+              <NumbersPanel
+                numbers={assessment.numbers}
+                report={report}
+                admin={admin}
+                safety={safety}
+                safetyLoading={safetyLoading}
+                recalculating={recalculating}
+                onRecalculate={(id) => void recalculate(id)}
+              />
+
+              {/* 6. */}
+              <Accordion className="border-border bg-card rounded-xl border px-4">
+                <AccordionItem value="charts">
+                  <AccordionTrigger className="text-base">
+                    {t('chartsTitle')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="grid grid-cols-1 gap-4 pt-2 xl:grid-cols-2">
+                      <DailyChart daily={report.daily} />
+                      <HourlyChart
+                        hourly={report.hourly}
+                        limits={report.limits}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="how">
+                  <AccordionTrigger className="text-base">
+                    {th('title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <ul className="text-muted-foreground list-disc space-y-1.5 pl-5 text-sm">
+                      <li>{th('newChat')}</li>
+                      <li>{th('replied')}</li>
+                      <li>
+                        {th('tenMinutes', { max: limits.maxUnansweredInRow })}
+                      </li>
+                      <li>
+                        {th('limits', {
+                          perPerson: limits.dailyNewChatsPerUser,
+                          perNumber: limits.dailyNewChatsPerNumber,
+                          warm: WARM_UP_DAILY_LIMIT,
                         })}
-                  </li>
-                  <li>{th('timezone', { timezone: report.tz })}</li>
-                  <li>{th('phone')}</li>
-                </ul>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
-      )}
+                      </li>
+                      <li>{th('official')}</li>
+                      <li>
+                        {quietOff
+                          ? th('hoursOff')
+                          : th('hours', {
+                              from: hourLabel(limits.quietHoursEnd),
+                              to: hourLabel(limits.quietHoursStart),
+                            })}
+                      </li>
+                      <li>{th('timezone', { timezone: report.tz })}</li>
+                      <li>{th('phone')}</li>
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* 7. */}
       {admin && report && (
