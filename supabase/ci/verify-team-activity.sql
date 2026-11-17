@@ -186,7 +186,16 @@ BEGIN
     conv := conv || cv;
   END LOOP;
 
-  INSERT INTO team_activity_settings (account_id, timezone) VALUES (a_acct, 'UTC');
+  -- 204 enforces quiet hours (default 22:00-08:00) and a 10-minute
+  -- burst limit on every start: both depend on the clock the suite runs
+  -- at (today's fixture starts crowd into the last minutes just after
+  -- midnight), and neither is what these checks are about, so they are
+  -- off here; verify-team-activity-enforcement.sql covers them. 206 lets
+  -- an agent read their own report while agent_view_enabled is on; the
+  -- checks below assert the refusal, so the switch is off here.
+  INSERT INTO team_activity_settings
+    (account_id, timezone, enforce_quiet_hours, enforce_burst, agent_view_enabled)
+  VALUES (a_acct, 'UTC', false, false, false);
 
   -- conv1: ag1 opens a new contact at t0, the customer answers an hour
   -- later, ag1 replies an hour after that (60-minute response).
@@ -270,7 +279,8 @@ BEGIN
   r := pg_temp.ta_val('authenticated', u_ag1,
          format('SELECT team_activity_report(%L, %L, %L, NULL)::text', r_from, r_to, 'UTC'));
   n := n + 1;
-  IF r NOT LIKE '%Only owners and admins%' THEN
+  -- Before 206 the wording is 073's; with 206 it is the agent switch's.
+  IF r NOT LIKE '%Only owners and admins%' AND r NOT LIKE '%turned off for agents%' THEN
     failed := array_append(failed, ('agent read the report: ' || left(r, 120))::text);
   END IF;
 
@@ -426,7 +436,7 @@ BEGIN
          $q$SELECT count(*)::text FROM team_activity_chats(%L, %L, 'person', %L, NULL, 'all', 50)$q$,
          r_from, r_to, u_ag1));
   n := n + 1;
-  IF r NOT LIKE '%Only owners and admins%' THEN
+  IF r NOT LIKE '%Only owners and admins%' AND r NOT LIKE '%turned off for agents%' THEN
     failed := array_append(failed, ('agent read the drill-down: ' || coalesce(r, 'null'))::text);
   END IF;
 
@@ -516,12 +526,19 @@ BEGIN
   IF r NOT LIKE '%"blocked": false%' THEN
     failed := array_append(failed, ('another number blocked: ' || r)::text);
   END IF;
-  -- Owners and admins are never refused, even on a number at its limit.
+  -- Since 204 only the owner (rank 5) is exempt: an admin is held to
+  -- the number's limit like everyone else, the owner never.
   r := pg_temp.ta_val('authenticated', u_admin,
          format('SELECT team_activity_start_check(%L, %L)::text', conv[17], w1));
   n := n + 1;
+  IF r NOT LIKE '%"blocked": true%' OR r NOT LIKE '%"reason": "number"%' THEN
+    failed := array_append(failed, ('an admin at the number limit not blocked: ' || r)::text);
+  END IF;
+  r := pg_temp.ta_val('authenticated', u_owner,
+         format('SELECT team_activity_start_check(%L, %L)::text', conv[17], w1));
+  n := n + 1;
   IF r NOT LIKE '%"blocked": false%' THEN
-    failed := array_append(failed, ('an admin was blocked: ' || r)::text);
+    failed := array_append(failed, ('the owner was blocked: ' || r)::text);
   END IF;
 
   UPDATE team_activity_settings SET block_over_limit = false WHERE account_id = a_acct;
@@ -714,9 +731,11 @@ BEGIN
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary, created_at)
   VALUES (u_c0, c_acct, 'meta', 'TC-META', 'x', 'TC-WABA', 'connected', false, now() - interval '40 days')
   RETURNING id INTO mc;
+  -- Quiet hours and the burst limit off (204, clock-dependent; see A).
   INSERT INTO team_activity_settings
-    (account_id, timezone, daily_new_chats_per_user, daily_new_chats_per_number, max_unanswered_in_row)
-  VALUES (c_acct, 'UTC', 2, 12, 3);
+    (account_id, timezone, daily_new_chats_per_user, daily_new_chats_per_number, max_unanswered_in_row,
+     enforce_quiet_hours, enforce_burst)
+  VALUES (c_acct, 'UTC', 2, 12, 3, false, false);
 
   cfrom := today0 - interval '8 days';
   cto   := today0 + interval '1 day';
@@ -1113,10 +1132,11 @@ BEGIN
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary, created_at)
   VALUES (u_d0, d_acct, 'meta', 'TD-META', 'x', 'TD-WABA', 'connected', false, now() - interval '40 days')
   RETURNING id INTO md;
+  -- Quiet hours and the burst limit off (204, clock-dependent; see A).
   INSERT INTO team_activity_settings
     (account_id, timezone, daily_new_chats_per_user, daily_new_chats_per_number,
-     max_unanswered_in_row, block_over_limit)
-  VALUES (d_acct, 'UTC', 2, 3, 3, true);
+     max_unanswered_in_row, block_over_limit, enforce_quiet_hours, enforce_burst)
+  VALUES (d_acct, 'UTC', 2, 3, 3, true, false, false);
 
   tstep := (now() - today0) / 20;
   FOR i IN 1..2 LOOP
