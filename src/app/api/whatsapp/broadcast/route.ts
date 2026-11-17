@@ -8,9 +8,15 @@ import { sendTemplate, describeSendFailure } from '@/lib/whatsapp/provider';
 import {
   resolveChannelForSurface,
   ChannelError,
+  isLinkedDeviceProvider,
 } from '@/lib/whatsapp/channels';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import {
+  checkAutoStartAllowed,
+  numberDailyLimitMessage,
+} from '@/lib/team-activity/auto-guard';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -228,8 +234,23 @@ export async function POST(request: Request) {
     const results: BroadcastResult[] = [];
     let sentCount = 0;
     let failedCount = 0;
+    // Set when the number reached its daily new-chat limit (migration
+    // 204). Every later start on it would be refused too, so the loop
+    // asks no more and reports each remaining recipient as not sent,
+    // with the reason. This route has no recipient rows to resume.
+    let dailyLimit: string | null = null;
 
     for (const recipient of recipients) {
+      if (dailyLimit) {
+        results.push({
+          phone: recipient.phone,
+          status: 'failed',
+          error: dailyLimit,
+        });
+        failedCount++;
+        continue;
+      }
+
       const sanitized = sanitizePhoneForMeta(recipient.phone);
 
       if (!isValidE164(sanitized)) {
@@ -240,6 +261,29 @@ export async function POST(request: Request) {
         });
         failedCount++;
         continue;
+      }
+
+      // A linked-device number's daily new-chat limit, as for every other
+      // automatic sender. The route knows only phone numbers, so the SQL
+      // judges each send with no conversation (as a start). Anything but
+      // a Whapi/OpenWA number is allowed without a round trip.
+      if (isLinkedDeviceProvider(channel.provider)) {
+        const check = await checkAutoStartAllowed(
+          supabaseAdmin(),
+          accountId,
+          null,
+          channel
+        );
+        if (check.blocked) {
+          dailyLimit = numberDailyLimitMessage(check);
+          results.push({
+            phone: recipient.phone,
+            status: 'failed',
+            error: dailyLimit,
+          });
+          failedCount++;
+          continue;
+        }
       }
 
       // Retry with phone variants on "not in allowed list" so numbers

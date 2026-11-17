@@ -15,6 +15,7 @@ const ALLOW = {
   blocked: false,
   isStart: false,
   unlockUsed: false,
+  unlockAvailable: false,
   jev: { enabled: false, minP: 0.85 },
 };
 
@@ -25,6 +26,7 @@ describe('checkHumanSend', () => {
         blocked: false,
         is_start: true,
         unlock_used: false,
+        unlock_available: true,
         jev: { enabled: true, min_p: 0.9 },
       },
       error: null,
@@ -33,6 +35,7 @@ describe('checkHumanSend', () => {
       blocked: false,
       isStart: true,
       unlockUsed: false,
+      unlockAvailable: true,
       jev: { enabled: true, minP: 0.9 },
     });
     expect(db.rpc).toHaveBeenCalledWith('team_activity_start_check', {

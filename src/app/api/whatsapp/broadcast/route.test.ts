@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   provider: 'whapi' as 'whapi' | 'meta',
   template: {} as Record<string, unknown>,
   sendTemplate: vi.fn(),
+  autoCheck: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -32,6 +33,12 @@ vi.mock('@/lib/whatsapp/channels', () => ({
     accessToken: 'tok',
   })),
   ChannelError: class extends Error {},
+  isLinkedDeviceProvider: (p: string) => p === 'whapi' || p === 'openwa',
+}));
+vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => ({}) }));
+vi.mock('@/lib/team-activity/auto-guard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/team-activity/auto-guard')>()),
+  checkAutoStartAllowed: (...args: unknown[]) => h.autoCheck(...args),
 }));
 vi.mock('@/lib/whatsapp/template-body', () => ({
   resolveTemplateRow: vi.fn(async () => ({
@@ -68,6 +75,8 @@ beforeEach(() => {
   h.provider = 'whapi';
   h.template = {};
   h.sendTemplate.mockReset();
+  h.autoCheck.mockReset();
+  h.autoCheck.mockResolvedValue({ blocked: false });
 });
 
 describe('POST /api/whatsapp/broadcast — logging', () => {
@@ -142,6 +151,62 @@ describe('POST /api/whatsapp/broadcast — header media on Meta', () => {
     });
 
     expect(res.status).toBe(200);
+    expect(h.sendTemplate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/whatsapp/broadcast — number daily limit (migration 204)', () => {
+  it('sends nothing once the number is refused, and reports the rest with the reason', async () => {
+    h.sendTemplate.mockResolvedValue({ messageId: 'wamid.1' });
+    h.autoCheck
+      .mockResolvedValueOnce({ blocked: false })
+      .mockResolvedValueOnce({ blocked: true, limit: 50 });
+
+    const res = await post({
+      template_name: 'promo',
+      recipients: [
+        { phone: '+971501234561', params: [] },
+        { phone: '+971501234562', params: [] },
+        { phone: '+971501234563', params: [] },
+      ],
+    });
+    const body = await res.json();
+
+    expect(h.sendTemplate).toHaveBeenCalledTimes(1);
+    expect(h.sendTemplate.mock.calls[0][0]).toMatchObject({
+      to: expect.stringContaining('971501234561'),
+    });
+    // One refusal stops the asking for this number.
+    expect(h.autoCheck).toHaveBeenCalledTimes(2);
+    expect(h.autoCheck).toHaveBeenCalledWith({}, 'acct-1', null, {
+      id: 'cfg-1',
+      provider: 'whapi',
+      phoneNumberId: 'pn-1',
+      accessToken: 'tok',
+    });
+    expect(body).toMatchObject({ success: true, total: 3, sent: 1, failed: 2 });
+    expect(body.results.slice(1)).toEqual([
+      {
+        phone: '+971501234562',
+        status: 'failed',
+        error: expect.stringMatching(/started 50 new chats today/),
+      },
+      {
+        phone: '+971501234563',
+        status: 'failed',
+        error: expect.stringMatching(/started 50 new chats today/),
+      },
+    ]);
+  });
+
+  it('does not ask for a Meta number', async () => {
+    h.provider = 'meta';
+    h.sendTemplate.mockResolvedValue({ messageId: 'wamid.1' });
+    await post({
+      template_name: 'promo',
+      recipients: [{ phone: '+971501234561', params: [] }],
+    });
+    expect(h.autoCheck).not.toHaveBeenCalled();
     expect(h.sendTemplate).toHaveBeenCalledTimes(1);
   });
 });
