@@ -352,10 +352,12 @@ BEGIN
     failed := array_append(failed, ('leader B report: ' || left(rep::text, 300))::text);
   END IF;
 
-  -- An agent is refused.
+  -- An agent reads their own figures only (206: scope 'self').
   r := pg_temp.lt_val('authenticated', u_x, q);
   n := n + 1;
-  IF r NOT LIKE 'ERROR 42501:%' THEN
+  IF r IS NULL OR r LIKE 'ERROR%'
+     OR (r::jsonb ->> 'scope') IS DISTINCT FROM 'self'
+     OR pg_temp.lt_ids(r::jsonb, 'senders') IS DISTINCT FROM 'person:' || u_x::text THEN
     failed := array_append(failed, ('agent read the report: ' || left(coalesce(r, 'null'), 120))::text);
   END IF;
 
@@ -416,9 +418,10 @@ BEGIN
   END IF;
   r := pg_temp.lt_val('authenticated', u_x, format(
          $q$SELECT count(*)::text FROM team_activity_chats(%L, %L, 'person', %L, NULL, 'all', 50)$q$,
-         r_from, r_to, u_x));
+         r_from, r_to, u_a1));
   n := n + 1;
-  IF r NOT LIKE 'ERROR 42501:%' THEN
+  -- 206: an agent drills into their own starts only.
+  IF r NOT LIKE 'ERROR 22023:%' THEN
     failed := array_append(failed, ('agent read the drill-down: ' || coalesce(r, 'null'))::text);
   END IF;
 
