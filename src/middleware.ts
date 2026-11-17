@@ -89,6 +89,7 @@ export async function middleware(request: NextRequest) {
     '/contacts',
     '/team-contacts',
     '/team-activity',
+    '/my-activity',
     '/pipelines',
     '/broadcasts',
     '/automations',

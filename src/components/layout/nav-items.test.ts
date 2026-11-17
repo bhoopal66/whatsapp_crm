@@ -37,7 +37,15 @@ const AGENT = {
   submissions: ['/cases', '/submission-groups', '/banks'],
 };
 
-const TEAM = ['/team-inbox', '/team-contacts', '/team-activity'];
+const TEAM = [
+  '/team-inbox',
+  '/team-contacts',
+  '/team-activity',
+  '/my-activity',
+];
+
+/** An agent's own figures: the one team-group row below team leader. */
+const SELF = ['/my-activity'];
 
 /** The HR group (migration 200), as an owner or admin sees it. */
 const HR_ALL = [
@@ -70,9 +78,9 @@ describe('visibleNavGroups', () => {
   it.each([
     [null, VIEWER],
     ['viewer', VIEWER],
-    ['agent', AGENT],
+    ['agent', { ...AGENT, team: SELF }],
   ] as const)(
-    'gives %s its groups, with no team or admin views',
+    'gives %s its groups, with no team-wide or admin views',
     (role, groups) => {
       expect(layout(visibleNavGroups(role))).toEqual(groups);
     }
@@ -294,7 +302,7 @@ describe('visibleNavGroups', () => {
 
     it('opens nothing outside the HR group', () => {
       const all = visibleNavGroups('agent', { hrRoles: roles('lead', 'lead') });
-      expect(layout(all)).toEqual({ ...AGENT, hr: HR_ALL });
+      expect(layout(all)).toEqual({ ...AGENT, team: SELF, hr: HR_ALL });
     });
   });
 
@@ -428,6 +436,7 @@ describe('navPrefetch', () => {
         ...HR_ALL,
         '/journeys',
         '/meetings',
+        '/my-activity',
         '/opendesk',
         '/submission-groups',
         '/team-activity',

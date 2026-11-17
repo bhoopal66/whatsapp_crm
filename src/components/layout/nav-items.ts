@@ -31,6 +31,7 @@ import {
   MessageSquareText,
   Rocket,
   SlidersHorizontal,
+  UserCheck,
   UserSearch,
 } from 'lucide-react';
 
@@ -342,6 +343,16 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'teamActivity',
         icon: Activity,
         minRole: 'team_leader',
+        guarded: true,
+      },
+      // A person's own figures against those limits, their blocked sends
+      // and unlock requests (migration 205). The route's layout is the
+      // agent+ guard; the report route answers 403 while switched off.
+      {
+        href: '/my-activity',
+        labelKey: 'myActivity',
+        icon: UserCheck,
+        minRole: 'agent',
         guarded: true,
       },
     ],

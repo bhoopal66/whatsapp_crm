@@ -47,6 +47,7 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/pipelines', 'pipelines'],
   ['/journeys', 'journeys'],
   ['/team-activity', 'teamActivity'],
+  ['/my-activity', 'myActivity'],
   ['/broadcasts', 'broadcasts'],
   ['/automations', 'automations'],
   ['/flows', 'flows'],
