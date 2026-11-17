@@ -6,6 +6,7 @@ import {
   canSyncGroups,
   canViewGroup,
   groupActionBlock,
+  isGroupCapableNumber,
 } from './access';
 
 const g = { createdBy: 'u1', managerIds: ['u2'], channelId: 'c1' };
@@ -91,6 +92,23 @@ describe('canManageGroup', () => {
         })
       ).toBe(false);
     }
+  });
+});
+
+describe('isGroupCapableNumber (208)', () => {
+  it('Whapi and company OpenWA, never personal OpenWA or Meta', () => {
+    expect(
+      isGroupCapableNumber({ provider: 'whapi', is_personal: false })
+    ).toBe(true);
+    expect(
+      isGroupCapableNumber({ provider: 'openwa', is_personal: false })
+    ).toBe(true);
+    expect(
+      isGroupCapableNumber({ provider: 'openwa', is_personal: true })
+    ).toBe(false);
+    expect(isGroupCapableNumber({ provider: 'meta', is_personal: false })).toBe(
+      false
+    );
   });
 });
 

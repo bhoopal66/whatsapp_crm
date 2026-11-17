@@ -1,5 +1,5 @@
 /**
- * Who may see, manage and create a WhatsApp group. Mirror of 114
+ * Who may see, manage and create a WhatsApp group. Mirror of 114 and 208
  * (whatsapp_group_visible_ids / _manageable_ids / _can_create) — change
  * both. It informs UI and route decisions only; the database decides.
  */
@@ -67,7 +67,23 @@ export function canManageGroup(args: {
   );
 }
 
-/** Agent and up, on a number they may use. */
+/**
+ * May this number host a group? A Whapi number, or a company (not
+ * personal, 190) OpenWA number; never Meta. Mirror of 208's
+ * whatsapp_group_can_create / whatsapp_groups_guard — change both.
+ */
+export function isGroupCapableNumber(number: {
+  provider: string;
+  is_personal?: boolean | null;
+}): boolean {
+  if (number.provider === 'whapi') return true;
+  return number.provider === 'openwa' && !number.is_personal;
+}
+
+/**
+ * Agent and up, on a number they may use. The number's kind is checked
+ * by isGroupCapableNumber, which narrows usableChannelIds first.
+ */
 export function canCreateGroup(
   role: AccountRole,
   channelId: string | null,
