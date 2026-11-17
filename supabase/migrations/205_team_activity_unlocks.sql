@@ -8,7 +8,11 @@
 --   1. team_activity_unlocks: one row per request, at most one
 --      pending per (person, chat). An approval lasts 2 hours; 204's
 --      start_check spends it (status 'used') on that person's next
---      send in that chat. An approved row past expires_at is simply
+--      send in that chat that a rule would block, and otherwise
+--      reports it (unlock_available) so the app spends it through
+--      team_activity_use_unlock when Jev would block, and gives it back
+--      through team_activity_release_unlock when the gateway then
+--      refuses the message. An approved row past expires_at is simply
 --      expired: readers treat it so, and the functions below mark it
 --      lazily.
 --   2. team_activity_request_unlock(block, reason) and
@@ -22,8 +26,9 @@
 --      requester) and team_activity_unlock_decided (the requester).
 --      The reason never goes in a bell: a lock screen shows it. Change
 --      them together with hrefFor, PUSH_KINDS and kindGroup.
---   4. team_activity_my_day: 204's body, its 'started' figure now
---      leaving out personal numbers, as the enforcement does.
+--   4. team_activity_use_unlock / team_activity_release_unlock.
+--   (team_activity_my_day has one body, in 204: a copy here would be
+--   reverted by re-applying 204.)
 --
 -- Re-runnable. Apply after 204.
 -- ============================================================
@@ -214,6 +219,18 @@ BEGIN
     RAISE EXCEPTION 'Only the person who was blocked can ask to unlock'
       USING ERRCODE = '42501', HINT = 'not_allowed';
   END IF;
+  -- Only for a chat the requester can still see.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = v_block.conversation_id
+      AND c.account_id = v_account
+      AND (public.can_view_conversation(c.account_id, c.user_id, c.assigned_agent_id,
+                                        c.channel_id, c.send_channel_id)
+           OR public.coordinator_share_grants(c.id))
+  ) THEN
+    RAISE EXCEPTION 'Not allowed'
+      USING ERRCODE = '42501', HINT = 'not_allowed';
+  END IF;
 
   SELECT * INTO v_cfg FROM public.team_activity_limits(v_account);
   IF NOT coalesce(v_cfg.allow_unlock_requests, true) THEN
@@ -392,118 +409,82 @@ REVOKE ALL ON FUNCTION public.team_activity_decide_unlock(uuid, boolean, text) F
 GRANT EXECUTE ON FUNCTION public.team_activity_decide_unlock(uuid, boolean, text) TO authenticated;
 
 -- ------------------------------------------------------------
--- 5. The employee's day: 204's body, with 'started' (and the figures
---    drawn from the same set) leaving out personal numbers.
+-- 5. Spending and giving back, for the app. start_check spends an
+--    unlock itself when one of its rules blocks; when only Jev (decided
+--    in TypeScript) would block, the app spends it here. If the gateway
+--    then refuses the message, the app gives it back.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.team_activity_my_day(p_tz text DEFAULT NULL)
-RETURNS jsonb
+CREATE OR REPLACE FUNCTION public.team_activity_use_unlock(p_conversation uuid)
+RETURNS boolean
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = ''
 AS $$
 DECLARE
-  v_uid       uuid := auth.uid();
-  v_account   uuid := current_account_id();
-  v_cfg       record;
-  v_tz        text;
-  v_today     timestamptz;
-  v_result    jsonb;
-  v_rr_starts integer;
-  v_rr_replied integer;
-  v_throttled boolean := false;
-  v_effective integer;
+  v_uid     uuid := auth.uid();
+  v_account uuid := public.current_account_id();
+  v_id      uuid;
 BEGIN
-  IF v_uid IS NULL OR v_account IS NULL THEN
-    RAISE EXCEPTION 'Not a member of an account' USING ERRCODE = '42501';
+  IF v_uid IS NULL OR v_account IS NULL OR p_conversation IS NULL THEN
+    RETURN false;
   END IF;
-
-  SELECT * INTO v_cfg FROM team_activity_limits(v_account);
-  v_tz := coalesce(v_cfg.timezone, team_activity_valid_zone(p_tz), 'UTC');
-  v_today := date_trunc('day', now() AT TIME ZONE v_tz) AT TIME ZONE v_tz;
-
-  v_effective := v_cfg.daily_new_chats_per_user;
-  IF v_cfg.enforce_reply_rate THEN
-    SELECT r.starts, r.replied INTO v_rr_starts, v_rr_replied
-    FROM team_activity_user_reply_rate(v_account, v_uid) r;
-    IF v_rr_starts >= 5 AND v_rr_replied * 100.0 / nullif(v_rr_starts, 0) < v_cfg.min_reply_rate THEN
-      v_throttled := true;
-      v_effective := ceil(v_effective * v_cfg.reply_rate_throttle_pct / 100.0)::integer;
-    END IF;
-  END IF;
-
-  WITH s AS (
-    SELECT * FROM team_activity_starts(v_account, v_today, 'infinity')
-  ),
-  -- The per-person limit protects the phone numbers (Whapi and
-  -- OpenWA): only chats this person started on one count towards it.
-  mine AS (
-    SELECT * FROM s
-    WHERE s.sender_type = 'agent' AND s.sender_id = v_uid AND s.provider IN ('whapi', 'openwa')
-      -- 205: a personal number is outside the restrictions, so it is
-      -- outside the figure the composer compares with the limit.
-      AND NOT EXISTS (SELECT 1 FROM whatsapp_config pw
-                      WHERE pw.id = s.channel_id AND coalesce(pw.is_personal, false))
-  )
-  SELECT jsonb_build_object(
-    'tz', v_tz,
-    'day', (now() AT TIME ZONE v_tz)::date,
-    'started', (SELECT count(*) FROM mine),
-    'new_contacts', (SELECT count(*) FROM mine WHERE mine.new_contact),
-    'no_reply', (SELECT count(*) FROM mine WHERE NOT mine.replied),
-    'numbers', coalesce((
-      -- effective_daily_limit: a phone number's limit today (lower
-      -- while it warms up); NULL for an official number, which has none.
-      SELECT jsonb_agg(jsonb_build_object(
-        'channel_id', x.channel_id, 'started', x.n,
-        'warming_up', w.provider IN ('whapi', 'openwa')
-                      AND coalesce(now() - w.created_at < interval '14 days', false),
-        'effective_daily_limit', CASE WHEN w.provider IN ('whapi', 'openwa') THEN
-          team_activity_number_limit(w.created_at, v_cfg.daily_new_chats_per_number) END))
-      FROM (
-        SELECT s.channel_id, count(*) AS n
-        FROM s WHERE s.channel_id IS NOT NULL
-        GROUP BY s.channel_id
-      ) x
-      JOIN whatsapp_config w ON w.id = x.channel_id
-    ), '[]'::jsonb),
-    'limits', jsonb_build_object(
-      'daily_new_chats_per_user', v_cfg.daily_new_chats_per_user,
-      'daily_new_chats_per_number', v_cfg.daily_new_chats_per_number,
-      'max_unanswered_in_row', v_cfg.max_unanswered_in_row,
-      'block_over_limit', v_cfg.block_over_limit
-    ),
-    -- Whether the restrictions apply to this caller at all.
-    'blocked_when_over', v_cfg.block_over_limit AND current_role_rank() < 5,
-    'restrictions', jsonb_build_object(
-      'on', v_cfg.block_over_limit,
-      'owner_exempt', coalesce(current_role_rank() >= 5, false),
-      'rules', jsonb_build_object(
-        'daily_user', v_cfg.enforce_daily_user,
-        'daily_number', v_cfg.enforce_daily_number,
-        'burst', v_cfg.enforce_burst,
-        'quiet_hours', v_cfg.enforce_quiet_hours,
-        'chase', v_cfg.enforce_chase,
-        'links_first', v_cfg.enforce_links_first,
-        'same_opener', v_cfg.enforce_same_opener,
-        'reply_rate', v_cfg.enforce_reply_rate,
-        'jev', v_cfg.enforce_jev),
-      'quiet_hours', jsonb_build_object(
-        'start', v_cfg.quiet_hours_start,
-        'end', v_cfg.quiet_hours_end,
-        'tz', coalesce(v_cfg.timezone, 'UTC')),
-      'effective_user_limit', v_effective,
-      'throttled', v_throttled,
-      'same_opener_max', v_cfg.same_opener_max,
-      'burst_limit', v_cfg.burst_new_chats_10min,
-      'max_unanswered_in_row', v_cfg.max_unanswered_in_row,
-      'unlock_requests', v_cfg.allow_unlock_requests)
-  )
-  INTO v_result;
-
-  RETURN v_result;
+  -- Exactly once, as start_check's own spend.
+  UPDATE public.team_activity_unlocks
+     SET status = 'used', used_at = now()
+   WHERE id = (
+     SELECT u.id FROM public.team_activity_unlocks u
+     WHERE u.requester_id = v_uid
+       AND u.conversation_id = p_conversation
+       AND u.account_id = v_account
+       AND u.status = 'approved'
+       AND u.used_at IS NULL
+       AND u.expires_at > now()
+     ORDER BY u.decided_at
+     LIMIT 1
+     FOR UPDATE SKIP LOCKED)
+  RETURNING id INTO v_id;
+  RETURN v_id IS NOT NULL;
 END
 $$;
 
-REVOKE ALL ON FUNCTION public.team_activity_my_day(text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.team_activity_my_day(text) TO authenticated;
+REVOKE ALL ON FUNCTION public.team_activity_use_unlock(uuid) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.team_activity_use_unlock(uuid) TO authenticated;
+
+-- The caller's most recently spent unlock for the chat, if spent in the
+-- last 10 minutes and still before its expiry, goes back to approved.
+CREATE OR REPLACE FUNCTION public.team_activity_release_unlock(p_conversation uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_account uuid := public.current_account_id();
+  v_id      uuid;
+BEGIN
+  IF v_uid IS NULL OR v_account IS NULL OR p_conversation IS NULL THEN
+    RETURN false;
+  END IF;
+  UPDATE public.team_activity_unlocks
+     SET status = 'approved', used_at = NULL
+   WHERE id = (
+     SELECT u.id FROM public.team_activity_unlocks u
+     WHERE u.requester_id = v_uid
+       AND u.conversation_id = p_conversation
+       AND u.account_id = v_account
+       AND u.status = 'used'
+       AND u.used_at > now() - interval '10 minutes'
+       AND u.expires_at > now()
+     ORDER BY u.used_at DESC
+     LIMIT 1
+     FOR UPDATE SKIP LOCKED)
+  RETURNING id INTO v_id;
+  RETURN v_id IS NOT NULL;
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.team_activity_release_unlock(uuid) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.team_activity_release_unlock(uuid) TO authenticated;

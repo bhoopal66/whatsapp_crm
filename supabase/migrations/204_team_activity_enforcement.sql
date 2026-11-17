@@ -18,7 +18,11 @@
 --      text), readable by the person, their leader and owners/admins.
 --   4. team_activity_start_check(conversation, channel, text) runs
 --      the rules in order (chase, quiet hours, daily per person,
---      daily per number, burst, link first, same opener); the 2-arg
+--      daily per number, burst, link first, same opener). Chase counts
+--      only the last 7 days; quiet hours apply only once an admin has
+--      saved the settings (an unsaved account's zone is UTC, which put
+--      Dubai's working morning in the window). An approved unlock is
+--      spent only when a rule would block; the 2-arg
 --      073/145 signature stays as a wrapper so the build that is live
 --      between this migration and the deploy keeps working.
 --   5. team_activity_record_block (the Jev cold-pitch block, decided
@@ -276,6 +280,7 @@ DECLARE
   v_in_scope   boolean := false;
   v_is_start   boolean := false;
   v_unlock     uuid;
+  v_unlock_ok  boolean := false;
   v_last_by    text;
   v_last_at    timestamptz;
   v_cust_at    timestamptz;
@@ -340,32 +345,8 @@ BEGIN
   IF NOT v_in_scope THEN
     RETURN jsonb_build_object(
       'blocked', false, 'is_start', v_is_start, 'unlock_used', false,
+      'unlock_available', false,
       'jev', jsonb_build_object('enabled', false, 'min_p', v_min_p));
-  END IF;
-
-  -- Rule 0: an approved, unused, unexpired unlock lets this one send
-  -- through, past every rule (Jev included). 205's table.
-  IF to_regclass('public.team_activity_unlocks') IS NOT NULL THEN
-    EXECUTE $q$
-      UPDATE public.team_activity_unlocks
-         SET status = 'used', used_at = now()
-       WHERE id = (
-         SELECT u.id FROM public.team_activity_unlocks u
-         WHERE u.requester_id = $1
-           AND u.conversation_id = $2
-           AND u.status = 'approved'
-           AND u.used_at IS NULL
-           AND u.expires_at > now()
-         ORDER BY u.decided_at
-         LIMIT 1
-         FOR UPDATE SKIP LOCKED)
-      RETURNING id
-    $q$ INTO v_unlock USING v_uid, p_conversation;
-    IF v_unlock IS NOT NULL THEN
-      RETURN jsonb_build_object(
-        'blocked', false, 'is_start', v_is_start, 'unlock_used', true,
-        'jev', jsonb_build_object('enabled', false, 'min_p', v_min_p));
-    END IF;
   END IF;
 
   v_tz := coalesce(v_cfg.timezone, 'UTC');
@@ -375,7 +356,8 @@ BEGIN
   BEGIN
     -- 1. Chasing a customer who has not answered. Outbound messages
     --    since their last message (or ever); messages under 10
-    --    minutes after the previous outbound are one step.
+    --    minutes after the previous outbound are one step. Only the
+    --    last 7 days count, so old campaign sends never lock a chat.
     IF v_cfg.enforce_chase AND v_last_by IS DISTINCT FROM 'customer' THEN
       SELECT max(m.created_at) INTO v_cust_at
       FROM public.messages m
@@ -394,6 +376,7 @@ BEGIN
           AND m.sender_type <> 'customer'
           AND m.status <> 'failed'
           AND (v_cust_at IS NULL OR m.created_at > v_cust_at)
+          AND m.created_at > now() - interval '7 days'
       ) o;
       v_steps := coalesce(v_steps, 0);
       IF v_last_out IS NULL OR now() - v_last_out >= interval '10 minutes' THEN
@@ -412,7 +395,9 @@ BEGIN
     END IF;
 
     -- 2. Quiet hours, local time; equal hours = off; wraps midnight.
-    IF v_cfg.enforce_quiet_hours AND v_cfg.quiet_hours_start <> v_cfg.quiet_hours_end THEN
+    --    Only once an admin saved the settings: an unsaved account's
+    --    zone is UTC, not where its people work.
+    IF v_cfg.saved AND v_cfg.enforce_quiet_hours AND v_cfg.quiet_hours_start <> v_cfg.quiet_hours_end THEN
       v_hour := extract(hour FROM now() AT TIME ZONE v_tz)::integer;
       IF (v_cfg.quiet_hours_start < v_cfg.quiet_hours_end
             AND v_hour >= v_cfg.quiet_hours_start AND v_hour < v_cfg.quiet_hours_end)
@@ -526,9 +511,52 @@ BEGIN
     END IF;
   END rules;
 
+  -- Unlocks (205's table): an approved, unused, unexpired one is spent
+  -- only when a rule would block; otherwise it is only reported, so the
+  -- app can spend it (team_activity_use_unlock) if Jev would block.
+  IF to_regclass('public.team_activity_unlocks') IS NOT NULL THEN
+    IF v_rule IS NOT NULL THEN
+      EXECUTE $q$
+        UPDATE public.team_activity_unlocks
+           SET status = 'used', used_at = now()
+         WHERE id = (
+           SELECT u.id FROM public.team_activity_unlocks u
+           WHERE u.requester_id = $1
+             AND u.conversation_id = $2
+             AND u.account_id = $3
+             AND u.status = 'approved'
+             AND u.used_at IS NULL
+             AND u.expires_at > now()
+           ORDER BY u.decided_at
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED)
+        RETURNING id
+      $q$ INTO v_unlock USING v_uid, p_conversation, v_account;
+      IF v_unlock IS NOT NULL THEN
+        -- Past every rule, Jev included.
+        RETURN jsonb_build_object(
+          'blocked', false, 'is_start', v_is_start, 'unlock_used', true,
+          'unlock_available', false,
+          'jev', jsonb_build_object('enabled', false, 'min_p', v_min_p));
+      END IF;
+    ELSE
+      EXECUTE $q$
+        SELECT EXISTS (
+          SELECT 1 FROM public.team_activity_unlocks u
+          WHERE u.requester_id = $1
+            AND u.conversation_id = $2
+            AND u.account_id = $3
+            AND u.status = 'approved'
+            AND u.used_at IS NULL
+            AND u.expires_at > now())
+      $q$ INTO v_unlock_ok USING v_uid, p_conversation, v_account;
+    END IF;
+  END IF;
+
   IF v_rule IS NULL THEN
     RETURN jsonb_build_object(
       'blocked', false, 'is_start', v_is_start, 'unlock_used', false,
+      'unlock_available', coalesce(v_unlock_ok, false),
       'jev', jsonb_build_object(
         'enabled', v_cfg.enforce_jev AND v_is_start, 'min_p', v_min_p));
   END IF;
@@ -617,6 +645,11 @@ BEGIN
   IF p_rule IS DISTINCT FROM 'jev_cold_pitch' THEN
     RAISE EXCEPTION 'Only jev_cold_pitch is recorded here' USING ERRCODE = '22023';
   END IF;
+  -- Only Jev's probability is stored: nothing a client could stuff in.
+  IF jsonb_typeof(p_detail) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(p_detail -> 'p') IS DISTINCT FROM 'number' THEN
+    RAISE EXCEPTION 'detail must be {"p": <number>}' USING ERRCODE = '22023';
+  END IF;
 
   SELECT c.account_id, coalesce(p_channel_id, c.send_channel_id, c.channel_id)
     INTO v_account, v_ch
@@ -624,6 +657,17 @@ BEGIN
   WHERE c.id = p_conversation;
   IF v_account IS NULL OR v_account IS DISTINCT FROM public.current_account_id() THEN
     RAISE EXCEPTION 'Conversation not found' USING ERRCODE = 'P0002';
+  END IF;
+  -- Only a chat the caller can see (the conversations policy's company
+  -- branch, coordinator shares included).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = p_conversation
+      AND (public.can_view_conversation(c.account_id, c.user_id, c.assigned_agent_id,
+                                        c.channel_id, c.send_channel_id)
+           OR public.coordinator_share_grants(c.id))
+  ) THEN
+    RAISE EXCEPTION 'Not allowed' USING ERRCODE = '42501', HINT = 'not_allowed';
   END IF;
   -- Only a number of the same account is recorded.
   IF v_ch IS NOT NULL AND NOT EXISTS (
@@ -635,7 +679,7 @@ BEGIN
   INSERT INTO public.team_activity_blocks
     (account_id, user_id, conversation_id, channel_id, rule, source, detail)
   VALUES (v_account, v_uid, p_conversation, v_ch, 'jev_cold_pitch', 'human',
-          CASE WHEN jsonb_typeof(p_detail) = 'object' THEN p_detail ELSE '{}'::jsonb END)
+          jsonb_build_object('p', (p_detail ->> 'p')::numeric))
   RETURNING id INTO v_id;
   RETURN v_id;
 END
@@ -805,6 +849,10 @@ BEGIN
   mine AS (
     SELECT * FROM s
     WHERE s.sender_type = 'agent' AND s.sender_id = v_uid AND s.provider IN ('whapi', 'openwa')
+      -- A personal number is outside the restrictions, so it is
+      -- outside the figure the composer compares with the limit.
+      AND NOT EXISTS (SELECT 1 FROM whatsapp_config pw
+                      WHERE pw.id = s.channel_id AND coalesce(pw.is_personal, false))
   )
   SELECT jsonb_build_object(
     'tz', v_tz,
@@ -843,7 +891,8 @@ BEGIN
         'daily_user', v_cfg.enforce_daily_user,
         'daily_number', v_cfg.enforce_daily_number,
         'burst', v_cfg.enforce_burst,
-        'quiet_hours', v_cfg.enforce_quiet_hours,
+        -- Not before an admin saved the settings (start_check's rule).
+        'quiet_hours', v_cfg.enforce_quiet_hours AND v_cfg.saved,
         'chase', v_cfg.enforce_chase,
         'links_first', v_cfg.enforce_links_first,
         'same_opener', v_cfg.enforce_same_opener,
