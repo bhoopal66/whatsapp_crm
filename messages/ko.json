@@ -4771,6 +4771,74 @@
       "denied": "요청이 거절되었습니다.",
       "deniedNote": "요청이 거절되었습니다: {note}",
       "expired": "이 잠금 해제는 만료되었거나 이미 사용되었습니다. 아직 필요하면 다시 요청하세요."
+    },
+    "tabs": {
+      "overview": "개요",
+      "blocks": "차단된 발송",
+      "unlocks": "잠금 해제 요청",
+      "pendingBadge": "{count, plural, other {대기 중인 요청 #건}}"
+    },
+    "blocksTab": {
+      "total": "{count, plural, =0 {이 기간에 차단된 발송이 없습니다.} other {이 기간에 발송 #건이 차단되었습니다.}}",
+      "byRule": "규칙별",
+      "byPerson": "사람별",
+      "listTitle": "차단된 발송",
+      "empty": "이 기간에 차단된 것이 없습니다.",
+      "loadFailed": "차단된 발송을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "automatic": "자동 발송",
+      "unknownPerson": "팀원",
+      "openChat": "채팅 열기",
+      "colTime": "시간",
+      "colPerson": "누가",
+      "colNumber": "번호",
+      "colRule": "차단 이유",
+      "rules": {
+        "chase": "답장 없이 계속 연락",
+        "quiet_hours": "조용한 시간",
+        "daily_user": "일일 한도(사람)",
+        "daily_user_throttled": "낮춰진 일일 한도",
+        "daily_number": "일일 한도(번호)",
+        "burst": "짧은 시간에 너무 많이",
+        "link_first": "첫 메시지의 링크",
+        "same_opener": "같은 첫 메시지",
+        "jev_cold_pitch": "요청하지 않은 판매 권유"
+      }
+    },
+    "unlocksTab": {
+      "pendingTitle": "결정 대기 중",
+      "pendingEmpty": "대기 중인 요청이 없습니다.",
+      "decidedTitle": "최근 결정",
+      "decidedEmpty": "아직 결정된 요청이 없습니다.",
+      "loadFailed": "잠금 해제 요청을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "reason": "이유: {reason}",
+      "approve": "승인",
+      "deny": "거절",
+      "openChat": "채팅 열기",
+      "approveTitle": "이 잠금 해제를 승인할까요?",
+      "denyTitle": "이 잠금 해제를 거절할까요?",
+      "approveDescription": "{name}님이 이 메시지를 한 번 보낼 수 있습니다.",
+      "denyDescription": "{name}님은 이 채팅에서 계속 차단됩니다.",
+      "noteLabel": "메모(선택)",
+      "notePlaceholder": "요청한 사람에게 남길 말",
+      "cancel": "취소",
+      "note": "메모: {note}",
+      "approved": "잠금 해제를 승인했습니다.",
+      "denied": "잠금 해제를 거절했습니다.",
+      "status": {
+        "pending": "대기 중",
+        "approved": "승인됨",
+        "denied": "거절됨",
+        "used": "사용됨",
+        "expired": "만료됨"
+      },
+      "errors": {
+        "conflict": "다른 사람이 이미 이 요청을 결정했습니다.",
+        "forbidden": "이 요청을 결정할 수 없습니다.",
+        "notFound": "이 요청은 더 이상 없습니다.",
+        "failed": "결정을 저장하지 못했습니다. 다시 시도하세요."
+      }
     }
   },
   "AiAgents": {

@@ -4771,6 +4771,74 @@
       "denied": "Your request was declined.",
       "deniedNote": "Your request was declined: {note}",
       "expired": "This unlock has expired or was already used. Ask again if you still need it."
+    },
+    "tabs": {
+      "overview": "Overview",
+      "blocks": "Blocked sends",
+      "unlocks": "Unlock requests",
+      "pendingBadge": "{count, plural, one {# request waiting} other {# requests waiting}}"
+    },
+    "blocksTab": {
+      "total": "{count, plural, =0 {No sends were blocked in this period.} one {# send was blocked in this period.} other {# sends were blocked in this period.}}",
+      "byRule": "By rule",
+      "byPerson": "By person",
+      "listTitle": "Blocked sends",
+      "empty": "Nothing was blocked in this period.",
+      "loadFailed": "Could not load the blocked sends.",
+      "retry": "Try again",
+      "automatic": "Automatic sender",
+      "unknownPerson": "Team member",
+      "openChat": "Open chat",
+      "colTime": "Time",
+      "colPerson": "Who",
+      "colNumber": "Number",
+      "colRule": "Why it was blocked",
+      "rules": {
+        "chase": "Chasing without a reply",
+        "quiet_hours": "Quiet hours",
+        "daily_user": "Daily limit (person)",
+        "daily_user_throttled": "Lowered daily limit",
+        "daily_number": "Daily limit (number)",
+        "burst": "Too many at once",
+        "link_first": "Link in a first message",
+        "same_opener": "Same first message",
+        "jev_cold_pitch": "Unasked sales pitch"
+      }
+    },
+    "unlocksTab": {
+      "pendingTitle": "Waiting for you",
+      "pendingEmpty": "No requests are waiting.",
+      "decidedTitle": "Recently decided",
+      "decidedEmpty": "No decided requests yet.",
+      "loadFailed": "Could not load the unlock requests.",
+      "retry": "Try again",
+      "reason": "Reason: {reason}",
+      "approve": "Approve",
+      "deny": "Deny",
+      "openChat": "Open chat",
+      "approveTitle": "Approve this unlock?",
+      "denyTitle": "Deny this unlock?",
+      "approveDescription": "{name} may send this one message once.",
+      "denyDescription": "{name} stays blocked in this chat.",
+      "noteLabel": "Note (optional)",
+      "notePlaceholder": "A word for the person who asked",
+      "cancel": "Cancel",
+      "note": "Note: {note}",
+      "approved": "Unlock approved.",
+      "denied": "Unlock denied.",
+      "status": {
+        "pending": "Waiting",
+        "approved": "Approved",
+        "denied": "Denied",
+        "used": "Used",
+        "expired": "Expired"
+      },
+      "errors": {
+        "conflict": "Someone else already decided this request.",
+        "forbidden": "You cannot decide this request.",
+        "notFound": "This request no longer exists.",
+        "failed": "Could not save the decision. Try again."
+      }
     }
   },
   "AiAgents": {
