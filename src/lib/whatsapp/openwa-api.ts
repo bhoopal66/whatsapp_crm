@@ -1128,6 +1128,11 @@ export const OPENWA_WEBHOOK_EVENTS = [
   'message.ack',
   'message.failed',
   'session.status',
+  // WhatsApp groups (migration 114), company numbers only.
+  'group.join',
+  'group.leave',
+  'group.join_request',
+  'group.update',
 ] as const;
 
 export async function createWebhook(args: {

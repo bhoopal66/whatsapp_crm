@@ -462,3 +462,157 @@ describe('normalizeOpenWAWebhook — own sends (message.sent)', () => {
     expect(out.messages).toEqual([]);
   });
 });
+
+describe('OpenWA group traffic (migration 114)', () => {
+  const groupMessage = (over: Record<string, unknown> = {}) => ({
+    event: 'message.received',
+    timestamp: '2026-11-17T08:00:00.000Z',
+    sessionId: SESSION,
+    data: {
+      id: 'grp-msg-1',
+      from: '120363000000000001@g.us',
+      chatId: '120363000000000001@g.us',
+      author: '971500000001@c.us',
+      isGroup: true,
+      kind: 'group',
+      fromMe: false,
+      type: 'text',
+      body: 'hello group',
+      contact: { pushName: 'Sara' },
+      timestamp: 1_763_366_400,
+      ...over,
+    },
+  });
+
+  it('turns a group message into a GroupInboundMessage, never an inbox message', () => {
+    const out = normalizeOpenWAWebhook(groupMessage());
+    expect(out.messages).toEqual([]);
+    expect(out.groupMessages).toEqual([
+      {
+        id: 'grp-msg-1',
+        waGroupId: '120363000000000001@g.us',
+        fromMe: false,
+        senderWaId: '971500000001',
+        senderName: 'Sara',
+        type: 'text',
+        body: 'hello group',
+        media: null,
+        sentAt: new Date(1_763_366_400 * 1000).toISOString(),
+      },
+    ]);
+  });
+
+  it('keeps an @lid sender as <digits>@lid, and prefers its phone when resolved', () => {
+    const lid = normalizeOpenWAWebhook(
+      groupMessage({ author: '123456789012345@lid' })
+    );
+    expect(lid.groupMessages[0].senderWaId).toBe('123456789012345@lid');
+    const phone = normalizeOpenWAWebhook(
+      groupMessage({
+        author: '123456789012345@lid',
+        senderPhone: '971500000002',
+      })
+    );
+    expect(phone.groupMessages[0].senderWaId).toBe('971500000002');
+  });
+
+  it('keeps type and caption of an attachment, with no media link', () => {
+    const out = normalizeOpenWAWebhook(
+      groupMessage({
+        type: 'image',
+        body: 'caption',
+        media: { mimetype: 'image/jpeg' },
+      })
+    );
+    expect(out.groupMessages[0]).toMatchObject({
+      type: 'image',
+      body: 'caption',
+      media: null,
+    });
+  });
+
+  it('records our own send into a group (message.sent) as fromMe', () => {
+    const out = normalizeOpenWAWebhook({
+      ...groupMessage({ fromMe: true, to: '120363000000000001@g.us' }),
+      event: 'message.sent',
+    });
+    expect(out.ownSends).toEqual([]);
+    expect(out.groupMessages).toHaveLength(1);
+    expect(out.groupMessages[0].fromMe).toBe(true);
+  });
+
+  it('leaves a 1:1 message exactly as before', () => {
+    const out = normalizeOpenWAWebhook(
+      received({
+        id: 'one-1',
+        from: '971500000001@c.us',
+        chatId: '971500000001@c.us',
+        kind: 'individual',
+        type: 'text',
+        body: 'hi',
+        timestamp: 1_763_366_400,
+      })
+    );
+    expect(out.groupMessages).toEqual([]);
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]).toMatchObject({
+      id: 'one-1',
+      from: '971500000001',
+    });
+  });
+
+  const groupEvent = (event: string, data: Record<string, unknown>) =>
+    normalizeOpenWAWebhook({ event, sessionId: SESSION, data }).groupEvents;
+
+  it('maps group.join / leave / join_request to participant events', () => {
+    const data = {
+      groupId: '120363000000000001@g.us',
+      participantIds: ['971500000001@c.us', '123456789012345@lid'],
+      timestamp: 1_763_366_400,
+    };
+    expect(groupEvent('group.join', data)).toEqual([
+      {
+        kind: 'participants',
+        groupId: '120363000000000001@g.us',
+        action: 'add',
+        waIds: ['971500000001'],
+        unresolved: 1,
+        performedBy: null,
+      },
+    ]);
+    expect(groupEvent('group.leave', data)[0]).toMatchObject({
+      action: 'remove',
+    });
+    expect(groupEvent('group.join_request', data)[0]).toMatchObject({
+      action: 'request',
+    });
+  });
+
+  it('maps group.update to a group_update', () => {
+    expect(
+      groupEvent('group.update', {
+        groupId: '120363000000000001@g.us',
+        participantIds: [],
+        changes: { subject: 'New name', announce: true, locked: false },
+      })
+    ).toEqual([
+      {
+        kind: 'group_update',
+        groupId: '120363000000000001@g.us',
+        changes: {
+          name: 'New name',
+          settings: { send_messages: 'admins', edit_group_info: 'anyone' },
+        },
+      },
+    ]);
+  });
+
+  it('ignores a group event for a non-group id', () => {
+    expect(
+      groupEvent('group.join', {
+        groupId: '971500000001@c.us',
+        participantIds: ['971500000002@c.us'],
+      })
+    ).toEqual([]);
+  });
+});

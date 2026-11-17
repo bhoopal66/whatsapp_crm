@@ -17,6 +17,9 @@ const h = vi.hoisted(() => ({
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
   clientIp: vi.fn(),
+  persistGroupMessages: vi.fn(),
+  applyGroupStatuses: vi.fn(),
+  applyGroupEvents: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   lookups: [] as Record<string, unknown>[],
   state: {
@@ -39,6 +42,12 @@ vi.mock('next/server', async () => {
 vi.mock('@/lib/whatsapp/inbound-pipeline', () => ({
   processMessage: h.processMessage,
   handleStatusUpdate: h.handleStatusUpdate,
+}));
+
+vi.mock('@/lib/groups/inbound', () => ({
+  persistGroupMessages: h.persistGroupMessages,
+  applyGroupStatuses: h.applyGroupStatuses,
+  applyGroupEvents: h.applyGroupEvents,
 }));
 
 vi.mock('@/lib/whatsapp/own-send', () => ({
@@ -456,5 +465,82 @@ describe('OpenWA webhook: own sends (message.sent)', () => {
     expect(h.screenWebhook.mock.calls[0][1].events[0].key).toBe(
       'openwa:own:cfg-openwa-1:own-1'
     );
+  });
+});
+
+describe('OpenWA webhook: groups (migration 114)', () => {
+  const groupEvent = () => ({
+    event: 'message.received',
+    timestamp: '2026-11-17T08:00:00.000Z',
+    sessionId: 'session-1',
+    data: {
+      id: 'grp-1',
+      from: '120363000000000001@g.us',
+      chatId: '120363000000000001@g.us',
+      author: '971500000001@c.us',
+      isGroup: true,
+      kind: 'group',
+      fromMe: false,
+      type: 'text',
+      body: 'hello group',
+      timestamp: 1_763_366_400,
+    },
+  });
+
+  it('stores a company number’s group message, never through the inbox pipeline', async () => {
+    await post(groupEvent());
+    await runAfter();
+    expect(h.screenWebhook.mock.calls[0][1].events).toEqual([
+      { key: 'openwa:group:cfg-openwa-1:grp-1', kind: 'status' },
+    ]);
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.persistGroupMessages).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: 'cfg-openwa-1', accountId: 'acct-1', wabaId: null },
+      [
+        expect.objectContaining({
+          id: 'grp-1',
+          senderWaId: '971500000001',
+          fromMe: false,
+        }),
+      ]
+    );
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops group traffic on a personal number, as before', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: true }];
+    await post(groupEvent());
+    await runAfter();
+    expect(h.screenWebhook.mock.calls[0][1].events).toEqual([]);
+    expect(h.persistGroupMessages).not.toHaveBeenCalled();
+    expect(h.applyGroupEvents).not.toHaveBeenCalled();
+    expect(h.processMessage).not.toHaveBeenCalled();
+  });
+
+  it('applies group.join events on a company number', async () => {
+    await post({
+      event: 'group.join',
+      sessionId: 'session-1',
+      data: {
+        groupId: '120363000000000001@g.us',
+        participantIds: ['971500000002@c.us'],
+        timestamp: 1_763_366_400,
+      },
+    });
+    await runAfter();
+    expect(h.applyGroupEvents).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'cfg-openwa-1' }),
+      [expect.objectContaining({ kind: 'participants', action: 'add' })]
+    );
+  });
+
+  it('leaves claims unconfirmed when the group write fails, and never throws', async () => {
+    h.persistGroupMessages.mockRejectedValue(new Error('db down'));
+    const res = await post(groupEvent());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
   });
 });
