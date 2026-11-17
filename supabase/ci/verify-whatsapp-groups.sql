@@ -279,7 +279,7 @@ BEGIN
     r := 'inserted';
   EXCEPTION WHEN OTHERS THEN r := SQLSTATE || ': ' || SQLERRM; END;
   n := n + 1;
-  IF r NOT LIKE '23514: Groups are only supported on a Whapi number%' THEN
+  IF r NOT LIKE '23514: Groups need a Whapi or company OpenWA number%' THEN
     failed := array_append(failed, ('a group on a Meta number was not refused: ' || r)::text);
   END IF;
   BEGIN
