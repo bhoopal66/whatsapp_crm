@@ -120,6 +120,29 @@ describe('createGroup on OpenWA', () => {
     });
   });
 
+  it('still returns the new group when the read-back fails', async () => {
+    // The group exists on WhatsApp: failing here would save no row and a
+    // retry would make a second group.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocked.createGroup.mockResolvedValue({ groupId: GID });
+    mocked.getGroup.mockRejectedValue(new OpenWAError('timeout', 503));
+    const out = await createGroup({
+      channel: { ...openwaChannel, wabaId: '971509999999' },
+      name: 'Deal',
+      participants: people,
+      deadline: Date.now() + 60_000,
+    });
+    expect(out.group.id).toBe(GID);
+    expect(out.group.name).toBe('Deal');
+    expect(out.group.participants[0]).toMatchObject({
+      waId: '971509999999',
+      role: 'superadmin',
+    });
+    expect(out.added.map((p) => p.waId)).toEqual(people);
+    expect(out.refused).toEqual([]);
+    expect(out.error).toBeNull();
+  });
+
   it('turns a 501 into GroupCreateUnsupportedError', async () => {
     mocked.createGroup.mockRejectedValue(
       new OpenWAError('not implemented', 501)
@@ -226,6 +249,18 @@ describe('listGroupsWithStatus on OpenWA', () => {
       deadline: Date.now() + 60_000,
     });
     expect(out.groups.map((g) => g.id)).toEqual(['g1@g.us', 'g3@g.us']);
+    expect(out.complete).toBe(false);
+  });
+
+  it('is partial when the summaries were cut at maxGroups', async () => {
+    mocked.listGroupSummaries.mockResolvedValue(summaries as never);
+    mocked.getGroup.mockImplementation(async (_c, id) => group(id));
+    const out = await listGroupsWithStatus({
+      channel: openwaChannel,
+      maxGroups: 2,
+      deadline: Date.now() + 60_000,
+    });
+    expect(out.groups).toHaveLength(2);
     expect(out.complete).toBe(false);
   });
 

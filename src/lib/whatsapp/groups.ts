@@ -323,6 +323,44 @@ function openwaIdentity(waId: string): whapi.WhapiIdentity {
 }
 
 /**
+ * The group as the OpenWA create answer describes it, for when the read
+ * back fails: us as its creator (superadmin) and the first members as
+ * sent. The gateway accepted them; Refresh corrects the list.
+ */
+function createdFallback(
+  channel: WhatsAppChannel,
+  groupId: string,
+  name: string,
+  first: readonly string[]
+): whapi.WhapiGroup {
+  const ourWaId = channel.wabaId ? normalizePhone(channel.wabaId) : '';
+  const us: whapi.WhapiGroupParticipant[] = ourWaId
+    ? [{ ...openwaIdentity(ourWaId), role: 'superadmin' }]
+    : [];
+  const participants: whapi.WhapiGroupParticipant[] = [
+    ...us,
+    ...first.map((waId) => ({
+      ...openwaIdentity(waId),
+      role: 'member' as const,
+    })),
+  ];
+  return {
+    id: groupId,
+    name,
+    description: null,
+    participantsCount: participants.length,
+    participants,
+    createdAt: null,
+    createdBy: us[0] ? { jid: us[0].jid, waId: us[0].waId } : null,
+    iconUrl: null,
+    inviteCode: null,
+    settings: openwa.fromOpenWASettings({}),
+    suspended: false,
+    terminated: false,
+  };
+}
+
+/**
  * Create a group with its first members. WhatsApp needs at least one
  * participant at creation; the rest go in through paced batches, so a
  * large opening list does not land as one burst.
@@ -376,12 +414,26 @@ export async function createGroup(
       throw err;
     }
     // The create answer does not say who got in: read the group back.
-    group = await openwa.getGroup(creds, groupId);
-    const present = new Set(group.participants.map((p) => p.waId));
+    // The group exists on WhatsApp now, so a failed read must not fail
+    // the create (no row would be saved, and a retry makes a second
+    // group): fall back to what we know, and Refresh fills in the rest.
+    let reread: whapi.WhapiGroup | null = null;
+    try {
+      reread = await openwa.getGroup(creds, groupId);
+    } catch (err) {
+      console.error('[groups] OpenWA read-back after create failed', err);
+    }
     added = [];
     refused = [];
-    for (const waId of first) {
-      (present.has(waId) ? added : refused).push(openwaIdentity(waId));
+    if (reread) {
+      group = reread;
+      const present = new Set(group.participants.map((p) => p.waId));
+      for (const waId of first) {
+        (present.has(waId) ? added : refused).push(openwaIdentity(waId));
+      }
+    } else {
+      group = createdFallback(input.channel, groupId, name, first);
+      added = first.map(openwaIdentity);
     }
   }
   const more = await addBatches({
@@ -539,7 +591,8 @@ export async function listGroupsWithStatus(
       ? summaries
       : summaries.slice(0, args.maxGroups);
   const groups: whapi.WhapiGroup[] = [];
-  let complete = true;
+  // A list cut at maxGroups is not the number's whole set either.
+  let complete = wanted.length === summaries.length;
   for (const summary of wanted) {
     if (!withinBudget(budget)) {
       console.warn(
