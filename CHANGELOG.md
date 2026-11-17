@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Inbox: reminder to use the marketing number for new chats
+
+**Migration required:** apply `207_new_chat_notice.sql` before deploying
+this build (without it the reminder shows its default wording and the
+settings can't be saved).
+- Whenever the next message would open a new chat in a company chat, a
+  reminder stays above the composer: open chats with new clients who are
+  just being sent details from the marketing number. It also shows in the
+  New chat dialog. It can't be dismissed; it goes away once the chat sends
+  from the marketing number.
+- Admins pick the marketing number and may reword the reminder in Team
+  activity → Limits → New chat reminder (on by default). With a number
+  picked, the reminder names it and offers **Switch to marketing number**
+  to anyone allowed to send from it (the chat's per-chat sending number).
+- Personal-number chats never show it. Settings live in their own table
+  (`team_activity_new_chat_notice`), not in the Team activity limits row.
+
 ### Team activity: hard restrictions, unlock requests and My activity
 
 **Migration required:** apply `204_team_activity_enforcement.sql`,

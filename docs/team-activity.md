@@ -255,6 +255,27 @@ error, and so does a Jev failure. A deliberate block is never swallowed.
   admins. Blocks are readable by the person, their leader and owners
   and admins (RLS).
 
+## New chat reminder
+
+A standing reminder for everyone (owner included): when the next message
+would open a new chat (the same definition as a start above) in a company
+chat, a card above the composer tells them to open chats with new clients
+who are just being sent details from the **marketing number**. The New
+chat dialog shows the same wording. The card can't be dismissed; it hides
+once the chat sends from the marketing number, and never shows in a
+personal-number chat.
+
+Owners and admins set it in **Team activity → Limits → New chat
+reminder** (migration 207, table `team_activity_new_chat_notice`, read
+through `team_activity_new_chat_notice()`): the switch (default on), the
+marketing number (any company number; a personal number is refused) and
+optional wording of up to 300 characters. With a number set, the card
+names it and offers **Switch to marketing number**, which pins the chat's
+sending number (as the number switcher does) for anyone allowed to send
+from it. The settings are deliberately not in `team_activity_settings`:
+creating that row counts as saved limits and would turn on quiet hours in
+the default UTC zone.
+
 ## Whapi Safety Meter
 
 The Safety Meter is Whapi's own API, so only Whapi numbers have one; an
