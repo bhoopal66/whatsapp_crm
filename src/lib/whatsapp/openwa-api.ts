@@ -202,7 +202,7 @@ function sessionUrl(sessionId: string, path: string): string {
 }
 
 /** Single choke point: key header, JSON, timeout, uniform error mapping. */
-async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
+export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
   const {
     apiKey,
     sessionId,
