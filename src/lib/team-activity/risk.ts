@@ -39,7 +39,7 @@ import {
 } from './report';
 
 export type FindingLevel = 'act_now' | 'keep_an_eye';
-export type FindingAudience = 'leader' | 'owner';
+export type FindingAudience = 'leader' | 'owner' | 'self';
 /** A person's (or number's) overall state. */
 export type PersonStatus = 'fine' | 'watch' | 'act';
 
@@ -222,11 +222,14 @@ export interface FindingContext {
 /**
  * Everything worth flagging about one sender row, most urgent first.
  * Members get person findings (audience 'leader'); the API and bot
- * rows only owner findings (D9).
+ * rows only owner findings (D9). `{ audience: 'self' }` is a person
+ * reading their own row (migration 205): the same thresholds, worded
+ * for "you", and no owner findings, so an API or bot row yields none.
  */
 export function senderFindings(
   s: SenderActivity,
-  ctxOrLimits: FindingContext | TeamActivityLimits
+  ctxOrLimits: FindingContext | TeamActivityLimits,
+  opts: { audience?: 'self' } = {}
 ): Finding[] {
   const limits = 'limits' in ctxOrLimits ? ctxOrLimits.limits : ctxOrLimits;
   const subject: FindingSubject = {
@@ -234,6 +237,11 @@ export function senderFindings(
     userId: s.userId,
     senderKind: s.kind,
   };
+  if (opts.audience === 'self') {
+    return s.kind === 'person'
+      ? sortFindings(personFindings(s, subject, limits, 'self'))
+      : [];
+  }
   return sortFindings(
     s.kind === 'person'
       ? personFindings(s, subject, limits)
@@ -244,7 +252,8 @@ export function senderFindings(
 function personFindings(
   s: SenderActivity,
   subject: FindingSubject,
-  limits: TeamActivityLimits
+  limits: TeamActivityLimits,
+  audience: 'leader' | 'self' = 'leader'
 ): Finding[] {
   const out: Finding[] = [];
   const name = { name: s.name ?? s.email ?? '' };
@@ -253,7 +262,7 @@ function personFindings(
     level: FindingLevel,
     values: Record<string, number> = {},
     labels: Record<string, string> = name
-  ) => out.push(make(subject, code, level, 'leader', values, labels));
+  ) => out.push(make(subject, code, level, audience, values, labels));
 
   const band = replyRateBand(
     s.matureStarted,
