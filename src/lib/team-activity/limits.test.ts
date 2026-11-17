@@ -107,8 +107,8 @@ describe('defaults match migration 204', () => {
   });
 
   it.each([
-    ['sameOpenerMax', 'int'],
-    ['replyRateThrottlePct', 'int'],
+    ['sameOpenerMax', 'int(?:eger)?'],
+    ['replyRateThrottlePct', 'int(?:eger)?'],
     ['jevBlockMinP', 'numeric\\(3,\\s*2\\)'],
   ] as const)('%s default', (key, type) => {
     const column = LIMIT_COLUMNS[key];
