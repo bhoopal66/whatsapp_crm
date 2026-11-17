@@ -11429,5 +11429,57 @@
         "retry": "Retry"
       }
     }
+  },
+  "MyActivity": {
+    "findings": {
+      "reply_rate_low": {
+        "title": "Few customers answer you",
+        "body": "Only {replied} of the {total} people you messaged first wrote back. Write to people who expect you, and say who you are in the first line."
+      },
+      "reply_rate_close": {
+        "title": "Your replies are close to the minimum",
+        "body": "Your reply rate is only just above the minimum ({rate}%, minimum {min}%). Slow down on new chats and follow up on the ones you have."
+      },
+      "over_limit_today": {
+        "title": "You reached today's limit",
+        "body": "You have messaged {count} new people today (limit {limit}). Start no more new chats today — answer the open ones."
+      },
+      "over_limit_days": {
+        "title": "You went over the limit before",
+        "body": "You went over the daily limit of {limit} on {days, plural, =1 {# day} other {# days}}. Spread your new chats across the week."
+      },
+      "burst": {
+        "title": "Too many at once",
+        "body": "You messaged {count} new people within 10 minutes. Wait a minute or two between new chats."
+      },
+      "chase_new": {
+        "title": "You keep messaging people who don't answer",
+        "body": "You kept messaging {count, plural, =1 {# new person} other {# new people}} who never answered. After {limit} messages with no answer, stop."
+      },
+      "chase_existing": {
+        "title": "Too many messages without an answer",
+        "body": "You sent several messages in a row to {count, plural, =1 {# customer} other {# customers}} who haven't answered yet. Give them time before you write again."
+      },
+      "links_first": {
+        "title": "Links in your first messages",
+        "body": "You sent a link in the very first message to {count} new people. Send links only after they reply."
+      },
+      "similar_openers": {
+        "title": "The same first message to many",
+        "body": "You sent almost the same first message to {count} people. Write each first message yourself."
+      },
+      "night_starts": {
+        "title": "New chats at night",
+        "body": "You messaged {count} new people after {late} or before {early}. Message new people in working hours."
+      },
+      "failed_sends": {
+        "title": "Your messages were not delivered",
+        "body": "{count} of your messages to phone numbers could not be delivered. Check the number before you send."
+      },
+      "waiting": {
+        "title": "Customers are waiting for you",
+        "body": "{count} customers wrote in the last day and are waiting for your answer. Answer them before you start new chats."
+      }
+    }
   }
 }

@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   NOT_MIGRATED_MESSAGE,
   isMissingFunction,
+  viewOffHint,
 } from '@/lib/team-activity/db-errors';
 import { isValidTimeZone, limitsFromRow } from '@/lib/team-activity/limits';
 import { isRangePreset, rangeFor } from '@/lib/team-activity/range';
@@ -12,9 +13,10 @@ import { parseTeamActivityReport } from '@/lib/team-activity/report';
 /**
  * Team activity (migration 068): who starts WhatsApp chats, how many get
  * an answer, and the sending patterns that get a Whapi number
- * restricted. Team leader and up, like the report function itself
- * (migration 074): a leader gets their own team's figures — the SQL
- * decides the scope, not this route.
+ * restricted. Agent and up (migration 205): a leader gets their own
+ * team's figures (074), an agent only their own; the SQL decides the
+ * scope, not this route, and answers a switched-off view with a hint
+ * that becomes a 403 `code`.
  */
 
 const UUID_RE =
@@ -33,7 +35,7 @@ const notMigrated = () =>
  */
 export async function GET(request: Request) {
   try {
-    const { supabase, accountId } = await requireRole('team_leader');
+    const { supabase, accountId } = await requireRole('agent');
     const params = new URL(request.url).searchParams;
 
     const preset = params.get('range') ?? '7d';
@@ -82,6 +84,13 @@ export async function GET(request: Request) {
     });
     if (error) {
       if (isMissingFunction(error)) return notMigrated();
+      const off = viewOffHint(error);
+      if (off) {
+        return NextResponse.json(
+          { error: 'This view is switched off', code: off },
+          { status: 403 }
+        );
+      }
       console.error('[team-activity] report failed:', error.message);
       return NextResponse.json(
         { error: 'Failed to load team activity' },

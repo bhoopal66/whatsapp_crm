@@ -543,3 +543,69 @@ describe('finding wording', () => {
     for (const k of [...keys, 'fine', 'quiet']) expect(advice[k]).toBeTruthy();
   });
 });
+
+describe('self audience (migration 205)', () => {
+  const busy = sender({
+    matureStarted: 10,
+    matureNoReply: 8,
+    todayStarts: 30,
+    daysAtLimit: 2,
+    burst10min: 99,
+    chaseNew: 4,
+    chaseExisting: 2,
+    conversations: 8,
+    linksFirst: 3,
+    similarOpeners: 3,
+    nightStarts: 3,
+    failedPhone: 4,
+    messagesSent: 20,
+    waitingRecent: 6,
+  });
+
+  it('keeps the thresholds and changes only the audience', () => {
+    const leader = senderFindings(busy, { limits });
+    const self = senderFindings(busy, { limits }, { audience: 'self' });
+    expect(self.map((f) => f.code)).toEqual(leader.map((f) => f.code));
+    expect(self.map((f) => f.level)).toEqual(leader.map((f) => f.level));
+    expect(self.length).toBeGreaterThan(0);
+    expect(new Set(self.map((f) => f.audience))).toEqual(new Set(['self']));
+  });
+
+  it('gives an API or bot row nothing', () => {
+    for (const kind of ['api', 'bot'] as const) {
+      const row = sender({
+        kind,
+        userId: null,
+        matureStarted: 10,
+        matureNoReply: 9,
+        linksFirst: 5,
+        chaseNew: 5,
+      });
+      expect(senderFindings(row, { limits }, { audience: 'self' })).toEqual([]);
+    }
+  });
+
+  it('has a MyActivity wording in en and ko for every code it can emit', () => {
+    // 'close' and 'low' are exclusive bands, so two rows cover them all.
+    const close = sender({ matureStarted: 100, matureNoReply: 65 });
+    const codes = new Set(
+      [busy, close].flatMap((row) =>
+        senderFindings(row, { limits }, { audience: 'self' }).map((f) => f.code)
+      )
+    );
+    expect(codes.size).toBe(12);
+    for (const locale of ['en', 'ko']) {
+      const cat = JSON.parse(
+        readFileSync(join(process.cwd(), 'messages', `${locale}.json`), 'utf8')
+      );
+      for (const code of codes) {
+        const f = cat.MyActivity.findings[code];
+        expect(f?.title, `${locale} ${code} title`).toBeTruthy();
+        expect(f?.body, `${locale} ${code} body`).toBeTruthy();
+      }
+      expect(Object.keys(cat.MyActivity.findings).sort()).toEqual(
+        [...codes].sort()
+      );
+    }
+  });
+});

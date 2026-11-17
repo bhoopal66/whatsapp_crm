@@ -39,7 +39,7 @@ import {
 export type SenderKind = 'person' | 'api' | 'bot';
 
 /** Whose activity the report covers (migration 073, D12). */
-export type ReportScope = 'account' | 'team';
+export type ReportScope = 'account' | 'team' | 'self';
 
 /**
  * A phone number (a linked device: Whapi or OpenWA, migration 145) or
@@ -448,7 +448,7 @@ export function parseTeamActivityReport(raw: unknown): TeamActivityReport {
     generatedAt,
     limits,
     limitsSaved: limitsRaw.saved === true,
-    scope: o.scope === 'team' ? 'team' : 'account',
+    scope: o.scope === 'team' || o.scope === 'self' ? o.scope : 'account',
     teamNames: Array.isArray(o.team_names)
       ? o.team_names.filter(
           (n): n is string => typeof n === 'string' && n !== ''

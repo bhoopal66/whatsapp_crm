@@ -157,6 +157,8 @@ describe('parseTeamActivityReport', () => {
       ],
     });
     expect(r.scope).toBe('team');
+    expect(parseTeamActivityReport({ scope: 'self' }).scope).toBe('self');
+    expect(parseTeamActivityReport({ scope: 'bogus' }).scope).toBe('account');
     expect(r.teamNames).toEqual(['Sales']);
     expect(r.unattributedStarts).toBe(9);
     expect(r.senders[0]).toMatchObject({

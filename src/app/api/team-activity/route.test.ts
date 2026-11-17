@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Team activity is open to team leaders (migration 074): the route lets
-// them in and the SQL report decides the scope. Settings and the Safety
+// Team activity is open to agents and up (074, 205): the route lets them
+// in and the SQL report decides the scope. Settings and the Safety
 // Meter stay admin-only in their own routes.
 
 const mocks = vi.hoisted(() => ({ requireRole: vi.fn(), rpc: vi.fn() }));
@@ -27,7 +27,7 @@ describe('GET /api/team-activity', () => {
     );
   });
 
-  it('admits team leaders and up', async () => {
+  it('admits agents and up', async () => {
     mocks.requireRole.mockResolvedValue({
       supabase: { rpc: mocks.rpc },
       accountId: 'account-1',
@@ -37,7 +37,7 @@ describe('GET /api/team-activity', () => {
       new Request('http://localhost/api/team-activity?range=7d&tz=UTC')
     );
 
-    expect(mocks.requireRole).toHaveBeenCalledWith('team_leader');
+    expect(mocks.requireRole).toHaveBeenCalledWith('agent');
     expect(res.status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith(
       'team_activity_report',
@@ -52,5 +52,48 @@ describe('GET /api/team-activity', () => {
 
     expect(res.status).toBe(403);
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(['agent_view_off', 'leader_view_off'])(
+    'answers 403 with code %s when the view is switched off',
+    async (hint) => {
+      mocks.requireRole.mockResolvedValue({
+        supabase: { rpc: mocks.rpc },
+        accountId: 'account-1',
+      });
+      mocks.rpc.mockImplementation((fn: string) =>
+        Promise.resolve(
+          fn === 'team_activity_limits'
+            ? { data: [], error: null }
+            : { data: null, error: { code: 'P0001', message: 'off', hint } }
+        )
+      );
+
+      const res = await GET(new Request('http://localhost/api/team-activity'));
+
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe(hint);
+    }
+  );
+
+  it('leaves other report errors as 500 and a missing function as 503', async () => {
+    mocks.requireRole.mockResolvedValue({
+      supabase: { rpc: mocks.rpc },
+      accountId: 'account-1',
+    });
+    const failWith = (error: object) =>
+      mocks.rpc.mockImplementation((fn: string) =>
+        Promise.resolve(
+          fn === 'team_activity_limits'
+            ? { data: [], error: null }
+            : { data: null, error }
+        )
+      );
+    const req = () => new Request('http://localhost/api/team-activity');
+
+    failWith({ code: 'P0001', message: 'x', hint: 'something_else' });
+    expect((await GET(req())).status).toBe(500);
+    failWith({ code: 'PGRST202', message: 'x' });
+    expect((await GET(req())).status).toBe(503);
   });
 });
