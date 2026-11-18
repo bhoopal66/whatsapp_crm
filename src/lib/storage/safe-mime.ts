@@ -82,3 +82,43 @@ export function safeStoredMime(mime: string | null | undefined): string {
   if (EXACT.has(bare) || WILDCARD_RE.test(bare)) return bare;
   return FALLBACK_STORED_MIME;
 }
+
+/**
+ * The types the public `chat-media` bucket stores (WhatsApp attachments,
+ * inbound mirrors and the composer's staged uploads; migration 209).
+ *
+ * Exact types only, no `audio/*` / `video/*` wildcards: Storage checks a
+ * wildcard only up to the first '/', so `audio/x, text/html` would pass,
+ * and chat-media has no 164-style trigger behind it. It is 039's list
+ * plus every exact type of `SAFE_STORED_MIME_TYPES` (archives, CSV,
+ * HEIC, OpenDocument, `application/octet-stream`…): before 209 a
+ * customer's zip was refused and the message kept no file at all.
+ * `safe-mime.test.ts` reads migration 209 to keep the two equal.
+ */
+export const CHAT_MEDIA_MIME_TYPES: readonly string[] = [
+  ...SAFE_STORED_MIME_TYPES,
+  'video/mp4',
+  'video/3gpp',
+  'video/3gp',
+  'video/quicktime',
+  'audio/ogg',
+  'audio/mpeg',
+  'audio/aac',
+  'audio/mp4',
+  'audio/amr',
+  'audio/opus',
+];
+
+const CHAT_MEDIA_EXACT = new Set(CHAT_MEDIA_MIME_TYPES);
+
+/**
+ * The type to store a chat-media object with: the bare type when the
+ * bucket takes it, else `application/octet-stream` (downloaded, never
+ * rendered), so an unusual attachment is still kept instead of refused.
+ */
+export function chatMediaStoredMime(mime: string | null | undefined): string {
+  const raw = mime ?? '';
+  if (UNSAFE_CHAR_RE.test(raw)) return FALLBACK_STORED_MIME;
+  const bare = raw.split(';')[0].trim().toLowerCase();
+  return CHAT_MEDIA_EXACT.has(bare) ? bare : FALLBACK_STORED_MIME;
+}

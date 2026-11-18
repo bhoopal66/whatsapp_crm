@@ -1025,3 +1025,8 @@ jobs:
       # number (190) and Meta.
       - name: Verify WhatsApp groups on OpenWA
         run: supabase db query --local --file supabase/ci/verify-groups-on-openwa.sql
+
+      # Migration 209: the public chat-media bucket takes archives and the
+      # other vetted safe types, exact types only, nothing renderable.
+      - name: Verify chat-media types
+        run: supabase db query --local --file supabase/ci/verify-chat-media-types.sql

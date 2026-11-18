@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   MIRROR_BUCKET,
   MIRROR_FOLDER,
   mirrorFileName,
   mirrorInboundMedia,
   normalizeMimeType,
-} from "./mirror-inbound-media";
-import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
+} from './mirror-inbound-media';
+import { buildMediaPath, MEDIA_MAX_BYTES } from '@/lib/storage/upload-media';
 
-const ACCOUNT = "11111111-2222-3333-4444-555555555555";
-const MEDIA_ID = "1234567890123456";
+const ACCOUNT = '11111111-2222-3333-4444-555555555555';
+const MEDIA_ID = '1234567890123456';
 
 /**
  * Minimal stand-in for `supabase.storage`. Records every upload so a
@@ -34,7 +34,7 @@ function fakeStorage(uploadError: { message: string } | null = null) {
             contentType: string;
             cacheControl: string;
             upsert: boolean;
-          },
+          }
         ) {
           uploads.push({ bucket, path, body, options });
           return { error: uploadError };
@@ -51,7 +51,7 @@ function fakeStorage(uploadError: { message: string } | null = null) {
   return { storage, uploads };
 }
 
-function fakeDownload(bytes: number, contentType = "image/jpeg") {
+function fakeDownload(bytes: number, contentType = 'image/jpeg') {
   return vi.fn(async () => ({
     buffer: Buffer.alloc(bytes),
     contentType,
@@ -61,30 +61,30 @@ function fakeDownload(bytes: number, contentType = "image/jpeg") {
 const BASE = {
   accountId: ACCOUNT,
   mediaId: MEDIA_ID,
-  downloadUrl: "https://lookaside.fbsbx.com/whatsapp/abc",
-  accessToken: "test-token",
+  downloadUrl: 'https://lookaside.fbsbx.com/whatsapp/abc',
+  accessToken: 'test-token',
 } as const;
 
-describe("normalizeMimeType", () => {
-  it("strips parameters and lower-cases", () => {
+describe('normalizeMimeType', () => {
+  it('strips parameters and lower-cases', () => {
     // What Meta actually sends for a voice note.
-    expect(normalizeMimeType("audio/ogg; codecs=opus")).toBe("audio/ogg");
-    expect(normalizeMimeType("IMAGE/JPEG")).toBe("image/jpeg");
+    expect(normalizeMimeType('audio/ogg; codecs=opus')).toBe('audio/ogg');
+    expect(normalizeMimeType('IMAGE/JPEG')).toBe('image/jpeg');
   });
 
   it("rejects values that aren't a MIME type", () => {
     expect(normalizeMimeType(null)).toBeNull();
-    expect(normalizeMimeType("")).toBeNull();
-    expect(normalizeMimeType("binary")).toBeNull();
+    expect(normalizeMimeType('')).toBeNull();
+    expect(normalizeMimeType('binary')).toBeNull();
   });
 });
 
-describe("mirrorFileName", () => {
+describe('mirrorFileName', () => {
   it("keeps a document's own name so the download reads sensibly", () => {
     const name = mirrorFileName({
       mediaId: MEDIA_ID,
-      mimeType: "application/pdf",
-      fileName: "invoice.pdf",
+      mimeType: 'application/pdf',
+      fileName: 'invoice.pdf',
     });
     expect(name).toBe(`${MEDIA_ID}-invoice.pdf`);
   });
@@ -93,17 +93,17 @@ describe("mirrorFileName", () => {
     // A sender-controlled ".exe" must not survive into the object path.
     const name = mirrorFileName({
       mediaId: MEDIA_ID,
-      mimeType: "application/pdf",
-      fileName: "../../payload.exe",
+      mimeType: 'application/pdf',
+      fileName: '../../payload.exe',
     });
     expect(name).toBe(`${MEDIA_ID}-payload.pdf`);
   });
 
-  it("synthesises a stamped name when there is no filename", () => {
+  it('synthesises a stamped name when there is no filename', () => {
     const name = mirrorFileName({
       mediaId: MEDIA_ID,
-      mimeType: "image/jpeg",
-      messageTimestamp: "1754899200",
+      mimeType: 'image/jpeg',
+      messageTimestamp: '1754899200',
     });
     expect(name).toBe(`${MEDIA_ID}-image-1754899200.jpg`);
   });
@@ -113,83 +113,82 @@ describe("mirrorFileName", () => {
     // synthesised name outgrows the cap, buildMediaPath silently
     // truncates it and the timestamp stops disambiguating anything.
     const name = mirrorFileName({
-      mediaId: "1234567890123456789",
-      mimeType: "image/jpeg",
-      messageTimestamp: "1754899200",
+      mediaId: '1234567890123456789',
+      mimeType: 'image/jpeg',
+      messageTimestamp: '1754899200',
     });
-    expect(name.replace(/\.[^.]+$/, "").length).toBeLessThanOrEqual(40);
+    expect(name.replace(/\.[^.]+$/, '').length).toBeLessThanOrEqual(40);
   });
 
-  it("gives every OpenWA attachment of one chat its own object", () => {
+  it('gives every OpenWA attachment of one chat its own object', () => {
     // OpenWA ids are `<chat>/<message id>` and share a 40+ character
     // prefix per chat; cut at 40 they all landed on one object and each
     // upload overwrote the last.
-    const chat = "971501234567@c.us";
-    const paths = ["3EB0AAAA1111", "3EB0BBBB2222", "3EB0CCCC3333"].map(
-      (hash) =>
-        buildMediaPath(
-          "acc",
-          mirrorFileName({
-            mediaId: `${chat}/false_${chat}_${hash}`,
-            mimeType: "application/pdf",
-            fileName: "passport.pdf",
-          }),
-          null,
-          MIRROR_FOLDER,
-        ),
+    const chat = '971501234567@c.us';
+    const paths = ['3EB0AAAA1111', '3EB0BBBB2222', '3EB0CCCC3333'].map((hash) =>
+      buildMediaPath(
+        'acc',
+        mirrorFileName({
+          mediaId: `${chat}/false_${chat}_${hash}`,
+          mimeType: 'application/pdf',
+          fileName: 'passport.pdf',
+        }),
+        null,
+        MIRROR_FOLDER
+      )
     );
     expect(new Set(paths).size).toBe(3);
     // Stable across a redelivery, and the key is still hidden from the
     // download name (basenameFromUrl strips a leading run of digits).
     const again = mirrorFileName({
       mediaId: `${chat}/false_${chat}_3EB0AAAA1111`,
-      mimeType: "application/pdf",
-      fileName: "passport.pdf",
+      mimeType: 'application/pdf',
+      fileName: 'passport.pdf',
     });
     expect(paths[0].endsWith(again)).toBe(true);
     expect(again).toMatch(/^\d{20}-passport\.pdf$/);
   });
 
-  it("falls back to a .bin extension for an unknown MIME", () => {
+  it('falls back to a .bin extension for an unknown MIME', () => {
     const name = mirrorFileName({
       mediaId: MEDIA_ID,
-      mimeType: "application/x-nonsense",
-      messageTimestamp: "1754899200",
+      mimeType: 'application/x-nonsense',
+      messageTimestamp: '1754899200',
     });
     expect(name).toBe(`${MEDIA_ID}-document-1754899200.bin`);
   });
 });
 
-describe("mirrorInboundMedia", () => {
+describe('mirrorInboundMedia', () => {
   beforeEach(() => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("uploads to chat-media and returns the durable public URL", async () => {
+  it('uploads to chat-media and returns the durable public URL', async () => {
     const { storage, uploads } = fakeStorage();
     const download = fakeDownload(1024);
 
     const url = await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "image/jpeg",
+      mimeType: 'image/jpeg',
       fileSize: 1024,
-      messageTimestamp: "1754899200",
+      messageTimestamp: '1754899200',
       download,
     });
 
     expect(uploads).toHaveLength(1);
     expect(uploads[0].bucket).toBe(MIRROR_BUCKET);
     expect(uploads[0].path).toBe(
-      `account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+      `account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`
     );
-    expect(uploads[0].options.contentType).toBe("image/jpeg");
+    expect(uploads[0].options.contentType).toBe('image/jpeg');
     expect(url).toBe(
-      `https://cdn.test/storage/chat-media/account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+      `https://cdn.test/storage/chat-media/account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`
     );
   });
 
@@ -201,8 +200,8 @@ describe("mirrorInboundMedia", () => {
     // bytes uploaded perfectly.
     const prevInternal = process.env.SUPABASE_INTERNAL_URL;
     const prevPublic = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    process.env.SUPABASE_INTERNAL_URL = "http://localhost:8000";
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://tunnel.test/supabase";
+    process.env.SUPABASE_INTERNAL_URL = 'http://localhost:8000';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://tunnel.test/supabase';
 
     try {
       const internalStorage = {
@@ -226,17 +225,17 @@ describe("mirrorInboundMedia", () => {
         ...BASE,
         storage: internalStorage as unknown as Parameters<
           typeof mirrorInboundMedia
-        >[0]["storage"],
-        mimeType: "image/jpeg",
+        >[0]['storage'],
+        mimeType: 'image/jpeg',
         fileSize: 1024,
-        messageTimestamp: "1754899200",
+        messageTimestamp: '1754899200',
         download: fakeDownload(1024),
       });
 
       expect(url).toBe(
-        `https://tunnel.test/supabase/storage/v1/object/public/${MIRROR_BUCKET}/account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+        `https://tunnel.test/supabase/storage/v1/object/public/${MIRROR_BUCKET}/account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`
       );
-      expect(url).not.toContain("localhost");
+      expect(url).not.toContain('localhost');
     } finally {
       process.env.SUPABASE_INTERNAL_URL = prevInternal;
       process.env.NEXT_PUBLIC_SUPABASE_URL = prevPublic;
@@ -248,8 +247,8 @@ describe("mirrorInboundMedia", () => {
     const args = {
       ...BASE,
       storage,
-      mimeType: "image/jpeg" as const,
-      messageTimestamp: "1754899200",
+      mimeType: 'image/jpeg' as const,
+      messageTimestamp: '1754899200',
       download: fakeDownload(1024),
     };
 
@@ -262,7 +261,7 @@ describe("mirrorInboundMedia", () => {
     expect(uploads[1].options.upsert).toBe(true);
   });
 
-  it("strips MIME parameters before handing the type to Storage", async () => {
+  it('strips MIME parameters before handing the type to Storage', async () => {
     // The bucket's allowed_mime_types is an exact-match list, so an
     // unstripped `audio/ogg; codecs=opus` would be rejected outright.
     const { storage, uploads } = fakeStorage();
@@ -270,22 +269,49 @@ describe("mirrorInboundMedia", () => {
     await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "audio/ogg; codecs=opus",
-      download: fakeDownload(2048, "audio/ogg; codecs=opus"),
+      mimeType: 'audio/ogg; codecs=opus',
+      download: fakeDownload(2048, 'audio/ogg; codecs=opus'),
     });
 
-    expect(uploads[0].options.contentType).toBe("audio/ogg");
+    expect(uploads[0].options.contentType).toBe('audio/ogg');
     expect(uploads[0].path).toMatch(/\.ogg$/);
   });
 
-  it("skips oversized media without downloading it", async () => {
+  it("keeps a customer's zip as a zip, named after the file", async () => {
+    // Before migration 209 chat-media refused application/x-zip-compressed
+    // and the message kept no file at all.
+    const { storage, uploads } = fakeStorage();
+    const url = await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      mimeType: 'application/x-zip-compressed',
+      fileName: 'FAB-MGT AUTO SPARE PARTS.zip',
+      download: fakeDownload(4096, 'application/zip'),
+    });
+    expect(url).not.toBeNull();
+    expect(uploads[0].options.contentType).toBe('application/x-zip-compressed');
+    expect(uploads[0].path).toMatch(/\.zip$/);
+  });
+
+  it('stores a type the bucket does not take as a download instead of losing it', async () => {
+    const { storage, uploads } = fakeStorage();
+    await mirrorInboundMedia({
+      ...BASE,
+      storage,
+      mimeType: 'application/x-unknown-thing',
+      download: fakeDownload(4096, 'application/x-unknown-thing'),
+    });
+    expect(uploads[0].options.contentType).toBe('application/octet-stream');
+  });
+
+  it('skips oversized media without downloading it', async () => {
     const { storage, uploads } = fakeStorage();
     const download = fakeDownload(1024);
 
     const url = await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "application/pdf",
+      mimeType: 'application/pdf',
       fileSize: MEDIA_MAX_BYTES + 1,
       download,
     });
@@ -295,37 +321,37 @@ describe("mirrorInboundMedia", () => {
     expect(uploads).toHaveLength(0);
   });
 
-  it("skips media that turns out oversized once downloaded", async () => {
+  it('skips media that turns out oversized once downloaded', async () => {
     // Meta's file_size is advisory; the transfer is the truth.
     const { storage, uploads } = fakeStorage();
 
     const url = await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "video/mp4",
+      mimeType: 'video/mp4',
       fileSize: 1024,
-      download: fakeDownload(MEDIA_MAX_BYTES + 1, "video/mp4"),
+      download: fakeDownload(MEDIA_MAX_BYTES + 1, 'video/mp4'),
     });
 
     expect(url).toBeNull();
     expect(uploads).toHaveLength(0);
   });
 
-  it("returns null when Storage refuses the upload", async () => {
+  it('returns null when Storage refuses the upload', async () => {
     // e.g. a document whose MIME is outside the bucket's allow-list.
-    const { storage } = fakeStorage({ message: "mime type not supported" });
+    const { storage } = fakeStorage({ message: 'mime type not supported' });
 
     const url = await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "application/x-7z-compressed",
-      download: fakeDownload(1024, "application/x-7z-compressed"),
+      mimeType: 'application/x-7z-compressed',
+      download: fakeDownload(1024, 'application/x-7z-compressed'),
     });
 
     expect(url).toBeNull();
   });
 
-  it("returns null instead of throwing when the download fails", async () => {
+  it('returns null instead of throwing when the download fails', async () => {
     // The caller is the Meta webhook: a throw here would surface as a
     // failed delivery and have Meta retry the whole message.
     const { storage } = fakeStorage();
@@ -333,9 +359,9 @@ describe("mirrorInboundMedia", () => {
     const url = await mirrorInboundMedia({
       ...BASE,
       storage,
-      mimeType: "image/png",
+      mimeType: 'image/png',
       download: vi.fn(async () => {
-        throw new Error("Media download failed: 404");
+        throw new Error('Media download failed: 404');
       }),
     });
 
@@ -349,9 +375,9 @@ describe("mirrorInboundMedia", () => {
       ...BASE,
       storage,
       mimeType: null,
-      download: fakeDownload(1024, "image/png"),
+      download: fakeDownload(1024, 'image/png'),
     });
 
-    expect(uploads[0].options.contentType).toBe("image/png");
+    expect(uploads[0].options.contentType).toBe('image/png');
   });
 });

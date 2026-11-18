@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  CHAT_MEDIA_MIME_TYPES,
+  chatMediaStoredMime,
   FALLBACK_STORED_MIME,
   SAFE_STORED_MIME_TYPES,
   SAFE_STORED_MIME_WILDCARDS,
@@ -101,5 +103,51 @@ describe('migration 164', () => {
     expect(sql).toMatch(
       /BEFORE INSERT OR UPDATE ON storage\.objects\s+FOR EACH ROW\s+WHEN \(NEW\.bucket_id IN \('chat-files', 'deal-files', 'call-recordings'\)\)/
     );
+  });
+});
+
+describe('chat-media (migration 209)', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/209_chat_media_archives.sql'),
+    'utf8'
+  );
+  const listed = [
+    ...(sql.match(/ARRAY\[\n([\s\S]*?)\]::text\[\]/)?.[1] ?? '').matchAll(
+      /'([^']+)'/g
+    ),
+  ].map((q) => q[1]);
+
+  it('sets exactly CHAT_MEDIA_MIME_TYPES on chat-media', () => {
+    expect(listed.sort()).toEqual([...CHAT_MEDIA_MIME_TYPES].sort());
+    expect(sql).toMatch(/WHERE id = 'chat-media';/);
+  });
+
+  it('lists only exact, safe types: no wildcard, nothing a browser renders as a page', () => {
+    for (const t of CHAT_MEDIA_MIME_TYPES) {
+      expect(t).toMatch(/^[a-z]+\/[a-z0-9.+-]+$/);
+      expect(t).not.toMatch(/html|svg|javascript|ecmascript|(^|\/|\+)xml$/);
+    }
+  });
+
+  it('takes the zip a customer sent, which 039 refused', () => {
+    expect(chatMediaStoredMime('application/x-zip-compressed')).toBe(
+      'application/x-zip-compressed'
+    );
+    expect(chatMediaStoredMime('application/zip')).toBe('application/zip');
+    expect(chatMediaStoredMime('audio/ogg; codecs=opus')).toBe('audio/ogg');
+  });
+
+  it('stores anything else as a download, never refused, never a page', () => {
+    for (const t of [
+      'application/x-unknown',
+      'audio/x-something',
+      'text/html',
+      'image/svg+xml',
+      'audio/ogg, text/html',
+      '',
+      null,
+    ]) {
+      expect(chatMediaStoredMime(t)).toBe(FALLBACK_STORED_MIME);
+    }
   });
 });

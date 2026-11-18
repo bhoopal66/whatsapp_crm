@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Customers' zip files and other archives can be opened
+
+**Migration required:** apply `209_chat_media_archives.sql` before
+deploying this build. Apply in order: re-applying 023 or 039 afterwards
+narrows the list again, so re-apply 209 after either.
+- WhatsApp attachments in zip, rar, 7z or gz format, CSV, RTF, JSON,
+  HEIC and OpenDocument files are now stored, so they open and download.
+  Before, a customer's zip was refused by storage and the message showed
+  the file name with nothing behind it.
+- Any other unusual type is stored as a plain download instead of being
+  lost. Nothing a browser would run as a page is ever stored as one.
+- `scripts/remirror-openwa-media.ts <message id>… [--apply]` fetches a
+  lost OpenWA attachment again from the gateway.
+
 ### Compass updates go from the Meta number
 
 No migration.
