@@ -4297,7 +4297,8 @@
     "tabs": {
       "customers": "Customers",
       "notifications": "Notifications",
-      "submissions": "Submissions"
+      "submissions": "Submissions",
+      "settings": "Settings"
     },
     "searchPlaceholder": "Search by name, phone or Compass ID",
     "totalCustomers": "{count, plural, one {# customer} other {# customers}}",
@@ -4332,6 +4333,21 @@
       "delivered": "Delivered",
       "read": "Read",
       "failed": "Not delivered"
+    },
+    "settings": {
+      "title": "Meta number and template",
+      "explain": "Compass status updates are sent from the Meta WhatsApp number. If the customer wrote to that number in the last 24 hours, the update goes as plain text. Otherwise WhatsApp only allows an approved template, so the update goes as the template chosen here, with the Compass text in its variable (on one line). Images and documents can only be sent inside the 24 hours.",
+      "templateLabel": "Template for updates outside the 24 hours",
+      "none": "No template (updates outside the 24 hours are not sent)",
+      "noneChosen": "No template is chosen. Updates to customers who have not written in the last 24 hours fail and are not sent.",
+      "savedUnusable": "The chosen template \"{name}\" can no longer be used (it is not approved, not a utility template, or no longer has exactly one variable). Updates outside the 24 hours fail until you choose another.",
+      "savedMissing": "The chosen template \"{name}\" no longer exists. Updates outside the 24 hours fail until you choose another.",
+      "noUsable": "No template fits yet. Create one in Settings → Templates and submit it to Meta.",
+      "requirements": "Listed: templates Meta has approved, in the Utility category, with exactly one body variable and no header or button that needs a value. Example body: \"Taamul Credit update: [variable]\". The whole message can be at most 1024 characters.",
+      "save": "Save",
+      "saved": "Compass template saved",
+      "saveFailed": "Could not save the Compass template",
+      "loadFailed": "Could not load the Compass settings"
     }
   },
   "OpenDesk": {

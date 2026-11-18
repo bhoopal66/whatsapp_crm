@@ -5,12 +5,17 @@
 // account application ("documents received", "approved", ...). Three
 // rules shape this, each a requirement rather than a preference:
 //
-//   1. ALWAYS the Whapi number. These are free-form messages; on the
-//      Meta Cloud API number a free-form message outside the 24-hour
-//      window is refused, and templates are not what Compass sends.
-//      If Whapi is not connected the send FAILS (`whapi_not_connected`)
-//      instead of quietly falling back to Meta.
-//
+//   1. ALWAYS the Meta Cloud API number (migration 209). Before 209
+//      these went on a linked-device number (Whapi / OpenWA), and the
+//      volume of unsolicited updates got those numbers restricted.
+//      Meta allows free text only within 24 hours of the customer's
+//      last message to the number; outside that window a text update
+//      goes as the admin's chosen utility template, carrying the text
+//      in its one body variable (`meta-template.ts`). An image or
+//      document outside the window cannot go at all
+//      (`outside_service_window`). If the Meta number is not connected
+//      the send FAILS (`meta_not_connected`) instead of falling back to
+//      a linked-device number.
 //   2. Land in the EXISTING chat and leave it where it is. The message
 //      goes into the contact's one conversation (resolved exactly as the
 //      public messages API does), and nothing here writes
@@ -38,6 +43,17 @@ import {
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
+import {
+  renderTemplateBody,
+  resolveTemplateRow,
+} from '@/lib/whatsapp/template-body';
+import {
+  compassTemplateParam,
+  compassTemplateProblem,
+  serviceWindowOpen,
+  TEMPLATE_BODY_MAX,
+  type CompassTemplateProblem,
+} from '@/lib/compass/meta-template';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import {
   sendMessageToConversation,
@@ -398,23 +414,21 @@ async function claim(
 }
 
 /**
- * The Whapi number this notification would go out on, or null when the
- * account has none. Read-only: nothing is created.
+ * The Meta number this notification would go out on, and the chat this
+ * phone already has, or null when the account has no Meta number.
+ * Read-only: nothing is created.
  *
  * It asks `resolveSendChannel` exactly what the send core will ask it
- * (surface 'api', provider 'whapi', the chat's own numbers), for the
+ * (surface 'api', provider 'meta', the chat's own numbers), for the
  * chat this phone already has — found the way `resolveConversationByPhone`
- * finds it. So the answer is the chat's pin, else the Whapi number the
- * chat is on, else the default Whapi number (a new contact's chat has
- * neither). Checking the default number instead refused every
- * notification to a customer whose chat is on a healthy second number
- * while the default one was logged out.
+ * finds it. A provider pin outranks a chat pinned to a linked-device
+ * number, so the answer is the account's one Meta number.
  */
-async function whapiNumberFor(
+async function metaNumberFor(
   db: SupabaseClient,
   accountId: string,
   phone: string
-): Promise<WhatsAppChannel | null> {
+): Promise<{ channel: WhatsAppChannel; conversationId: string | null } | null> {
   let conversationId: string | null = null;
   let numbers: ConversationNumbers | undefined;
   const contact = await findExistingContact(
@@ -454,7 +468,7 @@ async function whapiNumberFor(
       accountId,
       'api',
       conversationId,
-      'whapi',
+      'meta',
       null,
       numbers
     );
@@ -464,9 +478,104 @@ async function whapiNumberFor(
     }
     throw err;
   }
-  // No Whapi number at all: the resolver fell back to another kind,
+  // No Meta number at all: the resolver fell back to another kind,
   // which `requireProvider` would refuse at send time anyway.
-  return channel.provider === 'whapi' ? channel : null;
+  return channel.provider === 'meta' ? { channel, conversationId } : null;
+}
+
+/**
+ * Is the customer's 24-hour window on this Meta number open? It is when
+ * they wrote to that number less than `SERVICE_WINDOW_MS` ago. A read
+ * error counts as closed: the template is accepted inside the window
+ * too, so that is the send that cannot be refused for timing.
+ */
+async function metaWindowOpen(
+  db: SupabaseClient,
+  conversationId: string | null,
+  channelId: string
+): Promise<boolean> {
+  if (!conversationId) return false;
+  const { data, error } = await db
+    .from('messages')
+    .select('created_at')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer')
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return false;
+  return serviceWindowOpen((data as { created_at?: string }).created_at);
+}
+
+const TEMPLATE_PROBLEMS: Record<CompassTemplateProblem, string> = {
+  not_approved: 'it is not approved by Meta',
+  not_utility: 'it is not a utility template',
+  one_variable: 'it must have exactly one body variable',
+  header: 'its header needs a value',
+  buttons: 'a button needs a value',
+};
+
+/**
+ * The template a text update goes as outside the 24-hour window: the
+ * admin's choice (Taamul Compass → Settings), checked as it is now.
+ * Throws a `NotifyError` (nothing sent, key retryable) when none is
+ * chosen, it cannot be used, or the text makes its body too long.
+ */
+async function compassTemplateSend(
+  db: SupabaseClient,
+  accountId: string,
+  text: string
+): Promise<{ name: string; language: string; param: string }> {
+  const { data: settings, error } = await db
+    .from('compass_settings')
+    .select('meta_template_name, meta_template_language')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) {
+    throw new NotifyError(
+      'settings_lookup_failed',
+      'The Compass settings could not be read. Nothing was sent — retry later with the same idempotency_key.',
+      503
+    );
+  }
+  const name = (settings as { meta_template_name?: string | null } | null)
+    ?.meta_template_name;
+  if (!name) {
+    throw new NotifyError(
+      'meta_template_not_set',
+      "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows a template, and no Compass template is chosen. An admin picks one under Taamul Compass → Settings. Nothing was sent — retry later with the same idempotency_key.",
+      409
+    );
+  }
+  const language =
+    (settings as { meta_template_language?: string | null })
+      .meta_template_language ?? null;
+  const resolved = await resolveTemplateRow(db, accountId, name, language);
+  const problem = resolved.row ? compassTemplateProblem(resolved.row) : null;
+  if (!resolved.row || problem) {
+    throw new NotifyError(
+      'meta_template_unusable',
+      `The Compass template "${name}" cannot be used: ${
+        problem
+          ? TEMPLATE_PROBLEMS[problem]
+          : 'it no longer exists on this account'
+      }. An admin picks another under Taamul Compass → Settings. Nothing was sent — retry later with the same idempotency_key.`,
+      409
+    );
+  }
+  const param = compassTemplateParam(text);
+  if (
+    renderTemplateBody(resolved.row.body_text, [param]).length >
+    TEMPLATE_BODY_MAX
+  ) {
+    throw new NotifyError(
+      'text_too_long',
+      `Outside the 24-hour window the update goes as the Compass template, whose text can be at most ${TEMPLATE_BODY_MAX} characters with the update in it. Shorten the text. Nothing was sent.`,
+      422
+    );
+  }
+  return { name, language: resolved.language, param };
 }
 
 // ---------- the submission group (170) ----------
@@ -718,7 +827,7 @@ export async function sendCompassNotification(
 
     // 170: a text update goes ONLY into the customer's submission group
     // when there is a live one; it is sent from the group's own number,
-    // so this runs before the Whapi number check. Media stays 1:1 (the
+    // so this runs before the Meta number check. Media stays 1:1 (the
     // group send is text-only).
     if (deps.groupSender && req.type === 'text' && req.text) {
       const group = await groupCandidate(db, accountId, req.reference, phone);
@@ -767,26 +876,41 @@ export async function sendCompassNotification(
 
     // Checked before a contact or chat is created, so a missing channel
     // leaves nothing behind. The send core re-checks (requireProvider).
-    const whapi = await whapiNumberFor(db, accountId, phone);
-    if (!whapi) {
+    const meta = await metaNumberFor(db, accountId, phone);
+    if (!meta) {
       throw new NotifyError(
-        'whapi_not_connected',
-        'No Whapi channel is connected. Status notifications are only sent on the Whapi number — connect it in Settings → WhatsApp.',
+        'meta_not_connected',
+        'No Meta WhatsApp Cloud API number is connected. Status notifications are only sent on the Meta number — connect it in Settings → WhatsApp. Nothing was sent.',
         409
       );
     }
-    // A number the health monitor has marked down (its phone logged out
-    // of WhatsApp) is the same case for Compass: nothing can be sent
-    // until someone fixes it, and the key stays retryable. Before this,
-    // each attempt failed at the gateway as a 502 and still left an
-    // empty new chat in the inbox. It is the number this send would
-    // use, so another Whapi number being down does not block it.
-    if (whapi.status === 'disconnected') {
+    if (meta.channel.status === 'disconnected') {
       throw new NotifyError(
-        'whapi_not_connected',
-        'The Whapi WhatsApp number is not connected to WhatsApp right now (its phone may have been logged out). Nothing was sent — retry later with the same idempotency_key.',
+        'meta_not_connected',
+        'The Meta WhatsApp number is marked disconnected. Nothing was sent — retry later with the same idempotency_key.',
         409
       );
+    }
+
+    // Free text inside the customer's 24-hour window; outside it, text
+    // goes as the Compass template and media cannot go at all. Decided
+    // before the chat is created, so a refusal leaves nothing behind.
+    const windowOpen = await metaWindowOpen(
+      db,
+      meta.conversationId,
+      meta.channel.id
+    );
+    let template: { name: string; language: string; param: string } | null =
+      null;
+    if (!windowOpen) {
+      if (req.type !== 'text' || !req.text) {
+        throw new NotifyError(
+          'outside_service_window',
+          "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows a template, and an image or document cannot be sent that way. Nothing was sent.",
+          409
+        );
+      }
+      template = await compassTemplateSend(db, accountId, req.text);
     }
 
     const resolved = await resolveConversationByPhone(
@@ -800,12 +924,21 @@ export async function sendCompassNotification(
     handedToGateway = true;
     const sent = await sendMessageToConversation(db, accountId, {
       conversationId: resolved.conversationId,
-      messageType: req.type,
-      contentText: req.text,
-      mediaUrl: req.mediaUrl,
-      filename: req.filename,
+      ...(template
+        ? {
+            messageType: 'template',
+            templateName: template.name,
+            templateLanguage: template.language,
+            templateParams: [template.param],
+          }
+        : {
+            messageType: req.type,
+            contentText: req.text,
+            mediaUrl: req.mediaUrl,
+            filename: req.filename,
+          }),
       surface: 'api',
-      provider: 'whapi',
+      provider: 'meta',
       requireProvider: true,
       pauseActiveFlows: false,
     });

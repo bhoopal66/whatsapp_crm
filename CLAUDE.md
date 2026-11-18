@@ -515,8 +515,11 @@ The ERP integration, on the v1 API. Customers sync into
 `compass_contacts` — deliberately **not** `contacts`, so agents' scoped
 contact lists aren't flooded — and link to a CRM contact on first
 message. `notify.ts` sends status notifications with three hard rules:
-Whapi only (`provider: 'whapi'` + `requireProvider`, never the Meta
-fallback), the existing conversation with ownership untouched (no
+Meta only since 209 (`provider: 'meta'` + `requireProvider`, never a
+linked-device fallback; free text inside the customer's 24 h window on
+that number, else the admin's `compass_settings` utility template with
+the text flattened into its one variable, `meta-template.ts`; media
+only inside the window), the existing conversation with ownership untouched (no
 `sender_id`, `renameExisting: false`, `pauseActiveFlows: false`), and at
 most once per `idempotency_key` (claimed as `sending` before the
 gateway call; a `db_error` after the gateway accepted keeps the key

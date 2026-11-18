@@ -40,8 +40,8 @@ import { ChannelError } from '@/lib/whatsapp/channels';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
 
 // ------------------------------------------------------------
-// In-memory stand-in for the two Compass tables (and the chats the
-// Whapi gate reads) — just enough of the PostgREST builder for the
+// In-memory stand-in for the Compass tables (and the chats, messages
+// and templates the Meta gate reads) — just enough of the PostgREST builder for the
 // chains notify.ts uses: insert/select/update with `.eq` filters,
 // terminated by single/maybeSingle/await.
 // ------------------------------------------------------------
@@ -53,6 +53,11 @@ function makeDb(
     notifications?: Row[];
     conversations?: Row[];
     groups?: Row[];
+    messages?: Row[];
+    /** Default: the Compass template below is chosen. */
+    settings?: Row[];
+    /** Default: the Compass template below, approved. */
+    templates?: Row[];
     /** Tables whose reads answer an error. */
     failReads?: string[];
   } = {}
@@ -62,6 +67,9 @@ function makeDb(
     compass_notifications: seed.notifications ?? [],
     conversations: seed.conversations ?? [],
     submission_groups: seed.groups ?? [],
+    messages: seed.messages ?? [],
+    compass_settings: seed.settings ?? [SETTINGS],
+    message_templates: seed.templates ?? [TEMPLATE],
   };
   let nextId = 1;
   /** Every table an insert or update was run against. */
@@ -159,10 +167,50 @@ function makeDb(
   return { db: db as unknown as SupabaseClient, tables, written };
 }
 
-const WHAPI = { id: 'cfg-whapi', provider: 'whapi', status: 'connected' };
+const META = { id: 'cfg-meta', provider: 'meta', status: 'connected' };
+
+const SETTINGS: Row = {
+  account_id: 'acct',
+  meta_template_name: 'compass_update',
+  meta_template_language: 'en',
+};
+const TEMPLATE: Row = {
+  id: 'tpl-1',
+  user_id: 'u-1',
+  account_id: 'acct',
+  name: 'compass_update',
+  language: 'en',
+  category: 'Utility',
+  status: 'APPROVED',
+  body_text: 'Taamul Credit update: {{1}}',
+  created_at: '2026-11-01T00:00:00Z',
+};
+
+/** A customer's chat on the Meta number, last written to `agoMs` ago. */
+const chatOnMeta = (agoMs: number, channelId = 'cfg-meta') => ({
+  conversations: [
+    {
+      id: 'conv-1',
+      account_id: 'acct',
+      contact_id: 'contact-1',
+      channel_id: channelId,
+      send_channel_id: null,
+    },
+  ],
+  messages: [
+    {
+      id: 'm-in',
+      conversation_id: 'conv-1',
+      sender_type: 'customer',
+      channel_id: channelId,
+      created_at: new Date(Date.now() - agoMs).toISOString(),
+    },
+  ],
+});
+const HOUR = 3600_000;
 
 beforeEach(() => {
-  resolveSendChannel.mockReset().mockResolvedValue(WHAPI);
+  resolveSendChannel.mockReset().mockResolvedValue(META);
   findExistingContact.mockReset().mockResolvedValue(null);
   resolveConversationByPhone.mockReset().mockResolvedValue({
     conversationId: 'conv-1',
@@ -264,18 +312,18 @@ describe('isClaimRetryable', () => {
 });
 
 describe('sendCompassNotification', () => {
-  it('sends on Whapi only, into the existing chat, without renaming or pausing flows', async () => {
+  it('sends on Meta only, as the Compass template to a customer who never wrote, without renaming or pausing flows', async () => {
     const { db, tables } = makeDb();
     const outcome = await sendCompassNotification(db, 'acct', baseRequest());
 
     // The gate asks the send core's own question: surface 'api' on
-    // Whapi, for a phone with no chat yet.
+    // Meta, for a phone with no chat yet.
     expect(resolveSendChannel).toHaveBeenCalledWith(
       db,
       'acct',
       'api',
       null,
-      'whapi',
+      'meta',
       null,
       undefined
     );
@@ -286,20 +334,20 @@ describe('sendCompassNotification', () => {
       null,
       { renameExisting: false }
     );
-    expect(sendMessageToConversation).toHaveBeenCalledWith(
-      db,
-      'acct',
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        provider: 'whapi',
-        requireProvider: true,
-        pauseActiveFlows: false,
-      })
-    );
+    const params = sendMessageToConversation.mock.calls[0][2];
+    expect(params).toEqual({
+      conversationId: 'conv-1',
+      messageType: 'template',
+      templateName: 'compass_update',
+      templateLanguage: 'en',
+      templateParams: ['Approved'],
+      surface: 'api',
+      provider: 'meta',
+      requireProvider: true,
+      pauseActiveFlows: false,
+    });
     // No sender_id: nothing attributes the chat to a person.
-    expect(sendMessageToConversation.mock.calls[0][2]).not.toHaveProperty(
-      'senderUserId'
-    );
+    expect(params).not.toHaveProperty('senderUserId');
 
     expect(outcome.duplicate).toBe(false);
     expect(outcome.notification.status).toBe('sent');
@@ -310,156 +358,220 @@ describe('sendCompassNotification', () => {
     });
   });
 
-  it('never touches conversation ownership', async () => {
-    // The only tables notify.ts writes are its own two; ownership lives
-    // on `conversations`, which it only reads itself (the Whapi gate)
-    // and otherwise reaches solely through the (mocked) resolver and
-    // send core.
+  it('sends free text inside the 24-hour window the customer opened on the Meta number', async () => {
     findExistingContact.mockResolvedValue({ id: 'contact-1' });
-    const { db, written } = makeDb({
-      conversations: [
-        {
-          id: 'conv-1',
-          account_id: 'acct',
-          contact_id: 'contact-1',
-          channel_id: 'cfg-whapi',
-          send_channel_id: null,
-        },
-      ],
+    const { db } = makeDb(chatOnMeta(2 * HOUR));
+    await sendCompassNotification(db, 'acct', baseRequest());
+
+    expect(resolveSendChannel).toHaveBeenCalledWith(
+      db,
+      'acct',
+      'api',
+      'conv-1',
+      'meta',
+      null,
+      { channelId: 'cfg-meta', sendChannelId: null }
+    );
+    const params = sendMessageToConversation.mock.calls[0][2];
+    expect(params).toMatchObject({
+      messageType: 'text',
+      contentText: 'Approved',
+      provider: 'meta',
+      requireProvider: true,
     });
+    expect(params).not.toHaveProperty('templateName');
+  });
+
+  it('uses the template once the window has closed', async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db } = makeDb(chatOnMeta(24 * HOUR));
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+      templateName: 'compass_update',
+    });
+  });
+
+  it('does not count a message the customer sent to another number', async () => {
+    // The window is per number: writing to the Whapi number opens
+    // nothing on Meta.
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db } = makeDb(chatOnMeta(HOUR, 'cfg-whapi'));
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+    });
+  });
+
+  it('sends the template when the window cannot be read', async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db } = makeDb({ ...chatOnMeta(HOUR), failReads: ['messages'] });
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+    });
+  });
+
+  it('puts multi-line text on one line in the template variable', async () => {
+    const { db } = makeDb();
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({
+        text: 'Dear ACME LLC,\n\nThank you for choosing Taamul.\n\tApproved.',
+      })
+    );
+    expect(sendMessageToConversation.mock.calls[0][2].templateParams).toEqual([
+      'Dear ACME LLC, Thank you for choosing Taamul. Approved.',
+    ]);
+  });
+
+  it('refuses, before creating a chat, when no template is chosen', async () => {
+    const { db, tables } = makeDb({ settings: [] });
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'meta_template_not_set', status: 409 });
+    expect(resolveConversationByPhone).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: 'meta_template_not_set',
+    });
+  });
+
+  it('refuses a chosen template that is gone or not usable', async () => {
+    for (const templates of [
+      [],
+      [{ ...TEMPLATE, status: 'PENDING' }],
+      [{ ...TEMPLATE, category: 'Marketing' }],
+      [{ ...TEMPLATE, body_text: 'Update: {{1}} for {{2}}' }],
+    ]) {
+      resolveConversationByPhone.mockClear();
+      const { db } = makeDb({ templates });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'meta_template_unusable', status: 409 });
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+    }
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 and sends nothing when the settings cannot be read', async () => {
+    const { db } = makeDb({ failReads: ['compass_settings'] });
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'settings_lookup_failed', status: 503 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a text that makes the template body too long', async () => {
+    const { db } = makeDb();
+    // 'Taamul Credit update: ' is 22 characters; 1002 + 22 = 1024 fits.
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ idempotency_key: 'fits', text: 'x'.repeat(1002) })
+    );
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    await expect(
+      sendCompassNotification(
+        db,
+        'acct',
+        baseRequest({ idempotency_key: 'long', text: 'x'.repeat(1003) })
+      )
+    ).rejects.toMatchObject({ code: 'text_too_long', status: 422 });
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an image outside the window, and sends one inside it', async () => {
+    const image = baseRequest({
+      type: 'image',
+      text: undefined,
+      media_url: 'https://example.com/a.png',
+    });
+    const closed = makeDb();
+    await expect(
+      sendCompassNotification(closed.db, 'acct', image)
+    ).rejects.toMatchObject({ code: 'outside_service_window', status: 409 });
+    expect(resolveConversationByPhone).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const open = makeDb(chatOnMeta(HOUR));
+    await sendCompassNotification(open.db, 'acct', image);
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'image',
+      mediaUrl: 'https://example.com/a.png',
+      provider: 'meta',
+    });
+  });
+
+  it('never touches conversation ownership', async () => {
+    // The only table notify.ts writes is its own; ownership lives on
+    // `conversations`, which it only reads itself (the Meta gate) and
+    // otherwise reaches solely through the (mocked) resolver and send
+    // core.
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db, written } = makeDb(chatOnMeta(48 * HOUR));
     const from = vi.spyOn(db, 'from');
     await sendCompassNotification(db, 'acct', baseRequest());
     expect([...written].sort()).toEqual(['compass_notifications']);
     const touched = new Set(from.mock.calls.map(([t]) => t));
     expect([...touched].sort()).toEqual([
       'compass_notifications',
+      'compass_settings',
       'conversations',
+      'message_templates',
+      'messages',
     ]);
   });
 
-  it('fails without falling back to Meta when Whapi is not connected', async () => {
-    // With no Whapi number the resolver falls back to another kind.
-    resolveSendChannel.mockResolvedValue({ id: 'cfg-meta', provider: 'meta' });
-    const { db, tables } = makeDb();
+  it('fails without falling back to Whapi or OpenWA when Meta is not connected', async () => {
+    // With no Meta number the resolver falls back to another kind.
+    for (const provider of ['whapi', 'openwa']) {
+      resolveSendChannel.mockResolvedValue({ id: 'cfg-x', provider });
+      const { db, tables } = makeDb();
 
-    await expect(
-      sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'whapi_not_connected', status: 409 });
-    // Nothing was created and nothing was sent.
-    expect(resolveConversationByPhone).not.toHaveBeenCalled();
-    expect(sendMessageToConversation).not.toHaveBeenCalled();
-    expect(tables.compass_notifications[0]).toMatchObject({
-      status: 'failed',
-      error_code: 'whapi_not_connected',
-    });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'meta_not_connected', status: 409 });
+      // Nothing was created and nothing was sent.
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'failed',
+        error_code: 'meta_not_connected',
+      });
+    }
   });
 
-  it('reports whapi_not_connected when no WhatsApp number is connected at all', async () => {
+  it('reports meta_not_connected when no WhatsApp number is connected at all', async () => {
     resolveSendChannel.mockRejectedValue(
       new ChannelError('whatsapp_not_configured', 'not configured', 400)
     );
     const { db } = makeDb();
     await expect(
       sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'whapi_not_connected', status: 409 });
+    ).rejects.toMatchObject({ code: 'meta_not_connected', status: 409 });
     expect(resolveConversationByPhone).not.toHaveBeenCalled();
   });
 
-  it('gates on the number the chat sends from, not the default one', async () => {
-    // Default Whapi number A is logged out; the customer's chat is on
-    // healthy B. The send core would use B, so the gate must too.
-    const A = { id: 'cfg-a', provider: 'whapi', status: 'disconnected' };
-    const B = { id: 'cfg-b', provider: 'whapi', status: 'connected' };
-    resolveSendChannel.mockImplementation(async (...args: unknown[]) =>
-      (args[6] as { channelId: string | null } | undefined)?.channelId ===
-      'cfg-b'
-        ? B
-        : A
-    );
-    findExistingContact.mockResolvedValue({ id: 'contact-1' });
-    const { db, tables } = makeDb({
-      conversations: [
-        {
-          id: 'conv-1',
-          account_id: 'acct',
-          contact_id: 'contact-1',
-          channel_id: 'cfg-b',
-          send_channel_id: null,
-        },
-      ],
-    });
-
-    const outcome = await sendCompassNotification(db, 'acct', baseRequest());
-    expect(outcome.notification.status).toBe('sent');
-    expect(findExistingContact).toHaveBeenCalledWith(
-      db,
-      'acct',
-      '971501234567'
-    );
-    expect(resolveSendChannel).toHaveBeenCalledWith(
-      db,
-      'acct',
-      'api',
-      'conv-1',
-      'whapi',
-      null,
-      { channelId: 'cfg-b', sendChannelId: null }
-    );
-    expect(tables.compass_notifications[0].status).toBe('sent');
-  });
-
-  it('refuses when the chat’s own number is down even if the default is up', async () => {
-    const A = { id: 'cfg-a', provider: 'whapi', status: 'connected' };
-    const B = { id: 'cfg-b', provider: 'whapi', status: 'disconnected' };
-    resolveSendChannel.mockImplementation(async (...args: unknown[]) =>
-      (args[6] as { sendChannelId: string | null } | undefined)
-        ?.sendChannelId === 'cfg-b'
-        ? B
-        : A
-    );
-    findExistingContact.mockResolvedValue({ id: 'contact-1' });
-    const { db } = makeDb({
-      conversations: [
-        {
-          id: 'conv-1',
-          account_id: 'acct',
-          contact_id: 'contact-1',
-          channel_id: 'cfg-a',
-          // Pinned to B by an agent (migration 061).
-          send_channel_id: 'cfg-b',
-        },
-      ],
-    });
-
-    await expect(
-      sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'whapi_not_connected', status: 409 });
-    expect(sendMessageToConversation).not.toHaveBeenCalled();
-  });
-
-  it('refuses, before creating a chat, while the Whapi number is logged out', async () => {
-    // The health monitor marks a logged-out number 'disconnected'.
-    resolveSendChannel.mockResolvedValue({
-      ...WHAPI,
-      status: 'disconnected',
-    });
+  it('refuses, before creating a chat, while the Meta number is marked disconnected', async () => {
+    resolveSendChannel.mockResolvedValue({ ...META, status: 'disconnected' });
     const { db, tables } = makeDb();
 
     await expect(
       sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'whapi_not_connected', status: 409 });
+    ).rejects.toMatchObject({ code: 'meta_not_connected', status: 409 });
     expect(resolveConversationByPhone).not.toHaveBeenCalled();
     expect(sendMessageToConversation).not.toHaveBeenCalled();
-    // Failed, so the same key may be retried once the phone is re-paired.
+    // Failed, so the same key may be retried once it is back.
     expect(tables.compass_notifications[0]).toMatchObject({
       status: 'failed',
-      error_code: 'whapi_not_connected',
+      error_code: 'meta_not_connected',
     });
 
-    resolveSendChannel.mockResolvedValue({
-      ...WHAPI,
-      status: 'connected',
-    });
+    resolveSendChannel.mockResolvedValue(META);
     const retry = await sendCompassNotification(db, 'acct', baseRequest());
     expect(retry.duplicate).toBe(false);
     expect(retry.notification.status).toBe('sent');
@@ -983,7 +1095,8 @@ describe('sendCompassNotification into a submission group (170)', () => {
   });
 
   it('sends an image 1:1 even when there is a group', async () => {
-    const { db } = makeDb({ groups: [group()] });
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db } = makeDb({ groups: [group()], ...chatOnMeta(HOUR) });
     const groupSender = vi.fn();
     await sendCompassNotification(
       db,

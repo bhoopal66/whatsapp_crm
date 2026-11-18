@@ -214,9 +214,9 @@ export interface SendMessageParams {
   /**
    * Make the `provider` pin a hard requirement: fail with
    * `<provider>_not_connected` instead of falling back to the surface
-   * rules. The Compass status notifications need this — they are
-   * free-form, so on the Meta number they would be refused outside the
-   * 24-hour window, and silently moving them there is worse than
+   * rules. The Compass status notifications need this — they must go
+   * on the Meta number (migration 209), and silently moving them to a
+   * linked-device number, whose restriction they caused, is worse than
    * failing loudly.
    */
   requireProvider?: boolean;
