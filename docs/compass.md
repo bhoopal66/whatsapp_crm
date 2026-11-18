@@ -64,8 +64,10 @@ linked to a CRM contact the first time Compass messages them.
 2. **Check the Meta number is connected:** **Settings → WhatsApp → Connections**.
    Notifications cannot be sent without it. Then apply
    `209_compass_meta_template.sql`, create a **Utility** template with
-   exactly one body variable (for example `Taamul Credit update: {{1}}`)
-   in **Settings → Templates**, submit it to Meta, and once it is
+   exactly one body variable in **Settings → Templates** (for example
+   `Hello, here is an update on your application with Taamul Credit:
+   {{1}} If you have any questions, just reply to this message.`; Meta
+   refuses a body that starts or ends with the variable), submit it to Meta, and once it is
    approved choose it under **Taamul Compass → Settings**. Updates to
    customers who have not written in the last 24 hours fail until it is
    chosen.

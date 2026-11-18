@@ -4343,7 +4343,7 @@
       "savedUnusable": "The chosen template \"{name}\" can no longer be used (it is not approved, not a utility template, or no longer has exactly one variable). Updates outside the 24 hours fail until you choose another.",
       "savedMissing": "The chosen template \"{name}\" no longer exists. Updates outside the 24 hours fail until you choose another.",
       "noUsable": "No template fits yet. Create one in Settings → Templates and submit it to Meta.",
-      "requirements": "Listed: templates Meta has approved, in the Utility category, with exactly one body variable and no header or button that needs a value. Example body: \"Taamul Credit update: [variable]\". The whole message can be at most 1024 characters.",
+      "requirements": "Listed: templates Meta has approved, in the Utility category, with exactly one body variable and no header or button that needs a value. Meta refuses a body that starts or ends with the variable, so put text on both sides, e.g. \"Here is an update on your application: [variable]. Reply if you have questions.\". The whole message can be at most 1024 characters.",
       "save": "Save",
       "saved": "Compass template saved",
       "saveFailed": "Could not save the Compass template",
