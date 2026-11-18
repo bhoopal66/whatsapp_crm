@@ -392,6 +392,54 @@ describe('sendCompassNotification', () => {
     });
   });
 
+  it('does not count our own messages: only the customer opens the window', async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const seed = chatOnMeta(HOUR);
+    seed.messages[0].sender_type = 'agent';
+    const { db } = makeDb(seed);
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+    });
+  });
+
+  it("judges the window on the customer's newest message", async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const seed = chatOnMeta(48 * HOUR);
+    seed.messages.push({
+      ...seed.messages[0],
+      id: 'm-in-2',
+      created_at: new Date(Date.now() - HOUR).toISOString(),
+    });
+    const { db } = makeDb(seed);
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'text',
+    });
+  });
+
+  it('reads the window from the chat the update goes into, not another one', async () => {
+    // A recent Meta message in a second chat of the same contact opens
+    // nothing in the chat the send lands in (the first company chat).
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const seed = chatOnMeta(48 * HOUR);
+    seed.conversations.push({
+      ...seed.conversations[0],
+      id: 'conv-2',
+    });
+    seed.messages.push({
+      ...seed.messages[0],
+      id: 'm-other',
+      conversation_id: 'conv-2',
+      created_at: new Date(Date.now() - HOUR).toISOString(),
+    });
+    const { db } = makeDb(seed);
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+    });
+  });
+
   it('does not count a message the customer sent to another number', async () => {
     // The window is per number: writing to the Whapi number opens
     // nothing on Meta.
