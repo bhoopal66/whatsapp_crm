@@ -21,7 +21,8 @@ import {
   LayoutTemplate,
   Loader2,
 } from "lucide-react";
-import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import { collectTemplateVariableSlots as collectVariableSlots } from "@/lib/whatsapp/template-slots";
+import { renderTemplateBody } from "@/lib/whatsapp/template-body";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
@@ -37,41 +38,10 @@ interface TemplatePickerProps {
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
-    const idx = Number(raw) - 1;
-    const value = params[idx];
-    return value && value.trim().length > 0 ? value : `{{${raw}}}`;
-  });
-}
-
-interface UrlButtonSlot {
-  index: number;
-  text: string;
-  url: string;
-}
-
-/**
- * Templates may need values for: body variables, a text-header
- * variable, and per-URL-button suffixes. Collect them all so the
- * send-message path doesn't 400 on missing parameters.
- */
-function collectVariableSlots(template: MessageTemplate): {
-  bodyVars: number[];
-  headerVarCount: number;
-  urlButtonSlots: UrlButtonSlot[];
-} {
-  const bodyVars = extractVariableIndices(template.body_text);
-  const headerVarCount =
-    template.header_type === "text" && template.header_content
-      ? extractVariableIndices(template.header_content).length
-      : 0;
-  const urlButtonSlots: UrlButtonSlot[] = [];
-  (template.buttons ?? []).forEach((b, i) => {
-    if (b.type === "URL" && extractVariableIndices(b.url).length > 0) {
-      urlButtonSlots.push({ index: i, text: b.text, url: b.url });
-    }
-  });
-  return { bodyVars, headerVarCount, urlButtonSlots };
+  // Blank values stay as their placeholder so the preview shows what is
+  // still missing; named ({{customer_name}}) and positional alike.
+  const filled = params.map((v) => (v && v.trim().length > 0 ? v : undefined));
+  return renderTemplateBody(body, filled as string[]);
 }
 
 export function TemplatePicker({
@@ -147,7 +117,7 @@ export function TemplatePicker({
   function pickTemplate(template: MessageTemplate) {
     const slots = collectVariableSlots(template);
     const noInputsNeeded =
-      slots.bodyVars.length === 0 &&
+      slots.bodyKeys.length === 0 &&
       slots.headerVarCount === 0 &&
       slots.urlButtonSlots.length === 0;
     if (noInputsNeeded) {
@@ -156,7 +126,7 @@ export function TemplatePicker({
       return;
     }
     setSelected(template);
-    setParams(new Array(slots.bodyVars.length).fill(""));
+    setParams(new Array(slots.bodyKeys.length).fill(""));
     setHeaderText("");
     setButtonParams({});
   }
@@ -181,7 +151,7 @@ export function TemplatePicker({
   const canConfirm =
     !!selected &&
     !!slots &&
-    slots.bodyVars.every((_, i) => (params[i] ?? "").trim().length > 0) &&
+    slots.bodyKeys.every((_, i) => (params[i] ?? "").trim().length > 0) &&
     (slots.headerVarCount === 0 || headerText.trim().length > 0) &&
     slots.urlButtonSlots.every(
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
@@ -274,7 +244,7 @@ export function TemplatePicker({
                 />
               </div>
             )}
-            {slots?.bodyVars.map((v, i) => (
+            {slots?.bodyKeys.map((v, i) => (
               <div key={v} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
                 <Input
