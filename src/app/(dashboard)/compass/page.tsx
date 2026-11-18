@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CompassSettings } from '@/components/compass/compass-settings';
+import { CompassTemplates } from '@/components/compass/compass-templates';
 import {
   Table,
   TableBody,
@@ -73,7 +73,7 @@ export default function CompassPage() {
   const t = useTranslations('Compass');
   const { accountId } = useAuth();
   const [tab, setTab] = useState<
-    'customers' | 'notifications' | 'submissions' | 'settings'
+    'customers' | 'notifications' | 'submissions' | 'templates'
   >('customers');
 
   return (
@@ -93,7 +93,7 @@ export default function CompassPage() {
             {t('tabs.notifications')}
           </TabsTrigger>
           <TabsTrigger value="submissions">{t('tabs.submissions')}</TabsTrigger>
-          <TabsTrigger value="settings">{t('tabs.settings')}</TabsTrigger>
+          <TabsTrigger value="templates">{t('tabs.templates')}</TabsTrigger>
         </TabsList>
         <TabsContent value="customers" className="mt-4">
           {accountId && <CustomersTab accountId={accountId} />}
@@ -104,8 +104,8 @@ export default function CompassPage() {
         <TabsContent value="submissions" className="mt-4">
           {accountId && <SubmissionsTab />}
         </TabsContent>
-        <TabsContent value="settings" className="mt-4">
-          {accountId && <CompassSettings accountId={accountId} />}
+        <TabsContent value="templates" className="mt-4">
+          {accountId && <CompassTemplates accountId={accountId} />}
         </TabsContent>
       </Tabs>
     </div>

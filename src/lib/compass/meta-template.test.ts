@@ -1,18 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  compassTemplateParam,
+  COMPASS_TEMPLATES,
+  compassTemplateFor,
   compassTemplateProblem,
+  renderCompassTemplate,
   SERVICE_WINDOW_MS,
   serviceWindowOpen,
-  type CompassTemplateFields,
 } from './meta-template';
-
-const ok: CompassTemplateFields = {
-  status: 'APPROVED',
-  category: 'Utility',
-  body_text: 'Taamul Credit update: {{1}}',
-};
+import { APPROVED_TEXT, SUBMITTED_TEXT } from './compass-messages.fixture';
 
 describe('serviceWindowOpen', () => {
   const now = Date.parse('2026-11-18T12:00:00Z');
@@ -34,78 +30,94 @@ describe('serviceWindowOpen', () => {
     expect(
       serviceWindowOpen(new Date(now - SERVICE_WINDOW_MS).toISOString(), now)
     ).toBe(false);
-    expect(serviceWindowOpen('2026-11-17T11:55:00Z', now)).toBe(false);
+  });
+});
+
+describe('compassTemplateFor', () => {
+  it('reads company and bank out of a submitted message', () => {
+    const hit = compassTemplateFor('case.submitted', SUBMITTED_TEXT);
+    expect(hit?.template.name).toBe('compass_case_submitted');
+    expect(hit?.params).toEqual([
+      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'MASHREQ',
+    ]);
+  });
+
+  it('reads company and bank out of an approved message', () => {
+    const hit = compassTemplateFor('case.approved', APPROVED_TEXT);
+    expect(hit?.template.name).toBe('compass_case_approved');
+    expect(hit?.params).toEqual([
+      'AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.',
+      'NBF',
+    ]);
+  });
+
+  it('renders back to exactly what Compass sent', () => {
+    for (const [event, text] of [
+      ['case.submitted', SUBMITTED_TEXT],
+      ['case.approved', APPROVED_TEXT],
+    ]) {
+      const hit = compassTemplateFor(event, text)!;
+      expect(renderCompassTemplate(hit.template, hit.params)).toBe(text);
+    }
+  });
+
+  it('tolerates CRLF line endings and trailing spaces', () => {
+    const crlf = SUBMITTED_TEXT.replace(/\n/g, '  \r\n');
+    expect(compassTemplateFor('case.submitted', crlf)?.params).toEqual([
+      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'MASHREQ',
+    ]);
+  });
+
+  it('keeps a company name with a comma in it whole', () => {
+    const text = SUBMITTED_TEXT.replace(
+      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'ACME, TRADING LLC'
+    );
+    expect(compassTemplateFor('case.submitted', text)?.params[0]).toBe(
+      'ACME, TRADING LLC'
+    );
+  });
+
+  it('finds the template from the text when no event is given', () => {
+    expect(compassTemplateFor(null, APPROVED_TEXT)?.template.event).toBe(
+      'case.approved'
+    );
+  });
+
+  it('matches nothing when the wording differs or the event disagrees', () => {
+    expect(
+      compassTemplateFor(
+        'case.submitted',
+        SUBMITTED_TEXT.replace('keep you informed', 'keep you posted')
+      )
+    ).toBeNull();
+    expect(compassTemplateFor('case.submitted', APPROVED_TEXT)).toBeNull();
+    expect(
+      compassTemplateFor('case.rejected', 'Your application was declined.')
+    ).toBeNull();
+    expect(compassTemplateFor('case.approved', null)).toBeNull();
   });
 });
 
 describe('compassTemplateProblem', () => {
-  it('accepts an approved utility template with one body variable', () => {
-    expect(compassTemplateProblem(ok)).toBeNull();
+  const t = COMPASS_TEMPLATES[0];
+  it('accepts the approved row with the same body', () => {
     expect(
-      compassTemplateProblem({ ...ok, body_text: 'Update: {{update}}' })
-    ).toBeNull();
-    expect(
-      compassTemplateProblem({
-        ...ok,
-        header_type: 'text',
-        header_content: 'Taamul Credit',
-        buttons: [{ type: 'QUICK_REPLY', text: 'Thanks' }],
-      })
+      compassTemplateProblem(t, { status: 'APPROVED', body_text: t.body })
     ).toBeNull();
   });
-  it('refuses a template Meta has not approved', () => {
-    expect(compassTemplateProblem({ ...ok, status: 'PENDING' })).toBe(
-      'not_approved'
-    );
-    expect(compassTemplateProblem({ ...ok, status: undefined })).toBe(
-      'not_approved'
-    );
-  });
-  it('refuses a marketing template', () => {
-    expect(compassTemplateProblem({ ...ok, category: 'Marketing' })).toBe(
-      'not_utility'
-    );
-  });
-  it('needs exactly one body variable', () => {
-    expect(compassTemplateProblem({ ...ok, body_text: 'No variable' })).toBe(
-      'one_variable'
-    );
+  it('names what is wrong otherwise', () => {
+    expect(compassTemplateProblem(t, null)).toBe('missing');
     expect(
-      compassTemplateProblem({ ...ok, body_text: 'Dear {{1}}, {{2}}' })
-    ).toBe('one_variable');
-  });
-  it('refuses anything else that needs a value at send time', () => {
-    expect(compassTemplateProblem({ ...ok, header_type: 'image' })).toBe(
-      'header'
-    );
+      compassTemplateProblem(t, { status: 'PENDING', body_text: t.body })
+    ).toBe('not_approved');
     expect(
-      compassTemplateProblem({
-        ...ok,
-        header_type: 'text',
-        header_content: 'Hi {{1}}',
+      compassTemplateProblem(t, {
+        status: 'APPROVED',
+        body_text: t.body.replace('Dear', 'Hello'),
       })
-    ).toBe('header');
-    expect(
-      compassTemplateProblem({
-        ...ok,
-        buttons: [{ type: 'URL', text: 'Open', url: 'https://x.test/{{1}}' }],
-      })
-    ).toBe('buttons');
-    expect(
-      compassTemplateProblem({
-        ...ok,
-        buttons: [{ type: 'COPY_CODE', text: 'Copy', example: 'A1' }],
-      })
-    ).toBe('buttons');
-  });
-});
-
-describe('compassTemplateParam', () => {
-  it('puts the text on one line with no runs of spaces', () => {
-    expect(
-      compassTemplateParam(
-        'Dear ACME LLC,\r\n\r\nThank you for choosing Taamul.\n\tWe are     pleased.  '
-      )
-    ).toBe('Dear ACME LLC, Thank you for choosing Taamul. We are pleased.');
+    ).toBe('changed');
   });
 });

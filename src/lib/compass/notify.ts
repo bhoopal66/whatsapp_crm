@@ -5,17 +5,19 @@
 // account application ("documents received", "approved", ...). Three
 // rules shape this, each a requirement rather than a preference:
 //
-//   1. ALWAYS the Meta Cloud API number (migration 209). Before 209
-//      these went on a linked-device number (Whapi / OpenWA), and the
-//      volume of unsolicited updates got those numbers restricted.
-//      Meta allows free text only within 24 hours of the customer's
-//      last message to the number; outside that window a text update
-//      goes as the admin's chosen utility template, carrying the text
-//      in its one body variable (`meta-template.ts`). An image or
-//      document outside the window cannot go at all
-//      (`outside_service_window`). If the Meta number is not connected
-//      the send FAILS (`meta_not_connected`) instead of falling back to
-//      a linked-device number.
+//   1. ALWAYS the Meta Cloud API number. These used to go on a
+//      linked-device number (Whapi / OpenWA), and the volume of
+//      unsolicited updates got those numbers restricted. Meta allows
+//      free text only within 24 hours of the customer's last message
+//      to the number; outside that window the update goes as the
+//      Meta-approved template worded like it (submitted / approved,
+//      `meta-template.ts`), with the company and bank read out of
+//      Compass's text. A message no template matches, or an image or
+//      document, cannot go outside the window
+//      (`no_template_for_message`, `outside_service_window`). If the
+//      Meta number is not connected the send FAILS
+//      (`meta_not_connected`) instead of falling back to a
+//      linked-device number.
 //   2. Land in the EXISTING chat and leave it where it is. The message
 //      goes into the contact's one conversation (resolved exactly as the
 //      public messages API does), and nothing here writes
@@ -43,15 +45,11 @@ import {
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import {
-  renderTemplateBody,
-  resolveTemplateRow,
-} from '@/lib/whatsapp/template-body';
-import {
-  compassTemplateParam,
+  compassTemplateFor,
   compassTemplateProblem,
   serviceWindowOpen,
-  TEMPLATE_BODY_MAX,
   type CompassTemplateProblem,
 } from '@/lib/compass/meta-template';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
@@ -509,73 +507,51 @@ async function metaWindowOpen(
 }
 
 const TEMPLATE_PROBLEMS: Record<CompassTemplateProblem, string> = {
-  not_approved: 'it is not approved by Meta',
-  not_utility: 'it is not a utility template',
-  one_variable: 'it must have exactly one body variable',
-  header: 'its header needs a value',
-  buttons: 'a button needs a value',
+  missing: 'is not on this account',
+  not_approved: 'is not approved by Meta yet',
+  changed: 'was edited and no longer matches the Compass message',
 };
 
 /**
- * The template a text update goes as outside the 24-hour window: the
- * admin's choice (Taamul Compass → Settings), checked as it is now.
- * Throws a `NotifyError` (nothing sent, key retryable) when none is
- * chosen, it cannot be used, or the text makes its body too long.
+ * The template an update goes as outside the 24-hour window: the one
+ * worded like this message, with the company and bank read out of it,
+ * checked against the local row as it is now. Throws a `NotifyError`
+ * (nothing sent, key retryable) when no template matches the message
+ * or its row cannot be used.
  */
 async function compassTemplateSend(
   db: SupabaseClient,
   accountId: string,
+  event: string | null,
   text: string
-): Promise<{ name: string; language: string; param: string }> {
-  const { data: settings, error } = await db
-    .from('compass_settings')
-    .select('meta_template_name, meta_template_language')
-    .eq('account_id', accountId)
-    .maybeSingle();
-  if (error) {
+): Promise<{ name: string; language: string; params: string[] }> {
+  const hit = compassTemplateFor(event, text);
+  if (!hit) {
     throw new NotifyError(
-      'settings_lookup_failed',
-      'The Compass settings could not be read. Nothing was sent — retry later with the same idempotency_key.',
-      503
-    );
-  }
-  const name = (settings as { meta_template_name?: string | null } | null)
-    ?.meta_template_name;
-  if (!name) {
-    throw new NotifyError(
-      'meta_template_not_set',
-      "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows a template, and no Compass template is chosen. An admin picks one under Taamul Compass → Settings. Nothing was sent — retry later with the same idempotency_key.",
+      'no_template_for_message',
+      "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows an approved template, and this message matches none (only the submitted and approved messages have one, word for word). Nothing was sent.",
       409
     );
   }
-  const language =
-    (settings as { meta_template_language?: string | null })
-      .meta_template_language ?? null;
+  const { name, language } = hit.template;
   const resolved = await resolveTemplateRow(db, accountId, name, language);
-  const problem = resolved.row ? compassTemplateProblem(resolved.row) : null;
-  if (!resolved.row || problem) {
+  const problem = compassTemplateProblem(
+    hit.template,
+    resolved.malformed ? null : resolved.row
+  );
+  if (problem) {
     throw new NotifyError(
       'meta_template_unusable',
-      `The Compass template "${name}" cannot be used: ${
-        problem
-          ? TEMPLATE_PROBLEMS[problem]
-          : 'it no longer exists on this account'
-      }. An admin picks another under Taamul Compass → Settings. Nothing was sent — retry later with the same idempotency_key.`,
+      `The WhatsApp template "${name}" ${TEMPLATE_PROBLEMS[problem]}. Nothing was sent — retry later with the same idempotency_key.`,
       409
     );
   }
-  const param = compassTemplateParam(text);
-  if (
-    renderTemplateBody(resolved.row.body_text, [param]).length >
-    TEMPLATE_BODY_MAX
-  ) {
-    throw new NotifyError(
-      'text_too_long',
-      `Outside the 24-hour window the update goes as the Compass template, whose text can be at most ${TEMPLATE_BODY_MAX} characters with the update in it. Shorten the text. Nothing was sent.`,
-      422
-    );
-  }
-  return { name, language: resolved.language, param };
+  return {
+    name,
+    language: resolved.language,
+    // Meta refuses a variable with a line break or a run of spaces.
+    params: hit.params.map((p) => p.replace(/\s+/g, ' ')),
+  };
 }
 
 // ---------- the submission group (170) ----------
@@ -892,15 +868,15 @@ export async function sendCompassNotification(
       );
     }
 
-    // Free text inside the customer's 24-hour window; outside it, text
-    // goes as the Compass template and media cannot go at all. Decided
+    // Free text inside the customer's 24-hour window; outside it, the
+    // approved template worded like the message, and media cannot go. Decided
     // before the chat is created, so a refusal leaves nothing behind.
     const windowOpen = await metaWindowOpen(
       db,
       meta.conversationId,
       meta.channel.id
     );
-    let template: { name: string; language: string; param: string } | null =
+    let template: { name: string; language: string; params: string[] } | null =
       null;
     if (!windowOpen) {
       if (req.type !== 'text' || !req.text) {
@@ -910,7 +886,7 @@ export async function sendCompassNotification(
           409
         );
       }
-      template = await compassTemplateSend(db, accountId, req.text);
+      template = await compassTemplateSend(db, accountId, req.event, req.text);
     }
 
     const resolved = await resolveConversationByPhone(
@@ -929,7 +905,7 @@ export async function sendCompassNotification(
             messageType: 'template',
             templateName: template.name,
             templateLanguage: template.language,
-            templateParams: [template.param],
+            templateParams: template.params,
           }
         : {
             messageType: req.type,

@@ -1,15 +1,16 @@
 // ============================================================
-// Compass notifications on the Meta number (migration 209): the
-// 24-hour service window and the fallback template. Pure, so the
-// Compass settings screen and the send path judge a template the same
-// way.
+// Compass notifications on the Meta number: the 24-hour service window
+// and the approved templates. Pure, so the Compass settings screen and
+// the send path judge the same way.
 //
 // Meta allows free text only within 24 hours of the customer's last
-// message to the number. Outside that window an update goes as one
-// approved utility template with the Compass text in its single body
-// variable. Meta refuses a body variable that holds a line break, a
-// tab or more than four spaces in a row, so the text is flattened onto
-// one line.
+// message to the number. Outside that window a Compass update goes as
+// the Meta-approved template that says the same thing: one template per
+// Compass event, worded exactly as the message Compass sends, with the
+// company and the bank as its variables. Those two values are read back
+// out of Compass's own text, so what the customer reads is the same
+// either way. A message no template matches is not sent outside the
+// window.
 // ============================================================
 
 import { extractVariableKeys } from '@/lib/whatsapp/template-validators';
@@ -22,9 +23,6 @@ import type { MessageTemplate } from '@/types';
  */
 export const SERVICE_WINDOW_MS = 24 * 60 * 60_000 - 10 * 60_000;
 
-/** Meta's limit on a template body, with the variable filled in. */
-export const TEMPLATE_BODY_MAX = 1024;
-
 /** True when a customer message at `lastInboundAt` still allows free text. */
 export function serviceWindowOpen(
   lastInboundAt: string | null | undefined,
@@ -36,54 +34,140 @@ export function serviceWindowOpen(
   return now - at < SERVICE_WINDOW_MS;
 }
 
-export type CompassTemplateProblem =
-  'not_approved' | 'not_utility' | 'one_variable' | 'header' | 'buttons';
+const CONTACT_BLOCK =
+  'Should you have any questions, please contact us:\n' +
+  'Phone: +971 4 550 2800\n' +
+  'Email: info@taamulcredit.com\n' +
+  'Website: https://taamulcredit.com\n\n' +
+  'Kind regards,\n' +
+  '*Taamul Credit Review Services*';
 
-export type CompassTemplateFields = Pick<
-  MessageTemplate,
-  'status' | 'category' | 'body_text' | 'header_type' | 'header_content'
-> & { buttons?: MessageTemplate['buttons'] | null };
+export interface CompassTemplate {
+  /** The Compass `event` this template stands in for. */
+  event: string;
+  /** Name and language in the WABA registry and `message_templates`. */
+  name: string;
+  language: string;
+  /** Body as submitted to Meta: {{1}} company, {{2}} bank. */
+  body: string;
+  /** Example values Meta reviews the template with. */
+  sample: [string, string];
+  /** [company, bank] read out of Compass's text, or null when it differs. */
+  parse: (text: string) => [string, string] | null;
+}
+
+/** Normalise line endings and trailing spaces before matching. */
+function tidy(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .join('\n')
+    .trim();
+}
 
 /**
- * Why a template cannot carry Compass updates, or null when it can.
- * It must be approved by Meta, a utility template (an account update,
- * not marketing), with exactly one body variable for the text, and
- * nothing else that needs a value at send time: no media header, no
- * header variable, no URL variable or copy-code button.
+ * Reads the two values out of `text` when it is exactly `body` with
+ * them filled in (line endings and trailing spaces aside). Exact, so a
+ * message Compass rewords is never sent as the old wording.
  */
-export function compassTemplateProblem(
-  row: CompassTemplateFields
-): CompassTemplateProblem | null {
-  if (String(row.status ?? '').toUpperCase() !== 'APPROVED') {
-    return 'not_approved';
-  }
-  if (String(row.category ?? '').toLowerCase() !== 'utility') {
-    return 'not_utility';
-  }
-  if (new Set(extractVariableKeys(row.body_text ?? '')).size !== 1) {
-    return 'one_variable';
-  }
-  if (row.header_type && row.header_type !== 'text') return 'header';
-  if (
-    row.header_type === 'text' &&
-    extractVariableKeys(row.header_content ?? '').length > 0
-  ) {
-    return 'header';
-  }
-  const buttons = Array.isArray(row.buttons) ? row.buttons : [];
-  if (
-    buttons.some(
-      (b) => b.type === 'COPY_CODE' || (b.type === 'URL' && /\{\{/.test(b.url))
-    )
-  ) {
-    return 'buttons';
+function parserFor(body: string): CompassTemplate['parse'] {
+  const escaped = body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(
+    '^' +
+      escaped
+        .replace('\\{\\{1\\}\\}', '([^\\n]+?)')
+        .replace('\\{\\{2\\}\\}', '([^\\n]+?)') +
+      '$'
+  );
+  return (text) => {
+    const m = tidy(text).match(pattern);
+    if (!m) return null;
+    const company = m[1].trim();
+    const bank = m[2].trim();
+    return company && bank ? [company, bank] : null;
+  };
+}
+
+function template(t: Omit<CompassTemplate, 'parse'>): CompassTemplate {
+  return { ...t, parse: parserFor(t.body) };
+}
+
+/** The approved templates, one per Compass event. */
+export const COMPASS_TEMPLATES: readonly CompassTemplate[] = [
+  template({
+    event: 'case.submitted',
+    name: 'compass_case_submitted',
+    language: 'en',
+    body:
+      'Dear {{1}},\n\n' +
+      'Thank you for choosing Taamul Credit Review Services. We are pleased to confirm that your bank account application has been submitted to {{2}}.\n\n' +
+      'We will keep you informed of its progress and will notify you as soon as the bank responds.\n\n' +
+      CONTACT_BLOCK,
+    sample: ['PREMIER LUBRICANTS FACTORY L.L.C', 'MASHREQ'],
+  }),
+  template({
+    event: 'case.approved',
+    name: 'compass_case_approved',
+    language: 'en',
+    body:
+      'Dear {{1}},\n\n' +
+      'We are pleased to inform you that your bank account application with {{2}} has been *approved*.\n\n' +
+      'A member of our team will contact you shortly to guide you through the next steps.\n\n' +
+      CONTACT_BLOCK,
+    sample: ['AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
+  }),
+];
+
+/**
+ * The template an update goes as outside the window, with its values:
+ * the event's template when the text matches it, else any template the
+ * text matches (an update sent without an event). Null when none does.
+ */
+export function compassTemplateFor(
+  event: string | null,
+  text: string | null
+): { template: CompassTemplate; params: [string, string] } | null {
+  if (!text) return null;
+  const byEvent = COMPASS_TEMPLATES.find((t) => t.event === event);
+  const candidates = byEvent ? [byEvent] : COMPASS_TEMPLATES;
+  for (const t of candidates) {
+    const params = t.parse(text);
+    if (params) return { template: t, params };
   }
   return null;
 }
 
-/** The Compass text as one body variable Meta accepts: one line, no runs of spaces. */
-export function compassTemplateParam(text: string): string {
-  // Every whitespace run (line breaks, tabs, U+2028, repeated spaces)
-  // becomes one space.
-  return text.replace(/\s+/g, ' ').trim();
+/** The text the customer reads for `template` filled with `params`. */
+export function renderCompassTemplate(
+  template: CompassTemplate,
+  params: [string, string]
+): string {
+  return template.body
+    .replace('{{1}}', () => params[0])
+    .replace('{{2}}', () => params[1]);
+}
+
+export type CompassTemplateProblem = 'missing' | 'not_approved' | 'changed';
+
+/**
+ * Why the local `message_templates` row cannot carry the update, or
+ * null when it can: it must exist, be approved by Meta, and still hold
+ * the body the values were read against (two variables, same wording).
+ */
+export function compassTemplateProblem(
+  template: CompassTemplate,
+  row: Pick<MessageTemplate, 'status' | 'body_text'> | null
+): CompassTemplateProblem | null {
+  if (!row) return 'missing';
+  if (String(row.status ?? '').toUpperCase() !== 'APPROVED') {
+    return 'not_approved';
+  }
+  if (
+    tidy(row.body_text ?? '') !== tidy(template.body) ||
+    new Set(extractVariableKeys(row.body_text ?? '')).size !== 2
+  ) {
+    return 'changed';
+  }
+  return null;
 }

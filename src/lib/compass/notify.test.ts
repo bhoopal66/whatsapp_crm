@@ -38,6 +38,8 @@ import {
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
+import { COMPASS_TEMPLATES } from './meta-template';
+import { APPROVED_TEXT, SUBMITTED_TEXT } from './compass-messages.fixture';
 
 // ------------------------------------------------------------
 // In-memory stand-in for the Compass tables (and the chats, messages
@@ -54,9 +56,7 @@ function makeDb(
     conversations?: Row[];
     groups?: Row[];
     messages?: Row[];
-    /** Default: the Compass template below is chosen. */
-    settings?: Row[];
-    /** Default: the Compass template below, approved. */
+    /** Default: both Compass templates, approved. */
     templates?: Row[];
     /** Tables whose reads answer an error. */
     failReads?: string[];
@@ -68,8 +68,7 @@ function makeDb(
     conversations: seed.conversations ?? [],
     submission_groups: seed.groups ?? [],
     messages: seed.messages ?? [],
-    compass_settings: seed.settings ?? [SETTINGS],
-    message_templates: seed.templates ?? [TEMPLATE],
+    message_templates: seed.templates ?? [SUBMITTED_ROW, APPROVED_ROW],
   };
   let nextId = 1;
   /** Every table an insert or update was run against. */
@@ -169,22 +168,23 @@ function makeDb(
 
 const META = { id: 'cfg-meta', provider: 'meta', status: 'connected' };
 
-const SETTINGS: Row = {
-  account_id: 'acct',
-  meta_template_name: 'compass_update',
-  meta_template_language: 'en',
+/** The local row of a Compass template, approved by Meta. */
+const templateRow = (event: string): Row => {
+  const t = COMPASS_TEMPLATES.find((x) => x.event === event)!;
+  return {
+    id: `tpl-${t.name}`,
+    user_id: 'u-1',
+    account_id: 'acct',
+    name: t.name,
+    language: t.language,
+    category: 'Utility',
+    status: 'APPROVED',
+    body_text: t.body,
+    created_at: '2026-11-01T00:00:00Z',
+  };
 };
-const TEMPLATE: Row = {
-  id: 'tpl-1',
-  user_id: 'u-1',
-  account_id: 'acct',
-  name: 'compass_update',
-  language: 'en',
-  category: 'Utility',
-  status: 'APPROVED',
-  body_text: 'Taamul Credit update: {{1}}',
-  created_at: '2026-11-01T00:00:00Z',
-};
+const SUBMITTED_ROW = templateRow('case.submitted');
+const APPROVED_ROW = templateRow('case.approved');
 
 /** A customer's chat on the Meta number, last written to `agoMs` ago. */
 const chatOnMeta = (agoMs: number, channelId = 'cfg-meta') => ({
@@ -228,7 +228,8 @@ const baseRequest = (over: Record<string, unknown> = {}) =>
   parseNotificationRequest({
     idempotency_key: 'APP-1:approved',
     to: '+971501234567',
-    text: 'Approved',
+    event: 'case.approved',
+    text: APPROVED_TEXT,
     ...over,
   });
 
@@ -338,9 +339,9 @@ describe('sendCompassNotification', () => {
     expect(params).toEqual({
       conversationId: 'conv-1',
       messageType: 'template',
-      templateName: 'compass_update',
+      templateName: 'compass_case_approved',
       templateLanguage: 'en',
-      templateParams: ['Approved'],
+      templateParams: ['AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
       surface: 'api',
       provider: 'meta',
       requireProvider: true,
@@ -375,7 +376,7 @@ describe('sendCompassNotification', () => {
     const params = sendMessageToConversation.mock.calls[0][2];
     expect(params).toMatchObject({
       messageType: 'text',
-      contentText: 'Approved',
+      contentText: APPROVED_TEXT,
       provider: 'meta',
       requireProvider: true,
     });
@@ -388,7 +389,7 @@ describe('sendCompassNotification', () => {
     await sendCompassNotification(db, 'acct', baseRequest());
     expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
       messageType: 'template',
-      templateName: 'compass_update',
+      templateName: 'compass_case_approved',
     });
   });
 
@@ -460,39 +461,70 @@ describe('sendCompassNotification', () => {
     });
   });
 
-  it('puts multi-line text on one line in the template variable', async () => {
+  it('sends a submitted message as the submitted template', async () => {
     const { db } = makeDb();
     await sendCompassNotification(
       db,
       'acct',
-      baseRequest({
-        text: 'Dear ACME LLC,\n\nThank you for choosing Taamul.\n\tApproved.',
-      })
+      baseRequest({ event: 'case.submitted', text: SUBMITTED_TEXT })
     );
-    expect(sendMessageToConversation.mock.calls[0][2].templateParams).toEqual([
-      'Dear ACME LLC, Thank you for choosing Taamul. Approved.',
-    ]);
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'template',
+      templateName: 'compass_case_submitted',
+      templateParams: ['PREMIER LUBRICANTS FACTORY L.L.C', 'MASHREQ'],
+    });
   });
 
-  it('refuses, before creating a chat, when no template is chosen', async () => {
-    const { db, tables } = makeDb({ settings: [] });
+  it('finds the template from the text when Compass sends no event', async () => {
+    const { db } = makeDb();
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ event: undefined, text: SUBMITTED_TEXT })
+    );
+    expect(sendMessageToConversation.mock.calls[0][2].templateName).toBe(
+      'compass_case_submitted'
+    );
+  });
+
+  it('refuses, before creating a chat, a message no template matches', async () => {
+    const { db, tables } = makeDb();
     await expect(
-      sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'meta_template_not_set', status: 409 });
+      sendCompassNotification(db, 'acct', baseRequest({ text: 'Approved' }))
+    ).rejects.toMatchObject({ code: 'no_template_for_message', status: 409 });
     expect(resolveConversationByPhone).not.toHaveBeenCalled();
     expect(sendMessageToConversation).not.toHaveBeenCalled();
     expect(tables.compass_notifications[0]).toMatchObject({
       status: 'failed',
-      error_code: 'meta_template_not_set',
+      error_code: 'no_template_for_message',
     });
   });
 
-  it('refuses a chosen template that is gone or not usable', async () => {
+  it('sends any wording as plain text inside the window', async () => {
+    findExistingContact.mockResolvedValue({ id: 'contact-1' });
+    const { db } = makeDb(chatOnMeta(HOUR));
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ text: 'Approved' })
+    );
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      messageType: 'text',
+      contentText: 'Approved',
+    });
+  });
+
+  it('refuses a template that is missing, not approved yet, or edited', async () => {
     for (const templates of [
-      [],
-      [{ ...TEMPLATE, status: 'PENDING' }],
-      [{ ...TEMPLATE, category: 'Marketing' }],
-      [{ ...TEMPLATE, body_text: 'Update: {{1}} for {{2}}' }],
+      [SUBMITTED_ROW],
+      [SUBMITTED_ROW, { ...APPROVED_ROW, status: 'PENDING' }],
+      [
+        SUBMITTED_ROW,
+        {
+          ...APPROVED_ROW,
+          body_text: String(APPROVED_ROW.body_text).replace('Dear', 'Hello'),
+        },
+      ],
     ]) {
       resolveConversationByPhone.mockClear();
       const { db } = makeDb({ templates });
@@ -502,33 +534,6 @@ describe('sendCompassNotification', () => {
       expect(resolveConversationByPhone).not.toHaveBeenCalled();
     }
     expect(sendMessageToConversation).not.toHaveBeenCalled();
-  });
-
-  it('answers 503 and sends nothing when the settings cannot be read', async () => {
-    const { db } = makeDb({ failReads: ['compass_settings'] });
-    await expect(
-      sendCompassNotification(db, 'acct', baseRequest())
-    ).rejects.toMatchObject({ code: 'settings_lookup_failed', status: 503 });
-    expect(sendMessageToConversation).not.toHaveBeenCalled();
-  });
-
-  it('refuses a text that makes the template body too long', async () => {
-    const { db } = makeDb();
-    // 'Taamul Credit update: ' is 22 characters; 1002 + 22 = 1024 fits.
-    await sendCompassNotification(
-      db,
-      'acct',
-      baseRequest({ idempotency_key: 'fits', text: 'x'.repeat(1002) })
-    );
-    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
-    await expect(
-      sendCompassNotification(
-        db,
-        'acct',
-        baseRequest({ idempotency_key: 'long', text: 'x'.repeat(1003) })
-      )
-    ).rejects.toMatchObject({ code: 'text_too_long', status: 422 });
-    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
   });
 
   it('refuses an image outside the window, and sends one inside it', async () => {
@@ -567,7 +572,6 @@ describe('sendCompassNotification', () => {
     const touched = new Set(from.mock.calls.map(([t]) => t));
     expect([...touched].sort()).toEqual([
       'compass_notifications',
-      'compass_settings',
       'conversations',
       'message_templates',
       'messages',
@@ -720,7 +724,8 @@ describe('sendCompassNotification', () => {
       parseNotificationRequest({
         idempotency_key: 'k1',
         compass_id: 'CUST-1',
-        text: 'Hi',
+        text: APPROVED_TEXT,
+        event: 'case.approved',
       })
     );
     expect(resolveConversationByPhone).toHaveBeenCalledWith(
@@ -743,7 +748,8 @@ describe('sendCompassNotification', () => {
         parseNotificationRequest({
           idempotency_key: 'k2',
           compass_id: 'NOPE',
-          text: 'Hi',
+          text: APPROVED_TEXT,
+          event: 'case.approved',
         })
       )
     ).rejects.toMatchObject({ code: 'compass_contact_not_found', status: 404 });
@@ -768,7 +774,8 @@ describe('sendCompassNotification', () => {
       parseNotificationRequest({
         idempotency_key: 'k-norm',
         compass_id: 'CUST-2',
-        text: 'Hi',
+        text: APPROVED_TEXT,
+        event: 'case.approved',
       })
     );
     expect(resolveConversationByPhone.mock.calls[0][2]).toBe('+971509999999');
@@ -791,7 +798,8 @@ describe('sendCompassNotification', () => {
     const request = parseNotificationRequest({
       idempotency_key: 'k-bad',
       compass_id: 'CUST-9',
-      text: 'Approved',
+      text: APPROVED_TEXT,
+      event: 'case.approved',
     });
 
     const err = await sendCompassNotification(db, 'acct', request).catch(
@@ -833,7 +841,8 @@ describe('sendCompassNotification', () => {
         idempotency_key: 'k-to',
         compass_id: 'CUST-9',
         to: '+971557123456',
-        text: 'Approved',
+        text: APPROVED_TEXT,
+        event: 'case.approved',
       })
     );
     expect(outcome.notification.status).toBe('sent');
@@ -850,7 +859,8 @@ describe('sendCompassNotification', () => {
         parseNotificationRequest({
           idempotency_key: 'k3',
           compass_id: 'C',
-          text: 'Hi',
+          text: APPROVED_TEXT,
+          event: 'case.approved',
         })
       )
     ).rejects.toMatchObject({ code: 'no_phone', status: 422 });
@@ -889,7 +899,7 @@ describe('sendCompassNotification into a submission group (170)', () => {
       groupId: 'g-ref',
       kind: 'status_update',
       key: 'compass:APP-1:approved',
-      text: 'Approved',
+      text: APPROVED_TEXT,
     });
     expect(sendMessageToConversation).not.toHaveBeenCalled();
     expect(resolveConversationByPhone).not.toHaveBeenCalled();

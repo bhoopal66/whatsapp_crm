@@ -47,7 +47,7 @@ linked to a CRM contact the first time Compass messages them.
 | Rule                               | What it means for Compass                                                                                                                                                                                                                                     |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Always the Meta number**         | Messages are sent on the Meta WhatsApp Cloud API number, never on a Whapi or OpenWA number. If the Meta number is not connected, the call fails with `meta_not_connected` and nothing is sent. It is never silently moved to another number. |
-| **Text, else the template**        | If the customer wrote to the Meta number in the last 24 hours, the text goes as is. Otherwise WhatsApp allows only an approved template, so the text goes inside the template an admin chose (**Taamul Compass → Settings**), flattened onto one line, and the whole message can be at most 1024 characters. Images and documents can only go inside the 24 hours. |
+| **Message, else the template**     | If the customer wrote to the Meta number in the last 24 hours, the text goes as is. Otherwise WhatsApp allows only an approved template, so the update goes as the template worded like it (`compass_case_submitted` for `case.submitted`, `compass_case_approved` for `case.approved`), with the company and bank read out of the text. A message that does not match its template word for word, and any image or document, cannot be sent outside the 24 hours. |
 | **Existing chat, owner unchanged** | If the customer already has a chat with an agent, the message is posted **into that same chat**. The chat and the contact **stay with that agent**: no reassignment, no ownership change. The agent sees the update in their own thread.                      |
 | **New customers**                  | If no chat exists yet, one is created — unassigned, and owned by the account's default user (the admin who connected WhatsApp), the same as for any API-created chat. When the customer replies, it appears in the inbox for an admin to assign as usual.     |
 | **Names are not overwritten**      | The name Compass sends is used only for a contact that doesn't exist yet. It never renames a contact an agent has already edited.                                                                                                                             |
@@ -62,15 +62,11 @@ linked to a CRM contact the first time Compass messages them.
    `supabase/migrations/056_compass_integration.sql` against the
    Supabase project (self-hosters: see `CHANGELOG.md`).
 2. **Check the Meta number is connected:** **Settings → WhatsApp → Connections**.
-   Notifications cannot be sent without it. Then apply
-   `209_compass_meta_template.sql`, create a **Utility** template with
-   exactly one body variable in **Settings → Templates** (for example
-   `Hello, here is an update on your application with Taamul Credit:
-   {{1}} If you have any questions, just reply to this message.`; Meta
-   refuses a body that starts or ends with the variable), submit it to Meta, and once it is
-   approved choose it under **Taamul Compass → Settings**. Updates to
-   customers who have not written in the last 24 hours fail until it is
-   chosen.
+   Notifications cannot be sent without it. The two templates
+   (`compass_case_submitted`, `compass_case_approved`) must be submitted
+   to Meta and approved; **Taamul Compass → WhatsApp templates** shows
+   where each stands. Updates to customers who have not written in the
+   last 24 hours fail until they are approved.
 3. **Create three API keys:** **Settings → Integrations → API keys → New API key**.
    Using separate keys means a large backfill can never use up the rate
    limit that urgent notifications need.
@@ -391,11 +387,9 @@ Scope: `compass_notifications:send`. Filters: `status`
 | 404  | `compass_contact_not_found` | Unknown `compass_id`                                                                                                                  | Sync the customer first, or send `to`                                                                      |
 | 409  | `in_progress`               | The same key is being sent right now                                                                                                  | Wait a few seconds, then `GET` the key                                                                     |
 | 409  | `meta_not_connected`        | The Meta WhatsApp number isn't connected (or is marked disconnected). Nothing was sent                                                | Alert an admin; retry later with the **same** key                                                          |
-| 409  | `meta_template_not_set`     | The customer hasn't written in the last 24 hours, so a template is needed, and no Compass template is chosen. Nothing was sent        | Alert an admin; retry later with the **same** key                                                          |
-| 409  | `meta_template_unusable`    | The chosen template no longer exists, or is no longer an approved Utility template with one variable. Nothing was sent              | Alert an admin; retry later with the **same** key                                                          |
+| 409  | `no_template_for_message`   | The customer hasn't written in the last 24 hours, so a template is needed, and the text matches neither template word for word. Nothing was sent | Send the standard wording, or retry after the customer writes                                              |
+| 409  | `meta_template_unusable`    | The matching template is missing, not approved by Meta yet, or was edited. Nothing was sent                                           | Alert an admin; retry later with the **same** key                                                          |
 | 409  | `outside_service_window`    | An image or document to a customer who hasn't written in the last 24 hours; WhatsApp allows only a template. Nothing was sent         | Send the update as text, or retry after the customer writes                                                |
-| 422  | `text_too_long`             | Sent as the template, the message would be over 1024 characters. Nothing was sent                                                     | Shorten the text; **don't retry as-is**                                                                    |
-| 503  | `settings_lookup_failed`    | The Compass settings could not be read. Nothing was sent                                                                              | Retry later with the **same** key                                                                          |
 | 422  | `customer_opted_out`        | The customer opted out of WhatsApp messages; nothing was sent, in the group or 1:1                                                    | Do not retry; contact the customer another way                                                             |
 | 422  | `no_phone`                  | The synced customer has no phone                                                                                                      | Sync a phone for them, or send `to`                                                                        |
 | 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent   | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
@@ -416,8 +410,8 @@ send(key):
     if 201 or (200 and duplicate):          done ✔
     if 400 / 401 / 403 / 404 / 422:         don't retry — log & fix data/config
     if 409 in_progress:                     wait 5 s, GET /compass/notifications/{key}
-    if 409 meta_not_connected, meta_template_not_set,
-       meta_template_unusable, 429, 5xx,
+    if 409 meta_not_connected, meta_template_unusable,
+       429, 5xx,
        or network timeout:                  retry with the SAME key, with backoff
                                             (e.g. 30 s, 2 min, 10 min, 1 h)
 ```
@@ -901,8 +895,7 @@ def notify_status_change(app_id, status, customer_id, message):
 - [ ] Migrations `056_compass_integration.sql` and
       `134_compass_case_sync.sql` applied
 - [ ] Meta number connected (Settings → WhatsApp → Connections shows it)
-- [ ] Migration `209_compass_meta_template.sql` applied, and an approved
-      Utility template chosen under **Taamul Compass → Settings**
+- [ ] Both templates approved (**Taamul Compass → WhatsApp templates**)
 - [ ] Three API keys created with the scopes above and stored in
       Compass's secret store
 - [ ] `GET /api/v1/me` succeeds with all three keys
@@ -932,14 +925,15 @@ def notify_status_change(app_id, status, customer_id, message):
 
 ## 13. Good to know
 
-- **Notifications go on the Meta number** (since migration 209). Before
-  that they went on a Whapi number, and a burst of unsolicited updates got
+- **Notifications go on the Meta number.** Before that they went on a Whapi number, and a burst of unsolicited updates got
   that number restricted. Meta bills each template message, and the
   Utility category is for account updates only: send status updates
   customers expect, not marketing.
-- **Message wording is Compass's.** Inside the 24 hours Taamul Connect
-  sends the text exactly as given; outside them it goes inside the
-  chosen template, on one line (line breaks become spaces).
+- **Message wording is Compass's, and the templates copy it.** Inside the
+  24 hours Taamul Connect sends the text exactly as given; outside them
+  it sends the approved template with the same words. If Compass changes
+  the wording, the templates must be changed and approved again, or
+  those updates stop going out to customers who haven't written.
 - **Security:** the keys can send WhatsApp messages as your business.
   Keep them server-side only. If one leaks, revoke it in **Settings →
   Integrations → API keys** (effective immediately) and create a new one.

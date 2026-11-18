@@ -1025,9 +1025,3 @@ jobs:
       # number (190) and Meta.
       - name: Verify WhatsApp groups on OpenWA
         run: supabase db query --local --file supabase/ci/verify-groups-on-openwa.sql
-
-      # Migration 209: Compass notifications on the Meta number. The
-      # fallback template is chosen by owners and admins only (agents
-      # neither read nor write it); the public API's service role reads.
-      - name: Verify Compass settings
-        run: supabase db query --local --file supabase/ci/verify-compass-settings.sql

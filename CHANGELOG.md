@@ -14,18 +14,20 @@ and polish.
 
 ### Compass updates go from the Meta number
 
-**Migration required:** apply `209_compass_meta_template.sql` before
-deploying this build (without it every Compass update to a customer who
-has not written in the last 24 hours fails with `settings_lookup_failed`).
+No migration.
 - Compass status notifications are now sent on the Meta Cloud API number,
   never on a Whapi or OpenWA number. With no Meta number connected they
   fail with `meta_not_connected`; nothing falls back.
 - If the customer wrote to the Meta number in the last 24 hours the update
-  goes as plain text. Otherwise it goes as the template an admin picks under
-  **Taamul Compass → Settings** (approved, Utility, one body variable),
-  with the text on one line in that variable. Until one is picked those
-  updates fail with `meta_template_not_set`. Images and documents go only
-  inside the 24 hours (`outside_service_window`).
+  goes as a normal message. Otherwise it goes as the Meta-approved template
+  worded like it: `compass_case_submitted` or `compass_case_approved`,
+  with the company and bank read out of Compass's text. A message neither
+  template matches word for word is not sent then
+  (`no_template_for_message`), nor is a template Meta has not approved yet
+  (`meta_template_unusable`). Images and documents go only inside the 24
+  hours (`outside_service_window`).
+- **Taamul Compass → WhatsApp templates** shows both templates and Meta's
+  review of each.
 - Updates into a customer's submission group are unchanged.
 
 ### Groups on company OpenWA numbers
