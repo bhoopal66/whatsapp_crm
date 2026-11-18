@@ -4,11 +4,11 @@ import {
   COMPASS_TEMPLATES,
   compassTemplateFor,
   compassTemplateProblem,
-  renderCompassTemplate,
   SERVICE_WINDOW_MS,
   serviceWindowOpen,
 } from './meta-template';
 import { APPROVED_TEXT, SUBMITTED_TEXT } from './compass-messages.fixture';
+import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 
 describe('serviceWindowOpen', () => {
   const now = Date.parse('2026-11-18T12:00:00Z');
@@ -58,7 +58,9 @@ describe('compassTemplateFor', () => {
       ['case.approved', APPROVED_TEXT],
     ]) {
       const hit = compassTemplateFor(event, text)!;
-      expect(renderCompassTemplate(hit.template, hit.params)).toBe(text);
+      // The renderer the send path stores the message with (and that
+      // mirrors what Meta delivers).
+      expect(renderTemplateBody(hit.template.body, hit.params)).toBe(text);
     }
   });
 
@@ -80,6 +82,18 @@ describe('compassTemplateFor', () => {
     );
   });
 
+  it('matches only the whole message, nothing added before or after', () => {
+    expect(
+      compassTemplateFor(
+        'case.submitted',
+        SUBMITTED_TEXT + '\n\nYour reference: X'
+      )
+    ).toBeNull();
+    expect(
+      compassTemplateFor('case.submitted', 'Reference X\n\n' + SUBMITTED_TEXT)
+    ).toBeNull();
+  });
+
   it('finds the template from the text when no event is given', () => {
     expect(compassTemplateFor(null, APPROVED_TEXT)?.template.event).toBe(
       'case.approved'
@@ -94,6 +108,8 @@ describe('compassTemplateFor', () => {
       )
     ).toBeNull();
     expect(compassTemplateFor('case.submitted', APPROVED_TEXT)).toBeNull();
+    // An event with no template of its own never borrows another's.
+    expect(compassTemplateFor('case.rejected', APPROVED_TEXT)).toBeNull();
     expect(
       compassTemplateFor('case.rejected', 'Your application was declined.')
     ).toBeNull();

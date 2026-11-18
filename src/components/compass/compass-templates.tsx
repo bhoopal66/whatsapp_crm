@@ -98,9 +98,13 @@ export function CompassTemplates({ accountId }: { accountId: string }) {
                   {tpl.name} ({tpl.language})
                 </p>
               </div>
-              <Badge className={s.cls}>
-                {row?.status ? `${s.label} · ${row.status}` : s.label}
-              </Badge>
+              {!error && (
+                <Badge className={s.cls}>
+                  {row?.status && row.status !== 'APPROVED'
+                    ? `${s.label} · ${row.status}`
+                    : s.label}
+                </Badge>
+              )}
             </div>
             {row?.rejection_reason && (
               <p className="text-destructive text-xs">

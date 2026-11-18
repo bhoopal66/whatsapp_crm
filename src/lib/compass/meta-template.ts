@@ -1,6 +1,6 @@
 // ============================================================
 // Compass notifications on the Meta number: the 24-hour service window
-// and the approved templates. Pure, so the Compass settings screen and
+// and the approved templates. Pure, so the Compass templates tab and
 // the send path judge the same way.
 //
 // Meta allows free text only within 24 hours of the customer's last
@@ -121,31 +121,24 @@ export const COMPASS_TEMPLATES: readonly CompassTemplate[] = [
 
 /**
  * The template an update goes as outside the window, with its values:
- * the event's template when the text matches it, else any template the
- * text matches (an update sent without an event). Null when none does.
+ * the event's template when the text matches it. Only an update sent
+ * without an event is matched against every template; an event with no
+ * template of its own matches none. Null when nothing matches.
  */
 export function compassTemplateFor(
   event: string | null,
   text: string | null
 ): { template: CompassTemplate; params: [string, string] } | null {
   if (!text) return null;
-  const byEvent = COMPASS_TEMPLATES.find((t) => t.event === event);
-  const candidates = byEvent ? [byEvent] : COMPASS_TEMPLATES;
+  const candidates =
+    event === null
+      ? COMPASS_TEMPLATES
+      : COMPASS_TEMPLATES.filter((t) => t.event === event);
   for (const t of candidates) {
     const params = t.parse(text);
     if (params) return { template: t, params };
   }
   return null;
-}
-
-/** The text the customer reads for `template` filled with `params`. */
-export function renderCompassTemplate(
-  template: CompassTemplate,
-  params: [string, string]
-): string {
-  return template.body
-    .replace('{{1}}', () => params[0])
-    .replace('{{2}}', () => params[1]);
 }
 
 export type CompassTemplateProblem = 'missing' | 'not_approved' | 'changed';
