@@ -6,8 +6,11 @@
  * `messages.media_url` and would delete group files) and posts the
  * public URL. The send route hands that URL to the gateway, so it must
  * be this deployment's own object in the caller's folder, never an
- * arbitrary link. It is compared on the URL path only: the public
- * origin changes with the tunnel. Pure: no I/O.
+ * arbitrary link. It is compared on the URL path only (the public
+ * origin changes with the tunnel), so the link actually sent is rebuilt
+ * on this deployment's own public origin: the caller's host never
+ * reaches the gateway (OpenWA runs beside the app and would fetch an
+ * internal address). Pure: no I/O.
  */
 
 export const GROUP_MEDIA_KINDS = [
@@ -76,7 +79,9 @@ export function isGroupMediaPath(path: string, accountId: string): boolean {
 /** The `media` field of a send request, validated for one account. */
 export function parseGroupMedia(
   raw: unknown,
-  accountId: string
+  accountId: string,
+  /** `publicSupabaseUrl()`: the only origin a sent link may carry. */
+  publicOrigin: string
 ): GroupOutboundMedia {
   const m =
     raw !== null && typeof raw === 'object' && !Array.isArray(raw)
@@ -99,7 +104,9 @@ export function parseGroupMedia(
   }
   return {
     kind: kind as GroupOutboundKind,
-    url: m.url,
+    // The path is one checked file name under the account's folder, so
+    // it needs no encoding.
+    url: `${publicOrigin.replace(/\/+$/, '')}${PUBLIC_PREFIX}${m.path}`,
     path: m.path,
     caption:
       kind === 'voice'

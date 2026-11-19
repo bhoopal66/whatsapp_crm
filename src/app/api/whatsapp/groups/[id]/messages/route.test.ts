@@ -249,6 +249,8 @@ describe('POST', () => {
 
   const PATH = 'account-acct-1/groups/1700000000000-photo.jpg';
   const URL_OK = `https://tunnel.example/storage/v1/object/public/chat-media/${PATH}`;
+  // The link sent and stored is rebuilt on our own public origin.
+  const URL_SENT = `http://supabase.test/storage/v1/object/public/chat-media/${PATH}`;
 
   it('sends an attachment and records it in the media shape', async () => {
     const res = await post({
@@ -267,7 +269,7 @@ describe('POST', () => {
       expect.objectContaining({
         groupId: '120363000000000001@g.us',
         kind: 'image',
-        link: URL_OK,
+        link: URL_SENT,
         caption: 'look',
       })
     );
@@ -275,7 +277,7 @@ describe('POST', () => {
       wa_message_id: 'wa-media',
       type: 'image',
       body: 'look',
-      media: { link: URL_OK, mime_type: 'image/jpeg', filename: 'photo.jpg' },
+      media: { link: URL_SENT, mime_type: 'image/jpeg', filename: 'photo.jpg' },
     });
   });
 

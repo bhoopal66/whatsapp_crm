@@ -35,6 +35,7 @@ import {
   parseGroupMedia,
   type GroupOutboundMedia,
 } from '@/lib/groups/outbound-media';
+import { publicSupabaseUrl } from '@/lib/supabase/urls';
 import { sendGroupMedia, sendGroupText } from '@/lib/whatsapp/groups';
 
 export const maxDuration = 60;
@@ -86,7 +87,7 @@ export async function POST(request: Request, { params }: Params) {
     let media: GroupOutboundMedia | null = null;
     if (raw && raw.media !== undefined) {
       try {
-        media = parseGroupMedia(raw.media, ctx.accountId);
+        media = parseGroupMedia(raw.media, ctx.accountId, publicSupabaseUrl());
       } catch (err) {
         if (err instanceof GroupMediaInputError) {
           throw new GroupHttpError(400, 'invalid_body', err.message);

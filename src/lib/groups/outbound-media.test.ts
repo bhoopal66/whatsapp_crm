@@ -43,11 +43,12 @@ describe('parseGroupMedia', () => {
     expect(
       parseGroupMedia(
         { kind: 'document', url: url(PATH), path: PATH, caption: ' hi ' },
-        'a1'
+        'a1',
+        'https://own.example/'
       )
     ).toEqual({
       kind: 'document',
-      url: url(PATH),
+      url: `https://own.example/storage/v1/object/public/chat-media/${PATH}`,
       path: PATH,
       caption: 'hi',
       filename: null,
@@ -62,9 +63,24 @@ describe('parseGroupMedia', () => {
           url: url('account-a1/groups/other.jpg'),
           path: PATH,
         },
-        'a1'
+        'a1',
+        'https://own.example'
       )
     ).toThrow();
+  });
+  it("never keeps the caller's origin", () => {
+    const got = parseGroupMedia(
+      {
+        kind: 'image',
+        url: `http://127.0.0.1:2785/storage/v1/object/public/chat-media/${PATH}`,
+        path: PATH,
+      },
+      'a1',
+      'https://own.example'
+    );
+    expect(got.url).toBe(
+      `https://own.example/storage/v1/object/public/chat-media/${PATH}`
+    );
   });
 });
 
