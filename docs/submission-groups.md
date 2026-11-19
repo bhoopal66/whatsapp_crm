@@ -224,6 +224,29 @@ Every staff message goes out from the hosting number as
 `Name (Label): text`, for example `Sam Ali (Coordinator): documents
 received`. Staff cannot send as themselves.
 
+## Attachments and voice notes (migration 210)
+
+Staff can also send a photo, video, document or voice note. The browser
+uploads the file to the `chat-media` bucket under
+`account-<id>/groups/` (not `staged/`, so the unsent-attachment sweep
+never touches it) and posts `{ media: { kind, url, path, caption?,
+filename?, mimeType? } }` to `POST /api/submission-groups/[id]/messages`.
+
+- The server accepts only an upload of the caller's own workspace in that
+  folder, and rebuilds the link on the app's public storage address
+  before the gateway sees it: a link to any other host is never sent.
+- The caption carries the prefix (`Name (Label): caption`); with no
+  caption it is just `Name (Label)`. A voice note goes out as a voice note
+  and is stored as `audio`, with no caption.
+- The row is written pending before the gateway call by
+  `sg_send_begin_media`, under exactly the rules of the text send
+  (`sg_send_begin`; both are wrappers over one body, `sg_send_begin_row`).
+  The same per-person send limit applies, and consent, an ENDED group or
+  a group without WhatsApp refuse it as they refuse text.
+- Apply 210 in order, once: re-applying 115 or 136 afterwards restores a
+  text-only `sg_send_begin` with the same rules, but `sg_send_begin_media`
+  keeps working.
+
 ## Who reads and sends, and when
 
 | State      | Read                                                                                                         | Send                                                                                  |

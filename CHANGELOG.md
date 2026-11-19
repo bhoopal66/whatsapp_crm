@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Attachments and voice notes in Submission group chats
+
+**Migration required:** apply `210_submission_group_media_sends.sql`
+as a superuser or BYPASSRLS role before deploying this build.
+- Staff can send photos, videos, documents and voice notes into a
+  Submission group's WhatsApp chat, with the usual `Name (Label)` prefix
+  as the caption.
+
 ### Groups pages no longer scroll away
 
 - Scrolling the list on WhatsApp groups or Submission groups moved the
