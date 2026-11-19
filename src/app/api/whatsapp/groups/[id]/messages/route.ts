@@ -3,7 +3,9 @@
 // GET pages it newest-first from the DB and answers oldest-first,
 // through the caller's RLS client. POST sends text into the group as
 // our number: managers only, not on a group we have left, and where the
-// group restricts sending to admins our number must be one. At most
+// group restricts sending to admins our number must be one. POST takes
+// `{ text }` or `{ media }` (an upload of this workspace under
+// `chat-media/account-<id>/groups/`, checked by `parseGroupMedia`). At most
 // GROUP_SEND_LIMIT sends a minute per group (anti-ban). The row is
 // written after the gateway accepts; the webhook echo of the same
 // message may win the race, in which case we only attribute it.
@@ -26,7 +28,14 @@ import {
   loadGroupForCaller,
   supabaseAdmin,
 } from '@/lib/groups/server';
-import { sendGroupText } from '@/lib/whatsapp/groups';
+import {
+  groupMediaRowMedia,
+  groupMediaRowType,
+  GroupMediaInputError,
+  parseGroupMedia,
+  type GroupOutboundMedia,
+} from '@/lib/groups/outbound-media';
+import { sendGroupMedia, sendGroupText } from '@/lib/whatsapp/groups';
 
 export const maxDuration = 60;
 
@@ -70,7 +79,23 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const ctx = await getCurrentAccount();
     const { id } = await params;
-    const { text } = parseGroupText(await request.json().catch(() => null));
+    const raw = (await request.json().catch(() => null)) as {
+      media?: unknown;
+    } | null;
+    let text: string | null = null;
+    let media: GroupOutboundMedia | null = null;
+    if (raw && raw.media !== undefined) {
+      try {
+        media = parseGroupMedia(raw.media, ctx.accountId);
+      } catch (err) {
+        if (err instanceof GroupMediaInputError) {
+          throw new GroupHttpError(400, 'invalid_body', err.message);
+        }
+        throw err;
+      }
+    } else {
+      text = parseGroupText(raw).text;
+    }
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     if (group.settings.send_messages === 'admins') requireGroupAdmin(group);
     else requireActive(group);
@@ -99,11 +124,21 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const channel = await channelForGroup(group);
-    const sent = await sendGroupText({
-      channel,
-      groupId: group.wa_group_id,
-      text,
-    });
+    const sent = media
+      ? await sendGroupMedia({
+          channel,
+          groupId: group.wa_group_id,
+          kind: media.kind,
+          link: media.url,
+          caption: media.caption ?? undefined,
+          filename: media.filename ?? undefined,
+          mimeType: media.mimeType ?? undefined,
+        })
+      : await sendGroupText({
+          channel,
+          groupId: group.wa_group_id,
+          text: text ?? '',
+        });
 
     const { data: me } = await admin
       .from('profiles')
@@ -124,8 +159,9 @@ export async function POST(request: Request, { params }: Params) {
           direction: 'out',
           sender_user_id: ctx.userId,
           sender_name: senderName,
-          type: 'text',
-          body: text,
+          type: media ? groupMediaRowType(media.kind) : 'text',
+          body: media ? media.caption : text,
+          ...(media ? { media: groupMediaRowMedia(media) } : {}),
           status: 'sent',
         },
         { onConflict: 'group_id,wa_message_id', ignoreDuplicates: true }
