@@ -28,7 +28,8 @@ export function BankTag({
   return (
     <span
       className={cn(
-        'inline-flex max-w-full min-w-0 shrink-0 items-center gap-1 rounded-full font-semibold dark:ring-1 dark:ring-white/20 dark:ring-inset',
+        // `relative` anchors the sr-only label to the tag, not the page.
+        'relative inline-flex max-w-full min-w-0 shrink-0 items-center gap-1 rounded-full font-semibold dark:ring-1 dark:ring-white/20 dark:ring-inset',
         size === 'sm' ? 'px-1.5 py-px text-[11px]' : 'px-2 py-0.5 text-xs',
         className
       )}

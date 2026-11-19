@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Groups pages no longer scroll away
+
+- Scrolling the list on WhatsApp groups or Submission groups moved the
+  whole page up, top bar included, once the list was long. Only the
+  list scrolls now.
+
 ### Customers' zip files and other archives can be opened
 
 **Migration required:** apply `209_chat_media_archives.sql` before

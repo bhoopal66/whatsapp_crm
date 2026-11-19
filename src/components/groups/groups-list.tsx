@@ -443,7 +443,11 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* `relative`: the rows hold `sr-only` text, which is absolutely
+          positioned. Without a positioned ancestor its containing block
+          is the page, so rows far down the list made the document
+          taller than the screen and scrolling moved the whole page. */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         {!loaded || hasWhapi === null ? (
           <ul aria-hidden>
             {[0, 1, 2, 3, 4, 5].map((i) => (
