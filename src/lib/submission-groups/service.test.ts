@@ -8,6 +8,7 @@ import {
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
   type SubmissionGroupServiceDeps,
+  type GroupMediaSend,
   type GroupStore,
   type GroupsApi,
 } from './service';
@@ -15,6 +16,8 @@ import type {
   ConsentAnswer,
   GroupMessage,
   SendStatus,
+  SgMediaType,
+  SgOutMedia,
   SubmissionGroup,
 } from './store';
 
@@ -179,6 +182,22 @@ class FakeStore implements GroupStore {
       createdAt: new Date(),
       waTimestamp: null,
     });
+    return mid;
+  }
+  async beginMediaSend(
+    id: string,
+    userId: string,
+    type: SgMediaType,
+    body: string,
+    prefixed: string,
+    media: SgOutMedia
+  ) {
+    const mid = await this.beginSend(id, userId, body, prefixed);
+    if (mid === null) return null;
+    Object.assign(
+      this.messages.find((m) => m.id === mid)!,
+      { type, media }
+    );
     return mid;
   }
   /** 170: per group; absent = no hold (the SQL rule is asserted by verify-submission-group-system-messages). */
@@ -362,6 +381,11 @@ class FakeApi implements GroupsApi {
       await h();
     }
     this.maybeFail('sendGroupText');
+    return { waMessageId: `wamid-${++this.seq}` };
+  }
+  async sendGroupMedia(ch: string, wa: string, media: GroupMediaSend) {
+    this.calls.push({ method: 'sendGroupMedia', args: [ch, wa, media] });
+    this.maybeFail('sendGroupMedia');
     return { waMessageId: `wamid-${++this.seq}` };
   }
   async closeGroup(ch: string, wa: string) {
@@ -695,6 +719,116 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(s.store.groups.get(g.id)!.waGroupId).not.toBeNull();
     await s.svc.retryOne(g.id);
     expect(s.api.of('createGroup')).toHaveLength(2);
+  });
+});
+
+describe('SubmissionGroupService.sendMediaFromCrm', () => {
+  const LINK =
+    'https://db.example.org/storage/v1/object/public/chat-media/account-a/groups/1-scan.pdf';
+  const PATH = 'account-a/groups/1-scan.pdf';
+  const doc = (groupId: string, extra: Record<string, unknown> = {}) => ({
+    groupId,
+    userId: 'ali',
+    kind: 'document' as const,
+    link: LINK,
+    path: PATH,
+    caption: 'the form',
+    filename: 'scan.pdf',
+    mimeType: 'application/pdf',
+    ...extra,
+  });
+
+  it('stores the media row and sends the prefixed caption from the hosting number', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const r = await s.svc.sendMediaFromCrm(doc(g.id));
+    expect(r.prefixedBody).toBe('Ali (Agent): the form');
+    expect(s.api.of('sendGroupMedia').map((c) => c.args)).toEqual([
+      [
+        CH,
+        g.waGroupId,
+        {
+          kind: 'document',
+          link: LINK,
+          caption: 'Ali (Agent): the form',
+          filename: 'scan.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
+    ]);
+    expect(s.api.of('sendGroupText')).toEqual([]);
+    const [m] = s.store.messages;
+    expect(m).toMatchObject({
+      type: 'document',
+      body: 'the form',
+      prefixedBody: 'Ali (Agent): the form',
+      media: {
+        link: LINK,
+        mime_type: 'application/pdf',
+        filename: 'scan.pdf',
+        path: PATH,
+      },
+      sendStatus: 'sent',
+      waMessageId: r.waMessageId,
+    });
+  });
+
+  it("a voice note is stored as 'audio' and sent as 'voice'; no caption sends just the name", async () => {
+    const s = setup();
+    const g = await opened(s);
+    await s.svc.sendMediaFromCrm(
+      doc(g.id, {
+        kind: 'voice',
+        caption: undefined,
+        filename: undefined,
+        mimeType: 'audio/ogg',
+      })
+    );
+    const [call] = s.api.of('sendGroupMedia');
+    expect(call.args[2]).toMatchObject({
+      kind: 'voice',
+      caption: 'Ali (Agent)',
+    });
+    expect(s.store.messages[0]).toMatchObject({
+      type: 'audio',
+      body: '',
+      prefixedBody: 'Ali (Agent)',
+    });
+  });
+
+  it('consent refused: the row is settled blocked and nothing is sent', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.consent.answer = { allowed: false, phone: '1', reason: 'opted_out' };
+    await expect(s.svc.sendMediaFromCrm(doc(g.id))).rejects.toBeInstanceOf(
+      SubmissionGroupSendBlockedError
+    );
+    expect(s.api.of('sendGroupMedia')).toEqual([]);
+    expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['blocked']);
+  });
+
+  it('gateway error: the row is settled failed and the error reaches the caller', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('sendGroupMedia');
+    await expect(s.svc.sendMediaFromCrm(doc(g.id))).rejects.toThrow(
+      /sendGroupMedia failed/
+    );
+    expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+
+  it('refused by the begin RPC: SEND_NOT_ALLOWED, nothing stored or sent', async () => {
+    const s = setup();
+    const g = await opened(s);
+    await expect(
+      s.svc.sendMediaFromCrm(doc(g.id, { userId: 'eve' }))
+    ).rejects.toMatchObject({ reason: 'SEND_NOT_ALLOWED' });
+    s.store.beginMediaSend = async () => null;
+    await expect(s.svc.sendMediaFromCrm(doc(g.id))).rejects.toMatchObject({
+      reason: 'SEND_NOT_ALLOWED',
+    });
+    expect(s.api.of('sendGroupMedia')).toEqual([]);
+    expect(s.store.messages).toEqual([]);
   });
 });
 

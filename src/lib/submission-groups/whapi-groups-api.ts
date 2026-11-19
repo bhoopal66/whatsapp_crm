@@ -116,6 +116,20 @@ export function createWhapiGroupsApi(
       return { waMessageId: sent.messageId };
     },
 
+    async sendGroupMedia(channelId, waGroupId, media) {
+      const channel = await channelFor(channelId);
+      const sent = await groups.sendGroupMedia({
+        channel,
+        groupId: waGroupId,
+        kind: media.kind,
+        link: media.link,
+        caption: media.caption,
+        filename: media.filename,
+        mimeType: media.mimeType,
+      });
+      return { waMessageId: sent.messageId };
+    },
+
     async sendInvite(channelId, inviteCode, to) {
       const channel = await channelFor(channelId);
       await groups.sendInviteLink({ channel, inviteCode, to });

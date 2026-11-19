@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeSupabase, type FakeDb } from '@/lib/groups/test-db';
 
@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   get: vi.fn(),
   sendFromCrm: vi.fn(),
+  sendMediaFromCrm: vi.fn(),
   service: vi.fn(),
   admin: null as unknown as FakeDb,
 }));
@@ -26,6 +27,7 @@ import {
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
 } from '@/lib/submission-groups/service';
+import { SubmissionGroupDbError } from '@/lib/submission-groups/store';
 
 import { POST } from './route';
 
@@ -158,6 +160,94 @@ describe('POST messages', () => {
     const res = await post({ text: 'hi' });
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toContain('secret');
+  });
+
+  describe('media', () => {
+    const PATH = 'account-acct-1/groups/1731999999999-scan.pdf';
+    const media = (extra: Record<string, unknown> = {}) => ({
+      media: {
+        kind: 'document',
+        url: `https://evil.example/storage/v1/object/public/chat-media/${PATH}`,
+        path: PATH,
+        caption: ' the form ',
+        filename: 'scan.pdf',
+        mimeType: 'application/pdf',
+        ...extra,
+      },
+    });
+    beforeEach(() => {
+      vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.org');
+      mocks.service.mockReturnValue({
+        sendFromCrm: mocks.sendFromCrm,
+        sendMediaFromCrm: mocks.sendMediaFromCrm,
+      });
+      mocks.sendMediaFromCrm.mockResolvedValue({
+        messageId: '8',
+        prefixedBody: 'Aya (Agent): the form',
+        waMessageId: 'wa-2',
+      });
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('sends an own upload with a link rebuilt on the public origin, 201', async () => {
+      const res = await post(media());
+      expect(res.status).toBe(201);
+      expect(mocks.sendMediaFromCrm).toHaveBeenCalledWith({
+        groupId: G,
+        userId: 'agent-1',
+        kind: 'document',
+        link: `https://db.example.org/storage/v1/object/public/chat-media/${PATH}`,
+        path: PATH,
+        caption: 'the form',
+        filename: 'scan.pdf',
+        mimeType: 'application/pdf',
+      });
+      expect(mocks.sendFromCrm).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 for a URL outside chat-media groups uploads', async () => {
+      const res = await post(
+        media({ url: 'https://evil.example/payload.pdf', path: PATH })
+      );
+      expect(res.status).toBe(400);
+      expect(mocks.sendMediaFromCrm).not.toHaveBeenCalled();
+    });
+
+    it("answers 400 for another account's folder", async () => {
+      const other = 'account-acct-2/groups/1-scan.pdf';
+      const res = await post(
+        media({
+          url: `https://db.example.org/storage/v1/object/public/chat-media/${other}`,
+          path: other,
+        })
+      );
+      expect(res.status).toBe(400);
+      expect(mocks.sendMediaFromCrm).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 for a bad kind or an over-long caption', async () => {
+      expect((await post(media({ kind: 'sticker' }))).status).toBe(400);
+      expect((await post(media({ caption: 'x'.repeat(1025) }))).status).toBe(
+        400
+      );
+      expect(mocks.sendMediaFromCrm).not.toHaveBeenCalled();
+    });
+
+    it('maps a 22023 refusal from the begin RPC to 400', async () => {
+      mocks.sendMediaFromCrm.mockRejectedValue(
+        new SubmissionGroupDbError('bad media', '22023')
+      );
+      expect((await post(media())).status).toBe(400);
+    });
+
+    it('counts toward the same send limit (429)', async () => {
+      mocks.admin.tables.submission_group_messages = Array.from(
+        { length: GROUP_SEND_LIMIT.perWindow },
+        (_, i) => outRow(i)
+      );
+      expect((await post(media())).status).toBe(429);
+      expect(mocks.sendMediaFromCrm).not.toHaveBeenCalled();
+    });
   });
 
   it('answers 202 sent:true when WhatsApp took the message but the row was not settled', async () => {

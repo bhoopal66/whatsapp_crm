@@ -1,6 +1,10 @@
 // ============================================================
 // /api/submission-groups/[id]/messages — staff send into a Submission
-// Group (115). POST `{ text }`; the service decides who may send (the
+// Group (115). POST `{ text }`, or (210) `{ media: { kind, url, path,
+// caption?, filename?, mimeType? } }` for an attachment the browser
+// uploaded to chat-media under account-<id>/groups/ (checked by
+// parseOwnGroupMedia; the gateway gets a link rebuilt on the public
+// origin). The service decides who may send (the
 // open access row) and stores the row pending before the gateway call,
 // so a gateway failure leaves it failed and answers a generic 502. A
 // send WhatsApp accepted but whose row could not be settled answers 202
@@ -17,9 +21,14 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account';
 import {
+  ownGroupMediaLink,
+  parseOwnGroupMedia,
+} from '@/lib/groups/own-group-media-url';
+import {
   isOverSendLimit,
   isUuid,
   ownGroup,
+  parseSendMedia,
   parseSendText,
   sendErrorFor,
   sendWindowStart,
@@ -43,7 +52,16 @@ export async function POST(request: Request, { params }: Params) {
       isUuid(id) ? await submissionGroupStore().get(id) : null,
       ctx.accountId
     );
-    const { text } = parseSendText(await request.json().catch(() => null));
+    const body: unknown = await request.json().catch(() => null);
+    const media = parseSendMedia(body);
+    // 210: an attachment must be the caller's own upload in chat-media; the
+    // gateway is sent a link rebuilt on our public origin, never `url`.
+    const objectPath = media
+      ? parseOwnGroupMedia(media.url, media.path, ctx.accountId)
+      : null;
+    if (media && !objectPath)
+      throw new SgHttpError(400, 'media must be an upload to this group');
+    const text = media ? '' : parseSendText(body).text;
 
     const { count, error } = await supabaseAdmin()
       .from('submission_group_messages')
@@ -65,11 +83,24 @@ export async function POST(request: Request, { params }: Params) {
 
     let message;
     try {
-      message = await submissionGroupService(ctx.accountId).sendFromCrm({
-        groupId: group.id,
-        userId: ctx.userId,
-        text,
-      });
+      const service = submissionGroupService(ctx.accountId);
+      message =
+        media && objectPath
+          ? await service.sendMediaFromCrm({
+              groupId: group.id,
+              userId: ctx.userId,
+              kind: media.kind,
+              link: ownGroupMediaLink(objectPath),
+              path: objectPath,
+              caption: media.caption,
+              filename: media.filename,
+              mimeType: media.mimeType,
+            })
+          : await service.sendFromCrm({
+              groupId: group.id,
+              userId: ctx.userId,
+              text,
+            });
     } catch (err) {
       const mapped = sendErrorFor(err);
       if (mapped.status === 502 || mapped.status === 202)

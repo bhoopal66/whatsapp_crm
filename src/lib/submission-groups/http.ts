@@ -8,6 +8,7 @@ import { GROUP_SEND_LIMIT } from '@/lib/groups/member-requests';
 
 import { isStaffLabel, type StaffLabel } from './rules';
 import {
+  type SgAttachmentKind,
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
@@ -67,6 +68,61 @@ export function parseSendText(raw: unknown): { text: string } {
       `text must be at most ${SG_TEXT_MAX} characters`
     );
   return { text };
+}
+
+export const SG_CAPTION_MAX = 1024;
+export const SG_FILENAME_MAX = 200;
+const ATTACHMENT_KINDS: readonly SgAttachmentKind[] = [
+  'image',
+  'video',
+  'document',
+  'voice',
+];
+
+export interface SgSendMediaInput {
+  kind: SgAttachmentKind;
+  url: unknown;
+  path: unknown;
+  caption?: string;
+  filename?: string;
+  mimeType?: string;
+}
+
+/**
+ * POST messages `{ media: { kind, url, path, caption?, filename?, mimeType? } }`,
+ * or null when the body has no `media` (a text send). The URL and path are
+ * left for `parseOwnGroupMedia`, which needs the caller's account.
+ */
+export function parseSendMedia(raw: unknown): SgSendMediaInput | null {
+  const body = asObject(raw);
+  if (body.media === undefined) return null;
+  const m = asObject(body.media);
+  if (!ATTACHMENT_KINDS.includes(m.kind as SgAttachmentKind))
+    throw new SgHttpError(
+      400,
+      'media.kind must be one of image, video, document, voice'
+    );
+  const optional = (key: string, max: number): string | undefined => {
+    const v = m[key];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'string')
+      throw new SgHttpError(400, `media.${key} must be a string`);
+    const t = v.trim();
+    if (t.length > max)
+      throw new SgHttpError(
+        400,
+        `media.${key} must be at most ${max} characters`
+      );
+    return t === '' ? undefined : t;
+  };
+  return {
+    kind: m.kind as SgAttachmentKind,
+    url: m.url,
+    path: m.path,
+    caption: optional('caption', SG_CAPTION_MAX),
+    filename: optional('filename', SG_FILENAME_MAX),
+    mimeType: optional('mimeType', 200),
+  };
 }
 
 /** PUT access: `{ user_id, label }`. */
@@ -134,6 +190,9 @@ export function sendErrorFor(err: unknown): SgHttpError {
     return new SgHttpError(409, 'Sending to this customer is blocked', {
       reason: err.reason,
     });
+  // 210: sg_send_begin_media refused the type or the media object.
+  if (err instanceof SubmissionGroupDbError && err.code === '22023')
+    return new SgHttpError(400, 'Invalid attachment');
   return new SgHttpError(502, 'The message could not be sent');
 }
 

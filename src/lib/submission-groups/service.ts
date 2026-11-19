@@ -55,11 +55,23 @@ import type {
   ConsentAnswer,
   SubmissionGroup,
   SendStatus,
+  SgOutMedia,
   SubmissionGroupStore,
   SystemKind,
   SystemSendRefusal,
   WaMode,
 } from './store';
+
+/** 210: what a staff member can attach; 'voice' is a recorded voice note. */
+export type SgAttachmentKind = 'image' | 'video' | 'document' | 'voice';
+
+export interface GroupMediaSend {
+  kind: SgAttachmentKind;
+  link: string;
+  caption?: string;
+  filename?: string;
+  mimeType?: string;
+}
 
 /** Boundary to the WhatsApp Groups API (Whapi adapter in whapi-groups-api.ts). */
 export interface GroupsApi {
@@ -83,6 +95,12 @@ export interface GroupsApi {
     waGroupId: string,
     text: string
   ): Promise<{ waMessageId: string }>;
+  /** 210: an attachment by public link; `caption` is already prefixed. */
+  sendGroupMedia(
+    channelId: string,
+    waGroupId: string,
+    media: GroupMediaSend
+  ): Promise<{ waMessageId: string }>;
   closeGroup(channelId: string, waGroupId: string): Promise<void>;
   /** Sends the group's invite link 1:1 to `to` from the hosting number. */
   sendInvite(channelId: string, inviteCode: string, to: string): Promise<void>;
@@ -102,6 +120,7 @@ export type GroupStore = Pick<
   | 'releaseCreateClaim'
   | 'attachWaGroup'
   | 'beginSend'
+  | 'beginMediaSend'
   | 'beginSystemSend'
   | 'settleSend'
   | 'sendState'
@@ -713,6 +732,95 @@ export class SubmissionGroupService {
     waMessageId: string;
   }> {
     const { store, api } = this.deps;
+    return this.sendAsStaff(
+      input.groupId,
+      input.userId,
+      (name, label) => prefixMessage(name, label, input.text),
+      (groupId, prefixed) =>
+        store.beginSend(groupId, input.userId, input.text, prefixed),
+      (channelId, waGroupId, prefixed) =>
+        api.sendGroupText(channelId, waGroupId, prefixed)
+    );
+  }
+
+  /**
+   * 210: an attachment (already uploaded to chat-media; `link` is its public
+   * URL) into the group from its hosting number. The caption that goes out is
+   * prefixed like a text; with no caption the attachment carries just
+   * `Name (Label)`. Stored as type 'audio' for a voice note, sent as 'voice'.
+   */
+  async sendMediaFromCrm(input: {
+    groupId: string;
+    userId: string;
+    kind: SgAttachmentKind;
+    link: string;
+    /** The chat-media object path of `link`, kept on the row. */
+    path: string;
+    caption?: string;
+    filename?: string;
+    mimeType?: string;
+  }): Promise<{
+    messageId: string;
+    prefixedBody: string;
+    waMessageId: string;
+  }> {
+    const { store, api } = this.deps;
+    const caption = input.caption ?? '';
+    const media: SgOutMedia = {
+      link: input.link,
+      mime_type: input.mimeType ?? null,
+      filename: input.filename ?? null,
+      path: input.path,
+    };
+    return this.sendAsStaff(
+      input.groupId,
+      input.userId,
+      (name, label) =>
+        caption === ''
+          ? prefixMessage(name, label, '').replace(/: $/, '')
+          : prefixMessage(name, label, caption),
+      (groupId, prefixed) =>
+        store.beginMediaSend(
+          groupId,
+          input.userId,
+          input.kind === 'voice' ? 'audio' : input.kind,
+          caption,
+          prefixed,
+          media
+        ),
+      (channelId, waGroupId, prefixed) =>
+        api.sendGroupMedia(channelId, waGroupId, {
+          kind: input.kind,
+          link: input.link,
+          caption: prefixed,
+          filename: input.filename,
+          mimeType: input.mimeType,
+        })
+    );
+  }
+
+  /**
+   * The one staff send path: refusals before anything is stored, the row
+   * pending (`begin`), consent (blocked), the gateway (`send`; failed), then
+   * settled sent. `compose` builds the prefixed text from name and label.
+   */
+  private async sendAsStaff(
+    groupId: string,
+    userId: string,
+    compose: (name: string, label: string) => string,
+    begin: (groupId: string, prefixed: string) => Promise<string | null>,
+    send: (
+      channelId: string,
+      waGroupId: string,
+      prefixed: string
+    ) => Promise<{ waMessageId: string }>
+  ): Promise<{
+    messageId: string;
+    prefixedBody: string;
+    waMessageId: string;
+  }> {
+    const input = { groupId, userId };
+    const { store } = this.deps;
     const group = await store.get(input.groupId);
     if (!group) throw new SubmissionGroupSendRefusedError('GROUP_NOT_FOUND');
     if (group.waMode === 'none')
@@ -731,15 +839,10 @@ export class SubmissionGroupService {
     // The prefix label is the open access row's label; sg_send_begin re-decides under the group lock.
     const label = await store.openAccessLabel(group.id, input.userId);
     if (!label) throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
-    const prefixed = prefixMessage(name, STAFF_LABEL_TEXT[label], input.text);
+    const prefixed = compose(name, STAFF_LABEL_TEXT[label]);
 
     // The row exists (pending) before anything goes to the gateway.
-    const messageId = await store.beginSend(
-      group.id,
-      input.userId,
-      input.text,
-      prefixed
-    );
+    const messageId = await begin(group.id, prefixed);
     if (messageId === null)
       throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
 
@@ -758,7 +861,7 @@ export class SubmissionGroupService {
 
     let sent: { waMessageId: string };
     try {
-      sent = await api.sendGroupText(channelId, waGroupId, prefixed);
+      sent = await send(channelId, waGroupId, prefixed);
     } catch (err) {
       // The gateway may have sent it and lost only the answer: if Whapi's
       // echo (inbound.ts) already settled the row 'sent', telling the user

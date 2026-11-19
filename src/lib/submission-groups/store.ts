@@ -81,6 +81,17 @@ export interface GroupMessage {
   systemKind?: SystemKind | null;
 }
 
+/** 210: the stored type of a staff attachment (sg_send_begin_media's allowed list). */
+export type SgMediaType = 'image' | 'video' | 'document' | 'audio';
+
+/** 210: `submission_group_messages.media` of a staff attachment; `path` is the chat-media object. */
+export interface SgOutMedia {
+  link: string;
+  mime_type: string | null;
+  filename: string | null;
+  path: string;
+}
+
 /** 170: the kinds of automatic message sg_send_begin_system writes. */
 export type SystemKind = 'welcome' | 'status_update';
 
@@ -476,6 +487,31 @@ export class SubmissionGroupStore {
         p_user: userId,
         p_body: body,
         p_prefixed: prefixed,
+      })
+    );
+  }
+
+  /**
+   * 210: a staff attachment's 'out' row, pending; null = refused exactly like
+   * beginSend. `type` is the stored message type (a voice note is 'audio');
+   * a bad type or a media object without an https `link` raises 22023.
+   */
+  async beginMediaSend(
+    groupId: string,
+    userId: string,
+    type: SgMediaType,
+    body: string,
+    prefixed: string,
+    media: SgOutMedia
+  ): Promise<string | null> {
+    return str(
+      await this.rpc('sg_send_begin_media', {
+        p_group: groupId,
+        p_user: userId,
+        p_type: type,
+        p_body: body,
+        p_prefixed: prefixed,
+        p_media: media,
       })
     );
   }
