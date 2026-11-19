@@ -22,13 +22,16 @@ import {
   MoreVertical,
   PanelRight,
   RotateCcw,
-  Send,
   ShieldAlert,
   UserRound,
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import {
+  GroupComposer,
+  type GroupMediaSendPayload,
+} from '@/components/groups/group-composer';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
@@ -43,10 +46,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
-import { shouldSendOnKey } from '@/lib/groups/group-page';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
 import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
@@ -59,7 +60,6 @@ import {
   groupContactName,
   groupTitle,
   initialsOf,
-  SEND_TEXT_MAX,
   sendErrorKey,
   sentAsPreview,
   settleRead,
@@ -132,8 +132,6 @@ export function SubmissionGroupPage({
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [acting, setActing] = useState(false);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
   const [openingCase, setOpeningCase] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const router = useRouter();
@@ -266,36 +264,41 @@ export function SubmissionGroupPage({
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  const send = async () => {
-    const body = text.trim();
-    if (!body || sending || !detail?.can_send) return;
+  /**
+   * One send into the group (text or an uploaded attachment). False when
+   * the composer should give the text back or delete the upload; a 502
+   * counts as sent, because WhatsApp may already hold it.
+   */
+  const postMessage = async (
+    payload: { text: string } | { media: GroupMediaSendPayload }
+  ): Promise<boolean> => {
+    if (!detail?.can_send) return false;
     stickRef.current = true;
-    setSending(true);
-    setText('');
     try {
       const res = await fetch(`/api/submission-groups/${groupId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: body }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const json = (await res.json().catch(() => null)) as {
           reason?: string;
         } | null;
         toast.error(t(`sendErrors.${sendErrorKey(res.status, json?.reason)}`));
-        // A refused send is kept as a blocked/failed row: show it, and
-        // give the text back unless WhatsApp may already hold it.
-        if (res.status !== 502) setText(body);
-      } else if (res.status === 202) {
+        // A refused send is kept as a blocked/failed row: the reload
+        // shows it.
+        return res.status === 502;
+      }
+      if (res.status === 202) {
         // WhatsApp has it; only the CRM copy is unrecorded (it may later
         // show as failed). Do not resend.
         toast.warning(t('sendErrors.sentNotRecorded'));
       }
+      return true;
     } catch {
-      setText(body);
       toast.error(t('sendErrors.unknown'));
+      return false;
     } finally {
-      setSending(false);
       void reload();
     }
   };
@@ -581,49 +584,14 @@ export function SubmissionGroupPage({
             </div>
 
             {!ended && (
-              <div className="bg-card border-t p-2 sm:px-3">
-                {detail.can_send ? (
-                  sentAs && (
-                    <p className="text-muted-foreground px-1 pb-1.5 text-xs">
-                      {t('sentAs', { who: sentAs })}
-                    </p>
-                  )
-                ) : (
-                  <p className="text-muted-foreground px-1 pb-2 text-xs">
-                    {t('cannotSend')}
-                  </p>
-                )}
-                <div className="flex items-end gap-2">
-                  <Textarea
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (shouldSendOnKey(e.nativeEvent)) {
-                        e.preventDefault();
-                        void send();
-                      }
-                    }}
-                    disabled={!detail.can_send}
-                    rows={1}
-                    maxLength={SEND_TEXT_MAX}
-                    placeholder={t('placeholder')}
-                    aria-label={t('placeholder')}
-                    className="max-h-32 min-h-9 resize-none"
-                  />
-                  <Button
-                    size="icon"
-                    aria-label={t('send')}
-                    disabled={!detail.can_send || sending || !text.trim()}
-                    onClick={() => void send()}
-                  >
-                    {sending ? (
-                      <Loader2 className="animate-spin" aria-hidden />
-                    ) : (
-                      <Send aria-hidden />
-                    )}
-                  </Button>
-                </div>
-              </div>
+              <GroupComposer
+                onSendText={(text) => postMessage({ text })}
+                onSendMedia={(media) => postMessage({ media })}
+                disabled={!detail.can_send}
+                disabledReason={t('cannotSend')}
+                notice={sentAs ? t('sentAs', { who: sentAs }) : null}
+                placeholder={t('placeholder')}
+              />
             )}
           </section>
 

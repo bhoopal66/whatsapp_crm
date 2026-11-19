@@ -8,17 +8,19 @@ import {
   useState,
 } from 'react';
 import { useTranslations } from 'next-intl';
-import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { useAuth } from '@/hooks/use-auth';
 import {
-  mergeMessages,
-  reasonKey,
-  shouldSendOnKey,
-} from '@/lib/groups/group-page';
+  GroupComposer,
+  type GroupMediaSendPayload,
+} from '@/components/groups/group-composer';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/use-auth';
+import { mergeMessages, reasonKey } from '@/lib/groups/group-page';
+import {
+  groupMediaRowMedia,
+  groupMediaRowType,
+} from '@/lib/groups/outbound-media';
 import { markGroupRead } from '@/lib/groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
 
@@ -36,8 +38,6 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const olderRef = useRef(false);
@@ -151,9 +151,17 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     }
   };
 
-  const send = async () => {
-    const body = text.trim();
-    if (!body || sending || sendBlock) return;
+  /**
+   * One send into the group, shown at once as an optimistic bubble.
+   * False when nothing went out (the composer gives the text back, or
+   * deletes the upload); true once WhatsApp has it, even if the row was
+   * not recorded (a resend would duplicate).
+   */
+  const post = async (
+    payload: { text: string } | { media: GroupMediaSendPayload },
+    shown: Pick<Msg, 'type' | 'body' | 'media'>
+  ): Promise<boolean> => {
+    if (sendBlock) return false;
     const tempId = `tmp-${Date.now()}`;
     const optimistic: Msg = {
       id: tempId,
@@ -162,20 +170,17 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
       // What the send route will record, so the bubble is named at once.
       sender_name: profile?.full_name?.trim() || null,
       sender_user_id: user?.id ?? null,
-      type: 'text',
-      body,
+      ...shown,
       status: 'pending',
       created_at: new Date().toISOString(),
     };
     stickRef.current = true;
-    setSending(true);
-    setText('');
     setMessages((m) => mergeMessages(m, [optimistic]));
     try {
       const res = await fetch(`/api/whatsapp/groups/${groupId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: body }),
+        body: JSON.stringify(payload),
       });
       const json = (await res.json().catch(() => null)) as {
         message?: Msg;
@@ -183,22 +188,20 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
       } | null;
       if (!res.ok) {
         setMessages((m) => m.filter((x) => x.id !== tempId));
-        setText(body);
         toast.error(t(`reasons.${reasonKey(json?.code)}`));
-        return;
+        return false;
       }
       const sent = json?.message;
       if (!sent) {
         // WhatsApp took it but the row was not recorded (200 `message:
-        // null`): the text is out, so keep the bubble as sent, never
-        // restore it to the composer (a resend would duplicate).
+        // null`): it is out, so keep the bubble as sent.
         setMessages((m) =>
           m.map((x) => (x.id === tempId ? { ...x, status: 'sent' } : x))
         );
         void load()
           .then((r) => setMessages((m) => mergeMessages(m, r.messages)))
           .catch(() => undefined);
-        return;
+        return true;
       }
       // The realtime echo may already have delivered the real row.
       setMessages((m) =>
@@ -207,14 +210,30 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
           [sent]
         )
       );
+      return true;
     } catch {
       setMessages((m) => m.filter((x) => x.id !== tempId));
-      setText(body);
       toast.error(t('reasons.unknown'));
-    } finally {
-      setSending(false);
+      return false;
     }
   };
+
+  const sendText = (text: string) =>
+    post({ text }, { type: 'text', body: text, media: null });
+
+  const sendMedia = (p: GroupMediaSendPayload) =>
+    post(
+      { media: p },
+      {
+        type: groupMediaRowType(p.kind),
+        body: p.caption ?? null,
+        media: groupMediaRowMedia({
+          url: p.url,
+          mimeType: p.mimeType,
+          filename: p.filename,
+        }),
+      }
+    );
 
   return (
     <div className="bg-background flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -253,39 +272,13 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         <GroupMessageLog messages={messages} currentUserId={user?.id ?? null} />
       </div>
 
-      <div className="bg-wa-panel-header border-wa-divider shrink-0 border-t p-2">
-        {sendBlock && (
-          <p role="status" className="text-muted-foreground px-1 pb-2 text-xs">
-            {t(`reasons.${sendBlock}`)}
-          </p>
-        )}
-        <div className="flex items-end gap-2">
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (shouldSendOnKey(e.nativeEvent)) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            disabled={!!sendBlock}
-            rows={1}
-            maxLength={4096}
-            placeholder={t('chat.placeholder')}
-            aria-label={t('chat.placeholder')}
-            className="max-h-32 min-h-9 resize-none"
-          />
-          <Button
-            size="icon"
-            aria-label={t('chat.send')}
-            disabled={!!sendBlock || sending || !text.trim()}
-            onClick={() => void send()}
-          >
-            <Send className="size-4" />
-          </Button>
-        </div>
-      </div>
+      <GroupComposer
+        onSendText={sendText}
+        onSendMedia={sendMedia}
+        disabled={!!sendBlock}
+        disabledReason={sendBlock ? t(`reasons.${sendBlock}`) : null}
+        placeholder={t('chat.placeholder')}
+      />
     </div>
   );
 }

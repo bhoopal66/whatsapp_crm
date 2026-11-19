@@ -55,6 +55,16 @@ requests. **Refresh** re-reads the group from WhatsApp.
 
 - **Picture:** JPEG or PNG, up to 2 MB.
 - **Chat:** at most 20 sends a minute per group, failures included.
+  The composer works like the inbox's: photos, videos and documents
+  (with a caption), voice notes, and quick replies. An attachment is
+  uploaded to the `chat-media` bucket under `account-<id>/groups/`
+  (never `staged/`, so the unsent-attachment sweep leaves it alone) and
+  posted as `{ media: { kind, url, path, caption?, filename?,
+  mimeType? } }`. The server accepts only an upload of the caller's own
+  workspace in that folder and rebuilds the link on the app's public
+  storage address, so the gateway is never handed another host. A voice
+  note is stored as `audio`, with no caption. Templates, interactive
+  messages, AI drafts and quoted replies stay inbox-only.
 - **Join requests:** appear on the Requests tab when the group needs
   admin approval. Each new request rings a bell for the group's managers
   and admins; the bell opens the tab.
@@ -184,6 +194,5 @@ browser (`lib/groups/sender-colors.ts`): nothing is stored.
 
 ## Limits
 
-Only the group's number sends; staff cannot send as themselves. Text
-only for now. A number that left or was removed shows the group as
+Only the group's number sends; staff cannot send as themselves. A number that left or was removed shows the group as
 read-only.

@@ -12,13 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Attachments, voice notes and quick replies in group chats
+
+- WhatsApp group chats can send photos, videos, documents and voice
+  notes, and use quick replies, from the same kind of message box as the
+  inbox.
+
 ### Attachments and voice notes in Submission group chats
 
 **Migration required:** apply `210_submission_group_media_sends.sql`
 as a superuser or BYPASSRLS role before deploying this build.
 - Staff can send photos, videos, documents and voice notes into a
   Submission group's WhatsApp chat, with the usual `Name (Label)` prefix
-  as the caption.
+  as the caption, and use quick replies there too.
 
 ### Groups pages no longer scroll away
 

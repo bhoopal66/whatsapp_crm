@@ -78,6 +78,8 @@ export interface GroupComposerProps {
   disabled?: boolean;
   /** Shown above the composer while it is disabled. */
   disabledReason?: string | null;
+  /** Shown above the composer while it is enabled (e.g. "Sent as …"). */
+  notice?: string | null;
   placeholder?: string;
 }
 
@@ -97,6 +99,7 @@ export function GroupComposer({
   onSendMedia,
   disabled = false,
   disabledReason,
+  notice,
   placeholder,
 }: GroupComposerProps) {
   const t = useTranslations('Inbox.composer');
@@ -330,9 +333,9 @@ export function GroupComposer({
 
   return (
     <div className="border-wa-divider bg-wa-panel-header shrink-0 border-t px-2 py-2 sm:px-4">
-      {disabled && disabledReason && (
+      {(disabled ? disabledReason : notice) && (
         <p role="status" className="text-muted-foreground px-1 pb-2 text-xs">
-          {disabledReason}
+          {disabled ? disabledReason : notice}
         </p>
       )}
       {pickers.map((kind) => (
