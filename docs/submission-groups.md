@@ -237,7 +237,8 @@ filename?, mimeType? } }` to `POST /api/submission-groups/[id]/messages`.
   before the gateway sees it: a link to any other host is never sent.
 - The caption carries the prefix (`Name (Label): caption`); with no
   caption it is just `Name (Label)`. A voice note goes out as a voice note
-  and is stored as `audio`, with no caption.
+  and is stored as `audio`; WhatsApp shows no caption on a voice note (the
+  gateways drop it), so the customer sees only the hosting number.
 - The row is written pending before the gateway call by
   `sg_send_begin_media`, under exactly the rules of the text send
   (`sg_send_begin`; both are wrappers over one body, `sg_send_begin_row`).
