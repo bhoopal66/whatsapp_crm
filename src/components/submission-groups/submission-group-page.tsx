@@ -285,9 +285,14 @@ export function SubmissionGroupPage({
           reason?: string;
         } | null;
         toast.error(t(`sendErrors.${sendErrorKey(res.status, json?.reason)}`));
-        // A refused send is kept as a blocked/failed row: the reload
-        // shows it.
-        return res.status === 502;
+        // A 502 (failed) or 409 consent block is kept as a stored row,
+        // which points at an attachment's file: treat it as sent so the
+        // composer neither gives it back nor deletes the file. Other
+        // refusals store nothing.
+        return (
+          res.status === 502 ||
+          (res.status === 409 && json?.reason !== undefined)
+        );
       }
       if (res.status === 202) {
         // WhatsApp has it; only the CRM copy is unrecorded (it may later

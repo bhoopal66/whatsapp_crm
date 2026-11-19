@@ -73,7 +73,10 @@ const TEXT_MAX = 4096;
 export interface GroupComposerProps {
   /** Sends text; false when it was not sent (the text comes back). */
   onSendText: (text: string) => Promise<boolean>;
-  /** Sends an uploaded attachment; false deletes the upload. */
+  /**
+   * Sends an uploaded attachment; false puts it back in the composer.
+   * Return true whenever a stored message may point at the file.
+   */
   onSendMedia: (payload: GroupMediaSendPayload) => Promise<boolean>;
   disabled?: boolean;
   /** Shown above the composer while it is disabled. */
@@ -125,6 +128,7 @@ export function GroupComposer({
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const startingRef = useRef(false);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -212,7 +216,9 @@ export function GroupComposer({
   // ---- Voice note (Ogg/Opus in the browser, as the inbox) -----------
 
   const startRecording = useCallback(async () => {
-    if (disabled || busy || recording) return;
+    // `recording` only turns true after the permission prompt: a second
+    // tap meanwhile would start a second recorder and leave its mic on.
+    if (disabled || busy || recording || startingRef.current) return;
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof AudioContext === 'undefined'
@@ -220,6 +226,7 @@ export function GroupComposer({
       toast.error(tg('recordingUnsupported'));
       return;
     }
+    startingRef.current = true;
     try {
       const { default: Recorder } = await import('opus-recorder');
       const recorder = new Recorder({
@@ -242,6 +249,13 @@ export function GroupComposer({
       };
       recorderRef.current = recorder;
       await recorder.start();
+      if (!mountedRef.current) {
+        // Left while the mic was being granted: release it.
+        cancelledRef.current = true;
+        void recorder.stop().catch(() => {});
+        recorderRef.current = null;
+        return;
+      }
       setRecording(true);
       setRecordSeconds(0);
       timerRef.current = setInterval(
@@ -251,7 +265,9 @@ export function GroupComposer({
     } catch {
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error(tg('micDenied'));
+      if (mountedRef.current) toast.error(tg('micDenied'));
+    } finally {
+      startingRef.current = false;
     }
   }, [disabled, busy, recording, stage, tg]);
 
@@ -296,11 +312,21 @@ export function GroupComposer({
     setSending(true);
     setDraft(null);
     draftRef.current = null;
+    // Not sent: put the attachment back (as text is), unless another was
+    // staged meanwhile or the composer is gone; only then delete it.
+    const giveBack = () => {
+      if (mountedRef.current && !draftRef.current) {
+        draftRef.current = staged;
+        setDraft(staged);
+      } else {
+        removeUpload(staged.path);
+      }
+    };
     try {
       const ok = await onSendMedia(groupMediaPayload(staged));
-      if (!ok) removeUpload(staged.path);
+      if (!ok) giveBack();
     } catch {
-      removeUpload(staged.path);
+      giveBack();
     } finally {
       if (mountedRef.current) setSending(false);
     }

@@ -796,6 +796,17 @@ describe('SubmissionGroupService.sendMediaFromCrm', () => {
     });
   });
 
+  it("keeps the prefixed caption within WhatsApp's 1024 characters", async () => {
+    const s = setup();
+    const g = await opened(s);
+    await s.svc.sendMediaFromCrm(doc(g.id, { caption: 'x'.repeat(1024) }));
+    const [call] = s.api.of('sendGroupMedia');
+    const sent = (call.args[2] as { caption: string }).caption;
+    expect(sent).toHaveLength(1024);
+    expect(sent.startsWith('Ali (Agent): x')).toBe(true);
+    expect(s.store.messages[0]).toMatchObject({ prefixedBody: sent });
+  });
+
   it('consent refused: the row is settled blocked and nothing is sent', async () => {
     const s = setup();
     const g = await opened(s);

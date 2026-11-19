@@ -188,6 +188,16 @@ export type GroupRefusal =
   | 'SEND_NOT_ALLOWED'
   | 'UNKNOWN_USER';
 
+/** WhatsApp's caption ceiling; the route caps the caption alone at this. */
+const CAPTION_MAX = 1024;
+
+/** The prefix can push a near-limit caption past WhatsApp's ceiling. */
+export function fitCaption(prefixed: string): string {
+  return prefixed.length <= CAPTION_MAX
+    ? prefixed
+    : `${prefixed.slice(0, CAPTION_MAX - 1)}…`;
+}
+
 /** sendFromCrm refused before anything was stored or sent. */
 export class SubmissionGroupSendRefusedError extends Error {
   override readonly name = 'SubmissionGroupSendRefusedError';
@@ -776,9 +786,11 @@ export class SubmissionGroupService {
       input.groupId,
       input.userId,
       (name, label) =>
-        caption === ''
-          ? prefixMessage(name, label, '').replace(/: $/, '')
-          : prefixMessage(name, label, caption),
+        fitCaption(
+          caption === ''
+            ? prefixMessage(name, label, '').replace(/: $/, '')
+            : prefixMessage(name, label, caption)
+        ),
       (groupId, prefixed) =>
         store.beginMediaSend(
           groupId,
