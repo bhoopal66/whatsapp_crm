@@ -7826,7 +7826,12 @@
         "yourNumber": "이 번호",
         "attachment": "첨부 파일",
         "placeholder": "메시지 입력",
-        "send": "보내기"
+        "send": "보내기",
+        "uploadFailed": "업로드하지 못했습니다.",
+        "fileTooLarge": "이 파일은 {size}MB입니다. 이 종류의 한도는 {limit}MB입니다.",
+        "fileTypeNotAllowed": "이 종류의 파일은 보낼 수 없습니다.",
+        "recordingUnsupported": "이 브라우저에서는 음성 녹음을 지원하지 않습니다.",
+        "micDenied": "마이크에 접근할 수 없습니다."
       },
       "reasons": {
         "not_allowed": "이 작업을 할 권한이 없습니다.",

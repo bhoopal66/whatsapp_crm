@@ -109,6 +109,13 @@ import {
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
 import type { InteractiveMessagePayload, QuickReply } from '@/types';
 import { QuickReplyPicker } from './quick-reply-picker';
+import {
+  MAX_RECORDING_SECONDS,
+  OPUS_ENCODER_PATH,
+  PICKER_ACCEPT,
+  SEND_BUTTON,
+  TOOL_BUTTON,
+} from '@/lib/inbox/composer-ui';
 import { ComposeCheckDialog } from './compose-check-dialog';
 
 /** Media content types an agent can send from the composer. */
@@ -119,10 +126,6 @@ export const CHAT_MEDIA_BUCKET = 'chat-media';
 
 /** Meta caps media captions at 1024 chars. Enforced here and in the send route. */
 export const MEDIA_CAPTION_MAX = 1024;
-
-/** Hard cap on a single voice recording so it can't blow the upload/
- *  transcode limits — auto-stops the recorder when reached. */
-const MAX_RECORDING_SECONDS = 5 * 60;
 
 export interface SendMediaPayload {
   kind: ComposerMediaKind;
@@ -143,17 +146,6 @@ interface ReplyDraft {
   authorLabel: string;
   preview: string;
 }
-
-// Mirrors the chat-media bucket's allowed_mime_types (migration 023) for
-// the file picker so unsupported files are rejected before upload rather
-// than failing with a confusing Storage error. Audio has no picker — it's
-// captured via the recorder.
-const PICKER_ACCEPT: Record<'image' | 'video' | 'document', string> = {
-  image: 'image/png,image/jpeg,image/webp',
-  video: 'video/mp4,video/3gpp',
-  document:
-    'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain',
-};
 
 interface MediaDraft {
   kind: ComposerMediaKind;
@@ -212,19 +204,6 @@ interface HeldSend {
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
 let parkedFor: string | null = null;
-
-/** The composer's round toolbar buttons, in WhatsApp's icon grey. */
-const TOOL_BUTTON =
-  'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-0 text-wa-icon transition-colors hover:bg-wa-icon-hover hover:text-wa-icon disabled:cursor-not-allowed disabled:opacity-50';
-
-/** The round green send button. */
-const SEND_BUTTON =
-  'h-10 w-10 shrink-0 rounded-full bg-wa-green p-0 text-wa-green-fg hover:bg-wa-green/90 disabled:opacity-40';
-
-/** Worker that encodes mic input to Ogg/Opus entirely in the browser
- *  (vendored from opus-recorder into /public). Recording client-side in a
- *  Meta-accepted format means no server ffmpeg / transcode step. */
-const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
 
 /**
  * The consent register's answer for the chat's customer, read fresh
