@@ -7826,7 +7826,12 @@
         "yourNumber": "Your number",
         "attachment": "Attachment",
         "placeholder": "Write a message",
-        "send": "Send"
+        "send": "Send",
+        "uploadFailed": "Upload failed.",
+        "fileTooLarge": "This file is {size} MB; the limit for this kind is {limit} MB.",
+        "fileTypeNotAllowed": "This kind of file cannot be sent.",
+        "recordingUnsupported": "Voice recording isn't supported in this browser.",
+        "micDenied": "Microphone access denied or unavailable."
       },
       "reasons": {
         "not_allowed": "You don't have permission to do that.",

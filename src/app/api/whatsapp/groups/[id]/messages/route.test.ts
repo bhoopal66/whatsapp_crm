@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   loadChannels: vi.fn(),
   sendGroupText: vi.fn(),
+  sendGroupMedia: vi.fn(),
   rls: null as unknown as FakeDb,
   admin: null as unknown as FakeDb,
 }));
@@ -21,6 +22,7 @@ vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
 vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
   sendGroupText: mocks.sendGroupText,
+  sendGroupMedia: mocks.sendGroupMedia,
 }));
 vi.mock('@/lib/groups/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/groups/server')>()),
@@ -94,6 +96,7 @@ beforeEach(() => {
     { id: CH, accountId: 'acct-1', provider: 'whapi', accessToken: 't' },
   ]);
   mocks.sendGroupText.mockResolvedValue({ messageId: 'wa-new' });
+  mocks.sendGroupMedia.mockResolvedValue({ messageId: 'wa-media' });
 });
 
 describe('GET', () => {
@@ -242,5 +245,106 @@ describe('POST', () => {
     const res = await post({ text: 'hi' });
     expect(res.status).toBe(429);
     expect(stored()).toHaveLength(0);
+  });
+
+  const PATH = 'account-acct-1/groups/1700000000000-photo.jpg';
+  const URL_OK = `https://tunnel.example/storage/v1/object/public/chat-media/${PATH}`;
+  // The link sent and stored is rebuilt on our own public origin.
+  const URL_SENT = `http://supabase.test/storage/v1/object/public/chat-media/${PATH}`;
+
+  it('sends an attachment and records it in the media shape', async () => {
+    const res = await post({
+      media: {
+        kind: 'image',
+        url: URL_OK,
+        path: PATH,
+        caption: ' look ',
+        filename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.sendGroupText).not.toHaveBeenCalled();
+    expect(mocks.sendGroupMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: '120363000000000001@g.us',
+        kind: 'image',
+        link: URL_SENT,
+        caption: 'look',
+      })
+    );
+    expect(stored()[0]).toMatchObject({
+      wa_message_id: 'wa-media',
+      type: 'image',
+      body: 'look',
+      media: { link: URL_SENT, mime_type: 'image/jpeg', filename: 'photo.jpg' },
+    });
+  });
+
+  it('records a voice note as audio, without a caption', async () => {
+    const path = 'account-acct-1/groups/1700000000000-voice.ogg';
+    const res = await post({
+      media: {
+        kind: 'voice',
+        url: `https://x.test/storage/v1/object/public/chat-media/${path}`,
+        path,
+        caption: 'ignored',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.sendGroupMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'voice', caption: undefined })
+    );
+    expect(stored()[0]).toMatchObject({ type: 'audio', body: null });
+  });
+
+  it('refuses a media URL that is not our chat-media upload', async () => {
+    for (const url of [
+      'https://evil.example/payload.jpg',
+      `https://tunnel.example/storage/v1/object/public/flow-media/${PATH}`,
+      `${URL_OK}?x=1`,
+    ]) {
+      const res = await post({ media: { kind: 'image', url, path: PATH } });
+      expect(res.status).toBe(400);
+    }
+    expect(mocks.sendGroupMedia).not.toHaveBeenCalled();
+  });
+
+  it("refuses another account's folder and a non-group folder", async () => {
+    for (const path of [
+      'account-acct-2/groups/1700000000000-photo.jpg',
+      'account-acct-1/staged/1700000000000-photo.jpg',
+      'account-acct-1/groups/../staged/x.jpg',
+    ]) {
+      const res = await post({
+        media: {
+          kind: 'image',
+          url: `https://t.example/storage/v1/object/public/chat-media/${path}`,
+          path,
+        },
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(mocks.sendGroupMedia).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bad kind and an over-long caption', async () => {
+    expect(
+      (await post({ media: { kind: 'sticker', url: URL_OK, path: PATH } }))
+        .status
+    ).toBe(400);
+    expect(
+      (
+        await post({
+          media: {
+            kind: 'image',
+            url: URL_OK,
+            path: PATH,
+            caption: 'x'.repeat(1025),
+          },
+        })
+      ).status
+    ).toBe(400);
+    expect(mocks.sendGroupMedia).not.toHaveBeenCalled();
   });
 });
