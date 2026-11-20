@@ -27,6 +27,8 @@ DECLARE
   k1 UUID; k2 UUID;  -- contacts in A and B
   v1 UUID; v2 UUID;  -- conversations in A and B
   o1 UUID; o2 UUID; o3 UUID; o4 UUID; o5 UUID; o6 UUID; o7 UUID; o8 UUID;
+  o9 UUID; o10 UUID; o11 UUID; o12 UUID; o13 UUID;  -- early receipts, expiry
+  m9 UUID; m10 UUID; m11 UUID;  -- the chat messages the sends wrote
   r       TEXT;
   c       TEXT[] := '{}';  -- one element per check: NULL = passed
   failed  TEXT[];
@@ -171,6 +173,12 @@ BEGIN
          WHERE a.account_id = a_acct AND a.action = 'outbox_failed_terminal'
            AND a.detail->>'id' = o1::text);
   c := c || pg_temp.hr_chk('fail_terminal audit row', r, '1/bad_number/1');
+  -- A second terminal failure changes nothing: no audit row, reason kept.
+  r := pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_fail_terminal(%L, ''again'')).last_error', o1));
+  r := r || '/' || (SELECT count(*) FROM hr_automsg_audit a
+                     WHERE a.action = 'outbox_failed_terminal' AND a.detail->>'id' = o1::text)
+    || '/' || (SELECT concat_ws('/', o.status, o.attempts, o.last_error) FROM hr_automsg_outbox o WHERE o.id = o1);
+  c := c || pg_temp.hr_chk('second fail_terminal not idempotent', r, 'bad_number/1/failed/3/bad_number');
   r := pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_fail_terminal(%L, ''x'')).status', o2))
     || '|' || pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_fail_terminal(%L, ''x'')).status', o3))
     || '|' || pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_fail_terminal(%L, ''x'')).status', o8));
@@ -240,6 +248,65 @@ BEGIN
   r := r || '|' || pg_temp.dr(a_acct, 'wamid.L4', NULL);
   c := c || pg_temp.hr_chk('bad state or blank id not refused', r,
     'ERROR 22023 INVALID:%|ERROR 22023 INVALID:%|ERROR 22023 INVALID:%');
+
+  -- ---------- a receipt that beat the stamp ----------
+  -- send.ts writes the chat's message before hr_automsg_mark stamps the
+  -- outbox row; a status in between reached only messages.status.
+  INSERT INTO messages (conversation_id, sender_type, content_text, status)
+  VALUES (v1, 'agent', 'early delivered', 'delivered') RETURNING id INTO m9;
+  INSERT INTO messages (conversation_id, sender_type, content_text, status)
+  VALUES (v1, 'agent', 'early failed', 'failed') RETURNING id INTO m10;
+  INSERT INTO messages (conversation_id, sender_type, content_text, status)
+  VALUES (v1, 'agent', 'no receipt yet', 'sent') RETURNING id INTO m11;
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind,
+                                 dedupe_key, status, attempts, claim_state, claimed_at)
+  VALUES (a_acct, v1, k1, 'cv_received', 'cv_ack', 'd212:9', 'queued', 1, 'sending', now())
+  RETURNING id INTO o9;
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind,
+                                 dedupe_key, status, attempts, claim_state, claimed_at)
+  VALUES (a_acct, v1, k1, 'cv_received', 'cv_ack', 'd212:10', 'queued', 1, 'sending', now())
+  RETURNING id INTO o10;
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind,
+                                 dedupe_key, status, attempts, claim_state, claimed_at)
+  VALUES (a_acct, v1, k1, 'cv_received', 'cv_ack', 'd212:11', 'queued', 1, 'sending', now())
+  RETURNING id INTO o11;
+  r := pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_mark(%L, ''sent'', NULL, ''wamid.E9'', %L)).status', o9, m9))
+    || '/' || pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_mark(%L, ''sent'', NULL, ''wamid.E10'', %L)).status', o10, m10))
+    || '/' || pg_temp.hr_as(NULL, format('SELECT (public.hr_automsg_mark(%L, ''sent'', NULL, ''wamid.E11'', %L)).status', o11, m11));
+  c := c || pg_temp.hr_chk('mark sent with an early receipt', r, 'sent/sent/sent');
+  r := (SELECT concat_ws('/', coalesce(o.delivery_state, 'null'), o.delivery_at IS NOT NULL, o.status, o.attempts)
+          FROM hr_automsg_outbox o WHERE o.id = o9);
+  c := c || pg_temp.hr_chk('early delivered receipt not caught', r, 'delivered/t/sent/1');
+  r := (SELECT concat_ws('/', coalesce(o.delivery_state, 'null'), o.status, o.attempts, o.last_error)
+          FROM hr_automsg_outbox o WHERE o.id = o10);
+  c := c || pg_temp.hr_chk('early failed receipt not caught', r, 'failed/failed/3/delivery_failed:unknown');
+  r := (SELECT concat_ws('/', coalesce(o.delivery_state, 'null'), o.status, o.attempts)
+          FROM hr_automsg_outbox o WHERE o.id = o11);
+  c := c || pg_temp.hr_chk('a message still sent set a delivery state', r, 'null/sent/1');
+
+  -- ---------- a skewed receipt time is clamped ----------
+  r := pg_temp.hr_as(NULL, format(
+    'SELECT public.hr_automsg_delivery_record(%L, ''wamid.E11'', ''delivered'', now() + interval ''1 day'', NULL)', a_acct));
+  r := r || '/' || (SELECT (o.delivery_at <= now() + interval '1 minute')::text
+                      FROM hr_automsg_outbox o WHERE o.id = o11);
+  c := c || pg_temp.hr_chk('receipt time a day ahead not clamped', r, 'recorded/true');
+
+  -- ---------- expiry keeps terminal failures ----------
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind,
+                                 dedupe_key, status, attempts, last_error, created_at)
+  VALUES (a_acct, v1, k1, 'cv_received', 'cv_ack', 'd212:12', 'failed', 3, 'bad_number',
+          now() - interval '25 hours')
+  RETURNING id INTO o12;
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind,
+                                 dedupe_key, status, attempts, last_error, created_at)
+  VALUES (a_acct, v1, k1, 'cv_received', 'cv_ack', 'd212:13', 'failed', 1, 'timeout',
+          now() - interval '25 hours')
+  RETURNING id INTO o13;
+  r := pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_expire()::text');
+  r := (SELECT o.status || '/' || o.last_error FROM hr_automsg_outbox o WHERE o.id = o12)
+    || '|' || (SELECT o.status FROM hr_automsg_outbox o WHERE o.id = o13);
+  c := c || pg_temp.hr_chk('expiry relabelled a terminal failure, or kept a retryable one', r,
+    'failed/bad_number|cancelled');
 
   RAISE EXCEPTION 'verify-hr-automsg-delivery rollback' USING ERRCODE = 'P0099';
   EXCEPTION WHEN SQLSTATE 'P0099' THEN

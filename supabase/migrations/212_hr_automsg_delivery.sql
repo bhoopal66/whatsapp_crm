@@ -29,11 +29,21 @@
 --      applied 'failed' marks the row terminal through (1), reason
 --      'delivery_failed:<code>', unless it already is.
 --
--- Known race (receipt before stamp): a status that arrives before the
--- row carries its provider_message_id (the send's result not yet
--- marked or settled) finds no row and answers 'unknown_message'; it is
--- not recorded on the outbox row. The chat's own message still gets it
--- through the ordinary status handling.
+--   3. A receipt that beats the stamp: send.ts inserts the chat's
+--      messages row before hr_automsg_mark stamps provider_message_id on
+--      the outbox row, so a status landing in between finds no row
+--      ('unknown_message') while messages.status still takes it (the
+--      broadcast race 066 fixed). The hr_automsg_outbox_catch_receipt
+--      trigger replays it: when a row moves to 'sent' carrying both ids,
+--      a delivered / read / failed messages row is recorded through (2).
+--      It never raises. It cannot recurse: (1) and (2) never move status
+--      to 'sent'.
+--   4. hr_automsg_fail_terminal on a row already failed with attempts
+--      >= 3 returns it unchanged (no second audit row, reason kept), and
+--      delivery_at is clamped to at most now() + 1 minute.
+--   5. hr_automsg_expire (203) is restated so it no longer cancels a
+--      terminal failure (failed, attempts >= 3), which would lose its
+--      reason. Re-running 203 after 212 reverts it: apply in order, once.
 --
 -- Refusals through 200's hr_refuse: INVALID | ALREADY_DECIDED (22023),
 -- NOT_FOUND (P0002). Service role only. Apply after 203. Re-runnable.
@@ -84,6 +94,8 @@ BEGIN
   END IF;
   SELECT * INTO o FROM hr_automsg_outbox x WHERE x.id = p_id FOR UPDATE;
   IF NOT FOUND THEN PERFORM hr_refuse('NOT_FOUND', 'message not found'); END IF;
+  -- Already terminal: idempotent, the first reason stands.
+  IF o.status = 'failed' AND o.attempts >= 3 THEN RETURN o; END IF;
   IF o.status = 'cancelled'
      OR ((o.status = 'sent' OR o.claim_state IN ('unconfirmed', 'needs_review'))
          AND o.delivery_state IS DISTINCT FROM 'failed') THEN
@@ -139,7 +151,7 @@ BEGIN
 
   IF p_state = 'failed' THEN
     IF o.delivery_state IS NOT NULL AND o.delivery_state <> 'sent' THEN RETURN 'unchanged'; END IF;
-    UPDATE hr_automsg_outbox x SET delivery_state = 'failed', delivery_at = COALESCE(p_at, now())
+    UPDATE hr_automsg_outbox x SET delivery_state = 'failed', delivery_at = LEAST(COALESCE(p_at, now()), now() + interval '1 minute')
      WHERE x.id = o.id;
     IF o.status = 'cancelled' OR (o.status = 'failed' AND o.attempts >= 3) THEN
       RETURN 'recorded';
@@ -153,14 +165,77 @@ BEGIN
   v_rank_new := CASE p_state WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END;
   v_rank_old := CASE o.delivery_state WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 WHEN 'read' THEN 3 ELSE 0 END;
   IF v_rank_new <= v_rank_old THEN RETURN 'unchanged'; END IF;
-  UPDATE hr_automsg_outbox x SET delivery_state = p_state, delivery_at = COALESCE(p_at, now())
+  UPDATE hr_automsg_outbox x SET delivery_state = p_state, delivery_at = LEAST(COALESCE(p_at, now()), now() + interval '1 minute')
    WHERE x.id = o.id;
   RETURN 'recorded';
 END;
 $$;
 
 -- ------------------------------------------------------------
--- 4. Grants: the service-role sender only
+-- 4. A receipt that beat the stamp
+-- ------------------------------------------------------------
+
+-- Only receipts move a messages row to delivered / read / failed
+-- (001's CHECK: sending | sent | delivered | read | failed), so one of
+-- those on the row the send wrote is a status the outbox row missed.
+CREATE OR REPLACE FUNCTION public.hr_automsg_outbox_catch_receipt()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_status text;
+BEGIN
+  BEGIN
+    SELECT m.status INTO v_status FROM messages m WHERE m.id = NEW.message_id;
+    IF v_status IN ('delivered', 'read', 'failed') THEN
+      PERFORM hr_automsg_delivery_record(NEW.account_id, NEW.provider_message_id,
+                                         v_status, now(), NULL);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'hr_automsg_outbox_catch_receipt(%): % %', NEW.id, SQLSTATE, SQLERRM;
+  END;
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS hr_automsg_outbox_catch_receipt ON public.hr_automsg_outbox;
+CREATE TRIGGER hr_automsg_outbox_catch_receipt
+  AFTER UPDATE OF status ON public.hr_automsg_outbox
+  FOR EACH ROW
+  WHEN (NEW.status = 'sent' AND OLD.status IS DISTINCT FROM 'sent'
+        AND NEW.message_id IS NOT NULL AND NEW.provider_message_id IS NOT NULL)
+  EXECUTE FUNCTION public.hr_automsg_outbox_catch_receipt();
+
+REVOKE ALL ON FUNCTION public.hr_automsg_outbox_catch_receipt()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- 5. Expiry keeps terminal failures (restates 203's function)
+-- ------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.hr_automsg_expire(p_now timestamptz DEFAULT now())
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  n integer;
+BEGIN
+  UPDATE hr_automsg_outbox x
+     SET status = 'cancelled', hold_reason = NULL, updated_at = now()
+   WHERE x.status IN ('queued', 'held', 'failed') AND x.claim_state IS NULL
+     AND (x.status <> 'failed' OR x.attempts < 3)
+     AND x.created_at < COALESCE(p_now, now()) - interval '24 hours';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN n;
+END;
+$$;
+
+-- ------------------------------------------------------------
+-- 6. Grants: the service-role sender only
 -- ------------------------------------------------------------
 
 REVOKE ALL ON FUNCTION
