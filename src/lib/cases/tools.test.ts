@@ -272,6 +272,32 @@ describe('CaseToolsStore', () => {
       toStatus: 'done',
       actorId: OWNER,
     });
+    expect(t.createdBy).toBe(ACTOR);
+  });
+
+  it('listTasks keeps a rule-created task creator NULL (214), never "null"', async () => {
+    const db = new FakeDb(
+      {},
+      {
+        case_tasks: [
+          {
+            id: 'a',
+            case_id: CASE,
+            template_key: 'k',
+            title: 'A',
+            owner_id: OWNER,
+            due_at: null,
+            status: 'open',
+            created_by: null,
+            created_at: '2026-10-19T00:00:00Z',
+            updated_at: '2026-10-19T00:00:00Z',
+          },
+        ],
+        case_task_status_log: [],
+      }
+    );
+    const [t] = await new CaseToolsStore(db.client).listTasks(CASE);
+    expect(t.createdBy).toBeNull();
   });
 
   it('checklist matches the product case-insensitively and lists what is missing', async () => {

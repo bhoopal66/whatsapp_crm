@@ -9771,6 +9771,8 @@
         "sla_overdue": "When a case's SLA timer is overdue",
         "no_activity": "When a case has no activity for {days, plural, one {# day} other {# days}}",
         "submission_attached": "When a submission is attached to a case",
+        "stage_entered": "When a case enters {stage}",
+        "last_required_doc_received": "When a case's last required document arrives",
         "other": "When something happens"
       },
       "bank": "at {bank}",

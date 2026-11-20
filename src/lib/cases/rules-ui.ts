@@ -15,6 +15,9 @@ export const RULE_TRIGGERS = [
   'sla_overdue',
   'no_activity',
   'submission_attached',
+  // 214
+  'stage_entered',
+  'last_required_doc_received',
 ] as const;
 export type RuleTrigger = (typeof RULE_TRIGGERS)[number];
 
@@ -23,8 +26,42 @@ export const RULE_ACTION_KINDS = [
   'assign_coordinator',
   'add_note',
   'set_priority',
+  // 214
+  'create_task',
+  'start_sla',
+  'advance_stage',
 ] as const;
 export type RuleActionKind = (typeof RULE_ACTION_KINDS)[number];
+
+/** The actions every trigger but last_required_doc_received takes. */
+const GENERAL_ACTION_KINDS: readonly RuleActionKind[] = [
+  'assign_agent',
+  'assign_coordinator',
+  'add_note',
+  'set_priority',
+];
+
+/**
+ * 214's pairing: create_task / start_sla only on stage_entered, and
+ * advance_stage alone on last_required_doc_received.
+ */
+export function actionKindsFor(
+  trigger: RuleTrigger
+): readonly RuleActionKind[] {
+  if (trigger === 'last_required_doc_received') return ['advance_stage'];
+  if (trigger === 'stage_entered')
+    return [...GENERAL_ACTION_KINDS, 'create_task', 'start_sla'];
+  return GENERAL_ACTION_KINDS;
+}
+
+export const RULE_TASK_OWNERS = ['agent', 'coordinator'] as const;
+export type RuleTaskOwner = (typeof RULE_TASK_OWNERS)[number];
+export const RULE_SLA_TIMERS = [
+  'customer_reply',
+  'bank_response',
+  'document_chase',
+] as const;
+export type RuleSlaTimer = (typeof RULE_SLA_TIMERS)[number];
 
 /** 187's limits, restated for the warnings shown before a save. */
 export const RULE_NAME_MAX = 60;
@@ -33,18 +70,38 @@ export const RULE_NOTE_MAX = 4000;
 export const RULE_ACTIONS_MAX = 5;
 export const RULE_DAYS_MIN = 1;
 export const RULE_DAYS_MAX = 365;
+/** 214's create_task limits. */
+export const RULE_TEMPLATE_KEY = /^[a-z0-9_]{1,64}$/;
+export const RULE_DUE_HOURS_MIN = 1;
+export const RULE_DUE_HOURS_MAX = 8760;
 
 /** Per-action refusals a run records that have their own wording. */
 export const RUN_REFUSALS = [
   'MANAGED_EXTERNALLY',
   'CASE_CLOSED',
   'ASSIGNEE_INVALID',
+  // 214
+  'TEMPLATE_NOT_FOUND',
+  'OWNER_MISSING',
+  'SLA_NOT_CONFIGURED',
+  'FINAL_STAGE',
+  'NO_NEXT_STAGE',
+  'ADVANCE_CHAINED',
+  'SUBMISSION_REQUIRED',
 ] as const;
 
 export type RuleAction =
   | { kind: 'assign_agent' | 'assign_coordinator'; userId: string }
   | { kind: 'add_note'; body: string }
-  | { kind: 'set_priority'; priority: CasePriority };
+  | { kind: 'set_priority'; priority: CasePriority }
+  | {
+      kind: 'create_task';
+      templateKey: string;
+      ownerRole: RuleTaskOwner;
+      dueHours?: number;
+    }
+  | { kind: 'start_sla'; timer: RuleSlaTimer }
+  | { kind: 'advance_stage' };
 
 export interface RuleConditions {
   bank_code?: string;
@@ -82,6 +139,10 @@ const isTrigger = (v: unknown): v is RuleTrigger =>
   typeof v === 'string' && (RULE_TRIGGERS as readonly string[]).includes(v);
 const isPriority = (v: unknown): v is CasePriority =>
   typeof v === 'string' && (PRIORITIES as readonly string[]).includes(v);
+const isOwner = (v: unknown): v is RuleTaskOwner =>
+  typeof v === 'string' && (RULE_TASK_OWNERS as readonly string[]).includes(v);
+const isTimer = (v: unknown): v is RuleSlaTimer =>
+  typeof v === 'string' && (RULE_SLA_TIMERS as readonly string[]).includes(v);
 
 function toAction(v: unknown): RuleAction | null {
   if (!isObj(v)) return null;
@@ -99,6 +160,21 @@ function toAction(v: unknown): RuleAction | null {
       return isPriority(v.priority)
         ? { kind: 'set_priority', priority: v.priority }
         : null;
+    case 'create_task':
+      return typeof v.templateKey === 'string' && isOwner(v.ownerRole)
+        ? {
+            kind: 'create_task',
+            templateKey: v.templateKey,
+            ownerRole: v.ownerRole,
+            ...(typeof v.dueHours === 'number' && Number.isFinite(v.dueHours)
+              ? { dueHours: v.dueHours }
+              : {}),
+          }
+        : null;
+    case 'start_sla':
+      return isTimer(v.timer) ? { kind: 'start_sla', timer: v.timer } : null;
+    case 'advance_stage':
+      return { kind: 'advance_stage' };
     default:
       return null;
   }
@@ -188,6 +264,13 @@ export interface DraftAction {
   userId: string;
   body: string;
   priority: CasePriority;
+  /** create_task. */
+  templateKey: string;
+  ownerRole: RuleTaskOwner;
+  /** '' = the template's own due hours. */
+  dueHours: string;
+  /** start_sla. */
+  timer: RuleSlaTimer;
 }
 
 export type PreSubmissionChoice = 'any' | 'yes' | 'no';
@@ -211,7 +294,33 @@ export interface RuleDraft {
 }
 
 export function newDraftAction(kind: RuleActionKind = 'add_note'): DraftAction {
-  return { kind, userId: '', body: '', priority: 'normal' };
+  return {
+    kind,
+    userId: '',
+    body: '',
+    priority: 'normal',
+    templateKey: '',
+    ownerRole: 'agent',
+    dueHours: '',
+    timer: 'customer_reply',
+  };
+}
+
+/**
+ * The draft moved to another trigger: actions that trigger refuses are
+ * dropped (an empty list gets the default kind), and
+ * last_required_doc_received gets exactly one advance_stage.
+ */
+export function withTrigger(d: RuleDraft, trigger: RuleTrigger): RuleDraft {
+  if (trigger === 'last_required_doc_received')
+    return { ...d, trigger, actions: [newDraftAction('advance_stage')] };
+  const allowed = actionKindsFor(trigger);
+  const kept = d.actions.filter((a) => allowed.includes(a.kind));
+  return {
+    ...d,
+    trigger,
+    actions: kept.length > 0 ? kept : [newDraftAction()],
+  };
 }
 
 export function emptyDraft(): RuleDraft {
@@ -247,14 +356,29 @@ export function draftFromRule(r: RuleView): RuleDraft {
     preSubmission:
       c.pre_submission === undefined ? 'any' : c.pre_submission ? 'yes' : 'no',
     days: c.days === undefined ? '' : String(c.days),
-    actions: r.actions.map((a) => ({
-      ...newDraftAction(a.kind),
-      ...(a.kind === 'add_note'
-        ? { body: a.body }
-        : a.kind === 'set_priority'
-          ? { priority: a.priority }
-          : { userId: a.userId }),
-    })),
+    actions: r.actions.map((a): DraftAction => {
+      const base = newDraftAction(a.kind);
+      switch (a.kind) {
+        case 'add_note':
+          return { ...base, body: a.body };
+        case 'set_priority':
+          return { ...base, priority: a.priority };
+        case 'assign_agent':
+        case 'assign_coordinator':
+          return { ...base, userId: a.userId };
+        case 'create_task':
+          return {
+            ...base,
+            templateKey: a.templateKey,
+            ownerRole: a.ownerRole,
+            dueHours: a.dueHours === undefined ? '' : String(a.dueHours),
+          };
+        case 'start_sla':
+          return { ...base, timer: a.timer };
+        case 'advance_stage':
+          return base;
+      }
+    }),
     position: r.position,
   };
 }
@@ -273,7 +397,14 @@ export type RuleProblem =
   | 'person_required'
   | 'note_required'
   | 'note_too_long'
-  | 'priority_invalid';
+  | 'priority_invalid'
+  // 214
+  | 'stage_required'
+  | 'action_not_allowed'
+  | 'template_required'
+  | 'owner_invalid'
+  | 'due_hours_invalid'
+  | 'timer_invalid';
 
 /**
  * Amounts must stay below 1e16: cases.amount is numeric(18, 2) (122) and
@@ -302,6 +433,8 @@ export function validateDraft(d: RuleDraft): RuleProblem[] {
     )
       out.add('days_invalid');
   }
+  if (d.trigger === 'stage_entered' && isBlank(d.stage))
+    out.add('stage_required');
   if (
     [d.bankCode, d.stage, d.product].some(
       (s) => s.trim().length > RULE_CONDITION_MAX
@@ -314,8 +447,26 @@ export function validateDraft(d: RuleDraft): RuleProblem[] {
   else if (min !== null && max !== null && min > max) out.add('amount_range');
   if (d.actions.length === 0) out.add('actions_none');
   if (d.actions.length > RULE_ACTIONS_MAX) out.add('actions_too_many');
+  const allowed = isTrigger(d.trigger)
+    ? actionKindsFor(d.trigger)
+    : RULE_ACTION_KINDS;
   for (const a of d.actions) {
-    if (a.kind === 'assign_agent' || a.kind === 'assign_coordinator') {
+    if (!allowed.includes(a.kind)) out.add('action_not_allowed');
+    if (a.kind === 'create_task') {
+      if (!RULE_TEMPLATE_KEY.test(a.templateKey)) out.add('template_required');
+      if (!isOwner(a.ownerRole)) out.add('owner_invalid');
+      if (
+        !isBlank(a.dueHours) &&
+        (!/^\d{1,4}$/.test(a.dueHours.trim()) ||
+          Number(a.dueHours) < RULE_DUE_HOURS_MIN ||
+          Number(a.dueHours) > RULE_DUE_HOURS_MAX)
+      )
+        out.add('due_hours_invalid');
+    } else if (a.kind === 'start_sla') {
+      if (!isTimer(a.timer)) out.add('timer_invalid');
+    } else if (a.kind === 'advance_stage') {
+      // No fields.
+    } else if (a.kind === 'assign_agent' || a.kind === 'assign_coordinator') {
       if (isBlank(a.userId)) out.add('person_required');
     } else if (a.kind === 'add_note') {
       if (isBlank(a.body)) out.add('note_required');
@@ -353,13 +504,30 @@ export function draftBody(d: RuleDraft): RuleSaveBody | null {
   if (d.preSubmission !== 'any')
     conditions.pre_submission = d.preSubmission === 'yes';
   if (d.trigger === 'no_activity') conditions.days = Number(d.days.trim());
-  const actions: RuleAction[] = d.actions.map((a) =>
-    a.kind === 'add_note'
-      ? { kind: a.kind, body: a.body }
-      : a.kind === 'set_priority'
-        ? { kind: a.kind, priority: a.priority }
-        : { kind: a.kind, userId: a.userId }
-  );
+  const actions: RuleAction[] = d.actions.map((a): RuleAction => {
+    switch (a.kind) {
+      case 'add_note':
+        return { kind: a.kind, body: a.body };
+      case 'set_priority':
+        return { kind: a.kind, priority: a.priority };
+      case 'assign_agent':
+      case 'assign_coordinator':
+        return { kind: a.kind, userId: a.userId };
+      case 'create_task':
+        return {
+          kind: a.kind,
+          templateKey: a.templateKey,
+          ownerRole: a.ownerRole,
+          ...(isBlank(a.dueHours)
+            ? {}
+            : { dueHours: Number(a.dueHours.trim()) }),
+        };
+      case 'start_sla':
+        return { kind: a.kind, timer: a.timer };
+      case 'advance_stage':
+        return { kind: a.kind };
+    }
+  });
   return {
     ...(d.ruleId ? { ruleId: d.ruleId } : {}),
     name: d.name.trim(),
@@ -397,6 +565,8 @@ export interface DescribeContext {
   locale: string;
   bankName: (code: string) => string;
   personName: (userId: string) => string;
+  /** A task template's title by key; defaults to the key itself. */
+  templateName?: (templateKey: string) => string;
 }
 
 function joinList(items: string[], locale: string): string {
@@ -408,12 +578,17 @@ export function describeRule(r: RuleView, ctx: DescribeContext): string {
   const { t } = ctx;
   const c = r.conditions;
   const when = isTrigger(r.trigger)
-    ? t(`describe.trigger.${r.trigger}`, { days: c.days ?? 0 })
+    ? t(`describe.trigger.${r.trigger}`, {
+        days: c.days ?? 0,
+        stage: c.stage ?? '',
+      })
     : t('describe.trigger.other');
   const parts: string[] = [];
+  // stage_entered names its stage in the trigger wording already.
+  const stageInWhen = r.trigger === 'stage_entered';
   if (c.bank_code !== undefined)
     parts.push(t('describe.bank', { bank: ctx.bankName(c.bank_code) }));
-  if (c.stage !== undefined)
+  if (c.stage !== undefined && !stageInWhen)
     parts.push(t('describe.stage', { stage: c.stage }));
   if (c.product !== undefined)
     parts.push(t('describe.product', { product: c.product }));
@@ -425,15 +600,32 @@ export function describeRule(r: RuleView, ctx: DescribeContext): string {
     parts.push(
       t(c.pre_submission ? 'describe.preSubmission' : 'describe.submitted')
     );
-  const actions = r.actions.map((a) =>
-    a.kind === 'add_note'
-      ? t('describe.action.add_note')
-      : a.kind === 'set_priority'
-        ? t('describe.action.set_priority', {
-            priority: t(`priority.${a.priority}`),
-          })
-        : t(`describe.action.${a.kind}`, { person: ctx.personName(a.userId) })
-  );
+  const actions = r.actions.map((a) => {
+    switch (a.kind) {
+      case 'add_note':
+        return t('describe.action.add_note');
+      case 'set_priority':
+        return t('describe.action.set_priority', {
+          priority: t(`priority.${a.priority}`),
+        });
+      case 'assign_agent':
+      case 'assign_coordinator':
+        return t(`describe.action.${a.kind}`, {
+          person: ctx.personName(a.userId),
+        });
+      case 'create_task':
+        return t('describe.action.create_task', {
+          task: ctx.templateName?.(a.templateKey) ?? a.templateKey,
+          owner: t(`describe.owner.${a.ownerRole}`),
+        });
+      case 'start_sla':
+        return t('describe.action.start_sla', {
+          timer: t(`describe.timer.${a.timer}`),
+        });
+      case 'advance_stage':
+        return t('describe.action.advance_stage');
+    }
+  });
   return t('describe.sentence', {
     when: [when, ...parts].join(' '),
     actions: actions.length
@@ -461,4 +653,50 @@ export function summariseRun(run: RuleRunView, t: RulesT): string {
     );
   }
   return parts.join(' · ');
+}
+
+// ---------- Task templates (the create_task picker) ----------
+
+export interface RuleTemplateOption {
+  key: string;
+  title: string;
+}
+
+/** GET /api/cases/config/banks/[code]/templates -> options in position order. */
+export function parseTemplateOptions(json: unknown): RuleTemplateOption[] {
+  if (!isObj(json) || !Array.isArray(json.templates)) return [];
+  return json.templates
+    .filter(isObj)
+    .filter((r) => typeof r.templateKey === 'string')
+    .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
+    .map((r) => ({
+      key: r.templateKey as string,
+      title:
+        typeof r.title === 'string' && !isBlank(r.title)
+          ? r.title
+          : (r.templateKey as string),
+    }));
+}
+
+/**
+ * Every bank's templates as one list, one option per key: the rule's bank
+ * first (its titles win), then the others in bank order. A stored key no
+ * bank has any more stays, labelled with the key, so editing never drops it.
+ */
+export function templateChoices(
+  byBank: ReadonlyMap<string, RuleTemplateOption[]>,
+  bankCode: string,
+  storedKeys: readonly string[] = []
+): RuleTemplateOption[] {
+  const out = new Map<string, RuleTemplateOption>();
+  const order = [
+    ...(byBank.has(bankCode) ? [bankCode] : []),
+    ...[...byBank.keys()].filter((c) => c !== bankCode),
+  ];
+  for (const code of order)
+    for (const o of byBank.get(code) ?? [])
+      if (!out.has(o.key)) out.set(o.key, o);
+  for (const k of storedKeys)
+    if (k && !out.has(k)) out.set(k, { key: k, title: k });
+  return [...out.values()];
 }

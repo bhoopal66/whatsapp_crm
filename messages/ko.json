@@ -9771,6 +9771,8 @@
         "sla_overdue": "케이스 SLA 타이머가 기한을 넘길 때",
         "no_activity": "케이스에 {days}일 동안 활동이 없을 때",
         "submission_attached": "케이스에 제출이 연결될 때",
+        "stage_entered": "케이스가 {stage} 단계에 들어갈 때",
+        "last_required_doc_received": "케이스의 마지막 필수 서류가 도착할 때",
         "other": "어떤 일이 생길 때"
       },
       "bank": "(은행: {bank})",

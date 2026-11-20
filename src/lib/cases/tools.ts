@@ -33,7 +33,8 @@ export interface CaseTask {
   dueAt: Date | null;
   /** The current status (the latest logged change). */
   status: TaskStatus;
-  createdBy: string;
+  /** NULL for a task an automation rule created (migration 214). */
+  createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
   /** The latest status-log row; NULL only if the log read found none. */
@@ -226,7 +227,10 @@ export class CaseToolsStore extends CaseRpc {
         ownerId: String(t.owner_id),
         dueAt: date(t.due_at),
         status: String(t.status) as TaskStatus,
-        createdBy: String(t.created_by),
+        createdBy:
+          t.created_by === null || t.created_by === undefined
+            ? null
+            : String(t.created_by),
         createdAt: date(t.created_at)!,
         updatedAt: date(t.updated_at)!,
         lastChange: l
