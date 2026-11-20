@@ -224,7 +224,9 @@ export function avatarLookupId(
     if (!/^\d+$/.test(user)) return null;
     digits = user;
   } else {
-    digits = value.replace(/\D/g, '');
+    // A number saved with the 00 international prefix (00971…) is the
+    // same number as +971…: drop the prefix, not the number.
+    digits = value.replace(/\D/g, '').replace(/^00/, '');
   }
   return isValidE164(digits) ? digits : null;
 }

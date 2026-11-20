@@ -385,6 +385,8 @@ describe('createChannelGate', () => {
 describe('avatarLookupId', () => {
   it('sends only phone digits WhatsApp can look up', () => {
     expect(avatarLookupId('+971 50 123 4567')).toBe('971501234567');
+    expect(avatarLookupId('00971501234567')).toBe('971501234567');
+    expect(avatarLookupId('00 971 50 123 4567')).toBe('971501234567');
     expect(avatarLookupId('971501234567@s.whatsapp.net')).toBe('971501234567');
     expect(avatarLookupId('971501234567@c.us')).toBe('971501234567');
   });
