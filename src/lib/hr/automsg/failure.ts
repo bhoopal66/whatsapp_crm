@@ -60,6 +60,17 @@ export function classifySendFailure(e: unknown): SendFailure {
   if (e instanceof MetaError) {
     const reason = metaCodeReason(e.code);
     if (reason) return stop(reason);
+    // Meta answers throttling and its own temporary errors as HTTP 400,
+    // which byStatus would call terminal. 4 / 80007 are isRateLimited.
+    if (
+      e.isRateLimited ||
+      e.code === 130429 ||
+      e.code === 131048 ||
+      e.code === 131056
+    )
+      return retry('rate_limited');
+    if (e.code === 1 || e.code === 2 || e.code === 131000 || e.code === 131016)
+      return retry('provider_unavailable');
     return byStatus(e.status);
   }
 

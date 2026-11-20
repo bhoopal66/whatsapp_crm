@@ -492,6 +492,26 @@ describe('handleStatusUpdate: HR automated-message receipts', () => {
     expect(select).toBeDefined();
   });
 
+  it('runs after the broadcast-recipient mirror', async () => {
+    let hrAt = -1;
+    h.hrDelivery.mockImplementation(async () => void (hrAt = h.calls.length));
+    world({
+      messages: [{ ...OUTBOUND, sender_type: 'bot' }],
+      recipient: {
+        id: 'r-1',
+        status: 'pending',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: ACCOUNT },
+      },
+    });
+    await handleStatusUpdate(status({ status: 'delivered' }), ACCOUNT);
+    const at = h.calls.findIndex(
+      (c) => c.table === 'broadcast_recipients' && c.op === 'update'
+    );
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(hrAt).toBeGreaterThan(at);
+  });
+
   it('runs before the webhook fan-out', async () => {
     const order: string[] = [];
     h.hrDelivery.mockImplementation(async () => void order.push('hr'));

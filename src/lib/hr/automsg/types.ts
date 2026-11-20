@@ -144,6 +144,8 @@ export interface OutboxRow {
   claimState: ClaimState | null;
   createdAt: string;
   sentAt: string | null;
+  /** Receipt state (migration 212); absent = none recorded. */
+  deliveryState?: string | null;
 }
 
 /** What the guards need to know about the contact and conversation at decision time. */

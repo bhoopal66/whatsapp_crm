@@ -26,6 +26,23 @@ describe('classifySendFailure: Meta', () => {
   });
 
   it.each([
+    [4, 'rate_limited'],
+    [80007, 'rate_limited'],
+    [130429, 'rate_limited'],
+    [131048, 'rate_limited'],
+    [131056, 'rate_limited'],
+    [1, 'provider_unavailable'],
+    [2, 'provider_unavailable'],
+    [131000, 'provider_unavailable'],
+    [131016, 'provider_unavailable'],
+  ])('code %i on HTTP 400 -> retryable %s', (code, reason) => {
+    expect(classifySendFailure(meta(400, code))).toEqual({
+      retryable: true,
+      reason,
+    });
+  });
+
+  it.each([
     [401, false, 'unauthorized'],
     [403, false, 'unauthorized'],
     [400, false, 'rejected'],

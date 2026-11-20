@@ -129,7 +129,16 @@ export class MemoryAutoMsgStore implements AutoMsgStorePort {
 
   async failTerminal(id: string, reason: string): Promise<void> {
     const r = this.get(id);
-    if (r.claimState !== 'sending') this.refuse();
+    // 212's hr_automsg_fail_terminal: any row but a cancelled one, or one
+    // sent / unconfirmed / needs_review whose receipt did not fail.
+    if (
+      r.status === 'cancelled' ||
+      ((r.status === 'sent' ||
+        r.claimState === 'unconfirmed' ||
+        r.claimState === 'needs_review') &&
+        r.deliveryState !== 'failed')
+    )
+      this.refuse();
     r.status = 'failed';
     r.attempts = MAX_ATTEMPTS;
     r.claimState = null;
