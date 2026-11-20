@@ -4,8 +4,11 @@
  * a Recruitment chat, while the workspace switch is on.
  *
  * SQL decides everything (`hr_auto_open_recruiter`, service role): the
- * switch is its first and cheapest check, then the line, the chat, and
- * whether an HR row already exists. This only calls it. Runs before the
+ * switch is its first and cheapest check, then the line, the chat,
+ * whether an HR row already exists, and whether the chat ever used a
+ * number that is not an HR line (one company chat per contact across
+ * every number, so a sales customer's chat is never turned into a
+ * Recruitment chat). This only calls it. Runs before the
  * recruiter-agents hook so a chat opened by this message gets its draft
  * on the same message.
  *
@@ -13,7 +16,10 @@
  */
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 
-/** 'off' | 'not_hr_line' | 'not_found' | 'exists' | 'opened'; null on error. */
+/**
+ * 'off' | 'not_hr_line' | 'not_found' | 'exists' | 'other_numbers' |
+ * 'opened'; null on error.
+ */
 export async function autoOpenRecruiterChat(args: {
   conversationId: string;
   channelId: string;

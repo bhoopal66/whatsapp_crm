@@ -24,8 +24,12 @@ DECLARE
   a_acct   UUID;
   a_out    UUID;
   w1 UUID; w2 UUID; wb UUID;   -- numbers: two of A, one of B
+  w3 UUID; w4 UUID;            -- company numbers of A: w3 a line later, w4 never
   k1 UUID; k2 UUID;            -- contacts
+  k3 UUID; k4 UUID; k5 UUID;
   c1 UUID; c2 UUID;            -- c1 new chat, c2 has a closed HR row
+  c3 UUID; c4 UUID; c5 UUID;   -- history: another number / two lines / no number
+  rules_before INT;
   r        TEXT;
   c        TEXT[] := '{}';  -- one element per check: NULL = passed
   failed   TEXT[];
@@ -108,6 +112,10 @@ BEGIN
     VALUES (u_hr, a_acct, 'openwa', 'hrl-sess-2', 't', true) RETURNING id INTO w2;
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token)
     VALUES (u_out, a_out, 'openwa', 'hrl-sess-b', 't') RETURNING id INTO wb;
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, is_primary)
+    VALUES (u_owner, a_acct, 'openwa', 'hrl-sess-3', 't', false) RETURNING id INTO w3;
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, is_primary)
+    VALUES (u_owner, a_acct, 'openwa', 'hrl-sess-4', 't', false) RETURNING id INTO w4;
 
   INSERT INTO contacts (account_id, user_id, phone)
   VALUES (a_acct, u_owner, '971502130001') RETURNING id INTO k1;
@@ -117,6 +125,18 @@ BEGIN
   VALUES (a_acct, u_owner, k1) RETURNING id INTO c1;
   INSERT INTO conversations (account_id, user_id, contact_id)
   VALUES (a_acct, u_owner, k2) RETURNING id INTO c2;
+  INSERT INTO contacts (account_id, user_id, phone)
+  VALUES (a_acct, u_owner, '971502130003') RETURNING id INTO k3;
+  INSERT INTO contacts (account_id, user_id, phone)
+  VALUES (a_acct, u_owner, '971502130004') RETURNING id INTO k4;
+  INSERT INTO contacts (account_id, user_id, phone)
+  VALUES (a_acct, u_owner, '971502130005') RETURNING id INTO k5;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_owner, k3) RETURNING id INTO c3;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_owner, k4) RETURNING id INTO c4;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_owner, k5) RETURNING id INTO c5;
   INSERT INTO hr_conversations (conversation_id, account_id, inbox, stage_key, outcome, closed_at)
   VALUES (c2, a_acct, 'recruiter', 'cv_review', 'withdrawn', now());
 
@@ -177,11 +197,15 @@ BEGIN
   c := c || pg_temp.hr_chk('an unknown chat was not not_found', r, 'not_found');
 
   r := pg_temp.hr_as(NULL, format(
-         'INSERT INTO public.messages (conversation_id, sender_type, content_text, created_at) VALUES (%L, ''customer'', ''hrl-c'', %L)',
-         c1, now() - interval '1 minute'));
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-c'', %L, %L)',
+         c1, w1, now() - interval '1 minute'));
   c := c || pg_temp.hr_chk('fixture: the message into c1 was refused', r, 'ok');
+  rules_before := (SELECT count(*) FROM hr_workflow_rules w WHERE w.account_id = a_acct);
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w1));
   c := c || pg_temp.hr_chk('a new chat on a line was not opened', r, 'opened');
+  r := rules_before::text || '/'
+    || (SELECT (count(*) > 0)::text FROM hr_workflow_rules w WHERE w.account_id = a_acct);
+  c := c || pg_temp.hr_chk('opening did not seed the account''s HR workflow rules', r, '0/true');
   r := (SELECT x.inbox || '/' || x.stage_key || '/' || coalesce(x.created_by::text, '-')
                || '/' || (x.last_inbound_at IS NOT NULL)::text || '/' || (x.closed_at IS NULL)::text
           FROM hr_conversations x WHERE x.conversation_id = c1)
@@ -201,6 +225,48 @@ BEGIN
   r := (SELECT (x.closed_at IS NOT NULL)::text || '/' || x.outcome FROM hr_conversations x WHERE x.conversation_id = c2);
   c := c || pg_temp.hr_chk('a closed HR row was changed', r, 'true/withdrawn');
 
+  -- ---------- Only chats that only ever used HR lines ----------
+  -- One company chat per contact across every number (046): a chat that
+  -- used another number, or no recorded number, is never opened.
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true)::text', w1, w3));
+  c := c || pg_temp.hr_chk('fixture: making w1 and w3 the lines failed', r, '{%');
+  r := pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-old'', %L, %L)',
+         c3, w4, now() - interval '30 days'))
+    || '/' || pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-new'', %L, %L)',
+         c3, w1, now() - interval '1 minute'));
+  c := c || pg_temp.hr_chk('fixture: the messages into c3 were refused', r, 'ok/ok');
+  r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c3, w1));
+  c := c || pg_temp.hr_chk('a chat with a message on another number was not other_numbers', r, 'other_numbers');
+  r := (SELECT count(*) FROM hr_conversations x WHERE x.conversation_id = c3)::text
+    || '/' || (SELECT count(*) FROM hr_stage_history h WHERE h.conversation_id = c3)::text;
+  c := c || pg_temp.hr_chk('other_numbers wrote an HR row or history', r, '0/0');
+
+  r := pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-l1'', %L, %L)',
+         c4, w3, now() - interval '2 days'))
+    || '/' || pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-l2'', %L, %L)',
+         c4, w1, now() - interval '1 minute'));
+  c := c || pg_temp.hr_chk('fixture: the messages into c4 were refused', r, 'ok/ok');
+  r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c4, w1));
+  c := c || pg_temp.hr_chk('a chat on two HR lines only was not opened', r, 'opened');
+  r := (SELECT x.inbox || '/' || x.stage_key FROM hr_conversations x WHERE x.conversation_id = c4);
+  c := c || pg_temp.hr_chk('the two-line chat has no recruiter row at cv_review', r, 'recruiter/cv_review');
+
+  r := pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, created_at) VALUES (%L, ''customer'', ''hrl-none'', %L)',
+         c5, now() - interval '2 days'))
+    || '/' || pg_temp.hr_as(NULL, format(
+         'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-n2'', %L, %L)',
+         c5, w1, now() - interval '1 minute'));
+  c := c || pg_temp.hr_chk('fixture: the messages into c5 were refused', r, 'ok/ok');
+  r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c5, w1));
+  c := c || pg_temp.hr_chk('a chat with a message on no recorded number was not other_numbers', r, 'other_numbers');
+  r := (SELECT count(*) FROM hr_conversations x WHERE x.conversation_id = c5)::text;
+  c := c || pg_temp.hr_chk('other_numbers (NULL channel) wrote an HR row', r, '0');
+
   -- ---------- Grants ----------
   r := has_function_privilege('anon', 'public.hr_auto_open_recruiter(uuid, uuid)', 'EXECUTE')::text
     || '/' || has_function_privilege('authenticated', 'public.hr_auto_open_recruiter(uuid, uuid)', 'EXECUTE')::text
@@ -213,6 +279,11 @@ BEGIN
     || '/' || pg_temp.hr_as(u_owner, 'SELECT count(*)::text FROM public.hr_line_settings')
     || '/' || pg_temp.hr_as(u_owner, format('INSERT INTO public.hr_lines (channel_id, account_id) VALUES (%L, %L)', w2, a_acct));
   c := c || pg_temp.hr_chk('authenticated reached the tables directly', r, 'ERROR 42501 %/ERROR 42501 %/ERROR 42501 %');
+
+  -- ---------- A deactivated HR member reads nothing ----------
+  UPDATE profiles SET deactivated_at = now() WHERE user_id = u_hr AND account_id = a_acct;
+  r := pg_temp.hr_as(u_hr, 'SELECT public.hr_lines_get()::text');
+  c := c || pg_temp.hr_chk('a deactivated HR member read the HR lines', r, 'ERROR 42501 NOT_ALLOWED:%');
 
   -- ---------- Deleting the number drops its line ----------
   DELETE FROM whatsapp_config WHERE id = w1;

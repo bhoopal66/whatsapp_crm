@@ -33,8 +33,19 @@
 --      opens a recruiter row at cv_review exactly as 200's hr_open does
 --      (created_by NULL, an 'open' history row with actor NULL, the
 --      account's rules seeded), unless the chat already has an HR row,
---      open or closed: a person's earlier decision is never overridden.
---      Answers: off | not_found | not_hr_line | exists | opened.
+--      open or closed: a person's earlier decision is never overridden,
+--      or unless the chat ever used a number that is not an HR line.
+--      The package keeps a conversation per line; wacrm keeps ONE company
+--      conversation per contact across every number (046), so a sales
+--      customer who writes to an HR line would otherwise turn their
+--      long-standing chat into a Recruitment chat for good (rule tasks
+--      for the sales agent, maybe the cv_received message). Only a chat
+--      whose every message came through one of the workspace's HR lines
+--      opens; a message with no channel_id counts as another number. A
+--      brand-new chat passes (its one message is on the line), and a
+--      personal chat only ever carries its own number.
+--      Answers: off | not_found | not_hr_line | exists | other_numbers |
+--      opened.
 --   5. Opening writes an 'open' history row into the recruiter inbox, so
 --      203's hr_automsg_on_history may queue the cv_received automated
 --      message. That row still passes every automated-message guard of
@@ -207,6 +218,19 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM hr_conversations x WHERE x.conversation_id = p_conversation_id) THEN
     RETURN 'exists';
+  END IF;
+
+  -- One conversation per contact across every number (046): a chat that
+  -- ever carried a message on another number, or on no recorded number,
+  -- is someone else's (a sales customer, say) and is never turned into
+  -- a Recruitment chat. Opens only a chat that has only used HR lines.
+  IF EXISTS (
+       SELECT 1 FROM messages m
+        WHERE m.conversation_id = p_conversation_id
+          AND (m.channel_id IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM hr_lines l
+                  WHERE l.channel_id = m.channel_id AND l.account_id = v_account))) THEN
+    RETURN 'other_numbers';
   END IF;
 
   PERFORM hr_seed_rules(v_account);
