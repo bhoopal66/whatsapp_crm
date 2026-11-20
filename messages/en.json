@@ -744,7 +744,8 @@
       "saved": "{name} saved to contacts.",
       "alreadySaved": "This number is already in your contacts.",
       "saveFailed": "Could not save the contact.",
-      "viewContact": "Saved — view contact"
+      "viewContact": "Saved — view contact",
+      "openContact": "Open contact"
     },
     "channelSwitch": {
       "label": "Sending number",

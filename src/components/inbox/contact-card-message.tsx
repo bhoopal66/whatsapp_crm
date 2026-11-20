@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -21,9 +23,11 @@ import type { SharedContact } from '@/lib/whatsapp/contact-card';
 /**
  * A contact card the customer shared, rendered the way WhatsApp shows
  * it — name, numbers, email, company — plus the one thing an agent
- * wants to do with it in a CRM: save it. Saving reuses an existing
- * contact with the same normalised number (the account-wide unique
- * index from migration 022) rather than creating a duplicate.
+ * wants to do with it in a CRM: open it. A number that is already a
+ * contact opens its customer page; otherwise Save creates it and then
+ * opens it. Saving reuses an existing contact with the same normalised
+ * number (the account-wide unique index from migration 022) rather than
+ * creating a duplicate.
  */
 export function ContactCardMessage({ cards }: { cards: SharedContact[] }) {
   return (
@@ -40,11 +44,34 @@ function ContactCard({ card }: { card: SharedContact }) {
   const { user, accountId } = useAuth();
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const router = useRouter();
 
   // Neutral tints, so the card reads on the green outbound bubble and
   // the white inbound one alike.
   const muted = 'text-wa-meta';
   const primaryPhone = card.phones[0] ?? null;
+
+  // Is the number already a contact the viewer can see? Then the card
+  // opens it straight away instead of offering Save.
+  useEffect(() => {
+    if (!accountId || !primaryPhone) return;
+    const checked = validateContactPhone(primaryPhone);
+    if (!checked.ok) return;
+    let live = true;
+    createClient()
+      .from('contacts')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('phone_normalized', checked.normalized)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (live && data?.id) setSavedId(data.id);
+      });
+    return () => {
+      live = false;
+    };
+  }, [accountId, primaryPhone]);
 
   const save = async () => {
     if (!user || !accountId || !primaryPhone) return;
@@ -62,12 +89,14 @@ function ContactCard({ card }: { card: SharedContact }) {
       const { data: existing } = await supabase
         .from('contacts')
         .select('id')
+        .eq('account_id', accountId)
         .eq('phone_normalized', key)
         .limit(1)
         .maybeSingle();
       if (existing?.id) {
         setSavedId(existing.id);
         toast.info(t('alreadySaved'));
+        router.push(`/contacts/${existing.id}`);
         return;
       }
       const { data, error } = await supabase
@@ -85,6 +114,7 @@ function ContactCard({ card }: { card: SharedContact }) {
       if (error) throw error;
       setSavedId(data.id);
       toast.success(t('saved', { name: card.name || primaryPhone }));
+      router.push(`/contacts/${data.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('saveFailed'));
     } finally {
@@ -103,9 +133,18 @@ function ContactCard({ card }: { card: SharedContact }) {
           <UserRound className="h-4 w-4" />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
-            {card.name || primaryPhone || t('unnamed')}
-          </p>
+          {savedId ? (
+            <Link
+              href={`/contacts/${savedId}`}
+              className="block truncate text-sm font-medium hover:underline"
+            >
+              {card.name || primaryPhone || t('unnamed')}
+            </Link>
+          ) : (
+            <p className="truncate text-sm font-medium">
+              {card.name || primaryPhone || t('unnamed')}
+            </p>
+          )}
           {card.org && (
             <p
               className={cn('flex items-center gap-1 truncate text-xs', muted)}
@@ -137,16 +176,13 @@ function ContactCard({ card }: { card: SharedContact }) {
       {primaryPhone && (
         <div className="border-wa-divider mt-2 border-t pt-2 text-xs">
           {savedId ? (
-            <a
+            <Link
               href={`/contacts/${savedId}`}
-              className={cn(
-                'inline-flex items-center gap-1 hover:underline',
-                muted
-              )}
+              className="inline-flex items-center gap-1 font-medium hover:underline"
             >
               <Check className="h-3 w-3" />
-              {t('viewContact')}
-            </a>
+              {t('openContact')}
+            </Link>
           ) : (
             <button
               type="button"

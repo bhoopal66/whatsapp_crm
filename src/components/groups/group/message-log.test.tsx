@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
+
+// The contact card opens the customer page through the app router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: () => {} }) }));
 
 import en from '../../../../messages/en.json';
 import { NEUTRAL_SENDER_COLOR, senderColors } from '@/lib/groups/sender-colors';
