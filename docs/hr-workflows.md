@@ -221,10 +221,13 @@ candidates. It is for admins (everything) and Recruitment leads
   (`delivery_state`, `delivery_at`). They only move forward: a late
   "delivered" never overwrites "read", and nothing overwrites "failed".
   A "failed" receipt marks the message failed for good with WhatsApp's
-  error code (`delivery_failed:<code>`). A receipt that arrives before
-  the message is marked sent is not recorded on it; the chat's own copy
-  of the message still shows it. The history screen does not show the
-  receipt or the reason yet (neither does the package's).
+  error code (`delivery_failed:<code>`). A receipt that arrives in the
+  moment before the message is marked sent lands on the chat's own copy
+  of the message, and is copied onto the automated message when it is
+  marked sent (the error code is then `unknown`). A message that failed
+  for good keeps its status and reason: the 24-hour clean-up cancels
+  only messages that could still be sent. The history screen does not
+  show the receipt or the reason yet (neither does the package's).
 - **History.** Every message with its status (queued, held and why,
   sent, failed, cancelled); leads and admins cancel a waiting one,
   admins can run the queue now.

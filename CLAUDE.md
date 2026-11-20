@@ -1358,7 +1358,10 @@ contract.
   receipt for a bot message onto the outbox (`hr_automsg_delivery_record`,
   forward-only `delivery_state`, `failed` → terminal
   `delivery_failed:<code>`); a receipt that beats the provider-id stamp
-  is not recorded there. `verify-hr-automsg-delivery.sql`.
+  is caught up from `messages.status` by a trigger when the row turns
+  `sent`. 212 restates 203's `hr_automsg_expire` (a terminal failure is
+  never relabelled cancelled): apply in order, once.
+  `verify-hr-automsg-delivery.sql`.
 - **HR lines (213).** `hr_lines` / `hr_line_settings` (RPC-only; HR →
   Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
   (`hr_auto_open_recruiter`, service role) before the recruiter-agents

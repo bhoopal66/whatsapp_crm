@@ -43,7 +43,8 @@ of it.
 ### HR automated messages stop retrying sends that cannot work
 
 **Migration required:** apply `212_hr_automsg_delivery.sql` as a
-superuser or BYPASSRLS role before deploying this build.
+superuser or BYPASSRLS role before deploying this build. Apply in order,
+once: re-running 203 afterwards undoes part of it.
 - A send that can never succeed (an invalid number, a template missing,
   paused or not approved, Meta's 24-hour window closed, a number that is
   not connected to the account) is marked failed at once with the reason,
