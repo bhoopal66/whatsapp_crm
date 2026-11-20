@@ -2,7 +2,7 @@
 
 import { useId, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Copy } from 'lucide-react';
+import { Copy, UserPlus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -30,11 +30,14 @@ export function GroupDetailsCard({
   onCopyRef,
   onResendInvite,
   resendingInvite,
+  onAddNumber,
 }: {
   group: SgGroup;
   onCopyRef: () => void;
   onResendInvite?: () => void;
   resendingInvite?: boolean;
+  /** 211: opens the Add number dialog; absent when not allowed. */
+  onAddNumber?: () => void;
 }) {
   const t = useTranslations('SubmissionGroups.details');
   const tp = useTranslations('SubmissionGroups.page');
@@ -171,6 +174,19 @@ export function GroupDetailsCard({
                 {t('resendInvite')}
               </Button>
             )}
+          </Row>
+        )}
+        {onAddNumber && (
+          <Row label={t('people')}>
+            <Button
+              variant="outline"
+              size="xs"
+              className="flex"
+              onClick={onAddNumber}
+            >
+              <UserPlus className="size-3.5" />
+              {t('addNumber')}
+            </Button>
           </Row>
         )}
       </dl>

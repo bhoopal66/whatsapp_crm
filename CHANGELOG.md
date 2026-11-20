@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Add people to groups
+
+**Migration required:** apply `211_submission_group_add_number.sql`
+as a superuser or BYPASSRLS role before deploying this build.
+- Submission groups have an **Add number** button in their details:
+  anyone who can open the group can add another phone number to its
+  WhatsApp group (at most 10 a day per group). If WhatsApp won't add
+  the person, the group's invite link is shown to share with them.
+- In WhatsApp groups, anyone at agent level or above who can open a
+  group can now add people, not only its managers. Removing people,
+  admins, settings and invites stay with managers.
+- A shared contact card in a chat now shows its number (WhatsApp's
+  `item1.TEL` lines were being dropped) and opens the customer, or
+  offers Save then opens it. Group chats show shared contacts as cards.
+
 ### Attachments, voice notes and quick replies in group chats
 
 - WhatsApp group chats can send photos, videos, documents and voice

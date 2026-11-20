@@ -54,6 +54,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   avatarTone,
   bankName,
+  canAddNumber,
   canResendInvite,
   canRetryCreate,
   groupBanners,
@@ -75,6 +76,7 @@ import { cn } from '@/lib/utils';
 
 import { useSubmissionGroupsList } from './list-context';
 import { BankTag } from './bank-tag';
+import { AddNumberDialog } from './add-number-dialog';
 import { GroupDetailsCard } from './group-details-card';
 import { MessageList } from './message-list';
 import { PeoplePanel } from './people-panel';
@@ -134,6 +136,7 @@ export function SubmissionGroupPage({
   const [acting, setActing] = useState(false);
   const [openingCase, setOpeningCase] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [addingNumber, setAddingNumber] = useState(false);
   const router = useRouter();
   const docked = useMediaQuery(DOCK_QUERY);
   const { refreshList } = useSubmissionGroupsList();
@@ -466,7 +469,19 @@ export function SubmissionGroupPage({
             : undefined
         }
         resendingInvite={acting}
+        onAddNumber={
+          (detail.can_manage || detail.can_send) && canAddNumber(group)
+            ? () => setAddingNumber(true)
+            : undefined
+        }
       />
+      {addingNumber && (
+        <AddNumberDialog
+          groupId={groupId}
+          onClose={() => setAddingNumber(false)}
+          onAdded={() => void reload()}
+        />
+      )}
       <PeoplePanel
         groupId={groupId}
         access={detail.access}

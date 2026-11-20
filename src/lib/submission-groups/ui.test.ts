@@ -18,6 +18,7 @@ import {
   addableStaff,
   appendPage,
   bubbleKind,
+  canAddNumber,
   canResendInvite,
   canRetryCreate,
   clearUnread,
@@ -500,5 +501,20 @@ describe('settleRead', () => {
   it('marks nothing on being shown with nothing owed', () => {
     expect(settleRead(false, true)).toEqual({ mark: false, owed: false });
     expect(settleRead(false, false)).toEqual({ mark: false, owed: false });
+  });
+});
+
+describe('canAddNumber (211)', () => {
+  it('is offered on an active WhatsApp group, the customer in it or not', () => {
+    expect(canAddNumber(group())).toBe(true);
+    expect(canAddNumber(group({ customer_membership: 'joined' }))).toBe(true);
+    expect(canAddNumber(group({ contact: null }))).toBe(true);
+  });
+
+  it('is hidden where the route would refuse for the group itself', () => {
+    expect(canAddNumber(group({ status: 'ENDED' }))).toBe(false);
+    expect(canAddNumber(group({ wa_mode: 'none' }))).toBe(false);
+    expect(canAddNumber(group({ wa_group_id: null }))).toBe(false);
+    expect(canAddNumber(group({ channel: null }))).toBe(false);
   });
 });

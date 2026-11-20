@@ -8237,7 +8237,26 @@
         "joined": "In the group",
         "absent": "Not in the group",
         "unknown": "Not checked yet"
-      }
+      },
+      "people": "People",
+      "addNumber": "Add number"
+    },
+    "addNumber": {
+      "title": "Add a phone number",
+      "description": "Adds this number to the case's WhatsApp group. Enter it with its country code.",
+      "label": "Phone number",
+      "placeholder": "+971 50 123 4567",
+      "submit": "Add",
+      "adding": "Adding…",
+      "cancel": "Cancel",
+      "done": "Done",
+      "added": "{phone} was added to the group.",
+      "declined": "WhatsApp would not add {phone}, usually because of their privacy settings. Share the group link with them instead:",
+      "noLink": "The group link isn't available right now. Use Resend invite later or try again.",
+      "copyLink": "Copy link",
+      "copied": "Group link copied.",
+      "copyFailed": "Could not copy the link.",
+      "failed": "Could not add the number. Try again."
     }
   },
   "CallStatsPage": {

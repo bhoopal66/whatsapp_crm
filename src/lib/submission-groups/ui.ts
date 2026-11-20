@@ -345,6 +345,19 @@ export function canResendInvite(g: SgGroup): boolean {
   );
 }
 
+/**
+ * 211: Add number is offered on an ACTIVE group's WhatsApp group that
+ * exists on a connected number (the customer need not be in it).
+ */
+export function canAddNumber(g: SgGroup): boolean {
+  return (
+    waModeOf(g) === 'group' &&
+    g.status === 'ACTIVE' &&
+    !!g.wa_group_id &&
+    !!g.channel
+  );
+}
+
 /** Retry create is offered while an ACTIVE group has no WhatsApp group yet. */
 export function canRetryCreate(g: SgGroup): boolean {
   return (
