@@ -118,7 +118,12 @@ describe('triggerRows channel', () => {
       true
     );
     expect(rcsRow(null).rcsNotConnected).toBe(true);
-    expect(rcsRow().rcsNotConnected).toBe(true);
+  });
+
+  it('does not flag an RCS row while the status is still loading', () => {
+    expect(rcsRow().rcsNotConnected).toBe(false);
+    expect(showRcsNotice(triggerRows(onRcs, 'admin'))).toBe(false);
+    expect(showRcsNotice(triggerRows(onRcs, 'admin', null))).toBe(true);
   });
 
   it('never flags a WhatsApp row, whatever the RCS status', () => {
@@ -351,5 +356,51 @@ describe('approvalChips', () => {
       'ok',
       'missing',
     ]);
+  });
+});
+
+describe('triggerRows approval is per channel', () => {
+  const kind = config.triggers[0].templateKind;
+  const trigger = config.triggers[0].trigger;
+  const withChannels = (
+    wa: 'approved' | 'draft',
+    rcs: 'approved' | 'draft'
+  ) => ({
+    triggers: config.triggers,
+    templates: [
+      { ...tpl(kind, 'en', wa), channel: 'whatsapp' as const },
+      { ...tpl(kind, 'en', rcs), channel: 'rcs' as const },
+    ],
+  });
+  const row = (
+    cfg: ReturnType<typeof withChannels>,
+    channel: 'whatsapp' | 'rcs'
+  ) =>
+    triggerRows(
+      {
+        ...cfg,
+        triggers: cfg.triggers.map((t) =>
+          t.trigger === trigger ? { ...t, channel } : t
+        ),
+      },
+      'admin',
+      { connected: true, webhook: true }
+    ).find((r) => r.trigger === trigger)!;
+
+  it('an approved RCS template does not approve a WhatsApp trigger', () => {
+    const r = row(withChannels('draft', 'approved'), 'whatsapp');
+    expect(r.approved.en).toBe(false);
+    expect(r.noApproved).toBe(true);
+  });
+
+  it('an approved WhatsApp template does not approve an RCS trigger', () => {
+    const r = row(withChannels('approved', 'draft'), 'rcs');
+    expect(r.approved.en).toBe(false);
+    expect(r.noApproved).toBe(true);
+  });
+
+  it('each trigger sees its own channel approval', () => {
+    const cfg = withChannels('draft', 'approved');
+    expect(row(cfg, 'rcs').approved.en).toBe(true);
   });
 });

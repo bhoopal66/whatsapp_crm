@@ -67,13 +67,19 @@ export function AutomsgTemplates({
           </TabsList>
         </Tabs>
       </div>
-      <TemplatesPanel
-        channel={channel}
-        templates={templates}
-        role={role}
-        onSaved={onSaved}
-        rcsConnected={rcsConnected}
-      />
+      {/* Both panels stay mounted: unmounting one would drop its unsaved
+          edits on a tab switch. The `rcs|` slot keys keep them apart. */}
+      {AUTOMSG_CHANNELS.map((c) => (
+        <div key={c} hidden={c !== channel}>
+          <TemplatesPanel
+            channel={c}
+            templates={templates}
+            role={role}
+            onSaved={onSaved}
+            rcsConnected={rcsConnected}
+          />
+        </div>
+      ))}
     </section>
   );
 }

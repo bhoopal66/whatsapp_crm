@@ -11543,8 +11543,8 @@
       "sourceLabelFor": "How was {channel} consent given?",
       "record": "Record consent",
       "withdraw": "Withdraw consent",
-      "recorded": "Consent recorded",
-      "withdrawnToast": "Consent withdrawn",
+      "recorded": "{channel} consent recorded",
+      "withdrawnToast": "{channel} consent withdrawn",
       "perChannel": "Consent is kept per channel."
     },
     "automsg": {

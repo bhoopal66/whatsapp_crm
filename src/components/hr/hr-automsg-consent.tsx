@@ -22,6 +22,7 @@ import {
 } from '@/lib/hr/automsg/api';
 import {
   AUTOMSG_CHANNELS,
+  CHANNEL_LABEL_KEYS,
   type AutomsgChannel,
 } from '@/lib/hr/automsg/channel';
 import {
@@ -88,7 +89,11 @@ export function HrAutomsgConsent({
     if ('error' in res) {
       toast.error(t(decideErrorKey(res.error)));
     } else {
-      toast.success(t(granted ? 'consent.recorded' : 'consent.withdrawnToast'));
+      toast.success(
+        t(granted ? 'consent.recorded' : 'consent.withdrawnToast', {
+          channel: t(`automsg.${CHANNEL_LABEL_KEYS[channel]}`),
+        })
+      );
       if (current.current === id)
         setReads((prev) => ({
           ...prev,

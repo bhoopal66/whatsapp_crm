@@ -80,7 +80,9 @@ export default function HrAutomatedMessagesPage() {
   const [busy, setBusy] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
-  const [rcsStatus, setRcsStatus] = useState<AutoMsgRcsStatus | null>(null);
+  const [rcsStatus, setRcsStatus] = useState<
+    AutoMsgRcsStatus | null | undefined
+  >(undefined);
 
   useEffect(() => {
     if (!accountId) return;
@@ -109,7 +111,8 @@ export default function HrAutomatedMessagesPage() {
     if (!role) return;
     let live = true;
     void load('first');
-    // Once, with the first config: null (unknown) reads as not connected.
+    // Once, with the first config: undefined = loading (no notice), null =
+    // could not tell (reads as not connected).
     void automsgRcsStatus().then((status) => {
       if (live) setRcsStatus(status);
     });

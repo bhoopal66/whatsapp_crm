@@ -15,7 +15,7 @@ import type {
   AutoMsgSettingsView,
   AutoMsgTemplateView,
 } from './api';
-import type { AutomsgChannel } from './channel';
+import { channelOf, type AutomsgChannel } from './channel';
 import {
   TRIGGERS,
   type AutoLang,
@@ -86,8 +86,9 @@ export interface TriggerRowView {
   /** Same permission as the on/off switch (a recruiter lead may change it). */
   channelDisabled: boolean;
   /**
-   * On RCS while no RCS provider is known to be connected (status not
-   * loaded counts as not connected): its messages are held, never sent.
+   * On RCS while no RCS provider is known to be connected (a status that
+   * could not be read counts as not connected; one still loading does
+   * not flag): its messages are held, never sent.
    */
   rcsNotConnected: boolean;
   /** Label key under `automsg.triggersTable`, or null. */
@@ -97,19 +98,22 @@ export interface TriggerRowView {
 function isApproved(
   templates: readonly AutoMsgTemplateView[],
   kind: TemplateKind,
-  language: AutoLang
+  language: AutoLang,
+  channel: AutomsgChannel
 ): boolean {
   return templates.some(
     (t) =>
       t.kind === kind &&
       t.language === language &&
+      channelOf(t.channel) === channel &&
       t.approvalStatus === 'approved'
   );
 }
 
 /**
  * One row per trigger, in TRIGGERS order. `rcsStatus` is
- * `automsgRcsStatus()`'s answer; null or left out = unknown.
+ * `automsgRcsStatus()`'s answer: undefined (or left out) = still loading,
+ * null = could not be read (treated as not connected).
  */
 export function triggerRows(
   config: Pick<AutoMsgConfig, 'triggers' | 'templates'>,
@@ -123,8 +127,8 @@ export function triggerRows(
     const row = byTrigger.get(trigger);
     if (!row) continue;
     const approved = {
-      en: isApproved(config.templates, row.templateKind, 'en'),
-      ar: isApproved(config.templates, row.templateKind, 'ar'),
+      en: isApproved(config.templates, row.templateKind, 'en', row.channel),
+      ar: isApproved(config.templates, row.templateKind, 'ar', row.channel),
     };
     const unavailable = UNAVAILABLE_TRIGGERS[trigger] ?? null;
     rows.push({
@@ -137,7 +141,10 @@ export function triggerRows(
       templateDisabled: !controls.editSettings,
       channel: row.channel,
       channelDisabled: !controls.switchTriggers,
-      rcsNotConnected: row.channel === 'rcs' && rcsStatus?.connected !== true,
+      rcsNotConnected:
+        row.channel === 'rcs' &&
+        rcsStatus !== undefined &&
+        rcsStatus?.connected !== true,
       note: unavailable,
     });
   }
