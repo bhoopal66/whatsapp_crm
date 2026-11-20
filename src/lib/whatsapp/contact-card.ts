@@ -32,10 +32,25 @@ function valueOf(line: string): string {
   return idx === -1 ? '' : line.slice(idx + 1).trim();
 }
 
+/**
+ * `item1.TEL;waid=…` → `TEL`. A vCard group prefix (`item1.`) is how
+ * WhatsApp writes a number shared from an iPhone; reading it as an
+ * unknown property dropped every such number from the card.
+ */
 function propertyOf(line: string): string {
   const idx = line.indexOf(':');
   const head = idx === -1 ? line : line.slice(0, idx);
-  return head.split(';')[0].trim().toUpperCase();
+  const name = head.split(';')[0].trim().toUpperCase();
+  const dot = name.lastIndexOf('.');
+  return dot === -1 ? name : name.slice(dot + 1);
+}
+
+/** `TEL;type=CELL;waid=971501234567:` → `+971501234567`, else ''. */
+function waidOf(line: string): string {
+  const idx = line.indexOf(':');
+  const head = idx === -1 ? line : line.slice(0, idx);
+  const m = /;waid=(\d{5,20})(?:;|$)/i.exec(head);
+  return m ? `+${m[1]}` : '';
 }
 
 /**
@@ -54,7 +69,7 @@ export function parseVcard(vcard: string): SharedContact | null {
 
   for (const line of unfold(vcard)) {
     const prop = propertyOf(line);
-    const value = valueOf(line);
+    const value = valueOf(line) || (prop === 'TEL' ? waidOf(line) : '');
     if (!value) continue;
     switch (prop) {
       case 'FN':

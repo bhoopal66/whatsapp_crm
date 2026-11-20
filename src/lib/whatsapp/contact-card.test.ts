@@ -83,6 +83,40 @@ describe('metaContactToShared', () => {
   });
 });
 
+describe('parseVcard: grouped properties', () => {
+  // WhatsApp (an iPhone share above all) writes the number as a vCard
+  // group, `item1.TEL;waid=…:…`, with its label on a sibling line.
+  it('reads item1.TEL / item2.EMAIL lines', () => {
+    expect(
+      parseVcard(
+        [
+          'BEGIN:VCARD',
+          'VERSION:3.0',
+          'N:;Omar Khalid;;;',
+          'FN:Omar Khalid',
+          'item1.TEL;waid=971509876543:+971 50 987 6543',
+          'item1.X-ABLabel:Mobile',
+          'item2.EMAIL;type=INTERNET:omar@example.com',
+          'END:VCARD',
+        ].join('\n')
+      )
+    ).toEqual({
+      name: 'Omar Khalid',
+      phones: ['+971 50 987 6543'],
+      emails: ['omar@example.com'],
+      org: null,
+    });
+  });
+
+  it('falls back to the waid when the TEL value is empty', () => {
+    expect(
+      parseVcard(
+        'BEGIN:VCARD\nFN:Sara\nitem1.TEL;type=CELL;waid=971501112222:\nEND:VCARD'
+      )?.phones
+    ).toEqual(['+971501112222']);
+  });
+});
+
 describe('contactCardsText', () => {
   it('lists the names for the conversation preview', () => {
     expect(
