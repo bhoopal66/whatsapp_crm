@@ -453,6 +453,54 @@ export async function maySendFromPersonal(
 }
 
 /**
+ * Fill in an empty `conversations.channel_id` with the number a send
+ * just went out on, attempting only what `conversations_channel_guard`
+ * (062) allows. The guard lets a person stamp an empty thread only with
+ * a number `can_use_channel` allows them; a send can still go out on
+ * another one (following the customer, a pin, a provider choice), and
+ * the stamp then failed after the fact on every such send ("Only an
+ * admin can move a conversation to another WhatsApp number", logged 23
+ * times in a week). So a person is asked first, on their own RLS
+ * client, and a "no" leaves the thread as it is: the next inbound
+ * message records the number on the service role. No sender means a
+ * service-role caller, which the guard always lets through. Never
+ * moves a thread (`.is('channel_id', null)`) and never throws.
+ */
+export async function recordConversationNumber(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+  channelId: string,
+  senderUserId: string | null | undefined
+): Promise<void> {
+  try {
+    if (senderUserId) {
+      const { data, error } = await db.rpc('can_use_channel', {
+        p_account_id: accountId,
+        p_channel_id: channelId,
+      });
+      if (error || data !== true) return;
+    }
+    const { error: stampError } = await db
+      .from('conversations')
+      .update({ channel_id: channelId })
+      .eq('id', conversationId)
+      .is('channel_id', null);
+    if (stampError) {
+      console.warn(
+        '[send-message] could not record the number on this conversation:',
+        stampError.message
+      );
+    }
+  } catch (err) {
+    console.warn(
+      '[send-message] could not record the number on this conversation:',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
  * Does `userId` reach this conversation ONLY through a chat share
  * (migration 133), and not by the ordinary rules? The coordinator case:
  * the database lets them read the chat and insert their own reply on
@@ -1162,17 +1210,13 @@ export async function sendMessageToConversation(
   // (`conversations_channel_guard`, 062) — and that refusal must not
   // also throw away the last-message update above.
   if (!conversation.channel_id) {
-    const { error: stampError } = await db
-      .from('conversations')
-      .update({ channel_id: channel.id })
-      .eq('id', conversationId)
-      .is('channel_id', null);
-    if (stampError) {
-      console.warn(
-        '[send-message] could not record the number on this conversation:',
-        stampError.message
-      );
-    }
+    await recordConversationNumber(
+      db,
+      accountId,
+      conversationId,
+      channel.id,
+      senderUserId
+    );
   }
 
   // Pause any active Flow run for this contact — the agent stepping in

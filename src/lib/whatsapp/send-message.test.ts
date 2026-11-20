@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   gatewayErrorFields,
   maySendFromPersonal,
+  recordConversationNumber,
   isAcceptableMediaUrl,
   sendMessageToConversation,
   SendMessageError,
@@ -1257,6 +1258,9 @@ describe('sendMessageToConversation — a chat shared with a coordinator (migrat
         return { data: opts.shared, error: null };
       if (fn === 'can_view_conversation')
         return { data: !opts.shared, error: null };
+      // The sender may use the number the send resolved to, so filling
+      // in an empty thread number is attempted (recordConversationNumber).
+      if (fn === 'can_use_channel') return { data: true, error: null };
       return { data: { blocked: false }, error: null };
     });
     const db = {
@@ -1524,5 +1528,56 @@ describe('maySendFromPersonal (migration 190)', () => {
       false
     );
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordConversationNumber', () => {
+  function stampDb(rpcResult: unknown, updateError: unknown = null) {
+    const rpc = vi.fn(async () => rpcResult);
+    const isNull = vi.fn(async () => ({ error: updateError }));
+    const eq = vi.fn(() => ({ is: isNull }));
+    const update = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ update }));
+    return {
+      db: { rpc, from } as unknown as SupabaseClient,
+      rpc,
+      update,
+      isNull,
+    };
+  }
+
+  it('does not attempt the stamp for a number the sender may not use', async () => {
+    // The production refusal: an agent's send went out on a number they
+    // are not allocated to, and the guard refused the fill-in.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { db, rpc, update } = stampDb({ data: false, error: null });
+    await recordConversationNumber(db, 'acct-1', 'conv-1', 'ch-2', 'agent-1');
+    expect(rpc).toHaveBeenCalledWith('can_use_channel', {
+      p_account_id: 'acct-1',
+      p_channel_id: 'ch-2',
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('skips the stamp when the check itself fails', async () => {
+    const { db, update } = stampDb({ data: null, error: { message: 'x' } });
+    await recordConversationNumber(db, 'acct-1', 'conv-1', 'ch-2', 'agent-1');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('fills an empty number the sender may use, and only an empty one', async () => {
+    const { db, update, isNull } = stampDb({ data: true, error: null });
+    await recordConversationNumber(db, 'acct-1', 'conv-1', 'ch-1', 'agent-1');
+    expect(update).toHaveBeenCalledWith({ channel_id: 'ch-1' });
+    expect(isNull).toHaveBeenCalledWith('channel_id', null);
+  });
+
+  it('stamps without asking when there is no sender (service role)', async () => {
+    const { db, rpc, update } = stampDb({ data: false, error: null });
+    await recordConversationNumber(db, 'acct-1', 'conv-1', 'ch-1', null);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({ channel_id: 'ch-1' });
   });
 });
