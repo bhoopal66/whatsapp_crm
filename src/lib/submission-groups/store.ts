@@ -211,6 +211,34 @@ export class SubmissionGroupDbError extends Error {
   }
 }
 
+/** 211's refusal codes for adding a number, in the order SQL checks them. */
+export const ADD_NUMBER_REFUSALS = [
+  'not_found',
+  'not_active',
+  'not_allowed',
+  'no_whatsapp',
+  'no_group_yet',
+  'detached',
+  'bad_phone',
+  'own_number',
+  'opted_out',
+  'do_not_contact',
+  'in_progress',
+  'too_many',
+  'unknown',
+] as const;
+export type AddNumberRefusal = (typeof ADD_NUMBER_REFUSALS)[number];
+
+export type AddNumberBegin =
+  | {
+      ok: true;
+      id: string;
+      channelId: string;
+      waGroupId: string;
+      inviteLink: string | null;
+    }
+  | { ok: false; code: AddNumberRefusal };
+
 export class SubmissionGroupStore {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -709,6 +737,53 @@ export class SubmissionGroupStore {
       (await this.rpc('sg_invite_claim', {
         p_group: groupId,
         p_cooldown_seconds: cooldownSeconds,
+      })) === true
+    );
+  }
+
+  /**
+   * 211: a person asks to add `phone` (digits) to the group's WhatsApp
+   * group. Decides access, state, consent and the limit, and logs a
+   * pending row; `settleAddNumber` records the outcome once.
+   */
+  async beginAddNumber(
+    groupId: string,
+    userId: string,
+    phone: string
+  ): Promise<AddNumberBegin> {
+    const r = await this.rpc<Record<string, unknown> | null>(
+      'sg_add_number_begin',
+      { p_group: groupId, p_user: userId, p_phone: phone }
+    );
+    if (r && r.ok === true) {
+      return {
+        ok: true,
+        id: String(r.id),
+        channelId: String(r.channel_id),
+        waGroupId: String(r.wa_group_id),
+        inviteLink: typeof r.invite_link === 'string' ? r.invite_link : null,
+      };
+    }
+    const code = typeof r?.code === 'string' ? r.code : 'unknown';
+    return {
+      ok: false,
+      code: (ADD_NUMBER_REFUSALS as readonly string[]).includes(code)
+        ? (code as AddNumberRefusal)
+        : 'unknown',
+    };
+  }
+
+  /** 211: pending → added | refused | failed, once. */
+  async settleAddNumber(
+    id: string,
+    status: 'added' | 'refused' | 'failed',
+    error: string | null
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_add_number_settle', {
+        p_id: id,
+        p_status: status,
+        p_error: error,
       })) === true
     );
   }

@@ -135,6 +135,22 @@ export function createWhapiGroupsApi(
       await groups.sendInviteLink({ channel, inviteCode, to });
     },
 
+    async addParticipant(channelId, waGroupId, phone) {
+      const channel = await channelFor(channelId);
+      const out = await groups.addParticipants({
+        channel,
+        groupId: waGroupId,
+        participants: [phone],
+        deadline: groups.groupDeadline(),
+      });
+      if (out.added.length > 0) return 'added';
+      // A call that failed outright is a failure, not WhatsApp declining.
+      if (out.error && out.refused.length === 0 && out.invalid.length === 0) {
+        throw new Error(`add participant failed: ${out.error}`);
+      }
+      return 'refused';
+    },
+
     async getInviteLink(channelId, waGroupId) {
       const channel = await channelFor(channelId);
       return (await groups.getInviteLink({ channel, groupId: waGroupId })).link;

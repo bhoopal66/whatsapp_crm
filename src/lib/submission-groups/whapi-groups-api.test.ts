@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   getGroup: vi.fn(),
   removeParticipants: vi.fn(),
   leaveGroup: vi.fn(),
+  addParticipants: vi.fn(),
 }));
 
 vi.mock('@/lib/whatsapp/channels', () => ({ loadChannels: h.loadChannels }));
@@ -24,6 +25,7 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   getGroup: h.getGroup,
   removeParticipants: h.removeParticipants,
   leaveGroup: h.leaveGroup,
+  addParticipants: h.addParticipants,
 }));
 
 import {
@@ -253,5 +255,58 @@ describe('closeGroup', () => {
       'not admin'
     );
     expect(h.leaveGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('addParticipant (211)', () => {
+  const outcome = (o: Record<string, unknown>) => ({
+    added: [],
+    refused: [],
+    notAttempted: [],
+    invalid: [],
+    error: null,
+    ...o,
+  });
+
+  it('adds one number on the group', async () => {
+    h.addParticipants.mockResolvedValue(
+      outcome({ added: [identity('971501234567')] })
+    );
+    expect(await api().addParticipant('cfg-1', WA_GROUP, '971501234567')).toBe(
+      'added'
+    );
+    expect(h.addParticipants).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: WA_GROUP,
+        participants: ['971501234567'],
+      })
+    );
+  });
+
+  it('answers refused when WhatsApp declines or the number is invalid', async () => {
+    h.addParticipants.mockResolvedValue(
+      outcome({ refused: [identity('971501234567')] })
+    );
+    expect(await api().addParticipant('cfg-1', WA_GROUP, '971501234567')).toBe(
+      'refused'
+    );
+    h.addParticipants.mockResolvedValue(outcome({ invalid: ['12'] }));
+    expect(await api().addParticipant('cfg-1', WA_GROUP, '12')).toBe('refused');
+  });
+
+  it('throws when the call itself failed', async () => {
+    h.addParticipants.mockResolvedValue(
+      outcome({ notAttempted: ['971501234567'], error: 'unavailable' })
+    );
+    await expect(
+      api().addParticipant('cfg-1', WA_GROUP, '971501234567')
+    ).rejects.toThrow('unavailable');
+  });
+
+  it('refuses a number that is not Whapi', async () => {
+    await expect(
+      api().addParticipant('cfg-meta', WA_GROUP, '971501234567')
+    ).rejects.toThrow();
+    expect(h.addParticipants).not.toHaveBeenCalled();
   });
 });

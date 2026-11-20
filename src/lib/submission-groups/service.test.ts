@@ -13,6 +13,7 @@ import {
   type GroupsApi,
 } from './service';
 import type {
+  AddNumberBegin,
   ConsentAnswer,
   GroupMessage,
   SendStatus,
@@ -289,6 +290,26 @@ class FakeStore implements GroupStore {
       (m) => m.groupId === id && m.sendStatus === 'pending'
     ).length;
   }
+  /** 211: what beginAddNumber answers, and every settle. */
+  addBegin: AddNumberBegin = {
+    ok: true,
+    id: 'add-1',
+    channelId: 'ch-x',
+    waGroupId: 'wa-x@g.us',
+    inviteLink: null,
+  };
+  addBegun: { groupId: string; userId: string; phone: string }[] = [];
+  addSettles: { id: string; status: string; error: string | null }[] = [];
+  addSettleFails = false;
+  async beginAddNumber(groupId: string, userId: string, phone: string) {
+    this.addBegun.push({ groupId, userId, phone });
+    return this.addBegin;
+  }
+  async settleAddNumber(id: string, status: string, error: string | null) {
+    if (this.addSettleFails) throw new Error('db down');
+    this.addSettles.push({ id, status, error });
+    return true;
+  }
   async noteInvite(groupId: string, sent: boolean, error: string | null) {
     if (this.noteInviteFails) throw new Error('db down');
     this.invites.push({ groupId, sent, error });
@@ -367,6 +388,13 @@ class FakeApi implements GroupsApi {
   async sendInvite(ch: string, code: string, to: string) {
     this.calls.push({ method: 'sendInvite', args: [ch, code, to] });
     if (this.inviteError) throw this.inviteError;
+  }
+  addOutcome: 'added' | 'refused' = 'added';
+  addError: Error | null = null;
+  async addParticipant(ch: string, wa: string, phone: string) {
+    this.calls.push({ method: 'addParticipant', args: [ch, wa, phone] });
+    if (this.addError) throw this.addError;
+    return this.addOutcome;
   }
   async getInviteLink(ch: string, wa: string) {
     this.calls.push({ method: 'getInviteLink', args: [ch, wa] });
@@ -1941,5 +1969,82 @@ describe('resendInvite', () => {
       group: { id: g.id, inviteSentAt: null },
     });
     expect(s.api.of('sendInvite')).toHaveLength(1);
+  });
+});
+
+describe('addNumber (211)', () => {
+  it('adds through the gateway and settles added', async () => {
+    const s = setup();
+    const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+    expect(r).toEqual({ status: 'added' });
+    expect(s.store.addBegun).toEqual([
+      { groupId: 'g-1', userId: 'ali', phone: '971501234567' },
+    ]);
+    expect(s.api.calls).toEqual([
+      {
+        method: 'addParticipant',
+        args: ['ch-x', 'wa-x@g.us', '971501234567'],
+      },
+    ]);
+    expect(s.store.addSettles).toEqual([
+      { id: 'add-1', status: 'added', error: null },
+    ]);
+  });
+
+  it('answers a refusal from SQL without calling the gateway', async () => {
+    const s = setup();
+    s.store.addBegin = { ok: false, code: 'opted_out' };
+    const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+    expect(r).toEqual({ status: 'not_allowed', code: 'opted_out' });
+    expect(s.api.calls).toEqual([]);
+    expect(s.store.addSettles).toEqual([]);
+  });
+
+  it('hands back the stored invite link when WhatsApp refuses, sending nothing', async () => {
+    const s = setup();
+    s.store.addBegin = {
+      ok: true,
+      id: 'add-1',
+      channelId: 'ch-x',
+      waGroupId: 'wa-x@g.us',
+      inviteLink: 'https://chat.whatsapp.com/STORED',
+    };
+    s.api.addOutcome = 'refused';
+    const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+    expect(r).toEqual({
+      status: 'refused',
+      inviteLink: 'https://chat.whatsapp.com/STORED',
+    });
+    expect(s.store.addSettles[0].status).toBe('refused');
+    expect(s.api.calls.map((c) => c.method)).toEqual(['addParticipant']);
+  });
+
+  it('fetches the link when none is stored, and survives that failing', async () => {
+    const s = setup();
+    s.api.addOutcome = 'refused';
+    expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
+      status: 'refused',
+      inviteLink: s.api.fetchedLink,
+    });
+    s.api.fetchLinkError = new Error('down');
+    expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
+      status: 'refused',
+      inviteLink: null,
+    });
+  });
+
+  it('settles failed when the gateway throws, and still answers if the settle fails', async () => {
+    const s = setup();
+    s.api.addError = new Error('timeout');
+    const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+    expect(r.status).toBe('failed');
+    expect(s.store.addSettles).toEqual([
+      { id: 'add-1', status: 'failed', error: 'timeout' },
+    ]);
+    s.store.addSettleFails = true;
+    s.api.addError = null;
+    expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
+      status: 'added',
+    });
   });
 });

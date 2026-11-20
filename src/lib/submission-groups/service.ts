@@ -51,6 +51,7 @@ import {
   type StaffLabel,
 } from './rules';
 import type {
+  AddNumberRefusal,
   ArchiveResult,
   ConsentAnswer,
   SubmissionGroup,
@@ -106,6 +107,16 @@ export interface GroupsApi {
   sendInvite(channelId: string, inviteCode: string, to: string): Promise<void>;
   /** The group's current invite link, from the gateway. */
   getInviteLink(channelId: string, waGroupId: string): Promise<string>;
+  /**
+   * 211: add one number (digits) to the group. 'refused' is WhatsApp
+   * declining (privacy settings, a number not on WhatsApp); a gateway
+   * failure throws.
+   */
+  addParticipant(
+    channelId: string,
+    waGroupId: string,
+    phone: string
+  ): Promise<'added' | 'refused'>;
 }
 
 export type GroupStore = Pick<
@@ -133,6 +144,8 @@ export type GroupStore = Pick<
   | 'closeHoldUntil'
   | 'failStalePending'
   | 'readArchive'
+  | 'beginAddNumber'
+  | 'settleAddNumber'
 >;
 
 /** Why a Resend invite was not attempted; the route words each one. */
@@ -150,6 +163,13 @@ export type ResendInviteRefusal =
 export type ResendInviteResult =
   | { status: 'sent'; group: SubmissionGroup }
   | { status: 'refused'; code: ResendInviteRefusal }
+  | { status: 'failed'; reason: string };
+
+export type AddNumberResult =
+  | { status: 'added' }
+  /** WhatsApp would not add them: the link to share instead, when known. */
+  | { status: 'refused'; inviteLink: string | null }
+  | { status: 'not_allowed'; code: AddNumberRefusal }
   | { status: 'failed'; reason: string };
 
 export interface SubmissionGroupServiceDeps {
@@ -655,6 +675,68 @@ export class SubmissionGroupService {
     return error === null
       ? { status: 'sent', group: recorded }
       : { status: 'failed', reason: error };
+  }
+
+  /**
+   * 211: a person adds another phone number to the group. SQL decides
+   * (access, state, consent, limit) and logs the attempt as pending; the
+   * gateway adds; the outcome is settled once. A refusal by WhatsApp
+   * answers the invite link for the person to share themselves: nothing
+   * is sent 1:1 to a number the customer never wrote from.
+   */
+  async addNumber(
+    groupId: string,
+    userId: string,
+    phone: string
+  ): Promise<AddNumberResult> {
+    const begun = await this.deps.store.beginAddNumber(groupId, userId, phone);
+    if (!begun.ok) return { status: 'not_allowed', code: begun.code };
+    const settle = async (
+      status: 'added' | 'refused' | 'failed',
+      error: string | null
+    ) => {
+      try {
+        await this.deps.store.settleAddNumber(begun.id, status, error);
+      } catch (err) {
+        this.log.warn('add number outcome could not be recorded', {
+          groupId,
+          err: errText(err),
+        });
+      }
+    };
+    let outcome: 'added' | 'refused';
+    try {
+      outcome = await this.deps.api.addParticipant(
+        begun.channelId,
+        begun.waGroupId,
+        phone
+      );
+    } catch (err) {
+      this.log.warn('number could not be added to the group', {
+        groupId,
+        err: errText(err),
+      });
+      const reason =
+        err instanceof SubmissionGroupChannelError
+          ? INVITE_NO_NUMBER
+          : 'The number could not be added; try again';
+      await settle('failed', errText(err));
+      return { status: 'failed', reason };
+    }
+    await settle(outcome, null);
+    if (outcome === 'added') return { status: 'added' };
+    let link = begun.inviteLink;
+    if (!link) {
+      try {
+        link = await this.deps.api.getInviteLink(
+          begun.channelId,
+          begun.waGroupId
+        );
+      } catch {
+        link = null;
+      }
+    }
+    return { status: 'refused', inviteLink: link };
   }
 
   /** The group as it stands after the record; a failed record is logged, since the send already happened (or not). */
