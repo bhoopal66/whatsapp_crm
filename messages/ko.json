@@ -11609,6 +11609,10 @@
         "interview_reminder": "면접 알림",
         "reply_overdue_nudge": "답장 재촉 — 지원자가 답하지 않음"
       },
+      "channel": {
+        "whatsapp": "WhatsApp",
+        "rcs": "RCS"
+      },
       "templateKinds": {
         "cv_ack": "이력서 접수 안내",
         "ai_interview_invite": "AI 면접 초대",

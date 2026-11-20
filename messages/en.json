@@ -11609,6 +11609,10 @@
         "interview_reminder": "Interview reminder",
         "reply_overdue_nudge": "Reply nudge — candidate has not answered"
       },
+      "channel": {
+        "whatsapp": "WhatsApp",
+        "rcs": "RCS"
+      },
       "templateKinds": {
         "cv_ack": "CV received",
         "ai_interview_invite": "AI interview invitation",
