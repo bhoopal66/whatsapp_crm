@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### RCS for HR automated messages (prepared, not connected)
+
+**Migration required:** apply `215_hr_automsg_rcs.sql` as a superuser or
+BYPASSRLS role before deploying this build. Apply in order, once:
+re-running 203 or 212 afterwards undoes part of it.
+- HR → Automated messages can send each message type over WhatsApp or
+  RCS (rich messages on Android phones). Pick the channel per trigger;
+  RCS templates have their own tab (the provider's template id, the text
+  and the approval); the history shows each message's channel; consent is
+  recorded per channel in the chat's HR panel.
+- No RCS provider is connected yet, so nothing is sent over RCS: a
+  message set to RCS is held as "RCS not connected", never sent, and
+  never moved to WhatsApp or SMS. WhatsApp works exactly as before, and
+  every existing setting stays on WhatsApp.
+- An opt-out stops every channel, and the daily limit of automated
+  messages per person counts both channels.
+
 ### My worklist
 
 - A new **My worklist** page (sidebar, under Dashboard) ranks what needs

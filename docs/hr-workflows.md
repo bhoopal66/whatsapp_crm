@@ -235,6 +235,41 @@ candidates. It is for admins (everything) and Recruitment leads
 Check with legal (UAE PDPL: consent, retention, privacy notice) before
 switching any of this on.
 
+## RCS channel (migration 215)
+
+Each automated message type can go out over WhatsApp or RCS (rich
+messages on Android phones), chosen per trigger in HR → Automated
+messages (package release 030). Everything existing stays on WhatsApp,
+which works exactly as before.
+
+- **Not connected yet.** No RCS provider has been chosen, so the server
+  has no RCS settings and RCS is "not connected": a message whose trigger
+  uses RCS is held "RCS not connected", never sent, and cancelled after 24
+  hours like any held message. Nothing is ever moved to WhatsApp or SMS.
+  The page says so while any trigger is on RCS.
+- **Templates per channel.** RCS templates have their own tab: the
+  provider's template id (letters, digits, `.`, `:`, `_`, `-`; needed to
+  approve), the text (same rules as WhatsApp) and the approval. An RCS
+  message never uses a WhatsApp template; with no approved RCS template it
+  is held.
+- **Consent per channel.** Recorded in each chat's HR panel, one line per
+  channel: a WhatsApp consent never covers RCS. An opt-out stops every
+  channel, and the daily limit counts both channels.
+- **Receipts.** RCS delivered/read/failed receipts arrive at
+  `POST /api/rcs/webhook` (an `X-Rcs-Signature` HMAC over the raw body;
+  501 until configured) and are recorded on the RCS message only.
+- **Connecting a provider later** (operators): map
+  `src/lib/hr/automsg/rcs.ts` and `rcs-webhook.ts` to the chosen
+  provider's API first (their shapes are the package's placeholders, never
+  tested against a real provider), then set `RCS_BASE_URL` (https),
+  `RCS_TOKEN`, `RCS_SENDER_ID` and, for receipts, `RCS_WEBHOOK_SECRET`
+  and `RCS_WORKSPACE_ID` (see `.env.local.example`), and restart.
+  `GET /api/hr/automsg/rcs` reports whether sending and receipts are on.
+- **Open before go-live** (from the package): UAE carrier support (e&,
+  du), Android-only reach, no SMS fallback, and PDPL/TDRA consent rules
+  for RCS.
+- `supabase/ci/verify-hr-automsg-rcs.sql` asserts the database side.
+
 ## HR lines (migration 213)
 
 HR → Rules → **HR lines** (owners and admins) names the WhatsApp

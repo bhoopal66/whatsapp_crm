@@ -1362,6 +1362,18 @@ contract.
   `sent`. 212 restates 203's `hr_automsg_expire` (a terminal failure is
   never relabelled cancelled): apply in order, once.
   `verify-hr-automsg-delivery.sql`.
+- **RCS channel (215, release 030).** `channel` ('whatsapp' | 'rcs') on
+  triggers, templates, consent and outbox (default whatsapp; the
+  template and consent keys include it). `lib/hr/automsg/rcs-config.ts`
+  reads `RCS_*` at call time; unset (production) means not connected: an
+  rcs row is held `channel_not_connected`, never sent, never re-routed
+  (no fallback anywhere). `rcs.ts` / `rcs-webhook.ts` (POST
+  `/api/rcs/webhook`) are the package's UNVERIFIED placeholders. Opt-out
+  and the daily cap span both channels; the claim re-checks consent for
+  the row's channel. 215 restates 203's on_history, enqueue_nudges,
+  row_state, claim, mark, config, trigger_set, template_set, consent_get,
+  consent_set, outbox_list and 212's delivery_record: apply in order,
+  once. `verify-hr-automsg-rcs.sql`.
 - **HR lines (213).** `hr_lines` / `hr_line_settings` (RPC-only; HR →
   Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
   (`hr_auto_open_recruiter`, service role) before the recruiter-agents
