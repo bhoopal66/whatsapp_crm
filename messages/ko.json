@@ -9725,6 +9725,17 @@
       "note": "메모",
       "noteHelp": "{{customer}}와 {{bank}}는 고객 이름과 은행 이름으로 바뀝니다.",
       "priority": "우선순위",
+      "template": "작업",
+      "pickTemplate": "작업 선택",
+      "owner": "담당",
+      "ownerOption": {
+        "agent": "에이전트",
+        "coordinator": "코디네이터"
+      },
+      "dueHours": "기한 (시간)",
+      "dueHoursHelp": "시간을 비워 두면 작업 템플릿의 기본 기한을 사용합니다.",
+      "timer": "타이머",
+      "advanceHelp": "케이스를 한 단계 앞으로 이동합니다. 승인, 거절, 철회, 종료 단계로는 이동하지 않습니다.",
       "save": "규칙 저장",
       "cancel": "취소"
     },
@@ -9733,13 +9744,18 @@
       "stage_changed": "단계가 바뀔 때",
       "sla_overdue": "SLA 타이머가 기한을 넘길 때",
       "no_activity": "며칠 동안 활동이 없을 때",
-      "submission_attached": "제출이 연결될 때"
+      "submission_attached": "제출이 연결될 때",
+      "stage_entered": "케이스가 특정 단계에 들어갈 때",
+      "last_required_doc_received": "마지막 필수 서류가 도착할 때"
     },
     "kind": {
       "assign_agent": "에이전트 배정",
       "assign_coordinator": "코디네이터 배정",
       "add_note": "메모 추가",
-      "set_priority": "우선순위 설정"
+      "set_priority": "우선순위 설정",
+      "create_task": "작업 만들기",
+      "start_sla": "SLA 타이머 시작",
+      "advance_stage": "다음 단계로 이동"
     },
     "priority": {
       "low": "낮음",
@@ -9761,7 +9777,13 @@
       "person_required": "배정 작업마다 담당자를 선택하세요.",
       "note_required": "메모를 입력하세요.",
       "note_too_long": "메모는 최대 4000자입니다.",
-      "priority_invalid": "우선순위를 선택하세요."
+      "priority_invalid": "우선순위를 선택하세요.",
+      "stage_required": "이 규칙이 실행될 단계를 선택하세요.",
+      "action_not_allowed": "이 실행 시점에서는 실행할 수 없는 작업이 있습니다.",
+      "template_required": "작업 만들기마다 작업을 선택하세요.",
+      "owner_invalid": "작업을 맡을 사람을 선택하세요.",
+      "due_hours_invalid": "기한 시간은 1에서 8760 사이의 정수여야 합니다.",
+      "timer_invalid": "SLA 타이머를 선택하세요."
     },
     "describe": {
       "sentence": "{when}, {actions}",
@@ -9787,7 +9809,19 @@
         "assign_coordinator": "{person}님을 코디네이터로 배정",
         "add_note": "메모 추가",
         "set_priority": "우선순위를 {priority}(으)로 설정",
+        "create_task": "{owner}에게 {task} 작업 만들기",
+        "start_sla": "{timer} 타이머 시작",
+        "advance_stage": "케이스를 다음 단계로 이동",
         "none": "아무 작업도 하지 않음"
+      },
+      "owner": {
+        "agent": "에이전트",
+        "coordinator": "코디네이터"
+      },
+      "timer": {
+        "customer_reply": "고객 응답",
+        "bank_response": "은행 회신",
+        "document_chase": "서류 독촉"
       }
     },
     "run": {
@@ -9799,6 +9833,9 @@
         "assign_coordinator": "코디네이터 배정됨",
         "add_note": "메모 추가됨",
         "set_priority": "우선순위 설정됨",
+        "create_task": "작업 생성됨",
+        "start_sla": "타이머 시작됨",
+        "advance_stage": "다음 단계로 이동됨",
         "other": "완료"
       }
     },
@@ -9806,6 +9843,16 @@
       "MANAGED_EXTERNALLY": "Compass에서 관리됨",
       "CASE_CLOSED": "종료된 케이스",
       "ASSIGNEE_INVALID": "해당 담당자는 케이스를 맡을 수 없습니다",
+      "TEMPLATE_NOT_FOUND": "작업 템플릿을 찾을 수 없음",
+      "OWNER_MISSING": "작업을 맡을 사람이 없음",
+      "SLA_NOT_CONFIGURED": "해당 SLA 타이머가 설정되지 않음",
+      "FINAL_STAGE": "케이스가 최종 단계에 있음",
+      "NO_NEXT_STAGE": "다음 단계가 없음",
+      "ADVANCE_CHAINED": "다른 규칙이 이미 이동함",
+      "SUBMISSION_REQUIRED": "케이스에 먼저 제출이 필요함",
+      "OWNER_INVALID": "잘못된 작업 담당자",
+      "DUE_INVALID": "잘못된 기한 시간",
+      "PRESUB_REENTRY": "제출 전 단계로 되돌릴 수 없음",
       "other": "거부됨"
     },
     "caseTab": {

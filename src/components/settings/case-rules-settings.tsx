@@ -36,9 +36,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useCan } from '@/hooks/use-can';
 import {
-  RULE_ACTION_KINDS,
   RULE_ACTIONS_MAX,
+  RULE_SLA_TIMERS,
+  RULE_TASK_OWNERS,
   RULE_TRIGGERS,
+  actionKindsFor,
   describeRule,
   draftBody,
   draftFromRule,
@@ -46,13 +48,19 @@ import {
   newDraftAction,
   parseRules,
   parseSavedRule,
+  parseTemplateOptions,
   ruleErrorKey,
+  templateChoices,
   toggleBody,
   validateDraft,
+  withTrigger,
   type DraftAction,
   type PreSubmissionChoice,
   type RuleActionKind,
   type RuleDraft,
+  type RuleSlaTimer,
+  type RuleTaskOwner,
+  type RuleTemplateOption,
   type RuleTrigger,
   type RuleView,
   type RulesT,
@@ -95,6 +103,9 @@ export function CaseRulesSettingsCard() {
   const [rules, setRules] = useState<RuleView[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [banks, setBanks] = useState<CaseBankOption[]>([]);
+  const [templates, setTemplates] = useState<
+    ReadonlyMap<string, RuleTemplateOption[]>
+  >(() => new Map());
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<RuleDraft | null>(null);
   const [deleting, setDeleting] = useState<RuleView | null>(null);
@@ -114,8 +125,27 @@ export function CaseRulesSettingsCard() {
       setRules(parsed);
       setFailed(parsed === null);
     });
-    void call('/api/cases/config/banks').then((answer) => {
-      if (!off && answer.ok) setBanks(parseBanks(answer.body));
+    void call('/api/cases/config/banks').then(async (answer) => {
+      if (off || !answer.ok) return;
+      const parsed = parseBanks(answer.body);
+      setBanks(parsed);
+      // Every bank's task templates (the create_task picker), as the
+      // macros panel loads them; a failed read leaves that bank out.
+      const lists = await Promise.all(
+        parsed.map((b) =>
+          call(
+            `/api/cases/config/banks/${encodeURIComponent(b.code)}/templates`
+          ).then((a) => [b.code, a] as const)
+        )
+      );
+      if (off) return;
+      setTemplates(
+        new Map(
+          lists
+            .filter(([, a]) => a.ok)
+            .map(([code, a]) => [code, parseTemplateOptions(a.body)])
+        )
+      );
     });
     return () => {
       off = true;
@@ -128,6 +158,8 @@ export function CaseRulesSettingsCard() {
   const bankName = (code: string) =>
     banks.find((b) => b.code === code)?.name ?? code;
   const personName = (id: string) => nameOf(id) ?? t('dialog.pickPerson');
+  const templateName = (key: string) =>
+    templateChoices(templates, '').find((o) => o.key === key)?.title ?? key;
 
   async function toggle(rule: RuleView, enabled: boolean) {
     setBusy(rule.ruleId);
@@ -212,7 +244,13 @@ export function CaseRulesSettingsCard() {
                     )}
                   </p>
                   <p className="text-muted-foreground text-xs break-words">
-                    {describeRule(r, { t: tr, locale, bankName, personName })}
+                    {describeRule(r, {
+                      t: tr,
+                      locale,
+                      bankName,
+                      personName,
+                      templateName,
+                    })}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -263,6 +301,7 @@ export function CaseRulesSettingsCard() {
           key={editing.ruleId ?? 'new'}
           initial={editing}
           banks={banks}
+          templates={templates}
           members={members.filter((m) => !m.deactivated_at)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -295,6 +334,7 @@ export function CaseRulesSettingsCard() {
 function RuleDialog({
   initial,
   banks,
+  templates,
   members,
   onClose,
   onSaved,
@@ -302,6 +342,7 @@ function RuleDialog({
 }: {
   initial: RuleDraft;
   banks: CaseBankOption[];
+  templates: ReadonlyMap<string, RuleTemplateOption[]>;
   members: { user_id: string; full_name: string | null; email: string }[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -330,6 +371,18 @@ function RuleDialog({
     d.bankCode && !banks.some((b) => b.code === d.bankCode)
       ? [...banks, { code: d.bankCode, name: d.bankCode }]
       : banks;
+  const kinds = actionKindsFor(d.trigger);
+  // last_required_doc_received carries exactly one, preset advance_stage.
+  const fixedActions = d.trigger === 'last_required_doc_received';
+  const taskOptions = templateChoices(
+    templates,
+    d.bankCode,
+    d.actions.map((a) => a.templateKey)
+  );
+  const taskLabel = (key: string) => {
+    const o = taskOptions.find((x) => x.key === key);
+    return o ? `${o.title} (${o.key})` : t('dialog.pickTemplate');
+  };
 
   async function save() {
     setTried(true);
@@ -382,7 +435,9 @@ function RuleDialog({
             <Label htmlFor="case-rule-trigger">{t('dialog.trigger')}</Label>
             <Select
               value={d.trigger}
-              onValueChange={(v) => v && set({ trigger: v as RuleTrigger })}
+              onValueChange={(v) =>
+                v && setD((x) => withTrigger(x, v as RuleTrigger))
+              }
             >
               <SelectTrigger id="case-rule-trigger" className="w-full">
                 <SelectValue>{t(`trigger.${d.trigger}`)}</SelectValue>
@@ -526,41 +581,133 @@ function RuleDialog({
                 key={i}
                 className="bg-card-2 space-y-2 rounded-lg border p-3"
               >
-                <div className="flex items-center gap-2">
+                {fixedActions ? (
+                  <p className="text-sm font-medium">{t(`kind.${a.kind}`)}</p>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={a.kind}
+                      onValueChange={(v) =>
+                        v && setAction(i, { kind: v as RuleActionKind })
+                      }
+                    >
+                      <SelectTrigger
+                        className="min-w-0 flex-1"
+                        aria-label={t('dialog.kind')}
+                      >
+                        <SelectValue>{t(`kind.${a.kind}`)}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {kinds.map((k) => (
+                          <SelectItem key={k} value={k}>
+                            {t(`kind.${k}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('dialog.removeAction')}
+                      disabled={d.actions.length <= 1}
+                      onClick={() =>
+                        set({ actions: d.actions.filter((_, j) => j !== i) })
+                      }
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                )}
+                {a.kind === 'create_task' ? (
+                  <div className="space-y-2">
+                    <Select
+                      value={a.templateKey}
+                      onValueChange={(v) =>
+                        setAction(i, { templateKey: String(v ?? '') })
+                      }
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label={t('dialog.template')}
+                      >
+                        <SelectValue>{taskLabel(a.templateKey)}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {taskOptions.map((o) => (
+                          <SelectItem key={o.key} value={o.key}>
+                            {`${o.title} (${o.key})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={a.ownerRole}
+                        onValueChange={(v) =>
+                          v && setAction(i, { ownerRole: v as RuleTaskOwner })
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label={t('dialog.owner')}
+                        >
+                          <SelectValue>
+                            {t(`dialog.ownerOption.${a.ownerRole}`)}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RULE_TASK_OWNERS.map((o) => (
+                            <SelectItem key={o} value={o}>
+                              {t(`dialog.ownerOption.${o}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        aria-label={t('dialog.dueHours')}
+                        placeholder={t('dialog.dueHours')}
+                        value={a.dueHours}
+                        onChange={(e) =>
+                          setAction(i, { dueHours: e.target.value })
+                        }
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      {t('dialog.dueHoursHelp')}
+                    </p>
+                  </div>
+                ) : a.kind === 'start_sla' ? (
                   <Select
-                    value={a.kind}
+                    value={a.timer}
                     onValueChange={(v) =>
-                      v && setAction(i, { kind: v as RuleActionKind })
+                      v && setAction(i, { timer: v as RuleSlaTimer })
                     }
                   >
                     <SelectTrigger
-                      className="min-w-0 flex-1"
-                      aria-label={t('dialog.kind')}
+                      className="w-full"
+                      aria-label={t('dialog.timer')}
                     >
-                      <SelectValue>{t(`kind.${a.kind}`)}</SelectValue>
+                      <SelectValue>
+                        {t(`describe.timer.${a.timer}`)}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {RULE_ACTION_KINDS.map((k) => (
+                      {RULE_SLA_TIMERS.map((k) => (
                         <SelectItem key={k} value={k}>
-                          {t(`kind.${k}`)}
+                          {t(`describe.timer.${k}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t('dialog.removeAction')}
-                    disabled={d.actions.length <= 1}
-                    onClick={() =>
-                      set({ actions: d.actions.filter((_, j) => j !== i) })
-                    }
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </div>
-                {a.kind === 'assign_agent' ||
-                a.kind === 'assign_coordinator' ? (
+                ) : a.kind === 'advance_stage' ? (
+                  <p className="text-muted-foreground text-xs">
+                    {t('dialog.advanceHelp')}
+                  </p>
+                ) : a.kind === 'assign_agent' ||
+                  a.kind === 'assign_coordinator' ? (
                   <Select
                     value={a.userId}
                     onValueChange={(v) =>
@@ -617,7 +764,7 @@ function RuleDialog({
                 )}
               </div>
             ))}
-            {d.actions.length < RULE_ACTIONS_MAX && (
+            {!fixedActions && d.actions.length < RULE_ACTIONS_MAX && (
               <Button
                 variant="outline"
                 size="sm"

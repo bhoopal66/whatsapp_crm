@@ -9725,6 +9725,17 @@
       "note": "Note",
       "noteHelp": "{{customer}} and {{bank}} are replaced with the customer's and the bank's names.",
       "priority": "Priority",
+      "template": "Task",
+      "pickTemplate": "Pick a task",
+      "owner": "For",
+      "ownerOption": {
+        "agent": "Agent",
+        "coordinator": "Coordinator"
+      },
+      "dueHours": "Due in hours",
+      "dueHoursHelp": "Leave the hours empty to use the task template’s own due time.",
+      "timer": "Timer",
+      "advanceHelp": "Moves the case one stage forward. Never into Approved, Declined, Withdrawn or Closed.",
       "save": "Save rule",
       "cancel": "Cancel"
     },
@@ -9733,13 +9744,18 @@
       "stage_changed": "The stage changes",
       "sla_overdue": "An SLA timer is overdue",
       "no_activity": "No activity for some days",
-      "submission_attached": "A submission is attached"
+      "submission_attached": "A submission is attached",
+      "stage_entered": "A case enters a stage",
+      "last_required_doc_received": "The last required document arrives"
     },
     "kind": {
       "assign_agent": "Assign the agent",
       "assign_coordinator": "Assign the coordinator",
       "add_note": "Add a note",
-      "set_priority": "Set the priority"
+      "set_priority": "Set the priority",
+      "create_task": "Create a task",
+      "start_sla": "Start an SLA timer",
+      "advance_stage": "Move to the next stage"
     },
     "priority": {
       "low": "Low",
@@ -9761,7 +9777,13 @@
       "person_required": "Pick a person for each assign action.",
       "note_required": "Write the note.",
       "note_too_long": "A note can be at most 4000 characters.",
-      "priority_invalid": "Pick a priority."
+      "priority_invalid": "Pick a priority.",
+      "stage_required": "Pick the stage this rule runs on.",
+      "action_not_allowed": "One of the actions can’t run on this trigger.",
+      "template_required": "Pick a task for each create-task action.",
+      "owner_invalid": "Pick who the task is for.",
+      "due_hours_invalid": "Due hours must be a whole number from 1 to 8760.",
+      "timer_invalid": "Pick an SLA timer."
     },
     "describe": {
       "sentence": "{when}, {actions}",
@@ -9787,7 +9809,19 @@
         "assign_coordinator": "assign {person} as coordinator",
         "add_note": "add a note",
         "set_priority": "set the priority to {priority}",
+        "create_task": "create the task {task} for the {owner}",
+        "start_sla": "start the {timer} timer",
+        "advance_stage": "move the case to the next stage",
         "none": "do nothing"
+      },
+      "owner": {
+        "agent": "agent",
+        "coordinator": "coordinator"
+      },
+      "timer": {
+        "customer_reply": "Customer reply",
+        "bank_response": "Bank response",
+        "document_chase": "Document chase"
       }
     },
     "run": {
@@ -9799,6 +9833,9 @@
         "assign_coordinator": "coordinator assigned",
         "add_note": "note added",
         "set_priority": "priority set",
+        "create_task": "task created",
+        "start_sla": "timer started",
+        "advance_stage": "moved to the next stage",
         "other": "done"
       }
     },
@@ -9806,6 +9843,16 @@
       "MANAGED_EXTERNALLY": "Managed in Compass",
       "CASE_CLOSED": "Case closed",
       "ASSIGNEE_INVALID": "That person can't take cases",
+      "TEMPLATE_NOT_FOUND": "Task template not found",
+      "OWNER_MISSING": "No one to give the task to",
+      "SLA_NOT_CONFIGURED": "That SLA timer isn’t set up",
+      "FINAL_STAGE": "The case is at a final stage",
+      "NO_NEXT_STAGE": "There is no next stage",
+      "ADVANCE_CHAINED": "Already moved by another rule",
+      "SUBMISSION_REQUIRED": "The case needs a submission first",
+      "OWNER_INVALID": "Invalid task owner",
+      "DUE_INVALID": "Invalid due hours",
+      "PRESUB_REENTRY": "Can’t move back before submission",
       "other": "Refused"
     },
     "caseTab": {
