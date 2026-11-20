@@ -11,6 +11,7 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  ListOrdered,
   MessageSquare,
   MessagesSquare,
   Phone,
@@ -176,6 +177,8 @@ export const NAV_GROUPS: NavGroup[] = [
       // Notifications are the top bar's bell (NotificationBell), not a row
       // here; the full list page stays as its "View all".
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+      // My worklist (029c): read-only ranked list, open to every staff role.
+      { href: '/worklist', labelKey: 'worklist', icon: ListOrdered },
     ],
   },
   {

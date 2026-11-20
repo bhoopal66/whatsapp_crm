@@ -24,7 +24,7 @@ function layout(groups: NavGroup[]): Record<string, string[]> {
 
 /** Every staff role's groups: the rows no role gates. */
 const VIEWER = {
-  main: ['/dashboard'],
+  main: ['/dashboard', '/worklist'],
   conversations: ['/inbox', '/groups'],
   customers: ['/contacts', '/pipelines'],
   collaboration: ['/chat', '/meetings', '/calendar'],

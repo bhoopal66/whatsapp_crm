@@ -22,6 +22,7 @@
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
+    "worklist": "My worklist",
     "inbox": "WhatsApp inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
@@ -93,6 +94,7 @@
   },
   "Header": {
     "dashboard": "Dashboard",
+    "worklist": "My worklist",
     "inbox": "WhatsApp inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
@@ -11744,6 +11746,31 @@
       },
       "yourReason": "Your reason:",
       "decisionNote": "Reply:"
+    }
+  },
+  "Worklist": {
+    "title": "My worklist",
+    "help": "What needs action next, ranked from data this screen already reads. Read only: each row opens its existing screen.",
+    "list": "Items needing action",
+    "loading": "Loading worklist...",
+    "empty": "Nothing needs action right now.",
+    "assignedTo": "Assigned to",
+    "anyone": "Anyone",
+    "rank": "#",
+    "item": "Item",
+    "score": "Score",
+    "reasons": "Why",
+    "kind": {
+      "hr_conversation": "HR conversation {ref}",
+      "case": "Case {ref}",
+      "agent_draft": "Agent draft {ref} awaiting approval"
+    },
+    "reason": {
+      "sla_overdue": "SLA overdue",
+      "sla_due_soon": "SLA due soon",
+      "docs_missing": "Documents missing",
+      "draft_waiting": "Draft waiting",
+      "draft_old": "Draft over 24 h old"
     }
   }
 }

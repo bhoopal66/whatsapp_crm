@@ -80,6 +80,7 @@ export async function middleware(request: NextRequest) {
   // missing here for months).
   const protectedPaths = [
     '/dashboard',
+    '/worklist',
     '/inbox',
     '/team-inbox',
     '/hr-inbox',

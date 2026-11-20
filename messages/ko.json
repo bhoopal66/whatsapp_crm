@@ -22,6 +22,7 @@
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "대시보드",
+    "worklist": "내 작업 목록",
     "inbox": "WhatsApp 인박스",
     "notifications": "알림",
     "contacts": "연락처",
@@ -93,6 +94,7 @@
   },
   "Header": {
     "dashboard": "대시보드",
+    "worklist": "내 작업 목록",
     "inbox": "WhatsApp 인박스",
     "notifications": "알림",
     "contacts": "연락처",
@@ -11744,6 +11746,31 @@
       },
       "yourReason": "내 사유:",
       "decisionNote": "답변:"
+    }
+  },
+  "Worklist": {
+    "title": "내 작업 목록",
+    "help": "이 화면이 이미 읽는 데이터로 순위를 매긴, 다음에 처리해야 할 항목입니다. 읽기 전용: 각 행은 해당 화면을 엽니다.",
+    "list": "처리가 필요한 항목",
+    "loading": "작업 목록 불러오는 중...",
+    "empty": "지금 처리할 항목이 없습니다.",
+    "assignedTo": "담당자",
+    "anyone": "모든 담당자",
+    "rank": "#",
+    "item": "항목",
+    "score": "점수",
+    "reasons": "이유",
+    "kind": {
+      "hr_conversation": "HR 대화 {ref}",
+      "case": "케이스 {ref}",
+      "agent_draft": "승인 대기 중인 에이전트 초안 {ref}"
+    },
+    "reason": {
+      "sla_overdue": "SLA 초과",
+      "sla_due_soon": "SLA 임박",
+      "docs_missing": "서류 누락",
+      "draft_waiting": "초안 대기 중",
+      "draft_old": "24시간 넘은 초안"
     }
   }
 }

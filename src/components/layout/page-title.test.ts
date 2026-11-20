@@ -11,6 +11,7 @@ import { PAGE_TITLE_KEYS, pageTitleKey } from './page-title';
 describe('pageTitleKey', () => {
   it.each([
     ['/dashboard', 'dashboard'],
+    ['/worklist', 'worklist'],
     ['/inbox', 'inbox'],
     ['/team-inbox', 'teamInbox'],
     ['/hr/recruiter', 'hrRecruiter'],

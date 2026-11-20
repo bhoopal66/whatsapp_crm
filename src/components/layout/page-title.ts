@@ -9,6 +9,7 @@
  */
 const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/dashboard', 'dashboard'],
+  ['/worklist', 'worklist'],
   ['/notifications', 'notifications'],
   ['/inbox', 'inbox'],
   ['/team-inbox', 'teamInbox'],
