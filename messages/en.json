@@ -11686,6 +11686,7 @@
           "noConsent": "No consent",
           "quietHours": "Quiet hours",
           "noTemplate": "No approved template",
+          "channelNotConnected": "RCS not connected",
           "dailyCap": "Daily cap reached",
           "duplicate": "Duplicate"
         },

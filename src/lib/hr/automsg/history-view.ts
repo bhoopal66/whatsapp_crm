@@ -36,6 +36,7 @@ export const HOLD_REASON_KEYS: Readonly<Record<HoldReason, string>> = {
   no_consent: 'noConsent',
   quiet_hours: 'quietHours',
   outside_window_no_template: 'noTemplate',
+  channel_not_connected: 'channelNotConnected',
   daily_cap: 'dailyCap',
   duplicate: 'duplicate',
 };

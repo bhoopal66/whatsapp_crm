@@ -306,3 +306,83 @@ describe('no free-text path', () => {
     );
   });
 });
+
+describe('RCS channel (migration 215)', () => {
+  function rcsRig(rcs: SendPort | null) {
+    const r = rig();
+    r.ctx.channel = 'rcs';
+    const rcsSent: TemplateSendRequest[] = [];
+    const port: SendPort | null = rcs && {
+      async send(req) {
+        rcsSent.push(req);
+        return rcs.send(req);
+      },
+    };
+    const deps: EngineDeps = { ...r.deps, senders: { rcs: port } };
+    return { ...r, deps, rcsSent };
+  }
+  const ok: SendPort = {
+    send: async () => ({ providerMessageId: 'rcs-1', messageId: null }),
+  };
+
+  it('no RCS sender -> held channel_not_connected, no claim, WhatsApp untouched', async () => {
+    const { store, sent, deps } = rcsRig(null);
+    store.add(row('r1'));
+    const claim = vi.spyOn(store, 'claim');
+    expect(await processRow(row('r1'), deps)).toBe(
+      'held:channel_not_connected'
+    );
+    expect(claim).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+    expect(store.rows.get('r1')).toMatchObject({
+      status: 'held',
+      holdReason: 'channel_not_connected',
+    });
+  });
+
+  it('already held for that reason -> no second write', async () => {
+    const { store, deps } = rcsRig(null);
+    store.add(
+      row('r1', { status: 'held', holdReason: 'channel_not_connected' })
+    );
+    const hold = vi.spyOn(store, 'hold');
+    expect(await processRow(row('r1'), deps)).toBe(
+      'held:channel_not_connected'
+    );
+    expect(hold).not.toHaveBeenCalled();
+  });
+
+  it('with an RCS sender: sent through it, markSent with no message id', async () => {
+    const { store, sent, rcsSent, deps } = rcsRig(ok);
+    store.add(row('r1'));
+    const markSent = vi.spyOn(store, 'markSent');
+    expect(await processRow(row('r1'), deps)).toBe('sent');
+    expect(sent).toEqual([]);
+    expect(rcsSent).toHaveLength(1);
+    expect(rcsSent[0].metaTemplateName).toBe('hr_hr_interview_invite');
+    expect(markSent).toHaveBeenCalledWith(
+      'r1',
+      expect.objectContaining({ providerMessageId: 'rcs-1', messageId: null })
+    );
+    expect(store.rows.get('r1')).toMatchObject({
+      status: 'sent',
+      claimState: null,
+    });
+  });
+
+  it('a WhatsApp row ignores the RCS sender and keeps the unconfirmed rule', async () => {
+    const { store, ctx, sent, rcsSent, deps } = rcsRig(ok);
+    ctx.channel = 'whatsapp';
+    store.add(row('r1'));
+    expect(await processRow(row('r1'), deps)).toBe('sent');
+    expect(sent).toHaveLength(1);
+    expect(rcsSent).toEqual([]);
+    const noRecord: SendPort = {
+      send: async () => ({ providerMessageId: 'w', messageId: null }),
+    };
+    store.add(row('r2'));
+    expect(await processRow(row('r2'), { ...deps, sender: noRecord })).toBe(
+      'unconfirmed'
+    );
+  });
+});

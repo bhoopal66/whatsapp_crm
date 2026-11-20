@@ -9,6 +9,7 @@
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
+import { RcsSendError } from './rcs';
 
 export interface SendFailure {
   retryable: boolean;
@@ -54,6 +55,10 @@ function byStatus(status: number): SendFailure {
 }
 
 export function classifySendFailure(e: unknown): SendFailure {
+  // The RCS sender classifies its own failures (no WhatsApp codes apply).
+  if (e instanceof RcsSendError)
+    return { retryable: e.retryable, reason: e.reason };
+
   if (e instanceof HrSendRefusal)
     return { retryable: e.retryable, reason: e.reason };
 

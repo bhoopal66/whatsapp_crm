@@ -113,3 +113,24 @@ describe('runHrAutomsgNudges', () => {
     );
   });
 });
+
+describe('runHrAutomsgDrain: RCS sender', () => {
+  it('is null without RCS settings', async () => {
+    vi.stubEnv('RCS_BASE_URL', '');
+    vi.stubEnv('RCS_TOKEN', '');
+    vi.stubEnv('RCS_SENDER_ID', '');
+    await runHrAutomsgDrain({ now: NOW });
+    expect(h.processDue.mock.calls[0][1].senders).toEqual({ rcs: null });
+    vi.unstubAllEnvs();
+  });
+
+  it('is built when all three settings are present', async () => {
+    vi.stubEnv('RCS_BASE_URL', 'https://rcs.example');
+    vi.stubEnv('RCS_TOKEN', 't');
+    vi.stubEnv('RCS_SENDER_ID', 's');
+    await runHrAutomsgDrain({ now: NOW });
+    const rcs = h.processDue.mock.calls[0][1].senders.rcs;
+    expect(typeof rcs?.send).toBe('function');
+    vi.unstubAllEnvs();
+  });
+});

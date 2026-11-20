@@ -18,8 +18,10 @@ import type {
   StoredTemplate,
 } from './ports';
 import {
+  CHANNELS,
   DEFAULT_SETTINGS,
   type AutoMsgSettings,
+  type Channel,
   type HoldReason,
   type Trigger,
 } from './types';
@@ -138,7 +140,18 @@ export function toRowState(j: Json): RowState {
     triggerEnabled,
     template: toTemplate(obj(j.template)),
     sentToday: num(j.sent_today, 0),
+    channel: toChannel(j.channel),
   };
+}
+
+/**
+ * Migration 215's `channel`; absent (an older state) = 'whatsapp'. An
+ * unknown value throws rather than guess a channel: nothing is sent.
+ */
+function toChannel(v: unknown): Channel {
+  if (v === undefined || v === null) return 'whatsapp';
+  if ((CHANNELS as readonly unknown[]).includes(v)) return v as Channel;
+  throw new Error(`unknown automated-message channel ${String(v)}`);
 }
 
 export class PgAutoMsgStore implements AutoMsgStorePort {

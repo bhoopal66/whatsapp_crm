@@ -7,6 +7,8 @@
  */
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { processDue } from './engine';
+import { createRcsSendPort } from './rcs';
+import { rcsSendConfig } from './rcs-config';
 import { createHrSendPort } from './send';
 import { PgAutoMsgStore } from './store';
 
@@ -28,9 +30,12 @@ export async function runHrAutomsgDrain(
     const reviewed = await store.reviewStuck(now);
     const expired = await store.expire(now);
     const rows = await store.due(opts.limit ?? DEFAULT_LIMIT, opts.accountId);
+    // Read at drain time: no RCS settings = RCS rows held, never rerouted.
+    const rcsCfg = rcsSendConfig();
     const counts = await processDue(rows, {
       store,
       sender: createHrSendPort(db),
+      senders: { rcs: rcsCfg ? createRcsSendPort(db, rcsCfg) : null },
       clock: { now: () => opts.now ?? new Date() },
     });
     const outcomes: Record<string, number> = {};

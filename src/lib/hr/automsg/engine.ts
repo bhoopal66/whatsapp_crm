@@ -69,7 +69,7 @@ export async function processRow(
   row: OutboxRow,
   deps: EngineDeps
 ): Promise<RowOutcome> {
-  const { store, sender, clock } = deps;
+  const { store, clock } = deps;
   const now = clock.now();
 
   if (
@@ -124,6 +124,16 @@ export async function processRow(
   // decide() allowed, so the template is present.
   const tpl = st.template!;
 
+  // One sender per channel, never another channel's (migration 215): an
+  // RCS row with no RCS provider waits, it is not sent on WhatsApp.
+  const channel = st.channel;
+  const sender = channel === 'rcs' ? (deps.senders?.rcs ?? null) : deps.sender;
+  if (!sender) {
+    if (!(cur.status === 'held' && cur.holdReason === 'channel_not_connected'))
+      await store.hold(row.id, 'channel_not_connected');
+    return 'held:channel_not_connected';
+  }
+
   const claim = await store.claim(row.id, now);
   if (claim === 'lost') return 'lost';
   if (claim === 'capped') return 'capped';
@@ -162,7 +172,8 @@ export async function processRow(
     return 'failed';
   }
 
-  if (sent.messageId === null) {
+  // An RCS message has no chat message: a null messageId is normal there.
+  if (channel === 'whatsapp' && sent.messageId === null) {
     // The gateway accepted it but the chat has no record of it: say so,
     // so the history shows it needs review.
     await store

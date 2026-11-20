@@ -12,9 +12,17 @@ import type {
   ClockPort,
   RowState,
 } from './ports';
-import { MAX_ATTEMPTS, type HoldReason, type OutboxRow } from './types';
+import {
+  MAX_ATTEMPTS,
+  type Channel,
+  type HoldReason,
+  type OutboxRow,
+} from './types';
 
-export type MemoryContext = Omit<RowState, 'row' | 'sentToday'>;
+export type MemoryContext = Omit<RowState, 'row' | 'sentToday' | 'channel'> & {
+  /** Absent = 'whatsapp', as the SQL state without a channel. */
+  channel?: Channel;
+};
 
 export class MemoryAutoMsgStore implements AutoMsgStorePort {
   rows = new Map<string, OutboxRow>();
@@ -68,6 +76,7 @@ export class MemoryAutoMsgStore implements AutoMsgStorePort {
       ...this.ctx,
       row: { ...r },
       sentToday: this.sentToday(r, this.clock.now()),
+      channel: this.ctx.channel ?? 'whatsapp',
     };
   }
 

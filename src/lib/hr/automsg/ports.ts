@@ -8,6 +8,7 @@
 import type {
   AutoLang,
   AutoMsgSettings,
+  Channel,
   HoldReason,
   OutboxRow,
   StoredTemplate,
@@ -30,8 +31,11 @@ export interface RowState {
   /** Includes `triggers`. */
   settings: AutoMsgSettings;
   triggerEnabled: boolean;
+  /** That channel's template: for rcs, `metaTemplateName` is the RCS provider template id. */
   template: StoredTemplate | null;
   sentToday: number;
+  /** Migration 215; 'whatsapp' when the state carries none. */
+  channel: Channel;
 }
 
 export type ClaimOutcome = 'claimed' | 'capped' | 'lost';
@@ -105,6 +109,9 @@ export interface ClockPort {
 
 export interface EngineDeps {
   store: AutoMsgStorePort;
+  /** The WhatsApp sender. */
   sender: SendPort;
+  /** Other channels' senders; a missing one holds its rows 'channel_not_connected'. */
+  senders?: { rcs?: SendPort | null };
   clock: ClockPort;
 }

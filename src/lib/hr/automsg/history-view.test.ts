@@ -11,7 +11,7 @@ import {
   historyRowView,
   historyStatusArg,
 } from './history-view';
-import { HOLD_REASONS, OUTBOX_STATUSES, type OutboxStatus } from './types';
+import { ALL_HOLD_REASONS, OUTBOX_STATUSES, type OutboxStatus } from './types';
 
 const row = (
   status: OutboxStatus,
@@ -76,7 +76,7 @@ describe('labels', () => {
     (file) => {
       const h = automsg(file).history;
       for (const s of OUTBOX_STATUSES) expect(h.status[s]).toBeTruthy();
-      for (const r of HOLD_REASONS)
+      for (const r of ALL_HOLD_REASONS)
         expect(h.hold[HOLD_REASON_KEYS[r]]).toBeTruthy();
       for (const c of Object.values(CLAIM_STATE_KEYS))
         expect(h.claim[c]).toBeTruthy();

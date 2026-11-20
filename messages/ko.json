@@ -11686,6 +11686,7 @@
           "noConsent": "동의 없음",
           "quietHours": "발송 금지 시간",
           "noTemplate": "승인된 템플릿 없음",
+          "channelNotConnected": "RCS 미연결",
           "dailyCap": "하루 한도 도달",
           "duplicate": "중복"
         },

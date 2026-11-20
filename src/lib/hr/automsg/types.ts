@@ -61,7 +61,27 @@ export const HOLD_REASONS = [
   'daily_cap',
   'duplicate',
 ] as const;
-export type HoldReason = (typeof HOLD_REASONS)[number];
+export type GuardHoldReason = (typeof HOLD_REASONS)[number];
+
+/**
+ * Holds the engine sets outside the guards (migration 215): an RCS row
+ * while no RCS provider is configured. Never moved to another channel.
+ */
+export const ENGINE_HOLD_REASONS = ['channel_not_connected'] as const;
+
+/** Every hold reason a row can carry: the guards' then the engine's. */
+export const ALL_HOLD_REASONS = [
+  ...HOLD_REASONS,
+  ...ENGINE_HOLD_REASONS,
+] as const;
+export type HoldReason = (typeof ALL_HOLD_REASONS)[number];
+
+/**
+ * The channel a row is sent on (migration 215). There is no fallback
+ * between them: an RCS row is never sent through the WhatsApp sender.
+ */
+export const CHANNELS = ['whatsapp', 'rcs'] as const;
+export type Channel = (typeof CHANNELS)[number];
 
 /** 'approved' = approved by Meta as a WhatsApp message template. Only 'approved' is ever sent automatically. */
 export const APPROVAL_STATUSES = ['draft', 'approved'] as const;

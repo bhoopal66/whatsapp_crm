@@ -116,7 +116,15 @@ describe('PgAutoMsgStore.state', () => {
         category: 'utility',
       },
       sentToday: 2,
+      channel: 'whatsapp',
     });
+  });
+
+  it('carries migration 215 channel; an unknown one throws', async () => {
+    const rcs = rig({ data: { ...STATE, channel: 'rcs' }, error: null });
+    expect((await rcs.store.state('r1'))?.channel).toBe('rcs');
+    const bad = rig({ data: { ...STATE, channel: 'sms' }, error: null });
+    await expect(bad.store.state('r1')).rejects.toThrow(/channel sms/);
   });
 
   it('the trigger switch comes from trigger_enabled', async () => {
