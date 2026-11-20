@@ -800,6 +800,10 @@ jobs:
       - name: Verify submission group membership
         run: supabase db query --local --file supabase/ci/verify-submission-group-membership.sql
 
+      # Migration 211: adding a number to a submission group.
+      - name: Verify submission group add number
+        run: supabase db query --local --file supabase/ci/verify-submission-group-add-number.sql
+
       # Migration 177: contacts_select computes visibility as sets
       # (contact_visibility_people / _chat_contact_ids) and shows each
       # role exactly what can_view_contact allows, compared per person
