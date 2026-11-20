@@ -153,7 +153,7 @@ export function MembersTab({
       </div>
       {(addBlockedText ?? blockedText) && (
         <p className="text-muted-foreground text-xs">
-          {m('blockedHint', { reason: addBlockedText ?? blockedText })}
+          {m('blockedHint', { reason: addBlockedText ?? blockedText ?? '' })}
         </p>
       )}
       <p className="text-muted-foreground text-xs tabular-nums">
