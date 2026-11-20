@@ -265,6 +265,16 @@ which works exactly as before.
   `RCS_TOKEN`, `RCS_SENDER_ID` and, for receipts, `RCS_WEBHOOK_SECRET`
   and `RCS_WORKSPACE_ID` (see `.env.local.example`), and restart.
   `GET /api/hr/automsg/rcs` reports whether sending and receipts are on.
+- **A message keeps its channel.** The channel is fixed when a message is
+  queued: switching a trigger's channel changes new messages only, so a
+  message already waiting (quiet hours, consent) still goes out, or
+  expires, on the channel it was queued on.
+- **Before switching RCS on**, beyond mapping the wire format: the
+  request's `clientRef` is the automated message's own id; map it to the
+  provider's idempotency key, or a send that timed out after the provider
+  accepted it can be retried as a duplicate. The receipt webhook checks
+  its HMAC but has no replay timestamp and is not rate-limited like the
+  WhatsApp webhooks; add both with the provider's real format.
 - **Open before go-live** (from the package): UAE carrier support (e&,
   du), Android-only reach, no SMS fallback, and PDPL/TDRA consent rules
   for RCS.
