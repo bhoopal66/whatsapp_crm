@@ -121,6 +121,12 @@ sign-in bounces back to `/login`.
 - `lib/auth/conversation-visibility.ts` — client-side mirror of the
   `can_view_conversation` / `can_view_contact` SQL functions (migrations 042 and
   043). It informs UI decisions only; the DB decides. Change one, change both.
+  Since 217, `conversations_select`, `messages_select` and `messages_modify`
+  restate `can_view_conversation` / `can_view_personal_chat` as set
+  membership over `contact_visibility_people()` and
+  `personal_number_visible_ids()`, because the per-row calls timed out for
+  leaders and agents. A change to either function changes those three
+  policies too; `verify-conversations-select-set-based.sql` compares them.
 - **A contact's owner follows its chat (migration 169).** `contacts.user_id`
   is the owner, not the creator: assigning the chat to a live staff member
   of the account moves it (`conversations_move_contact_owner`, any writer;
@@ -606,7 +612,11 @@ identical openers in first messages, failures, response times.
   Every read is filtered by `current_account_id()`. A leader's visible
   conversations are computed once (`v_convs`, the policy's own
   predicate), with the team filters on top. A new read in these functions
-  needs both filters.
+  needs both filters. Since 216 `v_convs` asks `can_view_conversation`
+  once per distinct (owner, assignee, number, pinned number) tuple, and
+  the report runs with `plan_cache_mode = force_custom_plan`: a cached
+  generic plan (pooled connections) took the owner's 90-day report past
+  the 8 s timeout. Time a plpgsql RPC past its sixth call in one session.
 - **Tests.** The SQL behaviour is asserted in
   `supabase/ci/verify-team-activity.sql`.
 

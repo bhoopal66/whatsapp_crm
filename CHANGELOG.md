@@ -12,6 +12,34 @@ and polish.
 
 ## [Unreleased]
 
+### Faster screens for team leaders and agents, and fewer errors
+
+**Migration required:** apply `216_team_activity_perf.sql`, then
+`217_conversations_perf.sql`, before deploying this build. Apply in
+order, once: re-running 206 after 216, or 191 after 217, puts the slow
+versions back (same results, slow again).
+- The home dashboard's charts, the Team activity report and its
+  drill-down, the team chat's WhatsApp counts and opening a chat no
+  longer time out for team leaders and agents. They took 4 to 10
+  seconds and often failed with an error; now they answer in well under
+  a second. Who sees which chats, messages and figures is unchanged.
+- Sending from a chat that has no number yet no longer tries to record
+  a number the sender may not use (it was refused and logged each
+  time). A chat is still never moved to another number by a send.
+- Contact photos: ids WhatsApp cannot look up (groups, hidden numbers,
+  too short) are skipped instead of failing on every refresh, numbers
+  saved as 00971… are looked up, and a phone that is logged out is
+  skipped quietly.
+- OpenWA numbers: the connect window stops checking while its browser
+  tab is hidden, and open tabs share one status check for a few
+  seconds, so they no longer trip OpenWA's rate limit (seen as errors).
+  Closing the window right after scanning can no longer log the phone
+  out on an out-of-date answer.
+- People in a department kept out of the sales areas (such as HR) no
+  longer send a refused request for the Cases count every two minutes,
+  or for the AI settings on every chat they open.
+- Next.js 16.4.6 (security fixes).
+
 ### RCS for HR automated messages (prepared, not connected)
 
 **Migration required:** apply `215_hr_automsg_rcs.sql` as a superuser or
