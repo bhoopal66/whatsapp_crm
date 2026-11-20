@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { fileSizeLabel, groupMediaView, safeMediaUrl } from './group-media';
+import {
+  fileSizeLabel,
+  groupContactCards,
+  groupMediaView,
+  safeMediaUrl,
+} from './group-media';
 
 const LINK = 'https://s3.eu-central-1.wasabisys.com/in-files/1234/doc.pdf';
 
@@ -83,5 +88,48 @@ describe('helpers', () => {
     expect(safeMediaUrl(LINK)).toBe(LINK);
     expect(safeMediaUrl('  ')).toBeNull();
     expect(safeMediaUrl('data:text/html,hi')).toBeNull();
+  });
+});
+
+describe('groupContactCards', () => {
+  const card = {
+    name: 'Omar Khalid',
+    phones: ['+971 50 987 6543'],
+    emails: ['omar@example.com'],
+    org: 'Acme',
+  };
+
+  it('reads the stored card(s)', () => {
+    expect(
+      groupContactCards(
+        'contacts',
+        { contacts: [card] },
+        'Contact: Omar Khalid'
+      )
+    ).toEqual([card]);
+  });
+
+  it('is null for any other message type', () => {
+    expect(groupContactCards('text', { contacts: [card] }, 'hi')).toBeNull();
+    expect(groupContactCards('document', null, 'x.pdf')).toBeNull();
+  });
+
+  it('turns an older text-only card into a name-only card', () => {
+    expect(groupContactCards('contacts', null, 'Contact: Omar Khalid')).toEqual(
+      [{ name: 'Omar Khalid', phones: [], emails: [], org: null }]
+    );
+    expect(groupContactCards('contacts', null, 'Contact card')).toEqual([
+      { name: '', phones: [], emails: [], org: null },
+    ]);
+  });
+
+  it('drops junk entries and keeps only strings', () => {
+    expect(
+      groupContactCards(
+        'contacts',
+        { contacts: [null, 'x', { phones: [7, '+97150'], emails: 'no' }] },
+        null
+      )
+    ).toEqual([{ name: '+97150', phones: ['+97150'], emails: [], org: null }]);
   });
 });

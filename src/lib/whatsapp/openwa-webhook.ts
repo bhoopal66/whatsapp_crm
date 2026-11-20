@@ -451,7 +451,7 @@ const GROUP_TYPES: Record<string, string> = {
  * Map one `message.received` / `message.sent` data object of a group
  * chat, or null. Attachments keep their type and caption only: the
  * gateway's copy of the bytes has no browser-loadable link, so `media`
- * carries just a location.
+ * carries just a location or the parsed contact card.
  */
 export function normalizeOpenWAGroupMessage(
   raw: RawOpenWAMessage
@@ -487,6 +487,7 @@ export function normalizeOpenWAGroupMessage(
     const card = body ? parseVcard(body) : null;
     if (!card) return null;
     body = contactCardsText([card]);
+    media = { contacts: [card] };
   } else if (type === 'audio') {
     body = null;
   } else if (type === 'text' && !body) {

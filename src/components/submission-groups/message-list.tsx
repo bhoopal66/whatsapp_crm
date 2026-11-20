@@ -6,7 +6,8 @@ import { AlertCircle, Ban, Check, Clock } from 'lucide-react';
 
 import { groupMessagesByDay } from '@/lib/groups/group-page';
 import { GroupMessageMedia } from '@/components/groups/group-message-media';
-import { groupMediaView } from '@/lib/groups/group-media';
+import { ContactCardMessage } from '@/components/inbox/contact-card-message';
+import { groupContactCards, groupMediaView } from '@/lib/groups/group-media';
 import { senderColors } from '@/lib/groups/sender-colors';
 import {
   bubbleKind,
@@ -53,6 +54,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const out = kind === 'staff';
             const color = colorOf(m);
             const media = groupMediaView(m.type, m.media, m.body);
+            const cards = groupContactCards(m.type, m.media, m.body);
             const sender = isAutomatic(m)
               ? t('automatic')
               : out
@@ -90,7 +92,9 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       </span>
                     )}
                   </p>
-                  {media ? (
+                  {cards ? (
+                    <ContactCardMessage cards={cards} />
+                  ) : media ? (
                     <GroupMessageMedia view={media} />
                   ) : (
                     <p className="break-words whitespace-pre-wrap">

@@ -1,10 +1,13 @@
+import type { SharedContact } from '@/lib/whatsapp/contact-card';
+
 /**
  * What a WhatsApp group message's attachment looks like on screen.
  *
  * Group traffic never enters `messages` (migrations 114/115), so a group
  * message carries its attachment in its own `media` jsonb, written by
  * `lib/groups/inbound.ts` from the normalised Whapi payload:
- * `{ id, link, mime_type, filename, file_size }`, or `{ location }`.
+ * `{ id, link, mime_type, filename, file_size }`, `{ location }`, or
+ * `{ contacts }` (a shared contact card, `groupContactCards`).
  * `link` is Whapi's own https link to the bytes (auto_download), so the
  * browser can show or open it directly. Pure: no React, no I/O.
  */
@@ -111,4 +114,51 @@ export function groupMediaView(
     caption: text && text !== filename ? text : null,
     location: null,
   };
+}
+
+function strings(v: unknown): string[] {
+  return Array.isArray(v)
+    ? v.map(str).filter((x): x is string => x !== null)
+    : [];
+}
+
+/** The `Contact: ` prefix of `contactCardsText`, which the body carries. */
+const CARD_PREFIX = /^Contact:\s*/;
+
+/**
+ * The contact card(s) a group message shared, or null when it is not a
+ * `contacts` message. Since the card is kept in `media.contacts`; an
+ * older message kept only the preview text (`Contact: <name>`), so it
+ * comes back as a name-only card rather than as plain text.
+ */
+export function groupContactCards(
+  type: string | null | undefined,
+  media: unknown,
+  body: string | null | undefined
+): SharedContact[] | null {
+  if (type !== 'contacts') return null;
+  const raw = asObject(media)?.contacts;
+  const cards: SharedContact[] = [];
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const c = asObject(item);
+      if (!c) continue;
+      const phones = strings(c.phones);
+      const name = str(c.name) ?? phones[0] ?? null;
+      if (!name) continue;
+      cards.push({ name, phones, emails: strings(c.emails), org: str(c.org) });
+    }
+  }
+  if (cards.length > 0) return cards;
+  const text = str(body);
+  const name = text ? str(text.replace(CARD_PREFIX, '')) : null;
+  return [
+    {
+      // `Contact card` is the preview of a card with no names on it.
+      name: name && name !== 'Contact card' ? name : '',
+      phones: [],
+      emails: [],
+      org: null,
+    },
+  ];
 }

@@ -95,6 +95,36 @@ describe('extractWhapiGroupMessages', () => {
     expect(m.senderWaId).toBe('123456789012345@lid');
   });
 
+  it('keeps a shared contact card as the parsed card, not only its text', () => {
+    const [m] = extractWhapiGroupMessages(
+      body({
+        id: 'g-card',
+        from_me: false,
+        type: 'contact',
+        chat_id: GROUP,
+        from: '971501234567',
+        timestamp: 1700000000,
+        contact: {
+          name: 'Omar Khalid',
+          vcard:
+            'BEGIN:VCARD\nVERSION:3.0\nFN:Omar Khalid\nTEL;type=CELL;waid=971509876543:+971 50 987 6543\nEND:VCARD',
+        },
+      })
+    );
+    expect(m.type).toBe('contacts');
+    expect(m.body).toBe('Contact: Omar Khalid');
+    expect(m.media).toEqual({
+      contacts: [
+        {
+          name: 'Omar Khalid',
+          phones: ['+971 50 987 6543'],
+          emails: [],
+          org: null,
+        },
+      ],
+    });
+  });
+
   it('skips 1:1 chats, broadcast lists, reactions and actions', () => {
     const out = extractWhapiGroupMessages(
       body(

@@ -531,6 +531,24 @@ describe('OpenWA group traffic (migration 114)', () => {
     });
   });
 
+  it('keeps a shared contact card as the parsed card', () => {
+    const out = normalizeOpenWAWebhook(
+      groupMessage({
+        type: 'contact',
+        body: 'BEGIN:VCARD\nVERSION:3.0\nFN:Omar Khalid\nTEL:+971509876543\nEND:VCARD',
+      })
+    );
+    expect(out.groupMessages[0]).toMatchObject({
+      type: 'contacts',
+      body: 'Contact: Omar Khalid',
+      media: {
+        contacts: [
+          { name: 'Omar Khalid', phones: ['+971509876543'], emails: [], org: null },
+        ],
+      },
+    });
+  });
+
   it('records our own send into a group (message.sent) as fromMe', () => {
     const out = normalizeOpenWAWebhook({
       ...groupMessage({ fromMe: true, to: '120363000000000001@g.us' }),

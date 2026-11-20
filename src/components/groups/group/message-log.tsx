@@ -10,7 +10,8 @@ import {
   statusTick,
 } from '@/lib/groups/group-page';
 import { GroupMessageMedia } from '@/components/groups/group-message-media';
-import { groupMediaView } from '@/lib/groups/group-media';
+import { ContactCardMessage } from '@/components/inbox/contact-card-message';
+import { groupContactCards, groupMediaView } from '@/lib/groups/group-media';
 import { senderColors } from '@/lib/groups/sender-colors';
 import type { WhatsappGroupMessageRow } from '@/lib/groups/types';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,7 @@ export function GroupMessageLog({
             const sender = groupMessageSender(m, currentUserId);
             const color = colorOf(m);
             const media = groupMediaView(m.type, m.media, m.body);
+            const cards = groupContactCards(m.type, m.media, m.body);
             return (
               <div
                 key={m.id}
@@ -95,7 +97,9 @@ export function GroupMessageLog({
                         : sender.name
                       : t(out ? 'chat.yourNumber' : 'chat.someone')}
                   </p>
-                  {media ? (
+                  {cards ? (
+                    <ContactCardMessage cards={cards} />
+                  ) : media ? (
                     <GroupMessageMedia view={media} />
                   ) : (
                     <p className="break-words whitespace-pre-wrap">

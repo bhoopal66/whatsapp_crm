@@ -159,4 +159,27 @@ describe('GroupMessageLog attachments', () => {
     expect(html).not.toContain('href=');
     expect(html).toContain('old.pdf unavailable');
   });
+
+  it('shows a shared contact as a card with its number and Save', () => {
+    const html = render(
+      message({
+        type: 'contacts',
+        body: 'Contact: Omar Khalid',
+        media: {
+          contacts: [
+            {
+              name: 'Omar Khalid',
+              phones: ['+971 50 987 6543'],
+              emails: [],
+              org: null,
+            },
+          ],
+        },
+      })
+    );
+    expect(html).toContain('Omar Khalid');
+    expect(html).toContain('+971 50 987 6543');
+    expect(html).toContain('Save to contacts');
+    expect(html).not.toContain('Contact: Omar Khalid');
+  });
 });

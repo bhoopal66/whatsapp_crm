@@ -92,6 +92,10 @@ export function extractWhapiGroupMessages(
         };
       } else if (m.location) {
         media = { location: m.location };
+      } else if (m.contacts) {
+        // A shared contact card: the parsed card(s), so the chat draws
+        // the card (name, numbers, Save) instead of its preview text.
+        media = { contacts: m.contacts };
       }
       out.push({
         id: m.id,
