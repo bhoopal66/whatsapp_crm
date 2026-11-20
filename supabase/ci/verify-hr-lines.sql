@@ -5,8 +5,10 @@
 -- opens as a recruiter conversation at cv_review, as 200's hr_open would.
 -- Off by default; the list and switch are read with an HR role and
 -- written by owners/admins only, through hr_lines_get / hr_lines_set;
--- hr_auto_open_recruiter is the service role's. This asserts each of
--- those through the real RLS, grants and RPCs.
+-- hr_auto_open_recruiter is the service role's. Saves are
+-- compare-and-set on the settings row's updated_at (a stale one is
+-- STALE and writes nothing). This asserts each of those through the
+-- real RLS, grants and RPCs.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -30,6 +32,7 @@ DECLARE
   c1 UUID; c2 UUID;            -- c1 new chat, c2 has a closed HR row
   c3 UUID; c4 UUID; c5 UUID;   -- history: another number / two lines / no number
   rules_before INT;
+  v_old    TIMESTAMPTZ;  -- a save version that went stale
   r        TEXT;
   c        TEXT[] := '{}';  -- one element per check: NULL = passed
   failed   TEXT[];
@@ -82,6 +85,15 @@ BEGIN
     RETURNS text LANGUAGE sql AS $body$
       SELECT CASE WHEN p_got LIKE p_want THEN NULL
                   ELSE p_label || ' (got ' || left(coalesce(p_got, '<null>'), 200) || ')' END
+    $body$
+  $fn$;
+
+  -- The settings row's updated_at of an account (NULL with no row): the
+  -- version a save must send.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.hr_at(p_account uuid)
+    RETURNS timestamptz LANGUAGE sql AS $body$
+      SELECT s.updated_at FROM public.hr_line_settings s WHERE s.account_id = p_account
     $body$
   $fn$;
 
@@ -142,8 +154,8 @@ BEGIN
 
   -- ---------- Defaults: no row = off, empty list ----------
   r := pg_temp.hr_as(u_owner,
-         'SELECT (x->>''auto_open_recruiter'') || ''/'' || jsonb_array_length(x->''channel_ids'') FROM public.hr_lines_get() x');
-  c := c || pg_temp.hr_chk('defaults are not off with no lines', r, 'false/0');
+         'SELECT (x->>''auto_open_recruiter'') || ''/'' || jsonb_array_length(x->''channel_ids'') || ''/'' || jsonb_typeof(x->''updated_at'') FROM public.hr_lines_get() x');
+  c := c || pg_temp.hr_chk('defaults are not off with no lines and a null updated_at', r, 'false/0/null');
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w1));
   c := c || pg_temp.hr_chk('no settings row did not answer off', r, 'off');
 
@@ -153,7 +165,7 @@ BEGIN
   r := pg_temp.hr_as(u_hr,
          'SELECT (x->>''auto_open_recruiter'') || ''/'' || jsonb_array_length(x->''channel_ids'') FROM public.hr_lines_get() x');
   c := c || pg_temp.hr_chk('an HR member could not read the HR lines', r, 'false/0');
-  r := pg_temp.hr_as(u_hr, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], true)::text', w1));
+  r := pg_temp.hr_as(u_hr, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], true, NULL)::text', w1));
   c := c || pg_temp.hr_chk('an HR member changed the HR lines', r, 'ERROR 42501 NOT_ALLOWED:%');
   r := (SELECT count(*) FROM hr_lines l WHERE l.account_id = a_acct)::text
     || '/' || (SELECT count(*) FROM hr_line_settings s WHERE s.account_id = a_acct)::text;
@@ -161,13 +173,14 @@ BEGIN
 
   -- ---------- Round trip as the owner ----------
   r := pg_temp.hr_as(u_owner, format(
-         'SELECT (x->>''auto_open_recruiter'') || ''/'' || jsonb_array_length(x->''channel_ids'') FROM public.hr_lines_set(ARRAY[%L, %L, %L]::uuid[], false) x',
+         'SELECT (x->>''auto_open_recruiter'') || ''/'' || jsonb_array_length(x->''channel_ids'') || ''/'' || (x->>''updated_at'') FROM public.hr_lines_set(ARRAY[%L, %L, %L]::uuid[], false, NULL) x',
          w1, w2, w1));
-  c := c || pg_temp.hr_chk('set (two numbers, one repeated, off) returned the wrong shape', r, 'false/2');
+  c := c || pg_temp.hr_chk('a first save (expected NULL, no settings row) did not return the list and its version',
+                           r, 'false/2/' || coalesce(to_jsonb(pg_temp.hr_at(a_acct)) #>> '{}', '<no row>'));
   r := pg_temp.hr_as(u_owner, format(
-         'SELECT (x->>''auto_open_recruiter'') || ''/'' || ((x->''channel_ids'') @> to_jsonb(ARRAY[%L, %L]::uuid[]))::text FROM public.hr_lines_get() x',
-         w1, w2));
-  c := c || pg_temp.hr_chk('get did not return what set saved', r, 'false/true');
+         'SELECT (x->>''auto_open_recruiter'') || ''/'' || ((x->''channel_ids'') @> to_jsonb(ARRAY[%L, %L]::uuid[]))::text || ''/'' || ((x->>''updated_at'')::timestamptz = %L::timestamptz)::text FROM public.hr_lines_get() x',
+         w1, w2, pg_temp.hr_at(a_acct)));
+  c := c || pg_temp.hr_chk('get did not return what set saved, version included', r, 'false/true/true');
   r := (SELECT string_agg(coalesce(l.created_by::text, '-'), ',') FROM hr_lines l WHERE l.account_id = a_acct)
     || '/' || (SELECT s.updated_by::text FROM hr_line_settings s WHERE s.account_id = a_acct);
   c := c || pg_temp.hr_chk('created_by / updated_by are not the caller', r,
@@ -175,19 +188,34 @@ BEGIN
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w1));
   c := c || pg_temp.hr_chk('a line with the switch off did not answer off', r, 'off');
 
-  r := pg_temp.hr_as(u_owner, 'SELECT jsonb_array_length(x->''channel_ids'')::text FROM public.hr_lines_set(NULL, false) x');
+  -- ---------- Compare-and-set: a stale save is refused ----------
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], true, NULL)::text', w1));
+  c := c || pg_temp.hr_chk('a "no row yet" save over an existing row was not STALE', r, 'ERROR 22023 STALE:%');
+  v_old := pg_temp.hr_at(a_acct);
+  r := pg_temp.hr_as(u_owner, format(
+         'SELECT jsonb_array_length(x->''channel_ids'') || ''/'' || ((x->>''updated_at'')::timestamptz > %L::timestamptz)::text FROM public.hr_lines_set(ARRAY[%L]::uuid[], false, %L) x',
+         v_old, w2, v_old));
+  c := c || pg_temp.hr_chk('a save with the current version did not succeed with a newer one', r, '1/true');
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true, %L)::text', w1, w2, v_old));
+  c := c || pg_temp.hr_chk('a save with a stale version was not STALE', r, 'ERROR 22023 STALE:%');
+  r := (SELECT string_agg(l.channel_id::text, ',') FROM hr_lines l WHERE l.account_id = a_acct)
+    || '/' || (SELECT s.auto_open_recruiter::text FROM hr_line_settings s WHERE s.account_id = a_acct)
+    || '/' || (pg_temp.hr_at(a_acct) > v_old)::text;
+  c := c || pg_temp.hr_chk('a STALE save changed something', r, w2::text || '/false/true');
+
+  r := pg_temp.hr_as(u_owner, format('SELECT jsonb_array_length(x->''channel_ids'')::text FROM public.hr_lines_set(NULL, false, %L) x', pg_temp.hr_at(a_acct)));
   c := c || pg_temp.hr_chk('a NULL list did not clear the lines', r, '0');
 
   -- ---------- Another account's number: INVALID, nothing written ----------
-  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], false)::text', w1));
-  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true)::text', w2, wb));
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], false, %L)::text', w1, pg_temp.hr_at(a_acct)));
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true, %L)::text', w2, wb, pg_temp.hr_at(a_acct)));
   c := c || pg_temp.hr_chk('another workspace''s number was not INVALID', r, 'ERROR 22023 INVALID:%');
   r := (SELECT string_agg(l.channel_id::text, ',') FROM hr_lines l WHERE l.account_id IN (a_acct, a_out))
     || '/' || (SELECT s.auto_open_recruiter::text FROM hr_line_settings s WHERE s.account_id = a_acct);
   c := c || pg_temp.hr_chk('an INVALID set wrote something', r, w1::text || '/false');
 
   -- ---------- Auto-open ----------
-  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], true)::text', w1));
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L]::uuid[], true, %L)::text', w1, pg_temp.hr_at(a_acct)));
   c := c || pg_temp.hr_chk('fixture: switching auto-open on failed', r, '{%');
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w2))
     || '/' || pg_temp.hr_as(NULL, format('SELECT public.hr_auto_open_recruiter(%L, NULL)', c1))
@@ -228,7 +256,7 @@ BEGIN
   -- ---------- Only chats that only ever used HR lines ----------
   -- One company chat per contact across every number (046): a chat that
   -- used another number, or no recorded number, is never opened.
-  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true)::text', w1, w3));
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_lines_set(ARRAY[%L, %L]::uuid[], true, %L)::text', w1, w3, pg_temp.hr_at(a_acct)));
   c := c || pg_temp.hr_chk('fixture: making w1 and w3 the lines failed', r, '{%');
   r := pg_temp.hr_as(NULL, format(
          'INSERT INTO public.messages (conversation_id, sender_type, content_text, channel_id, created_at) VALUES (%L, ''customer'', ''hrl-old'', %L, %L)',
@@ -270,9 +298,14 @@ BEGIN
   -- ---------- Grants ----------
   r := has_function_privilege('anon', 'public.hr_auto_open_recruiter(uuid, uuid)', 'EXECUTE')::text
     || '/' || has_function_privilege('authenticated', 'public.hr_auto_open_recruiter(uuid, uuid)', 'EXECUTE')::text
-    || '/' || has_function_privilege('anon', 'public.hr_lines_set(uuid[], boolean)', 'EXECUTE')::text
+    || '/' || has_function_privilege('anon', 'public.hr_lines_set(uuid[], boolean, timestamptz)', 'EXECUTE')::text
     || '/' || has_function_privilege('anon', 'public.hr_lines_get()', 'EXECUTE')::text;
   c := c || pg_temp.hr_chk('anon/authenticated may execute what they must not', r, 'false/false/false/false');
+  r := has_function_privilege('authenticated', 'public.hr_lines_set(uuid[], boolean, timestamptz)', 'EXECUTE')::text
+    || '/' || has_function_privilege('service_role', 'public.hr_lines_set(uuid[], boolean, timestamptz)', 'EXECUTE')::text
+    || '/' || (to_regprocedure('public.hr_lines_set(uuid[], boolean)') IS NULL)::text;
+  c := c || pg_temp.hr_chk('hr_lines_set is not authenticated-only, or the two-argument version survived',
+                           r, 'true/false/true');
   r := pg_temp.hr_as(u_owner, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w1));
   c := c || pg_temp.hr_chk('an owner could call hr_auto_open_recruiter', r, 'ERROR 42501 %');
   r := pg_temp.hr_as(u_owner, 'SELECT count(*)::text FROM public.hr_lines')

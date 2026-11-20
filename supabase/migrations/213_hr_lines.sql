@@ -20,12 +20,16 @@
 --      function below.
 --   2. OFF BY DEFAULT. No settings row, or auto_open_recruiter false,
 --      opens nothing; the list alone changes no behaviour.
---   3. hr_lines_get() / hr_lines_set(ids, auto_open) — the caller's
+--   3. hr_lines_get() / hr_lines_set(ids, auto_open, expected) — the caller's
 --      ACTIVE account (current_account_id()). Reading needs an HR role
 --      (owner/admin, or an hr_team_members row in either inbox, 200's
 --      hr_role); writing is owner/admin only. A set replaces the whole
 --      list and the switch in one call; an id that is not a number of
---      the account refuses the call and writes nothing.
+--      the account refuses the call and writes nothing. Saves are
+--      compare-and-set: get returns the settings row's updated_at (null
+--      with no row yet), and set refuses STALE, writing nothing, unless
+--      `expected` still equals it (NULL = no row yet), so one admin's
+--      save never silently undoes another's.
 --   4. hr_auto_open_recruiter(conversation, channel) — service role
 --      only, for the inbound pipeline. It answers 'off' with one indexed
 --      read when the account's switch is off, so every inbound on a
@@ -52,8 +56,8 @@
 --      203 (trigger switch off by default, kill switch, opt-out, consent,
 --      daily cap; a personal chat is held/cancelled by 203 itself).
 --
--- Refusals: RAISE … USING HINT = NOT_ALLOWED (42501) | INVALID (22023),
--- through 200's hr_refuse.
+-- Refusals: RAISE … USING HINT = NOT_ALLOWED (42501) | INVALID (22023) |
+-- STALE (22023), through 200's hr_refuse.
 -- Apply after 200 (and 203). Re-runnable. No BEGIN/COMMIT. Must be
 -- applied by a superuser or BYPASSRLS role (the refusal below runs
 -- before any DDL).
@@ -123,7 +127,10 @@ AS $$
                  WHERE s.account_id = p_account), false),
     'channel_ids',
       COALESCE((SELECT jsonb_agg(l.channel_id ORDER BY l.channel_id) FROM hr_lines l
-                 WHERE l.account_id = p_account), '[]'::jsonb))
+                 WHERE l.account_id = p_account), '[]'::jsonb),
+    -- The save version hr_lines_set compares; JSON null with no row yet.
+    'updated_at',
+      (SELECT s.updated_at FROM hr_line_settings s WHERE s.account_id = p_account))
 $$;
 
 CREATE OR REPLACE FUNCTION public.hr_lines_get()
@@ -146,7 +153,11 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.hr_lines_set(p_channel_ids uuid[], p_auto_open boolean)
+-- A test database may still hold the first, two-argument version.
+DROP FUNCTION IF EXISTS public.hr_lines_set(uuid[], boolean);
+
+CREATE OR REPLACE FUNCTION public.hr_lines_set(p_channel_ids uuid[], p_auto_open boolean,
+                                               p_expected timestamptz)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -156,6 +167,7 @@ DECLARE
   v_uid uuid := auth.uid();
   v_account uuid := current_account_id();
   v_ids uuid[] := COALESCE(p_channel_ids, '{}'::uuid[]);
+  v_current timestamptz;
 BEGIN
   IF v_account IS NULL OR hr_role(v_account, v_uid, 'recruiter') IS DISTINCT FROM 'admin' THEN
     PERFORM hr_refuse('NOT_ALLOWED', 'only an owner or admin may change the HR lines');
@@ -171,13 +183,32 @@ BEGIN
   END IF;
 
   -- The settings row first: its row lock serialises two admins saving at
-  -- once, so the list below is one save's, never a mix of both.
-  INSERT INTO hr_line_settings (account_id, auto_open_recruiter, updated_at, updated_by)
-  VALUES (v_account, p_auto_open, now(), v_uid)
-  ON CONFLICT (account_id) DO UPDATE
-    SET auto_open_recruiter = EXCLUDED.auto_open_recruiter,
-        updated_at = EXCLUDED.updated_at,
-        updated_by = EXCLUDED.updated_by;
+  -- once, and its updated_at is the version the caller loaded. A save
+  -- made against anything older is refused before any write, so admin
+  -- A's save never silently undoes admin B's.
+  SELECT s.updated_at INTO v_current
+    FROM hr_line_settings s WHERE s.account_id = v_account
+     FOR UPDATE;
+  IF v_current IS DISTINCT FROM p_expected THEN
+    PERFORM hr_refuse('STALE', 'the HR lines changed since they were loaded');
+  END IF;
+
+  -- clock_timestamp(), not now(): two saves in one transaction still get
+  -- two versions.
+  IF v_current IS NULL THEN
+    INSERT INTO hr_line_settings (account_id, auto_open_recruiter, updated_at, updated_by)
+    VALUES (v_account, p_auto_open, clock_timestamp(), v_uid)
+    ON CONFLICT (account_id) DO NOTHING;
+    IF NOT FOUND THEN  -- a racing first save won
+      PERFORM hr_refuse('STALE', 'the HR lines changed since they were loaded');
+    END IF;
+  ELSE
+    UPDATE hr_line_settings s
+       SET auto_open_recruiter = p_auto_open,
+           updated_at = clock_timestamp(),
+           updated_by = v_uid
+     WHERE s.account_id = v_account;
+  END IF;
 
   DELETE FROM hr_lines l
    WHERE l.account_id = v_account AND NOT (l.channel_id = ANY (v_ids));
@@ -268,13 +299,13 @@ $$;
 REVOKE ALL ON FUNCTION
   public.hr_lines_json(uuid),
   public.hr_lines_get(),
-  public.hr_lines_set(uuid[], boolean),
+  public.hr_lines_set(uuid[], boolean, timestamptz),
   public.hr_auto_open_recruiter(uuid, uuid)
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION
   public.hr_lines_get(),
-  public.hr_lines_set(uuid[], boolean)
+  public.hr_lines_set(uuid[], boolean, timestamptz)
   TO authenticated;
 
 GRANT EXECUTE ON FUNCTION public.hr_auto_open_recruiter(uuid, uuid) TO service_role;

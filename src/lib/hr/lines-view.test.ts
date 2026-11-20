@@ -1,12 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
   hrLineRows,
   hrLinesPayload,
   isDirty,
+  linesSaveError,
   toggleLine,
   type HrLineChannel,
 } from './lines-view';
+import { HR_ERROR_CODES } from './types';
 
 const names: Record<string, string> = { u1: 'Zaid', u2: 'Amal' };
 const nameOf = (id: string) => names[id] ?? null;
@@ -80,12 +84,14 @@ describe('hrLineRows', () => {
 });
 
 describe('isDirty', () => {
-  const saved = { auto_open_recruiter: false, channel_ids: ['a', 'b'] };
+  const saved = {
+    auto_open_recruiter: false,
+    channel_ids: ['a', 'b'],
+    updated_at: null,
+  };
 
   it('is clean for the same ids in another order', () => {
-    expect(
-      isDirty(saved, { auto_open_recruiter: false, channel_ids: ['b', 'a'] })
-    ).toBe(false);
+    expect(isDirty(saved, { ...saved, channel_ids: ['b', 'a'] })).toBe(false);
   });
 
   it('is dirty when the switch changes', () => {
@@ -107,12 +113,77 @@ describe('isDirty', () => {
 });
 
 describe('hrLinesPayload', () => {
-  it('sends unique sorted ids and the switch', () => {
+  it('sends unique sorted ids, the switch and the loaded version', () => {
     expect(
       hrLinesPayload({
         auto_open_recruiter: true,
         channel_ids: ['b', 'a', 'b'],
+        updated_at: '2026-11-20T10:00:00.123456+00:00',
       })
-    ).toEqual({ channelIds: ['a', 'b'], autoOpen: true });
+    ).toEqual({
+      channelIds: ['a', 'b'],
+      autoOpen: true,
+      expected: '2026-11-20T10:00:00.123456+00:00',
+    });
+  });
+
+  it('sends null as the version before the first save', () => {
+    expect(
+      hrLinesPayload({
+        auto_open_recruiter: false,
+        channel_ids: [],
+        updated_at: null,
+      }).expected
+    ).toBeNull();
+  });
+});
+
+describe('linesSaveError', () => {
+  const en = JSON.parse(
+    readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
+  ) as { Hr: Record<string, unknown> };
+  const wording = (key: string): unknown =>
+    key
+      .split('.')
+      .reduce<unknown>(
+        (node, part) =>
+          node && typeof node === 'object'
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        en.Hr
+      );
+
+  it('reloads and explains a save another admin overtook (STALE)', () => {
+    expect(linesSaveError('STALE')).toEqual({
+      key: 'setup.lines.stale',
+      reload: true,
+    });
+    expect(wording('setup.lines.stale')).toBe(
+      'Someone else changed the HR lines. The list has been reloaded; check it and save again.'
+    );
+  });
+
+  it('reloads and explains a number removed since loading (INVALID)', () => {
+    expect(linesSaveError('INVALID')).toEqual({
+      key: 'setup.lines.numberRemoved',
+      reload: true,
+    });
+    expect(wording('setup.lines.numberRemoved')).toBe(
+      'A number was removed. The list has been reloaded; check it and save again.'
+    );
+  });
+
+  it('words every other refusal without reloading', () => {
+    for (const code of HR_ERROR_CODES) {
+      const { key, reload } = linesSaveError(code);
+      expect(typeof wording(key), code).toBe('string');
+      if (code !== 'STALE' && code !== 'INVALID') {
+        expect(reload, code).toBe(false);
+      }
+    }
+    expect(linesSaveError('NOT_ALLOWED')).toEqual({
+      key: 'error.NOT_ALLOWED',
+      reload: false,
+    });
   });
 });

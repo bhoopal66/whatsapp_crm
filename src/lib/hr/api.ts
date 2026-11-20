@@ -185,6 +185,8 @@ export function hrCounts(sb: SupabaseClient): Promise<HrResult<HrCounts>> {
 export interface HrLines {
   auto_open_recruiter: boolean;
   channel_ids: string[];
+  /** The save version `hrLinesSet` sends back; null before the first save. */
+  updated_at: string | null;
 }
 
 /** Owners, admins and anyone with an HR role; else NOT_ALLOWED. */
@@ -192,14 +194,20 @@ export function hrLinesGet(sb: SupabaseClient): Promise<HrResult<HrLines>> {
   return call(sb, 'hr_lines_get');
 }
 
-/** Owners and admins; a number of another workspace is INVALID. */
+/**
+ * Owners and admins; a number of another workspace is INVALID. `expected`
+ * is the `updated_at` the list was loaded with: a save over anyone
+ * else's later save is STALE and writes nothing.
+ */
 export function hrLinesSet(
   sb: SupabaseClient,
   channelIds: string[],
-  autoOpen: boolean
+  autoOpen: boolean,
+  expected: string | null
 ): Promise<HrResult<HrLines>> {
   return call(sb, 'hr_lines_set', {
     p_channel_ids: channelIds,
     p_auto_open: autoOpen,
+    p_expected: expected,
   });
 }

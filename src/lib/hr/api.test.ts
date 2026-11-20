@@ -29,6 +29,7 @@ describe('hrErrorCode', () => {
     'LIMIT',
     'OPTED_OUT',
     'ALREADY_DECIDED',
+    'STALE',
   ])('maps the hint %s', (hint) => {
     expect(hrErrorCode({ message: 'refused', code: 'P0001', hint })).toBe(hint);
   });
@@ -103,7 +104,11 @@ describe('void and list results', () => {
 });
 
 describe('HR lines (213)', () => {
-  const lines = { auto_open_recruiter: true, channel_ids: ['a', 'b'] };
+  const lines = {
+    auto_open_recruiter: true,
+    channel_ids: ['a', 'b'],
+    updated_at: '2026-11-20T10:00:00+00:00',
+  };
 
   it('hrLinesGet calls hr_lines_get with no arguments', async () => {
     const { sb, rpc } = fakeClient({ data: lines });
@@ -113,20 +118,23 @@ describe('HR lines (213)', () => {
 
   it('hrLinesSet sends the contract parameter names', async () => {
     const { sb, rpc } = fakeClient({ data: lines });
-    await expect(hrLinesSet(sb, ['a', 'b'], true)).resolves.toEqual({
+    await expect(
+      hrLinesSet(sb, ['a', 'b'], true, '2026-11-20T09:00:00+00:00')
+    ).resolves.toEqual({
       data: lines,
     });
     expect(rpc).toHaveBeenCalledWith('hr_lines_set', {
       p_channel_ids: ['a', 'b'],
       p_auto_open: true,
+      p_expected: '2026-11-20T09:00:00+00:00',
     });
   });
 
-  it.each(['NOT_ALLOWED', 'INVALID'])(
+  it.each(['NOT_ALLOWED', 'INVALID', 'STALE'])(
     'hrLinesSet returns the %s refusal',
     async (hint) => {
       const { sb } = fakeClient({ error: { message: 'refused', hint } });
-      await expect(hrLinesSet(sb, [], false)).resolves.toEqual({
+      await expect(hrLinesSet(sb, [], false, null)).resolves.toEqual({
         error: hint,
       });
     }

@@ -10,7 +10,9 @@ import {
   providerLabel,
 } from '@/lib/whatsapp/channel-management';
 
+import { decideErrorKey } from './agents/panel';
 import type { HrLines } from './api';
+import type { HrErrorCode } from './types';
 
 /** The fields of a `/api/whatsapp/channels` row this section reads. */
 export interface HrLineChannel {
@@ -107,13 +109,36 @@ export function toggleLine(
   return { ...draft, channel_ids: checked ? [...rest, id] : rest };
 }
 
-/** `hr_lines_set`'s arguments: unique ids, sorted like the RPC's answer. */
+/**
+ * `hr_lines_set`'s arguments: unique ids, sorted like the RPC's answer,
+ * and the version the list was loaded with (compare-and-set).
+ */
 export function hrLinesPayload(draft: HrLines): {
   channelIds: string[];
   autoOpen: boolean;
+  expected: string | null;
 } {
   return {
     channelIds: [...new Set(draft.channel_ids)].sort(),
     autoOpen: draft.auto_open_recruiter,
+    expected: draft.updated_at,
   };
+}
+
+/**
+ * What a refused save shows (a key under `Hr`), and whether the page
+ * reloads the lines and the numbers. STALE: another admin saved since
+ * this page loaded. INVALID: a ticked number is no longer a number of
+ * the workspace (deleted after the page loaded). Both are fixed only by
+ * reloading, so the person checks the fresh list and saves again.
+ */
+export function linesSaveError(code: HrErrorCode): {
+  key: string;
+  reload: boolean;
+} {
+  if (code === 'STALE') return { key: 'setup.lines.stale', reload: true };
+  if (code === 'INVALID') {
+    return { key: 'setup.lines.numberRemoved', reload: true };
+  }
+  return { key: decideErrorKey(code), reload: false };
 }

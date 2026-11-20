@@ -261,6 +261,11 @@ Recruitment chat when someone new writes to an HR line. Off by default.
   `hr_lines_get` / `hr_lines_set`; the inbound hook calls
   `hr_auto_open_recruiter` on the service role (one indexed read when the
   switch is off). `supabase/ci/verify-hr-lines.sql` asserts it.
+- Saves are compare-and-set: `hr_lines_get` returns the settings row's
+  `updated_at`, and `hr_lines_set` refuses `STALE` (writing nothing)
+  when someone saved since, so two admins never silently undo each
+  other. The page then reloads the list; it does the same when a ticked
+  number was deleted meanwhile (`INVALID`).
 
 ## My worklist
 

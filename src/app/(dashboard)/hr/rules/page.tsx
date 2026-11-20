@@ -30,6 +30,7 @@ import {
   hrLineRows,
   hrLinesPayload,
   isDirty,
+  linesSaveError,
   toggleLine,
   type HrLineChannel,
 } from '@/lib/hr/lines-view';
@@ -59,6 +60,24 @@ import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 const NO_ROLES: HrRoles = { admin: false, recruiter: null, dept: null };
+
+/** The saved HR lines and the workspace's numbers; null when either fails. */
+async function fetchLineState(
+  supabase: ReturnType<typeof createClient>
+): Promise<{ lines: HrLines; channels: HrLineChannel[] } | null> {
+  try {
+    const [lines, list] = await Promise.all([
+      hrLinesGet(supabase),
+      fetch('/api/whatsapp/channels').then((r) =>
+        r.ok ? (r.json() as Promise<{ channels?: HrLineChannel[] }>) : null
+      ),
+    ]);
+    if ('error' in lines || !list) return null;
+    return { lines: lines.data, channels: list.channels ?? [] };
+  } catch {
+    return null;
+  }
+}
 const FIELD =
   'h-8 rounded-md border border-input bg-card px-2 text-sm dark:bg-input/30';
 
@@ -118,34 +137,32 @@ export default function HrSetupPage() {
     });
   }, [accountId, supabase, loadTeam]);
 
+  // Shows a fresh read of the HR lines and numbers (a failed one as such).
+  const applyLineState = useCallback(
+    (state: Awaited<ReturnType<typeof fetchLineState>>) => {
+      if (!state) {
+        setLinesFailed(true);
+        return;
+      }
+      setLinesFailed(false);
+      setSavedLines(state.lines);
+      setDraftLines(state.lines);
+      setLineChannels(state.channels);
+    },
+    []
+  );
+
   // HR lines are owner/admin only, and so is the numbers list.
   useEffect(() => {
     if (!accountId || !linesAdmin) return;
     let cancelled = false;
-    void Promise.all([
-      hrLinesGet(supabase),
-      fetch('/api/whatsapp/channels').then((r) =>
-        r.ok ? (r.json() as Promise<{ channels?: HrLineChannel[] }>) : null
-      ),
-    ])
-      .then(([lines, list]) => {
-        if (cancelled) return;
-        if ('error' in lines || !list) {
-          setLinesFailed(true);
-          return;
-        }
-        setLinesFailed(false);
-        setSavedLines(lines.data);
-        setDraftLines(lines.data);
-        setLineChannels(list.channels ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setLinesFailed(true);
-      });
+    void fetchLineState(supabase).then((state) => {
+      if (!cancelled) applyLineState(state);
+    });
     return () => {
       cancelled = true;
     };
-  }, [accountId, linesAdmin, supabase]);
+  }, [accountId, linesAdmin, supabase, applyLineState]);
 
   const lineRows = useMemo(
     () =>
@@ -164,10 +181,14 @@ export default function HrSetupPage() {
     if (!draftLines || savingLines) return;
     setSavingLines(true);
     try {
-      const { channelIds, autoOpen } = hrLinesPayload(draftLines);
-      const res = await hrLinesSet(supabase, channelIds, autoOpen);
+      const { channelIds, autoOpen, expected } = hrLinesPayload(draftLines);
+      const res = await hrLinesSet(supabase, channelIds, autoOpen, expected);
       if ('error' in res) {
-        toast.error(t(decideErrorKey(res.error)));
+        // STALE (another admin saved) and INVALID (a ticked number was
+        // deleted) are only fixed by a fresh list: reload, then explain.
+        const { key, reload } = linesSaveError(res.error);
+        if (reload) applyLineState(await fetchLineState(supabase));
+        toast.error(t(key));
         return;
       }
       setSavedLines(res.data);

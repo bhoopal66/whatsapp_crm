@@ -113,6 +113,8 @@ export const HR_ERROR_CODES = [
   'LIMIT',
   'OPTED_OUT',
   'ALREADY_DECIDED',
+  /** 213: the HR lines changed since they were loaded. */
+  'STALE',
   'UNKNOWN',
 ] as const;
 export type HrErrorCode = (typeof HR_ERROR_CODES)[number];
