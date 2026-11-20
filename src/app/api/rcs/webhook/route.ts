@@ -20,8 +20,6 @@ import {
 //
 // Never log the payload, the secret or the signature.
 
-export const runtime = 'nodejs';
-
 const MAX_BODY_BYTES = 256 * 1024;
 
 const refuse = (status: number, error: string) =>
