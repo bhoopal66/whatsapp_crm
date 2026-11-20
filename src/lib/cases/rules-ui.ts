@@ -682,9 +682,11 @@ export function parseTemplateOptions(json: unknown): RuleTemplateOption[] {
 }
 
 /**
- * Every bank's templates as one list, one option per key: the rule's bank
- * first (its titles win), then the others in bank order. A stored key no
- * bank has any more stays, labelled with the key, so editing never drops it.
+ * The task picker's options. SQL looks a template up under the CASE's bank
+ * only, so a rule that names a bank offers that bank's templates alone (plus
+ * any key the saved rule already holds, labelled with the key if the bank no
+ * longer has it). With no bank named the rule runs on every bank's cases, so
+ * the banks' lists are merged, one option per key, in bank order.
  */
 export function templateChoices(
   byBank: ReadonlyMap<string, RuleTemplateOption[]>,
@@ -692,11 +694,8 @@ export function templateChoices(
   storedKeys: readonly string[] = []
 ): RuleTemplateOption[] {
   const out = new Map<string, RuleTemplateOption>();
-  const order = [
-    ...(byBank.has(bankCode) ? [bankCode] : []),
-    ...[...byBank.keys()].filter((c) => c !== bankCode),
-  ];
-  for (const code of order)
+  const banks = bankCode ? [bankCode] : [...byBank.keys()];
+  for (const code of banks)
     for (const o of byBank.get(code) ?? [])
       if (!out.has(o.key)) out.set(o.key, o);
   for (const k of storedKeys)

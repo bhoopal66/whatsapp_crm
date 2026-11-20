@@ -9727,6 +9727,9 @@
       "priority": "Priority",
       "template": "Task",
       "pickTemplate": "Pick a task",
+      "noTemplates": "No task templates yet. Add them in this bank's task templates first.",
+      "templateAnyBankHelp": "With no bank picked, the task must exist in every bank's task templates; a bank without it records \"Task template not found\".",
+      "pickStage": "Pick a stage",
       "owner": "For",
       "ownerOption": {
         "agent": "Agent",
@@ -9735,7 +9738,7 @@
       "dueHours": "Due in hours",
       "dueHoursHelp": "Leave the hours empty to use the task template’s own due time.",
       "timer": "Timer",
-      "advanceHelp": "Moves the case one stage forward. Never into Approved, Declined, Withdrawn or Closed.",
+      "advanceHelp": "Moves the case one stage forward. Never into a final outcome.",
       "save": "Save rule",
       "cancel": "Cancel"
     },
@@ -9846,13 +9849,13 @@
       "TEMPLATE_NOT_FOUND": "Task template not found",
       "OWNER_MISSING": "No one to give the task to",
       "SLA_NOT_CONFIGURED": "That SLA timer isn’t set up",
-      "FINAL_STAGE": "The case is at a final stage",
+      "FINAL_STAGE": "The case is closed or its next stage is a final outcome; rules never decide outcomes",
       "NO_NEXT_STAGE": "There is no next stage",
       "ADVANCE_CHAINED": "Already moved by another rule",
       "SUBMISSION_REQUIRED": "The case needs a submission first",
-      "OWNER_INVALID": "Invalid task owner",
-      "DUE_INVALID": "Invalid due hours",
-      "PRESUB_REENTRY": "Can’t move back before submission",
+      "OWNER_INVALID": "That person can't be given tasks on this case",
+      "DUE_INVALID": "The task's due time isn't valid",
+      "PRESUB_REENTRY": "Can't go back to a pre-submission stage",
       "other": "Refused"
     },
     "caseTab": {

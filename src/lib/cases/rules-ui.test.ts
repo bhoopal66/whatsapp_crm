@@ -777,7 +777,7 @@ describe('214 rule editor logic', () => {
     expect(adv).toContain('describe.action.advance_stage');
   });
 
-  it('templateChoices puts the rule bank first and keeps a vanished key', () => {
+  it("templateChoices offers only the rule bank's tasks, or every bank's with none named", () => {
     const byBank = new Map([
       [
         'ADCB',
@@ -794,10 +794,15 @@ describe('214 rule editor logic', () => {
         ],
       ],
     ]);
+    // A named bank: another bank's key would fail TEMPLATE_NOT_FOUND.
     expect(templateChoices(byBank, 'ENBD')).toEqual([
       { key: 'b', title: 'ENBD B' },
       { key: 'shared', title: 'ENBD shared' },
-      { key: 'a', title: 'ADCB A' },
+    ]);
+    expect(templateChoices(byBank, 'ENBD', ['gone', 'b'])).toEqual([
+      { key: 'b', title: 'ENBD B' },
+      { key: 'shared', title: 'ENBD shared' },
+      { key: 'gone', title: 'gone' },
     ]);
     expect(templateChoices(byBank, '', ['gone', 'a'])).toEqual([
       { key: 'a', title: 'ADCB A' },

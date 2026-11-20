@@ -103,9 +103,6 @@ export function CaseRulesSettingsCard() {
   const [rules, setRules] = useState<RuleView[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [banks, setBanks] = useState<CaseBankOption[]>([]);
-  const [templates, setTemplates] = useState<
-    ReadonlyMap<string, RuleTemplateOption[]>
-  >(() => new Map());
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<RuleDraft | null>(null);
   const [deleting, setDeleting] = useState<RuleView | null>(null);
@@ -125,27 +122,9 @@ export function CaseRulesSettingsCard() {
       setRules(parsed);
       setFailed(parsed === null);
     });
-    void call('/api/cases/config/banks').then(async (answer) => {
+    void call('/api/cases/config/banks').then((answer) => {
       if (off || !answer.ok) return;
-      const parsed = parseBanks(answer.body);
-      setBanks(parsed);
-      // Every bank's task templates (the create_task picker), as the
-      // macros panel loads them; a failed read leaves that bank out.
-      const lists = await Promise.all(
-        parsed.map((b) =>
-          call(
-            `/api/cases/config/banks/${encodeURIComponent(b.code)}/templates`
-          ).then((a) => [b.code, a] as const)
-        )
-      );
-      if (off) return;
-      setTemplates(
-        new Map(
-          lists
-            .filter(([, a]) => a.ok)
-            .map(([code, a]) => [code, parseTemplateOptions(a.body)])
-        )
-      );
+      setBanks(parseBanks(answer.body));
     });
     return () => {
       off = true;
@@ -158,8 +137,9 @@ export function CaseRulesSettingsCard() {
   const bankName = (code: string) =>
     banks.find((b) => b.code === code)?.name ?? code;
   const personName = (id: string) => nameOf(id) ?? t('dialog.pickPerson');
-  const templateName = (key: string) =>
-    templateChoices(templates, '').find((o) => o.key === key)?.title ?? key;
+  // Templates load when the rule dialog opens, so the list names a task by
+  // its key.
+  const templateName = (key: string) => key;
 
   async function toggle(rule: RuleView, enabled: boolean) {
     setBusy(rule.ruleId);
@@ -301,7 +281,6 @@ export function CaseRulesSettingsCard() {
           key={editing.ruleId ?? 'new'}
           initial={editing}
           banks={banks}
-          templates={templates}
           members={members.filter((m) => !m.deactivated_at)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -334,7 +313,6 @@ export function CaseRulesSettingsCard() {
 function RuleDialog({
   initial,
   banks,
-  templates,
   members,
   onClose,
   onSaved,
@@ -342,7 +320,6 @@ function RuleDialog({
 }: {
   initial: RuleDraft;
   banks: CaseBankOption[];
-  templates: ReadonlyMap<string, RuleTemplateOption[]>;
   members: { user_id: string; full_name: string | null; email: string }[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -352,7 +329,39 @@ function RuleDialog({
   const [d, setD] = useState<RuleDraft>(initial);
   const [tried, setTried] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [templates, setTemplates] = useState<ReadonlyMap<
+    string,
+    RuleTemplateOption[]
+  > | null>(null);
   const problems = validateDraft(d);
+
+  // Every bank's task templates (the create_task picker), once per open.
+  // A failed read leaves that bank out and says so.
+  useEffect(() => {
+    let off = false;
+    void Promise.all(
+      banks.map((b) =>
+        call(
+          `/api/cases/config/banks/${encodeURIComponent(b.code)}/templates`
+        ).then((a) => [b.code, a] as const)
+      )
+    ).then((lists) => {
+      if (off) return;
+      const bad = lists.find(([, a]) => !a.ok);
+      if (bad) onFailed(bad[1].body);
+      setTemplates(
+        new Map(
+          lists
+            .filter(([, a]) => a.ok)
+            .map(([code, a]) => [code, parseTemplateOptions(a.body)])
+        )
+      );
+    });
+    return () => {
+      off = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const set = (patch: Partial<RuleDraft>) => setD((x) => ({ ...x, ...patch }));
   const setAction = (i: number, patch: Partial<DraftAction>) =>
     setD((x) => ({
@@ -372,10 +381,11 @@ function RuleDialog({
       ? [...banks, { code: d.bankCode, name: d.bankCode }]
       : banks;
   const kinds = actionKindsFor(d.trigger);
+  const stageRequired = d.trigger === 'stage_entered';
   // last_required_doc_received carries exactly one, preset advance_stage.
   const fixedActions = d.trigger === 'last_required_doc_received';
   const taskOptions = templateChoices(
-    templates,
+    templates ?? new Map(),
     d.bankCode,
     d.actions.map((a) => a.templateKey)
   );
@@ -500,7 +510,10 @@ function RuleDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="case-rule-stage">{t('dialog.stage')}</Label>
+                <Label htmlFor="case-rule-stage">
+                  {t('dialog.stage')}
+                  {stageRequired && ' *'}
+                </Label>
                 <Select
                   value={d.stage || ANY}
                   onValueChange={(v) =>
@@ -508,10 +521,17 @@ function RuleDialog({
                   }
                 >
                   <SelectTrigger id="case-rule-stage" className="w-full">
-                    <SelectValue>{d.stage || t('dialog.any')}</SelectValue>
+                    <SelectValue>
+                      {d.stage ||
+                        (stageRequired
+                          ? t('dialog.pickStage')
+                          : t('dialog.any'))}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ANY}>{t('dialog.any')}</SelectItem>
+                    {!stageRequired && (
+                      <SelectItem value={ANY}>{t('dialog.any')}</SelectItem>
+                    )}
                     {stages.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
@@ -620,26 +640,37 @@ function RuleDialog({
                 )}
                 {a.kind === 'create_task' ? (
                   <div className="space-y-2">
-                    <Select
-                      value={a.templateKey}
-                      onValueChange={(v) =>
-                        setAction(i, { templateKey: String(v ?? '') })
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label={t('dialog.template')}
+                    {templates !== null && taskOptions.length === 0 ? (
+                      <p className="text-muted-foreground text-xs">
+                        {t('dialog.noTemplates')}
+                      </p>
+                    ) : (
+                      <Select
+                        value={a.templateKey}
+                        onValueChange={(v) =>
+                          setAction(i, { templateKey: String(v ?? '') })
+                        }
                       >
-                        <SelectValue>{taskLabel(a.templateKey)}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {taskOptions.map((o) => (
-                          <SelectItem key={o.key} value={o.key}>
-                            {`${o.title} (${o.key})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label={t('dialog.template')}
+                        >
+                          <SelectValue>{taskLabel(a.templateKey)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {taskOptions.map((o) => (
+                            <SelectItem key={o.key} value={o.key}>
+                              {`${o.title} (${o.key})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {!d.bankCode && (
+                      <p className="text-muted-foreground text-xs">
+                        {t('dialog.templateAnyBankHelp')}
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <Select
                         value={a.ownerRole}
