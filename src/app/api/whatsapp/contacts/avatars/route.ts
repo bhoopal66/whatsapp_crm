@@ -85,6 +85,9 @@ export async function POST(request: Request) {
     // A contact with no usable number (a Meta thread, a down Whapi
     // number) is skipped: no write, nothing in the response.
     const gate = createChannelGate(probeChannel);
+    // A number that answered "not authorised" for one contact answers the
+    // same for the rest: stop asking it for this request.
+    const unavailable = new Set<string>();
     const results = await mapWithConcurrency(
       due,
       AVATAR_CONCURRENCY,
@@ -96,7 +99,8 @@ export async function POST(request: Request) {
         // One live health probe per channel per request; a bad token is
         // a 404 on the profile endpoint, the same as "no picture".
         if (!channel || !(await gate(channel))) return null;
-        return refreshContactAvatar({
+        if (unavailable.has(channel.id)) return null;
+        const result = await refreshContactAvatar({
           db: admin,
           storage: admin.storage,
           accountId: ctx.accountId,
@@ -104,6 +108,8 @@ export async function POST(request: Request) {
           phone: contact.phone,
           channel,
         });
+        if (result.status === 'unavailable') unavailable.add(channel.id);
+        return result;
       }
     );
 

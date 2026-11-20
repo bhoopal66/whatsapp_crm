@@ -1,3 +1,4 @@
+import { WhapiError } from './whapi-api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -12,6 +13,7 @@ import {
   parseAvatarRequest,
   pickAvatarChannel,
   refreshContactAvatar,
+  avatarLookupId,
 } from './contact-avatars';
 
 const ACCOUNT = '11111111-2222-3333-4444-555555555555';
@@ -377,5 +379,81 @@ describe('createChannelGate', () => {
     await Promise.all([gate(c), gate(c), gate(c)]);
     await gate(c);
     expect(probe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('avatarLookupId', () => {
+  it('sends only phone digits WhatsApp can look up', () => {
+    expect(avatarLookupId('+971 50 123 4567')).toBe('971501234567');
+    expect(avatarLookupId('971501234567@s.whatsapp.net')).toBe('971501234567');
+    expect(avatarLookupId('971501234567@c.us')).toBe('971501234567');
+  });
+
+  it('refuses ids Whapi answers with "wrong request parameters"', () => {
+    for (const bad of [
+      '123456789012345@lid',
+      '120363000000000000@g.us',
+      '12345',
+      '0501234567',
+      '1234567890123456',
+      'unknown',
+      '',
+      null,
+    ]) {
+      expect(avatarLookupId(bad)).toBeNull();
+    }
+  });
+});
+
+describe('refreshContactAvatar — ids and numbers Whapi refuses', () => {
+  it('never asks Whapi about a @lid id, and waits the week quietly', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { args, updates } = base({ phone: '123456789012345@lid' });
+    await expect(refreshContactAvatar(args)).resolves.toMatchObject({
+      status: 'skipped',
+    });
+    expect(args.getPicture).not.toHaveBeenCalled();
+    expect(updates[0].patch).toEqual({ avatar_checked_at: NOW.toISOString() });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('asks with the digits only', async () => {
+    const { args } = base();
+    await refreshContactAvatar(args);
+    expect(args.getPicture).toHaveBeenCalledWith(args.channel, '971501234567');
+  });
+
+  it('stamps a 400 as checked instead of retrying it every load', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { args, updates } = base({
+      getPicture: vi.fn(async () => {
+        throw new WhapiError('wrong request parameters', 400);
+      }),
+    });
+    await expect(refreshContactAvatar(args)).resolves.toMatchObject({
+      status: 'skipped',
+    });
+    expect(updates[0].patch).toEqual({ avatar_checked_at: NOW.toISOString() });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it.each([
+    new WhapiError('need channel authorization for getting user info', 409),
+    new WhapiError('Unauthorized', 401),
+  ])('reports an unauthorised number quietly, writing nothing', async (err) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { args, updates } = base({
+      getPicture: vi.fn(async () => {
+        throw err;
+      }),
+    });
+    await expect(refreshContactAvatar(args)).resolves.toMatchObject({
+      status: 'unavailable',
+    });
+    expect(updates).toHaveLength(0);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

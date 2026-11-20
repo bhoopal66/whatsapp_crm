@@ -31,6 +31,8 @@ import {
   getContactProfilePicture,
   type ChannelProbe,
 } from './provider';
+import { isValidE164 } from './phone-utils';
+import { WhapiError } from './whapi-api';
 
 /** How long a lookup's answer stands before the contact is asked again. */
 export const AVATAR_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
@@ -194,7 +196,54 @@ export type AvatarRefreshStatus =
   /** Not a JPEG/PNG/WebP, or too large: stamped as checked, URL left alone. */
   | 'skipped'
   /** Transient failure: nothing written, so it is retried next load. */
-  | 'error';
+  | 'error'
+  /**
+   * The number itself cannot look contacts up right now (not authorised,
+   * logged out): nothing written, nothing logged, retried next load. The
+   * route stops asking that number for the rest of the request.
+   */
+  | 'unavailable';
+
+/**
+ * The id Whapi's profile endpoint accepts for a contact's phone: the
+ * digits of a phone number (7-15, no leading 0), or of a
+ * `@s.whatsapp.net` / `@c.us` chat id. Anything else is null and never
+ * sent: Whapi answers a `@lid` or group id, or a number too short or
+ * too long, with 400 "wrong request parameters" (8 a week in the log),
+ * and would do so again on every load.
+ */
+export function avatarLookupId(
+  phone: string | null | undefined
+): string | null {
+  const value = String(phone ?? '').trim();
+  if (!value) return null;
+  let digits: string;
+  if (value.includes('@')) {
+    const [user, server] = value.split('@');
+    if (server !== 's.whatsapp.net' && server !== 'c.us') return null;
+    if (!/^\d+$/.test(user)) return null;
+    digits = user;
+  } else {
+    digits = value.replace(/\D/g, '');
+  }
+  return isValidE164(digits) ? digits : null;
+}
+
+/**
+ * A failure that belongs to the number, not the contact: Whapi's "need
+ * channel authorization for getting user info" (a phone that is not
+ * logged in, 10 a week in the log) or a 401/403.
+ */
+export function isChannelLookupFailure(err: unknown): boolean {
+  if (err instanceof WhapiError && err.isAuthError) return true;
+  const message = err instanceof Error ? err.message : '';
+  return /need channel authori[sz]ation/i.test(message);
+}
+
+/** Whapi refused the request itself (400): asking again changes nothing. */
+function isRefusedRequest(err: unknown): boolean {
+  return err instanceof WhapiError && err.status === 400;
+}
 
 export interface AvatarRefreshResult {
   contactId: string;
@@ -247,8 +296,14 @@ export async function refreshContactAvatar(
     if (error) throw new Error(error.message);
   };
 
+  const lookupId = avatarLookupId(phone);
   try {
-    const pictureUrl = await getPicture(channel, phone);
+    if (!lookupId) {
+      // Not a number WhatsApp can look up. Wait the week, quietly.
+      await save({ avatar_checked_at: now().toISOString() });
+      return { contactId, avatarUrl: null, status: 'skipped' };
+    }
+    const pictureUrl = await getPicture(channel, lookupId);
     if (!pictureUrl) {
       // They removed the picture or hide it from this number. Clear our
       // copy rather than keep showing one they took down.
@@ -300,6 +355,18 @@ export async function refreshContactAvatar(
     await save({ avatar_url: avatarUrl, avatar_checked_at: at.toISOString() });
     return { contactId, avatarUrl, status: 'updated' };
   } catch (err) {
+    if (isChannelLookupFailure(err)) {
+      return { contactId, avatarUrl: null, status: 'unavailable' };
+    }
+    if (isRefusedRequest(err)) {
+      // The same id would be refused on every load: wait the week.
+      try {
+        await save({ avatar_checked_at: now().toISOString() });
+      } catch {
+        // Retried next load; nothing else to do.
+      }
+      return { contactId, avatarUrl: null, status: 'skipped' };
+    }
     console.warn(
       `[contact-avatars] could not refresh ${contactId}:`,
       err instanceof Error ? err.message : err
