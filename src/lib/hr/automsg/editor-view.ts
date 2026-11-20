@@ -6,6 +6,7 @@
  * import this file: it imports only this folder's client-safe modules.
  */
 import type { AutoMsgTemplateView } from './api';
+import { RCS_TEMPLATE_ID, channelOf, type AutomsgChannel } from './channel';
 import {
   MAX_TEMPLATE_BODY,
   SEED_TEMPLATES,
@@ -34,6 +35,7 @@ export interface EditorForm {
 export interface EditorSlot {
   kind: TemplateKind;
   language: AutoLang;
+  channel: AutomsgChannel;
   /** The stored row, or null when the seed text stands in for it. */
   stored: AutoMsgTemplateView | null;
   /**
@@ -44,42 +46,79 @@ export interface EditorSlot {
   initial: EditorForm;
 }
 
-/** One slot per kind x language, in TEMPLATE_KINDS then AUTO_LANGS order. */
+/**
+ * The stored row of one kind x language on one channel. The config holds
+ * both channels' rows, so a lookup that ignored the channel could put an
+ * RCS row (whose name is a provider id) in a WhatsApp editor.
+ */
+export function storedTemplate(
+  templates: readonly AutoMsgTemplateView[],
+  kind: TemplateKind,
+  language: AutoLang,
+  channel: AutomsgChannel = 'whatsapp'
+): AutoMsgTemplateView | null {
+  return (
+    templates.find(
+      (t) =>
+        t.kind === kind &&
+        t.language === language &&
+        channelOf(t.channel) === channel
+    ) ?? null
+  );
+}
+
+/**
+ * One slot per kind x language of one channel, in TEMPLATE_KINDS then
+ * AUTO_LANGS order. RCS slots are keyed `rcs|…`, apart from WhatsApp's.
+ */
 export function editorSlots(
-  templates: readonly AutoMsgTemplateView[]
+  templates: readonly AutoMsgTemplateView[],
+  channel: AutomsgChannel = 'whatsapp'
 ): EditorSlot[] {
   const slots: EditorSlot[] = [];
   for (const kind of TEMPLATE_KINDS) {
     for (const language of AUTO_LANGS) {
-      const stored =
-        templates.find((t) => t.kind === kind && t.language === language) ??
-        null;
+      const stored = storedTemplate(templates, kind, language, channel);
+      const whatsapp =
+        channel === 'rcs' ? storedTemplate(templates, kind, language) : null;
+      const key = stored
+        ? [
+            kind,
+            language,
+            stored.updatedAt ?? '',
+            stored.approvalStatus,
+            stored.metaTemplateName,
+            stored.body,
+          ].join('|')
+        : channel === 'rcs'
+          ? // An unsaved RCS editor starts from the WhatsApp text, so it
+            // re-initialises when that row is saved.
+            `${kind}|${language}|seed|${whatsapp?.updatedAt ?? ''}`
+          : `${kind}|${language}|seed`;
       slots.push({
         kind,
         language,
+        channel,
         stored,
-        key: stored
-          ? [
-              kind,
-              language,
-              stored.updatedAt ?? '',
-              stored.approvalStatus,
-              stored.metaTemplateName,
-              stored.body,
-            ].join('|')
-          : `${kind}|${language}|seed`,
-        initial: editorInitial(kind, language, stored),
+        key: channel === 'rcs' ? `rcs|${key}` : key,
+        initial: editorInitial(kind, language, stored, channel, whatsapp),
       });
     }
   }
   return slots;
 }
 
-/** The stored row's values, else the seed text and seed Meta name as a draft. */
+/**
+ * The stored row's values, else a draft: on WhatsApp the seed text and
+ * seed Meta name; on RCS the WhatsApp text of the same kind and language
+ * (the stored row, else the seed) and an empty provider id.
+ */
 export function editorInitial(
   kind: TemplateKind,
   language: AutoLang,
-  stored: AutoMsgTemplateView | null
+  stored: AutoMsgTemplateView | null,
+  channel: AutomsgChannel = 'whatsapp',
+  whatsapp: AutoMsgTemplateView | null = null
 ): EditorForm {
   if (stored) {
     return {
@@ -90,6 +129,14 @@ export function editorInitial(
     };
   }
   const seed = SEED_TEMPLATES[kind];
+  if (channel === 'rcs') {
+    return {
+      body: whatsapp?.body ?? seed.text[language],
+      metaTemplateName: '',
+      approvalStatus: 'draft',
+      category: 'utility',
+    };
+  }
   return {
     body: seed.text[language],
     metaTemplateName: seed.metaTemplateName,
@@ -113,7 +160,9 @@ export type EditorMessage =
   | { key: 'tooLong'; values: { max: number } }
   | { key: 'invalid'; values: { name: string; slot: string } }
   | { key: 'nameFormat' }
-  | { key: 'approvedNeedsName' };
+  | { key: 'approvedNeedsName' }
+  | { key: 'rcsApprovedNeedsId' }
+  | { key: 'rcsIdFormat' };
 
 /** Every message key, for the label-coverage test. */
 export const EDITOR_MESSAGE_KEYS: readonly EditorMessage['key'][] = [
@@ -123,16 +172,35 @@ export const EDITOR_MESSAGE_KEYS: readonly EditorMessage['key'][] = [
   'invalid',
   'nameFormat',
   'approvedNeedsName',
+  'rcsApprovedNeedsId',
+  'rcsIdFormat',
 ];
+
+/**
+ * 215's rule on an RCS template's provider id (trimmed, as the save
+ * sends it): an approved template needs one, a draft may leave it empty,
+ * and a non-empty one must match RCS_TEMPLATE_ID.
+ */
+export function rcsTemplateIdProblem(
+  id: string,
+  approvalStatus: ApprovalStatus
+): 'rcsApprovedNeedsId' | 'rcsIdFormat' | null {
+  const v = id.trim();
+  if (v === '')
+    return approvalStatus === 'approved' ? 'rcsApprovedNeedsId' : null;
+  return RCS_TEMPLATE_ID.test(v) ? null : 'rcsIdFormat';
+}
 
 /**
  * Live validation, in display order: the body (missing placeholders by
  * name, else too long, else promotional wording with the phrase, else
- * generically invalid), then the Meta template name.
+ * generically invalid), then the Meta template name, or on RCS the
+ * provider template id. Body rules are the same on both channels.
  */
 export function editorMessages(
   kind: TemplateKind,
-  form: EditorForm
+  form: EditorForm,
+  channel: AutomsgChannel = 'whatsapp'
 ): EditorMessage[] {
   const out: EditorMessage[] = [];
   const check = validateTemplateBody(kind, form.body, form.category);
@@ -155,6 +223,14 @@ export function editorMessages(
       out.push({ key: 'invalid', values: { name: '{name}', slot: '{slot}' } });
     }
   }
+  if (channel === 'rcs') {
+    const problem = rcsTemplateIdProblem(
+      form.metaTemplateName,
+      form.approvalStatus
+    );
+    if (problem) out.push({ key: problem });
+    return out;
+  }
   const name = form.metaTemplateName.trim();
   if (name === '') {
     if (form.approvalStatus === 'approved')
@@ -166,7 +242,7 @@ export function editorMessages(
 }
 
 export interface EditorView {
-  /** Leads (and anyone not an admin) see the fields read-only. */
+  /** Leads (and anyone not an admin) see the fields read-only, on both channels. */
   readOnly: boolean;
   counter: { count: number; max: number };
   messages: EditorMessage[];
@@ -177,10 +253,11 @@ export function editorView(
   kind: TemplateKind,
   form: EditorForm,
   role: AutomsgRole | null,
-  saving = false
+  saving = false,
+  channel: AutomsgChannel = 'whatsapp'
 ): EditorView {
   const readOnly = role !== 'admin';
-  const messages = editorMessages(kind, form);
+  const messages = editorMessages(kind, form, channel);
   return {
     readOnly,
     counter: editorCounter(form.body),
@@ -189,11 +266,16 @@ export function editorView(
   };
 }
 
-/** The save payload: the name trimmed, everything else as typed. */
+/**
+ * The save payload: the name trimmed, everything else as typed. An RCS
+ * save names its channel; a WhatsApp one leaves it out (the RPC's
+ * default), exactly as before RCS existed.
+ */
 export function editorPayload(
   kind: TemplateKind,
   language: AutoLang,
-  form: EditorForm
+  form: EditorForm,
+  channel: AutomsgChannel = 'whatsapp'
 ): {
   kind: TemplateKind;
   language: AutoLang;
@@ -201,6 +283,7 @@ export function editorPayload(
   metaTemplateName: string;
   approvalStatus: ApprovalStatus;
   category: TemplateCategory;
+  channel?: AutomsgChannel;
 } {
   return {
     kind,
@@ -209,5 +292,6 @@ export function editorPayload(
     metaTemplateName: form.metaTemplateName.trim(),
     approvalStatus: form.approvalStatus,
     category: form.category,
+    ...(channel === 'rcs' ? { channel } : {}),
   };
 }

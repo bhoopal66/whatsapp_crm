@@ -6,11 +6,17 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
   automsgSaveTemplate,
   type AutoMsgTemplateView,
 } from '@/lib/hr/automsg/api';
+import {
+  AUTOMSG_CHANNELS,
+  CHANNEL_LABEL_KEYS,
+  type AutomsgChannel,
+} from '@/lib/hr/automsg/channel';
 import {
   editorPayload,
   editorSlots,
@@ -23,32 +29,91 @@ import { automsgErrorKey, type AutomsgRole } from '@/lib/hr/automsg/view';
 import { createClient } from '@/lib/supabase/client';
 
 /**
- * The template editors of the HR Automated messages screen: one card per
- * kind x language. Each card is keyed by its stored row (`slot.key`), so
- * a save re-initialises it from the reloaded config while typing never
- * does. Admins edit; leads read. The database re-checks every save.
+ * The template editors of the HR Automated messages screen: a WhatsApp /
+ * RCS tab switch, then one card per kind x language of that channel.
+ * Each card is keyed by its stored row (`slot.key`), so a save
+ * re-initialises it from the reloaded config while typing never does.
+ * Admins edit on both channels; leads read. The database re-checks every
+ * save.
  */
 export function AutomsgTemplates({
   templates,
   role,
   onSaved,
+  rcsConnected = false,
 }: {
   templates: readonly AutoMsgTemplateView[];
   role: AutomsgRole;
   onSaved: () => Promise<void> | void;
+  /** An RCS provider is connected; until then the RCS tab says so. */
+  rcsConnected?: boolean;
 }) {
-  const t = useTranslations('Hr.automsg.templates');
+  const t = useTranslations('Hr.automsg');
+  const [channel, setChannel] = useState<AutomsgChannel>('whatsapp');
   return (
     <section className="border-border bg-card space-y-4 rounded-lg border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-medium">{t('templates.title')}</h2>
+        <Tabs
+          value={channel}
+          onValueChange={(v) => setChannel(v as AutomsgChannel)}
+        >
+          <TabsList aria-label={t('templates.channelTabs')}>
+            {AUTOMSG_CHANNELS.map((c) => (
+              <TabsTrigger key={c} value={c}>
+                {t(CHANNEL_LABEL_KEYS[c])}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      <TemplatesPanel
+        channel={channel}
+        templates={templates}
+        role={role}
+        onSaved={onSaved}
+        rcsConnected={rcsConnected}
+      />
+    </section>
+  );
+}
+
+/** One channel's notes and editors. */
+export function TemplatesPanel({
+  channel,
+  templates,
+  role,
+  onSaved,
+  rcsConnected = false,
+}: {
+  channel: AutomsgChannel;
+  templates: readonly AutoMsgTemplateView[];
+  role: AutomsgRole;
+  onSaved: () => Promise<void> | void;
+  rcsConnected?: boolean;
+}) {
+  const t = useTranslations('Hr.automsg.templates');
+  const rcs = channel === 'rcs';
+  return (
+    <div className="space-y-4">
       <div className="space-y-1">
-        <h2 className="font-medium">{t('title')}</h2>
         {role !== 'admin' && (
-          <p className="text-muted-foreground text-xs">{t('leadNote')}</p>
+          <p className="text-muted-foreground text-xs">
+            {rcs ? t('rcsReadOnly') : t('leadNote')}
+          </p>
         )}
-        <p className="text-muted-foreground text-xs">{t.raw('metaNote')}</p>
+        {rcs ? (
+          !rcsConnected && (
+            <p className="text-muted-foreground text-xs">
+              {t('rcsNotConnected')}
+            </p>
+          )
+        ) : (
+          <p className="text-muted-foreground text-xs">{t.raw('metaNote')}</p>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {editorSlots(templates).map((slot) => (
+        {editorSlots(templates, channel).map((slot) => (
           <TemplateCard
             key={slot.key}
             slot={slot}
@@ -57,7 +122,7 @@ export function AutomsgTemplates({
           />
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -73,15 +138,19 @@ export function TemplateCard({
   const t = useTranslations('Hr.automsg');
   const [form, setForm] = useState<EditorForm>(slot.initial);
   const [saving, setSaving] = useState(false);
-  const view = editorView(slot.kind, form, role, saving);
-  const id = `automsg-${slot.kind}-${slot.language}`;
+  const rcs = slot.channel === 'rcs';
+  const view = editorView(slot.kind, form, role, saving, slot.channel);
+  const id = rcs
+    ? `automsg-rcs-${slot.kind}-${slot.language}`
+    : `automsg-${slot.kind}-${slot.language}`;
+  const language = t(`templates.languages.${slot.language}`);
 
   const save = async () => {
     setSaving(true);
     try {
       const res = await automsgSaveTemplate(
         createClient(),
-        editorPayload(slot.kind, slot.language, form)
+        editorPayload(slot.kind, slot.language, form, slot.channel)
       );
       if ('error' in res) {
         toast.error(t(`error.${automsgErrorKey(res.error)}`));
@@ -96,15 +165,20 @@ export function TemplateCard({
 
   return (
     <fieldset className="border-border bg-card-2 min-w-0 space-y-2 rounded-lg border px-3 pt-1 pb-3">
-      <legend className="px-1 text-sm font-medium">
-        {t('templates.cardTitle', {
-          kind: t(`templateKinds.${slot.kind}`),
-          language: t(`templates.languages.${slot.language}`),
-        })}
+      <legend className="flex items-center gap-1.5 px-1 text-sm font-medium">
+        <span>
+          {t('templates.cardTitle', {
+            kind: t(`templateKinds.${slot.kind}`),
+            language,
+          })}
+        </span>
+        <span className="border-border text-muted-foreground rounded-full border px-1.5 text-[10px] leading-4 font-medium">
+          {t(CHANNEL_LABEL_KEYS[slot.channel])}
+        </span>
       </legend>
       {!slot.stored && (
         <p className="text-muted-foreground text-xs">
-          {t('templates.seedNote')}
+          {rcs ? t('templates.rcsSeedNote') : t('templates.seedNote')}
         </p>
       )}
 
@@ -142,7 +216,7 @@ export function TemplateCard({
           htmlFor={`${id}-name`}
           className="shrink-0 text-sm whitespace-nowrap"
         >
-          {t('templates.metaName')}
+          {rcs ? t('templates.rcsId', { language }) : t('templates.metaName')}
         </label>
         <Input
           id={`${id}-name`}
@@ -184,7 +258,7 @@ export function TemplateCard({
             disabled={!view.canSave}
             onClick={() => void save()}
           >
-            {t('templates.save')}
+            {rcs ? t('templates.saveRcs', { language }) : t('templates.save')}
           </Button>
         )}
       </div>

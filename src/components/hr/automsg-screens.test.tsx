@@ -14,7 +14,7 @@ import { historyRowView } from '@/lib/hr/automsg/history-view';
 import type { AutomsgRole } from '@/lib/hr/automsg/view';
 
 import { AutomsgHistoryList } from './automsg-history';
-import { TemplateCard } from './automsg-templates';
+import { TemplateCard, TemplatesPanel } from './automsg-templates';
 
 function render(node: ReactNode): string {
   return renderToStaticMarkup(
@@ -61,6 +61,71 @@ describe('TemplateCard', () => {
     expect(html).toMatch(/<textarea[^>]*readOnly/i);
     expect(html).toMatch(/<select[^>]*disabled/);
     expect(text(html)).not.toContain('Save template');
+  });
+});
+
+describe('RCS templates', () => {
+  const rcsSlot = editorSlots([], 'rcs')[1]; // cv_ack, Arabic
+
+  it('shows the RCS card: channel chip, provider id field, RCS save', () => {
+    const html = render(
+      <TemplateCard slot={rcsSlot} role="admin" onSaved={() => {}} />
+    );
+    const kind = en.Hr.automsg.templateKinds.cv_ack;
+    expect(text(html)).toContain(`|${kind} (Arabic)|RCS|`);
+    expect(text(html)).toContain('|RCS provider template id (Arabic)|');
+    expect(text(html)).not.toContain('Meta template name');
+    expect(html).toMatch(/<input[^>]*value=""/);
+    expect(text(html)).toContain('|Save RCS template (Arabic)|');
+  });
+
+  it('chips a WhatsApp card as WhatsApp', () => {
+    const html = render(
+      <TemplateCard slot={editorSlots([])[1]} role="admin" onSaved={() => {}} />
+    );
+    expect(text(html)).toContain('(Arabic)|WhatsApp|');
+  });
+
+  it('shows the not-connected note and RCS editors on the RCS tab', () => {
+    const html = render(
+      <TemplatesPanel
+        channel="rcs"
+        templates={[]}
+        role="admin"
+        onSaved={() => {}}
+      />
+    );
+    expect(text(html)).toContain(
+      `|${en.Hr.automsg.templates.rcsNotConnected}|`
+    );
+    expect(text(html)).not.toContain('On a Meta number');
+    expect(html.match(/<fieldset/g)).toHaveLength(12);
+    const connected = render(
+      <TemplatesPanel
+        channel="rcs"
+        templates={[]}
+        role="admin"
+        onSaved={() => {}}
+        rcsConnected
+      />
+    );
+    expect(text(connected)).not.toContain('No RCS provider');
+  });
+
+  it('is read-only on the RCS tab for a lead', () => {
+    const html = render(
+      <TemplatesPanel
+        channel="rcs"
+        templates={[]}
+        role="lead"
+        onSaved={() => {}}
+      />
+    );
+    expect(text(html)).toContain(
+      '|RCS templates are read only for your role.|'
+    );
+    expect(html).toMatch(/<textarea[^>]*readOnly/i);
+    expect(text(html)).not.toContain('Save RCS template');
   });
 });
 

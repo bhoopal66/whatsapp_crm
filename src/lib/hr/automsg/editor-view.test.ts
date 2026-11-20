@@ -12,6 +12,7 @@ import {
   editorPayload,
   editorSlots,
   editorView,
+  rcsTemplateIdProblem,
   type EditorForm,
 } from './editor-view';
 import { SEED_TEMPLATES } from './templates';
@@ -160,6 +161,136 @@ describe('editorView', () => {
       editorPayload('cv_ack', 'en', form({ metaTemplateName: ' hr_cv_ack ' }))
         .metaTemplateName
     ).toBe('hr_cv_ack');
+  });
+});
+
+describe('RCS templates', () => {
+  const rcsRow = stored({
+    channel: 'rcs',
+    body: 'Hi {name}, RCS invite for {slot}.',
+    metaTemplateName: 'prov:invite.v1',
+    updatedAt: '2026-11-19T08:00:00Z',
+  });
+
+  it('never fills a WhatsApp slot with an RCS row', () => {
+    const slots = editorSlots([rcsRow]);
+    const hr = slots.find(
+      (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+    )!;
+    expect(hr.stored).toBeNull();
+    expect(hr.channel).toBe('whatsapp');
+    expect(hr.key).toBe('hr_interview_invite|en|seed');
+    expect(hr.initial).toEqual(
+      editorInitial('hr_interview_invite', 'en', null)
+    );
+    // ...whichever order the config lists the two rows in
+    for (const list of [
+      [rcsRow, stored()],
+      [stored(), rcsRow],
+    ]) {
+      const wa = editorSlots(list).find(
+        (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+      )!;
+      expect(wa.stored?.channel).toBe('whatsapp');
+      expect(wa.initial.metaTemplateName).toBe('hr_invite_v2');
+    }
+  });
+
+  it('gives RCS slots their own rcs| keys and stored RCS rows only', () => {
+    const slots = editorSlots([stored(), rcsRow], 'rcs');
+    expect(slots).toHaveLength(12);
+    expect(slots.every((s) => s.channel === 'rcs')).toBe(true);
+    expect(slots.every((s) => s.key.startsWith('rcs|'))).toBe(true);
+    const hr = slots.find(
+      (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+    )!;
+    expect(hr.stored).toBe(rcsRow);
+    expect(hr.initial).toEqual({
+      body: 'Hi {name}, RCS invite for {slot}.',
+      metaTemplateName: 'prov:invite.v1',
+      approvalStatus: 'approved',
+      category: 'utility',
+    });
+    const waKeys = new Set(editorSlots([stored(), rcsRow]).map((s) => s.key));
+    expect(slots.some((s) => waKeys.has(s.key))).toBe(false);
+  });
+
+  it('starts an unsaved RCS editor from the WhatsApp text, else the seed', () => {
+    const fromWa = editorSlots([stored()], 'rcs').find(
+      (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+    )!;
+    expect(fromWa.stored).toBeNull();
+    expect(fromWa.initial).toEqual({
+      body: 'Hi {name}, your HR interview is on {slot}.',
+      metaTemplateName: '',
+      approvalStatus: 'draft',
+      category: 'utility',
+    });
+    expect(editorInitial('cv_ack', 'ar', null, 'rcs').body).toBe(
+      SEED_TEMPLATES.cv_ack.text.ar
+    );
+    // a saved WhatsApp row re-initialises the unsaved RCS editor
+    const later = editorSlots(
+      [stored({ updatedAt: '2026-11-20T08:00:00Z' })],
+      'rcs'
+    ).find((s) => s.kind === 'hr_interview_invite' && s.language === 'en')!;
+    expect(later.key).not.toBe(fromWa.key);
+  });
+
+  it('checks the provider id, not the Meta name, on RCS', () => {
+    expect(rcsTemplateIdProblem('', 'approved')).toBe('rcsApprovedNeedsId');
+    expect(rcsTemplateIdProblem('  ', 'approved')).toBe('rcsApprovedNeedsId');
+    expect(rcsTemplateIdProblem('', 'draft')).toBeNull();
+    expect(rcsTemplateIdProblem('Prov:Invite.v1-2_a', 'approved')).toBeNull();
+    expect(rcsTemplateIdProblem('has space', 'draft')).toBe('rcsIdFormat');
+    expect(rcsTemplateIdProblem('x'.repeat(513), 'draft')).toBe('rcsIdFormat');
+    expect(rcsTemplateIdProblem('x'.repeat(512), 'approved')).toBeNull();
+
+    const f = form({ metaTemplateName: 'Prov:Invite.v1' });
+    expect(editorMessages('hr_interview_invite', f, 'rcs')).toEqual([]);
+    expect(editorMessages('hr_interview_invite', f)).toEqual([
+      { key: 'nameFormat' },
+    ]);
+    expect(
+      editorMessages(
+        'hr_interview_invite',
+        form({ approvalStatus: 'approved', metaTemplateName: '' }),
+        'rcs'
+      )
+    ).toEqual([{ key: 'rcsApprovedNeedsId' }]);
+    // body rules are the same
+    expect(
+      editorMessages(
+        'hr_interview_invite',
+        form({ body: 'Hello {name}.', metaTemplateName: 'a b' }),
+        'rcs'
+      )
+    ).toEqual([
+      { key: 'missingPlaceholder', values: { slot: '{slot}' } },
+      { key: 'rcsIdFormat' },
+    ]);
+  });
+
+  it('lets the same people save, and names the channel in the payload', () => {
+    const f = form({ metaTemplateName: '' });
+    expect(
+      editorView('hr_interview_invite', f, 'admin', false, 'rcs').canSave
+    ).toBe(true);
+    const lead = editorView('hr_interview_invite', f, 'lead', false, 'rcs');
+    expect(lead.readOnly).toBe(true);
+    expect(lead.canSave).toBe(false);
+    expect(
+      editorPayload('cv_ack', 'en', form({ metaTemplateName: ' p.1 ' }), 'rcs')
+    ).toEqual({
+      kind: 'cv_ack',
+      language: 'en',
+      body: form().body,
+      metaTemplateName: 'p.1',
+      approvalStatus: 'draft',
+      category: 'utility',
+      channel: 'rcs',
+    });
+    expect(editorPayload('cv_ack', 'en', form())).not.toHaveProperty('channel');
   });
 });
 

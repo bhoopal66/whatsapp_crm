@@ -11649,13 +11649,21 @@
         },
         "save": "Save template",
         "saved": "Template saved",
+        "channelTabs": "Template channel",
+        "rcsReadOnly": "RCS templates are read only for your role.",
+        "rcsNotConnected": "No RCS provider is connected yet. RCS templates can be prepared now; nothing is sent over RCS until a provider is connected.",
+        "rcsSeedNote": "Starts from the WhatsApp text, not saved yet",
+        "rcsId": "RCS provider template id ({language})",
+        "saveRcs": "Save RCS template ({language})",
         "check": {
           "missingPlaceholder": "Must contain {slot}",
           "promotional": "Promotional wording is not allowed: \"{phrase}\"",
           "tooLong": "Too long: at most {max} characters.",
           "invalid": "This text isn't allowed. Use only the {name} and {slot} placeholders, with no stray braces.",
           "nameFormat": "Use lowercase letters, digits and underscores only.",
-          "approvedNeedsName": "An approved template needs its Meta template name."
+          "approvedNeedsName": "An approved template needs its Meta template name.",
+          "rcsApprovedNeedsId": "An RCS provider template id is required to approve.",
+          "rcsIdFormat": "The RCS provider template id may use letters, digits, '.', ':', '_' and '-' (up to 512)."
         }
       },
       "history": {
