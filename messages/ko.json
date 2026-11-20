@@ -11346,6 +11346,16 @@
           "candidate_faq": "지원자 질문",
           "escalation": "에스컬레이션 안내"
         }
+      },
+      "lines": {
+        "title": "HR 회선",
+        "description": "이 번호로 온 메시지는 HR로 처리됩니다. 기본값은 꺼짐입니다. 아직 HR 채팅이 없는 사람만 채용에서 열립니다.",
+        "autoOpen": "새로운 사람이 HR 회선에 메시지를 보내면 채용 채팅 열기",
+        "empty": "아직 연결된 WhatsApp 번호가 없습니다.",
+        "personal": "개인, {owner}",
+        "save": "저장",
+        "saved": "HR 회선을 저장했습니다.",
+        "loadFailed": "HR 회선을 불러오지 못했습니다."
       }
     },
     "list": {

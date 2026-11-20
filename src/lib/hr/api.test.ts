@@ -1,7 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import { hrErrorCode, hrMemberSet, hrRulesList, hrSetStage } from './api';
+import {
+  hrErrorCode,
+  hrLinesGet,
+  hrLinesSet,
+  hrMemberSet,
+  hrRulesList,
+  hrSetStage,
+} from './api';
 
 function fakeClient(result: { data?: unknown; error?: unknown }) {
   const rpc = vi.fn().mockResolvedValue({
@@ -93,4 +100,35 @@ describe('void and list results', () => {
     const { sb } = fakeClient({ data: null });
     await expect(hrRulesList(sb)).resolves.toEqual({ data: [] });
   });
+});
+
+describe('HR lines (213)', () => {
+  const lines = { auto_open_recruiter: true, channel_ids: ['a', 'b'] };
+
+  it('hrLinesGet calls hr_lines_get with no arguments', async () => {
+    const { sb, rpc } = fakeClient({ data: lines });
+    await expect(hrLinesGet(sb)).resolves.toEqual({ data: lines });
+    expect(rpc).toHaveBeenCalledWith('hr_lines_get', undefined);
+  });
+
+  it('hrLinesSet sends the contract parameter names', async () => {
+    const { sb, rpc } = fakeClient({ data: lines });
+    await expect(hrLinesSet(sb, ['a', 'b'], true)).resolves.toEqual({
+      data: lines,
+    });
+    expect(rpc).toHaveBeenCalledWith('hr_lines_set', {
+      p_channel_ids: ['a', 'b'],
+      p_auto_open: true,
+    });
+  });
+
+  it.each(['NOT_ALLOWED', 'INVALID'])(
+    'hrLinesSet returns the %s refusal',
+    async (hint) => {
+      const { sb } = fakeClient({ error: { message: 'refused', hint } });
+      await expect(hrLinesSet(sb, [], false)).resolves.toEqual({
+        error: hint,
+      });
+    }
+  );
 });

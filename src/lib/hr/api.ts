@@ -180,3 +180,26 @@ export async function hrRulesList(
 export function hrCounts(sb: SupabaseClient): Promise<HrResult<HrCounts>> {
   return call(sb, 'hr_counts');
 }
+
+/** Migration 213's HR lines: which numbers count as HR, and auto-open. */
+export interface HrLines {
+  auto_open_recruiter: boolean;
+  channel_ids: string[];
+}
+
+/** Owners, admins and anyone with an HR role; else NOT_ALLOWED. */
+export function hrLinesGet(sb: SupabaseClient): Promise<HrResult<HrLines>> {
+  return call(sb, 'hr_lines_get');
+}
+
+/** Owners and admins; a number of another workspace is INVALID. */
+export function hrLinesSet(
+  sb: SupabaseClient,
+  channelIds: string[],
+  autoOpen: boolean
+): Promise<HrResult<HrLines>> {
+  return call(sb, 'hr_lines_set', {
+    p_channel_ids: channelIds,
+    p_auto_open: autoOpen,
+  });
+}

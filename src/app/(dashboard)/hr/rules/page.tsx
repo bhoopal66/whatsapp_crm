@@ -15,7 +15,24 @@ import { agentSettings, setAgentSetting } from '@/lib/hr/agents/api';
 import { decideErrorKey } from '@/lib/hr/agents/panel';
 import { agentSwitchView } from '@/lib/hr/agents/setup-switches';
 import { AGENT_KINDS, type AgentKind } from '@/lib/hr/agents/types';
-import { hrMemberSet, hrMyRoles, hrRuleSet, hrRulesList } from '@/lib/hr/api';
+import { Checkbox } from '@/components/ui/checkbox';
+import { canSetHrLines } from '@/lib/auth/roles';
+import {
+  hrLinesGet,
+  hrLinesSet,
+  hrMemberSet,
+  hrMyRoles,
+  hrRuleSet,
+  hrRulesList,
+  type HrLines,
+} from '@/lib/hr/api';
+import {
+  hrLineRows,
+  hrLinesPayload,
+  isDirty,
+  toggleLine,
+  type HrLineChannel,
+} from '@/lib/hr/lines-view';
 import {
   addableStaff,
   draftOf,
@@ -48,8 +65,16 @@ const FIELD =
 /** HR team (admins edit) and workflow rules (inbox leads and admins edit). */
 export default function HrSetupPage() {
   const t = useTranslations('Hr');
-  const { accountId } = useAuth();
+  const { accountId, accountRole } = useAuth();
   const { members, nameOf } = useWorkspaceMembers();
+  const linesAdmin = !!accountRole && canSetHrLines(accountRole);
+  const [lineChannels, setLineChannels] = useState<HrLineChannel[] | null>(
+    null
+  );
+  const [savedLines, setSavedLines] = useState<HrLines | null>(null);
+  const [draftLines, setDraftLines] = useState<HrLines | null>(null);
+  const [linesFailed, setLinesFailed] = useState(false);
+  const [savingLines, setSavingLines] = useState(false);
   const supabase = useMemo(() => createClient(), []);
   const [roles, setRoles] = useState<HrRoles>(NO_ROLES);
   const [team, setTeam] = useState<HrTeamRow[] | null>(null);
@@ -92,6 +117,66 @@ export default function HrSetupPage() {
       else setRulesError(r.error);
     });
   }, [accountId, supabase, loadTeam]);
+
+  // HR lines are owner/admin only, and so is the numbers list.
+  useEffect(() => {
+    if (!accountId || !linesAdmin) return;
+    let cancelled = false;
+    void Promise.all([
+      hrLinesGet(supabase),
+      fetch('/api/whatsapp/channels').then((r) =>
+        r.ok ? (r.json() as Promise<{ channels?: HrLineChannel[] }>) : null
+      ),
+    ])
+      .then(([lines, list]) => {
+        if (cancelled) return;
+        if ('error' in lines || !list) {
+          setLinesFailed(true);
+          return;
+        }
+        setLinesFailed(false);
+        setSavedLines(lines.data);
+        setDraftLines(lines.data);
+        setLineChannels(list.channels ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setLinesFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, linesAdmin, supabase]);
+
+  const lineRows = useMemo(
+    () =>
+      hrLineRows(
+        lineChannels ?? [],
+        draftLines?.channel_ids ?? [],
+        nameOf,
+        (owner) => t('setup.lines.personal', { owner })
+      ),
+    [lineChannels, draftLines, nameOf, t]
+  );
+  const linesDirty =
+    !!savedLines && !!draftLines && isDirty(savedLines, draftLines);
+
+  async function saveLines() {
+    if (!draftLines || savingLines) return;
+    setSavingLines(true);
+    try {
+      const { channelIds, autoOpen } = hrLinesPayload(draftLines);
+      const res = await hrLinesSet(supabase, channelIds, autoOpen);
+      if ('error' in res) {
+        toast.error(t(decideErrorKey(res.error)));
+        return;
+      }
+      setSavedLines(res.data);
+      setDraftLines(res.data);
+      toast.success(t('setup.lines.saved'));
+    } finally {
+      setSavingLines(false);
+    }
+  }
 
   const manage = canManageTeam(roles);
   const byInbox = useMemo(
@@ -307,6 +392,76 @@ export default function HrSetupPage() {
           <p className="text-muted-foreground text-sm">
             {t('setup.agents.autoSend')}
           </p>
+        </section>
+      )}
+
+      {linesAdmin && (
+        <section className="border-border bg-card space-y-3 rounded-lg border p-4">
+          <div>
+            <h2 className="font-semibold">{t('setup.lines.title')}</h2>
+            <p className="text-muted-foreground text-sm">
+              {t('setup.lines.description')}
+            </p>
+          </div>
+          {linesFailed && (
+            <p className="text-destructive text-sm">
+              {t('setup.lines.loadFailed')}
+            </p>
+          )}
+          {draftLines && lineChannels && (
+            <>
+              <label className="bg-card-2 flex items-center justify-between gap-2 rounded-md p-3 text-sm">
+                {t('setup.lines.autoOpen')}
+                <Switch
+                  checked={draftLines.auto_open_recruiter}
+                  disabled={savingLines}
+                  onCheckedChange={(v: boolean) =>
+                    setDraftLines((d) =>
+                      d ? { ...d, auto_open_recruiter: v } : d
+                    )
+                  }
+                />
+              </label>
+              {lineRows.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  {t('setup.lines.empty')}
+                </p>
+              ) : (
+                <ul className="bg-card-2 divide-border divide-y rounded-md">
+                  {lineRows.map((row) => (
+                    <li key={row.id}>
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                        <Checkbox
+                          checked={row.checked}
+                          disabled={savingLines}
+                          onCheckedChange={(v) =>
+                            setDraftLines((d) =>
+                              d ? toggleLine(d, row.id, !!v) : d
+                            )
+                          }
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate">{row.title}</span>
+                          <span className="text-muted-foreground block truncate text-xs">
+                            {row.subtitle}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  disabled={!linesDirty || savingLines}
+                  onClick={() => void saveLines()}
+                >
+                  {t('setup.lines.save')}
+                </Button>
+              </div>
+            </>
+          )}
         </section>
       )}
 

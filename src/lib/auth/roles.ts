@@ -384,3 +384,11 @@ export function canReceiveCoordinatorShare(role: AccountRole | null): boolean {
 export function canHavePersonalWhatsapp(role: AccountRole): boolean {
   return hasMinRole(role, 'agent');
 }
+
+/**
+ * Owner / admin: choose which WhatsApp numbers are HR lines and switch
+ * on auto-opening Recruitment chats (`hr_lines_set`, migration 213).
+ */
+export function canSetHrLines(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}

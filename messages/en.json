@@ -11346,6 +11346,16 @@
           "candidate_faq": "Candidate questions",
           "escalation": "Escalation acknowledgements"
         }
+      },
+      "lines": {
+        "title": "HR lines",
+        "description": "Messages to these numbers count as HR. Off by default. Only people with no HR chat yet are opened in Recruitment.",
+        "autoOpen": "Open a Recruitment chat when someone new writes to an HR line",
+        "empty": "No WhatsApp numbers connected yet.",
+        "personal": "Personal, {owner}",
+        "save": "Save",
+        "saved": "HR lines saved.",
+        "loadFailed": "Could not load the HR lines."
       }
     },
     "list": {
