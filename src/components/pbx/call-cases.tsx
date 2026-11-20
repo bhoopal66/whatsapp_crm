@@ -29,8 +29,9 @@ const chip =
 export function ContactCasesMini({ contactId }: { contactId: string }) {
   const t = useTranslations('CallContext.cases');
   const locale = useLocale();
-  const { accountRole } = useAuth();
-  const allowed = !!accountRole && canSendMessages(accountRole);
+  const { accountRole, salesRestricted } = useAuth();
+  const allowed =
+    !!accountRole && canSendMessages(accountRole) && !salesRestricted;
   const [banks, setBanks] = useState<CaseBankOption[] | null>(null);
   const [read, setRead] = useState<{
     contactId: string;

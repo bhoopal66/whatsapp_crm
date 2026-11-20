@@ -72,7 +72,10 @@ async function loadCases(fetchImpl: typeof fetch): Promise<WorklistCase[]> {
 export async function loadWorklistInputs(
   supabase: SupabaseClient,
   fetchImpl: typeof fetch,
-  now: number = Date.now()
+  now: number = Date.now(),
+  // `cases: false` skips GET /api/cases, which a department kept out of
+  // the sales areas is always refused (migration 192).
+  { cases: readCases = true }: { cases?: boolean } = {}
 ): Promise<WorklistInputs> {
   const [convs, tasks, rules, drafts, cases] = await Promise.all([
     rows(
@@ -107,7 +110,7 @@ export async function loadWorklistInputs(
         .order('created_at', { ascending: true })
         .limit(DRAFT_LIMIT)
     ),
-    loadCases(fetchImpl),
+    readCases ? loadCases(fetchImpl) : Promise.resolve([]),
   ]);
   return {
     hrConversations: convs.map(

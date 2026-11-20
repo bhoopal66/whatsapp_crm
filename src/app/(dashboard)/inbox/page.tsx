@@ -152,8 +152,14 @@ export function InboxPageInner({
   hrInbox?: HrInboxRoute;
 } = {}) {
   const t = useTranslations('Inbox.page');
-  const { user, accountId, accountRole, profileLoading, department } =
-    useAuth();
+  const {
+    user,
+    accountId,
+    accountRole,
+    profileLoading,
+    department,
+    salesRestricted,
+  } = useAuth();
 
   // Narrow the personal inbox to this user's own threads when they can
   // see more than their own — which today means a team leader. `null`
@@ -978,8 +984,10 @@ export function InboxPageInner({
   // The AI banner's account status, read now rather than on the first
   // chat opened (it is cached per account; lib/inbox/ai-account-status.ts).
   useEffect(() => {
+    // A department kept out of the sales areas is refused (migration 192).
+    if (salesRestricted) return;
     warmAiAccountStatus(accountId);
-  }, [accountId]);
+  }, [accountId, salesRestricted]);
 
   // Leaving the Inbox stops any retry still waiting.
   useEffect(

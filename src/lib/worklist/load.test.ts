@@ -126,3 +126,20 @@ describe('loadWorklistInputs', () => {
     ]);
   });
 });
+
+describe('loadWorklistInputs cases option', () => {
+  it('cases: false never calls fetch and yields no cases', async () => {
+    const f = jsonFetch(200, { rows: [], nextCursor: null });
+    const out = await loadWorklistInputs(fakeSupabase({}), f, Date.now(), {
+      cases: false,
+    });
+    expect(out.cases).toEqual([]);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('reads the cases by default', async () => {
+    const f = jsonFetch(200, { rows: [], nextCursor: null });
+    await loadWorklistInputs(fakeSupabase({}), f);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});

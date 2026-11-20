@@ -126,7 +126,7 @@ export function AiThreadBanner({
   placement = 'bottom',
 }: AiThreadBannerProps) {
   const t = useTranslations('Inbox.aiBanner');
-  const { accountId } = useAuth();
+  const { accountId, salesRestricted } = useAuth();
   const conversationId = server.id;
   const [status, setStatus] = useState<AiAccountStatus | null>(null);
   // Every piece of local state remembers the chat (and, where it
@@ -143,13 +143,14 @@ export function AiThreadBanner({
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accountId) return;
+    // GET /api/ai/config refuses a restricted department; status stays null.
+    if (!accountId || salesRestricted) return;
     let alive = true;
     fetchAiAccountStatus(accountId).then((s) => alive && setStatus(s));
     return () => {
       alive = false;
     };
-  }, [accountId]);
+  }, [accountId, salesRestricted]);
 
   const snapshot = bannerSnapshot(server);
   const conversation = withOverride(conversationId, server, override);

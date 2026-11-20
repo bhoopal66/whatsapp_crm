@@ -20,7 +20,7 @@ import {
 } from '@/lib/worklist/rank';
 
 export default function WorklistPage() {
-  const { user, accountId, accountRole } = useAuth();
+  const { user, accountId, accountRole, salesRestricted } = useAuth();
   const { members, nameOf } = useWorkspaceMembers();
   // Both are tagged with the workspace they belong to, so a workspace
   // switch shows loading and Anyone again without resetting state in an
@@ -39,13 +39,15 @@ export default function WorklistPage() {
     if (!accountId) return;
     let live = true;
     const now = Date.now();
-    void loadWorklistInputs(createClient(), fetch, now).then((inputs) => {
+    void loadWorklistInputs(createClient(), fetch, now, {
+      cases: !salesRestricted,
+    }).then((inputs) => {
       if (live) setLoaded({ accountId, inputs, now });
     });
     return () => {
       live = false;
     };
-  }, [accountId]);
+  }, [accountId, salesRestricted]);
 
   const items = useMemo(
     () =>

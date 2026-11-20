@@ -135,7 +135,7 @@ export function CustomerPage({
   const td = useTranslations('Contacts.detailView');
   const locale = useLocale();
   const router = useRouter();
-  const { accountRole, accountId, user } = useAuth();
+  const { accountRole, accountId, user, salesRestricted } = useAuth();
   const access = customerAccess(accountRole);
   const tm = useTranslations('Memory');
   const timeZone = useMemo(
@@ -626,7 +626,8 @@ export function CustomerPage({
 
   const month = view.summary ? monthSummaryParts(view.summary) : null;
   // The contact's cases (read-only): agent and up, as GET /api/cases/leads.
-  const canSeeCases = !!accountRole && canSendMessages(accountRole);
+  const canSeeCases =
+    !!accountRole && canSendMessages(accountRole) && !salesRestricted;
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <BackLink fallbackHref={contactsListPath(fromTeam)} />
