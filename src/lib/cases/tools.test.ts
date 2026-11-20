@@ -300,6 +300,42 @@ describe('CaseToolsStore', () => {
     expect(t.createdBy).toBeNull();
   });
 
+  it('listTasks keeps a NULL log actor NULL (rule-created task), never "null"', async () => {
+    const db = new FakeDb(
+      {},
+      {
+        case_tasks: [
+          {
+            id: 'a',
+            case_id: CASE,
+            template_key: 'k',
+            title: 'A',
+            owner_id: OWNER,
+            due_at: null,
+            status: 'open',
+            created_by: null,
+            created_at: '2026-10-19T00:00:00Z',
+            updated_at: '2026-10-19T00:00:00Z',
+          },
+        ],
+        case_task_status_log: [
+          {
+            id: 1,
+            task_id: 'a',
+            case_id: CASE,
+            from_status: null,
+            to_status: 'open',
+            actor_id: null,
+            actor_role: 'system',
+            changed_at: '2026-10-19T00:00:00Z',
+          },
+        ],
+      }
+    );
+    const [t] = await new CaseToolsStore(db.client).listTasks(CASE);
+    expect(t.lastChange?.actorId).toBeNull();
+  });
+
   it('checklist matches the product case-insensitively and lists what is missing', async () => {
     const db = new FakeDb(
       {},

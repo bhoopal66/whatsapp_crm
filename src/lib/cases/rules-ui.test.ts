@@ -4,6 +4,7 @@ import { createTranslator } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 
 import {
+  actionKindsFor,
   describeRule,
   draftBody,
   draftFromRule,
@@ -14,10 +15,14 @@ import {
   parseSavedRule,
   ruleErrorKey,
   summariseRun,
+  templateChoices,
   toggleBody,
   validateDraft,
+  withTrigger,
   RULE_TRIGGERS,
+  type DraftAction,
   type RuleDraft,
+  type RuleRunView,
   type RulesT,
   type RuleView,
 } from './rules-ui';
@@ -465,5 +470,386 @@ describe('summariseRun', () => {
     ).toBe('Matched · done');
     expect(summariseRun(run(), t)).toBe('Matched');
     expect(errors).toEqual([]);
+  });
+});
+
+// ---------- 214: stage_entered / last_required_doc_received ----------
+
+// The catalogue is another job's; a key-echoing translator pins the logic.
+const echo: RulesT = (key, values) =>
+  values && Object.keys(values).length > 0
+    ? `${key}{${Object.entries(values)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(',')}}`
+    : key;
+
+const task = (over: Record<string, unknown> = {}) => ({
+  kind: 'create_task' as const,
+  templateKey: 'chase_docs',
+  ownerRole: 'agent' as const,
+  ...over,
+});
+
+describe('214 rule editor logic', () => {
+  it('parses a saved rule with each new action', () => {
+    const json = {
+      ruleId: 'r9',
+      name: 'N',
+      enabled: true,
+      trigger: 'stage_entered',
+      conditions: { stage: 'Docs' },
+      actions: [
+        { kind: 'create_task', templateKey: 'a', ownerRole: 'coordinator' },
+        {
+          kind: 'create_task',
+          templateKey: 'b',
+          ownerRole: 'agent',
+          dueHours: 24,
+        },
+        { kind: 'start_sla', timer: 'bank_response' },
+        { kind: 'advance_stage' },
+        { kind: 'start_sla', timer: 'nope' },
+        { kind: 'create_task', templateKey: 'c', ownerRole: 'nobody' },
+      ],
+      position: 1,
+    };
+    const r = parseSavedRule({ rule: json });
+    expect(r?.actions).toEqual([
+      { kind: 'create_task', templateKey: 'a', ownerRole: 'coordinator' },
+      {
+        kind: 'create_task',
+        templateKey: 'b',
+        ownerRole: 'agent',
+        dueHours: 24,
+      },
+      { kind: 'start_sla', timer: 'bank_response' },
+      { kind: 'advance_stage' },
+    ]);
+  });
+
+  it('parses each new trigger and keeps it in RULE_TRIGGERS', () => {
+    expect(RULE_TRIGGERS).toContain('stage_entered');
+    expect(RULE_TRIGGERS).toContain('last_required_doc_received');
+    for (const trigger of ['stage_entered', 'last_required_doc_received']) {
+      const r = parseSavedRule({
+        rule: {
+          ruleId: 'r',
+          name: 'N',
+          enabled: true,
+          trigger,
+          conditions: {},
+          actions: [],
+          position: 0,
+        },
+      });
+      expect(r?.trigger).toBe(trigger);
+    }
+  });
+
+  it('actionKindsFor pairs actions with triggers', () => {
+    expect(actionKindsFor('stage_entered')).toEqual([
+      'assign_agent',
+      'assign_coordinator',
+      'add_note',
+      'set_priority',
+      'create_task',
+      'start_sla',
+    ]);
+    expect(actionKindsFor('last_required_doc_received')).toEqual([
+      'advance_stage',
+    ]);
+    for (const t of [
+      'case_opened',
+      'stage_changed',
+      'sla_overdue',
+      'no_activity',
+      'submission_attached',
+    ] as const) {
+      const kinds = actionKindsFor(t);
+      expect(kinds).not.toContain('create_task');
+      expect(kinds).not.toContain('start_sla');
+      expect(kinds).not.toContain('advance_stage');
+    }
+  });
+
+  it('withTrigger leaves one advance_stage on the auto-advance trigger', () => {
+    const d = withTrigger(
+      draft({
+        actions: [newDraftAction('add_note'), newDraftAction('add_note')],
+      }),
+      'last_required_doc_received'
+    );
+    expect(d.trigger).toBe('last_required_doc_received');
+    expect(d.actions.map((a) => a.kind)).toEqual(['advance_stage']);
+  });
+
+  it('withTrigger drops actions the new trigger refuses', () => {
+    const d = withTrigger(
+      draft({
+        trigger: 'stage_entered',
+        actions: [
+          { ...newDraftAction('add_note'), body: 'x' },
+          newDraftAction('create_task'),
+          newDraftAction('start_sla'),
+        ],
+      }),
+      'case_opened'
+    );
+    expect(d.actions.map((a) => a.kind)).toEqual(['add_note']);
+    const away = withTrigger(
+      draft({ actions: [newDraftAction('advance_stage')] }),
+      'case_opened'
+    );
+    expect(away.actions.map((a) => a.kind)).toEqual(['add_note']);
+    const stays = withTrigger(
+      draft({
+        trigger: 'stage_entered',
+        actions: [newDraftAction('create_task')],
+      }),
+      'stage_entered'
+    );
+    expect(stays.actions.map((a) => a.kind)).toEqual(['create_task']);
+  });
+
+  it('validateDraft reports each new problem', () => {
+    const stage = draft({ trigger: 'stage_entered' });
+    expect(validateDraft(stage)).toContain('stage_required');
+    expect(validateDraft({ ...stage, stage: 'Docs' })).not.toContain(
+      'stage_required'
+    );
+
+    expect(
+      validateDraft(draft({ actions: [newDraftAction('advance_stage')] }))
+    ).toContain('action_not_allowed');
+    expect(
+      validateDraft(
+        draft({
+          trigger: 'last_required_doc_received',
+          actions: [{ ...newDraftAction('add_note'), body: 'x' }],
+        })
+      )
+    ).toContain('action_not_allowed');
+
+    const mk = (a: Partial<DraftAction>) =>
+      draft({
+        trigger: 'stage_entered',
+        stage: 'Docs',
+        actions: [{ ...newDraftAction('create_task'), templateKey: 'k', ...a }],
+      });
+    expect(validateDraft(mk({ templateKey: '' }))).toContain(
+      'template_required'
+    );
+    expect(validateDraft(mk({ templateKey: 'Bad Key' }))).toContain(
+      'template_required'
+    );
+    expect(
+      validateDraft(mk({ ownerRole: 'admin' as unknown as 'agent' }))
+    ).toContain('owner_invalid');
+    for (const dueHours of ['0', '8761', '1.5']) {
+      expect(validateDraft(mk({ dueHours }))).toContain('due_hours_invalid');
+    }
+    for (const dueHours of ['', '1', '8760']) {
+      expect(validateDraft(mk({ dueHours }))).toEqual([]);
+    }
+    expect(
+      validateDraft(
+        draft({
+          trigger: 'stage_entered',
+          stage: 'Docs',
+          actions: [
+            {
+              ...newDraftAction('start_sla'),
+              timer: 'weekly' as unknown as 'customer_reply',
+            },
+          ],
+        })
+      )
+    ).toContain('timer_invalid');
+  });
+
+  it('validateDraft accepts a valid draft for each new action', () => {
+    expect(
+      validateDraft(
+        draft({
+          trigger: 'stage_entered',
+          stage: 'Docs',
+          actions: [
+            { ...newDraftAction('create_task'), templateKey: 'chase_docs' },
+            newDraftAction('start_sla'),
+          ],
+        })
+      )
+    ).toEqual([]);
+    expect(
+      validateDraft(
+        draft({
+          trigger: 'last_required_doc_received',
+          actions: [newDraftAction('advance_stage')],
+        })
+      )
+    ).toEqual([]);
+  });
+
+  it('draftBody omits a blank dueHours and sends a number when set', () => {
+    const base = draft({
+      trigger: 'stage_entered',
+      stage: ' Docs ',
+      actions: [
+        { ...newDraftAction('create_task'), templateKey: 'k', dueHours: '' },
+      ],
+    });
+    expect(draftBody(base)?.actions[0]).toEqual({
+      kind: 'create_task',
+      templateKey: 'k',
+      ownerRole: 'agent',
+    });
+    expect(draftBody(base)?.conditions.stage).toBe('Docs');
+    const set = {
+      ...base,
+      actions: [{ ...base.actions[0], dueHours: ' 48 ' }],
+    };
+    expect(draftBody(set)?.actions[0]).toEqual({
+      kind: 'create_task',
+      templateKey: 'k',
+      ownerRole: 'agent',
+      dueHours: 48,
+    });
+    expect(
+      draftBody(
+        draft({
+          trigger: 'last_required_doc_received',
+          actions: [newDraftAction('advance_stage')],
+        })
+      )?.actions
+    ).toEqual([{ kind: 'advance_stage' }]);
+    expect(
+      draftBody(
+        draft({
+          trigger: 'stage_entered',
+          stage: 'Docs',
+          actions: [
+            { ...newDraftAction('start_sla'), timer: 'document_chase' },
+          ],
+        })
+      )?.actions
+    ).toEqual([{ kind: 'start_sla', timer: 'document_chase' }]);
+  });
+
+  it('describeRule words both triggers and the three actions', () => {
+    const ctx = {
+      t: echo,
+      locale: 'en',
+      bankName: (c: string) => c,
+      personName: (u: string) => u,
+    };
+    const entered = rule({
+      trigger: 'stage_entered',
+      conditions: { stage: 'Docs', bank_code: 'ADCB' },
+      actions: [
+        task({ dueHours: 12 }),
+        { kind: 'start_sla', timer: 'bank_response' },
+      ],
+    });
+    const out = describeRule(entered, ctx);
+    expect(out).toContain('describe.trigger.stage_entered{days=0,stage=Docs}');
+    // The stage is in the trigger wording, so no separate stage clause.
+    expect(out).not.toContain('describe.stage');
+    expect(out).toContain('describe.bank');
+    expect(out).toContain(
+      'describe.action.create_task{task=chase_docs,owner=describe.owner.agent}'
+    );
+    expect(out).toContain(
+      'describe.action.start_sla{timer=describe.timer.bank_response}'
+    );
+    expect(
+      describeRule(entered, { ...ctx, templateName: () => 'Chase documents' })
+    ).toContain('task=Chase documents');
+
+    const adv = describeRule(
+      rule({
+        trigger: 'last_required_doc_received',
+        actions: [{ kind: 'advance_stage' }],
+      }),
+      ctx
+    );
+    expect(adv).toContain('describe.trigger.last_required_doc_received');
+    expect(adv).toContain('describe.action.advance_stage');
+  });
+
+  it('templateChoices puts the rule bank first and keeps a vanished key', () => {
+    const byBank = new Map([
+      [
+        'ADCB',
+        [
+          { key: 'a', title: 'ADCB A' },
+          { key: 'shared', title: 'ADCB shared' },
+        ],
+      ],
+      [
+        'ENBD',
+        [
+          { key: 'b', title: 'ENBD B' },
+          { key: 'shared', title: 'ENBD shared' },
+        ],
+      ],
+    ]);
+    expect(templateChoices(byBank, 'ENBD')).toEqual([
+      { key: 'b', title: 'ENBD B' },
+      { key: 'shared', title: 'ENBD shared' },
+      { key: 'a', title: 'ADCB A' },
+    ]);
+    expect(templateChoices(byBank, '', ['gone', 'a'])).toEqual([
+      { key: 'a', title: 'ADCB A' },
+      { key: 'shared', title: 'ADCB shared' },
+      { key: 'b', title: 'ENBD B' },
+      { key: 'gone', title: 'gone' },
+    ]);
+  });
+
+  it('summariseRun names each new done kind and refusal code', () => {
+    const run = (applied: RuleRunView['applied']): RuleRunView => ({
+      ruleId: 'r',
+      trigger: 'stage_entered',
+      matched: true,
+      applied,
+      at: '2026-11-20T00:00:00Z',
+    });
+    expect(
+      summariseRun(
+        run([
+          { kind: 'create_task', ok: true, refusal: null },
+          { kind: 'start_sla', ok: true, refusal: null },
+          { kind: 'advance_stage', ok: true, refusal: null },
+        ]),
+        echo
+      )
+    ).toBe(
+      'run.matched · run.done.create_task · run.done.start_sla · run.done.advance_stage'
+    );
+    for (const code of [
+      'TEMPLATE_NOT_FOUND',
+      'OWNER_MISSING',
+      'SLA_NOT_CONFIGURED',
+      'FINAL_STAGE',
+      'NO_NEXT_STAGE',
+      'ADVANCE_CHAINED',
+      'SUBMISSION_REQUIRED',
+      'OWNER_INVALID',
+      'DUE_INVALID',
+      'PRESUB_REENTRY',
+    ]) {
+      expect(
+        summariseRun(
+          run([{ kind: 'create_task', ok: false, refusal: code }]),
+          echo
+        )
+      ).toBe(`run.matched · run.stopped{reason=refusal.${code}}`);
+    }
+    expect(
+      summariseRun(
+        run([{ kind: 'advance_stage', ok: false, refusal: 'WAT' }]),
+        echo
+      )
+    ).toContain('refusal.other');
   });
 });

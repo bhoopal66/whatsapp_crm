@@ -41,7 +41,7 @@ export interface CaseTask {
   lastChange: {
     fromStatus: TaskStatus | null;
     toStatus: TaskStatus;
-    actorId: string;
+    actorId: string | null;
     actorRole: string;
     changedAt: Date;
   } | null;
@@ -237,7 +237,7 @@ export class CaseToolsStore extends CaseRpc {
           ? {
               fromStatus: str(l.from_status) as TaskStatus | null,
               toStatus: String(l.to_status) as TaskStatus,
-              actorId: String(l.actor_id),
+              actorId: str(l.actor_id),
               actorRole: String(l.actor_role),
               changedAt: date(l.changed_at)!,
             }

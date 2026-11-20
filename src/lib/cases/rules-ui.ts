@@ -88,6 +88,9 @@ export const RUN_REFUSALS = [
   'NO_NEXT_STAGE',
   'ADVANCE_CHAINED',
   'SUBMISSION_REQUIRED',
+  'OWNER_INVALID',
+  'DUE_INVALID',
+  'PRESUB_REENTRY',
 ] as const;
 
 export type RuleAction =
