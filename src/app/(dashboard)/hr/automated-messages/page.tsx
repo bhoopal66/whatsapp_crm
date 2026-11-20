@@ -429,7 +429,10 @@ export default function HrAutomatedMessagesPage() {
                         checked={row.enabled}
                         disabled={row.switchDisabled || busy}
                         onCheckedChange={(v) =>
-                          void setTrigger(row, v === true, null)
+                          // The row's current kind: hr_automsg_trigger_set
+                          // stores the kind it is given, so null here
+                          // reset a chosen template to the default.
+                          void setTrigger(row, v === true, row.templateKind)
                         }
                       />
                     </TableCell>
