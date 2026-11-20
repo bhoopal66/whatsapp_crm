@@ -80,6 +80,8 @@ export async function loadWorklistInputs(
         .from('hr_conversations')
         .select(HR_SELECT)
         .is('closed_at', null)
+        // Newest customer message first, so the cap drops the stalest chats.
+        .order('last_inbound_at', { ascending: false, nullsFirst: false })
         .limit(HR_LIMIT)
     ),
     rows(

@@ -32,7 +32,8 @@ export default function WorklistPage() {
   } | null>(null);
   const [filter, setFilter] = useState({ accountId, userId: '' });
   const assignedTo = filter.accountId === accountId ? filter.userId : '';
-  const mode = worklistMode(accountRole);
+  // null while the profile loads: not the same as a guest's empty list.
+  const mode = accountRole === null ? null : worklistMode(accountRole);
 
   useEffect(() => {
     if (!accountId) return;

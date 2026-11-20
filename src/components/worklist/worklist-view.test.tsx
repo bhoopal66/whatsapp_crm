@@ -45,7 +45,9 @@ const ITEMS: WorklistItem[] = [
 
 const NAMES: Record<string, string> = { 'u-omar': 'Omar', 'u-layla': 'Layla' };
 
-function render(over: Partial<WorklistViewProps> & { mode: WorklistMode }) {
+function render(
+  over: Partial<WorklistViewProps> & { mode: WorklistMode | null }
+) {
   const props: WorklistViewProps = {
     items: ITEMS,
     nameOf: (id) => NAMES[id] ?? null,
@@ -126,6 +128,22 @@ describe('WorklistView', () => {
     expect(html).toContain('role="status"');
     expect(html).toContain('Loading worklist...');
     expect(html).not.toContain('<table');
+  });
+
+  it('role not known yet (mode null): loading, never the empty line', () => {
+    const html = render({ mode: null });
+    expect(html).toContain('Loading worklist...');
+    expect(html).not.toContain('Nothing needs action right now.');
+    expect(html).not.toContain('<table');
+  });
+
+  it('an assignee missing from the members list shows Unknown person, not the id', () => {
+    const html = render({
+      mode: 'all',
+      items: [{ ...ITEMS[0]!, assignees: ['u-omar', 'u-gone-9f3'] }],
+    });
+    expect(html).toContain('Omar, Unknown person');
+    expect(html).not.toContain('u-gone-9f3');
   });
 
   it('empty: the empty line and no table', () => {

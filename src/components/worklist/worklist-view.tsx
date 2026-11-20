@@ -37,7 +37,8 @@ export interface WorklistMemberOption {
 export interface WorklistViewProps {
   /** null: still loading. */
   items: readonly WorklistItem[] | null;
-  mode: WorklistMode;
+  /** null: the viewer's role is not known yet, so show loading. */
+  mode: WorklistMode | null;
   /** Display name for an auth user id; null when unknown. */
   nameOf: (userId: string) => string | null;
   /** All mode only: the auth user id filtered to, '' for anyone. */
@@ -56,8 +57,8 @@ export function WorklistView({
 }: WorklistViewProps) {
   const t = useTranslations('Worklist');
   const tAll = useTranslations();
-  // A bank guest (or no role yet) has nothing to rank.
-  const shown = mode === 'none' ? [] : items;
+  // A bank guest has nothing to rank; an unknown role is still loading.
+  const shown = mode === null ? null : mode === 'none' ? [] : items;
 
   return (
     <div
@@ -136,7 +137,9 @@ export function WorklistView({
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {it.assignees.map((u) => nameOf(u) ?? u).join(', ')}
+                    {it.assignees
+                      .map((u) => nameOf(u) ?? t('unknownPerson'))
+                      .join(', ')}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {it.score}

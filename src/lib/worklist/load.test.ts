@@ -103,4 +103,26 @@ describe('loadWorklistInputs', () => {
       },
     ]);
   });
+
+  it('orders the capped HR read by newest inbound first, nulls last', async () => {
+    const orders: unknown[][] = [];
+    const sb = {
+      from(table: string) {
+        const q: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'is', 'like', 'lt', 'limit'])
+          q[m] = () => q;
+        q.order = (...args: unknown[]) => {
+          if (table === 'hr_conversations') orders.push(args);
+          return q;
+        };
+        q.then = (ok: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(ok);
+        return q;
+      },
+    } as unknown as SupabaseClient;
+    await loadWorklistInputs(sb, jsonFetch(200, { rows: [] }));
+    expect(orders).toEqual([
+      ['last_inbound_at', { ascending: false, nullsFirst: false }],
+    ]);
+  });
 });

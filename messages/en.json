@@ -11803,6 +11803,7 @@
     "list": "Items needing action",
     "loading": "Loading worklist...",
     "empty": "Nothing needs action right now.",
+    "unknownPerson": "Unknown person",
     "assignedTo": "Assigned to",
     "anyone": "Anyone",
     "rank": "#",
