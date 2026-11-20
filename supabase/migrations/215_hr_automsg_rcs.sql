@@ -71,29 +71,38 @@ ALTER TABLE public.hr_automsg_consent  ADD COLUMN IF NOT EXISTS channel text NOT
 ALTER TABLE public.hr_automsg_templates ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'whatsapp';
 ALTER TABLE public.hr_automsg_triggers ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'whatsapp';
 
-ALTER TABLE public.hr_automsg_outbox DROP CONSTRAINT IF EXISTS hr_automsg_outbox_channel_check;
-ALTER TABLE public.hr_automsg_outbox ADD CONSTRAINT hr_automsg_outbox_channel_check
+-- Each constraint swap is ONE ALTER statement (drop and add together),
+-- so a lock timeout on the add can never leave a table without its key
+-- or check: the whole statement rolls back.
+ALTER TABLE public.hr_automsg_outbox
+  DROP CONSTRAINT IF EXISTS hr_automsg_outbox_channel_check,
+  ADD CONSTRAINT hr_automsg_outbox_channel_check
   CHECK (channel IN ('whatsapp', 'rcs'));
-ALTER TABLE public.hr_automsg_consent DROP CONSTRAINT IF EXISTS hr_automsg_consent_channel_check;
-ALTER TABLE public.hr_automsg_consent ADD CONSTRAINT hr_automsg_consent_channel_check
+ALTER TABLE public.hr_automsg_consent
+  DROP CONSTRAINT IF EXISTS hr_automsg_consent_channel_check,
+  ADD CONSTRAINT hr_automsg_consent_channel_check
   CHECK (channel IN ('whatsapp', 'rcs'));
-ALTER TABLE public.hr_automsg_templates DROP CONSTRAINT IF EXISTS hr_automsg_templates_channel_check;
-ALTER TABLE public.hr_automsg_templates ADD CONSTRAINT hr_automsg_templates_channel_check
+ALTER TABLE public.hr_automsg_templates
+  DROP CONSTRAINT IF EXISTS hr_automsg_templates_channel_check,
+  ADD CONSTRAINT hr_automsg_templates_channel_check
   CHECK (channel IN ('whatsapp', 'rcs'));
-ALTER TABLE public.hr_automsg_triggers DROP CONSTRAINT IF EXISTS hr_automsg_triggers_channel_check;
-ALTER TABLE public.hr_automsg_triggers ADD CONSTRAINT hr_automsg_triggers_channel_check
+ALTER TABLE public.hr_automsg_triggers
+  DROP CONSTRAINT IF EXISTS hr_automsg_triggers_channel_check,
+  ADD CONSTRAINT hr_automsg_triggers_channel_check
   CHECK (channel IN ('whatsapp', 'rcs'));
 
 -- ------------------------------------------------------------
 -- 2. Per-channel keys
 -- ------------------------------------------------------------
 
-ALTER TABLE public.hr_automsg_consent DROP CONSTRAINT IF EXISTS hr_automsg_consent_pkey;
-ALTER TABLE public.hr_automsg_consent ADD CONSTRAINT hr_automsg_consent_pkey
+ALTER TABLE public.hr_automsg_consent
+  DROP CONSTRAINT IF EXISTS hr_automsg_consent_pkey,
+  ADD CONSTRAINT hr_automsg_consent_pkey
   PRIMARY KEY (account_id, contact_id, channel);
 
-ALTER TABLE public.hr_automsg_templates DROP CONSTRAINT IF EXISTS hr_automsg_templates_pkey;
-ALTER TABLE public.hr_automsg_templates ADD CONSTRAINT hr_automsg_templates_pkey
+ALTER TABLE public.hr_automsg_templates
+  DROP CONSTRAINT IF EXISTS hr_automsg_templates_pkey,
+  ADD CONSTRAINT hr_automsg_templates_pkey
   PRIMARY KEY (account_id, kind, language, channel);
 
 -- ------------------------------------------------------------
@@ -101,8 +110,9 @@ ALTER TABLE public.hr_automsg_templates ADD CONSTRAINT hr_automsg_templates_pkey
 --    length is checked apart, as in 203)
 -- ------------------------------------------------------------
 
-ALTER TABLE public.hr_automsg_templates DROP CONSTRAINT IF EXISTS hr_automsg_templates_name_check;
-ALTER TABLE public.hr_automsg_templates ADD CONSTRAINT hr_automsg_templates_name_check CHECK (
+ALTER TABLE public.hr_automsg_templates
+  DROP CONSTRAINT IF EXISTS hr_automsg_templates_name_check,
+  ADD CONSTRAINT hr_automsg_templates_name_check CHECK (
   char_length(meta_template_name) <= 512
   AND CASE channel
         WHEN 'rcs' THEN meta_template_name ~ '^[A-Za-z0-9_.:-]*$'
@@ -113,8 +123,9 @@ ALTER TABLE public.hr_automsg_templates ADD CONSTRAINT hr_automsg_templates_name
 -- 4. Hold reasons
 -- ------------------------------------------------------------
 
-ALTER TABLE public.hr_automsg_outbox DROP CONSTRAINT IF EXISTS hr_automsg_outbox_hold_reason_check;
-ALTER TABLE public.hr_automsg_outbox ADD CONSTRAINT hr_automsg_outbox_hold_reason_check
+ALTER TABLE public.hr_automsg_outbox
+  DROP CONSTRAINT IF EXISTS hr_automsg_outbox_hold_reason_check,
+  ADD CONSTRAINT hr_automsg_outbox_hold_reason_check
   CHECK (hold_reason IS NULL OR hold_reason IN (
     'kill_switch', 'disabled', 'closed', 'opted_out', 'no_consent', 'quiet_hours',
     'outside_window_no_template', 'daily_cap', 'duplicate', 'channel_not_connected'));
