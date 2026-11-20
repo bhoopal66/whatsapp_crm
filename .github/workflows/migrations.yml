@@ -1003,6 +1003,15 @@ jobs:
       - name: Verify HR workflows
         run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
 
+      # Migration 213: HR lines. Off by default (no settings row); the
+      # list and switch are read with an HR role and set by owners/admins
+      # only (a number of another workspace is INVALID, nothing written);
+      # hr_auto_open_recruiter (service role only) opens a chat on a line
+      # as a recruiter row at cv_review by nobody, once, never over an
+      # existing row (closed included); deleting a number drops its line.
+      - name: Verify HR lines
+        run: supabase db query --local --file supabase/ci/verify-hr-lines.sql
+
       # Migration 202: recruiter AI agent drafts. Drafts and the per-kind
       # switches are read through RLS (a recruiter role, and for drafts
       # hr_can_see on the chat) and written only by definer functions: the
