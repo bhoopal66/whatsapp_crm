@@ -1,7 +1,9 @@
 // ============================================================
 // /api/whatsapp/groups/[id]/participants — who is in a group (114).
-// Managers only, and our number must be a group admin. POST adds people
-// (skipping anyone who opted out or is do-not-contact, unless an
+// Our number must be a group admin. Adding is open to any staff member
+// at agent level or above who can open the group (`groupAddBlock`,
+// 2026-11-20); removing and promoting stay with its managers. POST adds
+// people (skipping anyone who opted out or is do-not-contact, unless an
 // owner/admin sends `overrideConsent: true`), DELETE removes
 // them, PATCH promotes or demotes. Our own number can be neither
 // removed nor demoted: that would strand the group. After a change the
@@ -10,7 +12,8 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { groupAddBlock } from '@/lib/groups/access';
 import {
   namesOurNumber,
   requireConsentOverride,
@@ -52,11 +55,24 @@ const ownNumber = () =>
 export async function POST(request: Request, { params }: Params) {
   const deadline = groupDeadline();
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const input = parseAddMembers(await request.json().catch(() => null));
-    const group = await loadGroupForCaller(ctx, id, { manage: true });
+    // Visible through the caller's RLS is enough: no manager check.
+    const group = await loadGroupForCaller(ctx, id);
     if (input.overrideConsent) requireConsentOverride(ctx.role);
+    if (
+      groupAddBlock({
+        role: ctx.role,
+        group: { channelId: group.channel_id, ourRole: group.our_role },
+      }) === 'not_allowed'
+    ) {
+      throw new GroupHttpError(
+        403,
+        'not_allowed',
+        "You can't add people to this group"
+      );
+    }
     requireActive(group);
     requireGroupAdmin(group);
     const channel = await channelForGroup(group);

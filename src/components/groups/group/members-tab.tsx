@@ -64,6 +64,11 @@ export function MembersTab({
 
   const blocked = detail.blocks.members;
   const blockedText = blocked ? t(`reasons.${reasonKey(blocked)}`) : null;
+  // Adding is open wider than managing (groupAddBlock on the server).
+  const addBlocked = detail.blocks.add;
+  const addBlockedText = addBlocked
+    ? t(`reasons.${reasonKey(addBlocked)}`)
+    : null;
 
   // Our own number: the channel's connected phone (Whapi keeps it in waba_id).
   const ownWaId = useMemo(() => {
@@ -141,14 +146,14 @@ export function MembersTab({
           onChange={(e) => setSearch(e.target.value)}
           className="min-w-0 flex-1 basis-48"
         />
-        <Button disabled={!!blocked} onClick={() => setAddOpen(true)}>
+        <Button disabled={!!addBlocked} onClick={() => setAddOpen(true)}>
           <UserPlus className="size-4" />
           {m('add')}
         </Button>
       </div>
-      {blockedText && (
+      {(addBlockedText ?? blockedText) && (
         <p className="text-muted-foreground text-xs">
-          {m('blockedHint', { reason: blockedText })}
+          {m('blockedHint', { reason: addBlockedText ?? blockedText })}
         </p>
       )}
       <p className="text-muted-foreground text-xs tabular-nums">

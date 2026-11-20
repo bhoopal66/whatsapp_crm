@@ -6,6 +6,7 @@ import {
   canSyncGroups,
   canViewGroup,
   groupActionBlock,
+  groupAddBlock,
   isGroupCapableNumber,
 } from './access';
 
@@ -172,5 +173,39 @@ describe('groupActionBlock', () => {
     expect(groupActionBlock({ ...base, group: member, adminOnly: true })).toBe(
       'not_group_admin'
     );
+  });
+});
+
+describe('groupAddBlock', () => {
+  const g = (
+    over: Partial<{
+      channelId: string | null;
+      ourRole: 'admin' | 'member' | 'left';
+    }> = {}
+  ) => ({ channelId: 'ch-1', ourRole: 'admin' as const, ...over });
+
+  it('lets every staff member at agent level and up add, managers or not', () => {
+    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const) {
+      expect(groupAddBlock({ role, group: g() })).toBeNull();
+    }
+  });
+
+  it('refuses viewers and bank guests', () => {
+    expect(groupAddBlock({ role: 'viewer', group: g() })).toBe('not_allowed');
+    expect(groupAddBlock({ role: 'bank_guest', group: g() })).toBe(
+      'not_allowed'
+    );
+  });
+
+  it('still needs a connected number on which we are a group admin', () => {
+    expect(
+      groupAddBlock({ role: 'agent', group: g({ channelId: null }) })
+    ).toBe('number_removed');
+    expect(
+      groupAddBlock({ role: 'agent', group: g({ ourRole: 'left' }) })
+    ).toBe('left');
+    expect(
+      groupAddBlock({ role: 'agent', group: g({ ourRole: 'member' }) })
+    ).toBe('not_group_admin');
   });
 });

@@ -64,6 +64,8 @@ export const GROUP_ACTIONS = [
   'edit_info',
   'settings',
   'members',
+  // Adding people: wider than `members` (any agent+ who can open it).
+  'add',
   'invite',
   'join_requests',
   'leave',

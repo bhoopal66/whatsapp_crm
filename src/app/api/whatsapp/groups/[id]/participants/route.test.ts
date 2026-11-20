@@ -191,11 +191,35 @@ describe('consent override', () => {
 });
 
 describe('access', () => {
-  it('refuses a non-manager before Whapi', async () => {
+  // 2026-11-20: adding is open to any agent+ who can open the group.
+  it('lets a non-manager agent who can open the group add people', async () => {
     canManage = false;
     const res = await call(POST, { phones: ['971504444444'] });
+    expect(res.status).toBe(200);
+    expect(mocks.addParticipants).toHaveBeenCalledWith(
+      expect.objectContaining({ participants: ['971504444444'] })
+    );
+  });
+
+  it('refuses a viewer before Whapi', async () => {
+    canManage = false;
+    mocks.getCurrentAccount.mockImplementation(async () => ({
+      supabase: fakeSupabase(mocks.rls),
+      userId: 'viewer-1',
+      accountId: 'acct-1',
+      role: 'viewer',
+    }));
+    const res = await call(POST, { phones: ['971504444444'] });
     expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'not_allowed' });
     expect(mocks.addParticipants).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a non-manager removing people', async () => {
+    canManage = false;
+    const res = await call(DELETE, { waIds: ['971501111111'] });
+    expect(res.status).toBe(403);
+    expect(mocks.removeParticipants).not.toHaveBeenCalled();
   });
 
   it('answers 409 once our number has left', async () => {

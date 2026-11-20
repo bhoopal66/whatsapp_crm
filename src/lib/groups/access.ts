@@ -104,6 +104,28 @@ export type GroupActionBlock =
   'not_allowed' | 'number_removed' | 'not_group_admin' | 'left';
 
 /**
+ * Why adding people to a group is unavailable, or null. Wider than
+ * managing (2026-11-20): any staff member at agent level or above who
+ * can open the group may add people; removing, promoting, settings and
+ * the rest stay with its managers. WhatsApp's own rule still holds:
+ * our number must be a group admin to add anyone.
+ */
+export function groupAddBlock(args: {
+  role: AccountRole;
+  group: {
+    channelId: string | null;
+    ourRole: 'admin' | 'member' | 'left';
+  };
+}): GroupActionBlock | null {
+  const { role, group } = args;
+  if (!hasMinRole(role, 'agent')) return 'not_allowed';
+  if (group.channelId === null) return 'number_removed';
+  if (group.ourRole === 'left') return 'left';
+  if (group.ourRole !== 'admin') return 'not_group_admin';
+  return null;
+}
+
+/**
  * Why an action on a group is unavailable, or null. `adminOnly` marks
  * the Whapi actions only a group admin may do (edit info/settings/icon,
  * add/remove/promote/demote, invite link, join requests).

@@ -10,7 +10,11 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
-import { groupActionBlock, type GroupActionBlock } from '@/lib/groups/access';
+import {
+  groupActionBlock,
+  groupAddBlock,
+  type GroupActionBlock,
+} from '@/lib/groups/access';
 import {
   callerCanManage,
   channelForGroup,
@@ -154,6 +158,11 @@ export async function GET(request: Request, { params }: Params) {
         adminOnly,
       });
     }
+    // Adding people is wider than managing (groupAddBlock).
+    blocks.add = groupAddBlock({
+      role: ctx.role,
+      group: { channelId: facts.channelId, ourRole: facts.ourRole },
+    });
 
     return NextResponse.json({
       group,

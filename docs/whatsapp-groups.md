@@ -40,8 +40,12 @@ for the whole gateway:
 
 - **See:** owners and admins see every group; other people see the
   groups they created or manage; team leaders also see their team's.
-- **Manage** (members, invites, settings, join requests): owners, admins,
-  the group's creator and the group's managers.
+- **Add people:** anyone at agent level or above who can see the group
+  (so a team leader can add to their team's groups too). Viewers can't.
+  Our number must still be an admin of the group on WhatsApp.
+- **Manage** (remove people, promote and demote, invites, settings, join
+  requests): owners, admins, the group's creator and the group's
+  managers.
 - **Managers:** the Managers tab lists them. Only an owner, an admin or
   the creator can change the set; the creator always stays a manager.
 - **Create:** agents and up, from a number they are allowed to use.
