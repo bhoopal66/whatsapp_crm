@@ -319,11 +319,93 @@ async function ensureOwnSendEvents(
   }
 }
 
+type ProbeAnswer = {
+  status: number;
+  body: Record<string, unknown>;
+  throttled?: boolean;
+};
+
+function answer(
+  body: Record<string, unknown>,
+  status = 200,
+  throttled = false
+): ProbeAnswer {
+  return throttled ? { status, body, throttled } : { status, body };
+}
+
+/**
+ * How long one probe answers every caller for the same number. The
+ * connect dialog polls every 3 s and Settings checks every OpenWA number
+ * on load, so a few open tabs multiplied the reads until OpenWA's rate
+ * limiter refused them (production: 10 of 86 status reads were 502s
+ * carrying "ThrottlerException: Too Many Requests").
+ */
+export const OPENWA_PROBE_CACHE_MS = 2_500;
+
+/** How old a last known state may be and still stand in for a throttled read. */
+export const OPENWA_PROBE_STALE_MS = 60_000;
+
+const probeCache = new Map<
+  string,
+  { at: number; answer: Promise<ProbeAnswer> }
+>();
+const lastKnown = new Map<
+  string,
+  { at: number; body: Record<string, unknown> }
+>();
+
+/** Tests only: forget every cached probe. */
+export function resetOpenWAProbeCache(): void {
+  probeCache.clear();
+  lastKnown.clear();
+}
+
+/**
+ * The status route's answer for one OpenWA number, `{ status, qrCode?,
+ * phone? }` in OpenWA's own words. Concurrent and back-to-back callers
+ * for the same number within `OPENWA_PROBE_CACHE_MS` share one gateway
+ * read (per process). When OpenWA throttles the read, the last known
+ * state (up to a minute old) is answered as a 200; with none, a 429 that
+ * every caller already reads as "unknown, try again", never a 502.
+ */
 export async function probeOpenWANumber(
   db: SupabaseClient,
   accountId: string,
-  row: OpenWARow
+  row: OpenWARow,
+  now: () => number = Date.now
 ): Promise<NextResponse> {
+  const key = `${accountId}:${row.id}`;
+  const at = now();
+  let entry = probeCache.get(key);
+  if (!entry || at - entry.at >= OPENWA_PROBE_CACHE_MS) {
+    entry = { at, answer: probeOnce(db, accountId, row) };
+    probeCache.set(key, entry);
+  }
+  const result = await entry.answer;
+  if (result.status === 200 && typeof result.body.status === 'string') {
+    // Without the QR: a stale one may no longer scan, and the dialog
+    // keeps the QR it shows when an answer carries none.
+    const { qrCode: _qr, ...known } = result.body;
+    void _qr;
+    lastKnown.set(key, { at: entry.at, body: known });
+  } else if (result.throttled) {
+    const known = lastKnown.get(key);
+    if (known && now() - known.at < OPENWA_PROBE_STALE_MS) {
+      return NextResponse.json(known.body);
+    }
+    return NextResponse.json(result.body, {
+      status: 429,
+      headers: { 'Retry-After': '5' },
+    });
+  }
+  return NextResponse.json(result.body, { status: result.status });
+}
+
+async function probeOnce(
+  db: SupabaseClient,
+  accountId: string,
+  row: OpenWARow
+): Promise<ProbeAnswer> {
   let creds: { apiKey: string; sessionId: string };
   try {
     creds = {
@@ -331,12 +413,12 @@ export async function probeOpenWANumber(
       sessionId: row.phone_number_id as string,
     };
   } catch {
-    return NextResponse.json(
+    return answer(
       {
         error:
           'The stored OpenWA key cannot be read. Disconnect and reconnect.',
       },
-      { status: 500 }
+      500
     );
   }
 
@@ -346,7 +428,7 @@ export async function probeOpenWANumber(
       // The QR can rotate between the two calls; a missing one just
       // waits for the next poll.
       const qr = await getQr(creds).catch(() => null);
-      return NextResponse.json({
+      return answer({
         status: session.status,
         ...(qr?.qrCode ? { qrCode: qr.qrCode } : {}),
       });
@@ -383,18 +465,31 @@ export async function probeOpenWANumber(
         if (error)
           console.error('[openwa status] number update failed:', error);
       }
-      return NextResponse.json({
+      return answer({
         status: session.status,
         ...(session.phone ? { phone: session.phone } : {}),
       });
     }
-    return NextResponse.json({ status: session.status });
+    return answer({ status: session.status });
   } catch (err) {
+    // OpenWA's own rate limiter (a ThrottlerException, or the pacing
+    // governor) is "not now", not a broken gateway: no error log, and
+    // the caller answers with the last known state when it has one.
+    if (
+      err instanceof OpenWAError &&
+      (err.isPacingLimited || err.status === 429)
+    ) {
+      return answer(
+        { error: 'The OpenWA gateway is busy. Try again shortly.' },
+        429,
+        true
+      );
+    }
     console.error('[openwa status] probe failed:', err);
     const status = err instanceof OpenWAError ? 502 : 500;
-    return NextResponse.json(
+    return answer(
       { error: 'The OpenWA gateway did not answer. Try again shortly.' },
-      { status }
+      status
     );
   }
 }

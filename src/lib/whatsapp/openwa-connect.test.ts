@@ -5,6 +5,7 @@ import {
   OPENWA_GIVE_UP_MS,
   OPENWA_PERSONAL_BASE,
   OPENWA_POLL_INTERVAL_MS,
+  openwaPollDelayMs,
   cleanupPlan,
   connectReducer,
   initialConnectState,
@@ -451,5 +452,17 @@ describe('Scan again never creates', () => {
     );
     expect(timedOut).toMatchObject({ phase: 'failed', failure: 'timedOut' });
     expect(connectReducer(timedOut, { type: 'start' })).toBe(timedOut);
+  });
+});
+
+describe('openwaPollDelayMs', () => {
+  it('polls at once first, then every interval', () => {
+    expect(openwaPollDelayMs(0, false)).toBe(0);
+    expect(openwaPollDelayMs(1, false)).toBe(OPENWA_POLL_INTERVAL_MS);
+  });
+
+  it('does not poll while the tab is hidden', () => {
+    expect(openwaPollDelayMs(0, true)).toBeNull();
+    expect(openwaPollDelayMs(7, true)).toBeNull();
   });
 });

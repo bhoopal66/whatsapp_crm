@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/dialog';
 import { MAX_CHANNEL_LABEL_LEN } from '@/lib/whatsapp/channel-management';
 import {
-  OPENWA_POLL_INTERVAL_MS,
+  openwaPollDelayMs,
   connectReducer,
   initialConnectState,
   cleanupPlan,
@@ -137,36 +137,45 @@ export function OpenWAConnectDialog({
   // One poll per tick; the next is scheduled only after this one has
   // answered, so a slow tunnel never stacks requests. The first poll
   // after create runs at once.
+  // A hidden tab does not poll: it waits for the tab to be shown again.
   useEffect(() => {
     if (!polling || !configId) return;
     let alive = true;
-    const timer = setTimeout(
-      async () => {
-        try {
-          const res = await fetch(openwaSessionUrls(baseUrl).status(configId), {
-            cache: 'no-store',
+    const delay = openwaPollDelayMs(pollSeq, document.hidden);
+    if (delay === null) {
+      const onVisible = () => {
+        if (!document.hidden) setPollSeq((n) => n + 1);
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      return () => {
+        alive = false;
+        document.removeEventListener('visibilitychange', onVisible);
+      };
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(openwaSessionUrls(baseUrl).status(configId), {
+          cache: 'no-store',
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!alive) return;
+        if (res.ok && typeof body?.status === 'string') {
+          dispatch({
+            type: 'polled',
+            status: body.status,
+            qrCode: typeof body.qrCode === 'string' ? body.qrCode : null,
+            phone: typeof body.phone === 'string' ? body.phone : null,
+            at: Date.now(),
           });
-          const body = await res.json().catch(() => ({}));
-          if (!alive) return;
-          if (res.ok && typeof body?.status === 'string') {
-            dispatch({
-              type: 'polled',
-              status: body.status,
-              qrCode: typeof body.qrCode === 'string' ? body.qrCode : null,
-              phone: typeof body.phone === 'string' ? body.phone : null,
-              at: Date.now(),
-            });
-          } else {
-            dispatch({ type: 'pollFailed', at: Date.now() });
-          }
-        } catch {
-          if (alive) dispatch({ type: 'pollFailed', at: Date.now() });
-        } finally {
-          if (alive) setPollSeq((n) => n + 1);
+        } else {
+          dispatch({ type: 'pollFailed', at: Date.now() });
         }
-      },
-      pollSeq === 0 ? 0 : OPENWA_POLL_INTERVAL_MS
-    );
+      } catch {
+        if (alive) dispatch({ type: 'pollFailed', at: Date.now() });
+      } finally {
+        if (alive) setPollSeq((n) => n + 1);
+      }
+    }, delay);
     return () => {
       alive = false;
       clearTimeout(timer);

@@ -89,6 +89,7 @@ import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { POST } from './route';
 import { DELETE } from './[configId]/route';
 import { GET } from './[configId]/status/route';
+import { resetOpenWAProbeCache } from '@/lib/whatsapp/openwa-number';
 
 function post(body: Record<string, unknown>) {
   return new Request('https://crm.test/api/whatsapp/config/openwa', {
@@ -232,6 +233,9 @@ describe('POST /api/whatsapp/config/openwa', () => {
 
 describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
   beforeEach(() => {
+    // Each case is a fresh gateway answer, not one inside the probe's
+    // shared-read window.
+    resetOpenWAProbeCache();
     h.row = {
       id: 'cfg-1',
       phone_number_id: 'sess-1',
@@ -318,6 +322,7 @@ describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
     // re-link to another handset: both keep the number following the
     // phone, and neither touches the sweep-owned status.
     for (const waba_id of [null, '971500000001']) {
+      resetOpenWAProbeCache(); // two separate scenarios, not one read window
       h.updates = [];
       h.row = {
         ...h.row,

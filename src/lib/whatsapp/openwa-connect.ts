@@ -12,6 +12,21 @@
 export const OPENWA_POLL_INTERVAL_MS = 3_000;
 
 /**
+ * How long until the dialog's next status poll; null means "not while
+ * the tab is hidden": wait until it is shown again. The first poll runs
+ * at once. OpenWA rate-limits its API, and a dialog left open in a
+ * background tab polled on for minutes (production: 10 of 86 status
+ * reads answered "ThrottlerException: Too Many Requests").
+ */
+export function openwaPollDelayMs(
+  pollSeq: number,
+  hidden: boolean
+): number | null {
+  if (hidden) return null;
+  return pollSeq === 0 ? 0 : OPENWA_POLL_INTERVAL_MS;
+}
+
+/**
  * Give up after this long without `ready`. A session left waiting keeps
  * an engine running on the gateway, so the dialog stops and offers a
  * retry (which starts a fresh session) instead of polling forever.
