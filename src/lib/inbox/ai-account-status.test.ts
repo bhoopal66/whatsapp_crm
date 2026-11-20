@@ -59,4 +59,15 @@ describe('fetchAiAccountStatus', () => {
     expect((await fetchAiAccountStatus('acc', g)).autoReplyOn).toBe(true);
     expect(g).toHaveBeenCalledTimes(1);
   });
+
+  it('caches a refusal: a restricted department is not asked again', async () => {
+    const f = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: 'no access' }), { status: 403 })
+      )
+    );
+    expect(await fetchAiAccountStatus('acc', f)).toEqual(AI_STATUS_OFF);
+    expect(await fetchAiAccountStatus('acc', f)).toEqual(AI_STATUS_OFF);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
 });

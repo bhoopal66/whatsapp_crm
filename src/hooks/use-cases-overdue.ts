@@ -15,12 +15,17 @@ const REFRESH_MS = 2 * 60_000;
  * (`/cases?sla_state=overdue`). Agent and up, as the Cases row; which
  * cases count is `case_inbox`'s call. Read through the route, at most
  * one page (`HOME_LIST_LIMIT`, above the badge's "99+"). Zero until
- * answered and on any error.
+ * answered and on any error. Not asked for a department kept out of the
+ * sales areas (migration 192): the route refuses it every time, and the
+ * sidebar has no Cases row for it.
  */
 export function useCasesOverdue(): number {
-  const { accountId, accountRole, profileLoading } = useAuth();
+  const { accountId, accountRole, profileLoading, salesRestricted } = useAuth();
   const eligible =
-    !profileLoading && !!accountRole && hasMinRole(accountRole, 'agent');
+    !profileLoading &&
+    !!accountRole &&
+    hasMinRole(accountRole, 'agent') &&
+    !salesRestricted;
   const [loaded, setLoaded] = useState<{
     accountId: string;
     count: number;

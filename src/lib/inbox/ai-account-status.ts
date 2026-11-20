@@ -12,7 +12,10 @@
 // see the previous account's status), and only *successful* fetches are
 // cached — a transient failure returns a default without poisoning the
 // cache, so it retries on the next thread open rather than hiding the
-// banner for the whole session.
+// banner for the whole session. A 403 is an answer, not a failure: the
+// route refuses a department kept out of the sales areas (migration
+// 192) on every ask, so "off" is cached and the Inbox stops re-asking
+// on each chat opened.
 // ------------------------------------------------------------
 
 export interface AiAccountStatus {
@@ -54,6 +57,10 @@ export function fetchAiAccountStatus(
   const promise = (async () => {
     try {
       const res = await fetchImpl('/api/ai/config', { cache: 'no-store' });
+      if (res.status === 403) {
+        statusCache.set(accountId, AI_STATUS_OFF); // refused every time
+        return AI_STATUS_OFF;
+      }
       if (!res.ok) return AI_STATUS_OFF; // don't cache a transient failure
       const status = parseAiAccountStatus(await res.json());
       statusCache.set(accountId, status);
