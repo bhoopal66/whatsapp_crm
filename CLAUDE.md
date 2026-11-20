@@ -1366,7 +1366,10 @@ contract.
   Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
   (`hr_auto_open_recruiter`, service role) before the recruiter-agents
   hook in both branches: a chat with no HR row writing to an HR line opens
-  in Recruitment (cv_review, created_by NULL). Off by default.
+  in Recruitment (cv_review, created_by NULL), but only if every message
+  in it came through an HR line (`'other_numbers'` otherwise: one company
+  chat per contact means a sales chat must never turn into a candidate).
+  Off by default.
   `verify-hr-lines.sql`.
 - **My worklist (029c).** `/worklist`: `lib/worklist` ranks open HR
   chats (Hire fast's own scoring, imported), cases needing action and

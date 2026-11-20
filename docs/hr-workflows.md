@@ -245,7 +245,12 @@ Recruitment chat when someone new writes to an HR line. Off by default.
   HR row yet (tracked or closed) opens it in Recruitment at CV review,
   as if a recruiter had tracked it, with no person as its opener. The
   recruiter agents then see the same message. A chat already in
-  Recruitment, HR department or closed in HR is left alone.
+  Recruitment, HR department or closed in HR is left alone, and so is a
+  chat that has ever used a number that is not an HR line: wacrm keeps
+  one company chat per customer across all numbers, so a sales customer
+  who writes to the HR number stays a sales chat (the package's rule is
+  "an unknown number on an HR line"). Personal-number chats only ever
+  use their own number, so they are not affected by this.
 - Opening a chat this way may queue the CV-received automated message,
   which still passes every guard above (company chats only).
 - In the package this was server configuration (`HR_LINE_IDS`,

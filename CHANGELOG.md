@@ -60,10 +60,12 @@ once: re-running 203 afterwards undoes part of it.
 BYPASSRLS role before deploying this build, after 212.
 - HR → Rules has a new **HR lines** section for owners and admins: tick
   the WhatsApp numbers HR uses and switch on "Open a Recruitment chat when
-  someone new writes to an HR line". Someone with no HR chat who writes to
-  one of those numbers then starts in Recruitment at CV review (and the
-  CV-received automated message, if switched on, follows its usual
-  guards). Off by default.
+  someone new writes to an HR line". Someone with no HR chat, who has
+  never written to your other numbers, then starts in Recruitment at CV
+  review when they write to one of those numbers (and the CV-received
+  automated message, if switched on, follows its usual guards). An
+  existing customer who writes to the HR number stays where they are.
+  Off by default.
 
 ### Add people to groups
 
