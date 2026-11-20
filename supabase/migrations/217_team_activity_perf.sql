@@ -25,16 +25,37 @@
 -- set, ~30x fewer calls. The distinct tuples are a MATERIALIZED CTE so
 -- the planner cannot push the call back below the DISTINCT.
 --
--- Nothing else changes: the function below is 206's definition copied
--- verbatim (signature, SECURITY DEFINER, search_path, volatility, every
--- read filtered by current_account_id(), what a start, a reply, a run
--- or a wait is), with only the two v_convs statements rewritten. Same
--- jsonb out, byte for byte (checked per persona and range on a copy of
+-- Two more costs, in an owner's long ranges:
+--   * Plan caching. After five calls in one session (normal on
+--     PostgREST's pooled connections) plpgsql switches the big query
+--     to a cached generic plan, which cannot see p_from / p_to or the
+--     scope arrays and picks a plan ~5x slower: an owner's 90 days
+--     went from ~2 s to ~10 s, over the timeout. The report now
+--     carries SET plan_cache_mode = force_custom_plan: each call is
+--     planned for its own arguments (planning is milliseconds).
+--   * team_activity_opener_key() (IMMUTABLE, regex work) ran once per
+--     start; first messages repeat (templates), so it now runs once
+--     per distinct coalesce(content_text, '') (the function itself
+--     reads NULL as '', so that is its whole input) and the starts
+--     join back to the key.
+--
+-- The drill-down, team_activity_chats, built its v_convs the same
+-- per-row way (~5 s for a leader); it gets the same distinct-tuple
+-- rewrite and nothing else.
+--
+-- Nothing else changes: both functions below are 206's definitions
+-- copied verbatim (signature, SECURITY DEFINER, search_path,
+-- volatility, every read filtered by current_account_id(), what a
+-- start, a reply, a run or a wait is), with only the v_convs
+-- statements, the opener key and (the report only) the plan_cache_mode
+-- setting changed. Same output, byte for byte (md5 checked per persona
+-- and range, under both plan_cache_mode settings, on a copy of
 -- production).
 --
 -- Apply in order, once: re-running 206 after this file puts the slow
--- v_convs back (and re-running this file after a later one that
--- restates the report would undo that one).
+-- v_convs and per-start opener keys back (and re-running this file
+-- after a later one that restates either function would undo that
+-- one).
 --
 -- Re-runnable: CREATE OR REPLACE plus REVOKE/GRANT. No data changes.
 -- ============================================================
@@ -55,6 +76,8 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+-- 217: plan every call for its own arguments (see the header).
+SET plan_cache_mode = force_custom_plan
 AS $$
 DECLARE
   v_account uuid := current_account_id();
@@ -166,7 +189,7 @@ BEGIN
       -- Team scope: the numbers the team used or is allocated to.
       AND (v_nums IS NULL OR v_nums ? w.id::text)
   ),
-  all_starts AS (
+  start_rows AS (
     SELECT
       s.*,
       CASE
@@ -179,7 +202,8 @@ BEGIN
       extract(hour FROM s.started_at AT TIME ZONE v_tz)::int AS local_hour,
       -- Younger than a day and not answered yet: too early to tell.
       (NOT s.replied AND s.started_at > now() - interval '24 hours') AS pending,
-      team_activity_opener_key(mm.content_text) AS opener_key
+      -- opener_key() reads NULL as '', so this is its whole input.
+      coalesce(mm.content_text, '') AS opener_text
     FROM team_activity_starts(v_account, least(p_from, v_today), 'infinity') s
     LEFT JOIN messages mm ON mm.id = s.message_id
     -- Team scope: chats the team's people started, nobody else's, in
@@ -190,6 +214,17 @@ BEGIN
            -- team_activity_start_check does: a chat reassigned away
            -- stays in their own figures (it is their message).
            AND (v_self OR s.conversation_id = ANY (v_convs)))
+  ),
+  -- 217: team_activity_opener_key() (IMMUTABLE, ~0.1 ms a call) once
+  -- per distinct first message, not once per start: templates repeat.
+  opener_keys AS MATERIALIZED (
+    SELECT d.opener_text, team_activity_opener_key(d.opener_text) AS opener_key
+    FROM (SELECT DISTINCT opener_text FROM start_rows) d
+  ),
+  all_starts AS (
+    SELECT r.*, ok.opener_key
+    FROM start_rows r
+    JOIN opener_keys ok ON ok.opener_text = r.opener_text
   ),
   -- Same text opening five or more chats on one number.
   openers AS (
@@ -863,5 +898,234 @@ $$;
 
 REVOKE ALL ON FUNCTION public.team_activity_report(timestamptz, timestamptz, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.team_activity_report(timestamptz, timestamptz, text, uuid) TO authenticated;
+
+-- ------------------------------------------------------------
+-- 2. Drill-down (206's): an agent opens only their own starts.
+-- 217: v_convs per distinct tuple, as in the report; nothing else.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.team_activity_chats(
+  p_from       timestamptz,
+  p_to         timestamptz,
+  p_kind       text,
+  p_user_id    uuid DEFAULT NULL,
+  p_channel_id uuid DEFAULT NULL,
+  p_filter     text DEFAULT 'no_reply',
+  p_limit      integer DEFAULT 200
+)
+RETURNS TABLE (
+  conversation_id uuid,
+  contact_id      uuid,
+  contact_name    text,
+  contact_phone   text,
+  at              timestamptz,
+  new_contact     boolean,
+  replied         boolean,
+  has_link        boolean,
+  in_a_row        integer,
+  preview         text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_account uuid := current_account_id();
+  v_uid     uuid := auth.uid();
+  v_rank    integer := current_role_rank();
+  v_view    record;
+  v_max     integer;
+  v_limit   integer := least(greatest(coalesce(p_limit, 200), 1), 500);
+  -- Team scope: the conversations the leader's RLS shows them; NULL
+  -- (the whole account) for owners and admins.
+  v_convs   uuid[];
+BEGIN
+  IF v_account IS NULL OR v_uid IS NULL OR v_rank IS NULL OR v_rank < 2 THEN
+    RAISE EXCEPTION 'Only owners and admins (team leaders for their team, agents for themselves) can view team activity'
+      USING ERRCODE = '42501';
+  END IF;
+  -- The admin's switches (204); no settings row means on.
+  IF v_rank IN (2, 3) THEN
+    SELECT l.agent_view_enabled, l.leader_view_enabled INTO v_view
+    FROM team_activity_limits(v_account) l;
+    IF v_rank = 3 AND NOT coalesce(v_view.leader_view_enabled, true) THEN
+      RAISE EXCEPTION 'Team activity is turned off for team leaders'
+        USING ERRCODE = '42501', HINT = 'leader_view_off';
+    END IF;
+    IF v_rank = 2 AND NOT coalesce(v_view.agent_view_enabled, true) THEN
+      RAISE EXCEPTION 'Team activity is turned off for agents'
+        USING ERRCODE = '42501', HINT = 'agent_view_off';
+    END IF;
+  END IF;
+  IF p_kind IS NULL OR p_kind NOT IN ('person', 'api', 'bot')
+     OR (p_kind = 'person' AND p_user_id IS NULL)
+     -- An agent opens only their own starts.
+     OR (v_rank = 2 AND (p_kind <> 'person' OR p_user_id <> v_uid))
+     OR (v_rank = 3
+         AND (p_kind <> 'person' OR NOT p_user_id = ANY (team_activity_my_team()))) THEN
+    RAISE EXCEPTION 'Unknown sender' USING ERRCODE = '22023';
+  END IF;
+  IF p_filter IS NULL OR p_filter NOT IN ('no_reply', 'all', 'unanswered') THEN
+    RAISE EXCEPTION 'Unknown filter' USING ERRCODE = '22023';
+  END IF;
+  IF v_rank IN (2, 3) THEN
+    -- 217: the same predicate once per distinct (owner, assignee,
+    -- number, pinned number) tuple, as in the report.
+    WITH tuples AS MATERIALIZED (
+      SELECT DISTINCT c.user_id, c.assigned_agent_id, c.channel_id, c.send_channel_id
+      FROM conversations c
+      WHERE c.account_id = v_account
+    ),
+    allowed AS MATERIALIZED (
+      SELECT t.*
+      FROM tuples t
+      WHERE can_view_conversation(v_account, t.user_id, t.assigned_agent_id,
+                                  t.channel_id, t.send_channel_id)
+    )
+    SELECT coalesce(array_agg(c.id), '{}'::uuid[]) INTO v_convs
+    FROM conversations c
+    JOIN allowed a
+      ON  a.user_id           IS NOT DISTINCT FROM c.user_id
+      AND a.assigned_agent_id IS NOT DISTINCT FROM c.assigned_agent_id
+      AND a.channel_id        IS NOT DISTINCT FROM c.channel_id
+      AND a.send_channel_id   IS NOT DISTINCT FROM c.send_channel_id
+    WHERE c.account_id = v_account;
+  END IF;
+  IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from
+     OR p_to - p_from > interval '100 days' THEN
+    RAISE EXCEPTION 'The range must be shorter than 100 days'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_filter = 'unanswered' THEN
+    SELECT l.max_unanswered_in_row INTO v_max FROM team_activity_limits(v_account) l;
+    RETURN QUERY
+    -- From where each conversation's current stretch began, as in
+    -- the report (073): a run is counted from its real start.
+    WITH conv_in AS (
+      SELECT DISTINCT m.conversation_id
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE c.account_id = v_account
+        AND (v_convs IS NULL OR c.id = ANY (v_convs))
+        AND m.created_at >= p_from
+        AND m.created_at < p_to
+    ),
+    bounds AS (
+      SELECT ci.conversation_id,
+        (SELECT max(o.created_at) FROM messages o
+          WHERE o.conversation_id = ci.conversation_id
+            AND o.sender_type <> 'customer' AND o.status <> 'failed'
+            AND o.created_at < lc.at) AS lb
+      FROM conv_in ci
+      CROSS JOIN LATERAL (
+        SELECT max(x.created_at) AS at FROM messages x
+        WHERE x.conversation_id = ci.conversation_id
+          AND x.sender_type = 'customer' AND x.status <> 'failed'
+          AND x.created_at < p_from
+      ) lc
+    ),
+    msgs AS (
+      SELECT
+        m.id, m.conversation_id, m.sender_type, m.sender_id, m.created_at, m.content_text,
+        m.channel_id,
+        m.sender_type = 'customer' AS is_customer
+      FROM bounds b
+      JOIN messages m ON m.conversation_id = b.conversation_id
+      WHERE m.created_at >= coalesce(b.lb, '-infinity'::timestamptz)
+        AND m.created_at < p_to
+        AND m.status <> 'failed'
+    ),
+    seq AS (
+      SELECT msgs.*,
+        sum(is_customer::int) OVER (
+          PARTITION BY conversation_id ORDER BY created_at, id
+        ) AS grp
+      FROM msgs
+    ),
+    pos AS (
+      SELECT seq.*,
+        CASE WHEN NOT is_customer THEN
+          count(*) FILTER (WHERE NOT is_customer)
+            OVER (PARTITION BY conversation_id, grp ORDER BY created_at, id)
+        END AS run_pos
+      FROM seq
+    ),
+    hits AS (
+      SELECT DISTINCT ON (p.conversation_id)
+        p.conversation_id, p.created_at, p.run_pos, p.content_text
+      FROM pos p
+      WHERE NOT p.is_customer
+        AND p.created_at >= p_from
+        AND p.run_pos > v_max
+        AND (p_channel_id IS NULL OR p.channel_id = p_channel_id)
+        AND CASE p_kind
+              WHEN 'bot' THEN p.sender_type = 'bot'
+              WHEN 'api' THEN p.sender_type = 'agent' AND p.sender_id IS NULL
+              ELSE p.sender_type = 'agent' AND p.sender_id = p_user_id
+            END
+      ORDER BY p.conversation_id, p.run_pos DESC, p.created_at DESC
+    )
+    SELECT
+      h.conversation_id, c.contact_id, ct.name, ct.phone, h.created_at,
+      NOT EXISTS (
+        SELECT 1 FROM messages x
+        WHERE x.conversation_id = h.conversation_id AND x.sender_type = 'customer'
+      ),
+      false,
+      coalesce(h.content_text ~* '(https?://|www\.|wa\.me/)', false),
+      h.run_pos::integer,
+      left(h.content_text, 160)
+    FROM hits h
+    JOIN conversations c ON c.id = h.conversation_id
+    LEFT JOIN contacts ct
+      ON ct.id = c.contact_id AND ct.account_id = v_account
+     AND (v_convs IS NULL OR can_view_contact(ct.account_id, ct.id, ct.user_id))
+    ORDER BY h.run_pos DESC, h.created_at DESC
+    LIMIT v_limit;
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    s.conversation_id, c.contact_id, ct.name, ct.phone, s.started_at,
+    s.new_contact, s.replied, s.has_link,
+    -- The opener plus everything that reached WhatsApp after it before
+    -- the customer answered.
+    (SELECT count(*)::integer
+       FROM messages x
+      WHERE x.conversation_id = s.conversation_id
+        AND x.sender_type <> 'customer'
+        AND x.status <> 'failed'
+        AND x.created_at >= s.started_at
+        AND x.created_at < coalesce((
+              SELECT min(y.created_at) FROM messages y
+               WHERE y.conversation_id = s.conversation_id
+                 AND y.sender_type = 'customer'
+                 AND y.created_at > s.started_at
+            ), 'infinity'::timestamptz)),
+    s.preview
+  FROM team_activity_starts(v_account, p_from, 'infinity') s
+  JOIN conversations c ON c.id = s.conversation_id
+  LEFT JOIN contacts ct
+      ON ct.id = c.contact_id AND ct.account_id = v_account
+     AND (v_convs IS NULL OR can_view_contact(ct.account_id, ct.id, ct.user_id))
+  WHERE s.started_at < p_to
+    AND (v_convs IS NULL OR s.conversation_id = ANY (v_convs))
+    AND (p_channel_id IS NULL OR s.channel_id = p_channel_id)
+    AND (p_filter = 'all' OR NOT s.replied)
+    AND CASE p_kind
+          WHEN 'bot' THEN s.sender_type = 'bot'
+          WHEN 'api' THEN s.sender_type = 'agent' AND s.sender_id IS NULL
+          ELSE s.sender_type = 'agent' AND s.sender_id = p_user_id
+        END
+  ORDER BY s.started_at DESC
+  LIMIT v_limit;
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.team_activity_chats(timestamptz, timestamptz, text, uuid, uuid, text, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.team_activity_chats(timestamptz, timestamptz, text, uuid, uuid, text, integer) TO authenticated;
 
 RESET lock_timeout;
