@@ -490,12 +490,16 @@ _when_ a trigger happens on a case, _if_ the conditions match, do the
 actions.
 
 - **Triggers:** a case is opened; it changes stage; it goes SLA overdue; it
-  sits idle for N days (1 to 365); it gets its submission.
+  sits idle for N days (1 to 365); it gets its submission; it enters a
+  named stage; its last required document arrives (the last two since
+  migration 214).
 - **Conditions** (all must match, absent means any): bank, stage, product,
   amount range, pre-submission.
 - **Actions:** assign a coordinator, assign an agent, add a note, set the
-  priority. Assigned people must be live staff of the workspace. There is no
-  "add a task" action.
+  priority. Assigned people must be live staff of the workspace. Since
+  migration 214, a stage-entered rule can also create a task and start an
+  SLA timer, and the last-document rule moves the case to the next stage
+  (below).
 - **Safe by construction:** rules never send anything. They never change a
   case Compass manages (the lock below) and never change a closed case. Each
   action runs on its own, so a failing action is recorded and stops only
@@ -510,6 +514,45 @@ actions.
   not (`/api/cases/[id]/rule-runs`), shown on the case.
 - The idle and overdue triggers are evaluated by a sweep in the automations
   cron (see below). The other triggers fire from the database at once.
+
+### Stage entered and auto-advance (migration 214)
+
+`verify-case-rules-stage-automation.sql`. Ported from the outside package's
+release 029e. No rule is seeded; both triggers do nothing until an admin
+saves and enables a rule.
+
+- **A case enters a stage.** The rule must name the stage. It fires when a
+  case's stage really changes to that stage (from any writer: a person,
+  Compass, a macro, another rule's advance), not when a case is opened.
+  It runs once per rule, case and stage: leaving the stage and coming
+  back creates no second task and restarts no timer.
+  - **Create a task** from the case bank's task template (Settings ->
+    Cases), owned by the case's agent or coordinator, due after the given
+    hours (else the template's). Refused TEMPLATE_NOT_FOUND when the bank
+    has no such template and OWNER_MISSING when the case has no such
+    person. The task has no person as its creator; the case shows
+    "Automation".
+  - **Start an SLA timer** (customer reply, bank response or document
+    chase) with the bank's SLA setting for that stage. Refused
+    SLA_NOT_CONFIGURED, starting nothing, when the stage has none.
+- **The last required document arrives.** Fires when a document is marked
+  received in the case's Documents and that completes every document
+  listed for the case's bank and product (every listed document counts as
+  required). Marking files through the case-files checks (migration 181)
+  does not fire it. Its only action, **move to the next stage**, moves the
+  case exactly one stage forward in its bank's list, recorded as the rules
+  in the stage history. It never skips or goes back, never moves a closed
+  case or one at an outcome, never moves into Approved, Declined,
+  Withdrawn or Closed (FINAL_STAGE), stops at the last stage
+  (NO_NEXT_STAGE), and never moves a case without a submission past the
+  pre-submission stages (SUBMISSION_REQUIRED). It runs once per stage the
+  case is at, so a document rejected and received again at a later stage
+  can move it again.
+- **Chains.** The move fires the new stage's "stage changes" and "enters
+  a stage" rules (a rule's own changes fire no other rules), but a case
+  moves at most once per change (ADVANCE_CHAINED).
+- **Messaging on stage entry** is an open decision in the package and is
+  not built: rules still never send anything.
 
 ## Settings -> Cases
 

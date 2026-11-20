@@ -65,7 +65,8 @@ not application code — is the enforcement point.
 - `src/app/(dashboard)` — the authed app (inbox, contacts, pipelines,
   broadcasts, automations, flows, agents, notifications, settings), plus
   team chat at `/chat` (deal rooms at `/chat/rooms/[roomId]`),
-  `/journeys`, `/calls` and the customer page `/contacts/[id]`. Tasks have
+  `/journeys`, `/calls`, `/worklist` (My worklist, see HR workflows) and
+  the customer page `/contacts/[id]`. Tasks have
   no screen of their own (`/tasks` is only reserved in `middleware.ts`):
   they show on the customer page, the calls view and chat cards. Wrapped
   by `dashboard-shell.tsx`, which mounts the call layer and keeps a bank
@@ -1348,6 +1349,26 @@ contract.
   structural body rules are SQL. `verify-hr-automsg.sql`.
 - **Hire fast** (`lib/hr/hirefast.ts`): pure ranking over the rows RLS
   shows the caller; `assigned_agent_id` is an auth user id.
+- **Sends that cannot work, receipts (212, release 029a/b).**
+  `classifySendFailure` (`lib/hr/automsg/failure.ts`; `send.ts` throws
+  `HrSendRefusal` for its own refusals) splits failures: non-retryable →
+  `hr_automsg_fail_terminal` (failed, attempts 3, reason in `last_error`,
+  audit `outbox_failed_terminal`); the rest retry as before (a Whapi
+  401/403 is ambiguous, so retryable). `handleStatusUpdate` mirrors a
+  receipt for a bot message onto the outbox (`hr_automsg_delivery_record`,
+  forward-only `delivery_state`, `failed` → terminal
+  `delivery_failed:<code>`); a receipt that beats the provider-id stamp
+  is not recorded there. `verify-hr-automsg-delivery.sql`.
+- **HR lines (213).** `hr_lines` / `hr_line_settings` (RPC-only; HR →
+  Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
+  (`hr_auto_open_recruiter`, service role) before the recruiter-agents
+  hook in both branches: a chat with no HR row writing to an HR line opens
+  in Recruitment (cv_review, created_by NULL). Off by default.
+  `verify-hr-lines.sql`.
+- **My worklist (029c).** `/worklist`: `lib/worklist` ranks open HR
+  chats (Hire fast's own scoring, imported), cases needing action and
+  pending drafts in the browser from existing reads; no API or migration.
+  Assignee ids are auth user ids; titles carry no names or bodies.
 
 ### Contact search (`lib/contacts/fuzzy-search.ts`, migration 193)
 
@@ -1486,6 +1507,17 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `MANAGED_EXTERNALLY`, mirrored in TS by `isManagedExternally`; the API
   path is never locked. `docs/compass.md` is the contract;
   `verify-compass-sync.sql`.
+- **Stage automation (214, release 029e).** Rule triggers
+  `stage_entered` (needs condition `stage`; fire key = the stage) and
+  `last_required_doc_received` (from `case_doc_set_status` only, never
+  181's files); actions `create_task` / `start_sla` (stage_entered only)
+  and `advance_stage` (the only action there: one stage forward, never
+  into an outcome, never a closed case or a lead past pre-submission, once
+  per transaction via `app.case_rules_advanced`; it fires the new stage's
+  rules itself because hooks skip while rules fire).
+  `case_tasks.created_by` and `case_task_status_log.actor_id` are NULL
+  for a rule's task. Restates 187/189/134 bodies: apply in order, once.
+  `verify-case-rules-stage-automation.sql`.
 
 ### OpenDesk / Taamul sales app (`lib/taamul-sales/*`, migration 139)
 

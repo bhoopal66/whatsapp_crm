@@ -207,12 +207,74 @@ candidates. It is for admins (everything) and Recruitment leads
   "not confirmed" and never resent; one stuck in sending for 15 minutes
   is marked for review. The nudge counts only conversations that went
   quiet after the trigger was switched on, and within the last 7 days.
+- **Sends that cannot work (migration 212).** A failure that retrying
+  cannot fix is marked failed at once, with a short reason kept on the
+  message and in the audit log (`outbox_failed_terminal`), instead of
+  being retried: an invalid or not-allowed number, a template that is
+  missing, paused or rejected at Meta, Meta's 24-hour window closed, a
+  revoked token or unknown Whapi channel, a personal chat or number, a
+  chat that no longer exists. Anything else (rate limits, the gateway
+  down, a timeout, a Whapi number briefly logged out, the chat's number
+  disconnected) is still retried up to 3 times.
+- **Receipts (migration 212).** WhatsApp's sent, delivered, read and
+  failed receipts for an automated message are recorded on it
+  (`delivery_state`, `delivery_at`). They only move forward: a late
+  "delivered" never overwrites "read", and nothing overwrites "failed".
+  A "failed" receipt marks the message failed for good with WhatsApp's
+  error code (`delivery_failed:<code>`). A receipt that arrives before
+  the message is marked sent is not recorded on it; the chat's own copy
+  of the message still shows it. The history screen does not show the
+  receipt or the reason yet (neither does the package's).
 - **History.** Every message with its status (queued, held and why,
   sent, failed, cancelled); leads and admins cancel a waiting one,
   admins can run the queue now.
 
 Check with legal (UAE PDPL: consent, retention, privacy notice) before
 switching any of this on.
+
+## HR lines (migration 213)
+
+HR → Rules → **HR lines** (owners and admins) names the WhatsApp
+numbers HR uses, company or personal, and holds one switch: open a
+Recruitment chat when someone new writes to an HR line. Off by default.
+
+- With the switch on, a message to an HR line from a chat that has no
+  HR row yet (tracked or closed) opens it in Recruitment at CV review,
+  as if a recruiter had tracked it, with no person as its opener. The
+  recruiter agents then see the same message. A chat already in
+  Recruitment, HR department or closed in HR is left alone.
+- Opening a chat this way may queue the CV-received automated message,
+  which still passes every guard above (company chats only).
+- In the package this was server configuration (`HR_LINE_IDS`,
+  `HR_AUTO_CREATE_RECRUITER`); in wacrm it is per workspace, because one
+  install serves several workspaces. The webhook itself is wacrm's own:
+  every number's messages already reach the inbound pipeline.
+- `hr_lines` and `hr_line_settings` are read and written only through
+  `hr_lines_get` / `hr_lines_set`; the inbound hook calls
+  `hr_auto_open_recruiter` on the service role (one indexed read when the
+  switch is off). `supabase/ci/verify-hr-lines.sql` asserts it.
+
+## My worklist
+
+`/worklist` ("My worklist", sidebar under Dashboard) is one ranked list
+of what needs action next, built in the browser from reads that already
+exist; there is no worklist API, table or migration (package release
+029c).
+
+- **HR chats** (open, both inboxes) score like Hire fast: reply due or
+  new 100, waiting on them 10, urgent +50, upset +30, one point per hour
+  waited (at most 72), later Recruitment stages 0/5/10/15, an overdue HR
+  task +20, stalled past the No activity rule +20 (Recruitment only).
+- **Cases** appear only when something needs doing: SLA overdue +80 or
+  due soon +40, documents missing +25, an overdue task +20.
+- **AI reply drafts** waiting for approval: +60, +10 more after 24 hours.
+- Agents and viewers see items assigned to them (an HR chat's assignee,
+  a case's agent or coordinator); team leaders, admins and owners see
+  everything their access already shows, with an "Assigned to" filter.
+  What each list returns is still decided by RLS.
+- Rows name the kind and a short reference only, never a person or a
+  message (the package's privacy rule). Weights are pinned to Hire fast's
+  by `src/lib/worklist/rank.test.ts`.
 
 ## For operators
 
@@ -224,6 +286,14 @@ switching any of this on.
   re-run 201 too. 203 refuses to apply except as a superuser or
   BYPASSRLS role (its tables are reached only through its functions).
   `supabase/ci/verify-hr-agents.sql` and `verify-hr-automsg.sql` assert
+  them.
+- Then `212_hr_automsg_delivery.sql` and `213_hr_lines.sql` (release
+  029), as a superuser or BYPASSRLS role, before the build that uses
+  them: the drain calls `hr_automsg_fail_terminal` and the inbound
+  pipeline calls `hr_auto_open_recruiter`. Without them a terminal send
+  failure is counted as an error and left for the stuck-message review,
+  and receipts and auto-opening only log an error line.
+  `verify-hr-automsg-delivery.sql` and `verify-hr-lines.sql` assert
   them.
 - Nothing happens until an admin adds people to the HR team and someone
   tracks a chat; owners and admins can do both straight away.

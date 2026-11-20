@@ -12,6 +12,59 @@ and polish.
 
 ## [Unreleased]
 
+### My worklist
+
+- A new **My worklist** page (sidebar, under Dashboard) ranks what needs
+  your action next: HR chats waiting on a reply (scored like Hire fast),
+  cases with an overdue or due-soon SLA, missing documents or an overdue
+  task, and AI reply drafts waiting for approval. Each row opens its usual
+  screen. Agents and viewers see their own items; team leaders, admins and
+  owners see everyone's, with an "Assigned to" filter. Rows show a short
+  reference, never a name or message text.
+
+### Case rules for entering a stage and completing the documents
+
+**Migration required:** apply `214_case_rules_stage_automation.sql` as a
+superuser or BYPASSRLS role before deploying this build, after 212 and
+213. Apply in order, once: re-running 187 or 189 afterwards undoes part
+of it.
+- Case automation rules have two new triggers. **A case enters a stage**
+  (the rule names the stage) can create a task from the bank's task
+  templates for the case's agent or coordinator, or start an SLA timer.
+  **The last required document arrives** moves the case one stage
+  forward.
+- A stage rule runs once per case and stage: leaving and re-entering the
+  stage adds no second task. Moving forward never skips a stage, never
+  moves into Approved, Declined, Withdrawn or Closed, never moves a closed
+  case or one not yet submitted past the pre-submission stages, and
+  happens at most once per change. Rules still never message anyone, and
+  none exists until an admin saves one.
+- Tasks a rule creates show "Automation" as their creator.
+
+### HR automated messages stop retrying sends that cannot work
+
+**Migration required:** apply `212_hr_automsg_delivery.sql` as a
+superuser or BYPASSRLS role before deploying this build.
+- A send that can never succeed (an invalid number, a template missing,
+  paused or not approved, Meta's 24-hour window closed, a number that is
+  not connected to the account) is marked failed at once with the reason,
+  instead of being retried three times. Passing problems are still
+  retried.
+- WhatsApp's delivered, read and failed receipts are recorded on each
+  automated message. A message WhatsApp could not deliver is marked
+  failed with WhatsApp's error code.
+
+### HR lines
+
+**Migration required:** apply `213_hr_lines.sql` as a superuser or
+BYPASSRLS role before deploying this build, after 212.
+- HR → Rules has a new **HR lines** section for owners and admins: tick
+  the WhatsApp numbers HR uses and switch on "Open a Recruitment chat when
+  someone new writes to an HR line". Someone with no HR chat who writes to
+  one of those numbers then starts in Recruitment at CV review (and the
+  CV-received automated message, if switched on, follows its usual
+  guards). Off by default.
+
 ### Add people to groups
 
 **Migration required:** apply `211_submission_group_add_number.sql`
