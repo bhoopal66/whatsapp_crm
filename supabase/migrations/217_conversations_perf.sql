@@ -92,6 +92,14 @@
 -- policies with it; verify-conversations-select-set-based.sql compares
 -- them per person.
 --
+-- Atomic per table. Each table's DROP POLICY and CREATE POLICY run in
+-- one DO block, so they commit together or not at all. Run as separate
+-- autocommit statements, a CREATE that hit the 5 s lock_timeout after
+-- its DROP had committed (a reader holding the table in between) left
+-- the table with no SELECT policy, and every member saw zero chats until
+-- a re-run; `psql -f` carries on past the error. Now a timeout rolls the
+-- whole block back and 191's policies stay in place: re-run the file.
+--
 -- Apply in order, once: re-running 191 after this file puts the per-row
 -- policies back (same rows, slow again). Re-runnable on its own:
 -- DROP POLICY IF EXISTS / CREATE POLICY.
@@ -100,6 +108,8 @@
 SET lock_timeout = '5s';
 
 -- 191's conversations_select, set-based.
+DO $swap$
+BEGIN
 DROP POLICY IF EXISTS conversations_select ON public.conversations;
 CREATE POLICY conversations_select ON public.conversations
   FOR SELECT
@@ -115,8 +125,12 @@ CREATE POLICY conversations_select ON public.conversations
          END
     )
   );
+END
+$swap$;
 
--- 191's messages_select, set-based.
+-- 191's messages_select and messages_modify, set-based, swapped together.
+DO $swap$
+BEGIN
 DROP POLICY IF EXISTS messages_select ON public.messages;
 CREATE POLICY messages_select ON public.messages
   FOR SELECT
@@ -137,7 +151,7 @@ CREATE POLICY messages_select ON public.messages
     )
   );
 
--- 191's messages_modify, set-based. FOR ALL, so it is a SELECT policy
+-- messages_modify: FOR ALL, so it is a SELECT policy
 -- too: left per-row, any read touching a message the caller cannot see
 -- would still build the slow set.
 DROP POLICY IF EXISTS messages_modify ON public.messages;
@@ -160,5 +174,7 @@ CREATE POLICY messages_modify ON public.messages
         )
     )
   );
+END
+$swap$;
 
 RESET lock_timeout;

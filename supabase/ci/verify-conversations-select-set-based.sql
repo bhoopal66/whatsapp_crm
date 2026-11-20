@@ -18,6 +18,14 @@
 -- still returns it; an agent cannot read the other workspace's chat by
 -- id, not even one owned by their own login.
 --
+-- Writes through messages_modify (FOR ALL, so its USING is also its
+-- WITH CHECK): every person INSERTs an agent message into every chat,
+-- and the chats where that is allowed (refused = 42501) equal 191's
+-- rule evaluated directly, which is the read rule AND
+-- current_role_rank() >= 2, and equal a hand-written set (a viewer
+-- reads their own chat but cannot write in it). One UPDATE and one
+-- DELETE are allowed, and one of each by the viewer touches no row.
+--
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
 -- NOTICE output, so failing assertions are named in the final
@@ -49,6 +57,8 @@ DECLARE
   seen_old TEXT;
   expected TEXT;
   r        TEXT;
+  chans    UUID[];
+  i        INT;
   n        INT := 0;
   failed   TEXT[] := '{}';
 BEGIN
@@ -109,6 +119,63 @@ BEGIN
         END IF;
         RESET ROLE;
       END IF;
+      PERFORM set_config('request.jwt.claim.sub', '', true);
+      PERFORM set_config('request.jwt.claims', '', true);
+      RETURN v;
+    END $body$
+  $fn$;
+
+  -- Run p_sql as authenticated signed in as p_uid: a SELECT's (or a
+  -- WITH's) value, 'ok', or 'ERROR <sqlstate>: <message>'.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.cv_try(p_uid uuid, p_sql text)
+    RETURNS text LANGUAGE plpgsql AS $body$
+    DECLARE v text;
+    BEGIN
+      PERFORM set_config('request.jwt.claim.sub', p_uid::text, true);
+      PERFORM set_config('request.jwt.claims',
+        json_build_object('sub', p_uid, 'role', 'authenticated')::text, true);
+      BEGIN
+        SET LOCAL ROLE authenticated;
+        IF p_sql ~* '^\s*(SELECT|WITH)' THEN
+          EXECUTE p_sql INTO v;
+        ELSE
+          EXECUTE p_sql;
+          v := 'ok';
+        END IF;
+        RESET ROLE;
+      EXCEPTION WHEN OTHERS THEN
+        RESET ROLE;
+        v := 'ERROR ' || SQLSTATE || ': ' || SQLERRM;
+      END;
+      PERFORM set_config('request.jwt.claim.sub', '', true);
+      PERFORM set_config('request.jwt.claims', '', true);
+      RETURN v;
+    END $body$
+  $fn$;
+
+  -- The fixture labels, sorted, of the chats p_uid may write a message
+  -- in under 191's messages_modify rule, evaluated directly as the table
+  -- owner: the read rule AND current_role_rank() >= 2.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.cv_may_write(p_uid uuid, p_ids uuid[], p_labels text[])
+    RETURNS text LANGUAGE plpgsql AS $body$
+    DECLARE v text;
+    BEGIN
+      PERFORM set_config('request.jwt.claim.sub', p_uid::text, true);
+      PERFORM set_config('request.jwt.claims',
+        json_build_object('sub', p_uid, 'role', 'authenticated')::text, true);
+      SELECT coalesce(string_agg(l.label, ',' ORDER BY l.label), '') INTO v
+        FROM unnest(p_ids, p_labels) AS l(id, label)
+        JOIN public.conversations c ON c.id = l.id
+       WHERE c.account_id = public.current_account_id()
+         AND public.current_role_rank() >= 2
+         AND (public.current_role_rank() >= 4
+              OR CASE WHEN c.personal_owner_id IS NULL
+                   THEN public.can_view_conversation(c.account_id, c.user_id,
+                          c.assigned_agent_id, c.channel_id, c.send_channel_id)
+                   ELSE public.can_view_personal_chat(c.account_id, c.personal_owner_id)
+                 END);
       PERFORM set_config('request.jwt.claim.sub', '', true);
       PERFORM set_config('request.jwt.claims', '', true);
       RETURN v;
@@ -284,6 +351,99 @@ BEGIN
   IF cv_other IS NULL OR r IS DISTINCT FROM '0/0/0' THEN
     failed := array_append(failed,
       ('agent reads the other workspace''s chat: ' || coalesce(r, 'no fixture'))::text);
+  END IF;
+
+  -- Writes through messages_modify. Every person INSERTs an agent
+  -- message, as themselves, into every chat on the chat's own number;
+  -- 42501 is a refusal, any other error is reported as a failure. The
+  -- team: the leader leads agent and agent2, so 'teammate' (agent2's
+  -- chat) is refused to agent and 'own' / 'assigned' to agent2. The
+  -- viewer reads 'viewer-own' but may not write in it (rank >= 2); agent2
+  -- writes in 'pn-company' only through the personal-number term; the
+  -- leader writes in agent2's personal chat.
+  SELECT array_agg(cv.channel_id ORDER BY l.ord) INTO chans
+    FROM unnest(ids) WITH ORDINALITY AS l(id, ord)
+    JOIN conversations cv ON cv.id = l.id;
+  FOR who IN
+    SELECT * FROM (VALUES
+      ('owner',  u_owner,  'assigned,own,personal,pn-company,teammate,unassigned,viewer-own'),
+      ('agent',  u_agent,  'assigned,own'),
+      ('agent2', u_agent2, 'personal,pn-company,teammate'),
+      ('leader', u_lead,   'assigned,own,personal,pn-company,teammate'),
+      ('viewer', u_viewer, ''),
+      ('guest',  u_guest,  ''),
+      ('gone',   u_gone,   ''),
+      ('other',  u_other,  'other,other-agent')
+    ) AS t(label, uid, expected)
+  LOOP
+    seen_new := NULL;
+    FOR i IN 1 .. array_length(ids, 1) LOOP
+      r := pg_temp.cv_try(who.uid, format(
+        'INSERT INTO public.messages (conversation_id, sender_type, sender_id,'
+        || ' content_type, content_text, channel_id) VALUES (%L, ''agent'', %L, ''text'', %L, %L)',
+        ids[i], who.uid, 'w:' || labels[i], chans[i]));
+      IF r = 'ok' THEN
+        seen_new := concat_ws(',', seen_new, labels[i]);
+      ELSIF r NOT LIKE 'ERROR 42501:%' THEN
+        seen_new := concat_ws(',', seen_new, labels[i] || ' (' || r || ')');
+      END IF;
+    END LOOP;
+    SELECT coalesce(string_agg(x, ',' ORDER BY x), '') INTO seen_new
+      FROM unnest(string_to_array(seen_new, ',')) AS x;
+    seen_old := pg_temp.cv_may_write(who.uid, ids, labels);
+    n := n + 1;
+    IF seen_new IS DISTINCT FROM seen_old THEN
+      failed := array_append(failed, format('%s insert: policy allows [%s], old rule [%s]',
+        who.label, seen_new, seen_old));
+    END IF;
+    n := n + 1;
+    IF seen_new IS DISTINCT FROM who.expected THEN
+      failed := array_append(failed, format('%s insert: policy allows [%s], expected [%s]',
+        who.label, seen_new, who.expected));
+    END IF;
+  END LOOP;
+
+  -- UPDATE and DELETE of the fixture messages (text = the chat's label).
+  -- Allowed: the leader edits one in agent2's personal chat; agent2
+  -- deletes the one in 'pn-company'. Refused (no row touched, the row
+  -- stays readable): the viewer edits and deletes the one in their own.
+  r := pg_temp.cv_try(u_lead, format('WITH u AS (UPDATE public.messages SET content_text = ''edited'''
+    || ' WHERE conversation_id = %L AND content_text = ''personal'' RETURNING 1)'
+    || ' SELECT count(*)::text FROM u', ids[array_position(labels, 'personal')]));
+  n := n + 1;
+  IF r IS DISTINCT FROM '1' THEN
+    failed := array_append(failed, ('leader update in the personal chat: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.cv_try(u_viewer, format('WITH u AS (UPDATE public.messages SET content_text = ''edited'''
+    || ' WHERE conversation_id = %L AND content_text = ''viewer-own'' RETURNING 1)'
+    || ' SELECT count(*)::text FROM u', ids[array_position(labels, 'viewer-own')]));
+  n := n + 1;
+  IF r IS DISTINCT FROM '0' THEN
+    failed := array_append(failed, ('viewer update in their own chat: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.cv_try(u_agent2, format('WITH d AS (DELETE FROM public.messages'
+    || ' WHERE conversation_id = %L AND content_text = ''pn-company'' RETURNING 1)'
+    || ' SELECT count(*)::text FROM d', ids[array_position(labels, 'pn-company')]));
+  n := n + 1;
+  IF r IS DISTINCT FROM '1' THEN
+    failed := array_append(failed, ('agent2 delete in pn-company: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.cv_try(u_viewer, format('WITH d AS (DELETE FROM public.messages'
+    || ' WHERE conversation_id = %L AND content_text = ''viewer-own'' RETURNING 1)'
+    || ' SELECT count(*)::text FROM d', ids[array_position(labels, 'viewer-own')]));
+  n := n + 1;
+  IF r IS DISTINCT FROM '0' THEN
+    failed := array_append(failed, ('viewer delete in their own chat: ' || coalesce(r, 'null'))::text);
+  END IF;
+  SELECT format('%s/%s',
+           (SELECT count(*) FROM messages WHERE conversation_id = ids[array_position(labels, 'viewer-own')]
+              AND content_text = 'viewer-own'),
+           (SELECT count(*) FROM messages WHERE conversation_id = ids[array_position(labels, 'personal')]
+              AND content_text = 'edited'))
+    INTO r;
+  n := n + 1;
+  IF r IS DISTINCT FROM '1/1' THEN
+    failed := array_append(failed, ('after update/delete, viewer-own kept / personal edited: ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
