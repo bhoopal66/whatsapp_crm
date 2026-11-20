@@ -30,6 +30,7 @@ import {
   sanitizePhoneForMeta,
 } from '@/lib/whatsapp/phone-utils';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import { HrSendRefusal } from './failure';
 import type { SendPort, TemplateSendRequest } from './ports';
 
 type Param = keyof TemplateSendRequest['params'];
@@ -58,7 +59,11 @@ async function chatChannel(
       (c) => c.id === own
     );
     if (!channel)
-      throw new Error("the chat's WhatsApp number is not connected");
+      throw new HrSendRefusal(
+        'not_connected',
+        "the chat's WhatsApp number is not connected",
+        true
+      );
     return channel;
   }
   // No number yet: the human inbox rule, which follows the customer.
@@ -86,12 +91,21 @@ async function sendHrTemplate(
     .eq('account_id', req.accountId)
     .maybeSingle();
   if (convErr || !conv)
-    throw new Error('conversation not found for this account');
+    throw new HrSendRefusal(
+      'conversation_missing',
+      'conversation not found for this account'
+    );
   if (conv.personal_owner_id) {
-    throw new Error('automated messages are never sent from a personal chat');
+    throw new HrSendRefusal(
+      'personal_number',
+      'automated messages are never sent from a personal chat'
+    );
   }
   if (conv.contact_id !== req.contactId) {
-    throw new Error('the contact is not this conversation’s contact');
+    throw new HrSendRefusal(
+      'conversation_missing',
+      'the contact is not this conversation’s contact'
+    );
   }
 
   const { data: contact, error: contactErr } = await db
@@ -105,7 +119,10 @@ async function sendHrTemplate(
   }
   const sanitized = sanitizePhoneForMeta(contact.phone);
   if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`);
+    throw new HrSendRefusal(
+      'invalid_number',
+      `contact phone invalid: ${contact.phone}`
+    );
   }
 
   const channel = await chatChannel(
@@ -117,7 +134,10 @@ async function sendHrTemplate(
       null
   );
   if (channel.isPersonal) {
-    throw new Error('automated messages are never sent from a personal number');
+    throw new HrSendRefusal(
+      'personal_number',
+      'automated messages are never sent from a personal number'
+    );
   }
 
   const text = req.body;
@@ -134,7 +154,8 @@ async function sendHrTemplate(
         req.language
       );
       if (!row) {
-        throw new Error(
+        throw new HrSendRefusal(
+          'template_not_found',
           `no local template named "${req.metaTemplateName}" for this account`
         );
       }
@@ -143,7 +164,8 @@ async function sendHrTemplate(
       const status = String(row.status ?? '').toLowerCase();
       const category = String(row.category ?? '').toLowerCase();
       if (status !== 'approved' || category !== 'utility') {
-        throw new Error(
+        throw new HrSendRefusal(
+          'template_rejected',
           `template "${req.metaTemplateName}" must be an approved utility template`
         );
       }
@@ -184,7 +206,13 @@ async function sendHrTemplate(
       lastError = err;
     }
   }
-  if (lastError) throw lastError;
+  // Every variant was refused as not a WhatsApp recipient: the number is
+  // wrong, and the next attempt would be refused the same way.
+  if (lastError)
+    throw new HrSendRefusal(
+      'invalid_number',
+      lastError instanceof Error ? lastError.message : String(lastError)
+    );
 
   // The gateway has the message: nothing below may turn this into a
   // failure, or the engine would mark a delivered message failed.

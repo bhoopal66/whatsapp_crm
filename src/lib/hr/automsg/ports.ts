@@ -51,6 +51,8 @@ export interface AutoMsgStorePort {
     }
   ): Promise<void>;
   markFailed(id: string, error: string): Promise<void>;
+  /** A failure no retry can pass (029a): failed for good, with a stable reason. */
+  failTerminal(id: string, reason: string): Promise<void>;
   /** The provider accepted the send but the sent mark failed: sent, never resent. */
   settleUnconfirmed(
     id: string,

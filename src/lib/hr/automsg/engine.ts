@@ -8,10 +8,12 @@
  *   c) the pure guards: closed / opted out -> cancelled, any other reason
  *      -> held (no write when already held for that reason);
  *   d) the claim is the lock: a lost claim sends nothing;
- *   e) render and send; a send throw -> failed (fail closed);
+ *   e) render and send; a send throw -> failed (fail closed), or
+ *      failed_terminal when the failure cannot pass on a retry (029a);
  *   f) mark sent; if that write fails the row is settled unconfirmed and
  *      never resent.
  */
+import { classifySendFailure } from './failure';
 import { decide } from './guards';
 import {
   SEND_REQUEST_KEYS,
@@ -36,6 +38,7 @@ export type RowOutcome =
   | 'sent'
   | 'unconfirmed'
   | 'failed'
+  | 'failed_terminal'
   | 'cancelled'
   | 'lost'
   | 'capped'
@@ -150,6 +153,11 @@ export async function processRow(
     assertTemplateOnly(req);
     sent = await sender.send(req);
   } catch (e) {
+    const f = classifySendFailure(e);
+    if (!f.retryable) {
+      await store.failTerminal(row.id, f.reason);
+      return 'failed_terminal';
+    }
     await store.markFailed(row.id, messageOf(e));
     return 'failed';
   }

@@ -127,6 +127,17 @@ export class MemoryAutoMsgStore implements AutoMsgStorePort {
     this.errors.set(id, error);
   }
 
+  async failTerminal(id: string, reason: string): Promise<void> {
+    const r = this.get(id);
+    if (r.claimState !== 'sending') this.refuse();
+    r.status = 'failed';
+    r.attempts = MAX_ATTEMPTS;
+    r.claimState = null;
+    r.holdReason = null;
+    r.sentAt = null;
+    this.errors.set(id, reason);
+  }
+
   async settleUnconfirmed(
     id: string,
     providerMessageId: string | null

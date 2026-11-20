@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { assertTemplateOnly, processDue, processRow } from './engine';
+import { MetaError } from '@/lib/whatsapp/meta-api';
+import { HrSendRefusal } from './failure';
 import { MemoryAutoMsgStore, type MemoryContext } from './memory-store';
 import type { EngineDeps, SendPort, TemplateSendRequest } from './ports';
 import { SEED_TEMPLATES, SLOT_FALLBACK } from './templates';
@@ -135,6 +137,52 @@ describe('processRow', () => {
       claimState: null,
     });
     expect(store.errors.get('r1')).toHaveLength(500);
+  });
+
+  it('a non-retryable send failure -> failed_terminal through failTerminal', async () => {
+    const { store, sender, deps } = rig();
+    store.add(row('r1'));
+    const terminal = vi.spyOn(store, 'failTerminal');
+    const failed = vi.spyOn(store, 'markFailed');
+    sender.send = async () => {
+      throw new MetaError('(#131026) undeliverable', 400, 131026);
+    };
+    expect(await processRow(row('r1'), deps)).toBe('failed_terminal');
+    expect(terminal).toHaveBeenCalledWith('r1', 'undeliverable');
+    expect(failed).not.toHaveBeenCalled();
+    expect(store.rows.get('r1')).toMatchObject({
+      status: 'failed',
+      attempts: 3,
+      claimState: null,
+    });
+    expect(store.errors.get('r1')).toBe('undeliverable');
+    // Never retried: the next pass decides nothing.
+    expect(await processRow(row('r1'), deps)).toBe('lost');
+  });
+
+  it('a local refusal is terminal with its own reason', async () => {
+    const { store, sender, deps } = rig();
+    store.add(row('r1'));
+    sender.send = async () => {
+      throw new HrSendRefusal('invalid_number', 'contact phone invalid');
+    };
+    expect(await processRow(row('r1'), deps)).toBe('failed_terminal');
+    expect(store.errors.get('r1')).toBe('invalid_number');
+  });
+
+  it('a retryable send failure still goes through markFailed', async () => {
+    const { store, sender, deps } = rig();
+    store.add(row('r1'));
+    const terminal = vi.spyOn(store, 'failTerminal');
+    sender.send = async () => {
+      throw new MetaError('server', 503);
+    };
+    expect(await processRow(row('r1'), deps)).toBe('failed');
+    expect(terminal).not.toHaveBeenCalled();
+    expect(store.rows.get('r1')).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+    });
   });
 
   it('markSent throws -> unconfirmed, and the next processDue sends nothing', async () => {

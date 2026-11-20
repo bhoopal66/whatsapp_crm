@@ -27,6 +27,7 @@ const h = vi.hoisted(() => ({
   webhook: vi.fn(),
   settle: vi.fn(),
   context: vi.fn(),
+  hrDelivery: vi.fn(),
 }));
 
 function fakeDb() {
@@ -99,6 +100,9 @@ vi.mock('@/lib/automations/engine', () => ({
 vi.mock('@/lib/flows/engine', () => ({ dispatchInboundToFlows: vi.fn() }));
 vi.mock('@/lib/ai/auto-reply', () => ({ dispatchInboundToAiReply: vi.fn() }));
 vi.mock('@/lib/ai/typesafe-watch', () => ({ watchInboundMessage: vi.fn() }));
+vi.mock('@/lib/hr/automsg/delivery', () => ({
+  recordHrDelivery: (...args: unknown[]) => h.hrDelivery(...args),
+}));
 
 import { handleStatusUpdate } from './inbound-pipeline';
 
@@ -461,5 +465,39 @@ describe('handleStatusUpdate — a bot reply WhatsApp refused', () => {
     ).resolves.toBeUndefined();
     expect(h.webhook).toHaveBeenCalledTimes(1);
     errored.mockRestore();
+  });
+});
+
+describe('handleStatusUpdate: HR automated-message receipts', () => {
+  beforeEach(() => {
+    h.calls = [];
+    h.hrDelivery.mockReset();
+    h.webhook.mockReset();
+  });
+
+  it('hands a bot message receipt to recordHrDelivery with the receipt time', async () => {
+    const bot = { ...OUTBOUND, sender_type: 'bot' };
+    world({ messages: [bot] });
+    await handleStatusUpdate(status({ status: 'delivered' }), ACCOUNT);
+    expect(h.hrDelivery).toHaveBeenCalledTimes(1);
+    expect(h.hrDelivery.mock.calls[0][0]).toEqual({
+      accountId: ACCOUNT,
+      status: status({ status: 'delivered' }),
+      at: new Date(1758100000 * 1000).toISOString(),
+      rows: [bot],
+    });
+    const select = h.calls.find(
+      (c) => c.table === 'messages' && c.op === 'select'
+    );
+    expect(select).toBeDefined();
+  });
+
+  it('runs before the webhook fan-out', async () => {
+    const order: string[] = [];
+    h.hrDelivery.mockImplementation(async () => void order.push('hr'));
+    h.webhook.mockImplementation(async () => void order.push('webhook'));
+    world({ messages: [{ ...OUTBOUND, sender_type: 'bot' }] });
+    await handleStatusUpdate(status({ status: 'read' }), ACCOUNT);
+    expect(order).toEqual(['hr', 'webhook']);
   });
 });

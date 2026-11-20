@@ -209,6 +209,14 @@ export class PgAutoMsgStore implements AutoMsgStorePort {
     });
   }
 
+  /** Migration 212: failed, attempts spent, never retried. */
+  async failTerminal(id: string, reason: string): Promise<void> {
+    await this.call('hr_automsg_fail_terminal', {
+      p_id: id,
+      p_reason: reason,
+    });
+  }
+
   async settleUnconfirmed(
     id: string,
     providerMessageId: string | null

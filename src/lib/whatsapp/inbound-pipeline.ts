@@ -55,6 +55,7 @@ import {
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { handleHrInboundMessage } from '@/lib/hr/agents/inbound';
+import { recordHrDelivery } from '@/lib/hr/automsg/delivery';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush, shouldPushInbound } from '@/lib/push/inbound';
@@ -167,7 +168,7 @@ export async function handleStatusUpdate(
   let rowsQuery = supabaseAdmin()
     .from('messages')
     .select(
-      'id, conversation_id, ai_generated, conversations!inner(account_id)'
+      'id, conversation_id, ai_generated, sender_type, conversations!inner(account_id)'
     )
     .eq('message_id', status.messageId);
   if (accountId)
@@ -298,7 +299,12 @@ export async function handleStatusUpdate(
     }
   }
 
-  // 4) Webhook fan-out for messages we store (inbox / API sends).
+  // 4) HR automated messages (migration 212): the receipt onto the HR
+  //    outbox row. After the broadcast mirror, so it cannot delay it;
+  //    only bot messages pay the round trip. Never throws.
+  await recordHrDelivery({ accountId, status, at: tsIso, rows });
+
+  // 5) Webhook fan-out for messages we store (inbox / API sends).
   //    Runs last so a slow subscriber can't delay the mirrors above.
   const first = moved[0];
   if (first) {
@@ -322,6 +328,7 @@ interface StatusMessageRow {
   id: string;
   conversation_id: string;
   ai_generated?: boolean | null;
+  sender_type?: string | null;
   conversations: unknown;
 }
 

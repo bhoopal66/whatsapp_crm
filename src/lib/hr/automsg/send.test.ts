@@ -19,6 +19,7 @@ import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import type { TemplateSendRequest } from './ports';
 import { createHrSendPort } from './send';
+import { HrSendRefusal, classifySendFailure } from './failure';
 
 type Row = Record<string, unknown>;
 
@@ -338,5 +339,90 @@ describe('createHrSendPort: channel choice and record', () => {
       providerMessageId: 'wamid-1',
       messageId: null,
     });
+  });
+});
+
+describe('createHrSendPort: typed refusals (029a)', () => {
+  async function refusal(p: Promise<unknown>) {
+    const e = await p.then(
+      () => null,
+      (err: unknown) => err
+    );
+    expect(e).toBeInstanceOf(HrSendRefusal);
+    return classifySendFailure(e);
+  }
+
+  it.each([
+    ['an account mismatch', {}, { accountId: 'acc-2' }, 'conversation_missing'],
+    [
+      'a contact mismatch',
+      {},
+      { contactId: 'contact-2' },
+      'conversation_missing',
+    ],
+    [
+      'a personal chat',
+      { conv: baseConv({ personal_owner_id: 'u-1' }) },
+      {},
+      'personal_number',
+    ],
+  ])('%s is terminal: %s', async (_n, db, over, reason) => {
+    const { db: fake } = fakeDb(db as DbOpts);
+    expect(await refusal(createHrSendPort(fake).send(req(over)))).toEqual({
+      retryable: false,
+      reason,
+    });
+  });
+
+  it('a personal number is terminal', async () => {
+    vi.mocked(loadChannels).mockResolvedValue([channel({ isPersonal: true })]);
+    const { db } = fakeDb({});
+    expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+      retryable: false,
+      reason: 'personal_number',
+    });
+  });
+
+  it('a missing local template is terminal', async () => {
+    vi.mocked(resolveTemplateRow).mockResolvedValue({
+      row: null,
+    } as unknown as Awaited<ReturnType<typeof resolveTemplateRow>>);
+    const { db } = fakeDb({});
+    expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+      retryable: false,
+      reason: 'template_not_found',
+    });
+  });
+
+  it('a template that is not an approved utility one is terminal', async () => {
+    vi.mocked(resolveTemplateRow).mockResolvedValue({
+      row: { ...TEMPLATE_ROW, category: 'Marketing' },
+    } as unknown as Awaited<ReturnType<typeof resolveTemplateRow>>);
+    const { db } = fakeDb({});
+    expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+      retryable: false,
+      reason: 'template_rejected',
+    });
+  });
+
+  it('a disconnected number stays retryable', async () => {
+    vi.mocked(loadChannels).mockResolvedValue([channel({ id: 'ch-other' })]);
+    const { db } = fakeDb({});
+    expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+      retryable: true,
+      reason: 'not_connected',
+    });
+  });
+
+  it('every phone variant refused as not allowed -> invalid_number', async () => {
+    vi.mocked(sendTemplate).mockRejectedValue(
+      new Error('(#131030) Recipient not in allowed list')
+    );
+    const { db } = fakeDb({});
+    expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+      retryable: false,
+      reason: 'invalid_number',
+    });
+    expect(vi.mocked(sendTemplate).mock.calls.length).toBeGreaterThan(1);
   });
 });
