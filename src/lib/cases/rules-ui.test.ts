@@ -20,6 +20,7 @@ import {
   validateDraft,
   withTrigger,
   RULE_TRIGGERS,
+  RUN_REFUSALS,
   type DraftAction,
   type RuleDraft,
   type RuleRunView,
@@ -852,4 +853,90 @@ describe('214 rule editor logic', () => {
       )
     ).toContain('refusal.other');
   });
+});
+
+describe('214 wording in the real catalogues', () => {
+  const NEW_PROBLEMS = [
+    'stage_required',
+    'action_not_allowed',
+    'template_required',
+    'owner_invalid',
+    'due_hours_invalid',
+    'timer_invalid',
+  ];
+
+  it.each(['en', 'ko'])(
+    'has every new trigger, action and problem (%s)',
+    (locale) => {
+      const c = catalogue(locale).CaseRules;
+      for (const k of ['stage_entered', 'last_required_doc_received'])
+        expect(c.trigger[k], `trigger.${k}`).toBeTruthy();
+      for (const k of ['create_task', 'start_sla', 'advance_stage'])
+        expect(c.kind[k], `kind.${k}`).toBeTruthy();
+      for (const k of NEW_PROBLEMS)
+        expect(c.problem[k], `problem.${k}`).toBeTruthy();
+    }
+  );
+
+  it.each(['en', 'ko'])(
+    'words the new rules and every run result with no missing key (%s)',
+    (locale) => {
+      const { t, errors } = translator(locale);
+      const ctx = {
+        t,
+        locale,
+        bankName: (c: string) => c,
+        personName: () => 'someone',
+        templateName: () => 'Chase the bank',
+      };
+      const entered = describeRule(
+        rule({
+          trigger: 'stage_entered',
+          conditions: { stage: 'Bank acknowledged' },
+          actions: [
+            {
+              kind: 'create_task',
+              templateKey: 'chase_ack',
+              ownerRole: 'agent',
+            },
+            { kind: 'start_sla', timer: 'bank_response' },
+          ],
+        } as Partial<RuleView>),
+        ctx
+      );
+      const advance = describeRule(
+        rule({
+          trigger: 'last_required_doc_received',
+          actions: [{ kind: 'advance_stage' }],
+        } as Partial<RuleView>),
+        ctx
+      );
+      expect(entered).toContain('Chase the bank');
+      expect(advance.length).toBeGreaterThan(0);
+      const at = '2026-11-20T08:00:00.000Z';
+      for (const code of RUN_REFUSALS)
+        summariseRun(
+          {
+            ruleId: 'r1',
+            trigger: 'stage_entered',
+            matched: true,
+            applied: [{ kind: 'create_task', ok: false, refusal: code }],
+            at,
+          } as RuleRunView,
+          t
+        );
+      for (const kind of ['create_task', 'start_sla', 'advance_stage'])
+        summariseRun(
+          {
+            ruleId: 'r1',
+            trigger: 'stage_entered',
+            matched: true,
+            applied: [{ kind, ok: true, refusal: null }],
+            at,
+          } as RuleRunView,
+          t
+        );
+      expect(errors).toEqual([]);
+    }
+  );
 });
