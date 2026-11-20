@@ -303,6 +303,15 @@ describe('addParticipant (211)', () => {
     ).rejects.toThrow('unavailable');
   });
 
+  it('throws when the number was never tried, with no error named', async () => {
+    h.addParticipants.mockResolvedValue(
+      outcome({ notAttempted: ['971501234567'] })
+    );
+    await expect(
+      api().addParticipant('cfg-1', WA_GROUP, '971501234567')
+    ).rejects.toThrow('not attempted');
+  });
+
   it('refuses a number that is not Whapi', async () => {
     await expect(
       api().addParticipant('cfg-meta', WA_GROUP, '971501234567')

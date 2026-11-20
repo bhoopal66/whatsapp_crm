@@ -224,6 +224,7 @@ describe('the cron membership pass', () => {
       listPendingCreates: vi.fn().mockResolvedValue([]),
       listUnclosedEnded: vi.fn().mockResolvedValue([]),
       failStalePending: vi.fn().mockResolvedValue([]),
+      sweepAddNumbers: vi.fn().mockResolvedValue(0),
       membershipAccounts: vi.fn().mockResolvedValue(o.accounts ?? ['a1']),
       membershipDue: vi.fn(async (accountId: string, limit: number) =>
         (o.idsOf?.(accountId) ?? ids).slice(0, limit)

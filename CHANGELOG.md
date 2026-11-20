@@ -18,7 +18,7 @@ and polish.
 as a superuser or BYPASSRLS role before deploying this build.
 - Submission groups have an **Add number** button in their details:
   anyone who can open the group can add another phone number to its
-  WhatsApp group (at most 10 a day per group). If WhatsApp won't add
+  WhatsApp group (at most 10 tries a day per group). If WhatsApp won't add
   the person, the group's invite link is shown to share with them.
 - In WhatsApp groups, anyone at agent level or above who can open a
   group can now add people, not only its managers. Removing people,

@@ -22,6 +22,7 @@ function fakes(o: {
     listPendingCreates: vi.fn().mockResolvedValue(o.pending ?? []),
     listUnclosedEnded: vi.fn().mockResolvedValue(o.unclosed ?? []),
     failStalePending: vi.fn().mockResolvedValue(['9']),
+    sweepAddNumbers: vi.fn().mockResolvedValue(2),
     membershipAccounts: vi.fn().mockResolvedValue([]),
     membershipDue: vi.fn().mockResolvedValue([]),
     get: vi.fn(),
@@ -69,6 +70,8 @@ describe('runSubmissionGroupsCron', () => {
     const r = await runSubmissionGroupsCron(admin, f);
     expect(f.store.failStalePending).toHaveBeenCalledTimes(1);
     expect(f.store.failStalePending).toHaveBeenCalledWith(600_000);
+    // 211: add-number attempts nobody settled, after 10 minutes.
+    expect(f.store.sweepAddNumbers).toHaveBeenCalledWith(600);
     expect(f.services.get('A')!.retryPending).toHaveBeenCalledWith({
       accountId: 'A',
       olderThanMs: 120_000,
@@ -79,6 +82,7 @@ describe('runSubmissionGroupsCron', () => {
     expect(f.services.get('B')!.retryClose).toHaveBeenCalledWith('e1');
     expect(r).toEqual({
       stalePendingFailed: 1,
+      staleAddsFailed: 2,
       accounts: 2,
       membershipChecked: 0,
       created: 1,
@@ -92,6 +96,7 @@ describe('runSubmissionGroupsCron', () => {
   it('never throws: a failing account or listing is reported and the rest still run', async () => {
     const f = fakes({ unclosed: [g('e1', 'A'), g('e2', 'B')] });
     f.store.failStalePending.mockRejectedValue(new Error('db down'));
+    f.store.sweepAddNumbers.mockRejectedValue(new Error('no 211'));
     const serviceFor = (id: string) => {
       const svc = f.serviceFor(id);
       if (id === 'A') svc.retryClose.mockRejectedValue(new Error('boom'));
@@ -99,7 +104,11 @@ describe('runSubmissionGroupsCron', () => {
     };
     const r = await runSubmissionGroupsCron(admin, { ...f, serviceFor });
     expect(r).toMatchObject({ closed: 1, closeFailed: 1 });
-    expect(r.errors).toEqual(['sweep: db down', 'e1: boom']);
+    expect(r.errors).toEqual([
+      'sweep: db down',
+      'add sweep: no 211',
+      'e1: boom',
+    ]);
 
     const broken = fakes({});
     broken.store.listPendingCreates.mockRejectedValue(new Error('gone'));

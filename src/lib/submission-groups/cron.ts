@@ -28,6 +28,8 @@ export const MEMBERSHIP_BUDGET_MS = 15_000;
 
 export interface SubmissionGroupsCronResult {
   stalePendingFailed: number;
+  /** 211: add-number attempts nobody settled, now failed 'unconfirmed'. */
+  staleAddsFailed: number;
   accounts: number;
   created: number;
   createFailed: number;
@@ -42,6 +44,7 @@ type CronStore = Pick<
   | 'listPendingCreates'
   | 'listUnclosedEnded'
   | 'failStalePending'
+  | 'sweepAddNumbers'
   | 'membershipAccounts'
   | 'membershipDue'
   | 'get'
@@ -52,6 +55,9 @@ type CronService = Pick<
   SubmissionGroupService,
   'retryPending' | 'retryClose' | 'sendWelcomeIfDue'
 >;
+
+/** 211: an add-number attempt pending this long is settled 'unconfirmed'. */
+export const STALE_ADD_SECONDS = 600;
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -116,6 +122,7 @@ export async function runSubmissionGroupsCron(
   const started = now();
   const out: SubmissionGroupsCronResult = {
     stalePendingFailed: 0,
+    staleAddsFailed: 0,
     accounts: 0,
     created: 0,
     createFailed: 0,
@@ -139,6 +146,12 @@ export async function runSubmissionGroupsCron(
       ).length;
     } catch (err) {
       out.errors.push(`sweep: ${errText(err)}`);
+    }
+    // 211: an add that never settled (the route has 60 s; 10 min is safe).
+    try {
+      out.staleAddsFailed = await store.sweepAddNumbers(STALE_ADD_SECONDS);
+    } catch (err) {
+      out.errors.push(`add sweep: ${errText(err)}`);
     }
 
     const pending = await store.listPendingCreates(

@@ -866,6 +866,17 @@ export class SubmissionGroupStore {
     );
   }
 
+  /**
+   * 211: settles every add-number attempt still pending after
+   * `olderThanSeconds` as failed 'unconfirmed'. Returns how many.
+   */
+  async sweepAddNumbers(olderThanSeconds: number): Promise<number> {
+    const n = await this.rpc<number | null>('sg_add_number_sweep', {
+      p_older_than_seconds: olderThanSeconds,
+    });
+    return typeof n === 'number' ? n : 0;
+  }
+
   /** The only archive read: audit row and messages in one statement. */
   async readArchive(
     groupId: string,

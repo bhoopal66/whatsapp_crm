@@ -157,15 +157,20 @@ with **Add number** in the group's details. `POST
 - `sg_add_number_begin` decides, under the group's row lock: who
   (`sg_can_read`), the group's state (active, with a WhatsApp group and
   a number), the number itself (digits with country code, not the
-  group's own number), consent (a contact with that number who opted out
-  or is do-not-contact is refused), one attempt per number at a time,
-  and at most **10 adds per group in 24 hours**, because adding people
-  in bulk risks the number being restricted.
+  group's own number), consent (a contact whose number ends in the same
+  9 digits and who opted out or is do-not-contact is refused, so a
+  contact saved as `050…` still counts), one attempt per number at a
+  time, and at most **10 attempts per group in 24 hours** (declined and
+  failed ones count too), because adding people in bulk risks the number
+  being restricted.
 - Every attempt is logged in `submission_group_added_numbers` (who,
   which number, when, outcome), settled once by `sg_add_number_settle`:
   `added`, `refused` (WhatsApp declined, usually the person's privacy
-  settings) or `failed` (the gateway call failed). The table is
-  service-role read only, like the rest of 115.
+  settings) or `failed` (the gateway call failed or never ran).
+  `invited` is reserved; nothing writes it yet. An attempt nobody settled
+  (the request was cut off) is settled `failed` / `unconfirmed` after 10
+  minutes by the cron (`sg_add_number_sweep`). The table is service-role
+  read only, like the rest of 115.
 - When WhatsApp declines, the answer carries the group's invite link for
   the staff member to share. Nothing is sent 1:1 to the new number.
 - `verify-submission-group-add-number.sql` asserts the SQL.

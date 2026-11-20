@@ -151,9 +151,11 @@ export function MembersTab({
           {m('add')}
         </Button>
       </div>
-      {(addBlockedText ?? blockedText) && (
+      {/* Only when Add itself is blocked: a non-manager who may add sees
+          the remove/admin reason on those disabled controls instead. */}
+      {addBlockedText && (
         <p className="text-muted-foreground text-xs">
-          {m('blockedHint', { reason: addBlockedText ?? blockedText ?? '' })}
+          {m('blockedHint', { reason: addBlockedText })}
         </p>
       )}
       <p className="text-muted-foreground text-xs tabular-nums">

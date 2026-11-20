@@ -144,11 +144,12 @@ export function createWhapiGroupsApi(
         deadline: groups.groupDeadline(),
       });
       if (out.added.length > 0) return 'added';
-      // A call that failed outright is a failure, not WhatsApp declining.
-      if (out.error && out.refused.length === 0 && out.invalid.length === 0) {
-        throw new Error(`add participant failed: ${out.error}`);
-      }
-      return 'refused';
+      // Only WhatsApp declining (or a number it rejects) is 'refused'.
+      // Never tried (a failed call, the deadline) is a failure.
+      if (out.refused.length > 0 || out.invalid.length > 0) return 'refused';
+      throw new Error(
+        `add participant failed: ${out.error ?? 'not attempted'}`
+      );
     },
 
     async getInviteLink(channelId, waGroupId) {

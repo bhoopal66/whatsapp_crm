@@ -31,6 +31,7 @@ DECLARE
   c1      UUID;
   c_opt   UUID;
   c_dnc   UUID;
+  c_trunk UUID;
   g1      UUID;
   g_end   UUID;
   g_none  UUID;
@@ -62,9 +63,12 @@ BEGIN
       VALUES (a_acct, u_owner, '+971 50 021 1009', 'Opt') RETURNING id INTO c_opt;
     INSERT INTO contacts (account_id, user_id, phone, name)
       VALUES (a_acct, u_owner, '971500211008', 'Dnc') RETURNING id INTO c_dnc;
+    -- An older contact saved without its country code.
+    INSERT INTO contacts (account_id, user_id, phone, name)
+      VALUES (a_acct, u_owner, '0500211007', 'Trunk') RETURNING id INTO c_trunk;
     -- Fixture shortcut past the consent guards (this transaction only).
     SET LOCAL session_replication_role = replica;
-    UPDATE contacts SET opted_out_at = now() WHERE id = c_opt;
+    UPDATE contacts SET opted_out_at = now() WHERE id IN (c_opt, c_trunk);
     UPDATE contacts SET do_not_contact_at = now(), do_not_contact_reason = 'asked' WHERE id = c_dnc;
     SET LOCAL session_replication_role = origin;
 
@@ -172,6 +176,10 @@ BEGIN
     j := sg_add_number_begin(g1, u_agent, '971500211009');
     n := n + 1;
     IF j->>'code' IS DISTINCT FROM 'opted_out' THEN failed := failed || ('opted_out: ' || j::text); END IF;
+    -- Consent matches the last 9 digits: '0500211007' opted out.
+    j := sg_add_number_begin(g1, u_agent, '971500211007');
+    n := n + 1;
+    IF j->>'code' IS DISTINCT FROM 'opted_out' THEN failed := failed || ('opted_out (trunk 0 contact): ' || j::text); END IF;
     j := sg_add_number_begin(g1, u_agent, '971500211008');
     n := n + 1;
     IF j->>'code' IS DISTINCT FROM 'do_not_contact' THEN failed := failed || ('do_not_contact: ' || j::text); END IF;
@@ -263,6 +271,31 @@ BEGIN
     EXCEPTION WHEN insufficient_privilege THEN
       RESET ROLE;
     END;
+
+    -- The sweep settles only pending rows older than the cut-off, as
+    -- failed 'unconfirmed'; settled and fresh rows are left alone.
+    INSERT INTO public.submission_group_added_numbers (group_id, account_id, phone, added_by, created_at)
+      VALUES (g1, a_acct, '971500211401', u_agent, now() - interval '11 minutes') RETURNING id INTO v_id;
+    INSERT INTO public.submission_group_added_numbers (group_id, account_id, phone, added_by, created_at)
+      VALUES (g1, a_acct, '971500211402', u_agent, now() - interval '1 minute') RETURNING id INTO v_id2;
+    i := sg_add_number_sweep(600);
+    n := n + 1;
+    IF i <> 1 THEN failed := failed || ('the sweep settled ' || i || ' rows, not 1'); END IF;
+    n := n + 1;
+    IF (SELECT status || '/' || coalesce(error, '') || '/' || (settled_at IS NOT NULL)::text
+          FROM submission_group_added_numbers WHERE id = v_id) IS DISTINCT FROM 'failed/unconfirmed/true' THEN
+      failed := failed || 'the sweep did not settle an old pending row as failed unconfirmed'::text;
+    END IF;
+    n := n + 1;
+    IF (SELECT status FROM submission_group_added_numbers WHERE id = v_id2) IS DISTINCT FROM 'pending' THEN
+      failed := failed || 'the sweep touched a fresh pending row'::text;
+    END IF;
+    n := n + 1;
+    IF has_function_privilege('anon', 'public.sg_add_number_sweep(integer)', 'EXECUTE')
+       OR has_function_privilege('authenticated', 'public.sg_add_number_sweep(integer)', 'EXECUTE')
+       OR NOT has_function_privilege('service_role', 'public.sg_add_number_sweep(integer)', 'EXECUTE') THEN
+      failed := failed || 'sg_add_number_sweep is not EXECUTE for service_role only'::text;
+    END IF;
 
     RAISE EXCEPTION USING ERRCODE = 'ZT211', MESSAGE = 'verify-submission-group-add-number rollback';
   EXCEPTION WHEN SQLSTATE 'ZT211' THEN
