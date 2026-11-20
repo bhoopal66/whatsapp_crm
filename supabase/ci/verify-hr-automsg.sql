@@ -123,9 +123,9 @@ BEGIN
   c := c || pg_temp.hr_chk('there is not exactly one hr_automsg_due', r, '1');
   r := (SELECT count(*) FROM unnest(ARRAY[
            'hr_automsg_config()', 'hr_automsg_settings_set(boolean,text,text,text,boolean,integer)',
-           'hr_automsg_trigger_set(text,boolean,text)',
-           'hr_automsg_template_set(text,text,text,text,text,text)',
-           'hr_automsg_consent_get(uuid)', 'hr_automsg_consent_set(uuid,boolean,text)',
+           'hr_automsg_trigger_set(text,boolean,text,text)',
+           'hr_automsg_template_set(text,text,text,text,text,text,text)',
+           'hr_automsg_consent_get(uuid,text)', 'hr_automsg_consent_set(uuid,boolean,text,text)',
            'hr_automsg_outbox_list(text,integer)', 'hr_automsg_cancel(uuid)']) f
          WHERE has_function_privilege('authenticated', 'public.' || f, 'EXECUTE')
            AND NOT has_function_privilege('service_role', 'public.' || f, 'EXECUTE')
@@ -542,7 +542,7 @@ BEGIN
   j := CASE WHEN r LIKE '{%' THEN r::jsonb END;
   r := (SELECT string_agg(key, ',' ORDER BY key) FROM jsonb_object_keys(j) key);
   c := c || pg_temp.hr_chk('row_state keys', r,
-                           'closed,consent,contact_name,inbox,last_inbound_at,opted_out,personal,row,sent_today,settings,template,trigger_enabled');
+                           'channel,closed,consent,contact_name,inbox,last_inbound_at,opted_out,personal,row,sent_today,settings,template,trigger_enabled');
   r := concat_ws('/', j->'row'->>'id' = o1::text, j->>'closed', j->>'inbox', j->>'personal', j->>'opted_out',
                  j->>'contact_name', j->>'trigger_enabled', j->>'sent_today', j->'template'->>'meta_template_name',
                  j->'settings'->>'daily_cap', j->>'consent');

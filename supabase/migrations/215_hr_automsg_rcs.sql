@@ -32,11 +32,20 @@
 --   6. No cross-channel fallback anywhere: an RCS row is never sent over
 --      WhatsApp or SMS. Nothing here sends.
 --
+--   7. The admin side names the channel: hr_automsg_trigger_set gains
+--      p_channel (NULL keeps the trigger's), hr_automsg_template_set,
+--      hr_automsg_consent_get and hr_automsg_consent_set gain p_channel
+--      (default 'whatsapp'), hr_automsg_outbox_list returns channel last,
+--      and hr_automsg_config shows each trigger's and template's channel.
+--      The old signatures are dropped.
+--
 -- Restates 203's hr_automsg_on_history, hr_automsg_enqueue_nudges,
 -- hr_automsg_row_state, hr_automsg_claim, hr_automsg_mark,
--- hr_automsg_template_set, hr_automsg_consent_get, hr_automsg_consent_set
+-- hr_automsg_config, hr_automsg_trigger_set, hr_automsg_template_set,
+-- hr_automsg_consent_get, hr_automsg_consent_set, hr_automsg_outbox_list
 -- and 212's hr_automsg_delivery_record: re-running 203 or 212 after 215
--- reverts them — apply in order, once.
+-- reverts them (and leaves both signatures of the re-created writers) —
+-- apply in order, once.
 --
 -- Apply after 212. Re-runnable. No BEGIN/COMMIT. Must be applied by a
 -- superuser or BYPASSRLS role (the refusal below runs before any DDL).
@@ -381,14 +390,113 @@ END;
 $$;
 
 -- ------------------------------------------------------------
--- 7. Existing admin writers keep working under the new keys
---    (restates 203; WhatsApp only, exactly as before: the conflict
---    targets name the channel the column default fills in)
+-- 7. Admin side: settings, templates, consent and history name the
+--    channel (restates 203). Every new parameter defaults to WhatsApp,
+--    so a caller that does not pass one behaves exactly as before.
 -- ------------------------------------------------------------
 
+DROP FUNCTION IF EXISTS public.hr_automsg_trigger_set(text, boolean, text);
+DROP FUNCTION IF EXISTS public.hr_automsg_template_set(text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.hr_automsg_consent_set(uuid, boolean, text);
+DROP FUNCTION IF EXISTS public.hr_automsg_consent_get(uuid);
+DROP FUNCTION IF EXISTS public.hr_automsg_outbox_list(text, integer);
+
+CREATE OR REPLACE FUNCTION public.hr_automsg_config()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_account uuid;
+  v_role text;
+BEGIN
+  SELECT o_account, o_role INTO v_account, v_role FROM hr_automsg_caller();
+  IF COALESCE(v_role, '') NOT IN ('lead', 'admin') THEN
+    PERFORM hr_refuse('NOT_ALLOWED', 'automated messages need a recruiter lead or an admin');
+  END IF;
+  RETURN jsonb_build_object(
+    'settings', hr_automsg_settings_json(v_account),
+    'triggers', (
+      SELECT jsonb_agg(jsonb_build_object(
+               'trigger', k.trigger,
+               'enabled', COALESCE(t.enabled, false),
+               'template_kind', COALESCE(t.template_kind, hr_automsg_default_kind(k.trigger)),
+               'channel', COALESCE(t.channel, 'whatsapp'))
+             ORDER BY k.ord)
+        FROM unnest(ARRAY['cv_received', 'stage_ai_interview', 'stage_hr_interview',
+                          'stage_manager_interview', 'interview_reminder',
+                          'reply_overdue_nudge']::text[]) WITH ORDINALITY AS k(trigger, ord)
+        LEFT JOIN hr_automsg_triggers t
+          ON t.account_id = v_account AND t.trigger = k.trigger),
+    'templates', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'kind', x.kind, 'language', x.language, 'channel', x.channel, 'body', x.body,
+               'meta_template_name', x.meta_template_name,
+               'approval_status', x.approval_status, 'category', x.category,
+               'updated_at', x.updated_at)
+             ORDER BY x.kind, x.language, x.channel)
+        FROM hr_automsg_templates x WHERE x.account_id = v_account), '[]'::jsonb),
+    'role', v_role);
+END;
+$$;
+
+-- p_channel NULL keeps the trigger's channel (a new row is WhatsApp).
+CREATE OR REPLACE FUNCTION public.hr_automsg_trigger_set(
+  p_trigger text, p_enabled boolean, p_template_kind text DEFAULT NULL,
+  p_channel text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_account uuid;
+  v_role text;
+  v_channel text;
+BEGIN
+  SELECT o_account, o_role INTO v_account, v_role FROM hr_automsg_caller();
+  IF COALESCE(v_role, '') NOT IN ('lead', 'admin') THEN
+    PERFORM hr_refuse('NOT_ALLOWED', 'automated messages need a recruiter lead or an admin');
+  END IF;
+  IF hr_automsg_default_kind(p_trigger) IS NULL THEN
+    PERFORM hr_refuse('NOT_FOUND', 'unknown trigger');
+  END IF;
+  IF p_enabled IS NULL THEN
+    PERFORM hr_refuse('INVALID', 'enabled is required');
+  END IF;
+  IF p_template_kind IS NOT NULL AND p_template_kind NOT IN (
+       'cv_ack', 'ai_interview_invite', 'hr_interview_invite', 'manager_interview_invite',
+       'interview_reminder', 'reply_nudge') THEN
+    PERFORM hr_refuse('INVALID', 'unknown template kind');
+  END IF;
+  IF p_channel IS NOT NULL AND p_channel NOT IN ('whatsapp', 'rcs') THEN
+    PERFORM hr_refuse('INVALID', 'unknown channel');
+  END IF;
+  INSERT INTO hr_automsg_triggers AS t (account_id, trigger, enabled, template_kind, channel,
+                                        updated_at, updated_by)
+  VALUES (v_account, p_trigger, p_enabled, p_template_kind, COALESCE(p_channel, 'whatsapp'),
+          now(), auth.uid())
+  ON CONFLICT (account_id, trigger) DO UPDATE
+    SET enabled = EXCLUDED.enabled, template_kind = EXCLUDED.template_kind,
+        channel = COALESCE(p_channel, t.channel),
+        updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
+  RETURNING t.channel INTO v_channel;
+  PERFORM hr_automsg_log(v_account, 'trigger', jsonb_build_object(
+    'trigger', p_trigger, 'enabled', p_enabled, 'template_kind', p_template_kind,
+    'channel', v_channel));
+  RETURN hr_automsg_config();
+END;
+$$;
+
+-- For rcs, meta_template_name holds the RCS provider's template id
+-- (letters, digits and _ . : -, up to 512); a draft may leave it empty,
+-- as a WhatsApp draft may leave its Meta name empty.
 CREATE OR REPLACE FUNCTION public.hr_automsg_template_set(
   p_kind text, p_language text, p_body text, p_meta_template_name text,
-  p_approval_status text, p_category text DEFAULT 'utility')
+  p_approval_status text, p_category text DEFAULT 'utility',
+  p_channel text DEFAULT 'whatsapp')
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -411,6 +519,9 @@ BEGIN
   IF p_language IS NULL OR p_language NOT IN ('en', 'ar') THEN
     PERFORM hr_refuse('INVALID', 'unknown language');
   END IF;
+  IF p_channel IS NULL OR p_channel NOT IN ('whatsapp', 'rcs') THEN
+    PERFORM hr_refuse('INVALID', 'unknown channel');
+  END IF;
   IF p_approval_status IS NULL OR p_approval_status NOT IN ('draft', 'approved') THEN
     PERFORM hr_refuse('INVALID', 'unknown approval status');
   END IF;
@@ -428,32 +539,43 @@ BEGIN
   IF replace(replace(p_body, '{name}', ''), '{slot}', '') ~ '[{}]' THEN
     PERFORM hr_refuse('INVALID', 'the only placeholders allowed are {name} and {slot}');
   END IF;
-  IF p_approval_status = 'approved'
-     AND (v_name !~ '^[a-z0-9_]+$' OR char_length(v_name) > 512) THEN
-    PERFORM hr_refuse('INVALID', 'an approved template needs its Meta template name');
-  END IF;
-  IF v_name !~ '^[a-z0-9_]*$' OR char_length(v_name) > 512 THEN
-    PERFORM hr_refuse('INVALID', 'a Meta template name is lower-case letters, digits and _');
+  IF p_channel = 'rcs' THEN
+    IF p_approval_status = 'approved'
+       AND (v_name !~ '^[A-Za-z0-9_.:-]+$' OR char_length(v_name) > 512) THEN
+      PERFORM hr_refuse('INVALID', 'an approved RCS template needs its provider template id');
+    END IF;
+    IF v_name !~ '^[A-Za-z0-9_.:-]*$' OR char_length(v_name) > 512 THEN
+      PERFORM hr_refuse('INVALID', 'an RCS template id is up to 512 letters, digits and _ . : -');
+    END IF;
+  ELSE
+    IF p_approval_status = 'approved'
+       AND (v_name !~ '^[a-z0-9_]+$' OR char_length(v_name) > 512) THEN
+      PERFORM hr_refuse('INVALID', 'an approved template needs its Meta template name');
+    END IF;
+    IF v_name !~ '^[a-z0-9_]*$' OR char_length(v_name) > 512 THEN
+      PERFORM hr_refuse('INVALID', 'a Meta template name is lower-case letters, digits and _');
+    END IF;
   END IF;
 
-  INSERT INTO hr_automsg_templates (account_id, kind, language, body, meta_template_name,
+  INSERT INTO hr_automsg_templates (account_id, kind, language, channel, body, meta_template_name,
                                     approval_status, category, updated_at, updated_by)
-  VALUES (v_account, p_kind, p_language, p_body, v_name, p_approval_status, p_category,
+  VALUES (v_account, p_kind, p_language, p_channel, p_body, v_name, p_approval_status, p_category,
           now(), auth.uid())
   ON CONFLICT (account_id, kind, language, channel) DO UPDATE
     SET body = EXCLUDED.body, meta_template_name = EXCLUDED.meta_template_name,
         approval_status = EXCLUDED.approval_status, category = EXCLUDED.category,
         updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by;
   PERFORM hr_automsg_log(v_account, 'template', jsonb_build_object(
-    'kind', p_kind, 'language', p_language, 'meta_template_name', v_name,
+    'kind', p_kind, 'language', p_language, 'channel', p_channel, 'meta_template_name', v_name,
     'approval_status', p_approval_status, 'category', p_category));
   RETURN hr_automsg_config();
 END;
 $$;
 
--- Consent of the chat's contact. Any recruiter role (member and up) on a
--- recruiter or dept HR chat the caller can see.
-CREATE OR REPLACE FUNCTION public.hr_automsg_consent_get(p_conversation_id uuid)
+-- Consent of the chat's contact on one channel. Any recruiter role
+-- (member and up) on a recruiter or dept HR chat the caller can see.
+CREATE OR REPLACE FUNCTION public.hr_automsg_consent_get(
+  p_conversation_id uuid, p_channel text DEFAULT 'whatsapp')
 RETURNS TABLE (granted boolean, source text, noted_at timestamptz,
                opted_out boolean, personal boolean)
 LANGUAGE plpgsql
@@ -474,6 +596,9 @@ BEGIN
   IF COALESCE(v_role, '') NOT IN ('member', 'lead', 'admin') THEN
     PERFORM hr_refuse('NOT_ALLOWED', 'consent needs a recruiter role');
   END IF;
+  IF p_channel IS NULL OR p_channel NOT IN ('whatsapp', 'rcs') THEN
+    PERFORM hr_refuse('INVALID', 'unknown channel');
+  END IF;
   RETURN QUERY
     SELECT k.granted, k.source, k.noted_at,
            COALESCE(ct.opted_out_at IS NOT NULL, false),
@@ -481,13 +606,14 @@ BEGIN
       FROM conversations c
       LEFT JOIN contacts ct ON ct.id = c.contact_id AND ct.account_id = c.account_id
       LEFT JOIN hr_automsg_consent k ON k.account_id = c.account_id AND k.contact_id = c.contact_id
-                                    AND k.channel = 'whatsapp'
+                                    AND k.channel = p_channel
      WHERE c.id = p_conversation_id;
 END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.hr_automsg_consent_set(
-  p_conversation_id uuid, p_granted boolean, p_source text DEFAULT 'recruiter_confirmed')
+  p_conversation_id uuid, p_granted boolean, p_source text DEFAULT 'recruiter_confirmed',
+  p_channel text DEFAULT 'whatsapp')
 RETURNS TABLE (granted boolean, source text, noted_at timestamptz,
                opted_out boolean, personal boolean)
 LANGUAGE plpgsql
@@ -518,15 +644,54 @@ BEGIN
   IF p_source IS NULL OR p_source NOT IN ('recruiter_confirmed', 'candidate_wrote', 'form') THEN
     PERFORM hr_refuse('INVALID', 'unknown consent source');
   END IF;
-  INSERT INTO hr_automsg_consent AS k (account_id, contact_id, granted, source, noted_at, noted_by)
-  VALUES (v_account, v_contact, p_granted, p_source, now(), auth.uid())
+  IF p_channel IS NULL OR p_channel NOT IN ('whatsapp', 'rcs') THEN
+    PERFORM hr_refuse('INVALID', 'unknown channel');
+  END IF;
+  INSERT INTO hr_automsg_consent AS k (account_id, contact_id, channel, granted, source, noted_at, noted_by)
+  VALUES (v_account, v_contact, p_channel, p_granted, p_source, now(), auth.uid())
   ON CONFLICT (account_id, contact_id, channel) DO UPDATE
     SET granted = EXCLUDED.granted, source = EXCLUDED.source,
         noted_at = EXCLUDED.noted_at, noted_by = EXCLUDED.noted_by;
   PERFORM hr_automsg_log(v_account, 'consent', jsonb_build_object(
     'conversation_id', p_conversation_id, 'contact_id', v_contact,
-    'granted', p_granted, 'source', p_source));
-  RETURN QUERY SELECT * FROM hr_automsg_consent_get(p_conversation_id);
+    'granted', p_granted, 'source', p_source, 'channel', p_channel));
+  RETURN QUERY SELECT * FROM hr_automsg_consent_get(p_conversation_id, p_channel);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.hr_automsg_outbox_list(
+  p_status text DEFAULT NULL, p_limit integer DEFAULT 100)
+RETURNS TABLE (id uuid, conversation_id uuid, contact_id uuid, contact_name text,
+               trigger text, template_kind text, language text, status text,
+               hold_reason text, attempts integer, claim_state text, last_error text,
+               created_at timestamptz, sent_at timestamptz, channel text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_account uuid;
+  v_role text;
+BEGIN
+  SELECT o_account, o_role INTO v_account, v_role FROM hr_automsg_caller();
+  IF COALESCE(v_role, '') NOT IN ('lead', 'admin') THEN
+    PERFORM hr_refuse('NOT_ALLOWED', 'automated messages need a recruiter lead or an admin');
+  END IF;
+  IF p_status IS NOT NULL AND p_status NOT IN ('queued', 'held', 'sent', 'failed', 'cancelled') THEN
+    PERFORM hr_refuse('INVALID', 'unknown status');
+  END IF;
+  RETURN QUERY
+    SELECT o.id, o.conversation_id, o.contact_id, ct.name, o.trigger, o.template_kind,
+           o.language, o.status, o.hold_reason, o.attempts, o.claim_state, o.last_error,
+           o.created_at, o.sent_at, o.channel
+      FROM hr_automsg_outbox o
+      LEFT JOIN contacts ct ON ct.id = o.contact_id AND ct.account_id = o.account_id
+     WHERE o.account_id = v_account
+       AND (p_status IS NULL OR o.status = p_status)
+       AND hr_can_see(o.conversation_id)
+     ORDER BY o.created_at DESC, o.id
+     LIMIT LEAST(GREATEST(COALESCE(p_limit, 100), 1), 500);
 END;
 $$;
 
@@ -603,9 +768,12 @@ $$;
 
 REVOKE ALL ON FUNCTION
   public.hr_automsg_on_history(),
-  public.hr_automsg_template_set(text, text, text, text, text, text),
-  public.hr_automsg_consent_get(uuid),
-  public.hr_automsg_consent_set(uuid, boolean, text),
+  public.hr_automsg_config(),
+  public.hr_automsg_trigger_set(text, boolean, text, text),
+  public.hr_automsg_template_set(text, text, text, text, text, text, text),
+  public.hr_automsg_consent_get(uuid, text),
+  public.hr_automsg_consent_set(uuid, boolean, text, text),
+  public.hr_automsg_outbox_list(text, integer),
   public.hr_automsg_row_state(uuid),
   public.hr_automsg_claim(uuid, timestamptz),
   public.hr_automsg_mark(uuid, text, text, text, uuid, text, text),
@@ -614,9 +782,12 @@ REVOKE ALL ON FUNCTION
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION
-  public.hr_automsg_template_set(text, text, text, text, text, text),
-  public.hr_automsg_consent_get(uuid),
-  public.hr_automsg_consent_set(uuid, boolean, text)
+  public.hr_automsg_config(),
+  public.hr_automsg_trigger_set(text, boolean, text, text),
+  public.hr_automsg_template_set(text, text, text, text, text, text, text),
+  public.hr_automsg_consent_get(uuid, text),
+  public.hr_automsg_consent_set(uuid, boolean, text, text),
+  public.hr_automsg_outbox_list(text, integer)
   TO authenticated;
 
 GRANT EXECUTE ON FUNCTION

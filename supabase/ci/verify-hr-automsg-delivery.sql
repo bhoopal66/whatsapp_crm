@@ -98,12 +98,12 @@ BEGIN
   c := c || pg_temp.hr_chk('delivery_state check or provider index missing', r, '1/1');
   r := (SELECT count(*)
           FROM unnest(ARRAY['public.hr_automsg_fail_terminal(uuid, text)',
-                            'public.hr_automsg_delivery_record(uuid, text, text, timestamptz, text)']) f,
+                            'public.hr_automsg_delivery_record(uuid, text, text, timestamptz, text, text)']) f,
                unnest(ARRAY['anon', 'authenticated', 'public']) g
          WHERE has_function_privilege(g, f, 'EXECUTE'))::text
     || '/' || (SELECT count(*)
           FROM unnest(ARRAY['public.hr_automsg_fail_terminal(uuid, text)',
-                            'public.hr_automsg_delivery_record(uuid, text, text, timestamptz, text)']) f
+                            'public.hr_automsg_delivery_record(uuid, text, text, timestamptz, text, text)']) f
          WHERE has_function_privilege('service_role', f, 'EXECUTE'))::text;
   c := c || pg_temp.hr_chk('anon/authenticated may execute, or service_role may not', r, '0/2');
 
