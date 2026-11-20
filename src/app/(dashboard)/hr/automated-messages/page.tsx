@@ -482,6 +482,7 @@ export default function HrAutomatedMessagesPage() {
           <AutomsgTemplates
             templates={config.templates}
             role={role}
+            rcsConnected={rcsStatus?.connected === true}
             onSaved={() => load()}
           />
 
