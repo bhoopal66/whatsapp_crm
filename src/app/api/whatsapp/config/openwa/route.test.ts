@@ -251,6 +251,16 @@ describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
     expect(res.status).toBe(404);
   });
 
+  it('shares one gateway read between polls, but not with ?fresh=1 (the close-check)', async () => {
+    h.gw.getSession.mockResolvedValue({ status: 'authenticating' });
+    await GET(new Request('https://crm.test/x'), params);
+    await GET(new Request('https://crm.test/x'), params);
+    expect(h.gw.getSession).toHaveBeenCalledTimes(1);
+    const res = await GET(new Request('https://crm.test/x?fresh=1'), params);
+    expect(await res.json()).toEqual({ status: 'authenticating' });
+    expect(h.gw.getSession).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the QR while waiting for a scan, asking with the scoped key', async () => {
     h.gw.getSession.mockResolvedValue({ status: 'qr_ready', phone: null });
     h.gw.getQr.mockResolvedValue({

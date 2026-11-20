@@ -410,9 +410,11 @@ export const OPENWA_ADMIN_BASE = '/api/whatsapp/config/openwa';
 export const OPENWA_PERSONAL_BASE = '/api/whatsapp/personal';
 
 /**
- * The three URLs the connect dialog fetches under one base: POST
- * `create`, GET `status(id)`, DELETE `session(id)`. The admin and the
- * personal routes share this shape.
+ * The URLs the connect dialog fetches under one base: POST `create`, GET
+ * `status(id)` (the poll), GET `freshStatus(id)` (the close-check, which
+ * may remove the session, so it never takes the poll's shared read) and
+ * DELETE `session(id)`. The admin and the personal routes share this
+ * shape.
  */
 export function openwaSessionUrls(base: string) {
   const session = (configId: string) =>
@@ -421,5 +423,11 @@ export function openwaSessionUrls(base: string) {
     create: base,
     session,
     status: (configId: string) => `${session(configId)}/status`,
+    freshStatus: (configId: string) => `${session(configId)}/status?fresh=1`,
   };
+}
+
+/** Whether a status request asked for its own gateway read (`?fresh=1`). */
+export function wantsFreshStatus(requestUrl: string): boolean {
+  return new URL(requestUrl).searchParams.get('fresh') === '1';
 }

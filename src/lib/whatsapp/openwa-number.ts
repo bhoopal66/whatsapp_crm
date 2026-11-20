@@ -342,57 +342,48 @@ function answer(
  */
 export const OPENWA_PROBE_CACHE_MS = 2_500;
 
-/** How old a last known state may be and still stand in for a throttled read. */
-export const OPENWA_PROBE_STALE_MS = 60_000;
-
 const probeCache = new Map<
   string,
   { at: number; answer: Promise<ProbeAnswer> }
->();
-const lastKnown = new Map<
-  string,
-  { at: number; body: Record<string, unknown> }
 >();
 
 /** Tests only: forget every cached probe. */
 export function resetOpenWAProbeCache(): void {
   probeCache.clear();
-  lastKnown.clear();
 }
 
 /**
  * The status route's answer for one OpenWA number, `{ status, qrCode?,
  * phone? }` in OpenWA's own words. Concurrent and back-to-back callers
  * for the same number within `OPENWA_PROBE_CACHE_MS` share one gateway
- * read (per process). When OpenWA throttles the read, the last known
- * state (up to a minute old) is answered as a 200; with none, a 429 that
- * every caller already reads as "unknown, try again", never a 502.
+ * read (per process), except a `fresh` one: the connect dialog's
+ * close-check removes a session it reads as not linked, so it reads the
+ * gateway itself (and its answer then serves the others). A phone
+ * scanned a moment before the dialog closed must not be logged out on
+ * the poll's older "waiting for a scan".
+ *
+ * When OpenWA throttles the read, a 429 that every caller already reads
+ * as "unknown, try again", never a 502, and never an older answer in its
+ * place: a stale "ready" would show a phone that just dropped as
+ * connected, and a stale "qr_ready" would let the close-check log out a
+ * phone that had just linked.
  */
 export async function probeOpenWANumber(
   db: SupabaseClient,
   accountId: string,
   row: OpenWARow,
-  now: () => number = Date.now
+  opts: { fresh?: boolean; now?: () => number } = {}
 ): Promise<NextResponse> {
+  const now = opts.now ?? Date.now;
   const key = `${accountId}:${row.id}`;
   const at = now();
-  let entry = probeCache.get(key);
+  let entry = opts.fresh ? undefined : probeCache.get(key);
   if (!entry || at - entry.at >= OPENWA_PROBE_CACHE_MS) {
     entry = { at, answer: probeOnce(db, accountId, row) };
     probeCache.set(key, entry);
   }
   const result = await entry.answer;
-  if (result.status === 200 && typeof result.body.status === 'string') {
-    // Without the QR: a stale one may no longer scan, and the dialog
-    // keeps the QR it shows when an answer carries none.
-    const { qrCode: _qr, ...known } = result.body;
-    void _qr;
-    lastKnown.set(key, { at: entry.at, body: known });
-  } else if (result.throttled) {
-    const known = lastKnown.get(key);
-    if (known && now() - known.at < OPENWA_PROBE_STALE_MS) {
-      return NextResponse.json(known.body);
-    }
+  if (result.throttled) {
     return NextResponse.json(result.body, {
       status: 429,
       headers: { 'Retry-After': '5' },

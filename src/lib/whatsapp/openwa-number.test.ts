@@ -19,7 +19,6 @@ vi.mock('./encryption', async (importOriginal) => ({
 import { OpenWAError } from './openwa-api';
 import {
   OPENWA_PROBE_CACHE_MS,
-  OPENWA_PROBE_STALE_MS,
   probeOpenWANumber,
   resetOpenWAProbeCache,
   type OpenWARow,
@@ -57,12 +56,15 @@ describe('probeOpenWANumber — OpenWA throttling', () => {
     error.mockRestore();
   });
 
-  it('answers a throttled read with the last known state, without the old QR', async () => {
+  it('never answers a throttled read with an older state', async () => {
+    // A stale "qr_ready" would let the close-check log out a phone that
+    // had just linked; a stale "ready" would show a dropped phone as
+    // connected. Throttled is "unknown", whatever was read before.
     let t = 1_000_000;
     const now = () => t;
     getSession.mockResolvedValueOnce({ status: 'qr_ready' });
     getQr.mockResolvedValueOnce({ qrCode: 'data:qr' });
-    const first = await probeOpenWANumber(db, 'acct-1', row, now);
+    const first = await probeOpenWANumber(db, 'acct-1', row, { now });
     expect(await first.json()).toEqual({
       status: 'qr_ready',
       qrCode: 'data:qr',
@@ -70,14 +72,9 @@ describe('probeOpenWANumber — OpenWA throttling', () => {
 
     t += OPENWA_PROBE_CACHE_MS;
     getSession.mockRejectedValueOnce(throttled());
-    const second = await probeOpenWANumber(db, 'acct-1', row, now);
-    expect(second.status).toBe(200);
-    expect(await second.json()).toEqual({ status: 'qr_ready' });
-
-    t += OPENWA_PROBE_STALE_MS;
-    getSession.mockRejectedValueOnce(throttled());
-    const third = await probeOpenWANumber(db, 'acct-1', row, now);
-    expect(third.status).toBe(429);
+    const second = await probeOpenWANumber(db, 'acct-1', row, { now });
+    expect(second.status).toBe(429);
+    expect(second.headers.get('Retry-After')).toBe('5');
   });
 
   it('still answers 502 for a gateway that really failed', async () => {
@@ -95,19 +92,19 @@ describe('probeOpenWANumber — per-number cache', () => {
     const now = () => t;
     getSession.mockResolvedValue({ status: 'initializing' });
     const answers = await Promise.all([
-      probeOpenWANumber(db, 'acct-1', row, now),
-      probeOpenWANumber(db, 'acct-1', row, now),
-      probeOpenWANumber(db, 'acct-1', row, now),
+      probeOpenWANumber(db, 'acct-1', row, { now }),
+      probeOpenWANumber(db, 'acct-1', row, { now }),
+      probeOpenWANumber(db, 'acct-1', row, { now }),
     ]);
     t += OPENWA_PROBE_CACHE_MS - 1;
-    answers.push(await probeOpenWANumber(db, 'acct-1', row, now));
+    answers.push(await probeOpenWANumber(db, 'acct-1', row, { now }));
     expect(getSession).toHaveBeenCalledTimes(1);
     for (const res of answers) {
       expect(await res.json()).toEqual({ status: 'initializing' });
     }
 
     t += 1;
-    await probeOpenWANumber(db, 'acct-1', row, now);
+    await probeOpenWANumber(db, 'acct-1', row, { now });
     expect(getSession).toHaveBeenCalledTimes(2);
   });
 
@@ -115,6 +112,28 @@ describe('probeOpenWANumber — per-number cache', () => {
     getSession.mockResolvedValue({ status: 'initializing' });
     await probeOpenWANumber(db, 'acct-1', row);
     await probeOpenWANumber(db, 'acct-1', { ...row, id: 'cfg-2' });
+    expect(getSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives a fresh read (the close-check) its own gateway read, which then serves the poll', async () => {
+    let t = 7_000_000;
+    const now = () => t;
+    getSession.mockResolvedValueOnce({ status: 'qr_ready' });
+    getQr.mockResolvedValueOnce({ qrCode: 'data:qr' });
+    await probeOpenWANumber(db, 'acct-1', row, { now });
+
+    // The phone links a moment later, inside the poll's shared window.
+    t += 1_000;
+    getSession.mockResolvedValue({ status: 'authenticating' });
+    const check = await probeOpenWANumber(db, 'acct-1', row, {
+      now,
+      fresh: true,
+    });
+    expect(await check.json()).toEqual({ status: 'authenticating' });
+    expect(getSession).toHaveBeenCalledTimes(2);
+
+    const poll = await probeOpenWANumber(db, 'acct-1', row, { now });
+    expect(await poll.json()).toEqual({ status: 'authenticating' });
     expect(getSession).toHaveBeenCalledTimes(2);
   });
 });

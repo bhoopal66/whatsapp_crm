@@ -79,7 +79,8 @@ async function checkSession(
   configId: string
 ): Promise<{ status: string; phone: string | null } | null> {
   try {
-    const res = await fetch(urls.status(configId), {
+    // Its own gateway read: the poll's shared one can predate a scan.
+    const res = await fetch(urls.freshStatus(configId), {
       cache: 'no-store',
     });
     const body = await res.json().catch(() => ({}));

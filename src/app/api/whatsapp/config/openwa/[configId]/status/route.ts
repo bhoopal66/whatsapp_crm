@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { wantsFreshStatus } from '@/lib/whatsapp/openwa-connect';
 import { loadOpenWARow, probeOpenWANumber } from '@/lib/whatsapp/openwa-number';
 
 /**
- * GET /api/whatsapp/config/openwa/[configId]/status — what the connect
- * dialog polls. Admin+.
+ * GET /api/whatsapp/config/openwa/[configId]/status[?fresh=1] — what the
+ * connect dialog polls (and, with `fresh`, its close-check). Admin+.
  *
  * Answers `{ status, qrCode?, phone? }` in OpenWA's own words; the probe
  * and its first-link / number-follow writes are `probeOpenWANumber`.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ configId: string }> }
 ) {
   let ctx;
@@ -27,5 +28,7 @@ export async function GET(
   if (!row) {
     return NextResponse.json({ error: 'Number not found' }, { status: 404 });
   }
-  return probeOpenWANumber(supabase, accountId, row);
+  return probeOpenWANumber(supabase, accountId, row, {
+    fresh: wantsFreshStatus(request.url),
+  });
 }

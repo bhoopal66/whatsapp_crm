@@ -18,6 +18,7 @@ import {
   numberLinked,
   openwaStatusLabelKey,
   settleUnfinishedSession,
+  wantsFreshStatus,
   type ConnectEvent,
   type ConnectState,
 } from './openwa-connect';
@@ -329,6 +330,16 @@ describe('openwaSessionUrls', () => {
     expect(urls.create).toBe('/api/whatsapp/personal');
     expect(urls.status('c1')).toBe('/api/whatsapp/personal/c1/status');
     expect(urls.session('c1')).toBe('/api/whatsapp/personal/c1');
+  });
+
+  it('gives the close-check a status read of its own on both bases', () => {
+    for (const base of [OPENWA_ADMIN_BASE, OPENWA_PERSONAL_BASE]) {
+      const url = openwaSessionUrls(base).freshStatus('c 1');
+      expect(url).toBe(`${base}/c%201/status?fresh=1`);
+      expect(wantsFreshStatus(`https://crm.test${url}`)).toBe(true);
+    }
+    const poll = openwaSessionUrls(OPENWA_ADMIN_BASE).status('c1');
+    expect(wantsFreshStatus(`https://crm.test${poll}`)).toBe(false);
   });
 });
 
