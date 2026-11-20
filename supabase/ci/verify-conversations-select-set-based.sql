@@ -1,4 +1,4 @@
--- Behavioural regression suite for migration 218: the conversations
+-- Behavioural regression suite for migration 217: the conversations
 -- SELECT policy and both messages policies compute visibility as sets,
 -- and must show exactly what the per-row rule of 191 allowed
 -- (can_view_conversation for a company chat, can_view_personal_chat

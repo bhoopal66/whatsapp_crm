@@ -1,5 +1,5 @@
 -- ============================================================
--- 218_conversations_perf.sql — chat counts and thread reads stopped
+-- 217_conversations_perf.sql — chat counts and thread reads stopped
 -- timing out for agents and team leaders.
 --
 -- The problem. 191 left everyone below admin on a per-row call in the

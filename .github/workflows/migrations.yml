@@ -812,7 +812,7 @@ jobs:
       - name: Verify contacts select set-based
         run: supabase db query --local --file supabase/ci/verify-contacts-select-set-based.sql
 
-      # Migration 218: conversations_select and both messages policies
+      # Migration 217: conversations_select and both messages policies
       # compute visibility as sets (contact_visibility_people /
       # personal_number_visible_ids) and show each role exactly what
       # can_view_conversation / can_view_personal_chat allow, for chats,

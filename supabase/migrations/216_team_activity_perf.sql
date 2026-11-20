@@ -1,5 +1,5 @@
 -- ============================================================
--- 217 — Team activity: the report within the 8 s statement timeout
+-- 216 — Team activity: the report within the 8 s statement timeout
 --
 -- GET /api/team-activity answered 500 on 12 of 67 requests in ten
 -- days ("canceling statement due to statement timeout": the
@@ -76,7 +76,7 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
--- 217: plan every call for its own arguments (see the header).
+-- 216: plan every call for its own arguments (see the header).
 SET plan_cache_mode = force_custom_plan
 AS $$
 DECLARE
@@ -127,7 +127,7 @@ BEGIN
     -- are cut to those the caller started chats on, below.
     v_self := true;
     v_team := ARRAY[v_uid];
-    -- 217: the policy's predicate once per distinct (owner, assignee,
+    -- 216: the policy's predicate once per distinct (owner, assignee,
     -- number, pinned number) tuple, not once per conversation; the
     -- same set (see the header).
     WITH tuples AS MATERIALIZED (
@@ -158,7 +158,7 @@ BEGIN
       INTO v_nums
     FROM team_activity_team_number_counts(p_from, p_to, p_tz) x;
     -- What conversations_select / messages_select would show them,
-    -- asked once per distinct tuple (217, as above).
+    -- asked once per distinct tuple (216, as above).
     WITH tuples AS MATERIALIZED (
       SELECT DISTINCT c.user_id, c.assigned_agent_id, c.channel_id, c.send_channel_id
       FROM conversations c
@@ -215,7 +215,7 @@ BEGIN
            -- stays in their own figures (it is their message).
            AND (v_self OR s.conversation_id = ANY (v_convs)))
   ),
-  -- 217: team_activity_opener_key() (IMMUTABLE, ~0.1 ms a call) once
+  -- 216: team_activity_opener_key() (IMMUTABLE, ~0.1 ms a call) once
   -- per distinct first message, not once per start: templates repeat.
   opener_keys AS MATERIALIZED (
     SELECT d.opener_text, team_activity_opener_key(d.opener_text) AS opener_key
@@ -901,7 +901,7 @@ GRANT EXECUTE ON FUNCTION public.team_activity_report(timestamptz, timestamptz, 
 
 -- ------------------------------------------------------------
 -- 2. Drill-down (206's): an agent opens only their own starts.
--- 217: v_convs per distinct tuple, as in the report; nothing else.
+-- 216: v_convs per distinct tuple, as in the report; nothing else.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.team_activity_chats(
   p_from       timestamptz,
@@ -970,7 +970,7 @@ BEGIN
     RAISE EXCEPTION 'Unknown filter' USING ERRCODE = '22023';
   END IF;
   IF v_rank IN (2, 3) THEN
-    -- 217: the same predicate once per distinct (owner, assignee,
+    -- 216: the same predicate once per distinct (owner, assignee,
     -- number, pinned number) tuple, as in the report.
     WITH tuples AS MATERIALIZED (
       SELECT DISTINCT c.user_id, c.assigned_agent_id, c.channel_id, c.send_channel_id
