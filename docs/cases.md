@@ -530,8 +530,8 @@ saves and enables a rule.
     Cases), owned by the case's agent or coordinator, due after the given
     hours (else the template's). Refused TEMPLATE_NOT_FOUND when the bank
     has no such template and OWNER_MISSING when the case has no such
-    person. The task has no person as its creator; the case shows
-    "Automation".
+    person. The task has no person as its creator (no screen shows a
+    task's creator).
   - **Start an SLA timer** (customer reply, bank response or document
     chase) with the bank's SLA setting for that stage. Refused
     SLA_NOT_CONFIGURED, starting nothing, when the stage has none.

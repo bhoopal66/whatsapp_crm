@@ -39,7 +39,6 @@ of it.
   case or one not yet submitted past the pre-submission stages, and
   happens at most once per change. Rules still never message anyone, and
   none exists until an admin saves one.
-- Tasks a rule creates show "Automation" as their creator.
 
 ### HR automated messages stop retrying sends that cannot work
 
