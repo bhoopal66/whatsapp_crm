@@ -9,11 +9,13 @@ import type { HrErrorCode, HrRoles } from '@/lib/hr/types';
 
 import type {
   AutoMsgConfig,
+  AutoMsgRcsStatus,
   AutoMsgReleaseSummary,
   AutoMsgSettingsPatch,
   AutoMsgSettingsView,
   AutoMsgTemplateView,
 } from './api';
+import type { AutomsgChannel } from './channel';
 import {
   TRIGGERS,
   type AutoLang,
@@ -79,6 +81,15 @@ export interface TriggerRowView {
   noApproved: boolean;
   switchDisabled: boolean;
   templateDisabled: boolean;
+  /** The channel the trigger's messages go out on. */
+  channel: AutomsgChannel;
+  /** Same permission as the on/off switch (a recruiter lead may change it). */
+  channelDisabled: boolean;
+  /**
+   * On RCS while no RCS provider is known to be connected (status not
+   * loaded counts as not connected): its messages are held, never sent.
+   */
+  rcsNotConnected: boolean;
   /** Label key under `automsg.triggersTable`, or null. */
   note: string | null;
 }
@@ -96,10 +107,14 @@ function isApproved(
   );
 }
 
-/** One row per trigger, in TRIGGERS order. */
+/**
+ * One row per trigger, in TRIGGERS order. `rcsStatus` is
+ * `automsgRcsStatus()`'s answer; null or left out = unknown.
+ */
 export function triggerRows(
   config: Pick<AutoMsgConfig, 'triggers' | 'templates'>,
-  role: AutomsgRole | null
+  role: AutomsgRole | null,
+  rcsStatus?: AutoMsgRcsStatus | null
 ): TriggerRowView[] {
   const controls = automsgControls(role);
   const byTrigger = new Map(config.triggers.map((t) => [t.trigger, t]));
@@ -120,10 +135,21 @@ export function triggerRows(
       noApproved: !approved.en && !approved.ar,
       switchDisabled: unavailable !== null || !controls.switchTriggers,
       templateDisabled: !controls.editSettings,
+      channel: row.channel,
+      channelDisabled: !controls.switchTriggers,
+      rcsNotConnected: row.channel === 'rcs' && rcsStatus?.connected !== true,
       note: unavailable,
     });
   }
   return rows;
+}
+
+/**
+ * The page-level "RCS not connected" notice: shown only while some
+ * trigger is on RCS and no provider is known to be connected.
+ */
+export function showRcsNotice(rows: readonly TriggerRowView[]): boolean {
+  return rows.some((r) => r.rcsNotConnected);
 }
 
 export type ApprovalChipKey =

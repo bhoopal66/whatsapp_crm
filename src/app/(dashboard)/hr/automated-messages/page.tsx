@@ -29,11 +29,18 @@ import { useAuth } from '@/hooks/use-auth';
 import { hrMyRoles } from '@/lib/hr/api';
 import {
   automsgConfig,
+  automsgRcsStatus,
   automsgReleaseNow,
   automsgSaveSettings,
   automsgSetTrigger,
   type AutoMsgConfig,
+  type AutoMsgRcsStatus,
 } from '@/lib/hr/automsg/api';
+import {
+  AUTOMSG_CHANNELS,
+  CHANNEL_LABEL_KEYS,
+  type AutomsgChannel,
+} from '@/lib/hr/automsg/channel';
 import { TEMPLATE_KINDS, type TemplateKind } from '@/lib/hr/automsg/types';
 import {
   approvalChips,
@@ -45,6 +52,7 @@ import {
   releaseCounts,
   nextSettingsForm,
   type ConfigLoadReason,
+  showRcsNotice,
   triggerRows,
   validateSettingsForm,
   type AutomsgRole,
@@ -72,6 +80,7 @@ export default function HrAutomatedMessagesPage() {
   const [busy, setBusy] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  const [rcsStatus, setRcsStatus] = useState<AutoMsgRcsStatus | null>(null);
 
   useEffect(() => {
     if (!accountId) return;
@@ -97,7 +106,16 @@ export default function HrAutomatedMessagesPage() {
   }, []);
 
   useEffect(() => {
-    if (role) void load('first');
+    if (!role) return;
+    let live = true;
+    void load('first');
+    // Once, with the first config: null (unknown) reads as not connected.
+    void automsgRcsStatus().then((status) => {
+      if (live) setRcsStatus(status);
+    });
+    return () => {
+      live = false;
+    };
   }, [role, load]);
 
   const refusal = (code: string) =>
@@ -144,11 +162,18 @@ export default function HrAutomatedMessagesPage() {
   const setTrigger = (
     row: TriggerRowView,
     enabled: boolean,
-    templateKind: TemplateKind | null
+    templateKind: TemplateKind | null,
+    channel?: AutomsgChannel
   ) =>
     save(
       () =>
-        automsgSetTrigger(createClient(), row.trigger, enabled, templateKind),
+        automsgSetTrigger(
+          createClient(),
+          row.trigger,
+          enabled,
+          templateKind,
+          channel
+        ),
       t('triggersTable.saved')
     );
 
@@ -166,6 +191,7 @@ export default function HrAutomatedMessagesPage() {
   };
 
   const controls = automsgControls(role ?? null);
+  const rows = config && role ? triggerRows(config, role, rcsStatus) : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
@@ -296,11 +322,20 @@ export default function HrAutomatedMessagesPage() {
 
           <section className="border-border bg-card rounded-lg border">
             <h2 className="p-4 pb-2 font-medium">{t('triggersTable.title')}</h2>
+            {showRcsNotice(rows) && (
+              <p
+                role="status"
+                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-l-4 px-3 py-2 text-xs"
+              >
+                {t('rcs.notice')}
+              </p>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('triggersTable.trigger')}</TableHead>
                   <TableHead>{t('triggersTable.template')}</TableHead>
+                  <TableHead>{t('triggersTable.channel')}</TableHead>
                   <TableHead>{t('triggersTable.approved')}</TableHead>
                   <TableHead className="text-center">
                     {t('triggersTable.enabled')}
@@ -308,7 +343,7 @@ export default function HrAutomatedMessagesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {triggerRows(config, role).map((row) => (
+                {rows.map((row) => (
                   <TableRow key={row.trigger}>
                     <TableCell className="align-top whitespace-normal">
                       <div className="font-medium">
@@ -342,6 +377,41 @@ export default function HrAutomatedMessagesPage() {
                       </select>
                     </TableCell>
                     <TableCell className="align-top whitespace-normal">
+                      {row.channelDisabled ? (
+                        <span className="text-sm">
+                          {t(CHANNEL_LABEL_KEYS[row.channel])}
+                        </span>
+                      ) : (
+                        <select
+                          aria-label={t('triggersTable.channelFor', {
+                            trigger: t(`triggers.${row.trigger}`),
+                          })}
+                          value={row.channel}
+                          disabled={busy}
+                          onChange={(e) =>
+                            void setTrigger(
+                              row,
+                              row.enabled,
+                              row.templateKind,
+                              e.target.value as AutomsgChannel
+                            )
+                          }
+                          className="border-input bg-card dark:bg-input/30 h-8 rounded-md border px-2 text-sm disabled:opacity-60"
+                        >
+                          {AUTOMSG_CHANNELS.map((c) => (
+                            <option key={c} value={c}>
+                              {t(CHANNEL_LABEL_KEYS[c])}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {row.rcsNotConnected && (
+                        <span className="bg-warning-soft text-warning mt-1.5 block w-fit rounded-full px-2 py-0.5 text-xs">
+                          {t('rcs.notConnected')}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top whitespace-normal">
                       <div className="flex flex-wrap gap-1.5">
                         {approvalChips(row.approved).map((chip) => (
                           <span
@@ -367,6 +437,43 @@ export default function HrAutomatedMessagesPage() {
                 ))}
               </TableBody>
             </Table>
+          </section>
+
+          <section className="border-border bg-card rounded-lg border">
+            <h2 className="p-4 pb-2 font-medium">
+              {t('consentByChannel.title')}
+            </h2>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('consentByChannel.channel')}</TableHead>
+                  <TableHead>{t('consentByChannel.required')}</TableHead>
+                  <TableHead>{t('consentByChannel.recordedWhere')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {AUTOMSG_CHANNELS.map((c) => (
+                  <TableRow key={c}>
+                    <TableCell className="font-medium">
+                      {t(CHANNEL_LABEL_KEYS[c])}
+                    </TableCell>
+                    <TableCell>
+                      {t(
+                        config.settings.requiresConsent
+                          ? 'consentByChannel.yes'
+                          : 'consentByChannel.no'
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
+                      {t('consentByChannel.inChat')}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="text-muted-foreground p-4 pt-2 text-xs">
+              {t('consentByChannel.note')}
+            </p>
           </section>
 
           <AutomsgTemplates

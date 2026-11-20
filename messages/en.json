@@ -11599,7 +11599,9 @@
           "draftOnly": "Draft template - not allowed outside the 24h window"
         },
         "needsInterviewTimes": "Needs interview times (not available yet)",
-        "saved": "Trigger updated."
+        "saved": "Trigger updated.",
+        "channel": "Channel",
+        "channelFor": "Channel for {trigger}"
       },
       "triggers": {
         "cv_received": "CV received — when a chat is tracked as a candidate",
@@ -11705,6 +11707,20 @@
         "empty": "No automated messages here yet.",
         "loadFailed": "Couldn't load the message history.",
         "retry": "Retry"
+      },
+      "rcs": {
+        "notConnected": "RCS not connected",
+        "notice": "No RCS provider is connected. Messages on RCS are held as \"RCS not connected\" and never sent, and never moved to WhatsApp or SMS."
+      },
+      "consentByChannel": {
+        "title": "Consent by channel",
+        "channel": "Channel",
+        "required": "Consent required",
+        "recordedWhere": "Where it is recorded",
+        "yes": "Yes",
+        "no": "No",
+        "inChat": "In each chat's HR panel",
+        "note": "Consent is kept per channel; there is no fallback from one channel to another."
       }
     }
   },

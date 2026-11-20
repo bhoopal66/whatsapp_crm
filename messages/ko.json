@@ -11599,7 +11599,9 @@
           "draftOnly": "초안 템플릿 - 24시간 창 밖에서는 보낼 수 없음"
         },
         "needsInterviewTimes": "면접 시간이 필요합니다 (아직 지원되지 않음)",
-        "saved": "트리거를 바꿨습니다."
+        "saved": "트리거를 바꿨습니다.",
+        "channel": "채널",
+        "channelFor": "{trigger} 채널"
       },
       "triggers": {
         "cv_received": "이력서 접수 — 채팅이 지원자로 등록될 때",
@@ -11705,6 +11707,20 @@
         "empty": "아직 자동 메시지가 없습니다.",
         "loadFailed": "메시지 기록을 불러오지 못했습니다.",
         "retry": "다시 시도"
+      },
+      "rcs": {
+        "notConnected": "RCS 미연결",
+        "notice": "연결된 RCS 제공업체가 없습니다. RCS 메시지는 \"RCS 미연결\" 상태로 보류되어 발송되지 않으며, WhatsApp이나 SMS로 전환되지도 않습니다."
+      },
+      "consentByChannel": {
+        "title": "채널별 동의",
+        "channel": "채널",
+        "required": "동의 필요",
+        "recordedWhere": "기록 위치",
+        "yes": "예",
+        "no": "아니요",
+        "inChat": "각 채팅의 HR 패널",
+        "note": "동의는 채널별로 관리되며, 한 채널에서 다른 채널로 대체되지 않습니다."
       }
     }
   },

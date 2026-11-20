@@ -11,6 +11,7 @@ import {
   nextSettingsForm,
   releaseCounts,
   settingsForm,
+  showRcsNotice,
   toTimeInput,
   triggerRows,
   validateSettingsForm,
@@ -85,6 +86,68 @@ describe('bannerView', () => {
       confirm: false,
     });
     expect(bannerView({ killSwitch: false }, 'lead').action).toBeNull();
+  });
+});
+
+describe('triggerRows channel', () => {
+  const onRcs = {
+    templates: config.templates,
+    triggers: config.triggers.map((t) =>
+      t.trigger === 'cv_received' ? { ...t, channel: 'rcs' as const } : t
+    ),
+  };
+  const rcsRow = (status?: { connected: boolean; webhook: boolean } | null) =>
+    triggerRows(onRcs, 'admin', status).find(
+      (r) => r.trigger === 'cv_received'
+    )!;
+
+  it('carries each trigger channel', () => {
+    expect(rcsRow().channel).toBe('rcs');
+    expect(
+      triggerRows(onRcs, 'admin')
+        .filter((r) => r.trigger !== 'cv_received')
+        .every((r) => r.channel === 'whatsapp')
+    ).toBe(true);
+  });
+
+  it('flags an RCS row unless the provider is known to be connected', () => {
+    expect(rcsRow({ connected: true, webhook: false }).rcsNotConnected).toBe(
+      false
+    );
+    expect(rcsRow({ connected: false, webhook: true }).rcsNotConnected).toBe(
+      true
+    );
+    expect(rcsRow(null).rcsNotConnected).toBe(true);
+    expect(rcsRow().rcsNotConnected).toBe(true);
+  });
+
+  it('never flags a WhatsApp row, whatever the RCS status', () => {
+    for (const status of [
+      undefined,
+      null,
+      { connected: false, webhook: false },
+      { connected: true, webhook: true },
+    ]) {
+      const rows = triggerRows(config, 'admin', status);
+      expect(rows.every((r) => r.channel === 'whatsapp')).toBe(true);
+      expect(rows.some((r) => r.rcsNotConnected)).toBe(false);
+      expect(showRcsNotice(rows)).toBe(false);
+    }
+  });
+
+  it('shows the notice only with an RCS trigger and no connection', () => {
+    expect(showRcsNotice(triggerRows(onRcs, 'admin', null))).toBe(true);
+    expect(
+      showRcsNotice(
+        triggerRows(onRcs, 'admin', { connected: true, webhook: true })
+      )
+    ).toBe(false);
+  });
+
+  it('lets whoever may switch triggers change the channel', () => {
+    expect(triggerRows(onRcs, 'admin')[0].channelDisabled).toBe(false);
+    expect(triggerRows(onRcs, 'lead')[0].channelDisabled).toBe(false);
+    expect(triggerRows(onRcs, null)[0].channelDisabled).toBe(true);
   });
 });
 
