@@ -870,6 +870,15 @@ jobs:
       - name: Verify case rules
         run: supabase db query --local --file supabase/ci/verify-case-rules.sql
 
+      # Migration 214: stage_entered (create_task, start_sla) and
+      # last_required_doc_received (advance_stage) rules. Validation per
+      # trigger; one task and one timer per stage entered, none on open or
+      # re-entry; refusals recorded with nothing written; one step forward,
+      # never into an outcome, ADVANCE_CHAINED, SUBMISSION_REQUIRED for a
+      # lead, not from 181's checklist sync; the helpers ungranted.
+      - name: Verify case rules stage automation
+        run: supabase db query --local --file supabase/ci/verify-case-rules-stage-automation.sql
+
       # Migration 184: case files for Compass. The API download (audit row
       # with api_key_id; FILE_NOT_FOUND for another account's, a revoked or
       # an expired key, an unknown or foreign ref; BUILD_STALE); exactly one
