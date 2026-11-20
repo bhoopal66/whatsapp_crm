@@ -134,12 +134,51 @@ export function CaseRulesSettingsCard() {
   const failToast = (body: unknown) =>
     toast.error(t(`errors.${ruleErrorKey(body)}`));
 
+  // Every bank's task templates: the create_task picker, and the titles the
+  // list shows for a create_task rule. Read only when one of those needs
+  // them (a dialog is open, or a saved rule creates a task), once per page
+  // view, one request per bank. A bank whose read fails is left out and
+  // said so; nothing is read while a workspace has no such rule.
+  const [templates, setTemplates] = useState<ReadonlyMap<
+    string,
+    RuleTemplateOption[]
+  > | null>(null);
+  const needTemplates =
+    editing !== null ||
+    (rules ?? []).some((r) => r.actions.some((a) => a.kind === 'create_task'));
+  useEffect(() => {
+    if (!needTemplates || templates !== null || banks.length === 0) return;
+    let off = false;
+    void Promise.all(
+      banks.map((b) =>
+        call(
+          `/api/cases/config/banks/${encodeURIComponent(b.code)}/templates`
+        ).then((a) => [b.code, a] as const)
+      )
+    ).then((lists) => {
+      if (off) return;
+      const bad = lists.find(([, a]) => !a.ok);
+      if (bad) toast.error(t(`errors.${ruleErrorKey(bad[1].body)}`));
+      setTemplates(
+        new Map(
+          lists
+            .filter(([, a]) => a.ok)
+            .map(([code, a]) => [code, parseTemplateOptions(a.body)])
+        )
+      );
+    });
+    return () => {
+      off = true;
+    };
+  }, [needTemplates, templates, banks, t]);
+
   const bankName = (code: string) =>
     banks.find((b) => b.code === code)?.name ?? code;
   const personName = (id: string) => nameOf(id) ?? t('dialog.pickPerson');
-  // Templates load when the rule dialog opens, so the list names a task by
-  // its key.
-  const templateName = (key: string) => key;
+  // The list names a task by its template title (any bank's), else its key.
+  const templateName = (key: string) =>
+    templateChoices(templates ?? new Map(), '', []).find((o) => o.key === key)
+      ?.title ?? key;
 
   async function toggle(rule: RuleView, enabled: boolean) {
     setBusy(rule.ruleId);
@@ -281,6 +320,7 @@ export function CaseRulesSettingsCard() {
           key={editing.ruleId ?? 'new'}
           initial={editing}
           banks={banks}
+          templates={templates}
           members={members.filter((m) => !m.deactivated_at)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -313,6 +353,7 @@ export function CaseRulesSettingsCard() {
 function RuleDialog({
   initial,
   banks,
+  templates,
   members,
   onClose,
   onSaved,
@@ -320,6 +361,8 @@ function RuleDialog({
 }: {
   initial: RuleDraft;
   banks: CaseBankOption[];
+  /** Every bank's task templates; null while they load (the card reads them). */
+  templates: ReadonlyMap<string, RuleTemplateOption[]> | null;
   members: { user_id: string; full_name: string | null; email: string }[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -329,39 +372,8 @@ function RuleDialog({
   const [d, setD] = useState<RuleDraft>(initial);
   const [tried, setTried] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [templates, setTemplates] = useState<ReadonlyMap<
-    string,
-    RuleTemplateOption[]
-  > | null>(null);
   const problems = validateDraft(d);
 
-  // Every bank's task templates (the create_task picker), once per open.
-  // A failed read leaves that bank out and says so.
-  useEffect(() => {
-    let off = false;
-    void Promise.all(
-      banks.map((b) =>
-        call(
-          `/api/cases/config/banks/${encodeURIComponent(b.code)}/templates`
-        ).then((a) => [b.code, a] as const)
-      )
-    ).then((lists) => {
-      if (off) return;
-      const bad = lists.find(([, a]) => !a.ok);
-      if (bad) onFailed(bad[1].body);
-      setTemplates(
-        new Map(
-          lists
-            .filter(([, a]) => a.ok)
-            .map(([code, a]) => [code, parseTemplateOptions(a.body)])
-        )
-      );
-    });
-    return () => {
-      off = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const set = (patch: Partial<RuleDraft>) => setD((x) => ({ ...x, ...patch }));
   const setAction = (i: number, patch: Partial<DraftAction>) =>
     setD((x) => ({
