@@ -168,6 +168,7 @@ export function AutomsgHistoryList({
               <TableHead>{t('history.time')}</TableHead>
               <TableHead>{t('history.contact')}</TableHead>
               <TableHead>{t('history.trigger')}</TableHead>
+              <TableHead>{t('history.channel')}</TableHead>
               <TableHead>{t('history.statusHead')}</TableHead>
               <TableHead>{t('history.holdHead')}</TableHead>
               <TableHead>{t('history.attempts')}</TableHead>
@@ -185,6 +186,9 @@ export function AutomsgHistoryList({
                 </TableCell>
                 <TableCell className="text-sm whitespace-normal">
                   {t(`triggers.${row.trigger}`)}
+                </TableCell>
+                <TableCell className="text-sm whitespace-nowrap">
+                  {t(view.channelKey)}
                 </TableCell>
                 <TableCell className="whitespace-normal">
                   <StatusCell view={view} />
@@ -221,7 +225,13 @@ export function AutomsgHistoryList({
               </div>
               {view.canCancel && cancelButton(row.id)}
             </div>
-            <p className="text-sm">{t(`triggers.${row.trigger}`)}</p>
+            <p className="text-sm">
+              {t(`triggers.${row.trigger}`)}
+              <span className="text-muted-foreground"> · </span>
+              <span className="text-muted-foreground">
+                {t(view.channelKey)}
+              </span>
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <StatusCell view={view} />
               {view.holdKey && (

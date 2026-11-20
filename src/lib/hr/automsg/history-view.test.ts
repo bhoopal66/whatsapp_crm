@@ -85,3 +85,24 @@ describe('labels', () => {
     }
   );
 });
+
+describe('channel', () => {
+  it('names each row channel, a missing one as WhatsApp', () => {
+    const v = (channel?: 'whatsapp' | 'rcs' | null) =>
+      historyRowView({ ...row('sent'), channel }, 'admin').channelKey;
+    expect(v('rcs')).toBe('channel.rcs');
+    expect(v('whatsapp')).toBe('channel.whatsapp');
+    expect(v(null)).toBe('channel.whatsapp');
+    expect(historyRowView(row('sent'), 'admin').channelKey).toBe(
+      'channel.whatsapp'
+    );
+  });
+
+  it.each(['en.json', 'ko.json'])('%s labels the Channel column', (file) => {
+    const a = JSON.parse(
+      readFileSync(join(process.cwd(), 'messages', file), 'utf8')
+    ).Hr.automsg;
+    expect(a.history.channel).toBeTruthy();
+    expect(a.channel.whatsapp && a.channel.rcs).toBeTruthy();
+  });
+});

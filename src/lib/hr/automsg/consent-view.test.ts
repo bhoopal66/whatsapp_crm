@@ -6,7 +6,9 @@ import type { AutoMsgConsentView } from './api';
 import {
   CONSENT_SOURCES,
   consentPanel,
+  consentRows,
   consentSourceKey,
+  sharedNotice,
 } from './consent-view';
 
 const base: AutoMsgConsentView = {
@@ -82,6 +84,93 @@ describe('consentPanel', () => {
     for (const s of CONSENT_SOURCES) {
       expect(consentSourceKey(s)).toBe(`consent.source.${s}`);
       expect(en.Hr.consent.source[s]).toBeTruthy();
+    }
+  });
+});
+
+describe('consentRows', () => {
+  const ok = (c: Partial<AutoMsgConsentView>) => ({
+    status: 'ok' as const,
+    consent: { ...base, ...c },
+  });
+  const kinds = (rows: ReturnType<typeof consentRows>) =>
+    rows.map((r) => (r.status === 'ok' ? r.state.kind : r.status));
+
+  it('gives one row per channel, WhatsApp first, each labelled', () => {
+    const rows = consentRows({ whatsapp: ok({}), rcs: ok({}) }, true);
+    expect(rows.map((r) => [r.channel, r.labelKey])).toEqual([
+      ['whatsapp', 'automsg.channel.whatsapp'],
+      ['rcs', 'automsg.channel.rcs'],
+    ]);
+  });
+
+  it('RCS granted while WhatsApp is not', () => {
+    const rows = consentRows(
+      { whatsapp: ok({ granted: false }), rcs: ok({ granted: true }) },
+      true
+    );
+    expect(kinds(rows)).toEqual(['withdrawn', 'given']);
+    expect(rows.map((r) => r.status === 'ok' && r.canRecord)).toEqual([
+      true,
+      false,
+    ]);
+    expect(rows.map((r) => r.status === 'ok' && r.canWithdraw)).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('WhatsApp granted while RCS has no record', () => {
+    const rows = consentRows(
+      { whatsapp: ok({ granted: true }), rcs: ok({ granted: null }) },
+      true
+    );
+    expect(kinds(rows)).toEqual(['given', 'none']);
+    expect(rows.map((r) => r.status === 'ok' && r.canWithdraw)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  it('opted out holds both rows, whichever read reports it', () => {
+    const rows = consentRows(
+      { whatsapp: ok({ granted: true }), rcs: ok({ optedOut: true }) },
+      true
+    );
+    expect(kinds(rows)).toEqual(['optedOut', 'optedOut']);
+    expect(rows.some((r) => r.status === 'ok' && r.canRecord)).toBe(false);
+    expect(sharedNotice(rows)).toBe('optedOut');
+  });
+
+  it('a personal chat holds both rows', () => {
+    const rows = consentRows(
+      { whatsapp: ok({ personal: true }), rcs: ok({ granted: true }) },
+      true
+    );
+    expect(kinds(rows)).toEqual(['personal', 'personal']);
+    expect(rows.some((r) => r.status === 'ok' && r.canWithdraw)).toBe(false);
+    expect(sharedNotice(rows)).toBe('personal');
+  });
+
+  it('a failed read fails only its own row', () => {
+    const rows = consentRows(
+      { whatsapp: ok({ granted: true }), rcs: { status: 'failed' } },
+      true
+    );
+    expect(kinds(rows)).toEqual(['given', 'failed']);
+    expect(sharedNotice(rows)).toBeNull();
+    expect(kinds(consentRows({}, true))).toEqual(['loading', 'loading']);
+  });
+
+  it('labels the per-channel strings in both catalogues', () => {
+    for (const file of ['en.json', 'ko.json']) {
+      const hr = JSON.parse(
+        readFileSync(join(process.cwd(), 'messages', file), 'utf8')
+      ).Hr;
+      expect(hr.consent.perChannel).toBeTruthy();
+      expect(hr.consent.sourceLabelFor).toContain('{channel}');
+      expect(hr.automsg.channel.whatsapp).toBeTruthy();
+      expect(hr.automsg.channel.rcs).toBeTruthy();
     }
   });
 });

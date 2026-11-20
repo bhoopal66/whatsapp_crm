@@ -166,26 +166,28 @@ describe('AutomsgHistoryList', () => {
     return { html, head, body };
   }
 
-  it('renders the seven columns of one row', () => {
+  it('renders the eight columns of one row', () => {
     const { head, body } = cells(row, 'admin');
     expect(head).toEqual([
       'Time',
       'Contact',
       'Trigger',
+      'Channel',
       'Status',
       'Hold reason',
       'Attempts',
       '',
     ]);
-    expect(body).toHaveLength(7);
+    expect(body).toHaveLength(8);
     expect(body[0]).toMatch(/2026/);
     expect(body[1]).toContain('href="/hr/recruiter?c=c%201"');
     expect(body[1]).toContain('Aashish');
     expect(body[2]).toContain(en.Hr.automsg.triggers.cv_received);
-    expect(body[3]).toMatch(/rounded-full[^>]*>Held</);
-    expect(body[4]).toBe('Kill switch is on');
-    expect(body[5]).toBe('0');
-    expect(body[6]).toContain('>Cancel</button>');
+    expect(body[3]).toBe('WhatsApp');
+    expect(body[4]).toMatch(/rounded-full[^>]*>Held</);
+    expect(body[5]).toBe('Kill switch is on');
+    expect(body[6]).toBe('0');
+    expect(body[7]).toContain('>Cancel</button>');
   });
 
   it('shows a dash for no hold reason and no cancel on a sent row', () => {
@@ -193,9 +195,14 @@ describe('AutomsgHistoryList', () => {
       { ...row, status: 'sent', holdReason: null, attempts: 1 },
       'admin'
     );
-    expect(body[3]).toMatch(/>Sent</);
-    expect(body[4]).toBe('-');
-    expect(body[5]).toBe('1');
-    expect(body[6]).not.toContain('Cancel');
+    expect(body[4]).toMatch(/>Sent</);
+    expect(body[5]).toBe('-');
+    expect(body[6]).toBe('1');
+    expect(body[7]).not.toContain('Cancel');
+  });
+
+  it('names an RCS row channel', () => {
+    const { body } = cells({ ...row, channel: 'rcs' }, 'admin');
+    expect(body[3]).toBe('RCS');
   });
 });

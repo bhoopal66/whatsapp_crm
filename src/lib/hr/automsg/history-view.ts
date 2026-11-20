@@ -8,6 +8,7 @@
 import type { HrErrorCode } from '@/lib/hr/types';
 
 import type { AutoMsgOutboxRow } from './api';
+import { CHANNEL_LABEL_KEYS, channelOf } from './channel';
 import {
   OUTBOX_STATUSES,
   type ClaimState,
@@ -63,6 +64,8 @@ export interface HistoryRowView {
   /** Key under `automsg.history.claim`, or null. */
   claimKey: string | null;
   canCancel: boolean;
+  /** Key under `Hr.automsg` naming the row's channel. */
+  channelKey: string;
   /** The candidate's chat in the HR inbox. */
   href: string;
 }
@@ -71,7 +74,7 @@ export function historyRowView(
   row: Pick<
     AutoMsgOutboxRow,
     'status' | 'holdReason' | 'claimState' | 'conversationId'
-  >,
+  > & { channel?: AutoMsgOutboxRow['channel'] | null },
   role: AutomsgRole | null
 ): HistoryRowView {
   return {
@@ -82,6 +85,7 @@ export function historyRowView(
       (role === 'admin' || role === 'lead') &&
       CANCELLABLE_STATUSES.includes(row.status) &&
       row.claimState === null,
+    channelKey: CHANNEL_LABEL_KEYS[channelOf(row.channel)],
     href: `/hr/recruiter?c=${encodeURIComponent(row.conversationId)}`,
   };
 }

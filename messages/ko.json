@@ -11540,10 +11540,12 @@
         "form": "양식"
       },
       "sourceLabel": "어떻게 동의를 받았나요?",
+      "sourceLabelFor": "{channel} 동의는 어떻게 받았나요?",
       "record": "동의 기록",
       "withdraw": "동의 철회",
       "recorded": "동의를 기록했습니다",
-      "withdrawnToast": "동의를 철회했습니다"
+      "withdrawnToast": "동의를 철회했습니다",
+      "perChannel": "동의는 채널별로 따로 관리됩니다."
     },
     "automsg": {
       "back": "HR 받은편지함",
@@ -11679,6 +11681,7 @@
         "time": "시간",
         "contact": "연락처",
         "trigger": "트리거",
+        "channel": "채널",
         "statusHead": "상태",
         "holdHead": "보류 사유",
         "noHold": "-",

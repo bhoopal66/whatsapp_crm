@@ -11540,10 +11540,12 @@
         "form": "Form"
       },
       "sourceLabel": "How was consent given?",
+      "sourceLabelFor": "How was {channel} consent given?",
       "record": "Record consent",
       "withdraw": "Withdraw consent",
       "recorded": "Consent recorded",
-      "withdrawnToast": "Consent withdrawn"
+      "withdrawnToast": "Consent withdrawn",
+      "perChannel": "Consent is kept per channel."
     },
     "automsg": {
       "back": "HR inbox",
@@ -11679,6 +11681,7 @@
         "time": "Time",
         "contact": "Contact",
         "trigger": "Trigger",
+        "channel": "Channel",
         "statusHead": "Status",
         "holdHead": "Hold reason",
         "noHold": "-",
