@@ -224,6 +224,13 @@ BEGIN
     AND (SELECT count(*) FROM public.case_sla_state_log WHERE case_id = k AND timer = 'bank_response'
            AND actor_id IS NULL AND actor_role = 'system:rules') = 1,
     'stage entry did not start the SLA timer as system:rules');
+  -- 187's invariant: the rule's task and timer (written at the rule's later clock_timestamp)
+  -- are not activity, so the idle clock stays at the person's move (transaction time).
+  n := n + 1; failed := failed || pg_temp.sa_ok(
+    public.case_rule_last_activity(k) < (SELECT max(changed_at) FROM public.case_task_status_log WHERE case_id = k)
+    AND public.case_rule_last_activity(k) < (SELECT max(changed_at) FROM public.case_sla_state_log
+                                              WHERE case_id = k AND actor_role = 'system:rules'),
+    'a rule-created task or timer counted as case activity');
   n := n + 1; failed := failed || pg_temp.sa_ok(
     (SELECT jsonb_agg(jsonb_build_array(fire_key, matched, applied)) FROM public.case_rule_runs
       WHERE rule_id = r AND case_id = k)

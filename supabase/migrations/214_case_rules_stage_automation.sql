@@ -557,9 +557,46 @@ BEGIN
 END;
 $$;
 
+-- ---------- 5b. The rules' writes are not activity (187's invariant) ----------
+
+-- 187's body plus three exclusions (marked 214). A rule's task, its
+-- auto-advance and its SLA start write case_task_status_log,
+-- case_stage_history and case_sla_state_log rows with actor NULL / role
+-- system:rules; counting them would let a rule reset the idle clock a
+-- no_activity rule reads, which 187 promises never happens. The SLA rows
+-- the stage-history trigger writes for an auto-advance carry the same
+-- actor, so they are left out too.
+CREATE OR REPLACE FUNCTION public.case_rule_last_activity(p_case uuid)
+RETURNS timestamptz
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT max(e.at) FROM (
+    SELECT h.changed_at AS at FROM public.case_stage_history h
+     WHERE h.case_id = p_case
+       AND NOT (h.actor_id IS NULL AND h.actor_role IS NOT DISTINCT FROM 'system:rules')   -- 214
+    UNION ALL SELECT r.changed_at FROM public.case_reassign_history r
+               WHERE r.case_id = p_case AND NOT (r.actor_id IS NULL AND r.actor_role IS NOT DISTINCT FROM 'system:rules')
+    UNION ALL SELECT d.changed_at FROM public.case_detail_log d
+               WHERE d.case_id = p_case AND NOT (d.actor_id IS NULL AND d.actor_role IS NOT DISTINCT FROM 'system:rules')
+    UNION ALL SELECT l.changed_at FROM public.case_task_status_log l
+               WHERE l.case_id = p_case
+                 AND NOT (l.actor_id IS NULL AND l.actor_role IS NOT DISTINCT FROM 'system:rules')   -- 214
+    UNION ALL SELECT n.created_at FROM public.case_notes n WHERE n.case_id = p_case AND n.author_id IS NOT NULL
+    UNION ALL SELECT o.updated_at FROM public.case_documents o WHERE o.case_id = p_case
+    UNION ALL SELECT b.created_at FROM public.case_bank_contacts b WHERE b.case_id = p_case
+    UNION ALL SELECT s.changed_at FROM public.case_sla_state_log s
+               WHERE s.case_id = p_case AND s.actor_role <> 'system'
+                 AND NOT (s.actor_id IS NULL AND s.actor_role = 'system:rules')   -- 214
+  ) e
+$$;
+
 -- ---------- 6. Grants ----------
 
 REVOKE ALL ON FUNCTION
+  public.case_rule_last_activity(uuid),
   public.case_rule_validate(text, jsonb, jsonb),
   public.case_rule_act_create_task(uuid, text, text, integer, timestamptz),
   public.case_rule_act_start_sla(uuid, text, timestamptz),

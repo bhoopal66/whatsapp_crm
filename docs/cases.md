@@ -534,7 +534,15 @@ saves and enables a rule.
     task's creator).
   - **Start an SLA timer** (customer reply, bank response or document
     chase) with the bank's SLA setting for that stage. Refused
-    SLA_NOT_CONFIGURED, starting nothing, when the stage has none.
+    SLA_NOT_CONFIGURED, starting nothing, when the stage has none. Note
+    that every stage move already restarts the new stage's configured
+    timers (migration 124), so in wacrm this action mostly confirms the
+    setting exists; it is kept for the package's rule shape.
+  - A rule whose other conditions (bank, product, amount) do not match
+    when the case enters the stage is still recorded as run for that
+    stage, so it does not fire on a later re-entry of the same stage.
+  - None of these writes counts as case activity, so they never reset an
+    idle ("no activity for N days") rule's clock.
 - **The last required document arrives.** Fires when a document is marked
   received in the case's Documents and that completes every document
   listed for the case's bank and product (every listed document counts as
@@ -550,7 +558,8 @@ saves and enables a rule.
   can move it again.
 - **Chains.** The move fires the new stage's "stage changes" and "enters
   a stage" rules (a rule's own changes fire no other rules), but a case
-  moves at most once per change (ADVANCE_CHAINED).
+  moves at most once per database transaction, which today is one
+  document save (ADVANCE_CHAINED).
 - **Messaging on stage entry** is an open decision in the package and is
   not built: rules still never send anything.
 
