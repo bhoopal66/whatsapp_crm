@@ -25,6 +25,7 @@ function tpl(
   return {
     kind,
     language,
+    channel: 'whatsapp',
     body: 'Hi {{name}}',
     metaTemplateName: 'x',
     approvalStatus,

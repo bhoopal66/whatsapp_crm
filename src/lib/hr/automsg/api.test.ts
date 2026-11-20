@@ -6,6 +6,7 @@ import {
   automsgConfig,
   automsgConsent,
   automsgOutbox,
+  automsgRcsStatus,
   automsgReleaseNow,
   automsgSaveSettings,
   automsgSaveTemplate,
@@ -74,6 +75,38 @@ describe('arguments', () => {
       p_meta_template_name: 'cv_ack_ar',
       p_approval_status: 'approved',
       p_category: 'utility',
+      p_channel: 'whatsapp',
+    });
+  });
+
+  it('template on rcs sends p_channel rcs', async () => {
+    const { sb, rpc } = sbWith(ok({}));
+    await automsgSaveTemplate(sb, {
+      kind: 'cv_ack',
+      language: 'en',
+      body: 'hi {name}',
+      metaTemplateName: 'prov:cv.ack-1',
+      approvalStatus: 'approved',
+      category: 'utility',
+      channel: 'rcs',
+    });
+    expect(rpc).toHaveBeenCalledWith(
+      'hr_automsg_template_set',
+      expect.objectContaining({
+        p_meta_template_name: 'prov:cv.ack-1',
+        p_channel: 'rcs',
+      })
+    );
+  });
+
+  it('trigger sends p_channel only when given', async () => {
+    const { sb, rpc } = sbWith(ok({}));
+    await automsgSetTrigger(sb, 'cv_received', true, null, 'rcs');
+    expect(rpc).toHaveBeenCalledWith('hr_automsg_trigger_set', {
+      p_trigger: 'cv_received',
+      p_enabled: true,
+      p_template_kind: null,
+      p_channel: 'rcs',
     });
   });
 
@@ -82,18 +115,37 @@ describe('arguments', () => {
     await automsgConsent(sb, 'c1');
     expect(rpc).toHaveBeenCalledWith('hr_automsg_consent_get', {
       p_conversation_id: 'c1',
+      p_channel: 'whatsapp',
     });
     await automsgSetConsent(sb, 'c1', true);
     expect(rpc).toHaveBeenLastCalledWith('hr_automsg_consent_set', {
       p_conversation_id: 'c1',
       p_granted: true,
       p_source: 'recruiter_confirmed',
+      p_channel: 'whatsapp',
     });
     await automsgSetConsent(sb, 'c1', false, 'form');
     expect(rpc).toHaveBeenLastCalledWith('hr_automsg_consent_set', {
       p_conversation_id: 'c1',
       p_granted: false,
       p_source: 'form',
+      p_channel: 'whatsapp',
+    });
+  });
+
+  it('consent on rcs sends p_channel rcs', async () => {
+    const { sb, rpc } = sbWith(ok([]));
+    await automsgConsent(sb, 'c1', 'rcs');
+    expect(rpc).toHaveBeenCalledWith('hr_automsg_consent_get', {
+      p_conversation_id: 'c1',
+      p_channel: 'rcs',
+    });
+    await automsgSetConsent(sb, 'c1', true, 'form', 'rcs');
+    expect(rpc).toHaveBeenLastCalledWith('hr_automsg_consent_set', {
+      p_conversation_id: 'c1',
+      p_granted: true,
+      p_source: 'form',
+      p_channel: 'rcs',
     });
   });
 
@@ -161,11 +213,13 @@ describe('mapping', () => {
       trigger: 'cv_received',
       enabled: true,
       templateKind: 'cv_ack',
+      channel: 'whatsapp',
     });
     expect(res.data.triggers[5]).toEqual({
       trigger: 'reply_overdue_nudge',
       enabled: false,
       templateKind: 'reply_nudge',
+      channel: 'whatsapp',
     });
     expect(res.data.templates[0]).toMatchObject({
       metaTemplateName: 'cv_ack_en',
@@ -223,9 +277,43 @@ describe('mapping', () => {
           lastError: null,
           createdAt: '2026-11-16T01:00:00Z',
           sentAt: null,
+          channel: 'whatsapp',
         },
       ],
     });
+  });
+
+  it('maps channel on triggers, templates and outbox rows', async () => {
+    const { sb } = sbWith(
+      ok({
+        triggers: [
+          { trigger: 'cv_received', enabled: true, channel: 'rcs' },
+          { trigger: 'reply_overdue_nudge', enabled: true, channel: 'sms' },
+        ],
+        templates: [
+          { kind: 'cv_ack', language: 'en', channel: 'rcs' },
+          { kind: 'cv_ack', language: 'ar' },
+        ],
+      })
+    );
+    const res = await automsgConfig(sb);
+    if (!('data' in res)) throw new Error('expected data');
+    expect(res.data.triggers[0].channel).toBe('rcs');
+    expect(res.data.triggers[5].channel).toBe('whatsapp');
+    expect(res.data.templates.map((t) => t.channel)).toEqual([
+      'rcs',
+      'whatsapp',
+    ]);
+    const o = sbWith(
+      ok([
+        { id: 'a', channel: 'rcs', hold_reason: 'channel_not_connected' },
+        { id: 'b' },
+      ])
+    );
+    const rows = await automsgOutbox(o.sb);
+    if (!('data' in rows)) throw new Error('expected data');
+    expect(rows.data.map((r) => r.channel)).toEqual(['rcs', 'whatsapp']);
+    expect(rows.data[0].holdReason).toBe('channel_not_connected');
   });
 
   it('picks the first consent row', async () => {
@@ -282,6 +370,37 @@ describe('errors', () => {
       }),
     } as unknown as SupabaseClient;
     expect(await automsgCancel(sb, 'o1')).toEqual({ error: 'UNKNOWN' });
+  });
+});
+
+describe('automsgRcsStatus', () => {
+  it('returns the status', async () => {
+    const f = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ connected: true, webhook: false }), {
+          status: 200,
+        })
+    );
+    expect(await automsgRcsStatus(f as unknown as typeof fetch)).toEqual({
+      connected: true,
+      webhook: false,
+    });
+    expect(f).toHaveBeenCalledWith('/api/hr/automsg/rcs', { method: 'GET' });
+  });
+
+  it('is null when signed out, malformed or thrown', async () => {
+    const r401 = vi.fn(
+      async () => new Response(JSON.stringify({ error: 'x' }), { status: 401 })
+    );
+    expect(await automsgRcsStatus(r401 as unknown as typeof fetch)).toBeNull();
+    const bad = vi.fn(async () => new Response('{}', { status: 200 }));
+    expect(await automsgRcsStatus(bad as unknown as typeof fetch)).toBeNull();
+    const thrown = vi.fn(async () => {
+      throw new Error('net');
+    });
+    expect(
+      await automsgRcsStatus(thrown as unknown as typeof fetch)
+    ).toBeNull();
   });
 });
 

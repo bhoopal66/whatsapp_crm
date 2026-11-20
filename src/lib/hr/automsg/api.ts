@@ -31,6 +31,7 @@ import {
   type TemplateKind,
   type Trigger,
 } from './types';
+import { channelOf, type AutomsgChannel } from './channel';
 
 export type ConsentSource = 'recruiter_confirmed' | 'candidate_wrote' | 'form';
 
@@ -48,11 +49,14 @@ export interface AutoMsgTriggerView {
   trigger: Trigger;
   enabled: boolean;
   templateKind: TemplateKind;
+  channel: AutomsgChannel;
 }
 
 export interface AutoMsgTemplateView {
   kind: TemplateKind;
   language: AutoLang;
+  channel: AutomsgChannel;
+  /** For rcs: the RCS provider's template id. */
   body: string;
   metaTemplateName: string;
   approvalStatus: ApprovalStatus;
@@ -91,6 +95,7 @@ export interface AutoMsgOutboxRow {
   lastError: string | null;
   createdAt: string;
   sentAt: string | null;
+  channel: AutomsgChannel;
 }
 
 export interface AutoMsgSettingsPatch {
@@ -109,6 +114,15 @@ export interface AutoMsgTemplateInput {
   metaTemplateName: string;
   approvalStatus: ApprovalStatus;
   category: TemplateCategory;
+  /** Left out = 'whatsapp'. */
+  channel?: AutomsgChannel;
+}
+
+export interface AutoMsgRcsStatus {
+  /** An RCS provider is configured: RCS messages can be sent. */
+  connected: boolean;
+  /** RCS delivery receipts are configured. */
+  webhook: boolean;
 }
 
 export interface AutoMsgReleaseSummary {
@@ -183,6 +197,7 @@ export function mapConfig(raw: unknown): AutoMsgConfig {
         row.template_kind,
         DEFAULT_TRIGGER_TEMPLATE[trigger]
       ),
+      channel: channelOf(row.channel),
     };
   });
 
@@ -195,6 +210,7 @@ export function mapConfig(raw: unknown): AutoMsgConfig {
     templates.push({
       kind,
       language,
+      channel: channelOf(row.channel),
       body: str(row.body, ''),
       metaTemplateName: str(row.meta_template_name, ''),
       approvalStatus: oneOf(APPROVAL_STATUSES, row.approval_status, 'draft'),
@@ -250,6 +266,7 @@ export function mapOutboxRow(raw: unknown): AutoMsgOutboxRow {
     lastError: strOrNull(r.last_error),
     createdAt: str(r.created_at, ''),
     sentAt: strOrNull(r.sent_at),
+    channel: channelOf(r.channel),
   };
 }
 
@@ -302,18 +319,17 @@ export function automsgSetTrigger(
   sb: SupabaseClient,
   trigger: Trigger,
   enabled: boolean,
-  templateKind?: TemplateKind | null
+  templateKind?: TemplateKind | null,
+  channel?: AutomsgChannel
 ): Promise<HrResult<AutoMsgConfig>> {
-  return call(
-    sb,
-    'hr_automsg_trigger_set',
-    {
-      p_trigger: trigger,
-      p_enabled: enabled,
-      p_template_kind: templateKind ?? null,
-    },
-    mapConfig
-  );
+  // p_channel only when given: the RPC's NULL default keeps the stored one.
+  const args: Record<string, unknown> = {
+    p_trigger: trigger,
+    p_enabled: enabled,
+    p_template_kind: templateKind ?? null,
+  };
+  if (channel) args.p_channel = channel;
+  return call(sb, 'hr_automsg_trigger_set', args, mapConfig);
 }
 
 export function automsgSaveTemplate(
@@ -330,6 +346,7 @@ export function automsgSaveTemplate(
       p_meta_template_name: t.metaTemplateName,
       p_approval_status: t.approvalStatus,
       p_category: t.category,
+      p_channel: t.channel ?? 'whatsapp',
     },
     mapConfig
   );
@@ -342,12 +359,13 @@ function firstRow(data: unknown): unknown {
 
 export function automsgConsent(
   sb: SupabaseClient,
-  conversationId: string
+  conversationId: string,
+  channel: AutomsgChannel = 'whatsapp'
 ): Promise<HrResult<AutoMsgConsentView>> {
   return call(
     sb,
     'hr_automsg_consent_get',
-    { p_conversation_id: conversationId },
+    { p_conversation_id: conversationId, p_channel: channel },
     (d) => mapConsent(firstRow(d))
   );
 }
@@ -356,7 +374,8 @@ export function automsgSetConsent(
   sb: SupabaseClient,
   conversationId: string,
   granted: boolean,
-  source: ConsentSource = 'recruiter_confirmed'
+  source: ConsentSource = 'recruiter_confirmed',
+  channel: AutomsgChannel = 'whatsapp'
 ): Promise<HrResult<AutoMsgConsentView>> {
   return call(
     sb,
@@ -365,6 +384,7 @@ export function automsgSetConsent(
       p_conversation_id: conversationId,
       p_granted: granted,
       p_source: source,
+      p_channel: channel,
     },
     (d) => mapConsent(firstRow(d))
   );
@@ -387,6 +407,26 @@ export function automsgCancel(
   id: string
 ): Promise<HrResult<null>> {
   return call(sb, 'hr_automsg_cancel', { p_id: id }, () => null);
+}
+
+/**
+ * Whether an RCS provider is connected (`GET /api/hr/automsg/rcs`).
+ * null on any failure (signed out, network, a malformed body): the caller
+ * shows nothing rather than a wrong answer.
+ */
+export async function automsgRcsStatus(
+  fetchImpl: typeof fetch = fetch
+): Promise<AutoMsgRcsStatus | null> {
+  try {
+    const res = await fetchImpl('/api/hr/automsg/rcs', { method: 'GET' });
+    if (!res.ok) return null;
+    const b = rec(await res.json());
+    if (typeof b.connected !== 'boolean' || typeof b.webhook !== 'boolean')
+      return null;
+    return { connected: b.connected, webhook: b.webhook };
+  } catch {
+    return null;
+  }
 }
 
 /** Runs the release pass now (route built separately). */

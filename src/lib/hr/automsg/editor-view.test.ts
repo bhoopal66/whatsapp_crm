@@ -21,6 +21,7 @@ const stored = (
 ): AutoMsgTemplateView => ({
   kind: 'hr_interview_invite',
   language: 'en',
+  channel: 'whatsapp',
   body: 'Hi {name}, your HR interview is on {slot}.',
   metaTemplateName: 'hr_invite_v2',
   approvalStatus: 'approved',

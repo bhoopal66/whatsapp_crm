@@ -80,6 +80,7 @@ describe('AutomsgHistoryList', () => {
     lastError: null,
     createdAt: '2026-11-14T16:32:53Z',
     sentAt: null,
+    channel: 'whatsapp',
   };
 
   function cells(r: AutoMsgOutboxRow, role: AutomsgRole) {
