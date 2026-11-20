@@ -55,6 +55,7 @@ import {
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { handleHrInboundMessage } from '@/lib/hr/agents/inbound';
+import { autoOpenRecruiterChat } from '@/lib/hr/auto-open';
 import { recordHrDelivery } from '@/lib/hr/automsg/delivery';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
@@ -1028,13 +1029,23 @@ export async function processMessage(
     else await personalWatch;
     // Recruiter agents (migration 202, docs/hr-workflows.md) draft on
     // personal HR chats too: drafts only, a recruiter sends. Never throws.
-    const personalHr = handleHrInboundMessage({
-      accountId,
+    // HR lines (migration 213) first: a chat this message opens in
+    // Recruitment gets its draft on the same message. A failed auto-open
+    // never stops the agents hook.
+    const personalHr = autoOpenRecruiterChat({
       conversationId: conversation.id,
-      contactId: contactRecord.id,
-      messageId: insertedRows[0].id,
-      text: contentText ?? message.text ?? '',
-    });
+      channelId: channel.id,
+    })
+      .catch(() => null)
+      .then(() =>
+        handleHrInboundMessage({
+          accountId,
+          conversationId: conversation.id,
+          contactId: contactRecord.id,
+          messageId: insertedRows[0].id,
+          text: contentText ?? message.text ?? '',
+        })
+      );
     if (later) later.push(personalHr);
     else await personalHr;
     await fileDocumentLater();
@@ -1349,14 +1360,24 @@ export async function processMessage(
   // Recruiter agents (migration 202): a candidate's message in the
   // Recruiter HR inbox may get a draft reply for a recruiter to approve.
   // Nothing is sent; off unless switched on; never throws. Handed to
-  // `later` like the reminder so after() keeps it alive.
-  const hrAgents = handleHrInboundMessage({
-    accountId,
+  // `later` like the reminder so after() keeps it alive. HR lines
+  // (migration 213) run first, in the same chain, so a Recruitment chat
+  // opened by this message gets its draft now; a failed auto-open never
+  // stops the agents hook.
+  const hrAgents = autoOpenRecruiterChat({
     conversationId: conversation.id,
-    contactId: contactRecord.id,
-    messageId: insertedRows[0].id,
-    text: inboundText,
-  });
+    channelId: channel.id,
+  })
+    .catch(() => null)
+    .then(() =>
+      handleHrInboundMessage({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        messageId: insertedRows[0].id,
+        text: inboundText,
+      })
+    );
   if (later) later.push(hrAgents);
   else await hrAgents;
 

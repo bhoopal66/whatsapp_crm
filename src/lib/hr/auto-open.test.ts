@@ -1,0 +1,45 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const h = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock('@/lib/automations/admin-client', () => ({
+  supabaseAdmin: () => ({ rpc: h.rpc }),
+}));
+
+import { autoOpenRecruiterChat } from './auto-open';
+
+beforeEach(() => {
+  h.rpc.mockReset();
+});
+
+describe('autoOpenRecruiterChat', () => {
+  it('calls hr_auto_open_recruiter with the conversation and the number', async () => {
+    h.rpc.mockResolvedValue({ data: 'opened', error: null });
+    await expect(
+      autoOpenRecruiterChat({ conversationId: 'conv-1', channelId: 'ch-1' })
+    ).resolves.toBe('opened');
+    expect(h.rpc).toHaveBeenCalledWith('hr_auto_open_recruiter', {
+      p_conversation_id: 'conv-1',
+      p_channel_id: 'ch-1',
+    });
+  });
+
+  it('returns null and logs one line on an rpc error', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'denied' } });
+    await expect(
+      autoOpenRecruiterChat({ conversationId: 'conv-1', channelId: 'ch-1' })
+    ).resolves.toBeNull();
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('swallows a throw and returns null', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.rpc.mockRejectedValue(new Error('fetch failed'));
+    await expect(
+      autoOpenRecruiterChat({ conversationId: 'conv-1', channelId: 'ch-1' })
+    ).resolves.toBeNull();
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+});

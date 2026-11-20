@@ -40,6 +40,7 @@ const h = vi.hoisted(() => ({
   insights: vi.fn(),
   reminder: vi.fn(),
   hrAgents: vi.fn(),
+  autoOpen: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
   classify: vi.fn(),
@@ -165,6 +166,9 @@ vi.mock('@/lib/reminders/suggest', () => ({
 vi.mock('@/lib/hr/agents/inbound', () => ({
   handleHrInboundMessage: (...args: unknown[]) => h.hrAgents(...args),
 }));
+vi.mock('@/lib/hr/auto-open', () => ({
+  autoOpenRecruiterChat: (...args: unknown[]) => h.autoOpen(...args),
+}));
 vi.mock('@/lib/insights/auto-tag', () => ({
   autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
 }));
@@ -263,6 +267,7 @@ beforeEach(() => {
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.reminder.mockReset().mockResolvedValue({ status: 'off' });
   h.hrAgents.mockReset().mockResolvedValue(undefined);
+  h.autoOpen.mockReset().mockResolvedValue('off');
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
   h.recipientRows = [];
@@ -457,27 +462,43 @@ describe('processMessage — recruiter agents hook', () => {
     text: 'hello',
   };
 
-  it('runs on a company chat and is handed to later', async () => {
-    const later: Promise<unknown>[] = [];
-    await processMessage(message, 'acct-1', 'owner-1', channel, later);
-    expect(h.hrAgents).toHaveBeenCalledTimes(1);
-    expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
-    expect(later).toContain(h.hrAgents.mock.results[0].value);
-  });
+  const personal = { ...channel, isPersonal: true, personalUserId: 'owner-1' };
 
-  it('runs on a personal chat and is handed to later', async () => {
-    const later: Promise<unknown>[] = [];
-    await processMessage(
-      message,
-      'acct-1',
-      'owner-1',
-      { ...channel, isPersonal: true, personalUserId: 'owner-1' },
-      later
-    );
-    expect(h.hrAgents).toHaveBeenCalledTimes(1);
-    expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
-    expect(later).toContain(h.hrAgents.mock.results[0].value);
-  });
+  for (const [name, ch] of [
+    ['a company chat', channel],
+    ['a personal chat', personal],
+  ] as const) {
+    it(`runs on ${name}, after the HR-lines auto-open, inside later`, async () => {
+      h.autoOpen.mockImplementation(async () => {
+        h.order.push('autoOpen');
+        return 'opened';
+      });
+      h.hrAgents.mockImplementation(async () => {
+        h.order.push('hrAgents');
+      });
+      const later: Promise<unknown>[] = [];
+      await processMessage(message, 'acct-1', 'owner-1', ch, later);
+      expect(h.autoOpen).toHaveBeenCalledTimes(1);
+      expect(h.autoOpen.mock.calls[0][0]).toEqual({
+        conversationId: 'conv-1',
+        channelId: 'ch-1',
+      });
+      // The agents hook waits on the auto-open: it runs once later settles.
+      await Promise.all(later);
+      expect(h.hrAgents).toHaveBeenCalledTimes(1);
+      expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
+      expect(h.order).toEqual(['autoOpen', 'hrAgents']);
+    });
+
+    it(`on ${name}, a rejected auto-open still runs the agents hook`, async () => {
+      h.autoOpen.mockRejectedValue(new Error('boom'));
+      const later: Promise<unknown>[] = [];
+      await processMessage(message, 'acct-1', 'owner-1', ch, later);
+      await Promise.all(later);
+      expect(h.hrAgents).toHaveBeenCalledTimes(1);
+      expect(h.hrAgents.mock.calls[0][0]).toEqual(expected);
+    });
+  }
 
   it('never runs over the rate limit (fanOut: false) or on a replay', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
@@ -488,6 +509,7 @@ describe('processMessage — recruiter agents hook', () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
     info.mockRestore();
     expect(h.hrAgents).not.toHaveBeenCalled();
+    expect(h.autoOpen).not.toHaveBeenCalled();
   });
 });
 
