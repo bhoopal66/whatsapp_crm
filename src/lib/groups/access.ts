@@ -1,7 +1,7 @@
 /**
- * Who may see, manage and create a WhatsApp group. Mirror of 114 and 208
- * (whatsapp_group_visible_ids / _manageable_ids / _can_create) — change
- * both. It informs UI and route decisions only; the database decides.
+ * Who may see, manage and create a WhatsApp group. Mirror of 114, 208 and
+ * 218 (whatsapp_group_visible_ids / _manageable_ids / _can_create) —
+ * change both. It informs UI and route decisions only; the database decides.
  */
 import {
   canCreateGroups,
@@ -49,22 +49,19 @@ export function canViewGroup(args: {
 
 /**
  * Admin and up: all. Agent or team leader: groups they created or
- * manage, on a number that still exists and they may use.
+ * manage, while the group still has a number. Whoever that number is
+ * allocated to (218): appointing a manager is the grant for the group;
+ * allocation decides only 1:1 chats and creating groups (canCreateGroup).
  */
 export function canManageGroup(args: {
   role: AccountRole;
   userId: string;
   group: GroupManageFacts;
-  usableChannelIds: readonly string[];
 }): boolean {
-  const { role, userId, group, usableChannelIds } = args;
+  const { role, userId, group } = args;
   if (canViewAllGroups(role)) return true;
   if (role !== 'agent' && role !== 'team_leader') return false;
-  return (
-    group.channelId !== null &&
-    worksGroup(userId, group) &&
-    usableChannelIds.includes(group.channelId)
-  );
+  return group.channelId !== null && worksGroup(userId, group);
 }
 
 /**
@@ -134,7 +131,6 @@ export function groupActionBlock(args: {
   role: AccountRole;
   userId: string;
   group: GroupManageFacts & { ourRole: 'admin' | 'member' | 'left' };
-  usableChannelIds: readonly string[];
   adminOnly?: boolean;
 }): GroupActionBlock | null {
   const { role, group, adminOnly = false } = args;

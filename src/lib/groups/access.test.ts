@@ -53,26 +53,21 @@ describe('canViewGroup', () => {
 });
 
 describe('canManageGroup', () => {
-  const usable = ['c1'];
   it('admin and owner always, even with no number', () => {
     expect(
       canManageGroup({
         role: 'admin',
         userId: 'x',
         group: { ...g, channelId: null },
-        usableChannelIds: [],
       })
     ).toBe(true);
   });
-  it('agent and leader: creator or manager on a usable number', () => {
+  it('agent and leader: creator or manager while the group has a number', () => {
     for (const role of ['agent', 'team_leader'] as const) {
-      const base = { role, group: g, usableChannelIds: usable };
+      const base = { role, group: g };
       expect(canManageGroup({ ...base, userId: 'u1' })).toBe(true);
       expect(canManageGroup({ ...base, userId: 'u2' })).toBe(true);
       expect(canManageGroup({ ...base, userId: 'u9' })).toBe(false);
-      expect(
-        canManageGroup({ ...base, userId: 'u1', usableChannelIds: [] })
-      ).toBe(false);
       expect(
         canManageGroup({
           ...base,
@@ -82,16 +77,30 @@ describe('canManageGroup', () => {
       ).toBe(false);
     }
   });
+  // 218: appointing a manager is the grant for the group; the number
+  // being allocated to other people (not usable by the manager for 1:1
+  // chats or creating groups) does not take it away.
+  it('a manager on a number allocated to other people manages it', () => {
+    const onAllocated = {
+      createdBy: 'admin1',
+      managerIds: ['u2'],
+      channelId: 'c2',
+    };
+    for (const role of ['agent', 'team_leader'] as const) {
+      expect(canManageGroup({ role, userId: 'u2', group: onAllocated })).toBe(
+        true
+      );
+      expect(canManageGroup({ role, userId: 'u9', group: onAllocated })).toBe(
+        false
+      );
+    }
+    // Creating a group there stays with the people the number is on.
+    expect(canCreateGroup('agent', 'c2', ['c1'])).toBe(false);
+  });
   it('viewer and guest never', () => {
     for (const role of ['viewer', 'bank_guest'] as const) {
-      expect(
-        canManageGroup({
-          role,
-          userId: 'u1',
-          group: g,
-          usableChannelIds: ['c1'],
-        })
-      ).toBe(false);
+      expect(canManageGroup({ role, userId: 'u1', group: g })).toBe(false);
+      expect(canManageGroup({ role, userId: 'u2', group: g })).toBe(false);
     }
   });
 });
@@ -134,15 +143,27 @@ describe('groupActionBlock', () => {
     role: 'agent' as const,
     userId: 'u1',
     group: { ...g, ourRole: 'admin' as const },
-    usableChannelIds: ['c1'],
   };
   it('null when allowed', () => {
     expect(groupActionBlock({ ...base, adminOnly: true })).toBeNull();
   });
-  it('not_allowed for a stranger, viewer or unusable number', () => {
+  it('null for a manager on a number allocated to other people (218)', () => {
+    const group = {
+      createdBy: 'admin1',
+      managerIds: ['u2'],
+      channelId: 'c2',
+      ourRole: 'admin' as const,
+    };
+    for (const adminOnly of [false, true]) {
+      expect(
+        groupActionBlock({ ...base, userId: 'u2', group, adminOnly })
+      ).toBeNull();
+    }
+  });
+  it('not_allowed for a stranger or a viewer, manager or not', () => {
     expect(groupActionBlock({ ...base, userId: 'u9' })).toBe('not_allowed');
     expect(groupActionBlock({ ...base, role: 'viewer' })).toBe('not_allowed');
-    expect(groupActionBlock({ ...base, usableChannelIds: [] })).toBe(
+    expect(groupActionBlock({ ...base, role: 'viewer', userId: 'u2' })).toBe(
       'not_allowed'
     );
   });

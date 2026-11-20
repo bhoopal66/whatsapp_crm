@@ -44,8 +44,12 @@ for the whole gateway:
   (so a team leader can add to their team's groups too). Viewers can't.
   Our number must still be an admin of the group on WhatsApp.
 - **Manage** (remove people, promote and demote, invites, settings, join
-  requests): owners, admins, the group's creator and the group's
-  managers.
+  requests) and chat in it: owners, admins, and agents or team leaders
+  who created the group or are its managers. Being made a manager is
+  the permission for that group: it works even when the group's number
+  is allocated to other people (migration 218). Allocation still
+  decides who chats one-to-one from the number and who creates groups
+  on it. Viewers never manage, even when listed as managers.
 - **Managers:** the Managers tab lists them. Only an owner, an admin or
   the creator can change the set; the creator always stays a manager.
 - **Create:** agents and up, from a number they are allowed to use.

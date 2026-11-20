@@ -15,9 +15,13 @@ and polish.
 ### Faster screens for team leaders and agents, and fewer errors
 
 **Migration required:** apply `216_team_activity_perf.sql`, then
-`217_conversations_perf.sql`, before deploying this build. Apply in
-order, once: re-running 206 after 216, or 191 after 217, puts the slow
-versions back (same results, slow again).
+`217_conversations_perf.sql`, then `218_group_managers_number_access.sql`,
+before deploying this build. Apply in order, once: re-running 206 after
+216, or 191 after 217, puts the slow versions back (same results, slow
+again); re-running 114 after 218 restores the old group-manager rule.
+- A group's managers can now chat in and run their group even when its
+  WhatsApp number is allocated to other people; allocation still decides
+  who chats one-to-one from the number and who creates groups on it.
 - The home dashboard's charts, the Team activity report and its
   drill-down, the team chat's WhatsApp counts and opening a chat no
   longer time out for team leaders and agents. They took 4 to 10

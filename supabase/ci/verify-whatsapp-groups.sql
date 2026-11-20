@@ -1,11 +1,13 @@
--- Behavioural regression suite for WhatsApp groups (migration 114).
+-- Behavioural regression suite for WhatsApp groups (migrations 114, 218).
 --
 -- Who sees a group is whatsapp_group_can_view (the policies read it as
 -- the set whatsapp_group_visible_ids): in the caller's active
 -- workspace, owner/admin every group; else the creator, a manager, or a
 -- team leader of a team the creator or a manager is in. Who manages it
 -- is whatsapp_group_can_manage: owner/admin, or an agent/leader who
--- created or manages it on a number can_use_channel allows. This
+-- created or manages it while it still has a number, whoever that
+-- number is allocated to (218; allocation still decides who creates a
+-- group on it, whatsapp_group_can_create). This
 -- asserts those rules for every kind of reader (another agent, a
 -- viewer, a bank guest and another workspace see nothing they should
 -- not), that the invite link reads only for managers, that no client
@@ -34,6 +36,9 @@ DECLARE
   u_guest  UUID := '00000000-0000-4000-8000-000000114008';
   u_unal   UUID := '00000000-0000-4000-8000-000000114009';  -- agent, creates g4 on a number not allocated to them
   u_other  UUID := '00000000-0000-4000-8000-000000114010';  -- owner of account B
+  u_m218   UUID := '00000000-0000-4000-8000-000000218001';  -- agent, manages g7 on w2 (not allocated to them)
+  u_v218   UUID := '00000000-0000-4000-8000-000000218002';  -- viewer, manages g7
+  u_b218   UUID := '00000000-0000-4000-8000-000000218003';  -- agent of account B
   a_acct   UUID;
   b_acct   UUID;
   w1       UUID;  -- A, Whapi, shared
@@ -48,6 +53,8 @@ DECLARE
   g4       UUID;
   g5       UUID;
   g6       UUID;
+  g7       UUID;
+  g8       UUID;
   gb       UUID;
   r        TEXT;
   n        INT := 0;
@@ -217,10 +224,11 @@ BEGIN
   r := pg_temp.wg_try(u_mgr, format('SELECT whatsapp_group_can_manage(%L)::text', g2));
   n := n + 1;
   IF r <> 'true' THEN failed := array_append(failed, ('manager cannot manage their group: ' || r)::text); END IF;
-  -- On a number allocated to someone else: sees it, cannot manage it.
-  r := pg_temp.wg_try(u_unal, format('SELECT whatsapp_group_can_view(%L)::text || ''/'' || whatsapp_group_can_manage(%L)::text', g4, g4));
+  -- On a number allocated to someone else: the creator still works the
+  -- group (218), but may not create another group on that number.
+  r := pg_temp.wg_try(u_unal, format('SELECT whatsapp_group_can_view(%L)::text || ''/'' || whatsapp_group_can_manage(%L)::text || ''/'' || whatsapp_group_can_create(%L)::text', g4, g4, w2));
   n := n + 1;
-  IF r <> 'true/false' THEN failed := array_append(failed, ('creator off the number should view, not manage: ' || r)::text); END IF;
+  IF r <> 'true/true/false' THEN failed := array_append(failed, ('creator off the number should view and manage, not create: ' || r)::text); END IF;
   r := pg_temp.wg_try(u_admin, format('SELECT whatsapp_group_can_manage(%L)::text || ''/'' || whatsapp_group_can_manage(%L)::text', g4, gb));
   n := n + 1;
   IF r <> 'true/false' THEN failed := array_append(failed, ('admin should manage A''s groups only: ' || r)::text); END IF;
@@ -413,6 +421,37 @@ BEGIN
   IF r <> 'ok' THEN
     failed := array_append(failed, format('the notifications CHECK refused group_join_request (%s)', r));
   END IF;
+
+  -- ---------- 218: a manager works the group whatever the number's allocation ----------
+  -- w2 is allocated to u_admin only. Appointing someone manager is the
+  -- grant for that group; allocation keeps deciding creation.
+  INSERT INTO auth.users (id, email) VALUES
+    (u_m218, 'wg-m218@example.invalid'),
+    (u_v218, 'wg-v218@example.invalid'),
+    (u_b218, 'wg-b218@example.invalid')
+  ON CONFLICT DO NOTHING;
+  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_m218;
+  UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_v218;
+  UPDATE profiles SET account_id = b_acct, account_role = 'agent' WHERE user_id = u_b218;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w2, '120363000000218001@g.us', 'WG seven', u_admin, 'admin') RETURNING id INTO g7;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w2, '120363000000218002@g.us', 'WG eight', u_admin, 'admin') RETURNING id INTO g8;
+  INSERT INTO whatsapp_group_managers (group_id, account_id, user_id) VALUES
+    (g7, a_acct, u_m218), (g7, a_acct, u_v218);
+
+  r := pg_temp.wg_try(u_m218, format('SELECT whatsapp_group_can_manage(%L)::text', g7));
+  n := n + 1;
+  IF r <> 'true' THEN failed := array_append(failed, ('218: a manager on a number allocated to someone else cannot manage the group: ' || r)::text); END IF;
+  r := pg_temp.wg_try(u_m218, format('SELECT whatsapp_group_can_manage(%L)::text || ''/'' || whatsapp_group_can_create(%L)::text', g8, w2));
+  n := n + 1;
+  IF r <> 'false/false' THEN failed := array_append(failed, ('218: the same agent manages a group they do not manage, or creates on a number not theirs: ' || r)::text); END IF;
+  r := pg_temp.wg_try(u_v218, format('SELECT whatsapp_group_can_view(%L)::text || ''/'' || whatsapp_group_can_manage(%L)::text', g7, g7));
+  n := n + 1;
+  IF r <> 'true/false' THEN failed := array_append(failed, ('218: a viewer manager should view, not manage: ' || r)::text); END IF;
+  r := pg_temp.wg_try(u_b218, format('SELECT whatsapp_group_can_view(%L)::text || ''/'' || whatsapp_group_can_manage(%L)::text', g7, g7));
+  n := n + 1;
+  IF r <> 'false/false' THEN failed := array_append(failed, ('218: another workspace''s agent reaches the group: ' || r)::text); END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT114', MESSAGE = 'verify-whatsapp-groups rollback';

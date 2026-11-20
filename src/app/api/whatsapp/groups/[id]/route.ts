@@ -144,8 +144,6 @@ export async function GET(request: Request, { params }: Params) {
       channelId: group.channel_id,
       ourRole: group.our_role,
     };
-    // `whatsapp_group_can_manage` already folded in can_use_channel.
-    const usable = canManage && group.channel_id ? [group.channel_id] : [];
     const blocks: Record<string, GroupActionBlock | null> = {};
     for (const [action, adminOnly] of Object.entries(
       adminOnlyActions(parseGroupSettings(group.settings))
@@ -154,7 +152,6 @@ export async function GET(request: Request, { params }: Params) {
         role: ctx.role,
         userId: ctx.userId,
         group: facts,
-        usableChannelIds: usable,
         adminOnly,
       });
     }
