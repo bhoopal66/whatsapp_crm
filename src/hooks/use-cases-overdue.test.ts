@@ -26,7 +26,7 @@ vi.mock('@/hooks/use-auth', () => ({ useAuth: () => auth }));
 
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
 
-const fetchMock = vi.fn(() =>
+const fetchMock = vi.fn<typeof fetch>(() =>
   Promise.resolve(new Response(JSON.stringify({ rows: [] }), { status: 200 }))
 );
 
