@@ -127,6 +127,22 @@ describe('PgAutoMsgStore.state', () => {
     await expect(bad.store.state('r1')).rejects.toThrow(/channel sms/);
   });
 
+  it('reads the row’s own channel when the state has none (203 re-run after 215)', async () => {
+    const { store } = rig({
+      data: { ...STATE, row: { ...ROW, channel: 'rcs' } },
+      error: null,
+    });
+    expect((await store.state('r1'))?.channel).toBe('rcs');
+  });
+
+  it('a state and row that disagree on the channel throw', async () => {
+    const { store } = rig({
+      data: { ...STATE, channel: 'whatsapp', row: { ...ROW, channel: 'rcs' } },
+      error: null,
+    });
+    await expect(store.state('r1')).rejects.toThrow(/channel disagrees/);
+  });
+
   it('the trigger switch comes from trigger_enabled', async () => {
     const { store } = rig({
       data: { ...STATE, trigger_enabled: false },

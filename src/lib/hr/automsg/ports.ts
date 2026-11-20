@@ -65,6 +65,11 @@ export interface AutoMsgStorePort {
 }
 
 export interface TemplateSendRequest {
+  /**
+   * The outbox row's id: an id, never text. The RCS sender passes it as its
+   * idempotency reference (`clientRef`); the WhatsApp sender ignores it.
+   */
+  outboxId: string;
   accountId: string;
   conversationId: string;
   contactId: string;
@@ -86,6 +91,7 @@ export interface TemplateSendRequest {
 
 /** The only keys a send request may carry (checked at runtime by `assertTemplateOnly`). */
 export const SEND_REQUEST_KEYS: readonly (keyof TemplateSendRequest)[] = [
+  'outboxId',
   'accountId',
   'conversationId',
   'contactId',

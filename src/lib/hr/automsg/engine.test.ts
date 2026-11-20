@@ -76,6 +76,7 @@ describe('processRow', () => {
     expect(await processRow(row('r1'), deps)).toBe('sent');
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
+      outboxId: 'r1',
       metaTemplateName: 'hr_hr_interview_invite',
       params: { name: 'Sara x', slot: SLOT_FALLBACK },
     });
@@ -272,6 +273,7 @@ describe('processDue', () => {
 
 describe('no free-text path', () => {
   const req: TemplateSendRequest = {
+    outboxId: 'o',
     accountId: 'a',
     conversationId: 'c',
     contactId: 'p',

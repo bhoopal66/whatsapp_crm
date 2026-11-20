@@ -115,6 +115,7 @@ function baseConv(over: Row = {}): Row {
 
 function req(over: Partial<TemplateSendRequest> = {}): TemplateSendRequest {
   return {
+    outboxId: 'ob-1',
     accountId: ACCOUNT,
     conversationId: CONV,
     contactId: CONTACT,

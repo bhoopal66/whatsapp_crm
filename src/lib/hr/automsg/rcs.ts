@@ -20,10 +20,13 @@
  *   the WhatsApp sender's, sent with a leading '+'.
  * - Never a personal chat (migration 191): refused before any call.
  * - Errors: RcsSendError { reason, retryable, status }. network / timeout /
- *   429 / 5xx retryable; 401 / 403 'unauthorized', other 4xx 'rejected',
+ *   429 / 5xx retryable (the timeout covers the body read too; a 2xx whose
+ *   body cannot be read in time is the terminal 'no_message_id'); 401 / 403 'unauthorized', other 4xx 'rejected',
  *   terminal. The token never appears in an error.
- * - clientRef = conversationId (correlation only; the provider is not
- *   assumed to dedupe on it).
+ * - clientRef = the outbox row's own id (one per automated message, stable
+ *   across retries), so a provider that de-duplicates on it makes a resend
+ *   after a lost response idempotent. TODO: map clientRef to the provider's
+ *   idempotency key when the provider is chosen.
  * - An RCS message has no chat message: `messageId` is always null.
  *
  * Server-only.
@@ -111,35 +114,46 @@ export function createRcsSendPort(
         templateId: req.metaTemplateName,
         language: req.language,
         params: rcsParams(req),
-        clientRef: req.conversationId,
+        clientRef: req.outboxId,
       };
+      // One timer covers the request AND the body read: a provider that
+      // sends a status line and then stalls the body would otherwise keep
+      // send() pending forever and stop the drain.
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), timeoutMs);
       let res: Response;
-      try {
-        res = await fetchImpl(url, {
-          method: 'POST',
-          signal: ctl.signal,
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${cfg.token}`,
-          },
-          body: JSON.stringify(body),
-        });
-      } catch {
-        // Never surface the underlying error text: it may echo the request.
-        throw new RcsSendError(
-          ctl.signal.aborted ? 'timeout' : 'network',
-          true
-        );
-      } finally {
-        clearTimeout(timer);
-      }
       let json: unknown = null;
       try {
-        json = await res.json();
-      } catch {
-        json = null;
+        try {
+          res = await fetchImpl(url, {
+            method: 'POST',
+            signal: ctl.signal,
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${cfg.token}`,
+            },
+            body: JSON.stringify(body),
+          });
+        } catch {
+          // Never surface the underlying error text: it may echo the request.
+          throw new RcsSendError(
+            ctl.signal.aborted ? 'timeout' : 'network',
+            true
+          );
+        }
+        // An unreadable body (bad JSON, a dropped stream, the timeout) is a
+        // null body: a 2xx then ends as terminal 'no_message_id', never
+        // resent, because the provider may have the message; an error
+        // status keeps its status-based classification below.
+        json = await Promise.race([
+          res.json().catch(() => null),
+          new Promise<null>((resolve) => {
+            if (ctl.signal.aborted) resolve(null);
+            ctl.signal.addEventListener('abort', () => resolve(null));
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
       }
       if (res.ok) {
         const j = json as { messageId?: unknown; id?: unknown } | null;

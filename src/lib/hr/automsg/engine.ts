@@ -150,6 +150,7 @@ export async function processRow(
     for (const k of used) fill[k] = params[k as keyof typeof params];
     body = render(tpl.body, fill);
     const req: TemplateSendRequest = {
+      outboxId: row.id,
       accountId: cur.accountId,
       conversationId: cur.conversationId,
       contactId: cur.contactId,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { classifySendFailure } from './failure';
 import type { TemplateSendRequest } from './ports';
@@ -43,6 +43,7 @@ const CONV = {
 const CONTACT = { id: 'p1', account_id: 'acc', phone: '+971 50 123 4567' };
 
 const REQ: TemplateSendRequest = {
+  outboxId: 'ob-1',
   accountId: 'acc',
   conversationId: 'c1',
   contactId: 'p1',
@@ -95,7 +96,7 @@ describe('createRcsSendPort', () => {
         { name: 'name', value: 'Sara' },
         { name: 'slot', value: 'Monday' },
       ],
-      clientRef: 'c1',
+      clientRef: 'ob-1',
     });
   });
 
@@ -145,6 +146,50 @@ describe('createRcsSendPort', () => {
       )) as unknown as typeof fetch;
     const e = await failure(port(f, CONV, 5).send(REQ));
     expect([e.reason, e.retryable]).toEqual(['timeout', true]);
+  });
+
+  describe('a body that never ends', () => {
+    // A provider that sends its status line and then stalls the body: the
+    // stream is never closed and ignores the abort signal.
+    const stalled = (status: number) =>
+      (async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(new TextEncoder().encode('{"messageId":'));
+            },
+          }),
+          { status }
+        )) as unknown as typeof fetch;
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function settle(status: number): Promise<RcsSendError> {
+      vi.useFakeTimers();
+      const p = failure(port(stalled(status), CONV, 10_000).send(REQ));
+      await vi.advanceTimersByTimeAsync(10_000);
+      return p;
+    }
+
+    it('a 2xx ends at the timeout as terminal no_message_id', async () => {
+      const e = await settle(200);
+      expect([e.reason, e.retryable, e.status]).toEqual([
+        'no_message_id',
+        false,
+        200,
+      ]);
+    });
+
+    it('an error status keeps its status-based classification', async () => {
+      const e = await settle(503);
+      expect([e.reason, e.retryable, e.status]).toEqual([
+        'provider_unavailable',
+        true,
+        503,
+      ]);
+    });
   });
 
   it('refuses a personal chat before any call', async () => {

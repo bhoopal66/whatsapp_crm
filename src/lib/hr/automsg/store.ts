@@ -140,16 +140,29 @@ export function toRowState(j: Json): RowState {
     triggerEnabled,
     template: toTemplate(obj(j.template)),
     sentToday: num(j.sent_today, 0),
-    channel: toChannel(j.channel),
+    channel: rowChannel(j.channel, obj(j.row)?.channel),
   };
 }
 
 /**
- * Migration 215's `channel`; absent (an older state) = 'whatsapp'. An
- * unknown value throws rather than guess a channel: nothing is sent.
+ * Migration 215's `channel`, read twice: the state's top-level key and the
+ * outbox row's own column (`row`, `to_jsonb(o)`). Re-running 203 after 215
+ * reverts `hr_automsg_row_state()` to a body without the top-level key, and
+ * an rcs row must not then go out through the WhatsApp sender: either one
+ * saying 'rcs' makes it rcs, and two that disagree throw (nothing is sent).
+ * Both absent (a pre-215 database) = 'whatsapp'.
  */
-function toChannel(v: unknown): Channel {
-  if (v === undefined || v === null) return 'whatsapp';
+function rowChannel(top: unknown, own: unknown): Channel {
+  const a = toChannel(top);
+  const b = toChannel(own);
+  if (a !== null && b !== null && a !== b)
+    throw new Error(`automated-message channel disagrees: ${a} vs ${b}`);
+  return a ?? b ?? 'whatsapp';
+}
+
+/** One channel value; absent = null. An unknown value throws rather than guess. */
+function toChannel(v: unknown): Channel | null {
+  if (v === undefined || v === null) return null;
   if ((CHANNELS as readonly unknown[]).includes(v)) return v as Channel;
   throw new Error(`unknown automated-message channel ${String(v)}`);
 }
