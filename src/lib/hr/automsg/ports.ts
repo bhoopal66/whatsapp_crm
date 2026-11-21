@@ -118,6 +118,6 @@ export interface EngineDeps {
   /** The WhatsApp sender. */
   sender: SendPort;
   /** Other channels' senders; a missing one holds its rows 'channel_not_connected'. */
-  senders?: { rcs?: SendPort | null };
+  senders?: { rcs?: SendPort | null; sms?: SendPort | null };
   clock: ClockPort;
 }

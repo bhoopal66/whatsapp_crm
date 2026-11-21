@@ -126,7 +126,7 @@ BEGIN
          WHERE t.account_id = a_acct AND t.trigger = 'stage_ai_interview');
   c := c || pg_temp.hr_chk('trigger_set with a NULL channel did not keep rcs', r, 'rcs');
   n := (SELECT count(*) FROM hr_automsg_audit a WHERE a.account_id = a_acct);
-  r := pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''cv_received'', false, NULL, ''sms'')::text');
+  r := pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''cv_received'', false, NULL, ''fax'')::text');
   r := r || '/' || (SELECT concat_ws(':', t.enabled, t.channel) FROM hr_automsg_triggers t
                      WHERE t.account_id = a_acct AND t.trigger = 'cv_received')
     || '/' || ((SELECT count(*) FROM hr_automsg_audit a WHERE a.account_id = a_acct) - n);
@@ -198,7 +198,7 @@ BEGIN
     || '/' || pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_template_set(''cv_ack'', ''en'', ''Hi'', ''Abc'', ''approved'', ''utility'', ''whatsapp'')::text');
   c := c || pg_temp.hr_chk('a WhatsApp template name in upper case was not INVALID', r,
                            'ERROR % INVALID:%/ERROR % INVALID:%');
-  r := pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_template_set(''cv_ack'', ''en'', ''Hi'', ''x'', ''draft'', ''utility'', ''sms'')::text');
+  r := pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_template_set(''cv_ack'', ''en'', ''Hi'', ''x'', ''draft'', ''utility'', ''fax'')::text');
   c := c || pg_temp.hr_chk('template_set with a bogus channel was not INVALID', r, 'ERROR % INVALID:%');
   r := (SELECT a.detail->>'channel' FROM hr_automsg_audit a
          WHERE a.account_id = a_acct AND a.action = 'template'
@@ -226,8 +226,8 @@ BEGIN
     || '/' || pg_temp.hr_as(u_lead,
          format('SELECT coalesce(granted::text, ''none'') FROM public.hr_automsg_consent_get(%L, ''whatsapp'')', v2));
   c := c || pg_temp.hr_chk('an RCS consent shows on WhatsApp', r, 'true/none/none');
-  r := pg_temp.hr_as(u_lead, format('SELECT granted FROM public.hr_automsg_consent_set(%L, true, ''form'', ''sms'')', v2))
-    || '/' || pg_temp.hr_as(u_lead, format('SELECT granted FROM public.hr_automsg_consent_get(%L, ''sms'')', v2))
+  r := pg_temp.hr_as(u_lead, format('SELECT granted FROM public.hr_automsg_consent_set(%L, true, ''form'', ''fax'')', v2))
+    || '/' || pg_temp.hr_as(u_lead, format('SELECT granted FROM public.hr_automsg_consent_get(%L, ''fax'')', v2))
     || '/' || (SELECT count(*) FROM hr_automsg_consent k WHERE k.account_id = a_acct AND k.contact_id = k2);
   c := c || pg_temp.hr_chk('consent with a bogus channel was not INVALID or wrote a row', r,
                            'ERROR % INVALID:%/ERROR % INVALID:%/1');
@@ -280,7 +280,7 @@ BEGIN
   r := pg_temp.hr_as(NULL, format(
          'SELECT public.hr_automsg_delivery_record(%L, ''rcs-msg-1'', ''delivered'', now(), NULL)', a_acct))
     || '/' || pg_temp.hr_as(NULL, format(
-         'SELECT public.hr_automsg_delivery_record(%L, ''rcs-msg-1'', ''delivered'', now(), NULL, ''sms'')', a_acct));
+         'SELECT public.hr_automsg_delivery_record(%L, ''rcs-msg-1'', ''delivered'', now(), NULL, ''fax'')', a_acct));
   c := c || pg_temp.hr_chk('a WhatsApp receipt matched an rcs-only id, or a bogus channel was accepted', r,
                            'unknown_message/ERROR % INVALID:%');
 

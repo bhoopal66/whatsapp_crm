@@ -11628,7 +11628,8 @@
       },
       "channel": {
         "whatsapp": "WhatsApp",
-        "rcs": "RCS"
+        "rcs": "RCS",
+        "sms": "SMS"
       },
       "templateKinds": {
         "cv_ack": "이력서 접수 안내",

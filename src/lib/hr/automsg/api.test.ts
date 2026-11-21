@@ -288,7 +288,7 @@ describe('mapping', () => {
       ok({
         triggers: [
           { trigger: 'cv_received', enabled: true, channel: 'rcs' },
-          { trigger: 'reply_overdue_nudge', enabled: true, channel: 'sms' },
+          { trigger: 'reply_overdue_nudge', enabled: true, channel: 'fax' },
         ],
         templates: [
           { kind: 'cv_ack', language: 'en', channel: 'rcs' },

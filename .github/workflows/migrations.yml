@@ -1068,6 +1068,15 @@ jobs:
       - name: Verify HR automated-message RCS channel
         run: supabase db query --local --file supabase/ci/verify-hr-automsg-rcs.sql
 
+      # Migration 226: an SMS channel (Dinstar GSM gateway) beside
+      # WhatsApp and RCS. An sms row's key ends in '|sms', its template
+      # (approved needs a label) and consent are its own channel's; the
+      # gateway's pushes match by user id and the number's last nine
+      # digits, later reports by ref id or number within 48 h; the
+      # receipt functions are service role only.
+      - name: Verify HR automated-message SMS channel
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg-sms.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA
