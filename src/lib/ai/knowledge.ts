@@ -1,3 +1,4 @@
+import { assertAiTransfer } from '@/lib/privacy/ai-transfer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiConfig } from './types';
 import { chunkText } from './chunk';
@@ -155,6 +156,13 @@ export async function retrieveKnowledgeScored(
   // Semantic path.
   if (config.embeddingsApiKey) {
     try {
+      // The customer's text goes to OpenAI: the transfer register (224).
+      await assertAiTransfer(
+        { accountId, provider: 'openai' },
+        'embedding',
+        null,
+        query.length
+      );
       const [queryEmbedding] = await embedTexts(config.embeddingsApiKey, [
         query,
       ]);

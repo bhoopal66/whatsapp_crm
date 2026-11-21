@@ -8,6 +8,7 @@ import {
 import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults';
 import { generateOpenAi } from './providers/openai';
 import { generateAnthropic } from './providers/anthropic';
+import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 
 export interface GenerateArgs {
   config: AiConfig;
@@ -22,6 +23,8 @@ export interface GenerateArgs {
    *  the auto-reply dispatcher passes less when its budget is running
    *  out. */
   timeoutMs?: number;
+  /** What the call is for, in the AI transfer register (migration 224). */
+  purpose?: string;
 }
 
 /**
@@ -41,6 +44,12 @@ export async function generateReply(
     messages,
     timeoutMs,
   };
+  await assertAiTransfer(
+    config,
+    args.purpose ?? 'reply',
+    providerArgs.model,
+    promptSize(systemPrompt, messages)
+  );
 
   let result: { text: string; usage: AiUsage | null };
   switch (config.provider) {

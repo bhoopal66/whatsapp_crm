@@ -159,6 +159,33 @@ export class PrivacyStore {
       updatedAt: (data.updated_at as string | null) ?? null,
     };
   }
+
+  async aiTransfer(
+    actor: string,
+    account: string,
+    change?: {
+      basis: string | null;
+      note: string | null;
+      approvedBy: string | null;
+      region: string | null;
+      requireBasis: boolean;
+    }
+  ): Promise<unknown> {
+    return change
+      ? this.rpc('ai_transfer_basis_set', {
+          p_actor: actor,
+          p_account: account,
+          p_basis: change.basis,
+          p_note: change.note,
+          p_approved_by: change.approvedBy,
+          p_region: change.region,
+          p_require: change.requireBasis,
+        })
+      : this.rpc('ai_transfer_basis_get', {
+          p_actor: actor,
+          p_account: account,
+        });
+  }
 }
 
 /** A stored file the erase removed the row of: by bucket and path, or a chat-media URL. */

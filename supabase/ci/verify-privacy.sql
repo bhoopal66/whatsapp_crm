@@ -14,6 +14,10 @@
 -- run until applied, deletes only what is old enough, and skips a
 -- customer under a legal hold.
 --
+-- 224: the AI transfer basis is owners and admins only; each check is
+-- logged with no text; a call is refused only while the basis is
+-- required and incomplete.
+--
 -- ONE statement on purpose: `supabase db query --file` sends the file as
 -- a single prepared statement and rejects several. Fixtures are rolled
 -- back by a sentinel exception; failures are named in the final one.
@@ -202,6 +206,37 @@ BEGIN
        AND actor_label = 'system:retention') = 2, 'the sweeps were not logged');
   n := n + 1; failed := failed || pg_temp.pv_ok(
     a_acct IN (SELECT privacy_retention_accounts()), 'the account is not on the sweep list');
+
+  -- ---------- 224: AI transfer register ----------
+  n := n + 1; failed := failed || pg_temp.pv_ok(ai_transfer_check(a_acct, 'openai', 'reply', 'gpt-x', 1200),
+    'an AI call was refused with no basis required');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try(format('SELECT ai_transfer_basis_set(%L, %L, ''contract'', ''short'', ''Counsel'', ''US'', false)::text',
+      u_agent, a_acct)) LIKE 'ERROR % NOT_ALLOWED:%', 'an agent set the AI transfer basis');
+  PERFORM ai_transfer_basis_set(u_admin, a_acct, 'contract', NULL, NULL, NULL, true);
+  n := n + 1; failed := failed || pg_temp.pv_ok(NOT ai_transfer_check(a_acct, 'openai', 'reply', 'gpt-x', 900),
+    'an AI call went with the basis required and incomplete');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try(format('SELECT ai_transfer_basis_set(%L, %L, ''contract'', ''too short'', ''Counsel'', ''US'', false)::text',
+      u_admin, a_acct)) LIKE 'ERROR % INVALID:%', 'a basis note under 20 characters was accepted');
+  -- Required with a complete basis: allowed.
+  PERFORM ai_transfer_basis_set(u_admin, a_acct, 'contract', 'DPA with the provider, signed 2026-11', 'Legal counsel', 'US', true);
+  n := n + 1; failed := failed || pg_temp.pv_ok(ai_transfer_check(a_acct, 'typesafe', 'triage', NULL, 300),
+    'an AI call was refused with a complete basis on record');
+  -- Account B requires nothing: allowed; logged with allowed = true.
+  n := n + 1; failed := failed || pg_temp.pv_ok(ai_transfer_check(b_acct, 'anthropic', 'draft', 'claude-x', 10),
+    'account B''s call was refused');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (SELECT count(*) FROM ai_transfer_log WHERE account_id = a_acct AND allowed) = 2
+    AND (SELECT count(*) FROM ai_transfer_log WHERE account_id = a_acct AND NOT allowed) = 1
+    AND (SELECT basis FROM ai_transfer_log WHERE account_id = a_acct ORDER BY id DESC LIMIT 1) = 'contract',
+    'the AI calls were not logged with their basis');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try('DELETE FROM ai_transfer_log') LIKE 'ERROR %', 'the AI transfer log took a DELETE');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (ai_transfer_basis_get(u_admin, a_acct) -> 'basis' ->> 'require_basis')::boolean
+    AND (ai_transfer_basis_get(u_admin, a_acct) ->> 'refused_30_days')::int = 1,
+    'ai_transfer_basis_get does not report the requirement');
 
   RAISE EXCEPTION USING ERRCODE = 'ZT221', MESSAGE = 'verify-privacy rollback';
   EXCEPTION WHEN SQLSTATE 'ZT221' THEN

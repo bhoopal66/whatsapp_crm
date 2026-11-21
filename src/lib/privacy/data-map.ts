@@ -951,6 +951,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'workspace_audit',
             'privacy_requests',
             'privacy_retention_settings',
+            'ai_transfer_basis',
+            'ai_transfer_log',
           ],
         ],
       ] as const

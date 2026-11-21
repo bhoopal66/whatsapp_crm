@@ -14,6 +14,9 @@ export type AiProvider = 'openai' | 'anthropic';
  * (stored AES-256-GCM-encrypted at rest).
  */
 export interface AiConfig {
+  /** The workspace, set by loadAiConfig; the AI transfer register
+   *  (migration 224) checks calls of a config that carries one. */
+  accountId?: string;
   provider: AiProvider;
   model: string;
   apiKey: string;
