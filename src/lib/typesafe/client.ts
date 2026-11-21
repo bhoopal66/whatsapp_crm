@@ -93,6 +93,8 @@ export const SELECTION_CALLERS = [
   'reminder',
   // 019d tool advisor (lib/assist/advisor.ts). Idle: nothing calls it yet.
   'tool_advice',
+  // Desk case suggestion for a tray document (lib/desk/suggest.ts, 235).
+  'desk_case',
 ] as const;
 export type SelectionCaller = (typeof SELECTION_CALLERS)[number];
 export type GatewayCheck = CheckName | SelectionCaller;

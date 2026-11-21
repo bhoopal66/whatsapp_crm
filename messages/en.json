@@ -12066,6 +12066,14 @@
         "code": "case code",
         "prompt": "asked for a document",
         "sender": "sender's own case"
+      },
+      "suggest": "Suggest a case",
+      "suggestions": {
+        "suggested": "Suggested: {caseNumber} ({percent}% sure). Check it, then choose it yourself.",
+        "off": "Suggestions are not available for this workspace.",
+        "failed": "No suggestion: the check did not answer.",
+        "unsure": "No clear match: choose the case yourself.",
+        "tie": "Two cases match equally: choose the case yourself."
       }
     },
     "routing": {
@@ -12146,6 +12154,15 @@
       "gapDays": "Days between reminders",
       "save": "Save",
       "saved": "Reminders saved"
+    },
+    "worklist": {
+      "title": "Case desk",
+      "tray": "{count, plural, one {# WhatsApp document} other {# WhatsApp documents}} to sort",
+      "queue": "{count, plural, one {# upload} other {# uploads}} in your sorting queues",
+      "mine": "{count, plural, one {# of your uploads waits} other {# of your uploads wait}} for tags",
+      "tasks": "{count, plural, one {# desk follow-up} other {# desk follow-ups}} for you",
+      "oldest": "oldest {age}",
+      "open": "Open the case desk"
     }
   },
   "Privacy": {

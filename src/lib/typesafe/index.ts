@@ -37,6 +37,10 @@ import {
   runReminderJudgment,
   type ReminderJudgmentInput,
 } from './checks/reminder';
+import {
+  runDeskCaseJudgment,
+  type DeskCaseJudgmentInput,
+} from './checks/desk-case';
 import { runIntentMatch, type IntentMatchInput } from './checks/intent-match';
 import { runReplyOption, type ReplyOptionInput } from './checks/reply-option';
 import {
@@ -225,6 +229,14 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      */
     reminder: (input: ReminderJudgmentInput) =>
       runReminderJudgment({ config, gateway }, input),
+    /**
+     * Desk case suggestion (lib/desk/suggest.ts, migration 235): which
+     * candidate case a tray document most likely belongs to. Advice only;
+     * not a safety check: no account switch, policy or log row. Never
+     * throws.
+     */
+    deskCase: (input: DeskCaseJudgmentInput) =>
+      runDeskCaseJudgment({ config, gateway }, input),
     /**
      * Compass status -> case stage suggestion (lib/cases/status-map.ts).
      * Not a safety check: no account switch, policy or log row. Never

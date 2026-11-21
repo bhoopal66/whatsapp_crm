@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: My worklist and suggested cases
+
+**Migration required:** apply `235_desk_worklist_suggest.sql` (as a
+superuser) after 234.
+- My worklist shows a Case desk card: tray documents to sort, uploads
+  in your sorting queues, your untagged uploads and your desk
+  follow-ups.
+- Tray → **Suggest a case**: Jev names the most likely case and how sure
+  it is. Advice only: it never files and never picks the case for you.
+- See `docs/case-desk.md`.
+
 ### Case desk: daily reminder to customers
 
 **Migration required:** apply `234_desk_reminder_digest.sql` (as a

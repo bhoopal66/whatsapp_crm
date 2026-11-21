@@ -89,6 +89,14 @@ export class DeskStoreError extends Error {
 }
 
 export type ItemState = 'untagged' | 'filed' | 'rejected' | 'duplicate';
+
+/** What waits for one person at the desk (migration 235). */
+export interface DeskWorklist {
+  tray: { count: number; oldestSeconds: number | null };
+  queue: { count: number; oldestSeconds: number | null };
+  mine: { count: number; oldestSeconds: number | null };
+  tasks: { count: number; oldestSeconds: number | null };
+}
 export type ItemKind = 'new_case' | 'pending_doc' | 'info';
 
 export interface ItemResult {
@@ -1056,6 +1064,28 @@ export class DeskStore {
       p_gap_days: input.gapDays,
       p_now: this.now(),
     });
+  }
+  // ---------- the desk in My worklist (migration 235) ----------
+
+  async worklist(actor: string, account: string): Promise<DeskWorklist> {
+    const r = (
+      await this.rpc('desk_worklist', {
+        p_actor: actor,
+        p_account: account,
+        p_now: this.now(),
+      })
+    )[0];
+    const o = (r && 'tray' in r ? r : (Object.values(r ?? {})[0] ?? {})) as Row;
+    const part = (v: unknown) => {
+      const x = (v ?? {}) as Row;
+      return { count: num(x.count) ?? 0, oldestSeconds: num(x.oldest_seconds) };
+    };
+    return {
+      tray: part(o.tray),
+      queue: part(o.queue),
+      mine: part(o.mine),
+      tasks: part(o.tasks),
+    };
   }
 }
 

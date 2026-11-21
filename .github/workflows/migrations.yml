@@ -1151,6 +1151,12 @@ jobs:
       - name: Verify desk reminder digest
         run: supabase db query --local --file supabase/ci/verify-desk-reminder-digest.sql
 
+      # Migration 235: the desk in My worklist (counts for what waits for
+      # each person) and what a suggested case may see of a tray item
+      # (no names; bank, product and missing documents per candidate).
+      - name: Verify desk worklist and suggestion input
+        run: supabase db query --local --file supabase/ci/verify-desk-worklist-suggest.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

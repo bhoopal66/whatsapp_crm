@@ -259,6 +259,23 @@ and up):
   no-bank queue goes to the lead at 2 hours. One task per upload and
   level, from the automations cron.
 
+## Follow-ups and suggestions
+
+Migration 235 (design 035 D8 and D12).
+
+- **My worklist** shows a *Case desk* card with what waits for you:
+  WhatsApp documents in the tray you may sort, uploads in your sorting
+  queues, your own uploads still waiting for tags, and desk follow-up
+  tasks assigned to you (tray escalations, queue alerts, document
+  expiry), each with the oldest age.
+- **Suggest a case** (Tray): Jev reads the document's type, file name
+  and caption and the candidates' bank, product and missing documents
+  (never a company or person name) and names the most likely case with
+  how sure it is. It is advice only: nothing is filed, linked, sent or
+  changed, and the case is never selected for you. No suggestion when
+  the workspace has no Jev access, the check fails, it is under 60% sure,
+  or two cases are within 10 points of each other.
+
 ## Rules held in the database
 
 - Tables (`desk_bank_codes`, `desk_customers`, `desk_number_seq`,
@@ -296,6 +313,9 @@ and up):
   same way. `supabase/ci/verify-desk-reminder-digest.sql` asserts the
   switch, the template rule, one a day, the summary, the gap and reset,
   quiet hours, opt-out, the cap and STOP.
+- `supabase/ci/verify-desk-worklist-suggest.sql` (235) asserts the
+  worklist counts per role and that the suggestion input carries no
+  names and only what the sorter may see.
 
 ## API
 
@@ -322,6 +342,8 @@ Refusals answer `{ error, code }`.
 | `POST /files/[fileId]/link` | readers of the file's case who can write the target | `{ caseId }` |
 | `GET /companies/[id]/checklist` | readers of a company's case, team leaders and up | the merged checklist |
 | `GET /digest`, `PUT /digest` | staff / owners and admins | `{ enabled, templateName, language, sendHour, gapDays }` |
+| `GET /worklist` | staff | what waits for you at the desk |
+| `POST /tray/[id]/suggest` | who may sort the item | a suggested case, advice only |
 | `GET /cover` | team leaders and up | roles, today's cover, leave |
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
 | `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |

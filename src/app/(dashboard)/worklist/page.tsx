@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
+import { DeskWorklistCard } from '@/components/desk/desk-worklist-card';
 import { WorklistView } from '@/components/worklist/worklist-view';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
@@ -71,13 +72,16 @@ export default function WorklistPage() {
   );
 
   return (
-    <WorklistView
-      items={items}
-      mode={mode}
-      nameOf={nameOf}
-      assignedTo={assignedTo}
-      onAssignedTo={(userId) => setFilter({ accountId, userId })}
-      members={options}
-    />
+    <>
+      <DeskWorklistCard />
+      <WorklistView
+        items={items}
+        mode={mode}
+        nameOf={nameOf}
+        assignedTo={assignedTo}
+        onAssignedTo={(userId) => setFilter({ accountId, userId })}
+        members={options}
+      />
+    </>
   );
 }

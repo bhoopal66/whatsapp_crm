@@ -127,7 +127,28 @@ function TrayCard({
   const [confirm, setConfirm] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // Advice only (design 035 D12): shown as text, never selected for you.
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const picked = item.candidates.find((c) => c.caseId === caseId) ?? null;
+  const suggest = async () => {
+    setBusy(true);
+    const r = await deskApi.suggest(item.trayId);
+    setBusy(false);
+    if (!r.ok) {
+      toast.error(r.error);
+      return;
+    }
+    const s = r.data;
+    if (s.status === 'suggested') {
+      const c = item.candidates.find((x) => x.caseId === s.caseId);
+      setSuggestion(
+        t('tray.suggestions.suggested', {
+          caseNumber: c?.caseNumber ?? s.caseId,
+          percent: Math.round(s.p * 100),
+        })
+      );
+    } else setSuggestion(t(`tray.suggestions.${s.status}`));
+  };
   const mustConfirm = picked ? needsCompanyConfirm(item, picked) : false;
 
   const file = async () => {
@@ -246,6 +267,23 @@ function TrayCard({
             </label>
           ))}
         </fieldset>
+        {item.candidates.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={suggest}
+            >
+              {t('tray.suggest')}
+            </Button>
+            {suggestion && (
+              <span className="text-muted-foreground text-xs">
+                {suggestion}
+              </span>
+            )}
+          </div>
+        )}
         {picked && mustConfirm && (
           <div className="space-y-1.5">
             <Label htmlFor={`confirm-${item.trayId}`}>

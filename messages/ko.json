@@ -12066,6 +12066,14 @@
         "code": "케이스 코드",
         "prompt": "문서 요청됨",
         "sender": "발신자 본인 케이스"
+      },
+      "suggest": "케이스 제안",
+      "suggestions": {
+        "suggested": "제안: {caseNumber} (확신도 {percent}%). 확인한 후 직접 선택하세요.",
+        "off": "이 작업 공간에서는 제안을 사용할 수 없습니다.",
+        "failed": "제안 없음: 확인이 응답하지 않았습니다.",
+        "unsure": "명확한 일치 없음: 케이스를 직접 선택하세요.",
+        "tie": "두 케이스가 똑같이 일치합니다: 케이스를 직접 선택하세요."
       }
     },
     "routing": {
@@ -12146,6 +12154,15 @@
       "gapDays": "알림 간격(일)",
       "save": "저장",
       "saved": "알림 저장됨"
+    },
+    "worklist": {
+      "title": "케이스 데스크",
+      "tray": "분류할 WhatsApp 문서 {count, plural, other {#개}}",
+      "queue": "분류 대기열의 업로드 {count, plural, other {#개}}",
+      "mine": "태그를 기다리는 내 업로드 {count, plural, other {#개}}",
+      "tasks": "나에게 배정된 데스크 후속 조치 {count, plural, other {#개}}",
+      "oldest": "가장 오래된 항목 {age}",
+      "open": "케이스 데스크 열기"
     }
   },
   "Privacy": {

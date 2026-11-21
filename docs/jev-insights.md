@@ -648,3 +648,14 @@ leaves the server, and a request that still carries one is refused
 locally. No database id, contact name or phone number is ever sent;
 dynamic options (your chat tags, flow buttons, case stages) are sent as
 numbered choices and mapped back on the server.
+
+## Desk case suggestion
+
+`desk_case` (migration 235, `lib/desk/suggest.ts`, `qs-desk-case-v1`):
+which candidate case a desk tray document belongs to. Ordinal options
+(`c1 … cN`, `unsure`); the state carries the document's type, file name
+and caption and each candidate's bank, product and missing documents,
+all through `redactClipped`, never a company or person name or an id.
+Asked only when a person presses *Suggest a case*; advice only, never
+pre-selected; no suggestion under 0.6 or within 0.1 of the runner-up.
+

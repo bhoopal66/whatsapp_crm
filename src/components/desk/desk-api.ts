@@ -6,6 +6,7 @@
 import type {
   CaseLookup,
   DeskBank,
+  DeskWorklist,
   ItemResult,
   ItemTags,
   MyItem,
@@ -18,6 +19,7 @@ import type {
   CompanyOverview,
 } from '@/lib/desk/shared-docs';
 import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
+import type { TraySuggestion } from '@/lib/desk/suggest';
 import type {
   DeskCompany,
   DeskCompanyContact,
@@ -155,6 +157,15 @@ export const deskApi = {
       `/api/desk/companies/${customerId}/contacts/${contactId}`,
       { method: 'DELETE' },
       (b) => b.removed === true
+    ),
+  // Worklist and suggestion (migration 235)
+  worklist: () =>
+    call('/api/desk/worklist', undefined, (b) => b.desk as DeskWorklist),
+  suggest: (trayId: string) =>
+    call(
+      `/api/desk/tray/${trayId}/suggest`,
+      { method: 'POST' },
+      (b) => b.suggestion as TraySuggestion
     ),
   // Reminder digest (migration 234)
   digest: () =>

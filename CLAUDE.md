@@ -1688,6 +1688,15 @@ package 035a-c. `docs/case-desk.md` is the contract.
   for a STOP word (`isStopWord`); `desk_digest_stop` opts out only after
   a digest in 30 days. HR's own claim does not count digests (one-way
   cap). `verify-desk-reminder-digest.sql`.
+- **Worklist and suggestion (235, design 035 D8/D12).** `desk_worklist`
+  counts (tray the actor may sort, queues in `intake_scope_ok`, own
+  untagged uploads, open `desk_tray:/desk_queue:/desk_doc:` tasks) for
+  the Case desk card on `/worklist`. `desk_tray_suggest_input` (sorters,
+  open items only) carries no company or person names; the `desk_case`
+  selection caller (`qs-desk-case-v1`, ordinal `c1…cN` + `unsure`) is
+  asked on demand by `suggestTrayCase`; `readJudgment` suggests only at
+  p ≥ 0.6 and a 0.1 margin. Advice only: never files, never pre-selects.
+  `verify-desk-worklist-suggest.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run
