@@ -1556,6 +1556,37 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   for a rule's task. Restates 187/189/134 bodies: apply in order, once.
   `verify-case-rules-stage-automation.sql`.
 
+### Case desk (`lib/desk/*`, migration 220)
+
+Staff uploads to bank cases at `/desk`, with human case numbers. Port of
+package 035a-c. `docs/case-desk.md` is the contract.
+
+- **Numbers.** `desk_applications` (one per company, `desk_customers`
+  keyed by normalised trade licence) are `TC-YY-NNNNN` from one gapless
+  counter per account; a desk case is `TC-YY-NNNNN-BBB(2-9)` with BBB the
+  bank's `desk_bank_codes` code. The caption code's check character
+  (Luhn mod 36) lives twice, SQL `desk_check_char` and
+  `lib/desk/case-number.ts`; `case-number.test.ts` and
+  `verify-case-desk.sql` pin the same vectors: change both.
+- **A desk case is a 130 lead** of a CRM contact (case files need the
+  contact's folder), opened in the uploader's name through
+  `case_open_lead`, lead source `desk`; one open lead per contact and
+  bank still holds (`CASE_CONFLICT`).
+- **Intake.** `intake_items` state changes only through
+  `intake_set_state` (+ an append-only `intake_item_events` row). Files
+  are stored at `intake/<item id>/<sha256>.<ext>` in `case-files` before
+  `intake_submit` (a CHECK pins the path) and, when filed, recorded as
+  the uploader's staff upload (180) and inserted into
+  `case_document_files` directly (registered_by = uploader).
+- **Sorting** reuses 133/161 bank holders (`case_holds_bank`), not the
+  package's `bank_desks`: holders sort their bank's queue; owners,
+  admins and team leaders every queue and the no-bank queue
+  (`intake_scope_ok`, `intake_is_sorter`). 035d and 035e were not ported
+  (duplicates). Tables are FORCE RLS with no grants; functions are
+  service role only, called with the caller's ACTIVE account. Every SQL
+  hint is in `DESK_REFUSALS` (`store.test.ts` reads the migration).
+  `verify-case-desk.sql`.
+
 ### OpenDesk / Taamul sales app (`lib/taamul-sales/*`, migration 139)
 
 "Contact marked as interested" webhooks from the sales app
@@ -2210,6 +2241,6 @@ fails if one is wired to plain `t()`.
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
   `customer-documents.md`, `departments.md`, `second-brain.md`,
-  `hr-workflows.md`.
+  `hr-workflows.md`, `case-desk.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

@@ -90,7 +90,8 @@
     "hrRules": "Rules",
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
-    "openHrChats": "{count, plural, one {# open chat} other {# open chats}}"
+    "openHrChats": "{count, plural, one {# open chat} other {# open chats}}",
+    "desk": "Case desk"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -141,7 +142,8 @@
     "hrRules": "Rules",
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
-    "hr": "HR"
+    "hr": "HR",
+    "desk": "Case desk"
   },
   "Notifications": {
     "title": "Notifications",
@@ -11866,6 +11868,112 @@
       "docs_missing": "Documents missing",
       "draft_waiting": "Draft waiting",
       "draft_old": "Draft over 24 h old"
+    }
+  },
+  "Desk": {
+    "title": "Case desk",
+    "subtitle": "Upload documents and information for a case, see what happened to each upload, and sort what could not be filed automatically.",
+    "tabs": {
+      "upload": "Upload",
+      "mine": "My uploads",
+      "queue": "Sorting queue",
+      "overview": "Overview",
+      "codes": "Desk codes"
+    },
+    "kind": {
+      "pending_doc": "Pending document",
+      "new_case": "New case",
+      "info": "Information"
+    },
+    "fields": {
+      "kind": "What is it?",
+      "caseRef": "Case number or caption code",
+      "bank": "Bank",
+      "bankNone": "No bank",
+      "docKey": "Document type",
+      "company": "Company legal name",
+      "licence": "Trade licence number",
+      "product": "Product",
+      "contact": "Customer contact",
+      "contactPlaceholder": "Search a contact by name or phone",
+      "note": "Note",
+      "file": "File",
+      "fileHint": "PDF, JPEG or PNG, up to 10 MB. Optional for information.",
+      "caption": "Caption",
+      "captionHint": "Optional shorthand. It fills only the fields you left empty, for example '4271RAKD ejari', 'INFO 4271RAKD customer travelling' or 'NEW RAK Kite Trading 1234567'."
+    },
+    "state": {
+      "filed": "Filed",
+      "untagged": "Waiting to be sorted",
+      "rejected": "Rejected",
+      "duplicate": "Duplicate"
+    },
+    "result": {
+      "case": "Case",
+      "code": "caption code",
+      "replayed": "(already uploaded; this is the first result)"
+    },
+    "reason": {
+      "NO_KIND": "No type was chosen.",
+      "NO_CASE": "The case details are incomplete.",
+      "NO_CONTACT": "No customer contact was chosen.",
+      "NO_FILE": "A pending document needs a file.",
+      "CASE_NOT_FOUND": "No open case matches that number or code.",
+      "BANK_MISMATCH": "The case is at a different bank.",
+      "CASE_EXISTS_NAME_MISMATCH": "That licence is on file under another company name.",
+      "OTHER": "It could not be filed automatically."
+    },
+    "actions": {
+      "upload": "Upload",
+      "uploading": "Uploading...",
+      "fixTags": "Fix the details",
+      "saveTags": "Save and file again",
+      "sort": "Sort"
+    },
+    "filters": {
+      "all": "All"
+    },
+    "loading": "Loading...",
+    "empty": {
+      "mine": "No uploads here.",
+      "queue": "Nothing waiting to be sorted.",
+      "notSorter": "You do not sort any bank's queue. Owners, admins and team leaders sort every queue; a coordinator sorts the banks they hold."
+    },
+    "queueOf": "in the {bank} queue",
+    "rejectedBecause": "Rejected: {reason}",
+    "noBankQueue": "No bank (team leaders)",
+    "sort": {
+      "file": "File to a case",
+      "new": "Open a new case",
+      "reject": "Reject",
+      "find": "Find",
+      "notFound": "No open case you sort matches that number or code.",
+      "mismatch": "The upload names \"{item}\" but the case is \"{found}\". Type the word below to file anyway.",
+      "confirmWord": "confirm",
+      "confirmLabel": "Type \"{word}\" to confirm",
+      "fileTo": "File to {number}",
+      "openCase": "Open the case",
+      "reasonPlaceholder": "Why is it rejected? The uploader sees this."
+    },
+    "overview": {
+      "bank": "Bank",
+      "holders": "Coordinators",
+      "toSort": "Waiting",
+      "oldest": "Oldest",
+      "alert": "Alert",
+      "alerts": {
+        "none": "OK",
+        "second": "Over 2 hours",
+        "lead": "Over 4 hours",
+        "no_coordinator": "No coordinator"
+      }
+    },
+    "codes": {
+      "hint": "Three letters per bank, used in case numbers (TC-26-00001-RAK) and captions. A bank that already has numbered cases keeps its code.",
+      "noBanks": "No banks yet. Banks are added in Settings, Cases.",
+      "label": "Desk code for {bank}",
+      "save": "Save",
+      "saved": "Desk code saved for {bank}"
     }
   }
 }

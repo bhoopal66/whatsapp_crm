@@ -12,6 +12,31 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: case numbers and a sorting queue for staff uploads
+
+**Migration required:** apply `220_case_desk.sql` (as a superuser)
+after 219, before deploying this build.
+- New screen **Case desk** (sidebar, Bank submissions; agents and up).
+  Staff upload a document or a piece of information for a case and say
+  what it is: a pending document or information for an existing case
+  (by its case number or caption code), or a new case for a company
+  (bank, company name, trade licence, product and the customer contact).
+- A case the desk opens gets a human number, `TC-26-00001-RAK`, and a
+  short caption code with a check character, `1RAK1`, that staff write
+  on later uploads. A mistyped code is refused, never filed to the
+  wrong case.
+- Complete uploads file at once; anything else waits in the bank's
+  **Sorting queue** with the reason. Coordinators sort the banks they
+  hold (Settings → Coordinators); owners, admins and team leaders sort
+  every queue, and the uploads with no bank. The same file sent twice
+  to a case is marked a duplicate.
+- **My uploads** shows each upload's fate (filed to which case, waiting
+  and why, rejected and why) and lets the uploader fix the details of
+  one still waiting. Team leaders get an **Overview** of every queue
+  with an alert after 2 and 4 hours; admins set each bank's three-letter
+  **Desk code**.
+- See `docs/case-desk.md`.
+
 ### Staff numbers follow group access
 
 **Migration required:** apply `219_group_staff_numbers.sql` (as a

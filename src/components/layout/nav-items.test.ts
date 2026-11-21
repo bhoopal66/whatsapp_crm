@@ -34,7 +34,7 @@ const VIEWER = {
 const AGENT = {
   ...VIEWER,
   customers: [...VIEWER.customers, '/journeys'],
-  submissions: ['/cases', '/submission-groups', '/banks'],
+  submissions: ['/cases', '/desk', '/submission-groups', '/banks'],
 };
 
 const TEAM = [
@@ -164,6 +164,7 @@ describe('visibleNavGroups', () => {
         role
       ).toEqual([
         '/cases',
+        '/desk',
         '/submission-groups',
         '/banks',
         '/brain',
@@ -431,6 +432,7 @@ describe('navPrefetch', () => {
         '/calls/recordings',
         '/cases',
         '/compass',
+        '/desk',
         '/flows',
         '/groups',
         ...HR_ALL,

@@ -655,6 +655,36 @@ BEGIN
 END;
 $$;
 
+-- The sorting screen's confirmation: an open case by number or caption
+-- code, with its company, for a sorter in scope of its bank; no row
+-- otherwise (out of scope and unknown look the same).
+CREATE OR REPLACE FUNCTION public.intake_case_lookup(p_actor uuid, p_account uuid, p_ref text)
+RETURNS TABLE (case_id uuid, case_number text, bank_code text, company_name text, contact_id uuid,
+  product text, stage text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+#variable_conflict use_column
+DECLARE
+  v uuid;
+BEGIN
+  IF NOT public.intake_is_sorter(p_actor, p_account) THEN
+    PERFORM public.desk_refuse('intake_case_lookup', 'NOT_ALLOWED', 'not a sorter of this workspace');
+  END IF;
+  v := public.intake_case_by_ref(p_account, p_ref);
+  RETURN QUERY
+  SELECT c.id, c.case_number, c.bank_code, cu.legal_name, c.contact_id, c.product, c.stage
+    FROM public.cases c
+    LEFT JOIN public.desk_customers cu ON cu.id = c.desk_customer_id
+   WHERE c.id = v AND public.intake_scope_ok(p_actor, p_account, c.bank_code)
+     -- and a case they may read (122/161): a team leader sorts every
+     -- queue but reads only their team's cases.
+     AND public.case_can_read(c.id, p_actor);
+END;
+$$;
+
 -- ---------- 7. Intake internals ----------
 
 -- The only writer of an item's state: updates the row, appends one event.
@@ -1033,6 +1063,11 @@ BEGIN
   IF NOT public.intake_scope_ok(p_actor, p_account, c.bank_code) THEN
     PERFORM public.desk_refuse('intake_file', 'BANK_SCOPE', 'not a sorter of the case''s bank');
   END IF;
+  -- Filing writes the case: the sorter must be able to (a bank holder is
+  -- its coordinator by 161; a team leader only on their team's cases).
+  IF NOT public.case_can_write(p_case, p_actor) THEN
+    PERFORM public.desk_refuse('intake_file', 'CASE_NOT_FOUND', 'case not found');
+  END IF;
   IF p_kind = 'pending_doc' AND i.sha256 IS NULL THEN
     PERFORM public.desk_refuse('intake_file', 'NO_FILE', 'a pending document needs a file');
   END IF;
@@ -1253,6 +1288,7 @@ REVOKE ALL ON FUNCTION
   public.desk_bank_list(uuid, uuid),
   public.desk_case_open(uuid, text, text, text, text, uuid, uuid, uuid, timestamptz),
   public.desk_case_resolve_code(uuid, text), public.intake_case_by_ref(uuid, text),
+  public.intake_case_lookup(uuid, uuid, text),
   public.intake_set_state(uuid, uuid, text, uuid, text, text, uuid, uuid, text, text, text, timestamptz, jsonb),
   public.intake_apply(uuid, uuid, uuid, text, text, timestamptz, jsonb),
   public.intake_route(uuid, uuid, timestamptz), public.intake_result(uuid, boolean),
@@ -1275,7 +1311,7 @@ GRANT EXECUTE ON FUNCTION
 TO service_role;
 GRANT EXECUTE ON FUNCTION
   public.desk_bank_code_set(uuid, uuid, text, text), public.desk_bank_by_short(uuid, text),
-  public.desk_bank_list(uuid, uuid),
+  public.desk_bank_list(uuid, uuid), public.intake_case_lookup(uuid, uuid, text),
   public.intake_submit(uuid, uuid, uuid, text, text, text, text, text, text, text, uuid, text, text, text, text,
                        text, bigint, text, timestamptz),
   public.intake_queue_list(uuid, uuid, text),

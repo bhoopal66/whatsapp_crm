@@ -265,6 +265,20 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cd_check('a second ENBD lead for c2 was opened', NULL,
     format('SELECT state FROM intake_file_new_case(%L, %L, %L, ''CN-998877'', ''Maro Trading'', ''ENBD'', ''Card'', %L)',
            u_cenb, a_acct, i4, c2), 'ERROR % CASE_CONFLICT:%');
+  -- The case lookup answers only in scope.
+  n := n + 1; failed := failed || pg_temp.cd_check('the RAK holder could not look up a RAK case by code', NULL,
+    format('SELECT company_name FROM intake_case_lookup(%L, %L, %L)', u_crak, a_acct, code1), 'Kite General Trading');
+  n := n + 1; failed := failed || pg_temp.cd_check('the ENBD holder looked up a RAK case', NULL,
+    format('SELECT count(*)::text FROM intake_case_lookup(%L, %L, %L)', u_cenb, a_acct, code1), '0');
+  n := n + 1; failed := failed || pg_temp.cd_check('a team leader looked up a case outside their team', NULL,
+    format('SELECT count(*)::text FROM intake_case_lookup(%L, %L, %L)', u_lead, a_acct, code1), '0');
+  n := n + 1; failed := failed || pg_temp.cd_check('a team leader filed onto a case outside their team', NULL,
+    format('SELECT state FROM intake_file(%L, %L, %L, %L, ''info'', NULL)', u_lead, a_acct, i5, k1),
+    'ERROR % CASE_NOT_FOUND:%');
+  n := n + 1; failed := failed || pg_temp.cd_check('the admin could not look up a case', NULL,
+    format('SELECT count(*)::text FROM intake_case_lookup(%L, %L, %L)', u_admin, a_acct, code1), '1');
+  n := n + 1; failed := failed || pg_temp.cd_check('an agent looked up a case', NULL,
+    format('SELECT count(*)::text FROM intake_case_lookup(%L, %L, %L)', u_agent, a_acct, code1), 'ERROR % NOT_ALLOWED:%');
   -- The ENBD holder opens i4's case with a contact: opened as the uploader, holder as coordinator.
   v := pg_temp.cd_try(NULL, format('SELECT state || ''|'' || case_number FROM intake_file_new_case(%L, %L, %L, %L, %L, ''ENBD'', ''Card'', %L)',
          u_cenb, a_acct, i4, 'CN-998877', 'Maro Trading', c3));
