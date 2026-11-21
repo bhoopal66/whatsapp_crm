@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: one document for several banks
+
+**Migration required:** apply `231_desk_shared_documents.sql` (as a
+superuser) after 230.
+- Companies → **Banks and documents**: a company's cases at every bank
+  with their stage, the consent to reuse documents per bank, and the
+  files of the cases you can open.
+- Link a stored document into another bank's case of the same company,
+  without copying it; each bank keeps its own status for it.
+- Reuse at another bank needs the company's consent for that bank,
+  recorded with its evidence and revocable with a reason.
+- The database now refuses a case file that belongs to another
+  customer.
+- See `docs/case-desk.md`.
+
 ### Case desk: WhatsApp documents and the tray
 
 **Migration required:** apply `230_desk_whatsapp_routing.sql` (as a

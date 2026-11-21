@@ -1123,6 +1123,14 @@ jobs:
       - name: Verify desk WhatsApp routing and tray
         run: supabase db query --local --file supabase/ci/verify-desk-whatsapp-routing.sql
 
+      # Migration 231: one document across a company's bank cases (design
+      # 035 slice B). A trigger refuses a cross-customer case file on
+      # every insert; desk_doc_link needs the same company and a live
+      # consent for the target bank; each case keeps its own status; the
+      # overview shows other banks' cases by stage only.
+      - name: Verify desk shared documents and reuse consent
+        run: supabase db query --local --file supabase/ci/verify-desk-shared-documents.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

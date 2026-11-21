@@ -12077,6 +12077,29 @@
       "escalate": "대기 문서 에스컬레이션 시간(분)",
       "save": "저장",
       "saved": "라우팅 저장됨"
+    },
+    "banks": {
+      "title": "은행 및 문서",
+      "intro": "각 은행 케이스는 자체 상태를 유지합니다. 문서는 한 번 저장되며, 해당 은행에 대한 회사의 동의가 있을 때만 다른 은행의 케이스에 연결됩니다.",
+      "stage": "단계: {stage}",
+      "closed": "종료됨",
+      "noCases": "아직 케이스가 없습니다.",
+      "consents": "문서 재사용 동의",
+      "consented": "{date} 기록: {evidence}",
+      "noConsent": "동의 없음",
+      "evidence": "증빙 (예: \"11월 21일 WhatsApp 답장: 예\")",
+      "record": "동의 기록",
+      "revokeReason": "철회 이유는?",
+      "revoke": "철회",
+      "files": "{caseNumber}의 파일",
+      "noFiles": "열 수 있는 케이스에 파일이 없습니다.",
+      "shared": "공유됨",
+      "linkTo": "연결 대상",
+      "needsConsent": "{caseNumber} (동의 필요)",
+      "link": "연결",
+      "linked": "{caseNumber}에 연결됨",
+      "alreadyLinked": "이미 {caseNumber}에 있음",
+      "saved": "저장됨"
     }
   },
   "Privacy": {

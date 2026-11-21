@@ -15,6 +15,7 @@ import type {
   DeskCompanyContact,
   DeskContactRole,
 } from './companies';
+import { parseCompanyOverview, type CompanyOverview } from './shared-docs';
 import {
   parseCandidates,
   type DeskSettings,
@@ -53,6 +54,11 @@ export const DESK_REFUSALS = [
   'TRAY_NOT_FOUND',
   'TRAY_NOT_OPEN',
   'CONFIRM_COMPANY',
+  // 231: shared documents and reuse consent
+  'FILE_NOT_FOUND',
+  'CROSS_CUSTOMER',
+  'CONSENT_MISSING',
+  'CONSENT_NOT_FOUND',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -789,6 +795,76 @@ export class DeskStore {
       p_now: this.now(),
     });
     return scalarTrue(rows[0]);
+  }
+  // ---------- shared documents and reuse consent (migration 231) ----------
+
+  async companyOverview(
+    actor: string,
+    account: string,
+    customerId: string
+  ): Promise<CompanyOverview> {
+    const r = (
+      await this.rpc('desk_company_overview', {
+        p_actor: actor,
+        p_account: account,
+        p_customer: customerId,
+      })
+    )[0];
+    return parseCompanyOverview(r);
+  }
+
+  async grantConsent(
+    actor: string,
+    account: string,
+    customerId: string,
+    bankCode: string,
+    evidence: string
+  ): Promise<void> {
+    await this.rpc('desk_consent_grant', {
+      p_actor: actor,
+      p_account: account,
+      p_customer: customerId,
+      p_bank_code: bankCode,
+      p_evidence: evidence,
+      p_now: this.now(),
+    });
+  }
+
+  async revokeConsent(
+    actor: string,
+    account: string,
+    customerId: string,
+    bankCode: string,
+    reason: string
+  ): Promise<void> {
+    await this.rpc('desk_consent_revoke', {
+      p_actor: actor,
+      p_account: account,
+      p_customer: customerId,
+      p_bank_code: bankCode,
+      p_reason: reason,
+      p_now: this.now(),
+    });
+  }
+
+  /** Links a file's document into another case of the company. */
+  async linkDocument(
+    actor: string,
+    account: string,
+    fileId: string,
+    targetCaseId: string
+  ): Promise<{ fileId: string; created: boolean }> {
+    const r = (
+      await this.rpc('desk_doc_link', {
+        p_actor: actor,
+        p_account: account,
+        p_file: fileId,
+        p_target: targetCaseId,
+        p_now: this.now(),
+      })
+    )[0];
+    if (!r) throw new DeskStoreError('desk_doc_link', null);
+    return { fileId: String(r.file_id), created: r.created === true };
   }
 }
 

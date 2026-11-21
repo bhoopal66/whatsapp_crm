@@ -27,6 +27,7 @@ import {
   type DeskContactRole,
 } from '@/lib/desk/companies';
 
+import { CompanyBanks } from './company-banks';
 import { deskApi } from './desk-api';
 import { NATIVE_FIELD } from './tag-fields';
 
@@ -122,11 +123,14 @@ export function CompaniesTab() {
         </CardContent>
       </Card>
       {picked && (
-        <CompanyPeople
-          key={picked.customerId}
-          company={picked}
-          onChanged={() => void search()}
-        />
+        <>
+          <CompanyPeople
+            key={picked.customerId}
+            company={picked}
+            onChanged={() => void search()}
+          />
+          <CompanyBanks key={`banks-${picked.customerId}`} company={picked} />
+        </>
       )}
     </div>
   );

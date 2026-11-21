@@ -559,6 +559,13 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
       'KYC: who acts for a company account (the contact row itself is anonymised)',
     exported: true,
   },
+  desk_doc_consents: {
+    link: 'desk',
+    class: 'identifier',
+    erase: 'retain',
+    reason: CONSENT,
+    exported: true,
+  },
   desk_tray: {
     link: 'contact',
     class: 'content',

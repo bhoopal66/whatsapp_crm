@@ -12077,6 +12077,29 @@
       "escalate": "Escalate a waiting document after (minutes)",
       "save": "Save",
       "saved": "Routing saved"
+    },
+    "banks": {
+      "title": "Banks and documents",
+      "intro": "Each bank case keeps its own status. A document is stored once and linked into another bank's case only with the company's consent for that bank.",
+      "stage": "Stage: {stage}",
+      "closed": "Closed",
+      "noCases": "No cases yet.",
+      "consents": "Consent to reuse documents",
+      "consented": "Recorded {date}: {evidence}",
+      "noConsent": "No consent",
+      "evidence": "Evidence (e.g. \"WhatsApp reply 21 Nov: yes\")",
+      "record": "Record consent",
+      "revokeReason": "Why is it withdrawn?",
+      "revoke": "Revoke",
+      "files": "Files of {caseNumber}",
+      "noFiles": "No files on the cases you can open.",
+      "shared": "Shared",
+      "linkTo": "Link to",
+      "needsConsent": "{caseNumber} (needs consent)",
+      "link": "Link",
+      "linked": "Linked to {caseNumber}",
+      "alreadyLinked": "Already on {caseNumber}",
+      "saved": "Saved"
     }
   },
   "Privacy": {

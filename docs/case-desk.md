@@ -126,6 +126,27 @@ Migration 229 (design 035 D1). A company is not a phone number: the
   erasure (KYC: who acted for a company account); the contact itself is
   anonymised as before.
 
+## One document, several banks
+
+Migration 231 (design 035 D5, D11, D13). Under Companies, **Banks and
+documents** shows a company across its banks.
+
+- **Every case, stage only.** Anyone who can read one of the company's
+  cases sees all of them with their stage, never another bank's files,
+  notes or reasons.
+- **Stored once, linked per bank.** A file of a case you can open can be
+  linked into another open case of the same company that you can change.
+  Nothing is copied: the other case gets its own row with its own
+  status, so a rejection at one bank never touches another.
+- **Consent per bank.** Linking into another bank's case needs the
+  company's consent for that bank, recorded with its evidence (for
+  example "WhatsApp reply 21 Nov: yes") and revoked with a reason. The
+  history is kept; nothing is deleted. Whether a WhatsApp reply is
+  enough evidence is for legal sign-off (design section 8).
+- **The database refuses a cross-customer file** on every insert, by
+  any writer: a case file must be the case customer's document or, for a
+  desk case, a document of a person who acts for the same company.
+
 ## WhatsApp routing and the tray
 
 Migration 230 (design 035 section 4). **Off by default:** an owner or
@@ -192,6 +213,11 @@ alone**:
   and the router. `supabase/ci/verify-desk-whatsapp-routing.sql` asserts
   the evidence order, the tray rules, escalation, privacy and the closed
   tables.
+- `desk_doc_consents` (231) is closed the same way and append-only (a
+  row is only revoked, once). `case_document_files_same_customer` guards
+  every insert into `case_document_files`.
+  `supabase/ci/verify-desk-shared-documents.sql` asserts the refusals,
+  consent, per-case status, stage-only visibility and the register.
 
 ## API
 
@@ -213,6 +239,9 @@ Refusals answer `{ error, code }`.
 | `GET /companies?q=` | staff | find a company you can see (licence or name) |
 | `GET /companies/[id]/contacts` | readers of a company's case, team leaders and up | its people |
 | `PUT`, `DELETE /companies/[id]/contacts/[contactId]` | writers of a company's case, team leaders and up | link (`{ role, authorised }`) or unlink |
+| `GET /companies/[id]/overview` | readers of a company's case, team leaders and up | cases (stage only), your files, consents |
+| `PUT`, `DELETE /companies/[id]/consents/[bank]` | writers of a company's case, team leaders and up | record (`{ evidence }`) or revoke (`{ reason }`) |
+| `POST /files/[fileId]/link` | readers of the file's case who can write the target | `{ caseId }` |
 | `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
 | `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
 | `POST /tray/[id]/dismiss` | the same | `{ reason }` |

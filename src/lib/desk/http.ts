@@ -69,6 +69,16 @@ export const DESK_REFUSAL_HTTP: Readonly<
   CONTACT_INVALID: { status: 422, text: 'Choose a contact you can see' },
   TRAY_NOT_FOUND: { status: 404, text: 'Not found in the tray' },
   TRAY_NOT_OPEN: { status: 409, text: 'This document was already sorted' },
+  FILE_NOT_FOUND: { status: 404, text: 'File not found' },
+  CROSS_CUSTOMER: {
+    status: 422,
+    text: 'That case belongs to another company',
+  },
+  CONSENT_MISSING: {
+    status: 409,
+    text: 'The company has not agreed to reuse its documents at that bank',
+  },
+  CONSENT_NOT_FOUND: { status: 404, text: 'No consent recorded for that bank' },
   CONFIRM_COMPANY: {
     status: 422,
     text: "Type the company's legal name to confirm this case",

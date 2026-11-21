@@ -1644,6 +1644,17 @@ package 035a-c. `docs/case-desk.md` is the contract.
   cron, 5 min) through `createSystemTask`, `source_ref desk_tray:<id>`.
   `TRAY_REASONS` is pinned to the CHECK by `tray.test.ts`.
   `verify-desk-whatsapp-routing.sql`.
+- **Shared documents and reuse consent (231, design 035 D5/D11/D13).**
+  `case_document_files_same_customer` (BEFORE INSERT, every writer):
+  the document's contact is the case's, or for a desk case a contact
+  linked to (229) or opening a case of the same company; else
+  CROSS_CUSTOMER. `desk_doc_link` inserts the same `customer_document_id`
+  into another open case of the same company (no copy; per-case status),
+  needing `desk_doc_consents` live for the target's bank when it differs
+  (CONSENT_MISSING). Consents are append-only (revoked once, with a
+  reason). `desk_company_overview` lists every case with stage only, and
+  files only of cases `case_can_read` allows (D11).
+  `verify-desk-shared-documents.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

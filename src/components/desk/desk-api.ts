@@ -12,6 +12,7 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
+import type { CompanyOverview } from '@/lib/desk/shared-docs';
 import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
 import type {
   DeskCompany,
@@ -143,6 +144,29 @@ export const deskApi = {
       { method: 'DELETE' },
       (b) => b.removed === true
     ),
+  // Shared documents and reuse consent (migration 231)
+  companyOverview: (customerId: string) =>
+    call(
+      `/api/desk/companies/${customerId}/overview`,
+      undefined,
+      (b) => b.overview as CompanyOverview
+    ),
+  grantConsent: (customerId: string, bankCode: string, evidence: string) =>
+    call(
+      `/api/desk/companies/${customerId}/consents/${encodeURIComponent(bankCode)}`,
+      json('PUT', { evidence }),
+      () => true
+    ),
+  revokeConsent: (customerId: string, bankCode: string, reason: string) =>
+    call(
+      `/api/desk/companies/${customerId}/consents/${encodeURIComponent(bankCode)}`,
+      json('DELETE', { reason }),
+      () => true
+    ),
+  linkDocument: (fileId: string, caseId: string) =>
+    call(`/api/desk/files/${fileId}/link`, json('POST', { caseId }), (b) => ({
+      created: b.created === true,
+    })),
   // WhatsApp routing and the tray (migration 230)
   tray: (state: TrayState = 'open') =>
     call(
