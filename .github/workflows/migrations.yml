@@ -1100,3 +1100,13 @@ jobs:
       # an ACTIVE submission group only. Service role only.
       - name: Verify group staff numbers
         run: supabase db query --local --file supabase/ci/verify-group-staff-numbers.sql
+
+      # Migration 220: the case desk. Case numbers and caption codes
+      # match the TS mirror; application numbers are gapless per
+      # account; complete intake tags file at once (a new case opens the
+      # company's lead, a caption code files to its open case, the same
+      # bytes twice are a duplicate) and a one-character typo never
+      # resolves; owners / admins / team leaders sort every queue, a
+      # holder of a bank only that bank's; tables are service-role only.
+      - name: Verify case desk
+        run: supabase db query --local --file supabase/ci/verify-case-desk.sql
