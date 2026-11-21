@@ -4,6 +4,11 @@ import { fakeSupabase, type FakeDb } from '@/lib/groups/test-db';
 
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
+  loadChannels: vi.fn(),
+  addParticipants: vi.fn(),
+  removeParticipants: vi.fn(),
+  getGroup: vi.fn(),
+  persistGroupSnapshot: vi.fn(),
   role: 'admin' as string,
   userId: 'admin-1',
   rls: null as unknown as FakeDb,
@@ -14,9 +19,20 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
 }));
+vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/whatsapp/channels')>()),
+  loadChannels: mocks.loadChannels,
+}));
+vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
+  addParticipants: mocks.addParticipants,
+  removeParticipants: mocks.removeParticipants,
+  getGroup: mocks.getGroup,
+}));
 vi.mock('@/lib/groups/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/groups/server')>()),
   supabaseAdmin: () => fakeSupabase(mocks.admin),
+  persistGroupSnapshot: mocks.persistGroupSnapshot,
 }));
 
 import { GET, PUT } from './route';
@@ -27,6 +43,9 @@ const U2 = '55555555-5555-4555-8555-555555555552';
 const CREATOR = '55555555-5555-4555-8555-555555555500';
 const GUEST = '55555555-5555-4555-8555-555555555599';
 const OTHER = '55555555-5555-4555-8555-555555555588';
+const CH = '33333333-3333-4333-8333-333333333333';
+const WAG = '120363000000000001@g.us';
+const OURS = '971509999999';
 let canManage = true;
 const params = { params: Promise.resolve({ id: G }) };
 
@@ -41,6 +60,8 @@ const managerIds = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
+  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
   mocks.role = 'admin';
   mocks.userId = 'admin-1';
@@ -104,6 +125,35 @@ beforeEach(() => {
     accountId: 'acct-1',
     role: mocks.role,
   }));
+  mocks.loadChannels.mockResolvedValue([
+    {
+      id: CH,
+      accountId: 'acct-1',
+      provider: 'whapi',
+      accessToken: 't',
+      wabaId: '+971 50 999 9999',
+    },
+  ]);
+  mocks.addParticipants.mockImplementation(
+    async ({ participants }: { participants: string[] }) => ({
+      added: participants.map((p) => ({ jid: `${p}@s.whatsapp.net`, waId: p })),
+      refused: [],
+      notAttempted: [],
+      invalid: [],
+      error: null,
+    })
+  );
+  mocks.removeParticipants.mockImplementation(
+    async ({ participants }: { participants: string[] }) => ({
+      processed: participants.map((p) => ({
+        jid: `${p}@s.whatsapp.net`,
+        waId: p,
+      })),
+      failed: [],
+    })
+  );
+  mocks.getGroup.mockResolvedValue({ id: WAG });
+  mocks.persistGroupSnapshot.mockResolvedValue({});
 });
 
 describe('GET', () => {
@@ -176,5 +226,111 @@ describe('PUT', () => {
     const res = await put({ userIds: [U2] });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'invalid_manager' });
+  });
+});
+
+describe('PUT: manager numbers follow the managers', () => {
+  const PHONES: Record<string, string | null> = {
+    [U1]: '971500000001',
+    [U2]: '+971 50 000 0002',
+    [CREATOR]: null,
+  };
+  beforeEach(() => {
+    mocks.rls.tables.whatsapp_groups[0] = {
+      ...mocks.rls.tables.whatsapp_groups[0],
+      channel_id: CH,
+      wa_group_id: WAG,
+      our_role: 'admin',
+    };
+    mocks.admin.rpc = {
+      staff_saved_phone: (args) => ({
+        data: PHONES[String(args.p_user)] ?? null,
+      }),
+    };
+    mocks.admin.tables.whatsapp_group_participants = [
+      { group_id: G, account_id: 'acct-1', wa_id: OURS },
+      { group_id: G, account_id: 'acct-1', wa_id: '971500000001' },
+    ];
+  });
+
+  it('adds a new manager number and removes a dropped manager number', async () => {
+    const res = await put({ userIds: [U2] });
+    expect(res.status).toBe(200);
+    expect(mocks.addParticipants).toHaveBeenCalledTimes(1);
+    expect(mocks.addParticipants.mock.calls[0][0]).toMatchObject({
+      groupId: WAG,
+      participants: ['971500000002'],
+    });
+    expect(typeof mocks.addParticipants.mock.calls[0][0].deadline).toBe(
+      'number'
+    );
+    expect(mocks.removeParticipants.mock.calls[0][0]).toMatchObject({
+      groupId: WAG,
+      participants: ['971500000001'],
+    });
+    expect(mocks.getGroup).toHaveBeenCalled();
+    expect((await res.json()).numbers).toEqual({
+      added: ['Ugo'],
+      removed: ['Uma'],
+      failed: [],
+    });
+  });
+
+  it('does nothing at WhatsApp for people with no saved number', async () => {
+    PHONES[U2] = null;
+    PHONES[U1] = null;
+    try {
+      const res = await put({ userIds: [U2] });
+      expect(res.status).toBe(200);
+      expect(mocks.addParticipants).not.toHaveBeenCalled();
+      expect(mocks.removeParticipants).not.toHaveBeenCalled();
+      expect((await res.json()).numbers).toEqual({
+        added: [],
+        removed: [],
+        failed: [],
+      });
+    } finally {
+      PHONES[U1] = '971500000001';
+      PHONES[U2] = '+971 50 000 0002';
+    }
+  });
+
+  it('keeps the manager write and reports a gateway failure', async () => {
+    mocks.addParticipants.mockRejectedValue(new Error('gateway down'));
+    const res = await put({ userIds: [U1, U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U1, U2].sort());
+    expect((await res.json()).numbers).toEqual({
+      added: [],
+      removed: [],
+      failed: [{ name: 'Ugo', reason: 'unavailable' }],
+    });
+  });
+
+  it('reports a refused add so the invite link can be shared', async () => {
+    mocks.addParticipants.mockResolvedValue({
+      added: [],
+      refused: [{ jid: '971500000002@s.whatsapp.net', waId: '971500000002' }],
+      notAttempted: [],
+      invalid: [],
+      error: null,
+    });
+    const res = await put({ userIds: [U1, U2] });
+    expect((await res.json()).numbers.failed).toEqual([
+      { name: 'Ugo', reason: 'refused' },
+    ]);
+  });
+
+  it('skips WhatsApp when our number is not a group admin', async () => {
+    mocks.rls.tables.whatsapp_groups[0].our_role = 'member';
+    const res = await put({ userIds: [U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+    expect(mocks.removeParticipants).not.toHaveBeenCalled();
+    expect((await res.json()).numbers.failed).toEqual([
+      { name: 'Ugo', reason: 'not_group_admin' },
+      { name: 'Uma', reason: 'not_group_admin' },
+    ]);
   });
 });

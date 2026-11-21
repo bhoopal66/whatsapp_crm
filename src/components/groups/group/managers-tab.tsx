@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { pickableManagers } from '@/lib/groups/ui';
 import { reasonKey } from '@/lib/groups/group-page';
+import type { ManagerNumbersReport } from '@/lib/groups/manager-numbers';
 
 import type { GroupTabProps } from '../group-page';
 
@@ -79,9 +80,28 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
       }
       const json = (await res.json().catch(() => null)) as {
         managers?: Manager[];
+        numbers?: ManagerNumbersReport;
       } | null;
       if (json?.managers) apply(json.managers);
       toast.success(m('saved'));
+      const numbers = json?.numbers;
+      const who = (name: string) => name || m('unnamed');
+      for (const name of numbers?.added ?? []) {
+        toast.success(m('numberAdded', { name: who(name) }));
+      }
+      for (const name of numbers?.removed ?? []) {
+        toast.success(m('numberRemoved', { name: who(name) }));
+      }
+      for (const f of numbers?.failed ?? []) {
+        toast.error(
+          f.reason === 'refused'
+            ? m('numberRefused', { name: who(f.name) })
+            : m('numberFailed', {
+                name: who(f.name),
+                reason: t(`reasons.${reasonKey(f.reason)}`),
+              })
+        );
+      }
       void reload();
     } catch {
       toast.error(t('reasons.unknown'));

@@ -7984,7 +7984,11 @@
         "creatorKept": "The creator always stays a manager.",
         "save": "Save managers",
         "saved": "Managers updated.",
-        "loadFailed": "Couldn't load the managers."
+        "loadFailed": "Couldn't load the managers.",
+        "numberAdded": "{name}'s number was added to the WhatsApp group.",
+        "numberRemoved": "{name}'s number was removed from the WhatsApp group.",
+        "numberRefused": "WhatsApp wouldn't add {name}'s number. Share the invite link from the Invite tab.",
+        "numberFailed": "Couldn't update {name}'s number in the WhatsApp group: {reason}"
       },
       "info": "Group info",
       "closeInfo": "Close group info",

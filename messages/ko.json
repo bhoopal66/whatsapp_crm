@@ -7984,7 +7984,11 @@
         "creatorKept": "만든 사람은 항상 관리자로 유지됩니다.",
         "save": "관리자 저장",
         "saved": "관리자를 업데이트했습니다.",
-        "loadFailed": "관리자를 불러오지 못했습니다."
+        "loadFailed": "관리자를 불러오지 못했습니다.",
+        "numberAdded": "{name}님의 번호를 WhatsApp 그룹에 추가했습니다.",
+        "numberRemoved": "{name}님의 번호를 WhatsApp 그룹에서 제거했습니다.",
+        "numberRefused": "WhatsApp이 {name}님의 번호를 추가하지 않았습니다. 초대 탭에서 초대 링크를 공유하세요.",
+        "numberFailed": "WhatsApp 그룹에서 {name}님의 번호를 업데이트하지 못했습니다: {reason}"
       },
       "info": "그룹 정보",
       "closeInfo": "그룹 정보 닫기",

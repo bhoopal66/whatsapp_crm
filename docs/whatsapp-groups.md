@@ -52,6 +52,16 @@ for the whole gateway:
   on it. Viewers never manage, even when listed as managers.
 - **Managers:** the Managers tab lists them. Only an owner, an admin or
   the creator can change the set; the creator always stays a manager.
+- **Managers and their numbers are linked both ways.** Making someone a
+  manager adds their saved WhatsApp number (the coordinator number in
+  Settings) to the group; removing them as a manager removes that
+  number. Someone with no saved number just sends from the app. This
+  needs our number to be a group admin that has not left; otherwise the
+  manager change is still saved and the screen says why the number was
+  not changed. WhatsApp may refuse to add a number (privacy settings):
+  share the invite link from the Invite tab. Our own number is never
+  added or removed. The reverse direction (a saved number that joins
+  the group becomes a manager) is a database trigger, migration 219.
 - **Create:** agents and up, from a number they are allowed to use.
 
 ## What the screen does
@@ -68,7 +78,7 @@ requests. **Refresh** re-reads the group from WhatsApp.
   uploaded to the `chat-media` bucket under `account-<id>/groups/`
   (never `staged/`, so the unsent-attachment sweep leaves it alone) and
   posted as `{ media: { kind, url, path, caption?, filename?,
-  mimeType? } }`. The server accepts only an upload of the caller's own
+mimeType? } }`. The server accepts only an upload of the caller's own
   workspace in that folder and rebuilds the link on the app's public
   storage address, so the gateway is never handed another host. A voice
   note is stored as `audio`, with no caption. Templates, interactive

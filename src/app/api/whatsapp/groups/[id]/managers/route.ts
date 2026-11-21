@@ -5,20 +5,47 @@
 // must be a live, non-guest member of the account (400
 // `invalid_manager`). The creator's row is always kept, so a group is
 // never left without the person who made it.
+//
+// Managers and their saved numbers are linked (2026-11-21): once the
+// rows are written, a new manager's saved number (`staff_saved_phone`,
+// migration 219) is added to the WhatsApp group and a dropped
+// manager's is removed; someone with no saved number just sends from
+// the app. This is best effort after the write and never fails it: the
+// answer's `numbers` says what happened, including `refused` (WhatsApp
+// wouldn't add them: share the invite link) and the group blocks
+// (number_removed, left, not_group_admin). Our own number is never
+// touched. The reverse direction is a trigger in 219.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
 import { canViewAllGroups } from '@/lib/auth/roles';
+import {
+  diffManagers,
+  planManagerNumbers,
+  type ManagerNumbersReport,
+  type NumberBlock,
+} from '@/lib/groups/manager-numbers';
 import { parseManagerSet } from '@/lib/groups/member-requests';
+import { resyncGroup } from '@/lib/groups/resync';
 import {
   GroupHttpError,
   callerCanManage,
+  channelForGroup,
   groupErrorResponse,
   loadGroupForCaller,
   supabaseAdmin,
 } from '@/lib/groups/server';
+import type { WhatsappGroupRow } from '@/lib/groups/types';
+import {
+  addParticipants,
+  groupDeadline,
+  removeParticipants,
+} from '@/lib/whatsapp/groups';
+import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+
+export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 type Admin = ReturnType<typeof supabaseAdmin>;
@@ -91,7 +118,166 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
+const identityDigits = (i: { jid: string; waId: string | null }) =>
+  (i.waId ?? i.jid.split('@')[0] ?? '').replace(/\D/g, '');
+
+/**
+ * Bring the WhatsApp group in line with a manager change. Never throws:
+ * the manager rows are already written, so every failure is reported.
+ */
+async function syncManagerNumbers(
+  admin: Admin,
+  group: WhatsappGroupRow,
+  added: string[],
+  removed: string[],
+  deadline: number
+): Promise<ManagerNumbersReport> {
+  const report: ManagerNumbersReport = { added: [], removed: [], failed: [] };
+  const people = [...added, ...removed];
+  if (people.length === 0) return report;
+  try {
+    const names = new Map<string, string>();
+    const { data: rows } = await admin
+      .from('profiles')
+      .select('user_id, full_name')
+      .eq('account_id', group.account_id)
+      .in('user_id', people);
+    for (const p of (rows ?? []) as {
+      user_id: string;
+      full_name: string | null;
+    }[]) {
+      if (p.full_name) names.set(p.user_id, p.full_name);
+    }
+    const phones = new Map<string, string | null>();
+    for (const userId of people) {
+      const { data, error } = await admin.rpc('staff_saved_phone', {
+        p_account: group.account_id,
+        p_user: userId,
+      });
+      if (error) {
+        console.error('[groups] saved number lookup failed', error);
+        report.failed.push({
+          name: names.get(userId) ?? '',
+          reason: 'unavailable',
+        });
+        continue;
+      }
+      phones.set(userId, typeof data === 'string' && data ? data : null);
+    }
+    const lookedUp = (ids: string[]) => ids.filter((u) => phones.has(u));
+    const block: NumberBlock | null =
+      group.channel_id === null
+        ? 'number_removed'
+        : group.our_role === 'left'
+          ? 'left'
+          : group.our_role !== 'admin'
+            ? 'not_group_admin'
+            : null;
+    const { data: parts, error: partsError } = await admin
+      .from('whatsapp_group_participants')
+      .select('wa_id')
+      .eq('account_id', group.account_id)
+      .eq('group_id', group.id);
+    if (partsError) throw partsError;
+    const participants = ((parts ?? []) as { wa_id: string }[]).map(
+      (p) => p.wa_id
+    );
+    const draft = {
+      added: lookedUp(added),
+      removed: lookedUp(removed),
+      phones,
+      names,
+      participants,
+      block,
+    };
+    // The channel is loaded only when there is something to do on it.
+    const first = planManagerNumbers({ ...draft, ourNumber: null });
+    for (const s of first.skipped) report.failed.push(s);
+    if (first.add.length === 0 && first.remove.length === 0) return report;
+
+    let channel;
+    try {
+      channel = await channelForGroup(group);
+    } catch (err) {
+      console.error('[groups] manager numbers: channel load failed', err);
+      const reason = err instanceof GroupHttpError ? err.code : 'unavailable';
+      for (const c of [...first.add, ...first.remove]) {
+        report.failed.push({ name: c.name, reason });
+      }
+      return report;
+    }
+    const plan = planManagerNumbers({
+      ...draft,
+      ourNumber: normalizePhone(channel.wabaId ?? '') || null,
+    });
+
+    let changed = false;
+    if (plan.add.length > 0) {
+      try {
+        const outcome = await addParticipants({
+          channel,
+          groupId: group.wa_group_id,
+          participants: plan.add.map((c) => c.waId),
+          deadline,
+        });
+        const ok = new Set(outcome.added.map(identityDigits));
+        const refused = new Set(outcome.refused.map(identityDigits));
+        for (const c of plan.add) {
+          if (ok.has(c.waId)) {
+            report.added.push(c.name);
+            changed = true;
+          } else if (refused.has(c.waId)) {
+            report.failed.push({ name: c.name, reason: 'refused' });
+          } else {
+            report.failed.push({
+              name: c.name,
+              reason: outcome.error ?? 'unknown',
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[groups] manager number add failed', err);
+        for (const c of plan.add) {
+          report.failed.push({ name: c.name, reason: 'unavailable' });
+        }
+      }
+    }
+    if (plan.remove.length > 0) {
+      try {
+        const result = await removeParticipants({
+          channel,
+          groupId: group.wa_group_id,
+          participants: plan.remove.map((c) => c.waId),
+        });
+        const ok = new Set(result.processed.map(identityDigits));
+        for (const c of plan.remove) {
+          if (ok.has(c.waId)) {
+            report.removed.push(c.name);
+            changed = true;
+          } else {
+            report.failed.push({ name: c.name, reason: 'unknown' });
+          }
+        }
+      } catch (err) {
+        console.error('[groups] manager number removal failed', err);
+        for (const c of plan.remove) {
+          report.failed.push({ name: c.name, reason: 'unavailable' });
+        }
+      }
+    }
+    if (changed) await resyncGroup(channel, group.wa_group_id);
+    return report;
+  } catch (err) {
+    console.error('[groups] manager numbers failed', err);
+    return {
+      ...report,
+      failed: [...report.failed, { name: '', reason: 'unavailable' }],
+    };
+  }
+}
+
 export async function PUT(request: Request, { params }: Params) {
+  const deadline = groupDeadline();
   try {
     const ctx = await getCurrentAccount();
     const { id } = await params;
@@ -183,13 +369,28 @@ export async function PUT(request: Request, { params }: Params) {
         );
       }
     }
+    const before = ((current ?? []) as { user_id: string }[]).map(
+      (r) => r.user_id
+    );
+    const { added, removed } = diffManagers({
+      before,
+      after: [...wanted, ...(group.created_by ? [group.created_by] : [])],
+      creatorId: group.created_by,
+    });
+    const numbers = await syncManagerNumbers(
+      admin,
+      group,
+      added,
+      removed,
+      deadline
+    );
     const managers = await readManagers(
       admin,
       ctx.accountId,
       group.id,
       group.created_by
     );
-    return NextResponse.json({ managers });
+    return NextResponse.json({ managers, numbers });
   } catch (err) {
     return groupErrorResponse(err);
   }
