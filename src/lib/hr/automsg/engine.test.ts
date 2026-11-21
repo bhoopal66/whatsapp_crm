@@ -319,6 +319,7 @@ describe('SMS channel (migration 226)', () => {
         smsSent.push(req);
         return sms.send(req);
       },
+      ...(sms.hasCapacity ? { hasCapacity: sms.hasCapacity } : {}),
     };
     const deps: EngineDeps = { ...r.deps, senders: { rcs, sms: port } };
     return { ...r, deps, smsSent };
@@ -344,6 +345,18 @@ describe('SMS channel (migration 226)', () => {
     expect(claim).not.toHaveBeenCalled();
     expect(sent).toEqual([]);
     expect(rcsCalls).toEqual([]);
+  });
+
+  it('a sender at its pace limit -> deferred, the row untouched (no claim, no attempt)', async () => {
+    const busy: SendPort = { ...ok, hasCapacity: () => false };
+    const { store, smsSent, deps } = smsRig(busy);
+    store.add(row('r1'));
+    const before = { ...store.rows.get('r1') };
+    const claim = vi.spyOn(store, 'claim');
+    expect(await processRow(row('r1'), deps)).toBe('deferred');
+    expect(claim).not.toHaveBeenCalled();
+    expect(smsSent).toEqual([]);
+    expect(store.rows.get('r1')).toEqual(before);
   });
 
   it('with an SMS sender: sent through it only, markSent with no message id', async () => {

@@ -42,6 +42,8 @@ export type RowOutcome =
   | 'cancelled'
   | 'lost'
   | 'capped'
+  /** The channel's sender is at its pace limit: untouched, next pass. */
+  | 'deferred'
   | `held:${HoldReason}`
   | 'error';
 
@@ -135,6 +137,7 @@ export async function processRow(
       await store.hold(row.id, 'channel_not_connected');
     return 'held:channel_not_connected';
   }
+  if (sender.hasCapacity && !sender.hasCapacity()) return 'deferred';
 
   const claim = await store.claim(row.id, now);
   if (claim === 'lost') return 'lost';
