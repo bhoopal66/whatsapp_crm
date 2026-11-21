@@ -7,6 +7,7 @@ import {
   ContactRound,
   GitBranch,
   Headset,
+  FileInput,
   Inbox,
   Landmark,
   LayoutDashboard,
@@ -262,6 +263,16 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/cases',
         labelKey: 'cases',
         icon: Briefcase,
+        minRole: 'agent',
+        guarded: true,
+      },
+      // Case desk (migration 220): staff uploads, the sorting queue and
+      // case numbers. Agent and up (the route's AgentOnlyLayout); who
+      // sorts which queue is Postgres's call (bank holders, leaders up).
+      {
+        href: '/desk',
+        labelKey: 'desk',
+        icon: FileInput,
         minRole: 'agent',
         guarded: true,
       },

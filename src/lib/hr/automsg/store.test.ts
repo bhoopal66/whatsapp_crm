@@ -120,11 +120,13 @@ describe('PgAutoMsgStore.state', () => {
     });
   });
 
-  it('carries migration 215 channel; an unknown one throws', async () => {
+  it('carries migration 215 / 226 channel; an unknown one throws', async () => {
     const rcs = rig({ data: { ...STATE, channel: 'rcs' }, error: null });
     expect((await rcs.store.state('r1'))?.channel).toBe('rcs');
-    const bad = rig({ data: { ...STATE, channel: 'sms' }, error: null });
-    await expect(bad.store.state('r1')).rejects.toThrow(/channel sms/);
+    const sms = rig({ data: { ...STATE, channel: 'sms' }, error: null });
+    expect((await sms.store.state('r1'))?.channel).toBe('sms');
+    const bad = rig({ data: { ...STATE, channel: 'fax' }, error: null });
+    await expect(bad.store.state('r1')).rejects.toThrow(/channel fax/);
   });
 
   it('reads the row’s own channel when the state has none (203 re-run after 215)', async () => {

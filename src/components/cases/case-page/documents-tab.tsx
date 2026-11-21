@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+
+import { ReviewDraftsSection } from './review-drafts-section';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -277,6 +279,10 @@ export function DocumentsTab({ caseId, detail, onChanged }: CaseTabProps) {
           void reload();
           onChanged();
         }}
+      />
+      <ReviewDraftsSection
+        caseId={caseId}
+        canWrite={detail.permissions.canWrite}
       />
     </div>
   );

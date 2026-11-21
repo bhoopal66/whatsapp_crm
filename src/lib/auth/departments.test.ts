@@ -60,6 +60,7 @@ describe('isRestrictedPath', () => {
   it.each([
     '/pipelines',
     '/cases/abc',
+    '/desk',
     '/banks',
     '/brain',
     '/digest',

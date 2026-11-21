@@ -13,6 +13,9 @@ import {
   editorSlots,
   editorView,
   rcsTemplateIdProblem,
+  smsBodyMeasure,
+  smsLabelProblem,
+  SMS_NAME_ALLOWANCE,
   type EditorForm,
 } from './editor-view';
 import { SEED_TEMPLATES } from './templates';
@@ -291,6 +294,108 @@ describe('RCS templates', () => {
       channel: 'rcs',
     });
     expect(editorPayload('cv_ack', 'en', form())).not.toHaveProperty('channel');
+  });
+});
+
+describe('SMS templates', () => {
+  const smsRow = stored({
+    channel: 'sms',
+    body: 'Hi {name}, SMS invite for {slot}.',
+    metaTemplateName: 'hr-invite.sms',
+    updatedAt: '2026-11-21T08:00:00Z',
+  });
+  const rcsRow = stored({
+    channel: 'rcs',
+    body: 'Hi {name}, RCS invite for {slot}.',
+    metaTemplateName: 'prov:invite.v1',
+  });
+
+  it('gives SMS slots their own sms| keys and stored SMS rows only', () => {
+    const slots = editorSlots([stored(), rcsRow, smsRow], 'sms');
+    expect(slots).toHaveLength(12);
+    expect(slots.every((s) => s.channel === 'sms')).toBe(true);
+    expect(slots.every((s) => s.key.startsWith('sms|'))).toBe(true);
+    const hr = slots.find(
+      (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+    )!;
+    expect(hr.stored).toBe(smsRow);
+    const otherKeys = new Set([
+      ...editorSlots([stored(), rcsRow, smsRow]).map((s) => s.key),
+      ...editorSlots([stored(), rcsRow, smsRow], 'rcs').map((s) => s.key),
+    ]);
+    expect(slots.some((s) => otherKeys.has(s.key))).toBe(false);
+    // an SMS row never fills a WhatsApp or RCS slot
+    for (const ch of ['whatsapp', 'rcs'] as const) {
+      const slot = editorSlots([smsRow], ch).find(
+        (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+      )!;
+      expect(slot.stored).toBeNull();
+    }
+  });
+
+  it('starts an unsaved SMS editor from the WhatsApp text, with no label', () => {
+    const fromWa = editorSlots([stored(), rcsRow], 'sms').find(
+      (s) => s.kind === 'hr_interview_invite' && s.language === 'en'
+    )!;
+    expect(fromWa.stored).toBeNull();
+    expect(fromWa.initial).toEqual({
+      body: 'Hi {name}, your HR interview is on {slot}.',
+      metaTemplateName: '',
+      approvalStatus: 'draft',
+      category: 'utility',
+    });
+    expect(editorInitial('cv_ack', 'ar', null, 'sms').body).toBe(
+      SEED_TEMPLATES.cv_ack.text.ar
+    );
+  });
+
+  it('checks the label on SMS: needed to approve, in the label characters', () => {
+    expect(smsLabelProblem('', 'approved')).toBe('smsApprovedNeedsLabel');
+    expect(smsLabelProblem('  ', 'approved')).toBe('smsApprovedNeedsLabel');
+    expect(smsLabelProblem('', 'draft')).toBeNull();
+    expect(smsLabelProblem('HR-invite.sms:1_a', 'approved')).toBeNull();
+    expect(smsLabelProblem('cv ack', 'draft')).toBe('smsLabelFormat');
+    expect(smsLabelProblem('x'.repeat(513), 'draft')).toBe('smsLabelFormat');
+    expect(
+      editorMessages(
+        'hr_interview_invite',
+        form({ approvalStatus: 'approved', metaTemplateName: '' }),
+        'sms'
+      )
+    ).toEqual([{ key: 'smsApprovedNeedsLabel' }]);
+    expect(
+      editorMessages(
+        'hr_interview_invite',
+        form({ metaTemplateName: 'HR-invite.SMS' }),
+        'sms'
+      )
+    ).toEqual([]);
+  });
+
+  it('counts the SMS as it would be sent, not the raw placeholders', () => {
+    // '{' is outside the GSM alphabet: the raw body would read as Unicode.
+    const m = smsBodyMeasure('Hi {name}, see you at {slot}.');
+    expect(m.encoding).toBe('gsm-7bit');
+    expect(m.length).toBe(
+      'Hi , see you at a time we will confirm shortly.'.length +
+        SMS_NAME_ALLOWANCE
+    );
+    expect(m.segments).toBe(1);
+    expect(smsBodyMeasure('مرحبا {name}').encoding).toBe('unicode');
+    expect(smsBodyMeasure('a'.repeat(460)).fits).toBe(false);
+
+    const v = editorView('cv_ack', form(), 'admin', false, 'sms');
+    expect(v.sms).toMatchObject({ encoding: 'gsm-7bit', fits: true });
+    expect(editorView('cv_ack', form(), 'admin').sms).toBeNull();
+    expect(editorView('cv_ack', form(), 'admin', false, 'rcs').sms).toBeNull();
+  });
+
+  it('names the channel in the payload; leads stay read-only', () => {
+    expect(
+      editorPayload('cv_ack', 'en', form({ metaTemplateName: ' l.1 ' }), 'sms')
+    ).toMatchObject({ metaTemplateName: 'l.1', channel: 'sms' });
+    const lead = editorView('cv_ack', form(), 'lead', false, 'sms');
+    expect([lead.readOnly, lead.canSave]).toEqual([true, false]);
   });
 });
 

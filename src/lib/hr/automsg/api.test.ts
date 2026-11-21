@@ -7,6 +7,7 @@ import {
   automsgConsent,
   automsgOutbox,
   automsgRcsStatus,
+  automsgSmsStatus,
   automsgReleaseNow,
   automsgSaveSettings,
   automsgSaveTemplate,
@@ -288,7 +289,7 @@ describe('mapping', () => {
       ok({
         triggers: [
           { trigger: 'cv_received', enabled: true, channel: 'rcs' },
-          { trigger: 'reply_overdue_nudge', enabled: true, channel: 'sms' },
+          { trigger: 'reply_overdue_nudge', enabled: true, channel: 'fax' },
         ],
         templates: [
           { kind: 'cv_ack', language: 'en', channel: 'rcs' },
@@ -441,5 +442,37 @@ describe('automsgReleaseNow', () => {
     expect(await automsgReleaseNow()).toEqual({
       error: 'Request failed (500)',
     });
+  });
+});
+
+describe('automsgSmsStatus', () => {
+  it('returns the status from the SMS route', async () => {
+    const f = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ connected: false, webhook: true }), {
+          status: 200,
+        })
+    );
+    expect(await automsgSmsStatus(f as unknown as typeof fetch)).toEqual({
+      connected: false,
+      webhook: true,
+    });
+    expect(f).toHaveBeenCalledWith('/api/hr/automsg/sms', { method: 'GET' });
+  });
+
+  it('is null when signed out, malformed or thrown', async () => {
+    const r = (res: Response) =>
+      automsgSmsStatus((async () => res) as unknown as typeof fetch);
+    expect(await r(new Response('{}', { status: 401 }))).toBeNull();
+    expect(
+      await r(
+        new Response(JSON.stringify({ connected: 'yes' }), { status: 200 })
+      )
+    ).toBeNull();
+    expect(
+      await automsgSmsStatus((async () => {
+        throw new Error('x');
+      }) as unknown as typeof fetch)
+    ).toBeNull();
   });
 });

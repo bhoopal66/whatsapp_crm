@@ -53,15 +53,38 @@ jobs:
       - name: Start Postgres
         run: supabase db start
 
-      # `db start` already applies the migrations on a cold volume, but
-      # only on a cold volume — it is a no-op against a database that
-      # already exists. `db reset` drops and rebuilds unconditionally,
-      # so this step, not the one above, is the guarantee that every
-      # migration ran in filename order against nothing. It fails on the
-      # first statement Postgres rejects. --no-seed because there is no
-      # seed script and this is about schema, not data.
-      - name: Replay every migration from scratch
+      # An empty database: supabase/config.toml turns the CLI's own
+      # migration runner off (see below), so `db reset` only rebuilds
+      # the Supabase base schema. --no-seed: there is no seed script.
+      - name: Reset to an empty database
         run: supabase db reset --local --no-seed
+
+      # The default grants a classic Supabase project gives the API
+      # roles, which the migrations and verify files assume and the
+      # CLI's current image no longer sets (supabase/ci/classic-grants.sql
+      # says why). Before the first migration, so every object they
+      # create gets them, as in production.
+      - name: Restore Supabase's classic default grants
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/classic-grants.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Every migration in filename order against nothing, through psql
+      # in autocommit, the way they are applied by hand. Not the CLI's
+      # runner: it wraps each file in one transaction, and 044 adds an
+      # enum value and uses it in the same file, which Postgres refuses
+      # inside a transaction (hence `enabled = false` in config.toml).
+      # Stops at the first statement Postgres rejects.
+      - name: Replay every migration from scratch
+        run: |
+          command -v psql >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$f"
+            psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+            echo "::endgroup::"
+          done
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # A migration can apply "successfully" and still do nothing —
       # every DDL statement here is IF NOT EXISTS-guarded, which turns a
@@ -1068,6 +1091,15 @@ jobs:
       - name: Verify HR automated-message RCS channel
         run: supabase db query --local --file supabase/ci/verify-hr-automsg-rcs.sql
 
+      # Migration 226: an SMS channel (Dinstar GSM gateway) beside
+      # WhatsApp and RCS. An sms row's key ends in '|sms', its template
+      # (approved needs a label) and consent are its own channel's; the
+      # gateway's pushes match by user id and the number's last nine
+      # digits, later reports by ref id or number within 48 h; the
+      # receipt functions are service role only.
+      - name: Verify HR automated-message SMS channel
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg-sms.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA
@@ -1100,3 +1132,28 @@ jobs:
       # an ACTIVE submission group only. Service role only.
       - name: Verify group staff numbers
         run: supabase db query --local --file supabase/ci/verify-group-staff-numbers.sql
+
+      # Migration 220: the case desk. Case numbers and caption codes
+      # match the TS mirror; application numbers are gapless per
+      # account; complete intake tags file at once (a new case opens the
+      # company's lead, a caption code files to its open case, the same
+      # bytes twice are a duplicate) and a one-character typo never
+      # resolves; owners / admins / team leaders sort every queue, a
+      # holder of a bank only that bank's; tables are service-role only.
+      - name: Verify case desk
+        run: supabase db query --local --file supabase/ci/verify-case-desk.sql
+
+      # Migrations 221-224: PDPL. The subject export is owners and admins
+      # only, confined to the account, strips staff ids and storage
+      # locations and logs a hash, never the contact id; erase, legal
+      # hold, retention and the AI transfer register are asserted in the
+      # same file as they land.
+      - name: Verify privacy (PDPL)
+        run: supabase db query --local --file supabase/ci/verify-privacy.sql
+
+      # Migration 225: the case file reviewer. Off until switched on; a
+      # passed file queues its case 60 s out (debounced); claims take back
+      # stale runs and three failures end one; drafts are idempotent, a new
+      # one supersedes the pending one, writers decide once.
+      - name: Verify case review
+        run: supabase db query --local --file supabase/ci/verify-case-review.sql

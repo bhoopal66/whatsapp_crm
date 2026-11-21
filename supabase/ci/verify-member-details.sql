@@ -81,20 +81,22 @@ BEGIN
   $fn$;
 
   -- Fixture: each auth user gets a personal account and its owner row;
-  -- the rows are then moved into A with their roles.
+  -- the rows are then moved into A with their roles. Emails of our own
+  -- (mdx-): verify-member-deactivation.sql commits its md-* users, and
+  -- an email it already holds would make this insert a no-op.
   INSERT INTO auth.users (id, email) VALUES
-    (u_own,  'md-owner@example.invalid'),
-    (u_adm,  'md-admin@example.invalid'),
-    (u_adm2, 'md-admin2@example.invalid'),
-    (u_tl,   'md-leader@example.invalid'),
-    (u_agt,  'md-agent@example.invalid'),
-    (u_vwr,  'md-viewer@example.invalid'),
-    (u_gst,  'md-guest@example.invalid'),
-    (u_mul,  'md-multi@example.invalid'),
-    (u_ob,   'md-owner-b@example.invalid'),
-    (u_oc,   'md-owner-c@example.invalid'),
-    (u_out,  'md-outsider@example.invalid'),
-    (u_dadm, 'md-admin-off@example.invalid')
+    (u_own,  'mdx-owner@example.invalid'),
+    (u_adm,  'mdx-admin@example.invalid'),
+    (u_adm2, 'mdx-admin2@example.invalid'),
+    (u_tl,   'mdx-leader@example.invalid'),
+    (u_agt,  'mdx-agent@example.invalid'),
+    (u_vwr,  'mdx-viewer@example.invalid'),
+    (u_gst,  'mdx-guest@example.invalid'),
+    (u_mul,  'mdx-multi@example.invalid'),
+    (u_ob,   'mdx-owner-b@example.invalid'),
+    (u_oc,   'mdx-owner-c@example.invalid'),
+    (u_out,  'mdx-outsider@example.invalid'),
+    (u_dadm, 'mdx-admin-off@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT id INTO a_acct FROM accounts WHERE owner_user_id = u_own;
   SELECT id INTO b_acct FROM accounts WHERE owner_user_id = u_ob;
@@ -112,7 +114,7 @@ BEGIN
    WHERE user_id = u_gst;
   -- The multi-workspace person's second membership: an agent of B.
   INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
-  VALUES (u_mul, '', 'md-multi@example.invalid', b_acct, 'agent', false);
+  VALUES (u_mul, '', 'mdx-multi@example.invalid', b_acct, 'agent', false);
   -- The deactivated admin, the 069 way.
   r := pg_temp.md_try('authenticated', u_own, format('SELECT public.set_member_active(%L, false)', u_dadm));
   IF r <> 'ok' THEN
@@ -197,7 +199,7 @@ BEGIN
     failed := array_append(failed, ('caller with no row in B, for a member of A and B: ' || r)::text);
   END IF;
   INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
-  VALUES (u_adm, '', 'md-admin@example.invalid', b_acct, 'agent', false);
+  VALUES (u_adm, '', 'mdx-admin@example.invalid', b_acct, 'agent', false);
   r := pg_temp.md_auth(u_adm, u_mul);
   n := n + 1;
   IF r NOT LIKE 'ERROR 42501: This person also belongs to a workspace you don''t manage%' THEN
@@ -248,7 +250,7 @@ BEGIN
   -- where the caller is first nobody, then a live team leader (who
   -- outranks an agent but administers nothing), then an admin.
   INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
-  VALUES (u_mul, '', 'md-multi@example.invalid', c_acct, 'agent', false);
+  VALUES (u_mul, '', 'mdx-multi@example.invalid', c_acct, 'agent', false);
   SELECT md5(coalesce((SELECT string_agg(p::text, ',' ORDER BY p.id) FROM profiles p), '')
              || coalesce((SELECT string_agg(w::text, ',' ORDER BY w.id) FROM workspace_audit w), ''))
     INTO snap;
@@ -264,7 +266,7 @@ BEGIN
     failed := array_append(failed, 'a refusal for another workspace wrote to profiles or workspace_audit'::text);
   END IF;
   INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
-  VALUES (u_adm, '', 'md-admin@example.invalid', c_acct, 'team_leader', false);
+  VALUES (u_adm, '', 'mdx-admin@example.invalid', c_acct, 'team_leader', false);
   r := pg_temp.md_auth(u_adm, u_mul);
   n := n + 1;
   IF r NOT LIKE 'ERROR 42501: This person also belongs to a workspace you don''t manage%' THEN

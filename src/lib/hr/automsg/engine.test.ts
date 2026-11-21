@@ -309,6 +309,70 @@ describe('no free-text path', () => {
   });
 });
 
+describe('SMS channel (migration 226)', () => {
+  function smsRig(sms: SendPort | null, rcs: SendPort | null = null) {
+    const r = rig();
+    r.ctx.channel = 'sms';
+    const smsSent: TemplateSendRequest[] = [];
+    const port: SendPort | null = sms && {
+      async send(req) {
+        smsSent.push(req);
+        return sms.send(req);
+      },
+      ...(sms.hasCapacity ? { hasCapacity: sms.hasCapacity } : {}),
+    };
+    const deps: EngineDeps = { ...r.deps, senders: { rcs, sms: port } };
+    return { ...r, deps, smsSent };
+  }
+  const ok: SendPort = {
+    send: async () => ({ providerMessageId: 'T1:42', messageId: null }),
+  };
+
+  it('no SMS sender -> held channel_not_connected; neither WhatsApp nor RCS is used', async () => {
+    const rcsCalls: TemplateSendRequest[] = [];
+    const rcs: SendPort = {
+      async send(req) {
+        rcsCalls.push(req);
+        return { providerMessageId: 'rcs', messageId: null };
+      },
+    };
+    const { store, sent, deps } = smsRig(null, rcs);
+    store.add(row('r1'));
+    const claim = vi.spyOn(store, 'claim');
+    expect(await processRow(row('r1'), deps)).toBe(
+      'held:channel_not_connected'
+    );
+    expect(claim).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+    expect(rcsCalls).toEqual([]);
+  });
+
+  it('a sender at its pace limit -> deferred, the row untouched (no claim, no attempt)', async () => {
+    const busy: SendPort = { ...ok, hasCapacity: () => false };
+    const { store, smsSent, deps } = smsRig(busy);
+    store.add(row('r1'));
+    const before = { ...store.rows.get('r1') };
+    const claim = vi.spyOn(store, 'claim');
+    expect(await processRow(row('r1'), deps)).toBe('deferred');
+    expect(claim).not.toHaveBeenCalled();
+    expect(smsSent).toEqual([]);
+    expect(store.rows.get('r1')).toEqual(before);
+  });
+
+  it('with an SMS sender: sent through it only, markSent with no message id', async () => {
+    const { store, sent, smsSent, deps } = smsRig(ok);
+    store.add(row('r1'));
+    const markSent = vi.spyOn(store, 'markSent');
+    expect(await processRow(row('r1'), deps)).toBe('sent');
+    expect(sent).toEqual([]);
+    expect(smsSent).toHaveLength(1);
+    expect(markSent).toHaveBeenCalledWith(
+      'r1',
+      expect.objectContaining({ providerMessageId: 'T1:42', messageId: null })
+    );
+  });
+});
+
 describe('RCS channel (migration 215)', () => {
   function rcsRig(rcs: SendPort | null) {
     const r = rig();

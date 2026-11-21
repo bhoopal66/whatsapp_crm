@@ -39,6 +39,8 @@ import { containsRawIdentifier } from './redact';
 
 export type ErrorCode =
   | 'DISABLED'
+  /** The workspace requires a recorded AI transfer basis and has none (224). */
+  | 'TRANSFER_REFUSED'
   | 'BREAKER_OPEN'
   | 'AUTH_PAUSED'
   | 'INVALID_PAUSED'
@@ -153,6 +155,13 @@ export interface GatewayDeps {
   authCooldownMs?: number;
   /** Pause for one check and account after 3 consecutive 422s. Default 15 min. */
   invalidCooldownMs?: number;
+  /** The AI transfer register (migration 224): logs the call and answers
+   *  whether it may go. Asked for a known account only; absent = allowed. */
+  transferAllowed?: (
+    accountId: string,
+    check: string,
+    size: number
+  ) => Promise<boolean>;
 }
 
 /** The only endpoint the layer talks to. Pinned, so TYPESAFE_BASE_URL in the
@@ -342,6 +351,18 @@ export class TypeSafeGateway {
         errorCode: 'STATE_TOO_LARGE',
         latencyMs: 0,
         message: 'state too large',
+      };
+    }
+    if (
+      accountId !== '*' &&
+      this.deps.transferAllowed &&
+      !(await this.deps.transferAllowed(accountId, check, size))
+    ) {
+      return {
+        ok: false,
+        errorCode: 'TRANSFER_REFUSED',
+        latencyMs: elapsed(),
+        message: 'AI transfer basis required',
       };
     }
 

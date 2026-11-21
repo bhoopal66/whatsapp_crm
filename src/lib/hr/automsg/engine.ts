@@ -42,6 +42,8 @@ export type RowOutcome =
   | 'cancelled'
   | 'lost'
   | 'capped'
+  /** The channel's sender is at its pace limit: untouched, next pass. */
+  | 'deferred'
   | `held:${HoldReason}`
   | 'error';
 
@@ -124,15 +126,18 @@ export async function processRow(
   // decide() allowed, so the template is present.
   const tpl = st.template!;
 
-  // One sender per channel, never another channel's (migration 215): an
-  // RCS row with no RCS provider waits, it is not sent on WhatsApp.
+  // One sender per channel, never another channel's (migrations 215,
+  // 226): an RCS or SMS row with no provider waits, it is not sent on
+  // WhatsApp. Only 'whatsapp' reaches deps.sender.
   const channel = st.channel;
-  const sender = channel === 'rcs' ? (deps.senders?.rcs ?? null) : deps.sender;
+  const sender =
+    channel === 'whatsapp' ? deps.sender : (deps.senders?.[channel] ?? null);
   if (!sender) {
     if (!(cur.status === 'held' && cur.holdReason === 'channel_not_connected'))
       await store.hold(row.id, 'channel_not_connected');
     return 'held:channel_not_connected';
   }
+  if (sender.hasCapacity && !sender.hasCapacity()) return 'deferred';
 
   const claim = await store.claim(row.id, now);
   if (claim === 'lost') return 'lost';
@@ -173,7 +178,8 @@ export async function processRow(
     return 'failed';
   }
 
-  // An RCS message has no chat message: a null messageId is normal there.
+  // An RCS or SMS message has no chat message: a null messageId is normal
+  // there.
   if (channel === 'whatsapp' && sent.messageId === null) {
     // The gateway accepted it but the chat has no record of it: say so,
     // so the history shows it needs review.

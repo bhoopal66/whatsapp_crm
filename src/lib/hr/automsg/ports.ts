@@ -107,6 +107,13 @@ export interface SendPort {
   send(
     req: TemplateSendRequest
   ): Promise<{ providerMessageId: string | null; messageId: string | null }>;
+  /**
+   * False while the sender is at its own pace limit (the SMS gateway's
+   * per-minute cap). The engine then leaves the row untouched for a later
+   * pass: claiming it would spend one of its three attempts on a send
+   * that cannot happen yet. Absent = always ready.
+   */
+  hasCapacity?(): boolean;
 }
 
 export interface ClockPort {
@@ -118,6 +125,6 @@ export interface EngineDeps {
   /** The WhatsApp sender. */
   sender: SendPort;
   /** Other channels' senders; a missing one holds its rows 'channel_not_connected'. */
-  senders?: { rcs?: SendPort | null };
+  senders?: { rcs?: SendPort | null; sms?: SendPort | null };
   clock: ClockPort;
 }

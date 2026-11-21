@@ -12,6 +12,116 @@ and polish.
 
 ## [Unreleased]
 
+### Push helpers closed to the service role
+
+**Migration required:** apply `227_push_helper_grants.sql` (as a
+superuser) after 226. On a classic Supabase project the service role
+could still call `push_eligible` and `can_view_conversation_for_user`
+over the API (109 and 190 revoked them from every other role); nothing
+in the app does, and now it cannot.
+
+### Migrations check in CI
+
+The "Apply to a clean database" job had never passed: the CLI's own
+runner is off (`supabase/config.toml`, because 044 must run in
+autocommit), and the CLI's current image no longer grants the API roles
+access to new tables. CI now replays every migration through `psql` in
+autocommit after restoring the classic default grants
+(`supabase/ci/classic-grants.sql`, CI only), and all 117 verify steps
+run. Two verify files got fixture emails of their own, because older
+ones commit their test users.
+
+### Node 22
+
+**Rebuild required:** the app now needs Node 22 (`engines`, the
+Dockerfile and CI). `@supabase/supabase-js` 2.108 creates its Realtime
+client inside `createClient` and throws on Node 20, which has no global
+WebSocket ("Node.js 20 detected without native WebSocket support"), so
+on Node 20 every server-side Supabase client failed. Rebuild the Docker
+image, or run the app on Node 22 or later.
+
+### SMS for HR automated messages
+
+**Migration required:** apply `226_hr_automsg_sms.sql` (as a superuser)
+after 225, before deploying this build. Then re-run
+`supabase/ci/verify-hr-automsg-rcs.sql` if you keep a copy: it no longer
+uses `sms` as its example of an unknown channel.
+- A third channel beside WhatsApp and RCS in HR → Automated messages:
+  plain SMS through a Dinstar GSM gateway. Off until the gateway is set
+  up (`DINSTAR_*`); until then messages on SMS are held "SMS not
+  connected" and never sent, and never moved to another channel.
+- SMS templates have their own tab with a character and segment counter;
+  none is created for you. Consent is recorded per channel.
+- Delivery reports and STOP replies arrive at `POST /api/sms/webhook`
+  (shared token). See "SMS channel" in `docs/hr-workflows.md`, including
+  the open legal points (UAE TDRA rules on SMS) before going live.
+
+### Case file reviewer
+
+**Migration required:** apply `225_case_review.sql` (as a superuser)
+after 224, before deploying this build.
+- Off by default. Settings → Cases → Case file reviewer.
+- When a case document passes its file checks, a reviewer's note appears
+  on the case's Documents tab, listing which required documents are in,
+  missing, failed or expired, and where the checklist and the files
+  disagree.
+- Optionally, an AI-written summary of the documents' text, with identity
+  numbers removed, sent with the workspace's AI key and logged in
+  Settings → Privacy. Scans cannot be read (no OCR) and are marked for a
+  person.
+- The note is advice only: Agree or Disagree records your view and
+  changes nothing on the case. See "Case file reviewer" in
+  `docs/cases.md`.
+
+### Privacy (UAE PDPL): export, erase, legal hold, retention, AI transfer basis
+
+**Migration required:** apply `221_privacy_export.sql`,
+`222_privacy_erase.sql`, `223_privacy_retention.sql` and
+`224_ai_transfer_register.sql` in order (as a superuser), after 220,
+before deploying this build.
+- New **Settings → Privacy** (owners and admins).
+- **A customer's request:** export everything held about a customer as
+  one file; place or release a legal hold; erase a customer. Erase is
+  always previewed first with exact counts, and needs a typed
+  confirmation. Bank cases and everything filed to them, the case's
+  WhatsApp group, consent and audit records are kept (KYC/AML) and listed
+  as kept, with the reason.
+- **Retention:** remove or blank old deal-room and WhatsApp-group
+  messages, HR automated-message texts, decided HR AI drafts and call
+  records after a number of days. Swept daily; a preview until you switch
+  Apply on; customers under a legal hold are skipped.
+- **AI providers abroad:** record the legal basis for sending customer
+  text to OpenAI, Anthropic and Jev. Every such call is logged (size
+  only). Nothing changes until you switch "Require a recorded basis" on;
+  then AI features stop until the basis is complete.
+- See `docs/privacy.md`, including what erase cannot reach (backups, the
+  NAS copies, providers).
+
+### Case desk: case numbers and a sorting queue for staff uploads
+
+**Migration required:** apply `220_case_desk.sql` (as a superuser)
+after 219, before deploying this build.
+- New screen **Case desk** (sidebar, Bank submissions; agents and up).
+  Staff upload a document or a piece of information for a case and say
+  what it is: a pending document or information for an existing case
+  (by its case number or caption code), or a new case for a company
+  (bank, company name, trade licence, product and the customer contact).
+- A case the desk opens gets a human number, `TC-26-00001-RAK`, and a
+  short caption code with a check character, `1RAK1`, that staff write
+  on later uploads. A mistyped code is refused, never filed to the
+  wrong case.
+- Complete uploads file at once; anything else waits in the bank's
+  **Sorting queue** with the reason. Coordinators sort the banks they
+  hold (Settings → Coordinators); owners, admins and team leaders sort
+  every queue, and the uploads with no bank. The same file sent twice
+  to a case is marked a duplicate.
+- **My uploads** shows each upload's fate (filed to which case, waiting
+  and why, rejected and why) and lets the uploader fix the details of
+  one still waiting. Team leaders get an **Overview** of every queue
+  with an alert after 2 and 4 hours; admins set each bank's three-letter
+  **Desk code**.
+- See `docs/case-desk.md`.
+
 ### Staff numbers follow group access
 
 **Migration required:** apply `219_group_staff_numbers.sql` (as a

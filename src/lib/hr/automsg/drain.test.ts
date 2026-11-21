@@ -119,8 +119,14 @@ describe('runHrAutomsgDrain: RCS sender', () => {
     vi.stubEnv('RCS_BASE_URL', '');
     vi.stubEnv('RCS_TOKEN', '');
     vi.stubEnv('RCS_SENDER_ID', '');
+    vi.stubEnv('DINSTAR_BASE_URL', '');
+    vi.stubEnv('DINSTAR_USERNAME', '');
+    vi.stubEnv('DINSTAR_PASSWORD', '');
     await runHrAutomsgDrain({ now: NOW });
-    expect(h.processDue.mock.calls[0][1].senders).toEqual({ rcs: null });
+    expect(h.processDue.mock.calls[0][1].senders).toEqual({
+      rcs: null,
+      sms: null,
+    });
     vi.unstubAllEnvs();
   });
 
@@ -131,6 +137,28 @@ describe('runHrAutomsgDrain: RCS sender', () => {
     await runHrAutomsgDrain({ now: NOW });
     const rcs = h.processDue.mock.calls[0][1].senders.rcs;
     expect(typeof rcs?.send).toBe('function');
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('runHrAutomsgDrain: SMS sender', () => {
+  it('is null without the gateway settings', async () => {
+    vi.stubEnv('DINSTAR_BASE_URL', '');
+    vi.stubEnv('DINSTAR_USERNAME', '');
+    vi.stubEnv('DINSTAR_PASSWORD', '');
+    await runHrAutomsgDrain({ now: NOW });
+    expect(h.processDue.mock.calls[0][1].senders.sms).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it('is built when the gateway settings are present', async () => {
+    vi.stubEnv('DINSTAR_BASE_URL', 'https://gw.example');
+    vi.stubEnv('DINSTAR_USERNAME', 'u');
+    vi.stubEnv('DINSTAR_PASSWORD', 'p');
+    await runHrAutomsgDrain({ now: NOW });
+    const sms = h.processDue.mock.calls[0][1].senders.sms;
+    expect(typeof sms?.send).toBe('function');
+    expect(typeof sms?.hasCapacity).toBe('function');
     vi.unstubAllEnvs();
   });
 });

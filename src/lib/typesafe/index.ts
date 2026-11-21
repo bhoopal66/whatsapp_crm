@@ -10,7 +10,7 @@
  * operator-facing contract.
  */
 import type { Fetch } from '@typesafe-ai/sdk';
-import { TypeSafeGateway, type AlertSink } from './client';
+import { TypeSafeGateway, type AlertSink, type GatewayDeps } from './client';
 import {
   CHECK_NAMES,
   checkState,
@@ -48,6 +48,7 @@ import {
   type StatusMapInput,
 } from './checks/status-map';
 import type { CheckDeps, Ref } from './checks/common';
+import { aiTransferAllowed } from '@/lib/privacy/ai-transfer';
 
 export interface DecisionLayerOptions {
   /** Service-role policy/log store. Omit to run without logging or DB policies. */
@@ -59,6 +60,8 @@ export interface DecisionLayerOptions {
   now?: () => Date;
   /** HMAC key for the log's state and message hashes. Defaults to TS_LOG_HASH_KEY. */
   logHashKey?: string;
+  /** The AI transfer register (migration 224); absent = every call allowed. */
+  transferAllowed?: GatewayDeps['transferAllowed'];
 }
 
 /** How long an alert code stays quiet after it has been printed once. */
@@ -98,6 +101,7 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
     alert,
     apiKey: opts.apiKey,
     fetch: opts.fetch,
+    transferAllowed: opts.transferAllowed,
   });
   const policies = new PolicyStore({
     store: opts.store,
@@ -271,7 +275,17 @@ let configError: { message: string; loggedAt: number } | null = null;
 export function getDecisionLayer(): DecisionLayer | null {
   if (shared) return shared;
   try {
-    shared = createDecisionLayer({ store: supabaseStore(supabaseAdmin()) });
+    shared = createDecisionLayer({
+      store: supabaseStore(supabaseAdmin()),
+      transferAllowed: (accountId, check, size) =>
+        aiTransferAllowed({
+          accountId,
+          destination: 'typesafe',
+          purpose: check.replace(/[^a-z_]/g, '_').slice(0, 40),
+          model: null,
+          bytes: size,
+        }),
+    });
     return shared;
   } catch (err) {
     const now = Date.now();

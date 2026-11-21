@@ -22,6 +22,7 @@
  * allowed, or a failed request) a topic is stored with coverage
  * 'unknown' and no intent — the grouping itself needs no Jev.
  */
+import { assertAiTransfer } from '@/lib/privacy/ai-transfer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
@@ -247,6 +248,12 @@ async function withEmbeddings(
   try {
     const config = await loadAiConfig(db, accountId, { requireActive: false });
     if (!config?.embeddingsApiKey) return rows;
+    await assertAiTransfer(
+      { accountId, provider: 'openai' },
+      'gap_topics',
+      null,
+      rows.reduce((n, r) => n + r.question.length, 0)
+    );
     const vectors = await embedTexts(
       config.embeddingsApiKey,
       rows.map((r) => r.question),

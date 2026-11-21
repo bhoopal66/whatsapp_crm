@@ -32,9 +32,9 @@
  * Server-only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isValidE164, sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import type { SendPort, TemplateSendRequest } from './ports';
 import type { RcsSendConfig } from './rcs-config';
+import { recipientNumber } from './recipient';
 
 export const DEFAULT_RCS_TIMEOUT_MS = 10_000;
 
@@ -67,35 +67,6 @@ export function rcsParams(
   }));
 }
 
-/** The contact's E.164 number (without '+'), after the personal-chat refusal. */
-async function recipient(
-  db: SupabaseClient,
-  req: TemplateSendRequest
-): Promise<string> {
-  const { data: conv, error: convErr } = await db
-    .from('conversations')
-    .select('id, account_id, contact_id, personal_owner_id')
-    .eq('id', req.conversationId)
-    .eq('account_id', req.accountId)
-    .maybeSingle();
-  if (convErr || !conv) throw new RcsSendError('conversation_missing', false);
-  if (conv.personal_owner_id) throw new RcsSendError('personal_number', false);
-  if (conv.contact_id !== req.contactId)
-    throw new RcsSendError('conversation_missing', false);
-
-  const { data: contact, error: contactErr } = await db
-    .from('contacts')
-    .select('id, phone')
-    .eq('id', req.contactId)
-    .eq('account_id', req.accountId)
-    .maybeSingle();
-  if (contactErr || !contact?.phone)
-    throw new Error('contact not found for this account');
-  const to = sanitizePhoneForMeta(String(contact.phone));
-  if (!isValidE164(to)) throw new RcsSendError('invalid_number', false);
-  return to;
-}
-
 export function createRcsSendPort(
   db: SupabaseClient,
   cfg: RcsSendConfig,
@@ -107,7 +78,11 @@ export function createRcsSendPort(
     async send(req) {
       if (req.metaTemplateName.trim() === '')
         throw new RcsSendError('unknown_template', false);
-      const to = await recipient(db, req);
+      const to = await recipientNumber(
+        db,
+        req,
+        (reason) => new RcsSendError(reason, false)
+      );
       const body = {
         to: `+${to}`,
         senderId: cfg.senderId,

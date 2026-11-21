@@ -614,3 +614,43 @@ A failure is only logged.
 - Concurrency rules (races) are not covered by the SQL verify files.
 - A team leader who is also the named coordinator or agent of a case acts as
   team leader on it when they lead the agent's team.
+
+## Case file reviewer (migration 225)
+
+Off by default. Settings → Cases → Case file reviewer (owners and admins)
+has two switches:
+
+- **Write a reviewer's note when a document passes.** A file passing its
+  checks queues its case. The note is written about a minute later, so a
+  burst of uploads makes one note, not many.
+- **Add an AI-written summary.** Needs the first switch on and the
+  workspace's AI key (Settings → AI).
+
+The note appears on the case's Documents tab, under "Reviewer's note".
+
+- **What it always holds:** a checklist of every required document of the
+  case's file spec, marked received, missing, pending, failed (with the
+  failed checks) or expired. It also flags where the checklist and the
+  files disagree: marked received with no passed file, a passed file not
+  marked received, an unexpected document, unclassified files, and the
+  same file used for two documents.
+- **The AI summary**, when switched on:
+  - It reads the text layer of the passed PDFs: up to 30 pages, 10 MB
+    and 10 seconds per file, and at most 60,000 characters.
+  - Identity numbers, IBANs and card numbers are removed first. If that
+    fails, no summary is written (fail closed).
+  - The text goes to the provider through the AI transfer register
+    (Settings → Privacy), so it is logged and can be refused there.
+  - The summary is labelled "AI-written, not verified". The text is used
+    for that one call and never stored.
+- **What it cannot read:** there is no OCR. A scan, an image, or an
+  encrypted, too long or unreadable file is marked "needs manual review".
+- **It only advises.** It never changes a document, file, stage or task,
+  and it contacts nobody. Writers of the case can Agree or Disagree once;
+  that records their view and changes nothing else.
+- **One note at a time.** The same inputs give the same note again, and a
+  newer note replaces the one waiting for a decision.
+- **Runs:** the automations cron runs the reviewer every minute, 20 cases
+  at a time. A failed run is retried twice, 5 minutes apart. A run stuck
+  for 15 minutes is taken back.
+- `supabase/ci/verify-case-review.sql` asserts the database rules.

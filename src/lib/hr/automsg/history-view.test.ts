@@ -7,6 +7,7 @@ import {
   CLAIM_STATE_KEYS,
   HISTORY_FILTERS,
   HOLD_REASON_KEYS,
+  SMS_NOT_CONNECTED_KEY,
   cancelErrorKey,
   historyRowView,
   historyStatusArg,
@@ -84,6 +85,31 @@ describe('labels', () => {
       expect(h.alreadyDecided).toBeTruthy();
     }
   );
+});
+
+describe('not connected, per channel', () => {
+  it('names the row channel: RCS or SMS', () => {
+    const held = (channel: 'rcs' | 'sms') =>
+      historyRowView(
+        {
+          ...row('held'),
+          holdReason: 'channel_not_connected',
+          channel,
+        },
+        'admin'
+      ).holdKey;
+    expect(held('rcs')).toBe('channelNotConnected');
+    expect(held('sms')).toBe(SMS_NOT_CONNECTED_KEY);
+  });
+
+  it('labels the SMS key in both catalogues', () => {
+    for (const file of ['en.json', 'ko.json']) {
+      const hold = JSON.parse(
+        readFileSync(join(process.cwd(), 'messages', file), 'utf8')
+      ).Hr.automsg.history.hold;
+      expect(hold[SMS_NOT_CONNECTED_KEY]).toBeTruthy();
+    }
+  });
 });
 
 describe('channel', () => {

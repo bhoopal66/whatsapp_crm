@@ -280,6 +280,71 @@ which works exactly as before.
   for RCS.
 - `supabase/ci/verify-hr-automsg-rcs.sql` asserts the database side.
 
+## SMS channel (migration 226)
+
+A third channel beside WhatsApp and RCS (package release 032): plain SMS
+through a Dinstar GSM gateway, a box with SIM cards on the office network.
+Chosen per trigger in HR → Automated messages, like RCS.
+
+- **Off until the gateway is set up.** With no `DINSTAR_*` settings SMS is
+  "not connected": a message whose trigger uses SMS is held "SMS not
+  connected", never sent, and cancelled after 24 hours like any held
+  message. Nothing is ever moved to WhatsApp or RCS, and nothing on those
+  channels is ever sent by SMS. The page says so while any trigger is on
+  SMS.
+- **Templates.** SMS templates have their own tab: a label for your own
+  reference (letters, digits, `.`, `:`, `_`, `-`; needed to approve), the
+  text (same placeholders as WhatsApp) and the approval. Approving an SMS
+  template means you have checked the text: there is no provider review.
+  None is created for you, so nothing goes out until you write and approve
+  one. The editor counts characters and segments: 160 per SMS in plain
+  Latin text (153 each when split), 70 in Arabic or with any other
+  character outside the GSM alphabet (67 each when split). A message
+  longer than 3 segments (459 or 201 characters, after the candidate's
+  name is filled in) is refused when it is sent, so keep a margin.
+- **Consent per channel.** One line per channel in the chat's HR panel: a
+  WhatsApp or RCS consent never covers SMS. An opt-out stops every channel,
+  and the daily limit counts all three.
+- **Delivery and STOP.** The gateway pushes results to
+  `POST /api/sms/webhook`: sent, delivered and failed are recorded on the
+  SMS message only (a permanent failure ends it for good). A candidate who
+  texts back STOP or UNSUBSCRIBE (or an opt-out phrase the HR agents
+  recognise) is opted out of every channel; any other reply is ignored and
+  never stored. The push carries no signature: it is authenticated by a
+  shared token (`X-Sms-Token`, or `?token=` only when allowed) and,
+  optionally, a list of the gateway's IP addresses. 501 until configured.
+- **Matching.** The gateway's reports name no message id we stored, only a
+  number we sent with each message and the phone number, so a report is
+  matched to the newest SMS message with that number whose contact's phone
+  ends in the same nine digits; a later delivery report by the gateway's
+  reference, else by the phone number within 48 hours.
+- **Connecting the gateway** (operators): confirm the request and push
+  formats in `src/lib/hr/automsg/dinstar.ts` and `sms-webhook.ts` against
+  your gateway first (firmware 1102 or later, "new version API" on; they
+  were written from Dinstar's API document and never tested against a real
+  gateway). Then set `DINSTAR_BASE_URL` (https), `DINSTAR_USERNAME`,
+  `DINSTAR_PASSWORD` and optionally `DINSTAR_PORTS`,
+  `DINSTAR_TLS_FINGERPRINT`, `DINSTAR_MAX_PER_MINUTE`; for reports,
+  `SMS_WEBHOOK_SECRET` and `SMS_WORKSPACE_ID`, optionally
+  `SMS_WEBHOOK_ALLOW_IPS` and `SMS_ALLOW_QUERY_TOKEN` (see
+  `.env.local.example`), and restart. `GET /api/hr/automsg/sms` reports
+  whether sending and reports are on.
+- **The gateway's certificate.** Verification is never turned off.
+  `DINSTAR_TLS_FINGERPRINT` pins the gateway's certificate, but the usual
+  certificate checks still apply, so a self-signed gateway certificate
+  must also be trusted by the server (for example with
+  `NODE_EXTRA_CA_CERTS`). Keep the gateway reachable only on the office
+  network or a VPN.
+- **Pace.** At most `DINSTAR_MAX_PER_MINUTE` messages a minute per server
+  process (default 10): carriers throttle or block SIM cards that send in
+  bursts. Over the limit, a message waits for the next run.
+- **Open before go-live** (from the package): UAE TDRA rules on
+  application-to-person SMS (registered sender IDs; person-to-person SIM
+  traffic used commercially needs legal or provider advice), carriers
+  throttling consumer SIMs, Arabic template text reviewed by a native
+  speaker, and PDPL sign-off.
+- `supabase/ci/verify-hr-automsg-sms.sql` asserts the database side.
+
 ## HR lines (migration 213)
 
 HR → Rules → **HR lines** (owners and admins) names the WhatsApp

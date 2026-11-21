@@ -7,6 +7,7 @@
  * any throw (handoff 'error', no draft). The model only suggests a label
  * or a draft; the guardrails stay in code.
  */
+import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 import { aiRequestTimeoutMs } from '@/lib/ai/defaults';
 import { generateAnthropic } from '@/lib/ai/providers/anthropic';
 import { generateOpenAi } from '@/lib/ai/providers/openai';
@@ -51,6 +52,12 @@ export function createAiModelPort(opts: AiModelPortOptions): ModelPort {
       maxTokens: classify ? CLASSIFY_MAX_TOKENS : DRAFT_MAX_TOKENS,
     };
 
+    await assertAiTransfer(
+      config,
+      'hr_agent',
+      model,
+      promptSize(providerArgs.systemPrompt, providerArgs.messages)
+    );
     let result: { text: string; usage: AiUsage | null };
     const provider = config.provider;
     switch (provider) {

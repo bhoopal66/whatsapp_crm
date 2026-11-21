@@ -6,10 +6,12 @@
  * up (the claim in the engine keeps an overlapping run from double-sending).
  */
 import { supabaseAdmin } from '@/lib/automations/admin-client';
+import { createDinstarSmsSendPort } from './dinstar';
 import { processDue } from './engine';
 import { createRcsSendPort } from './rcs';
 import { rcsSendConfig } from './rcs-config';
 import { createHrSendPort } from './send';
+import { smsSendConfig } from './sms-config';
 import { PgAutoMsgStore } from './store';
 
 export interface HrAutomsgDrainSummary {
@@ -30,12 +32,17 @@ export async function runHrAutomsgDrain(
     const reviewed = await store.reviewStuck(now);
     const expired = await store.expire(now);
     const rows = await store.due(opts.limit ?? DEFAULT_LIMIT, opts.accountId);
-    // Read at drain time: no RCS settings = RCS rows held, never rerouted.
+    // Read at drain time: no RCS or SMS settings = those rows held, never
+    // rerouted to another channel.
     const rcsCfg = rcsSendConfig();
+    const smsCfg = smsSendConfig();
     const counts = await processDue(rows, {
       store,
       sender: createHrSendPort(db),
-      senders: { rcs: rcsCfg ? createRcsSendPort(db, rcsCfg) : null },
+      senders: {
+        rcs: rcsCfg ? createRcsSendPort(db, rcsCfg) : null,
+        sms: smsCfg ? createDinstarSmsSendPort(db, smsCfg) : null,
+      },
       clock: { now: () => opts.now ?? new Date() },
     });
     const outcomes: Record<string, number> = {};

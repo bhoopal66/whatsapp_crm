@@ -1,3 +1,4 @@
+import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 import { AiError, type AiConfig, type AiUsage } from './types';
 import { aiRequestTimeoutMs } from './defaults';
 import { generateOpenAi } from './providers/openai';
@@ -127,6 +128,12 @@ export async function translateText(
     maxTokens: TRANSLATE_MAX_OUTPUT_TOKENS,
   };
 
+  await assertAiTransfer(
+    config,
+    'translate',
+    model,
+    promptSize(providerArgs.systemPrompt, providerArgs.messages)
+  );
   let result: { text: string; usage: AiUsage | null };
   const provider = config.provider;
   switch (provider) {

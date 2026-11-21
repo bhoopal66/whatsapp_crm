@@ -125,6 +125,7 @@ export async function loadAiConfig(
   }
 
   return {
+    accountId,
     provider: row.provider,
     model: row.model,
     apiKey: decrypt(row.api_key),

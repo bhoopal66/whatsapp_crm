@@ -61,6 +61,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { CaseFilesSettingsCard, FileSpecEditor } from './case-files-settings';
+import { ReviewSettingsCard } from '@/components/cases/case-page/review-drafts-section';
 import { CaseRulesSettingsCard } from './case-rules-settings';
 import { CaseMacrosSettingsCard } from './case-macros-settings';
 import { CaseStatusMapCard } from './case-status-map-card';
@@ -376,6 +377,7 @@ export function CasesSettingsPanel() {
       <CaseSwitchCards />
 
       <CaseFilesSettingsCard />
+      <ReviewSettingsCard />
 
       <CaseStatusMapCard />
 

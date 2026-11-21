@@ -90,7 +90,8 @@
     "hrRules": "규칙",
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
-    "openHrChats": "{count, plural, other {열린 채팅 #개}}"
+    "openHrChats": "{count, plural, other {열린 채팅 #개}}",
+    "desk": "케이스 데스크"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -141,7 +142,8 @@
     "hrRules": "규칙",
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
-    "hr": "HR"
+    "hr": "HR",
+    "desk": "케이스 데스크"
   },
   "Notifications": {
     "title": "알림",
@@ -2682,7 +2684,8 @@
       "audit-log": "감사 로그",
       "deal-rooms": "딜룸",
       "cases": "케이스",
-      "vault": "보관소"
+      "vault": "보관소",
+      "privacy": "개인정보 (PDPL)"
     },
     "categories": {
       "overview": "개요",
@@ -2737,7 +2740,8 @@
       "audit-log": "누가 무엇을 했는지: 접근, 열람, 삭제, 변경.",
       "phone-system": "Yeastar PBX: 내선, 녹음, 통화 결과.",
       "phone-extensions": "각 전화 내선을 응답하는 사람과 연결합니다.",
-      "api": "공개 REST API와 자체 연동을 위한 키."
+      "api": "공개 REST API와 자체 연동을 위한 키.",
+      "privacy": "고객 데이터 내보내기·삭제·법적 보존, 보관 기간, AI 전송 근거."
     },
     "keywords": {
       "overview": "홈 현황 요약 home status",
@@ -2770,7 +2774,8 @@
       "audit-log": "감사 기록 이력 활동 audit history",
       "phone-system": "PBX yeastar 전화 통화 내선 녹음 소프트폰 calls extensions",
       "phone-extensions": "PBX yeastar 내선 사람 연결 소프트폰 상태 extensions",
-      "api": "API 키 개발자 REST 연동 토큰 developer integration"
+      "api": "API 키 개발자 REST 연동 토큰 developer integration",
+      "privacy": "privacy pdpl 개인정보 내보내기 삭제 법적 보존 보관 ai"
     },
     "nav": {
       "label": "설정 메뉴",
@@ -11623,7 +11628,8 @@
       },
       "channel": {
         "whatsapp": "WhatsApp",
-        "rcs": "RCS"
+        "rcs": "RCS",
+        "sms": "SMS"
       },
       "templateKinds": {
         "cv_ack": "이력서 접수 안내",
@@ -11665,6 +11671,18 @@
         "rcsSeedNote": "WhatsApp 문구에서 시작하며 아직 저장되지 않았습니다",
         "rcsId": "RCS 제공업체 템플릿 ID ({language})",
         "saveRcs": "RCS 템플릿 저장 ({language})",
+        "smsReadOnly": "현재 역할로는 SMS 템플릿을 읽기만 할 수 있습니다.",
+        "smsNotConnected": "아직 연결된 SMS 게이트웨이가 없습니다. SMS 템플릿은 지금 준비해 둘 수 있으며, 게이트웨이가 연결되기 전에는 SMS로 아무것도 발송되지 않습니다.",
+        "smsSeedNote": "WhatsApp 문구에서 시작하며 아직 저장되지 않았습니다",
+        "smsLabel": "SMS 라벨 ({language})",
+        "saveSms": "SMS 템플릿 저장 ({language})",
+        "smsCounter": "발송 기준: {length}자, SMS {segments}건, {encoding}",
+        "smsEncoding": {
+          "gsm": "일반 문자(SMS당 160자)",
+          "unicode": "유니코드(SMS당 70자)"
+        },
+        "smsCounterHint": "이름을 {allowance}자로 가정해 계산했습니다. 이름이 더 길면 글자 수가 늘어납니다.",
+        "smsTooLong": "SMS {max}건을 넘습니다. 이 메시지는 발송 시 거부되므로 줄여 주세요.",
         "check": {
           "missingPlaceholder": "{slot}이(가) 들어가야 합니다",
           "promotional": "홍보성 문구는 쓸 수 없습니다: \"{phrase}\"",
@@ -11673,7 +11691,9 @@
           "nameFormat": "영문 소문자, 숫자, 밑줄만 쓰세요.",
           "approvedNeedsName": "승인된 템플릿에는 Meta 템플릿 이름이 필요합니다.",
           "rcsApprovedNeedsId": "승인하려면 RCS 제공업체 템플릿 ID가 필요합니다.",
-          "rcsIdFormat": "RCS 제공업체 템플릿 ID에는 영문자, 숫자, '.', ':', '_', '-'만 쓸 수 있습니다(최대 512자)."
+          "rcsIdFormat": "RCS 제공업체 템플릿 ID에는 영문자, 숫자, '.', ':', '_', '-'만 쓸 수 있습니다(최대 512자).",
+          "smsApprovedNeedsLabel": "승인하려면 SMS 라벨이 필요합니다.",
+          "smsLabelFormat": "SMS 라벨에는 영문자, 숫자, '.', ':', '_', '-'만 쓸 수 있습니다(최대 512자)."
         }
       },
       "history": {
@@ -11712,6 +11732,7 @@
           "quietHours": "발송 금지 시간",
           "noTemplate": "승인된 템플릿 없음",
           "channelNotConnected": "RCS 미연결",
+          "channelNotConnectedSms": "SMS 미연결",
           "dailyCap": "하루 한도 도달",
           "duplicate": "중복"
         },
@@ -11730,6 +11751,10 @@
       "rcs": {
         "notConnected": "RCS 미연결",
         "notice": "연결된 RCS 제공업체가 없습니다. RCS 메시지는 \"RCS 미연결\" 상태로 보류되어 발송되지 않으며, WhatsApp이나 SMS로 전환되지도 않습니다."
+      },
+      "sms": {
+        "notConnected": "SMS 미연결",
+        "notice": "연결된 SMS 게이트웨이가 없습니다. SMS 메시지는 \"SMS 미연결\" 상태로 보류되어 발송되지 않으며, WhatsApp이나 RCS로 전환되지도 않습니다."
       },
       "consentByChannel": {
         "title": "채널별 동의",
@@ -11866,6 +11891,202 @@
       "docs_missing": "서류 누락",
       "draft_waiting": "초안 대기 중",
       "draft_old": "24시간 넘은 초안"
+    }
+  },
+  "Desk": {
+    "title": "케이스 데스크",
+    "subtitle": "케이스의 서류와 정보를 업로드하고, 업로드마다 처리 결과를 확인하고, 자동으로 분류되지 않은 항목을 분류합니다.",
+    "tabs": {
+      "upload": "업로드",
+      "mine": "내 업로드",
+      "queue": "분류 대기열",
+      "overview": "개요",
+      "codes": "데스크 코드"
+    },
+    "kind": {
+      "pending_doc": "미제출 서류",
+      "new_case": "새 케이스",
+      "info": "정보"
+    },
+    "fields": {
+      "kind": "종류",
+      "caseRef": "케이스 번호 또는 캡션 코드",
+      "bank": "은행",
+      "bankNone": "은행 없음",
+      "docKey": "서류 유형",
+      "company": "회사 법인명",
+      "licence": "무역 면허 번호",
+      "product": "상품",
+      "contact": "고객 연락처",
+      "contactPlaceholder": "이름 또는 전화번호로 연락처 검색",
+      "note": "메모",
+      "file": "파일",
+      "fileHint": "PDF, JPEG 또는 PNG, 최대 10MB. 정보는 파일이 없어도 됩니다.",
+      "caption": "캡션",
+      "captionHint": "선택 입력. 비워 둔 항목만 채웁니다. 예: '4271RAKD ejari', 'INFO 4271RAKD 고객 출장 중', 'NEW RAK Kite Trading 1234567'."
+    },
+    "state": {
+      "filed": "등록됨",
+      "untagged": "분류 대기",
+      "rejected": "거부됨",
+      "duplicate": "중복"
+    },
+    "result": {
+      "case": "케이스",
+      "code": "캡션 코드",
+      "replayed": "(이미 업로드됨, 처음 결과입니다)"
+    },
+    "reason": {
+      "NO_KIND": "종류를 선택하지 않았습니다.",
+      "NO_CASE": "케이스 정보가 부족합니다.",
+      "NO_CONTACT": "고객 연락처를 선택하지 않았습니다.",
+      "NO_FILE": "미제출 서류에는 파일이 필요합니다.",
+      "CASE_NOT_FOUND": "해당 번호나 코드의 진행 중인 케이스가 없습니다.",
+      "BANK_MISMATCH": "케이스가 다른 은행에 있습니다.",
+      "CASE_EXISTS_NAME_MISMATCH": "이 면허는 다른 회사명으로 등록되어 있습니다.",
+      "OTHER": "자동으로 등록할 수 없었습니다."
+    },
+    "actions": {
+      "upload": "업로드",
+      "uploading": "업로드 중...",
+      "fixTags": "정보 수정",
+      "saveTags": "저장하고 다시 등록",
+      "sort": "분류"
+    },
+    "filters": {
+      "all": "전체"
+    },
+    "loading": "불러오는 중...",
+    "empty": {
+      "mine": "업로드가 없습니다.",
+      "queue": "분류할 항목이 없습니다.",
+      "notSorter": "분류하는 은행 대기열이 없습니다. 소유자, 관리자, 팀 리더는 모든 대기열을, 코디네이터는 담당 은행만 분류합니다."
+    },
+    "queueOf": "{bank} 대기열",
+    "rejectedBecause": "거부됨: {reason}",
+    "noBankQueue": "은행 없음 (팀 리더)",
+    "sort": {
+      "file": "케이스에 등록",
+      "new": "새 케이스 열기",
+      "reject": "거부",
+      "find": "찾기",
+      "notFound": "분류할 수 있는 진행 중 케이스 중 일치하는 것이 없습니다.",
+      "mismatch": "업로드에는 \"{item}\", 케이스에는 \"{found}\"로 되어 있습니다. 그래도 등록하려면 아래 단어를 입력하세요.",
+      "confirmWord": "confirm",
+      "confirmLabel": "확인하려면 \"{word}\" 입력",
+      "fileTo": "{number}에 등록",
+      "openCase": "케이스 열기",
+      "reasonPlaceholder": "거부 사유 (업로드한 사람에게 보입니다)"
+    },
+    "overview": {
+      "bank": "은행",
+      "holders": "코디네이터",
+      "toSort": "대기",
+      "oldest": "가장 오래됨",
+      "alert": "알림",
+      "alerts": {
+        "none": "정상",
+        "second": "2시간 초과",
+        "lead": "4시간 초과",
+        "no_coordinator": "코디네이터 없음"
+      }
+    },
+    "codes": {
+      "hint": "은행마다 세 글자. 케이스 번호(TC-26-00001-RAK)와 캡션에 쓰입니다. 번호가 붙은 케이스가 있는 은행은 코드를 바꿀 수 없습니다.",
+      "noBanks": "아직 은행이 없습니다. 설정 > 케이스에서 추가합니다.",
+      "label": "{bank} 데스크 코드",
+      "save": "저장",
+      "saved": "{bank} 데스크 코드를 저장했습니다"
+    }
+  },
+  "Privacy": {
+    "loading": "불러오는 중...",
+    "save": "저장",
+    "request": {
+      "title": "고객 요청",
+      "description": "고객에 관한 모든 데이터를 내보내거나, 법적 보존을 걸거나, 삭제합니다(UAE PDPL). 은행 케이스와 그에 등록된 모든 것, 동의·감사 기록은 KYC/AML에 따라 보관됩니다.",
+      "pick": "이름이나 전화번호로 고객 찾기",
+      "export": "데이터 내보내기",
+      "exported": "내보내기 파일을 받았습니다",
+      "dryRun": "삭제 미리보기",
+      "dryRunTitle": "미리보기: 삭제하면 아래가 제거됩니다(아무것도 바뀌지 않았습니다)",
+      "erasedTitle": "삭제됨",
+      "erased": "고객을 삭제했습니다",
+      "nothing": "삭제할 것이 없습니다.",
+      "blocked": "이 고객은 법적 보존 중이라 아무것도 삭제하지 않았습니다.",
+      "filesLeft": "{n, plural, other {저장 파일 #개}}를 아직 지우지 못해 재시도용으로 기록했습니다.",
+      "retained": "보관된 기록 {n}종과 이유",
+      "confirmLabel": "삭제하려면 입력: {text}",
+      "erase": "이 고객 삭제"
+    },
+    "hold": {
+      "title": "법적 보존",
+      "on": "보존 중: {reason}",
+      "release": "보존 해제",
+      "place": "보존 걸기",
+      "reason": "이유(예: 법원 명령, 분쟁)"
+    },
+    "retention": {
+      "title": "보관 기간",
+      "description": "오래된 데이터를 하루 한 번 자동으로 삭제하거나 비웁니다. 아래 종류만 대상이며 은행 케이스와 파일은 대상이 아닙니다. 법적 보존 중인 고객은 건너뜁니다.",
+      "keys": {
+        "deal_room_messages": "딜룸 메시지",
+        "whatsapp_group_messages": "WhatsApp 그룹 메시지",
+        "hr_outbox_bodies": "HR 자동 메시지 본문",
+        "hr_agent_drafts": "처리된 HR AI 초안",
+        "call_records": "통화 기록(번호와 메모)"
+      },
+      "days": "일",
+      "actions": {
+        "delete": "삭제",
+        "anonymise": "비우기"
+      },
+      "apply": "적용: 매일 삭제하고 비웁니다",
+      "dryRun": "미리보기만: 매일 세기만 하고 바꾸지 않습니다",
+      "saved": "보관 기간을 저장했습니다"
+    },
+    "ai": {
+      "title": "고객 텍스트를 AI 제공자에게 보내기",
+      "description": "AI 응답 봇, 초안, 번역, HR AI 초안, 안전 검사는 고객 텍스트를 UAE 밖의 제공자에게 보냅니다. 법적 근거를 여기에 기록하세요. 모든 호출은 기록됩니다(크기만, 텍스트는 기록하지 않음).",
+      "basis": "법적 근거",
+      "none": "기록 없음",
+      "bases": {
+        "consent": "고객 동의",
+        "contract": "제공자와의 계약",
+        "adequacy": "적정성 결정",
+        "scc": "표준 계약 조항",
+        "other": "기타"
+      },
+      "note": "세부 내용(20자 이상)",
+      "approvedBy": "승인자",
+      "region": "제공자 지역",
+      "require": "기록된 근거 필수: 근거가 완성될 때까지 AI 호출을 거부합니다",
+      "requireIncomplete": "이 설정이 켜져 있고 근거가 불완전하면 이 워크스페이스의 모든 AI 기능이 멈춥니다.",
+      "stats": "최근 30일: AI 호출 {calls}건 기록, {refused}건 거부.",
+      "saved": "저장했습니다"
+    }
+  },
+  "CaseReview": {
+    "title": "검토자 메모",
+    "none": "아직 메모가 없습니다.",
+    "aiWritten": "AI 작성, 검증 안 됨",
+    "checklist": "AI에 준 체크리스트",
+    "approve": "동의",
+    "reject": "동의 안 함",
+    "advice": "참고용입니다. 결정은 의견만 기록하며 케이스는 바뀌지 않습니다.",
+    "status": {
+      "pending": "결정 필요",
+      "approved": "동의함",
+      "rejected": "동의 안 함",
+      "superseded": "새 메모로 대체됨"
+    },
+    "settings": {
+      "title": "케이스 파일 검토자",
+      "description": "서류가 파일 검사를 통과하면 검토자가 케이스 팀을 위한 메모를 씁니다: 필요한 서류 중 받은 것, 없는 것, 실패하거나 만료된 것, 체크리스트와 파일이 다른 곳. 참고용입니다.",
+      "enabled": "서류가 통과하면 검토자 메모 작성",
+      "sendToModel": "서류 텍스트의 AI 요약 추가",
+      "modelNote": "AI 요약은 서류 텍스트(신분 번호 제거)를 워크스페이스의 AI 키로 AI 제공자에게 보내며, 설정 > 개인정보에 기록됩니다. 스캔 파일은 읽을 수 없어 사람 확인으로 표시됩니다.",
+      "saved": "저장했습니다"
     }
   }
 }

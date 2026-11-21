@@ -6,10 +6,17 @@
  * import this file: it imports only this folder's client-safe modules.
  */
 import type { AutoMsgTemplateView } from './api';
-import { RCS_TEMPLATE_ID, channelOf, type AutomsgChannel } from './channel';
+import {
+  RCS_TEMPLATE_ID,
+  SMS_TEMPLATE_LABEL,
+  channelOf,
+  type AutomsgChannel,
+} from './channel';
+import { measureSms, type SmsMeasure } from './sms-text';
 import {
   MAX_TEMPLATE_BODY,
   SEED_TEMPLATES,
+  SLOT_FALLBACK,
   placeholders,
   promotionalPhrase,
   requiredPlaceholders,
@@ -69,7 +76,8 @@ export function storedTemplate(
 
 /**
  * One slot per kind x language of one channel, in TEMPLATE_KINDS then
- * AUTO_LANGS order. RCS slots are keyed `rcs|…`, apart from WhatsApp's.
+ * AUTO_LANGS order. RCS and SMS slots are keyed `rcs|…` / `sms|…`, apart
+ * from WhatsApp's.
  */
 export function editorSlots(
   templates: readonly AutoMsgTemplateView[],
@@ -80,7 +88,9 @@ export function editorSlots(
     for (const language of AUTO_LANGS) {
       const stored = storedTemplate(templates, kind, language, channel);
       const whatsapp =
-        channel === 'rcs' ? storedTemplate(templates, kind, language) : null;
+        channel !== 'whatsapp'
+          ? storedTemplate(templates, kind, language)
+          : null;
       const key = stored
         ? [
             kind,
@@ -90,9 +100,9 @@ export function editorSlots(
             stored.metaTemplateName,
             stored.body,
           ].join('|')
-        : channel === 'rcs'
-          ? // An unsaved RCS editor starts from the WhatsApp text, so it
-            // re-initialises when that row is saved.
+        : channel !== 'whatsapp'
+          ? // An unsaved RCS or SMS editor starts from the WhatsApp text,
+            // so it re-initialises when that row is saved.
             `${kind}|${language}|seed|${whatsapp?.updatedAt ?? ''}`
           : `${kind}|${language}|seed`;
       slots.push({
@@ -100,7 +110,7 @@ export function editorSlots(
         language,
         channel,
         stored,
-        key: channel === 'rcs' ? `rcs|${key}` : key,
+        key: channel !== 'whatsapp' ? `${channel}|${key}` : key,
         initial: editorInitial(kind, language, stored, channel, whatsapp),
       });
     }
@@ -110,8 +120,9 @@ export function editorSlots(
 
 /**
  * The stored row's values, else a draft: on WhatsApp the seed text and
- * seed Meta name; on RCS the WhatsApp text of the same kind and language
- * (the stored row, else the seed) and an empty provider id.
+ * seed Meta name; on RCS and SMS the WhatsApp text of the same kind and
+ * language (the stored row, else the seed) and an empty provider id or
+ * label.
  */
 export function editorInitial(
   kind: TemplateKind,
@@ -129,7 +140,7 @@ export function editorInitial(
     };
   }
   const seed = SEED_TEMPLATES[kind];
-  if (channel === 'rcs') {
+  if (channel !== 'whatsapp') {
     return {
       body: whatsapp?.body ?? seed.text[language],
       metaTemplateName: '',
@@ -162,7 +173,9 @@ export type EditorMessage =
   | { key: 'nameFormat' }
   | { key: 'approvedNeedsName' }
   | { key: 'rcsApprovedNeedsId' }
-  | { key: 'rcsIdFormat' };
+  | { key: 'rcsIdFormat' }
+  | { key: 'smsApprovedNeedsLabel' }
+  | { key: 'smsLabelFormat' };
 
 /** Every message key, for the label-coverage test. */
 export const EDITOR_MESSAGE_KEYS: readonly EditorMessage['key'][] = [
@@ -174,6 +187,8 @@ export const EDITOR_MESSAGE_KEYS: readonly EditorMessage['key'][] = [
   'approvedNeedsName',
   'rcsApprovedNeedsId',
   'rcsIdFormat',
+  'smsApprovedNeedsLabel',
+  'smsLabelFormat',
 ];
 
 /**
@@ -192,10 +207,45 @@ export function rcsTemplateIdProblem(
 }
 
 /**
+ * 226's rule on an SMS template's label (trimmed, as the save sends it):
+ * an approved template needs one (203's approved_named constraint), a
+ * draft may leave it empty, and a non-empty one must match
+ * SMS_TEMPLATE_LABEL.
+ */
+export function smsLabelProblem(
+  label: string,
+  approvalStatus: ApprovalStatus
+): 'smsApprovedNeedsLabel' | 'smsLabelFormat' | null {
+  const v = label.trim();
+  if (v === '')
+    return approvalStatus === 'approved' ? 'smsApprovedNeedsLabel' : null;
+  return SMS_TEMPLATE_LABEL.test(v) ? null : 'smsLabelFormat';
+}
+
+/** The name length the SMS counter assumes; longer names add characters. */
+export const SMS_NAME_ALLOWANCE = 20;
+
+/**
+ * The SMS counter: the body as the engine would send it, with {slot} as
+ * the engine fills it today (SLOT_FALLBACK) and {name} as a name of
+ * SMS_NAME_ALLOWANCE plain letters. Measuring the raw body would count
+ * every template as Unicode, because '{' is outside the GSM alphabet.
+ */
+export function smsBodyMeasure(body: string): SmsMeasure {
+  return measureSms(
+    body
+      .replaceAll('{slot}', SLOT_FALLBACK)
+      .replaceAll('{name}', 'N'.repeat(SMS_NAME_ALLOWANCE))
+  );
+}
+
+/**
  * Live validation, in display order: the body (missing placeholders by
  * name, else too long, else promotional wording with the phrase, else
- * generically invalid), then the Meta template name, or on RCS the
- * provider template id. Body rules are the same on both channels.
+ * generically invalid), then the Meta template name, on RCS the provider
+ * template id, on SMS the label. Body rules are the same on every channel;
+ * an SMS over 3 segments is shown by the counter (`EditorView.sms`), not
+ * refused here, because the candidate's name decides the final length.
  */
 export function editorMessages(
   kind: TemplateKind,
@@ -231,6 +281,11 @@ export function editorMessages(
     if (problem) out.push({ key: problem });
     return out;
   }
+  if (channel === 'sms') {
+    const problem = smsLabelProblem(form.metaTemplateName, form.approvalStatus);
+    if (problem) out.push({ key: problem });
+    return out;
+  }
   const name = form.metaTemplateName.trim();
   if (name === '') {
     if (form.approvalStatus === 'approved')
@@ -245,6 +300,8 @@ export interface EditorView {
   /** Leads (and anyone not an admin) see the fields read-only, on both channels. */
   readOnly: boolean;
   counter: { count: number; max: number };
+  /** SMS only: characters, segments and encoding as it would be sent. */
+  sms: SmsMeasure | null;
   messages: EditorMessage[];
   canSave: boolean;
 }
@@ -261,14 +318,15 @@ export function editorView(
   return {
     readOnly,
     counter: editorCounter(form.body),
+    sms: channel === 'sms' ? smsBodyMeasure(form.body) : null,
     messages,
     canSave: !readOnly && !saving && messages.length === 0,
   };
 }
 
 /**
- * The save payload: the name trimmed, everything else as typed. An RCS
- * save names its channel; a WhatsApp one leaves it out (the RPC's
+ * The save payload: the name trimmed, everything else as typed. An RCS or
+ * SMS save names its channel; a WhatsApp one leaves it out (the RPC's
  * default), exactly as before RCS existed.
  */
 export function editorPayload(
@@ -292,6 +350,6 @@ export function editorPayload(
     metaTemplateName: form.metaTemplateName.trim(),
     approvalStatus: form.approvalStatus,
     category: form.category,
-    ...(channel === 'rcs' ? { channel } : {}),
+    ...(channel !== 'whatsapp' ? { channel } : {}),
   };
 }

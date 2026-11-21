@@ -108,6 +108,7 @@ export function isSalesRestricted({
 export const RESTRICTED_PATHS = [
   '/pipelines',
   '/cases',
+  '/desk',
   '/banks',
   '/brain',
   '/digest',

@@ -90,7 +90,8 @@
     "hrRules": "Rules",
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
-    "openHrChats": "{count, plural, one {# open chat} other {# open chats}}"
+    "openHrChats": "{count, plural, one {# open chat} other {# open chats}}",
+    "desk": "Case desk"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -141,7 +142,8 @@
     "hrRules": "Rules",
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
-    "hr": "HR"
+    "hr": "HR",
+    "desk": "Case desk"
   },
   "Notifications": {
     "title": "Notifications",
@@ -2682,7 +2684,8 @@
       "audit-log": "Audit log",
       "deal-rooms": "Deal rooms",
       "cases": "Cases",
-      "vault": "Vault"
+      "vault": "Vault",
+      "privacy": "Privacy (PDPL)"
     },
     "categories": {
       "overview": "Overview",
@@ -2737,7 +2740,8 @@
       "audit-log": "Who did what: access, reads, erasures and changes.",
       "phone-system": "The Yeastar PBX: extensions, recording and call outcomes.",
       "phone-extensions": "Link each phone extension to the person who answers it.",
-      "api": "Keys for the public REST API and your own integrations."
+      "api": "Keys for the public REST API and your own integrations.",
+      "privacy": "A customer's export, erase and legal hold; retention; the AI transfer basis."
     },
     "keywords": {
       "overview": "home dashboard status summary start",
@@ -2770,7 +2774,8 @@
       "audit-log": "audit history log activity who did what compliance",
       "phone-system": "pbx yeastar calls telephone extensions recordings softphone call outcomes",
       "phone-extensions": "pbx yeastar extensions people link map softphone presence",
-      "api": "api keys developer rest integration token bearer automation webhooks"
+      "api": "api keys developer rest integration token bearer automation webhooks",
+      "privacy": "privacy pdpl gdpr export erase delete legal hold retention ai transfer basis consent"
     },
     "nav": {
       "label": "Settings menu",
@@ -11623,7 +11628,8 @@
       },
       "channel": {
         "whatsapp": "WhatsApp",
-        "rcs": "RCS"
+        "rcs": "RCS",
+        "sms": "SMS"
       },
       "templateKinds": {
         "cv_ack": "CV received",
@@ -11665,6 +11671,18 @@
         "rcsSeedNote": "Starts from the WhatsApp text, not saved yet",
         "rcsId": "RCS provider template id ({language})",
         "saveRcs": "Save RCS template ({language})",
+        "smsReadOnly": "SMS templates are read only for your role.",
+        "smsNotConnected": "No SMS gateway is connected yet. SMS templates can be prepared now; nothing is sent by SMS until the gateway is connected.",
+        "smsSeedNote": "Starts from the WhatsApp text, not saved yet",
+        "smsLabel": "SMS label ({language})",
+        "saveSms": "Save SMS template ({language})",
+        "smsCounter": "As sent: {length} characters, {segments, plural, one {# SMS} other {# SMS}}, {encoding}",
+        "smsEncoding": {
+          "gsm": "plain text (160 per SMS)",
+          "unicode": "Unicode (70 per SMS)"
+        },
+        "smsCounterHint": "Counted with a {allowance}-character name; a longer name adds characters.",
+        "smsTooLong": "Longer than {max} SMS: this message would be refused when sent. Shorten it.",
         "check": {
           "missingPlaceholder": "Must contain {slot}",
           "promotional": "Promotional wording is not allowed: \"{phrase}\"",
@@ -11673,7 +11691,9 @@
           "nameFormat": "Use lowercase letters, digits and underscores only.",
           "approvedNeedsName": "An approved template needs its Meta template name.",
           "rcsApprovedNeedsId": "An RCS provider template id is required to approve.",
-          "rcsIdFormat": "The RCS provider template id may use letters, digits, '.', ':', '_' and '-' (up to 512)."
+          "rcsIdFormat": "The RCS provider template id may use letters, digits, '.', ':', '_' and '-' (up to 512).",
+          "smsApprovedNeedsLabel": "An SMS label is required to approve.",
+          "smsLabelFormat": "The SMS label may use letters, digits, '.', ':', '_' and '-' (up to 512)."
         }
       },
       "history": {
@@ -11712,6 +11732,7 @@
           "quietHours": "Quiet hours",
           "noTemplate": "No approved template",
           "channelNotConnected": "RCS not connected",
+          "channelNotConnectedSms": "SMS not connected",
           "dailyCap": "Daily cap reached",
           "duplicate": "Duplicate"
         },
@@ -11730,6 +11751,10 @@
       "rcs": {
         "notConnected": "RCS not connected",
         "notice": "No RCS provider is connected. Messages on RCS are held as \"RCS not connected\" and never sent, and never moved to WhatsApp or SMS."
+      },
+      "sms": {
+        "notConnected": "SMS not connected",
+        "notice": "No SMS gateway is connected. Messages on SMS are held as \"SMS not connected\" and never sent, and never moved to WhatsApp or RCS."
       },
       "consentByChannel": {
         "title": "Consent by channel",
@@ -11866,6 +11891,202 @@
       "docs_missing": "Documents missing",
       "draft_waiting": "Draft waiting",
       "draft_old": "Draft over 24 h old"
+    }
+  },
+  "Desk": {
+    "title": "Case desk",
+    "subtitle": "Upload documents and information for a case, see what happened to each upload, and sort what could not be filed automatically.",
+    "tabs": {
+      "upload": "Upload",
+      "mine": "My uploads",
+      "queue": "Sorting queue",
+      "overview": "Overview",
+      "codes": "Desk codes"
+    },
+    "kind": {
+      "pending_doc": "Pending document",
+      "new_case": "New case",
+      "info": "Information"
+    },
+    "fields": {
+      "kind": "What is it?",
+      "caseRef": "Case number or caption code",
+      "bank": "Bank",
+      "bankNone": "No bank",
+      "docKey": "Document type",
+      "company": "Company legal name",
+      "licence": "Trade licence number",
+      "product": "Product",
+      "contact": "Customer contact",
+      "contactPlaceholder": "Search a contact by name or phone",
+      "note": "Note",
+      "file": "File",
+      "fileHint": "PDF, JPEG or PNG, up to 10 MB. Optional for information.",
+      "caption": "Caption",
+      "captionHint": "Optional shorthand. It fills only the fields you left empty, for example '4271RAKD ejari', 'INFO 4271RAKD customer travelling' or 'NEW RAK Kite Trading 1234567'."
+    },
+    "state": {
+      "filed": "Filed",
+      "untagged": "Waiting to be sorted",
+      "rejected": "Rejected",
+      "duplicate": "Duplicate"
+    },
+    "result": {
+      "case": "Case",
+      "code": "caption code",
+      "replayed": "(already uploaded; this is the first result)"
+    },
+    "reason": {
+      "NO_KIND": "No type was chosen.",
+      "NO_CASE": "The case details are incomplete.",
+      "NO_CONTACT": "No customer contact was chosen.",
+      "NO_FILE": "A pending document needs a file.",
+      "CASE_NOT_FOUND": "No open case matches that number or code.",
+      "BANK_MISMATCH": "The case is at a different bank.",
+      "CASE_EXISTS_NAME_MISMATCH": "That licence is on file under another company name.",
+      "OTHER": "It could not be filed automatically."
+    },
+    "actions": {
+      "upload": "Upload",
+      "uploading": "Uploading...",
+      "fixTags": "Fix the details",
+      "saveTags": "Save and file again",
+      "sort": "Sort"
+    },
+    "filters": {
+      "all": "All"
+    },
+    "loading": "Loading...",
+    "empty": {
+      "mine": "No uploads here.",
+      "queue": "Nothing waiting to be sorted.",
+      "notSorter": "You do not sort any bank's queue. Owners, admins and team leaders sort every queue; a coordinator sorts the banks they hold."
+    },
+    "queueOf": "in the {bank} queue",
+    "rejectedBecause": "Rejected: {reason}",
+    "noBankQueue": "No bank (team leaders)",
+    "sort": {
+      "file": "File to a case",
+      "new": "Open a new case",
+      "reject": "Reject",
+      "find": "Find",
+      "notFound": "No open case you sort matches that number or code.",
+      "mismatch": "The upload names \"{item}\" but the case is \"{found}\". Type the word below to file anyway.",
+      "confirmWord": "confirm",
+      "confirmLabel": "Type \"{word}\" to confirm",
+      "fileTo": "File to {number}",
+      "openCase": "Open the case",
+      "reasonPlaceholder": "Why is it rejected? The uploader sees this."
+    },
+    "overview": {
+      "bank": "Bank",
+      "holders": "Coordinators",
+      "toSort": "Waiting",
+      "oldest": "Oldest",
+      "alert": "Alert",
+      "alerts": {
+        "none": "OK",
+        "second": "Over 2 hours",
+        "lead": "Over 4 hours",
+        "no_coordinator": "No coordinator"
+      }
+    },
+    "codes": {
+      "hint": "Three letters per bank, used in case numbers (TC-26-00001-RAK) and captions. A bank that already has numbered cases keeps its code.",
+      "noBanks": "No banks yet. Banks are added in Settings, Cases.",
+      "label": "Desk code for {bank}",
+      "save": "Save",
+      "saved": "Desk code saved for {bank}"
+    }
+  },
+  "Privacy": {
+    "loading": "Loading...",
+    "save": "Save",
+    "request": {
+      "title": "A customer's request",
+      "description": "Export everything held about a customer, place a legal hold, or erase them (UAE PDPL). Bank cases, everything filed to them, consent and audit records are kept under KYC/AML.",
+      "pick": "Find the customer by name or phone",
+      "export": "Export their data",
+      "exported": "Export downloaded",
+      "dryRun": "Preview the erase",
+      "dryRunTitle": "Preview: this is what an erase would remove (nothing has changed)",
+      "erasedTitle": "Erased",
+      "erased": "The customer was erased",
+      "nothing": "Nothing to erase.",
+      "blocked": "This customer is under a legal hold; nothing was erased.",
+      "filesLeft": "{n, plural, one {# stored file} other {# stored files}} could not be deleted yet; they are recorded for a retry.",
+      "retained": "Kept ({n} kinds of record) and why",
+      "confirmLabel": "To erase, type: {text}",
+      "erase": "Erase this customer"
+    },
+    "hold": {
+      "title": "Legal hold",
+      "on": "On hold: {reason}",
+      "release": "Release the hold",
+      "place": "Place a hold",
+      "reason": "Why (for example a court order or a dispute)"
+    },
+    "retention": {
+      "title": "Retention",
+      "description": "Remove or blank old data automatically, once a day. Only these kinds of data can be swept; bank cases and their files never are. A customer under a legal hold is skipped.",
+      "keys": {
+        "deal_room_messages": "Deal room messages",
+        "whatsapp_group_messages": "WhatsApp group messages",
+        "hr_outbox_bodies": "HR automated message texts",
+        "hr_agent_drafts": "Decided HR AI drafts",
+        "call_records": "Call records (numbers and notes)"
+      },
+      "days": "days",
+      "actions": {
+        "delete": "delete",
+        "anonymise": "blank"
+      },
+      "apply": "Apply: the daily sweep deletes and blanks",
+      "dryRun": "Preview only: the daily sweep counts and changes nothing",
+      "saved": "Retention saved"
+    },
+    "ai": {
+      "title": "Sending customer text to AI providers",
+      "description": "The AI reply bot, drafts, translation, HR AI drafts and the safety checks send customer text to providers outside the UAE. Record the legal basis here; every such call is logged (size only, never the text).",
+      "basis": "Legal basis",
+      "none": "Not recorded",
+      "bases": {
+        "consent": "Customer consent",
+        "contract": "Contract with the provider",
+        "adequacy": "Adequacy decision",
+        "scc": "Standard contractual clauses",
+        "other": "Other"
+      },
+      "note": "Details (at least 20 characters)",
+      "approvedBy": "Approved by",
+      "region": "Providers' region",
+      "require": "Require a recorded basis: AI calls are refused until one is complete",
+      "requireIncomplete": "While this is on and the basis is incomplete, every AI feature of this workspace stops.",
+      "stats": "Last 30 days: {calls} AI calls logged, {refused} refused.",
+      "saved": "Saved"
+    }
+  },
+  "CaseReview": {
+    "title": "Reviewer's note",
+    "none": "No note yet.",
+    "aiWritten": "AI-written, not verified",
+    "checklist": "The checklist it was given",
+    "approve": "Agree",
+    "reject": "Disagree",
+    "advice": "Advice only: deciding records your view and changes nothing on the case.",
+    "status": {
+      "pending": "To decide",
+      "approved": "Agreed",
+      "rejected": "Disagreed",
+      "superseded": "Replaced by a newer note"
+    },
+    "settings": {
+      "title": "Case file reviewer",
+      "description": "When a document passes its file checks, the reviewer writes a note for the case team: which required documents are in, missing, failed or expired, and where the checklist and the files disagree. It only advises.",
+      "enabled": "Write a reviewer's note when a document passes",
+      "sendToModel": "Add an AI-written summary of the documents' text",
+      "modelNote": "The AI summary sends the documents' text (with identity numbers removed) to your AI provider, using the workspace's AI key, and is logged in Settings → Privacy. Scanned files cannot be read and are marked for a person.",
+      "saved": "Saved"
     }
   }
 }

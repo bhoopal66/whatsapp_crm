@@ -77,10 +77,11 @@ export const ALL_HOLD_REASONS = [
 export type HoldReason = (typeof ALL_HOLD_REASONS)[number];
 
 /**
- * The channel a row is sent on (migration 215). There is no fallback
- * between them: an RCS row is never sent through the WhatsApp sender.
+ * The channel a row is sent on (migrations 215, 226). There is no
+ * fallback between them: an RCS or SMS row is never sent through another
+ * channel's sender.
  */
-export const CHANNELS = ['whatsapp', 'rcs'] as const;
+export const CHANNELS = ['whatsapp', 'rcs', 'sms'] as const;
 export type Channel = (typeof CHANNELS)[number];
 
 /** 'approved' = approved by Meta as a WhatsApp message template. Only 'approved' is ever sent automatically. */

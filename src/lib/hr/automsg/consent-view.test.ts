@@ -97,69 +97,100 @@ describe('consentRows', () => {
     rows.map((r) => (r.status === 'ok' ? r.state.kind : r.status));
 
   it('gives one row per channel, WhatsApp first, each labelled', () => {
-    const rows = consentRows({ whatsapp: ok({}), rcs: ok({}) }, true);
+    const rows = consentRows(
+      { whatsapp: ok({}), rcs: ok({}), sms: ok({}) },
+      true
+    );
     expect(rows.map((r) => [r.channel, r.labelKey])).toEqual([
       ['whatsapp', 'automsg.channel.whatsapp'],
       ['rcs', 'automsg.channel.rcs'],
+      ['sms', 'automsg.channel.sms'],
     ]);
   });
 
   it('RCS granted while WhatsApp is not', () => {
     const rows = consentRows(
-      { whatsapp: ok({ granted: false }), rcs: ok({ granted: true }) },
+      {
+        whatsapp: ok({ granted: false }),
+        rcs: ok({ granted: true }),
+        sms: ok({ granted: null }),
+      },
       true
     );
-    expect(kinds(rows)).toEqual(['withdrawn', 'given']);
+    expect(kinds(rows)).toEqual(['withdrawn', 'given', 'none']);
     expect(rows.map((r) => r.status === 'ok' && r.canRecord)).toEqual([
       true,
       false,
+      true,
     ]);
     expect(rows.map((r) => r.status === 'ok' && r.canWithdraw)).toEqual([
       false,
       true,
+      false,
     ]);
   });
 
   it('WhatsApp granted while RCS has no record', () => {
     const rows = consentRows(
-      { whatsapp: ok({ granted: true }), rcs: ok({ granted: null }) },
+      {
+        whatsapp: ok({ granted: true }),
+        rcs: ok({ granted: null }),
+        sms: ok({ granted: true }),
+      },
       true
     );
-    expect(kinds(rows)).toEqual(['given', 'none']);
+    expect(kinds(rows)).toEqual(['given', 'none', 'given']);
     expect(rows.map((r) => r.status === 'ok' && r.canWithdraw)).toEqual([
       true,
       false,
+      true,
     ]);
   });
 
-  it('opted out holds both rows, whichever read reports it', () => {
+  it('opted out holds every row, whichever read reports it', () => {
     const rows = consentRows(
-      { whatsapp: ok({ granted: true }), rcs: ok({ optedOut: true }) },
+      {
+        whatsapp: ok({ granted: true }),
+        rcs: ok({ optedOut: true }),
+        sms: ok({ granted: true }),
+      },
       true
     );
-    expect(kinds(rows)).toEqual(['optedOut', 'optedOut']);
+    expect(kinds(rows)).toEqual(['optedOut', 'optedOut', 'optedOut']);
     expect(rows.some((r) => r.status === 'ok' && r.canRecord)).toBe(false);
     expect(sharedNotice(rows)).toBe('optedOut');
   });
 
-  it('a personal chat holds both rows', () => {
+  it('a personal chat holds every row', () => {
     const rows = consentRows(
-      { whatsapp: ok({ personal: true }), rcs: ok({ granted: true }) },
+      {
+        whatsapp: ok({ personal: true }),
+        rcs: ok({ granted: true }),
+        sms: ok({}),
+      },
       true
     );
-    expect(kinds(rows)).toEqual(['personal', 'personal']);
+    expect(kinds(rows)).toEqual(['personal', 'personal', 'personal']);
     expect(rows.some((r) => r.status === 'ok' && r.canWithdraw)).toBe(false);
     expect(sharedNotice(rows)).toBe('personal');
   });
 
   it('a failed read fails only its own row', () => {
     const rows = consentRows(
-      { whatsapp: ok({ granted: true }), rcs: { status: 'failed' } },
+      {
+        whatsapp: ok({ granted: true }),
+        rcs: { status: 'failed' },
+        sms: ok({}),
+      },
       true
     );
-    expect(kinds(rows)).toEqual(['given', 'failed']);
+    expect(kinds(rows)).toEqual(['given', 'failed', 'none']);
     expect(sharedNotice(rows)).toBeNull();
-    expect(kinds(consentRows({}, true))).toEqual(['loading', 'loading']);
+    expect(kinds(consentRows({}, true))).toEqual([
+      'loading',
+      'loading',
+      'loading',
+    ]);
   });
 
   it('labels the per-channel strings in both catalogues', () => {
@@ -171,6 +202,7 @@ describe('consentRows', () => {
       expect(hr.consent.sourceLabelFor).toContain('{channel}');
       expect(hr.automsg.channel.whatsapp).toBeTruthy();
       expect(hr.automsg.channel.rcs).toBeTruthy();
+      expect(hr.automsg.channel.sms).toBeTruthy();
     }
   });
 });

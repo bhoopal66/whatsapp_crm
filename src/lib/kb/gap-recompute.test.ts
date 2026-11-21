@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => h.db }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: h.loadAiConfig }));
+// The AI transfer register (224) is its own module's concern; here it allows.
+vi.mock('@/lib/privacy/ai-transfer', () => ({ assertAiTransfer: async () => {} }));
 vi.mock('@/lib/ai/embeddings', async (orig) => ({
   ...(await orig<typeof import('@/lib/ai/embeddings')>()),
   embedTexts: h.embedTexts,

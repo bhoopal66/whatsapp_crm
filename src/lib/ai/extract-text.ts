@@ -84,6 +84,25 @@ async function extractPdfText(
   bytes: Uint8Array,
   limits: PdfLimits
 ): Promise<string> {
+  // unpdf's own merge (`normalizeMergedText`), so the text is what
+  // `extractText(…, { mergePages: true })` returned before.
+  return (await extractPdfPages(bytes, limits))
+    .join('\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Each page's raw text layer, within `limits` (no OCR: a scanned page is
+ * an empty or near-empty string). Throws AiError `pdf_too_long` /
+ * `pdf_timeout` like the knowledge-base path. The case reviewer (225)
+ * uses the page count for its scanned-file rule.
+ */
+export async function extractPdfPages(
+  bytes: Uint8Array,
+  limits: PdfLimits
+): Promise<string[]> {
   const unpdf = await import('unpdf');
   const deadline = Date.now() + limits.timeoutMs;
   const loading = unpdf.getDocumentProxy(bytes);
@@ -121,13 +140,7 @@ async function extractPdfText(
       }
       pages.push(text);
     }
-    // unpdf's own merge (`normalizeMergedText`), so the text is what
-    // `extractText(…, { mergePages: true })` returned before.
-    return pages
-      .join('\n')
-      .replace(/[^\S\n]+/g, ' ')
-      .replace(/ ?\n ?/g, '\n')
-      .replace(/\n{3,}/g, '\n\n');
+    return pages;
   } finally {
     void pdf.loadingTask.destroy().catch(() => {});
   }

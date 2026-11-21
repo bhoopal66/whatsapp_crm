@@ -1393,6 +1393,20 @@ contract.
   row_state, claim, mark, config, trigger_set, template_set, consent_get,
   consent_set, outbox_list and 212's delivery_record: apply in order,
   once. `verify-hr-automsg-rcs.sql`.
+- **SMS channel (226, release 032).** 'sms' joins 215's channels
+  (Dinstar GSM gateway, `dinstar.ts`, UNVERIFIED wire format);
+  `sms-config.ts` reads `DINSTAR_*` / `SMS_*` at call time, unset = held
+  `channel_not_connected`. The engine hands only 'whatsapp' rows to the
+  WhatsApp sender; every other channel needs its own sender (a
+  `channel === 'rcs' ? … : whatsapp` once would have sent SMS over
+  WhatsApp). An approved sms template needs a label (203's
+  `approved_named`); the text is the body, measured by `sms-text.ts`
+  (3-segment cap, shared by sender and editor). Gateway pushes match by
+  provider id suffix `:<user_id>` plus the number's last nine digits;
+  `hr_automsg_delivery_apply` holds the receipt ladder once. 226
+  restates 215's on_history, enqueue_nudges, trigger_set, template_set,
+  consent_get, consent_set and delivery_record: apply in order, once.
+  `verify-hr-automsg-sms.sql`.
 - **HR lines (213).** `hr_lines` / `hr_line_settings` (RPC-only; HR →
   Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
   (`hr_auto_open_recruiter`, service role) before the recruiter-agents
@@ -1555,6 +1569,82 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `case_tasks.created_by` and `case_task_status_log.actor_id` are NULL
   for a rule's task. Restates 187/189/134 bodies: apply in order, once.
   `verify-case-rules-stage-automation.sql`.
+
+- **Case file reviewer (225, `lib/case-review/*`, package 031).** Off
+  by default (`case_account_settings.review_enabled` /
+  `review_send_to_model`). A file turning `passed` queues its case 60 s
+  out (`case_review_on_file_passed`, debounced); the automations cron
+  runs `runCaseReviewTick` each minute. Drafts only: never a document,
+  file, stage or task write, no send path. The checklist is always
+  there; a model narrative only with the switch, an AI key, clean
+  `redact()` output (fail closed) and `assertAiTransfer` (224) via
+  `generateReply({ purpose: 'case_review' })`. PDF text via
+  `extractPdfPages` (no OCR; under 40 characters a page = scanned).
+  `case_review_draft_create` is idempotent on input_hash and supersedes
+  the pending draft. `verify-case-review.sql`.
+
+### Case desk (`lib/desk/*`, migration 220)
+
+Staff uploads to bank cases at `/desk`, with human case numbers. Port of
+package 035a-c. `docs/case-desk.md` is the contract.
+
+- **Numbers.** `desk_applications` (one per company, `desk_customers`
+  keyed by normalised trade licence) are `TC-YY-NNNNN` from one gapless
+  counter per account; a desk case is `TC-YY-NNNNN-BBB(2-9)` with BBB the
+  bank's `desk_bank_codes` code. The caption code's check character
+  (Luhn mod 36) lives twice, SQL `desk_check_char` and
+  `lib/desk/case-number.ts`; `case-number.test.ts` and
+  `verify-case-desk.sql` pin the same vectors: change both.
+- **A desk case is a 130 lead** of a CRM contact (case files need the
+  contact's folder), opened in the uploader's name through
+  `case_open_lead`, lead source `desk`; one open lead per contact and
+  bank still holds (`CASE_CONFLICT`).
+- **Intake.** `intake_items` state changes only through
+  `intake_set_state` (+ an append-only `intake_item_events` row). Files
+  are stored at `intake/<item id>/<sha256>.<ext>` in `case-files` before
+  `intake_submit` (a CHECK pins the path) and, when filed, recorded as
+  the uploader's staff upload (180) and inserted into
+  `case_document_files` directly (registered_by = uploader).
+- **Sorting** reuses 133/161 bank holders (`case_holds_bank`), not the
+  package's `bank_desks`: holders sort their bank's queue; owners,
+  admins and team leaders every queue and the no-bank queue
+  (`intake_scope_ok`, `intake_is_sorter`). 035d and 035e were not ported
+  (duplicates). Tables are FORCE RLS with no grants; functions are
+  service role only, called with the caller's ACTIVE account. Every SQL
+  hint is in `DESK_REFUSALS` (`store.test.ts` reads the migration).
+  `verify-case-desk.sql`.
+
+### Privacy, PDPL (`lib/privacy/*`, migrations 221-224)
+
+Port of package 033h-k. `docs/privacy.md` is the contract.
+
+- **The data map** (`data-map.ts`) classifies every migrated table as
+  PERSONAL (link, class, erase delete | anonymise | retain + reason,
+  exported) or NOT_PERSONAL. `data-map.test.ts` fails on a table in
+  neither, and checks 221's export and 222's erase name every table the
+  map says they cover: a new table joins the map, and the SQL if it is
+  personal.
+- **Export / erase / hold** (`privacy_subject_export`,
+  `privacy_subject_erase`, `privacy_legal_hold_set`): owner/admin,
+  active account, service role. Erase previews by running inside a
+  rolled-back block; executing needs `ERASE <id>`; a customer hold or a
+  093 recording hold blocks it. Cases and all filed to them, the case
+  group, consent and audit are retained (owner's decision); the contact
+  row is anonymised, opt-out kept. Calls inline 093's match
+  (`pbx_erase_contact_calls` needs `auth.uid()`): change both. Files are
+  deleted by the route after the commit (`erase-objects.ts`).
+- **Retention** (`privacy_retention_sweep`, daily from the automations
+  cron): allow-list `privacy_retention_rules()` = `RETENTION_RULES`
+  (`retention.test.ts` compares); no retained table may join it. Dry
+  run until the workspace applies; holds skipped.
+- **AI transfer** (`ai_transfer_check`): `assertAiTransfer` before every
+  OpenAI/Anthropic call of a config with `accountId` (generate,
+  translate, HR agents, query and gap embeddings) and the TypeSafe
+  gateway's `transferAllowed` (`TRANSFER_REFUSED`). Logs first; refuses
+  only while `require_basis` is on and the basis incomplete; fails open
+  when the check cannot run. A new AI call path calls it too.
+- `privacy_requests` and `ai_transfer_log` are append-only and hold
+  hashes and counts, never contact ids or text. `verify-privacy.sql`.
 
 ### OpenDesk / Taamul sales app (`lib/taamul-sales/*`, migration 139)
 
@@ -2137,7 +2227,13 @@ nothing in the app runs them. Every statement is guarded (`IF NOT EXISTS`,
 `ON CONFLICT`) so files stay re-runnable, which also means a typo'd object name
 is a silent no-op; `.github/workflows/migrations.yml` replays the whole stack
 against a clean Postgres and asserts `supabase/ci/verify-schema.sql` (it only
-fires on `supabase/**` changes). Apply 082 and 083 in separate runs (a
+fires on `supabase/**` changes). It replays through `psql` in autocommit, not
+the CLI's runner (off in `config.toml`: 044 adds an enum value and uses it in
+one file), after `supabase/ci/classic-grants.sql` restores the default grants
+a classic Supabase project gives `anon` / `authenticated` / `service_role`,
+which the CLI's current image no longer sets and the migrations assume. A
+verify file that commits its fixtures (older ones do) leaves its users behind:
+give a new file's fixture emails a prefix of its own. Apply 082 and 083 in separate runs (a
 new enum value cannot be used in the transaction that adds it); 087 and
 088 refuse to apply except as a superuser or BYPASSRLS role. A schema
 change ships as: new numbered
@@ -2210,6 +2306,6 @@ fails if one is wired to plain `t()`.
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
   `customer-documents.md`, `departments.md`, `second-brain.md`,
-  `hr-workflows.md`.
+  `hr-workflows.md`, `case-desk.md`, `privacy.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
