@@ -11901,7 +11901,8 @@
       "mine": "내 업로드",
       "queue": "분류 대기열",
       "overview": "개요",
-      "codes": "데스크 코드"
+      "codes": "데스크 코드",
+      "companies": "회사"
     },
     "kind": {
       "pending_doc": "미제출 서류",
@@ -11997,6 +11998,34 @@
       "label": "{bank} 데스크 코드",
       "save": "저장",
       "saved": "{bank} 데스크 코드를 저장했습니다"
+    },
+    "companies": {
+      "intro": "회사를 대리하는 사람: 소유주, PRO, 회계 담당자. 하나의 전화번호가 여러 회사를 대리할 수 있으며, 연결은 누구에게도 접근 권한을 주지 않습니다.",
+      "search": "영업 허가 번호 또는 회사명",
+      "searchButton": "검색",
+      "noResults": "볼 수 있는 회사 중 일치하는 회사가 없습니다.",
+      "licence": "허가 번호 {licence}",
+      "contactsCount": "{count, plural, other {연락처 #명}}",
+      "people": "{company}을(를) 대리하는 사람",
+      "noPeople": "아직 연결된 사람이 없습니다.",
+      "automatic": "케이스에서 연결됨",
+      "authorised": "권한 있음",
+      "notAuthorised": "권한 없음",
+      "add": "연락처 연결",
+      "contact": "연락처",
+      "contactPlaceholder": "연락처 검색...",
+      "role": "역할",
+      "save": "저장",
+      "remove": "삭제",
+      "readOnly": "케이스를 통해 이 회사를 볼 수 있지만 사람을 변경할 수는 없습니다.",
+      "saved": "저장됨",
+      "removed": "삭제됨",
+      "roles": {
+        "owner": "소유주",
+        "pro": "PRO",
+        "accountant": "회계 담당자",
+        "other": "기타"
+      }
     }
   },
   "Privacy": {

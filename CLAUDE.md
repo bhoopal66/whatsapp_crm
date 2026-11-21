@@ -1613,6 +1613,24 @@ package 035a-c. `docs/case-desk.md` is the contract.
   service role only, called with the caller's ACTIVE account. Every SQL
   hint is in `DESK_REFUSALS` (`store.test.ts` reads the migration).
   `verify-case-desk.sql`.
+- **Company contacts (229, design 035 D1).** `desk_customer_contacts`
+  links a desk company to the CRM contacts acting for it (role owner |
+  pro | accountant | other, `authorised`); many to many, a contact being
+  one phone. A link is never a grant. A desk case's contact is linked by
+  a trigger on `cases` (never fails the write). Read: a readable case of
+  the company or team leader and up; change: a writable case or team
+  leader and up, and only a contact `memory_can_read` shows the actor.
+  `desk_customers_for_contact` is routing's question (more than one
+  company = ambiguous). `DESK_CONTACT_ROLES` is pinned to the CHECK by
+  `companies.test.ts`. `verify-desk-customer-contacts.sql`.
+- **`privacy_extensions` (229).** 221's export and 222's erase call
+  every registered `export_fn(account, contact) -> jsonb` /
+  `erase_fn(account, contact) -> {counts, objects}`, so a new personal
+  table joins PDPL by registering, never by restating those bodies (the
+  hooks sit behind a `to_regclass` guard; 229 refuses unless the
+  installed 221/222 have them). `data-map.test.ts` reads the registered
+  function bodies as well as 221/222. Name a plpgsql record variable in
+  221 anything but `r`: its body aliases tables as `r`.
 
 ### Health and metrics (`lib/metrics/*`, migration 228)
 

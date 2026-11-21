@@ -10,6 +10,12 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import type {
+  DeskCompany,
+  DeskCompanyContact,
+  DeskContactRole,
+} from './companies';
+
 export const DESK_REFUSALS = [
   'INVALID',
   'NOT_ALLOWED',
@@ -32,6 +38,9 @@ export const DESK_REFUSALS = [
   'LEAD_EXISTS',
   'CASE_EXISTS',
   'ASSIGNEE_INVALID',
+  // 229: company contacts
+  'CUSTOMER_NOT_FOUND',
+  'CONTACT_INVALID',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -453,4 +462,92 @@ export class DeskStore {
       stage: String(r.stage),
     };
   }
+  // ---------- company contacts (migration 229) ----------
+
+  async findCompanies(
+    actor: string,
+    account: string,
+    query: string
+  ): Promise<DeskCompany[]> {
+    const rows = await this.rpc('desk_customer_find', {
+      p_actor: actor,
+      p_account: account,
+      p_query: query,
+      p_limit: 20,
+    });
+    return rows.map((r) => ({
+      customerId: String(r.customer_id),
+      legalName: String(r.legal_name),
+      tradeLicenceNo: String(r.trade_licence_no),
+      appNumber: str(r.app_number),
+      contacts: num(r.contacts) ?? 0,
+      canManage: r.can_manage === true,
+    }));
+  }
+
+  async companyContacts(
+    actor: string,
+    account: string,
+    customerId: string
+  ): Promise<DeskCompanyContact[]> {
+    const rows = await this.rpc('desk_customer_contacts_list', {
+      p_actor: actor,
+      p_account: account,
+      p_customer: customerId,
+    });
+    return rows.map((r) => ({
+      contactId: String(r.contact_id),
+      name: str(r.name),
+      phone: str(r.phone),
+      role: String(r.role) as DeskContactRole,
+      authorised: r.authorised === true,
+      automatic: r.automatic === true,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at),
+    }));
+  }
+
+  /** Links (or updates) a contact; true when the link is new. */
+  async setCompanyContact(
+    actor: string,
+    account: string,
+    customerId: string,
+    contactId: string,
+    role: DeskContactRole,
+    authorised: boolean
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_customer_contact_set', {
+      p_actor: actor,
+      p_account: account,
+      p_customer: customerId,
+      p_contact: contactId,
+      p_role: role,
+      p_authorised: authorised,
+      p_now: this.now(),
+    });
+    return scalarTrue(rows[0]);
+  }
+
+  /** Unlinks a contact; true when a link was removed. */
+  async removeCompanyContact(
+    actor: string,
+    account: string,
+    customerId: string,
+    contactId: string
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_customer_contact_remove', {
+      p_actor: actor,
+      p_account: account,
+      p_customer: customerId,
+      p_contact: contactId,
+    });
+    return scalarTrue(rows[0]);
+  }
+}
+
+/** A scalar boolean RPC answers the value itself, not a row. */
+function scalarTrue(v: unknown): boolean {
+  if (v === true) return true;
+  if (v && typeof v === 'object') return Object.values(v)[0] === true;
+  return false;
 }

@@ -52,6 +52,7 @@ import type {
   QueueItem,
 } from '@/lib/desk/store';
 
+import { CompaniesTab } from './companies-tab';
 import { deskApi } from './desk-api';
 import {
   EMPTY_DRAFT,
@@ -61,7 +62,7 @@ import {
   type TagDraft,
 } from './tag-fields';
 
-type Tab = 'upload' | 'mine' | 'queue' | 'overview' | 'codes';
+type Tab = 'upload' | 'mine' | 'queue' | 'companies' | 'overview' | 'codes';
 
 const STATE_CLASS: Record<ItemState, string> = {
   filed: 'bg-success-soft text-success',
@@ -89,7 +90,7 @@ export function DeskView() {
 
   const isLead = accountRole ? canLeadTeam(accountRole) : false;
   const isAdmin = accountRole ? canManageMembers(accountRole) : false;
-  const tabs: Tab[] = ['upload', 'mine', 'queue'];
+  const tabs: Tab[] = ['upload', 'mine', 'queue', 'companies'];
   if (isLead) tabs.push('overview');
   if (isAdmin) tabs.push('codes');
 
@@ -113,6 +114,8 @@ export function DeskView() {
       {tab === 'upload' && <UploadTab banks={banks} />}
       {tab === 'mine' && <MineTab banks={banks} />}
       {tab === 'queue' && <QueueTab banks={banks} />}
+      {/* Keyed by workspace: a switch never shows the last one's companies. */}
+      {tab === 'companies' && <CompaniesTab key={accountId ?? ''} />}
       {tab === 'overview' && <OverviewTab />}
       {tab === 'codes' && <CodesTab banks={banks} onSaved={loadBanks} />}
     </div>

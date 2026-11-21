@@ -122,6 +122,8 @@ DECLARE
   v_deals  uuid[];
   v_out    jsonb;
   v_counts jsonb;
+  v_ext    jsonb;
+  v_reg    record;  -- not r: the body aliases tables as r
 BEGIN
   IF coalesce(public.case_account_role(p_account, p_actor), '') NOT IN ('admin', 'super_admin') THEN
     RAISE EXCEPTION 'privacy_subject_export: owners and admins only'
@@ -206,6 +208,16 @@ BEGIN
     'vault', (SELECT coalesce(jsonb_agg(jsonb_build_object('kind', x.kind, 'created_at', x.created_at, 'encrypted', true)), '[]') FROM public.vault_items x WHERE x.account_id = p_account AND x.subject_type = 'contact' AND x.subject_id = p_contact),
     'sales_app', (SELECT coalesce(jsonb_agg(public.privacy_strip(to_jsonb(x))), '[]') FROM public.taamul_sales_contacts x WHERE v_digits IS NOT NULL AND x.account_id = p_account AND public.privacy_digits(x.phone) = v_digits)
   );
+
+  -- Tables of later migrations (229 onward) register their own export in
+  -- privacy_extensions, so this body is never restated: re-running 221
+  -- after them keeps them. Absent before 229.
+  IF to_regclass('public.privacy_extensions') IS NOT NULL THEN
+    FOR v_reg IN SELECT e.name, e.export_fn FROM public.privacy_extensions e ORDER BY e.name LOOP
+      EXECUTE format('SELECT public.%I($1, $2)', v_reg.export_fn) INTO v_ext USING p_account, p_contact;
+      v_out := v_out || jsonb_build_object(v_reg.name, coalesce(v_ext, 'null'::jsonb));
+    END LOOP;
+  END IF;
 
   SELECT jsonb_object_agg(k, CASE jsonb_typeof(v) WHEN 'array' THEN jsonb_array_length(v) WHEN 'null' THEN 0 ELSE 1 END)
     INTO v_counts FROM jsonb_each(v_out) AS e(k, v);

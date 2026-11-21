@@ -182,6 +182,7 @@ DECLARE
   v_obj    jsonb := '[]'::jsonb;
   v_n      integer;
   v_id     bigint;
+  v_ext    jsonb;
   r        record;
 BEGIN
   PERFORM public.privacy_require_admin('privacy_subject_erase', p_actor, p_account);
@@ -372,6 +373,18 @@ BEGIN
     IF v_n > 0 THEN
       INSERT INTO public.vault_audit (action, outcome, actor, account_id, subject_type, subject_id, reason)
       VALUES ('delete', 'OK', p_actor, p_account, 'contact', p_contact, 'PDPL erasure request');
+    END IF;
+
+    -- Tables of later migrations (229 onward): each registers its own erase
+    -- in privacy_extensions, answering {counts, objects}; it collects its
+    -- storage objects before deleting its rows. Absent before 229.
+    IF to_regclass('public.privacy_extensions') IS NOT NULL THEN
+      FOR r IN SELECT e.name, e.erase_fn FROM public.privacy_extensions e
+                WHERE e.erase_fn IS NOT NULL ORDER BY e.name LOOP
+        EXECUTE format('SELECT public.%I($1, $2)', r.erase_fn) INTO v_ext USING p_account, p_contact;
+        v_counts := v_counts || coalesce(v_ext->'counts', '{}'::jsonb);
+        v_obj := v_obj || coalesce(v_ext->'objects', '[]'::jsonb);
+      END LOOP;
     END IF;
 
     -- The contact itself, last: anonymised, opt-out and consent kept.

@@ -20,6 +20,46 @@ export function migrationTables(dir = DIR): Set<string> {
   return out;
 }
 
+function functionBody(sql: string, name: string): string {
+  const i = sql.indexOf(`FUNCTION public.${name}(`);
+  if (i < 0) return '';
+  const j = sql.indexOf('$$;', i);
+  return j < 0 ? '' : sql.slice(i, j);
+}
+
+/**
+ * The bodies of the functions migrations register in privacy_extensions
+ * (229 onward), which 221's export and 222's erase call: only those
+ * bodies count, never the rest of the migration.
+ */
+export function registeredExtensions(dir = DIR): {
+  export: string;
+  erase: string;
+  missing: string[];
+} {
+  const files = readdirSync(dir)
+    .filter((n) => n.endsWith('.sql'))
+    .map((f) => readFileSync(join(dir, f), 'utf8'));
+  const all = files.join('\n');
+  const out = { export: '', erase: '', missing: [] as string[] };
+  for (const sql of files) {
+    for (const m of sql.matchAll(
+      /INSERT INTO public\.privacy_extensions[^;]*?VALUES\s*\(\s*'[a-z0-9_]+',\s*'([a-z0-9_]+)',\s*(?:'([a-z0-9_]+)'|NULL)/gi
+    )) {
+      for (const [fn, kind] of [
+        [m[1], 'export'],
+        [m[2], 'erase'],
+      ] as const) {
+        if (!fn) continue;
+        const body = functionBody(all, fn);
+        if (body === '') out.missing.push(fn);
+        out[kind] += `${body}\n`;
+      }
+    }
+  }
+  return out;
+}
+
 describe('PDPL data map', () => {
   const tables = migrationTables();
 
@@ -46,8 +86,16 @@ describe('PDPL data map', () => {
     }
   });
 
-  it('exports from every table it marks exported (migration 221)', () => {
-    const sql = readFileSync(join(DIR, '221_privacy_export.sql'), 'utf8');
+  const ext = registeredExtensions();
+
+  it('finds every function registered in privacy_extensions (229 on)', () => {
+    expect(ext.missing).toEqual([]);
+    expect(ext.export).toContain('privacy_desk_contacts_export');
+  });
+
+  it('exports from every table it marks exported (221 and registered)', () => {
+    const sql =
+      readFileSync(join(DIR, '221_privacy_export.sql'), 'utf8') + ext.export;
     const missing = Object.entries(PERSONAL)
       .filter(([, e]) => e.exported)
       .map(([t]) => t)
@@ -55,8 +103,9 @@ describe('PDPL data map', () => {
     expect(missing).toEqual([]);
   });
 
-  it('erases every table it marks delete or anonymise (migration 222)', () => {
-    const sql = readFileSync(join(DIR, '222_privacy_erase.sql'), 'utf8');
+  it('erases every table it marks delete or anonymise (222 and registered)', () => {
+    const sql =
+      readFileSync(join(DIR, '222_privacy_erase.sql'), 'utf8') + ext.erase;
     const missing = Object.entries(PERSONAL)
       .filter(([, e]) => e.erase !== 'retain')
       .map(([t]) => t)

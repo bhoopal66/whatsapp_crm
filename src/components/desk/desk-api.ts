@@ -12,6 +12,11 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
+import type {
+  DeskCompany,
+  DeskCompanyContact,
+  DeskContactRole,
+} from '@/lib/desk/companies';
 
 export type DeskAnswer<T> =
   | { ok: true; data: T }
@@ -106,6 +111,36 @@ export const deskApi = {
       `/api/desk/intake/${itemId}/reject`,
       json('POST', { reason }),
       (b) => b.item as ItemResult
+    ),
+  // Company contacts (migration 229)
+  companies: (q: string) =>
+    call(
+      `/api/desk/companies?q=${encodeURIComponent(q)}`,
+      undefined,
+      (b) => b.companies as DeskCompany[]
+    ),
+  companyContacts: (customerId: string) =>
+    call(
+      `/api/desk/companies/${customerId}/contacts`,
+      undefined,
+      (b) => b.contacts as DeskCompanyContact[]
+    ),
+  setCompanyContact: (
+    customerId: string,
+    contactId: string,
+    role: DeskContactRole,
+    authorised: boolean
+  ) =>
+    call(
+      `/api/desk/companies/${customerId}/contacts/${contactId}`,
+      json('PUT', { role, authorised }),
+      (b) => b.created === true
+    ),
+  removeCompanyContact: (customerId: string, contactId: string) =>
+    call(
+      `/api/desk/companies/${customerId}/contacts/${contactId}`,
+      { method: 'DELETE' },
+      (b) => b.removed === true
     ),
   retag: (itemId: string, tags: ItemTags) =>
     call(

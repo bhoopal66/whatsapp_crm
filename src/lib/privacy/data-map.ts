@@ -15,8 +15,10 @@
  *   exported  whether privacy_subject_export includes it
  *
  * The SQL of migrations 221 (export) and 222 (erase) implements this
- * map; `data-map.test.ts` checks both name every table the map says
- * they cover. docs/privacy.md is the operator contract.
+ * map, plus, from 229 on, the functions a migration registers in
+ * `privacy_extensions` (221 and 222 call every one); `data-map.test.ts`
+ * checks they name every table the map says they cover.
+ * docs/privacy.md is the operator contract.
  */
 
 export type Link =
@@ -549,6 +551,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: KYC,
     exported: true,
   },
+  desk_customer_contacts: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'retain',
+    reason:
+      'KYC: who acts for a company account (the contact row itself is anonymised)',
+    exported: true,
+  },
   intake_items: {
     link: 'contact',
     class: 'special',
@@ -835,6 +845,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'deal_room_settings',
             'desk_bank_codes',
             'desk_number_seq',
+            'privacy_extensions',
             'flow_nodes',
             'flows',
             'hr_agent_settings',

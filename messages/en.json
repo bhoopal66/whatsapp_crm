@@ -11901,7 +11901,8 @@
       "mine": "My uploads",
       "queue": "Sorting queue",
       "overview": "Overview",
-      "codes": "Desk codes"
+      "codes": "Desk codes",
+      "companies": "Companies"
     },
     "kind": {
       "pending_doc": "Pending document",
@@ -11997,6 +11998,34 @@
       "label": "Desk code for {bank}",
       "save": "Save",
       "saved": "Desk code saved for {bank}"
+    },
+    "companies": {
+      "intro": "Who acts for each company: owners, PROs and accountants. One phone may act for several companies; a link opens nothing to anyone.",
+      "search": "Trade licence or company name",
+      "searchButton": "Search",
+      "noResults": "No company you can see matches.",
+      "licence": "Licence {licence}",
+      "contactsCount": "{count, plural, one {# contact} other {# contacts}}",
+      "people": "People acting for {company}",
+      "noPeople": "Nobody is linked yet.",
+      "automatic": "From a case",
+      "authorised": "Authorised",
+      "notAuthorised": "Not authorised",
+      "add": "Link a contact",
+      "contact": "Contact",
+      "contactPlaceholder": "Search contacts...",
+      "role": "Role",
+      "save": "Save",
+      "remove": "Remove",
+      "readOnly": "You can see this company through a case but cannot change its people.",
+      "saved": "Saved",
+      "removed": "Removed",
+      "roles": {
+        "owner": "Owner",
+        "pro": "PRO",
+        "accountant": "Accountant",
+        "other": "Other"
+      }
     }
   },
   "Privacy": {

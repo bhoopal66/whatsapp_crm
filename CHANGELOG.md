@@ -12,6 +12,25 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: who acts for a company
+
+**Migration required:** re-apply `221_privacy_export.sql` and
+`222_privacy_erase.sql` (they now call the new privacy registry), then
+apply `229_desk_customer_contacts.sql` (as a superuser). 229 refuses to
+apply until 221 and 222 are re-applied.
+- New **Companies** tab on the case desk: find a company by trade
+  licence or name and see who acts for it (owner, PRO, accountant,
+  other), marked authorised or not. One phone may act for several
+  companies.
+- Each desk case's contact is linked to its company automatically;
+  existing desk cases are linked when 229 is applied.
+- A link gives nobody access to anything. Writers of a company's case
+  and team leaders and up change the people; anyone who can read a case
+  of the company sees them.
+- The links are part of a customer's PDPL export and are kept on
+  erasure (KYC), the contact itself being anonymised as before.
+- See `docs/case-desk.md`.
+
 ### Health checks and metrics
 
 **Migration required:** apply `228_hr_automsg_outbox_stats.sql` (as a

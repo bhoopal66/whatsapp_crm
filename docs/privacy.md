@@ -20,6 +20,13 @@ data, what erase does (delete, blank or keep, with the reason) and
 whether the export includes it. A test fails when a migration adds a
 table that is in neither list, so the map cannot silently go stale.
 
+Tables added from migration 229 on join the export and the erase by
+registering their own functions in `privacy_extensions`: the export and
+the erase call every registered one (inside the same transaction, so a
+dry run rolls them back too). Only the migration owner writes that
+registry. The same test checks the registered functions name every
+table the map says they cover.
+
 ## A customer's request
 
 Settings → Privacy → A customer's request. Pick the customer, then:

@@ -65,6 +65,8 @@ export const DESK_REFUSAL_HTTP: Readonly<
     status: 422,
     text: 'The uploader is no longer live staff',
   },
+  CUSTOMER_NOT_FOUND: { status: 404, text: 'Company not found' },
+  CONTACT_INVALID: { status: 422, text: 'Choose a contact you can see' },
 };
 
 /** A body or form field the route refuses before any database call. */

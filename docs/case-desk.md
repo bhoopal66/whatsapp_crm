@@ -100,6 +100,32 @@ stopped it.
   `second` (over 2 hours) › `none`. The two thresholds are the package's
   and await the owner's confirmation.
 
+## Company contacts
+
+Migration 229 (design 035 D1). A company is not a phone number: the
+**Companies** tab lists who acts for each company, with a role
+(owner, PRO, accountant, other) and an **authorised** flag.
+
+- **Many to many.** One PRO's phone may act for several companies, and a
+  company has several people. A CRM contact is one phone per workspace,
+  so linking a contact links its phone.
+- **Automatic link.** Opening a desk case links the case's contact to
+  the company (role *other*, not authorised, shown as *From a case*).
+  Existing desk cases were linked once when 229 was applied. The link
+  never fails a case write.
+- **A fact, never a grant.** A link opens no case, chat or contact to
+  anyone. WhatsApp routing (a later slice) reads it and never files a
+  document by phone alone: a phone that acts for more than one company
+  goes to a person.
+- **Who.** Anyone who can read one of the company's cases sees its
+  people; anyone who can write one (its agent, the bank's coordinator)
+  and team leaders and up change them. Only contacts you can see can be
+  linked. Someone with no case of the company gets *Company not found*,
+  as for an unknown one.
+- **Privacy.** The links are in a customer's PDPL export and are kept on
+  erasure (KYC: who acted for a company account); the contact itself is
+  anonymised as before.
+
 ## Rules held in the database
 
 - Tables (`desk_bank_codes`, `desk_customers`, `desk_number_seq`,
@@ -112,6 +138,11 @@ stopped it.
 - `supabase/ci/verify-case-desk.sql` asserts the numbering vectors (the
   same as `src/lib/desk/case-number.test.ts`), gapless numbering, the
   routing rules, duplicates, scope and the closed tables.
+- `desk_customer_contacts` (229) is closed the same way; links change
+  only through `desk_customer_contact_set` / `_remove`.
+  `supabase/ci/verify-desk-customer-contacts.sql` asserts the automatic
+  link, who may read and change, one phone across two companies, the
+  privacy export and the closed tables.
 
 ## API
 
@@ -130,6 +161,9 @@ Refusals answer `{ error, code }`.
 | `POST /intake/[id]/reject` | sorters | reject with a reason |
 | `GET /overview` | team leaders and up | queue overview |
 | `GET /banks`, `PUT /banks/[code]` | staff / owners and admins | desk codes |
+| `GET /companies?q=` | staff | find a company you can see (licence or name) |
+| `GET /companies/[id]/contacts` | readers of a company's case, team leaders and up | its people |
+| `PUT`, `DELETE /companies/[id]/contacts/[contactId]` | writers of a company's case, team leaders and up | link (`{ role, authorised }`) or unlink |
 
 ## Not built (known gaps)
 
