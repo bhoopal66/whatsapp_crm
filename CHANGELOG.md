@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### SMS for HR automated messages
+
+**Migration required:** apply `226_hr_automsg_sms.sql` (as a superuser)
+after 225, before deploying this build. Then re-run
+`supabase/ci/verify-hr-automsg-rcs.sql` if you keep a copy: it no longer
+uses `sms` as its example of an unknown channel.
+- A third channel beside WhatsApp and RCS in HR → Automated messages:
+  plain SMS through a Dinstar GSM gateway. Off until the gateway is set
+  up (`DINSTAR_*`); until then messages on SMS are held "SMS not
+  connected" and never sent, and never moved to another channel.
+- SMS templates have their own tab with a character and segment counter;
+  none is created for you. Consent is recorded per channel.
+- Delivery reports and STOP replies arrive at `POST /api/sms/webhook`
+  (shared token). See "SMS channel" in `docs/hr-workflows.md`, including
+  the open legal points (UAE TDRA rules on SMS) before going live.
+
 ### Case file reviewer
 
 **Migration required:** apply `225_case_review.sql` (as a superuser)

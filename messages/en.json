@@ -11671,6 +11671,18 @@
         "rcsSeedNote": "Starts from the WhatsApp text, not saved yet",
         "rcsId": "RCS provider template id ({language})",
         "saveRcs": "Save RCS template ({language})",
+        "smsReadOnly": "SMS templates are read only for your role.",
+        "smsNotConnected": "No SMS gateway is connected yet. SMS templates can be prepared now; nothing is sent by SMS until the gateway is connected.",
+        "smsSeedNote": "Starts from the WhatsApp text, not saved yet",
+        "smsLabel": "SMS label ({language})",
+        "saveSms": "Save SMS template ({language})",
+        "smsCounter": "As sent: {length} characters, {segments, plural, one {# SMS} other {# SMS}}, {encoding}",
+        "smsEncoding": {
+          "gsm": "plain text (160 per SMS)",
+          "unicode": "Unicode (70 per SMS)"
+        },
+        "smsCounterHint": "Counted with a {allowance}-character name; a longer name adds characters.",
+        "smsTooLong": "Longer than {max} SMS: this message would be refused when sent. Shorten it.",
         "check": {
           "missingPlaceholder": "Must contain {slot}",
           "promotional": "Promotional wording is not allowed: \"{phrase}\"",
@@ -11679,7 +11691,9 @@
           "nameFormat": "Use lowercase letters, digits and underscores only.",
           "approvedNeedsName": "An approved template needs its Meta template name.",
           "rcsApprovedNeedsId": "An RCS provider template id is required to approve.",
-          "rcsIdFormat": "The RCS provider template id may use letters, digits, '.', ':', '_' and '-' (up to 512)."
+          "rcsIdFormat": "The RCS provider template id may use letters, digits, '.', ':', '_' and '-' (up to 512).",
+          "smsApprovedNeedsLabel": "An SMS label is required to approve.",
+          "smsLabelFormat": "The SMS label may use letters, digits, '.', ':', '_' and '-' (up to 512)."
         }
       },
       "history": {
@@ -11718,6 +11732,7 @@
           "quietHours": "Quiet hours",
           "noTemplate": "No approved template",
           "channelNotConnected": "RCS not connected",
+          "channelNotConnectedSms": "SMS not connected",
           "dailyCap": "Daily cap reached",
           "duplicate": "Duplicate"
         },
@@ -11736,6 +11751,10 @@
       "rcs": {
         "notConnected": "RCS not connected",
         "notice": "No RCS provider is connected. Messages on RCS are held as \"RCS not connected\" and never sent, and never moved to WhatsApp or SMS."
+      },
+      "sms": {
+        "notConnected": "SMS not connected",
+        "notice": "No SMS gateway is connected. Messages on SMS are held as \"SMS not connected\" and never sent, and never moved to WhatsApp or RCS."
       },
       "consentByChannel": {
         "title": "Consent by channel",

@@ -12,6 +12,7 @@ import {
   releaseCounts,
   settingsForm,
   showRcsNotice,
+  showSmsNotice,
   toTimeInput,
   triggerRows,
   validateSettingsForm,
@@ -138,6 +139,31 @@ describe('triggerRows channel', () => {
       expect(rows.some((r) => r.rcsNotConnected)).toBe(false);
       expect(showRcsNotice(rows)).toBe(false);
     }
+  });
+
+  it('flags an SMS row by the SMS status only, never by the RCS one', () => {
+    const onSms = {
+      templates: config.templates,
+      triggers: config.triggers.map((t) =>
+        t.trigger === 'cv_received' ? { ...t, channel: 'sms' as const } : t
+      ),
+    };
+    const up = { connected: true, webhook: true };
+    const down = { connected: false, webhook: false };
+    const smsRow = (rcs?: typeof up | null, sms?: typeof up | null) =>
+      triggerRows(onSms, 'admin', rcs, sms).find(
+        (r) => r.trigger === 'cv_received'
+      )!;
+    expect(smsRow(up, undefined).smsNotConnected).toBe(false);
+    expect(smsRow(up, null).smsNotConnected).toBe(true);
+    expect(smsRow(up, down).smsNotConnected).toBe(true);
+    expect(smsRow(down, up).smsNotConnected).toBe(false);
+    expect(smsRow(down, up).rcsNotConnected).toBe(false);
+    expect(showSmsNotice(triggerRows(onSms, 'admin', up, null))).toBe(true);
+    expect(showSmsNotice(triggerRows(onSms, 'admin', down, up))).toBe(false);
+    expect(showRcsNotice(triggerRows(onSms, 'admin', down, down))).toBe(false);
+    // an RCS row is never flagged by the SMS status
+    expect(showSmsNotice(triggerRows(onRcs, 'admin', up, null))).toBe(false);
   });
 
   it('shows the notice only with an RCS trigger and no connection', () => {

@@ -125,6 +125,9 @@ export interface AutoMsgRcsStatus {
   webhook: boolean;
 }
 
+/** `GET /api/hr/automsg/sms`: the same two flags for the SMS gateway. */
+export type AutoMsgSmsStatus = AutoMsgRcsStatus;
+
 export interface AutoMsgReleaseSummary {
   reviewed: number;
   expired: number;
@@ -419,6 +422,25 @@ export async function automsgRcsStatus(
 ): Promise<AutoMsgRcsStatus | null> {
   try {
     const res = await fetchImpl('/api/hr/automsg/rcs', { method: 'GET' });
+    if (!res.ok) return null;
+    const b = rec(await res.json());
+    if (typeof b.connected !== 'boolean' || typeof b.webhook !== 'boolean')
+      return null;
+    return { connected: b.connected, webhook: b.webhook };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the SMS gateway is connected (`GET /api/hr/automsg/sms`); null on
+ * any failure, as `automsgRcsStatus`.
+ */
+export async function automsgSmsStatus(
+  fetchImpl: typeof fetch = fetch
+): Promise<AutoMsgSmsStatus | null> {
+  try {
+    const res = await fetchImpl('/api/hr/automsg/sms', { method: 'GET' });
     if (!res.ok) return null;
     const b = rec(await res.json());
     if (typeof b.connected !== 'boolean' || typeof b.webhook !== 'boolean')

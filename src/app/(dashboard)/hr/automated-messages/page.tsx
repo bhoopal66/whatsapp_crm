@@ -30,11 +30,13 @@ import { hrMyRoles } from '@/lib/hr/api';
 import {
   automsgConfig,
   automsgRcsStatus,
+  automsgSmsStatus,
   automsgReleaseNow,
   automsgSaveSettings,
   automsgSetTrigger,
   type AutoMsgConfig,
   type AutoMsgRcsStatus,
+  type AutoMsgSmsStatus,
 } from '@/lib/hr/automsg/api';
 import {
   AUTOMSG_CHANNELS,
@@ -53,6 +55,7 @@ import {
   nextSettingsForm,
   type ConfigLoadReason,
   showRcsNotice,
+  showSmsNotice,
   triggerRows,
   validateSettingsForm,
   type AutomsgRole,
@@ -82,6 +85,9 @@ export default function HrAutomatedMessagesPage() {
   const [historyKey, setHistoryKey] = useState(0);
   const [rcsStatus, setRcsStatus] = useState<
     AutoMsgRcsStatus | null | undefined
+  >(undefined);
+  const [smsStatus, setSmsStatus] = useState<
+    AutoMsgSmsStatus | null | undefined
   >(undefined);
 
   useEffect(() => {
@@ -115,6 +121,9 @@ export default function HrAutomatedMessagesPage() {
     // could not tell (reads as not connected).
     void automsgRcsStatus().then((status) => {
       if (live) setRcsStatus(status);
+    });
+    void automsgSmsStatus().then((status) => {
+      if (live) setSmsStatus(status);
     });
     return () => {
       live = false;
@@ -194,7 +203,8 @@ export default function HrAutomatedMessagesPage() {
   };
 
   const controls = automsgControls(role ?? null);
-  const rows = config && role ? triggerRows(config, role, rcsStatus) : [];
+  const rows =
+    config && role ? triggerRows(config, role, rcsStatus, smsStatus) : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
@@ -333,6 +343,14 @@ export default function HrAutomatedMessagesPage() {
                 {t('rcs.notice')}
               </p>
             )}
+            {showSmsNotice(rows) && (
+              <p
+                role="status"
+                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-l-4 px-3 py-2 text-xs"
+              >
+                {t('sms.notice')}
+              </p>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -413,6 +431,11 @@ export default function HrAutomatedMessagesPage() {
                           {t('rcs.notConnected')}
                         </span>
                       )}
+                      {row.smsNotConnected && (
+                        <span className="bg-warning-soft text-warning mt-1.5 block w-fit rounded-full px-2 py-0.5 text-xs">
+                          {t('sms.notConnected')}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="align-top whitespace-normal">
                       <div className="flex flex-wrap gap-1.5">
@@ -486,6 +509,7 @@ export default function HrAutomatedMessagesPage() {
             templates={config.templates}
             role={role}
             rcsConnected={rcsStatus?.connected === true}
+            smsConnected={smsStatus?.connected === true}
             onSaved={() => load()}
           />
 

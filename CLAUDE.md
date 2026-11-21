@@ -1393,6 +1393,20 @@ contract.
   row_state, claim, mark, config, trigger_set, template_set, consent_get,
   consent_set, outbox_list and 212's delivery_record: apply in order,
   once. `verify-hr-automsg-rcs.sql`.
+- **SMS channel (226, release 032).** 'sms' joins 215's channels
+  (Dinstar GSM gateway, `dinstar.ts`, UNVERIFIED wire format);
+  `sms-config.ts` reads `DINSTAR_*` / `SMS_*` at call time, unset = held
+  `channel_not_connected`. The engine hands only 'whatsapp' rows to the
+  WhatsApp sender; every other channel needs its own sender (a
+  `channel === 'rcs' ? … : whatsapp` once would have sent SMS over
+  WhatsApp). An approved sms template needs a label (203's
+  `approved_named`); the text is the body, measured by `sms-text.ts`
+  (3-segment cap, shared by sender and editor). Gateway pushes match by
+  provider id suffix `:<user_id>` plus the number's last nine digits;
+  `hr_automsg_delivery_apply` holds the receipt ladder once. 226
+  restates 215's on_history, enqueue_nudges, trigger_set, template_set,
+  consent_get, consent_set and delivery_record: apply in order, once.
+  `verify-hr-automsg-sms.sql`.
 - **HR lines (213).** `hr_lines` / `hr_line_settings` (RPC-only; HR →
   Rules, owners/admins). `processMessage` runs `autoOpenRecruiterChat`
   (`hr_auto_open_recruiter`, service role) before the recruiter-agents

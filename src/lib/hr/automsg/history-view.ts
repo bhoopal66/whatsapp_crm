@@ -29,6 +29,9 @@ export function historyStatusArg(filter: HistoryFilter): OutboxStatus | null {
 }
 
 /** Label keys under `automsg.history.hold`, one per hold reason. */
+/** `channel_not_connected` on an SMS row (the base key reads "RCS not connected"). */
+export const SMS_NOT_CONNECTED_KEY = 'channelNotConnectedSms';
+
 export const HOLD_REASON_KEYS: Readonly<Record<HoldReason, string>> = {
   kill_switch: 'killSwitch',
   disabled: 'disabled',
@@ -79,7 +82,14 @@ export function historyRowView(
 ): HistoryRowView {
   return {
     statusKey: row.status,
-    holdKey: row.holdReason ? HOLD_REASON_KEYS[row.holdReason] : null,
+    // 'channel_not_connected' names the row's own channel (RCS or SMS).
+    holdKey:
+      row.holdReason === 'channel_not_connected' &&
+      channelOf(row.channel) === 'sms'
+        ? SMS_NOT_CONNECTED_KEY
+        : row.holdReason
+          ? HOLD_REASON_KEYS[row.holdReason]
+          : null,
     claimKey: row.claimState ? CLAIM_STATE_KEYS[row.claimState] : null,
     canCancel:
       (role === 'admin' || role === 'lead') &&

@@ -91,6 +91,8 @@ export interface TriggerRowView {
    * not flag): its messages are held, never sent.
    */
   rcsNotConnected: boolean;
+  /** The same for SMS and the SMS gateway (migration 226). */
+  smsNotConnected: boolean;
   /** Label key under `automsg.triggersTable`, or null. */
   note: string | null;
 }
@@ -111,14 +113,16 @@ function isApproved(
 }
 
 /**
- * One row per trigger, in TRIGGERS order. `rcsStatus` is
- * `automsgRcsStatus()`'s answer: undefined (or left out) = still loading,
- * null = could not be read (treated as not connected).
+ * One row per trigger, in TRIGGERS order. `rcsStatus` / `smsStatus` are
+ * `automsgRcsStatus()` / `automsgSmsStatus()`'s answers: undefined (or
+ * left out) = still loading, null = could not be read (treated as not
+ * connected).
  */
 export function triggerRows(
   config: Pick<AutoMsgConfig, 'triggers' | 'templates'>,
   role: AutomsgRole | null,
-  rcsStatus?: AutoMsgRcsStatus | null
+  rcsStatus?: AutoMsgRcsStatus | null,
+  smsStatus?: AutoMsgRcsStatus | null
 ): TriggerRowView[] {
   const controls = automsgControls(role);
   const byTrigger = new Map(config.triggers.map((t) => [t.trigger, t]));
@@ -145,6 +149,10 @@ export function triggerRows(
         row.channel === 'rcs' &&
         rcsStatus !== undefined &&
         rcsStatus?.connected !== true,
+      smsNotConnected:
+        row.channel === 'sms' &&
+        smsStatus !== undefined &&
+        smsStatus?.connected !== true,
       note: unavailable,
     });
   }
@@ -157,6 +165,11 @@ export function triggerRows(
  */
 export function showRcsNotice(rows: readonly TriggerRowView[]): boolean {
   return rows.some((r) => r.rcsNotConnected);
+}
+
+/** The same notice for SMS and the SMS gateway. */
+export function showSmsNotice(rows: readonly TriggerRowView[]): boolean {
+  return rows.some((r) => r.smsNotConnected);
 }
 
 export type ApprovalChipKey =

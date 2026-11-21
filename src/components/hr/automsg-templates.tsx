@@ -21,19 +21,21 @@ import {
   editorPayload,
   editorSlots,
   editorView,
+  SMS_NAME_ALLOWANCE,
   type EditorForm,
   type EditorSlot,
 } from '@/lib/hr/automsg/editor-view';
+import { MAX_SMS_SEGMENTS } from '@/lib/hr/automsg/sms-text';
 import { APPROVAL_STATUSES, type ApprovalStatus } from '@/lib/hr/automsg/types';
 import { automsgErrorKey, type AutomsgRole } from '@/lib/hr/automsg/view';
 import { createClient } from '@/lib/supabase/client';
 
 /**
  * The template editors of the HR Automated messages screen: a WhatsApp /
- * RCS tab switch, then one card per kind x language of that channel.
+ * RCS / SMS tab switch, then one card per kind x language of that channel.
  * Each card is keyed by its stored row (`slot.key`), so a save
  * re-initialises it from the reloaded config while typing never does.
- * Admins edit on both channels; leads read. The database re-checks every
+ * Admins edit on every channel; leads read. The database re-checks every
  * save.
  */
 export function AutomsgTemplates({
@@ -41,12 +43,15 @@ export function AutomsgTemplates({
   role,
   onSaved,
   rcsConnected = false,
+  smsConnected = false,
 }: {
   templates: readonly AutoMsgTemplateView[];
   role: AutomsgRole;
   onSaved: () => Promise<void> | void;
   /** An RCS provider is connected; until then the RCS tab says so. */
   rcsConnected?: boolean;
+  /** The SMS gateway is connected; until then the SMS tab says so. */
+  smsConnected?: boolean;
 }) {
   const t = useTranslations('Hr.automsg');
   const [channel, setChannel] = useState<AutomsgChannel>('whatsapp');
@@ -68,7 +73,8 @@ export function AutomsgTemplates({
         </Tabs>
       </div>
       {/* Both panels stay mounted: unmounting one would drop its unsaved
-          edits on a tab switch. The `rcs|` slot keys keep them apart. */}
+          edits on a tab switch. The `rcs|` / `sms|` slot keys keep them
+          apart. */}
       {AUTOMSG_CHANNELS.map((c) => (
         <div key={c} hidden={c !== channel}>
           <TemplatesPanel
@@ -77,6 +83,7 @@ export function AutomsgTemplates({
             role={role}
             onSaved={onSaved}
             rcsConnected={rcsConnected}
+            smsConnected={smsConnected}
           />
         </div>
       ))}
@@ -91,27 +98,38 @@ export function TemplatesPanel({
   role,
   onSaved,
   rcsConnected = false,
+  smsConnected = false,
 }: {
   channel: AutomsgChannel;
   templates: readonly AutoMsgTemplateView[];
   role: AutomsgRole;
   onSaved: () => Promise<void> | void;
   rcsConnected?: boolean;
+  smsConnected?: boolean;
 }) {
   const t = useTranslations('Hr.automsg.templates');
-  const rcs = channel === 'rcs';
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         {role !== 'admin' && (
           <p className="text-muted-foreground text-xs">
-            {rcs ? t('rcsReadOnly') : t('leadNote')}
+            {channel === 'rcs'
+              ? t('rcsReadOnly')
+              : channel === 'sms'
+                ? t('smsReadOnly')
+                : t('leadNote')}
           </p>
         )}
-        {rcs ? (
+        {channel === 'rcs' ? (
           !rcsConnected && (
             <p className="text-muted-foreground text-xs">
               {t('rcsNotConnected')}
+            </p>
+          )
+        ) : channel === 'sms' ? (
+          !smsConnected && (
+            <p className="text-muted-foreground text-xs">
+              {t('smsNotConnected')}
             </p>
           )
         ) : (
@@ -145,10 +163,12 @@ export function TemplateCard({
   const [form, setForm] = useState<EditorForm>(slot.initial);
   const [saving, setSaving] = useState(false);
   const rcs = slot.channel === 'rcs';
+  const sms = slot.channel === 'sms';
   const view = editorView(slot.kind, form, role, saving, slot.channel);
-  const id = rcs
-    ? `automsg-rcs-${slot.kind}-${slot.language}`
-    : `automsg-${slot.kind}-${slot.language}`;
+  const id =
+    slot.channel === 'whatsapp'
+      ? `automsg-${slot.kind}-${slot.language}`
+      : `automsg-${slot.channel}-${slot.kind}-${slot.language}`;
   const language = t(`templates.languages.${slot.language}`);
 
   const save = async () => {
@@ -184,7 +204,11 @@ export function TemplateCard({
       </legend>
       {!slot.stored && (
         <p className="text-muted-foreground text-xs">
-          {rcs ? t('templates.rcsSeedNote') : t('templates.seedNote')}
+          {rcs
+            ? t('templates.rcsSeedNote')
+            : sms
+              ? t('templates.smsSeedNote')
+              : t('templates.seedNote')}
         </p>
       )}
 
@@ -204,6 +228,29 @@ export function TemplateCard({
         <p className="text-muted-foreground text-xs tabular-nums">
           {t('templates.counter', view.counter)}
         </p>
+        {view.sms && (
+          <div className="space-y-0.5" aria-live="polite">
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {t('templates.smsCounter', {
+                length: view.sms.length,
+                segments: view.sms.segments,
+                encoding: t(
+                  view.sms.encoding === 'gsm-7bit'
+                    ? 'templates.smsEncoding.gsm'
+                    : 'templates.smsEncoding.unicode'
+                ),
+              })}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {t('templates.smsCounterHint', { allowance: SMS_NAME_ALLOWANCE })}
+            </p>
+            {!view.sms.fits && (
+              <p className="bg-warning-soft text-warning rounded px-1.5 py-0.5 text-xs">
+                {t('templates.smsTooLong', { max: MAX_SMS_SEGMENTS })}
+              </p>
+            )}
+          </div>
+        )}
         {view.messages.length > 0 && (
           <ul className="space-y-0.5" aria-live="polite">
             {view.messages.map((m, i) => (
@@ -222,7 +269,11 @@ export function TemplateCard({
           htmlFor={`${id}-name`}
           className="shrink-0 text-sm whitespace-nowrap"
         >
-          {rcs ? t('templates.rcsId', { language }) : t('templates.metaName')}
+          {rcs
+            ? t('templates.rcsId', { language })
+            : sms
+              ? t('templates.smsLabel', { language })
+              : t('templates.metaName')}
         </label>
         <Input
           id={`${id}-name`}
@@ -264,7 +315,11 @@ export function TemplateCard({
             disabled={!view.canSave}
             onClick={() => void save()}
           >
-            {rcs ? t('templates.saveRcs', { language }) : t('templates.save')}
+            {rcs
+              ? t('templates.saveRcs', { language })
+              : sms
+                ? t('templates.saveSms', { language })
+                : t('templates.save')}
           </Button>
         )}
       </div>
