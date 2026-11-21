@@ -2684,7 +2684,8 @@
       "audit-log": "Audit log",
       "deal-rooms": "Deal rooms",
       "cases": "Cases",
-      "vault": "Vault"
+      "vault": "Vault",
+      "privacy": "Privacy (PDPL)"
     },
     "categories": {
       "overview": "Overview",
@@ -2739,7 +2740,8 @@
       "audit-log": "Who did what: access, reads, erasures and changes.",
       "phone-system": "The Yeastar PBX: extensions, recording and call outcomes.",
       "phone-extensions": "Link each phone extension to the person who answers it.",
-      "api": "Keys for the public REST API and your own integrations."
+      "api": "Keys for the public REST API and your own integrations.",
+      "privacy": "A customer's export, erase and legal hold; retention; the AI transfer basis."
     },
     "keywords": {
       "overview": "home dashboard status summary start",
@@ -2772,7 +2774,8 @@
       "audit-log": "audit history log activity who did what compliance",
       "phone-system": "pbx yeastar calls telephone extensions recordings softphone call outcomes",
       "phone-extensions": "pbx yeastar extensions people link map softphone presence",
-      "api": "api keys developer rest integration token bearer automation webhooks"
+      "api": "api keys developer rest integration token bearer automation webhooks",
+      "privacy": "privacy pdpl gdpr export erase delete legal hold retention ai transfer basis consent"
     },
     "nav": {
       "label": "Settings menu",
@@ -11974,6 +11977,73 @@
       "label": "Desk code for {bank}",
       "save": "Save",
       "saved": "Desk code saved for {bank}"
+    }
+  },
+  "Privacy": {
+    "loading": "Loading...",
+    "save": "Save",
+    "request": {
+      "title": "A customer's request",
+      "description": "Export everything held about a customer, place a legal hold, or erase them (UAE PDPL). Bank cases, everything filed to them, consent and audit records are kept under KYC/AML.",
+      "pick": "Find the customer by name or phone",
+      "export": "Export their data",
+      "exported": "Export downloaded",
+      "dryRun": "Preview the erase",
+      "dryRunTitle": "Preview: this is what an erase would remove (nothing has changed)",
+      "erasedTitle": "Erased",
+      "erased": "The customer was erased",
+      "nothing": "Nothing to erase.",
+      "blocked": "This customer is under a legal hold; nothing was erased.",
+      "filesLeft": "{n, plural, one {# stored file} other {# stored files}} could not be deleted yet; they are recorded for a retry.",
+      "retained": "Kept ({n} kinds of record) and why",
+      "confirmLabel": "To erase, type: {text}",
+      "erase": "Erase this customer"
+    },
+    "hold": {
+      "title": "Legal hold",
+      "on": "On hold: {reason}",
+      "release": "Release the hold",
+      "place": "Place a hold",
+      "reason": "Why (for example a court order or a dispute)"
+    },
+    "retention": {
+      "title": "Retention",
+      "description": "Remove or blank old data automatically, once a day. Only these kinds of data can be swept; bank cases and their files never are. A customer under a legal hold is skipped.",
+      "keys": {
+        "deal_room_messages": "Deal room messages",
+        "whatsapp_group_messages": "WhatsApp group messages",
+        "hr_outbox_bodies": "HR automated message texts",
+        "hr_agent_drafts": "Decided HR AI drafts",
+        "call_records": "Call records (numbers and notes)"
+      },
+      "days": "days",
+      "actions": {
+        "delete": "delete",
+        "anonymise": "blank"
+      },
+      "apply": "Apply: the daily sweep deletes and blanks",
+      "dryRun": "Preview only: the daily sweep counts and changes nothing",
+      "saved": "Retention saved"
+    },
+    "ai": {
+      "title": "Sending customer text to AI providers",
+      "description": "The AI reply bot, drafts, translation, HR AI drafts and the safety checks send customer text to providers outside the UAE. Record the legal basis here; every such call is logged (size only, never the text).",
+      "basis": "Legal basis",
+      "none": "Not recorded",
+      "bases": {
+        "consent": "Customer consent",
+        "contract": "Contract with the provider",
+        "adequacy": "Adequacy decision",
+        "scc": "Standard contractual clauses",
+        "other": "Other"
+      },
+      "note": "Details (at least 20 characters)",
+      "approvedBy": "Approved by",
+      "region": "Providers' region",
+      "require": "Require a recorded basis: AI calls are refused until one is complete",
+      "requireIncomplete": "While this is on and the basis is incomplete, every AI feature of this workspace stops.",
+      "stats": "Last 30 days: {calls} AI calls logged, {refused} refused.",
+      "saved": "Saved"
     }
   }
 }

@@ -2684,7 +2684,8 @@
       "audit-log": "감사 로그",
       "deal-rooms": "딜룸",
       "cases": "케이스",
-      "vault": "보관소"
+      "vault": "보관소",
+      "privacy": "개인정보 (PDPL)"
     },
     "categories": {
       "overview": "개요",
@@ -2739,7 +2740,8 @@
       "audit-log": "누가 무엇을 했는지: 접근, 열람, 삭제, 변경.",
       "phone-system": "Yeastar PBX: 내선, 녹음, 통화 결과.",
       "phone-extensions": "각 전화 내선을 응답하는 사람과 연결합니다.",
-      "api": "공개 REST API와 자체 연동을 위한 키."
+      "api": "공개 REST API와 자체 연동을 위한 키.",
+      "privacy": "고객 데이터 내보내기·삭제·법적 보존, 보관 기간, AI 전송 근거."
     },
     "keywords": {
       "overview": "홈 현황 요약 home status",
@@ -2772,7 +2774,8 @@
       "audit-log": "감사 기록 이력 활동 audit history",
       "phone-system": "PBX yeastar 전화 통화 내선 녹음 소프트폰 calls extensions",
       "phone-extensions": "PBX yeastar 내선 사람 연결 소프트폰 상태 extensions",
-      "api": "API 키 개발자 REST 연동 토큰 developer integration"
+      "api": "API 키 개발자 REST 연동 토큰 developer integration",
+      "privacy": "privacy pdpl 개인정보 내보내기 삭제 법적 보존 보관 ai"
     },
     "nav": {
       "label": "설정 메뉴",
@@ -11974,6 +11977,73 @@
       "label": "{bank} 데스크 코드",
       "save": "저장",
       "saved": "{bank} 데스크 코드를 저장했습니다"
+    }
+  },
+  "Privacy": {
+    "loading": "불러오는 중...",
+    "save": "저장",
+    "request": {
+      "title": "고객 요청",
+      "description": "고객에 관한 모든 데이터를 내보내거나, 법적 보존을 걸거나, 삭제합니다(UAE PDPL). 은행 케이스와 그에 등록된 모든 것, 동의·감사 기록은 KYC/AML에 따라 보관됩니다.",
+      "pick": "이름이나 전화번호로 고객 찾기",
+      "export": "데이터 내보내기",
+      "exported": "내보내기 파일을 받았습니다",
+      "dryRun": "삭제 미리보기",
+      "dryRunTitle": "미리보기: 삭제하면 아래가 제거됩니다(아무것도 바뀌지 않았습니다)",
+      "erasedTitle": "삭제됨",
+      "erased": "고객을 삭제했습니다",
+      "nothing": "삭제할 것이 없습니다.",
+      "blocked": "이 고객은 법적 보존 중이라 아무것도 삭제하지 않았습니다.",
+      "filesLeft": "{n, plural, other {저장 파일 #개}}를 아직 지우지 못해 재시도용으로 기록했습니다.",
+      "retained": "보관된 기록 {n}종과 이유",
+      "confirmLabel": "삭제하려면 입력: {text}",
+      "erase": "이 고객 삭제"
+    },
+    "hold": {
+      "title": "법적 보존",
+      "on": "보존 중: {reason}",
+      "release": "보존 해제",
+      "place": "보존 걸기",
+      "reason": "이유(예: 법원 명령, 분쟁)"
+    },
+    "retention": {
+      "title": "보관 기간",
+      "description": "오래된 데이터를 하루 한 번 자동으로 삭제하거나 비웁니다. 아래 종류만 대상이며 은행 케이스와 파일은 대상이 아닙니다. 법적 보존 중인 고객은 건너뜁니다.",
+      "keys": {
+        "deal_room_messages": "딜룸 메시지",
+        "whatsapp_group_messages": "WhatsApp 그룹 메시지",
+        "hr_outbox_bodies": "HR 자동 메시지 본문",
+        "hr_agent_drafts": "처리된 HR AI 초안",
+        "call_records": "통화 기록(번호와 메모)"
+      },
+      "days": "일",
+      "actions": {
+        "delete": "삭제",
+        "anonymise": "비우기"
+      },
+      "apply": "적용: 매일 삭제하고 비웁니다",
+      "dryRun": "미리보기만: 매일 세기만 하고 바꾸지 않습니다",
+      "saved": "보관 기간을 저장했습니다"
+    },
+    "ai": {
+      "title": "고객 텍스트를 AI 제공자에게 보내기",
+      "description": "AI 응답 봇, 초안, 번역, HR AI 초안, 안전 검사는 고객 텍스트를 UAE 밖의 제공자에게 보냅니다. 법적 근거를 여기에 기록하세요. 모든 호출은 기록됩니다(크기만, 텍스트는 기록하지 않음).",
+      "basis": "법적 근거",
+      "none": "기록 없음",
+      "bases": {
+        "consent": "고객 동의",
+        "contract": "제공자와의 계약",
+        "adequacy": "적정성 결정",
+        "scc": "표준 계약 조항",
+        "other": "기타"
+      },
+      "note": "세부 내용(20자 이상)",
+      "approvedBy": "승인자",
+      "region": "제공자 지역",
+      "require": "기록된 근거 필수: 근거가 완성될 때까지 AI 호출을 거부합니다",
+      "requireIncomplete": "이 설정이 켜져 있고 근거가 불완전하면 이 워크스페이스의 모든 AI 기능이 멈춥니다.",
+      "stats": "최근 30일: AI 호출 {calls}건 기록, {refused}건 거부.",
+      "saved": "저장했습니다"
     }
   }
 }

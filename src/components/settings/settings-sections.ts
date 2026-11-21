@@ -93,6 +93,7 @@ export const SETTINGS_SECTIONS = [
   // Privacy & compliance: sensitive data, consent, the audit trail.
   'vault',
   'consent-retention',
+  'privacy',
   'audit-log',
   // Integrations: outside systems wired in.
   'phone-system',
@@ -321,6 +322,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'consent-retention': {
     id: 'consent-retention',
     icon: ShieldCheck,
+    category: 'compliance',
+    minRole: 'admin',
+  },
+  // PDPL requests (migrations 221-224): a customer's export, erase and
+  // legal hold, the retention policy and the AI transfer basis.
+  privacy: {
+    id: 'privacy',
+    icon: Shield,
     category: 'compliance',
     minRole: 'admin',
   },

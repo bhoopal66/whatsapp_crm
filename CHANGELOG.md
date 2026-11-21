@@ -12,6 +12,30 @@ and polish.
 
 ## [Unreleased]
 
+### Privacy (UAE PDPL): export, erase, legal hold, retention, AI transfer basis
+
+**Migration required:** apply `221_privacy_export.sql`,
+`222_privacy_erase.sql`, `223_privacy_retention.sql` and
+`224_ai_transfer_register.sql` in order (as a superuser), after 220,
+before deploying this build.
+- New **Settings → Privacy** (owners and admins).
+- **A customer's request:** export everything held about a customer as
+  one file; place or release a legal hold; erase a customer. Erase is
+  always previewed first with exact counts, and needs a typed
+  confirmation. Bank cases and everything filed to them, the case's
+  WhatsApp group, consent and audit records are kept (KYC/AML) and listed
+  as kept, with the reason.
+- **Retention:** remove or blank old deal-room and WhatsApp-group
+  messages, HR automated-message texts, decided HR AI drafts and call
+  records after a number of days. Swept daily; a preview until you switch
+  Apply on; customers under a legal hold are skipped.
+- **AI providers abroad:** record the legal basis for sending customer
+  text to OpenAI, Anthropic and Jev. Every such call is logged (size
+  only). Nothing changes until you switch "Require a recorded basis" on;
+  then AI features stop until the basis is complete.
+- See `docs/privacy.md`, including what erase cannot reach (backups, the
+  NAS copies, providers).
+
 ### Case desk: case numbers and a sorting queue for staff uploads
 
 **Migration required:** apply `220_case_desk.sql` (as a superuser)

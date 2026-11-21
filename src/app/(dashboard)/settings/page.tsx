@@ -212,6 +212,11 @@ const ConsentRetentionPanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const PrivacyPanel = dynamic(
+  () =>
+    import('@/components/settings/privacy-panel').then((m) => m.PrivacyPanel),
+  { loading: PanelLoading }
+);
 const DealRoomsPanel = dynamic(
   () =>
     import('@/components/settings/deal-rooms-panel').then(
@@ -288,6 +293,7 @@ const PRELOADERS: Record<
   'consent-retention': [
     () => import('@/components/settings/consent-retention-panel'),
   ],
+  privacy: [() => import('@/components/settings/privacy-panel')],
   'audit-log': [() => import('@/components/settings/audit-log-panel')],
   api: [() => import('@/components/settings/api-keys-settings')],
   'phone-system': [
@@ -504,6 +510,7 @@ function SettingsPageInner() {
     cases: <CasesSettingsPanel />,
     vault: <VaultPanel />,
     'consent-retention': <ConsentRetentionPanel />,
+    privacy: <PrivacyPanel />,
     'audit-log': <AuditLogPanel />,
     api: <ApiKeysSettings />,
     'phone-system': <PhoneSystemPanel />,
