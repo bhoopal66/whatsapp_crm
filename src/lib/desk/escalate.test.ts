@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { runDeskQueueAlerts, runDeskTrayEscalation } from './escalate';
+import {
+  runDeskDocTasks,
+  runDeskQueueAlerts,
+  runDeskTrayEscalation,
+} from './escalate';
 import type { DeskStore } from './store';
 
 const db = {} as never;
@@ -123,5 +127,46 @@ describe('runDeskQueueAlerts', () => {
     await expect(
       runDeskQueueAlerts(db, broken as unknown as DeskStore, vi.fn())
     ).resolves.toBeNull();
+  });
+});
+
+describe('runDeskDocTasks', () => {
+  it("raises one task per file and kind for the case's person", async () => {
+    const store = {
+      docTasksDue: vi.fn().mockResolvedValue([
+        {
+          accountId: 'a1',
+          caseId: 'k1',
+          caseNumber: 'TC-26-00001-RAK',
+          fileId: 'f1',
+          docKey: 'trade_licence',
+          kind: 'expiring',
+          expiresOn: '2026-12-01',
+          assignee: 'u1',
+        },
+        {
+          accountId: 'a1',
+          caseId: 'k2',
+          caseNumber: 'TC-26-00001-ENB',
+          fileId: 'f2',
+          docKey: 'trade_licence',
+          kind: 'replaced',
+          expiresOn: null,
+          assignee: 'u2',
+        },
+      ]),
+    };
+    const create = vi.fn().mockResolvedValue({ id: 't', created: true });
+    const s = await runDeskDocTasks(db, store as unknown as DeskStore, create);
+    expect(s).toEqual({ due: 2, escalated: 2, failed: 0 });
+    expect(create.mock.calls.map((c) => c[1].sourceRef)).toEqual([
+      'desk_doc:f1:expiring',
+      'desk_doc:f2:replaced',
+    ]);
+    expect(create.mock.calls[0]![1]).toMatchObject({
+      assignedTo: 'u1',
+      kind: 'follow_up',
+    });
+    expect(create.mock.calls[0]![1].note).toContain('2026-12-01');
   });
 });

@@ -12099,7 +12099,20 @@
       "link": "Link",
       "linked": "Linked to {caseNumber}",
       "alreadyLinked": "Already on {caseNumber}",
-      "saved": "Saved"
+      "saved": "Saved",
+      "checklist": "Merged checklist",
+      "checklistIntro": "Each document once, for every bank that needs it, against the strictest validity. Only the cases you can open are columns.",
+      "document": "Document",
+      "validDays": "valid {days}+ days",
+      "notNeeded": "not needed",
+      "statuses": {
+        "missing": "missing",
+        "unclassified": "received",
+        "pending_checks": "checking",
+        "passed": "accepted",
+        "failed": "rejected",
+        "superseded": "replaced"
+      }
     },
     "cover": {
       "title": "Coordinators and cover",

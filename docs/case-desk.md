@@ -191,6 +191,23 @@ alone**:
   hours) is not a candidate reason; nothing is sent back to the staff
   member who uploaded by WhatsApp (they see it under *My uploads*).
 
+## The application across banks
+
+Migration 233 (design 035 section 5).
+
+- **Merged checklist** (Companies → Banks and documents): every
+  document the company's open cases require, asked once against the
+  strictest validity any bank sets, with each bank's own status for it
+  (missing, received, checking, accepted, rejected, replaced). Only the
+  cases you can open are columns; another bank's case shows only its
+  stage, above.
+- **Expiry and replacement tasks.** Every hour the automations cron
+  looks at accepted files on open desk cases **not yet submitted**:
+  one expiring within 14 days, one expired, or one another bank has
+  since replaced with a newer accepted version. Each becomes one
+  follow-up task for the case's coordinator (else its agent). Nothing on
+  the case changes, and a submitted case is never touched.
+
 ## Coordinators, leave and cover
 
 Migration 232 (design 035 revision A: each bank has one or two
@@ -240,6 +257,9 @@ and up):
 - `desk_bank_roles` and `desk_leave` (232) are closed the same way.
   `supabase/ci/verify-desk-bank-cover.sql` asserts roles, leave, cover
   and the alert levels.
+- `supabase/ci/verify-desk-application-view.sql` (233) asserts the
+  checklist's union, strictest validity, readable-only columns and the
+  document task kinds.
 
 ## API
 
@@ -264,6 +284,7 @@ Refusals answer `{ error, code }`.
 | `GET /companies/[id]/overview` | readers of a company's case, team leaders and up | cases (stage only), your files, consents |
 | `PUT`, `DELETE /companies/[id]/consents/[bank]` | writers of a company's case, team leaders and up | record (`{ evidence }`) or revoke (`{ reason }`) |
 | `POST /files/[fileId]/link` | readers of the file's case who can write the target | `{ caseId }` |
+| `GET /companies/[id]/checklist` | readers of a company's case, team leaders and up | the merged checklist |
 | `GET /cover` | team leaders and up | roles, today's cover, leave |
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
 | `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |

@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: one checklist per application, and expiry tasks
+
+**Migration required:** apply `233_desk_application_view.sql` (as a
+superuser) after 232.
+- Companies → Banks and documents now shows one merged checklist: each
+  document once, against the strictest validity, with every bank's own
+  status for it.
+- A document about to expire (14 days), expired, or replaced at another
+  bank raises a follow-up task on each case not yet submitted.
+- See `docs/case-desk.md`.
+
 ### Case desk: coordinators, leave and queue alerts
 
 **Migration required:** apply `232_desk_bank_cover.sql` (as a superuser)

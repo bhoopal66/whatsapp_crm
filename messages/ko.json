@@ -12099,7 +12099,20 @@
       "link": "연결",
       "linked": "{caseNumber}에 연결됨",
       "alreadyLinked": "이미 {caseNumber}에 있음",
-      "saved": "저장됨"
+      "saved": "저장됨",
+      "checklist": "통합 체크리스트",
+      "checklistIntro": "필요한 모든 은행에 대해 각 문서를 한 번, 가장 엄격한 유효 기간 기준으로 요청합니다. 열 수 있는 케이스만 열로 표시됩니다.",
+      "document": "문서",
+      "validDays": "{days}일 이상 유효",
+      "notNeeded": "불필요",
+      "statuses": {
+        "missing": "없음",
+        "unclassified": "수신됨",
+        "pending_checks": "확인 중",
+        "passed": "승인됨",
+        "failed": "거부됨",
+        "superseded": "교체됨"
+      }
     },
     "cover": {
       "title": "코디네이터 및 대행",

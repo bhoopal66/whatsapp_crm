@@ -16,7 +16,12 @@ import type {
   DeskContactRole,
 } from './companies';
 import { parseCoverRow, type BankCover } from './cover';
-import { parseCompanyOverview, type CompanyOverview } from './shared-docs';
+import {
+  parseChecklist,
+  parseCompanyOverview,
+  type ApplicationChecklist,
+  type CompanyOverview,
+} from './shared-docs';
 import {
   parseCandidates,
   type DeskSettings,
@@ -951,6 +956,53 @@ export class DeskStore {
       itemId: String(r.item_id),
       ageMinutes: num(r.age_minutes) ?? 0,
       waiting: num(r.waiting) ?? 0,
+      assignee: str(r.assignee),
+    }));
+  }
+  // ---------- the application view (migration 233) ----------
+
+  async applicationChecklist(
+    actor: string,
+    account: string,
+    customerId: string
+  ): Promise<ApplicationChecklist> {
+    const r = (
+      await this.rpc('desk_application_checklist', {
+        p_actor: actor,
+        p_account: account,
+        p_customer: customerId,
+      })
+    )[0];
+    return parseChecklist(r);
+  }
+
+  /** Service-role sweep: expiring, expired or replaced documents. */
+  async docTasksDue(): Promise<
+    {
+      accountId: string;
+      caseId: string;
+      caseNumber: string | null;
+      fileId: string;
+      docKey: string | null;
+      kind: 'expiring' | 'expired' | 'replaced';
+      expiresOn: string | null;
+      assignee: string | null;
+    }[]
+  > {
+    const rows = await this.rpc('desk_doc_tasks_due', {
+      p_now: this.now(),
+      p_limit: 500,
+    });
+    return rows.map((r) => ({
+      accountId: String(r.account_id),
+      caseId: String(r.case_id),
+      caseNumber: str(r.case_number),
+      fileId: String(r.file_id),
+      docKey: str(r.doc_key),
+      kind: (['expiring', 'expired', 'replaced'].includes(String(r.kind))
+        ? r.kind
+        : 'expiring') as 'expiring' | 'expired' | 'replaced',
+      expiresOn: str(r.expires_on),
       assignee: str(r.assignee),
     }));
   }

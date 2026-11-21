@@ -151,3 +151,69 @@ export function linkTargets(
       needsConsent: c.bankCode !== from?.bankCode && !banks.has(c.bankCode),
     }));
 }
+
+/** One row of the merged checklist (migration 233). */
+export interface ChecklistItem {
+  docKey: string;
+  label: string | null;
+  /** The strictest validity any bank asks for, in days. */
+  minValidDays: number | null;
+  /** The readable cases that require it. */
+  requiredBy: string[];
+  /** Per case id: its own status for this document. */
+  cells: Record<string, { status: string; expiresOn: string | null }>;
+}
+
+export interface ApplicationChecklist {
+  cases: { caseId: string; caseNumber: string | null; bankCode: string }[];
+  items: ChecklistItem[];
+}
+
+export function parseChecklist(v: unknown): ApplicationChecklist {
+  const o =
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
+  const body =
+    'items' in o
+      ? o
+      : ((Object.values(o)[0] as Record<string, unknown> | undefined) ?? {});
+  return {
+    cases: arr(body.cases).flatMap((c) =>
+      s(c.case_id)
+        ? [
+            {
+              caseId: String(c.case_id),
+              caseNumber: s(c.case_number),
+              bankCode: String(c.bank_code ?? ''),
+            },
+          ]
+        : []
+    ),
+    items: arr(body.items).flatMap((i) => {
+      if (!s(i.doc_key)) return [];
+      const cells: ChecklistItem['cells'] = {};
+      const raw =
+        i.cells && typeof i.cells === 'object'
+          ? (i.cells as Record<string, Record<string, unknown>>)
+          : {};
+      for (const [k, c] of Object.entries(raw))
+        cells[k] = {
+          status: String(c?.status ?? 'missing'),
+          expiresOn: s(c?.expires_on),
+        };
+      return [
+        {
+          docKey: String(i.doc_key),
+          label: s(i.label),
+          minValidDays:
+            typeof i.min_valid_days === 'number' ? i.min_valid_days : null,
+          requiredBy: Array.isArray(i.required_by)
+            ? i.required_by.map(String)
+            : [],
+          cells,
+        },
+      ];
+    }),
+  };
+}

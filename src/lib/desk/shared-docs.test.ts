@@ -3,7 +3,11 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { linkTargets, parseCompanyOverview } from './shared-docs';
+import {
+  linkTargets,
+  parseChecklist,
+  parseCompanyOverview,
+} from './shared-docs';
 import { DESK_REFUSALS } from './store';
 
 const SQL = readFileSync(
@@ -108,5 +112,35 @@ describe('shared documents (migration 231)', () => {
     ]);
     const noConsent = { ...o, consents: [] };
     expect(linkTargets(noConsent, o.files[0]!)[0]!.needsConsent).toBe(true);
+  });
+});
+
+describe('the merged checklist (migration 233)', () => {
+  it('parses items, cells and the strictest validity defensively', () => {
+    const c = parseChecklist({
+      cases: [
+        { case_id: 'kR', case_number: 'TC-26-00001-RAK', bank_code: 'RAK' },
+      ],
+      items: [
+        {
+          doc_key: 'trade_licence',
+          label: null,
+          min_valid_days: 90,
+          required_by: ['kR'],
+          cells: { kR: { status: 'passed', expires_on: '2027-01-01' } },
+        },
+        { nope: 1 },
+      ],
+    });
+    expect(c.items).toEqual([
+      {
+        docKey: 'trade_licence',
+        label: null,
+        minValidDays: 90,
+        requiredBy: ['kR'],
+        cells: { kR: { status: 'passed', expiresOn: '2027-01-01' } },
+      },
+    ]);
+    expect(parseChecklist('junk')).toEqual({ cases: [], items: [] });
   });
 });

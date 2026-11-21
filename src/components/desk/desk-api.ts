@@ -13,7 +13,10 @@ import type {
   QueueItem,
 } from '@/lib/desk/store';
 import type { BankCover } from '@/lib/desk/cover';
-import type { CompanyOverview } from '@/lib/desk/shared-docs';
+import type {
+  ApplicationChecklist,
+  CompanyOverview,
+} from '@/lib/desk/shared-docs';
 import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
 import type {
   DeskCompany,
@@ -168,6 +171,12 @@ export const deskApi = {
       `/api/desk/companies/${customerId}/overview`,
       undefined,
       (b) => b.overview as CompanyOverview
+    ),
+  checklist: (customerId: string) =>
+    call(
+      `/api/desk/companies/${customerId}/checklist`,
+      undefined,
+      (b) => b.checklist as ApplicationChecklist
     ),
   grantConsent: (customerId: string, bankCode: string, evidence: string) =>
     call(

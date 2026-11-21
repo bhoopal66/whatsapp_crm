@@ -115,3 +115,63 @@ export async function runDeskQueueAlerts(
   }
   return summary;
 }
+
+const DOC_TASK_TITLE = {
+  expiring: 'A case document expires soon',
+  expired: 'A case document has expired',
+  replaced: 'A newer version of a shared document was accepted at another bank',
+} as const;
+
+/**
+ * Document tasks (migration 233): a passed file expiring within 14 days,
+ * expired, or replaced at a sibling bank, on an open desk case not yet
+ * submitted, becomes one follow-up for the case's coordinator (else its
+ * agent); `source_ref desk_doc:<file>:<kind>` dedupes. Never changes a
+ * file, a status or a stage. Never throws.
+ */
+export async function runDeskDocTasks(
+  db: SupabaseClient,
+  store: DeskStore = new DeskStore(db),
+  createTask: typeof createSystemTask = createSystemTask
+): Promise<EscalationSummary | null> {
+  let due: Awaited<ReturnType<DeskStore['docTasksDue']>>;
+  try {
+    due = await store.docTasksDue();
+  } catch (err) {
+    console.error(
+      `[desk] document task read failed: ${err instanceof Error ? err.name : typeof err}`
+    );
+    return null;
+  }
+  const summary: EscalationSummary = {
+    due: due.length,
+    escalated: 0,
+    failed: 0,
+  };
+  for (const d of due) {
+    const what = d.docKey ? d.docKey.replace(/_/g, ' ') : 'a document';
+    const note =
+      d.kind === 'replaced'
+        ? `${what} on ${d.caseNumber ?? 'this case'}: another bank accepted a newer version. Link it here if this bank needs it.`
+        : `${what} on ${d.caseNumber ?? 'this case'} ${d.kind === 'expired' ? 'expired' : 'expires'} on ${d.expiresOn ?? 'an unknown date'}. Ask the customer for a current one.`;
+    try {
+      const r = await createTask(db, {
+        accountId: d.accountId,
+        kind: 'follow_up',
+        source: 'automation',
+        sourceRef: `desk_doc:${d.fileId}:${d.kind}`,
+        title: DOC_TASK_TITLE[d.kind],
+        note,
+        assignedTo: d.assignee,
+        meta: { desk_case_id: d.caseId, desk_file_id: d.fileId },
+      });
+      if (r.created) summary.escalated += 1;
+    } catch (err) {
+      summary.failed += 1;
+      console.error(
+        `[desk] document task failed: ${err instanceof Error ? err.name : typeof err}`
+      );
+    }
+  }
+  return summary;
+}

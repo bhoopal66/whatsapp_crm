@@ -9,7 +9,11 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
-import { runDeskQueueAlerts, runDeskTrayEscalation } from '@/lib/desk/escalate'
+import {
+  runDeskDocTasks,
+  runDeskQueueAlerts,
+  runDeskTrayEscalation,
+} from '@/lib/desk/escalate'
 import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
@@ -773,6 +777,7 @@ const hrSweepDue = everyInterval(5 * 60_000)
  * deduped per tray item. runDeskTrayEscalation never throws.
  */
 const deskTrayDue = everyInterval(5 * 60_000)
+const deskDocTasksDue = everyInterval(60 * 60_000)
 
 function scheduleDeskTrayEscalation() {
   try {
@@ -781,6 +786,13 @@ function scheduleDeskTrayEscalation() {
       const summary = await runDeskTrayEscalation(supabaseAdmin())
       if (summary && (summary.escalated > 0 || summary.failed > 0)) {
         console.log('[automations-cron] desk tray escalation:', summary)
+      }
+      // Expiring and replaced documents (migration 233), at most hourly.
+      if (deskDocTasksDue()) {
+        const docs = await runDeskDocTasks(supabaseAdmin())
+        if (docs && (docs.escalated > 0 || docs.failed > 0)) {
+          console.log('[automations-cron] desk document tasks:', docs)
+        }
       }
       // Sorting-queue age alerts (migration 232) ride the same pass.
       const queue = await runDeskQueueAlerts(supabaseAdmin())

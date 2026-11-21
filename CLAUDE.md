@@ -1664,6 +1664,15 @@ package 035a-c. `docs/case-desk.md` is the contract.
   the second (else the cover), ≥ 4 h or the no-bank queue → the lead;
   `runDeskQueueAlerts` (same cron pass as tray escalation) dedupes on
   `source_ref desk_queue:<item>:<level>`. `verify-desk-bank-cover.sql`.
+- **Application view (233, design 035 section 5).**
+  `desk_application_checklist`: the union of 181's required
+  `case_file_spec_rows` over the company's open cases the actor can read
+  (unreadable cases are not columns), max `min_valid_days`, a cell per
+  case (`desk_case_doc_cell`). `desk_doc_tasks_due` (expiring ≤ 14 days,
+  expired, replaced = superseded at a sibling) on open, unsubmitted
+  (`group_id` NULL) desk cases; `runDeskDocTasks` hourly in the
+  automations cron, `source_ref desk_doc:<file>:<kind>`; never writes a
+  case or file. `verify-desk-application-view.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

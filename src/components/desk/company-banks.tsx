@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import type { DeskCompany } from '@/lib/desk/companies';
 import {
   linkTargets,
+  type ApplicationChecklist,
   type CompanyOverview,
   type OverviewFile,
 } from '@/lib/desk/shared-docs';
@@ -28,11 +29,16 @@ import { NATIVE_FIELD } from './tag-fields';
 export function CompanyBanks({ company }: { company: DeskCompany }) {
   const t = useTranslations('Desk');
   const [o, setO] = useState<CompanyOverview | null>(null);
+  const [list, setList] = useState<ApplicationChecklist | null>(null);
   const load = useCallback(
     () =>
-      deskApi.companyOverview(company.customerId).then((r) => {
+      Promise.all([
+        deskApi.companyOverview(company.customerId),
+        deskApi.checklist(company.customerId),
+      ]).then(([r, c]) => {
         if (r.ok) setO(r.data);
         else toast.error(r.error);
+        if (c.ok) setList(c.data);
       }),
     [company.customerId]
   );
@@ -98,6 +104,8 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
             ))}
           </div>
         )}
+
+        {list && list.items.length > 0 && <Checklist list={list} />}
 
         {o.files.length === 0 ? (
           <p className="text-muted-foreground">{t('banks.noFiles')}</p>
@@ -267,5 +275,88 @@ function FileRow({
         </span>
       )}
     </li>
+  );
+}
+
+const CELL_CLASS: Record<string, string> = {
+  passed: 'text-success',
+  failed: 'text-destructive',
+  missing: 'text-warning',
+};
+
+function Checklist({ list }: { list: ApplicationChecklist }) {
+  const t = useTranslations('Desk');
+  const status = (s: string) =>
+    [
+      'missing',
+      'unclassified',
+      'pending_checks',
+      'passed',
+      'failed',
+      'superseded',
+    ].includes(s)
+      ? t(`banks.statuses.${s}`)
+      : s;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-foreground font-medium">{t('banks.checklist')}</h3>
+      <p className="text-muted-foreground text-xs">
+        {t('banks.checklistIntro')}
+      </p>
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-card-2">
+            <tr>
+              <th className="px-3 py-2 font-medium">{t('banks.document')}</th>
+              {list.cases.map((c) => (
+                <th
+                  key={c.caseId}
+                  className="px-3 py-2 font-medium whitespace-nowrap"
+                >
+                  {c.bankCode}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-border divide-y">
+            {list.items.map((i) => (
+              <tr key={i.docKey}>
+                <td className="px-3 py-2">
+                  <span className="text-foreground">
+                    {i.label ?? i.docKey.replace(/_/g, ' ')}
+                  </span>
+                  {i.minValidDays !== null && (
+                    <span className="text-muted-foreground block">
+                      {t('banks.validDays', { days: i.minValidDays })}
+                    </span>
+                  )}
+                </td>
+                {list.cases.map((c) => {
+                  const cell = i.cells[c.caseId];
+                  return (
+                    <td key={c.caseId} className="px-3 py-2 whitespace-nowrap">
+                      {cell ? (
+                        <span
+                          className={
+                            CELL_CLASS[cell.status] ?? 'text-foreground'
+                          }
+                        >
+                          {status(cell.status)}
+                          {cell.expiresOn ? ` · ${cell.expiresOn}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {t('banks.notNeeded')}
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

@@ -1137,6 +1137,13 @@ jobs:
       - name: Verify desk cover and queue alerts
         run: supabase db query --local --file supabase/ci/verify-desk-bank-cover.sql
 
+      # Migration 233: the application across its banks. One merged
+      # checklist of the readable cases' required documents (strictest
+      # validity, each case's own status; unreadable cases are not
+      # columns), and expiry / replacement tasks on unsubmitted cases.
+      - name: Verify desk application view
+        run: supabase db query --local --file supabase/ci/verify-desk-application-view.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA
