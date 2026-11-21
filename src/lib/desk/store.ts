@@ -15,6 +15,7 @@ import type {
   DeskCompanyContact,
   DeskContactRole,
 } from './companies';
+import { parseCoverRow, type BankCover } from './cover';
 import { parseCompanyOverview, type CompanyOverview } from './shared-docs';
 import {
   parseCandidates,
@@ -865,6 +866,93 @@ export class DeskStore {
     )[0];
     if (!r) throw new DeskStoreError('desk_doc_link', null);
     return { fileId: String(r.file_id), created: r.created === true };
+  }
+  // ---------- cover and queue alerts (migration 232) ----------
+
+  async coverList(actor: string, account: string): Promise<BankCover[]> {
+    const rows = await this.rpc('desk_cover_list', {
+      p_actor: actor,
+      p_account: account,
+      p_now: this.now(),
+    });
+    return rows.map(parseCoverRow);
+  }
+
+  async setBankRole(
+    actor: string,
+    account: string,
+    bankCode: string,
+    role: 'primary' | 'second',
+    userId: string | null
+  ): Promise<void> {
+    await this.rpc('desk_bank_role_set', {
+      p_actor: actor,
+      p_account: account,
+      p_bank: bankCode,
+      p_role: role,
+      p_user: userId,
+      p_now: this.now(),
+    });
+  }
+
+  async addLeave(
+    actor: string,
+    account: string,
+    input: {
+      userId: string;
+      firstDay: string;
+      lastDay: string;
+      note: string | null;
+    }
+  ): Promise<string> {
+    const rows = await this.rpc('desk_leave_add', {
+      p_actor: actor,
+      p_account: account,
+      p_user: input.userId,
+      p_first: input.firstDay,
+      p_last: input.lastDay,
+      p_note: input.note,
+      p_now: this.now(),
+    });
+    const v = rows[0];
+    return typeof v === 'string' ? v : String(Object.values(v ?? {})[0] ?? '');
+  }
+
+  async removeLeave(
+    actor: string,
+    account: string,
+    leaveId: string
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_leave_remove', {
+      p_actor: actor,
+      p_account: account,
+      p_leave: leaveId,
+    });
+    return scalarTrue(rows[0]);
+  }
+
+  /** Service-role sweep: sorting queues past 2 h / 4 h, with whom to tell. */
+  async queueAlertsDue(): Promise<
+    {
+      accountId: string;
+      bankCode: string | null;
+      level: 'second' | 'lead';
+      itemId: string;
+      ageMinutes: number;
+      waiting: number;
+      assignee: string | null;
+    }[]
+  > {
+    const rows = await this.rpc('desk_queue_alerts_due', { p_now: this.now() });
+    return rows.map((r) => ({
+      accountId: String(r.account_id),
+      bankCode: str(r.bank_code),
+      level: r.level === 'lead' ? 'lead' : 'second',
+      itemId: String(r.item_id),
+      ageMinutes: num(r.age_minutes) ?? 0,
+      waiting: num(r.waiting) ?? 0,
+      assignee: str(r.assignee),
+    }));
   }
 }
 

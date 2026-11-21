@@ -12100,6 +12100,28 @@
       "linked": "{caseNumber}에 연결됨",
       "alreadyLinked": "이미 {caseNumber}에 있음",
       "saved": "저장됨"
+    },
+    "cover": {
+      "title": "코디네이터 및 대행",
+      "intro": "각 은행의 주 코디네이터와 보조 코디네이터, 그리고 오늘의 대행자: 주 코디네이터, 없으면 보조, 없으면 리드(데스크 담당자). 2시간 넘게 대기한 업로드는 보조 코디네이터에게, 4시간이 넘으면 리드에게 알립니다.",
+      "noBanks": "아직 코디네이터가 있는 은행이 없습니다.",
+      "primary": "주",
+      "second": "보조",
+      "none": "없음",
+      "today": "오늘 대행: {name}",
+      "levels": {
+        "primary": "주",
+        "second": "보조",
+        "lead": "리드"
+      },
+      "lead": "리드",
+      "onLeave": "휴가 중",
+      "leaveRange": "{first} ~ {last}",
+      "addLeave": "휴가 추가",
+      "from": "시작",
+      "to": "종료",
+      "remove": "삭제",
+      "saved": "저장됨"
     }
   },
   "Privacy": {

@@ -1131,6 +1131,12 @@ jobs:
       - name: Verify desk shared documents and reuse consent
         run: supabase db query --local --file supabase/ci/verify-desk-shared-documents.sql
 
+      # Migration 232: a bank's primary and second coordinator, leave and
+      # cover (primary, else second, else the lead), and queue-age alerts
+      # (2 h to the second, 4 h and the no-bank queue to the lead).
+      - name: Verify desk cover and queue alerts
+        run: supabase db query --local --file supabase/ci/verify-desk-bank-cover.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

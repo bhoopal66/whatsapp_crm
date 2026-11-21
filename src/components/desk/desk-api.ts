@@ -12,6 +12,7 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
+import type { BankCover } from '@/lib/desk/cover';
 import type { CompanyOverview } from '@/lib/desk/shared-docs';
 import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
 import type {
@@ -144,6 +145,23 @@ export const deskApi = {
       { method: 'DELETE' },
       (b) => b.removed === true
     ),
+  // Cover and leave (migration 232)
+  cover: () =>
+    call('/api/desk/cover', undefined, (b) => b.banks as BankCover[]),
+  setBankRole: (
+    bankCode: string,
+    role: 'primary' | 'second',
+    userId: string | null
+  ) =>
+    call(
+      `/api/desk/cover/${encodeURIComponent(bankCode)}`,
+      json('PUT', { role, userId }),
+      () => true
+    ),
+  addLeave: (body: { userId: string; firstDay: string; lastDay: string }) =>
+    call('/api/desk/leave', json('POST', body), () => true),
+  removeLeave: (id: string) =>
+    call(`/api/desk/leave/${id}`, { method: 'DELETE' }, () => true),
   // Shared documents and reuse consent (migration 231)
   companyOverview: (customerId: string) =>
     call(

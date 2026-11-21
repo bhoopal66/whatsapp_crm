@@ -907,6 +907,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'api_keys',
             'coordinator_banks',
             'coordinator_phones',
+            'desk_bank_roles',
+            'desk_leave',
             'hr_team_members',
             'member_presence',
             'pbx_extensions',

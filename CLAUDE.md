@@ -1655,6 +1655,15 @@ package 035a-c. `docs/case-desk.md` is the contract.
   reason). `desk_company_overview` lists every case with stage only, and
   files only of cases `case_can_read` allows (D11).
   `verify-desk-shared-documents.sql`.
+- **Cover and queue alerts (232, design 035 revision A).**
+  `desk_bank_roles` (primary | second, FK to the holder's
+  `coordinator_banks` row, one role each) and `desk_leave` (Dubai days,
+  no access change). `desk_bank_cover`: primary, else second, else
+  `desk_lead_for` (230's duty owner, else the owner).
+  `desk_queue_alerts_due`: a bank queue's oldest untagged upload ≥ 2 h →
+  the second (else the cover), ≥ 4 h or the no-bank queue → the lead;
+  `runDeskQueueAlerts` (same cron pass as tray escalation) dedupes on
+  `source_ref desk_queue:<item>:<level>`. `verify-desk-bank-cover.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

@@ -9,7 +9,7 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
-import { runDeskTrayEscalation } from '@/lib/desk/escalate'
+import { runDeskQueueAlerts, runDeskTrayEscalation } from '@/lib/desk/escalate'
 import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
@@ -781,6 +781,11 @@ function scheduleDeskTrayEscalation() {
       const summary = await runDeskTrayEscalation(supabaseAdmin())
       if (summary && (summary.escalated > 0 || summary.failed > 0)) {
         console.log('[automations-cron] desk tray escalation:', summary)
+      }
+      // Sorting-queue age alerts (migration 232) ride the same pass.
+      const queue = await runDeskQueueAlerts(supabaseAdmin())
+      if (queue && (queue.escalated > 0 || queue.failed > 0)) {
+        console.log('[automations-cron] desk queue alerts:', queue)
       }
     })
   } catch (err) {

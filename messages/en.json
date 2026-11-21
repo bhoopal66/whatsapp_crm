@@ -12100,6 +12100,28 @@
       "linked": "Linked to {caseNumber}",
       "alreadyLinked": "Already on {caseNumber}",
       "saved": "Saved"
+    },
+    "cover": {
+      "title": "Coordinators and cover",
+      "intro": "Each bank's primary and second coordinator, and who covers today: the primary, else the second, else the lead (the desk duty owner). An upload waiting over 2 hours alerts the second coordinator, over 4 hours the lead.",
+      "noBanks": "No bank has a coordinator yet.",
+      "primary": "Primary",
+      "second": "Second",
+      "none": "None",
+      "today": "Covers today: {name}",
+      "levels": {
+        "primary": "primary",
+        "second": "second",
+        "lead": "lead"
+      },
+      "lead": "the lead",
+      "onLeave": "on leave",
+      "leaveRange": "{first} to {last}",
+      "addLeave": "Add leave",
+      "from": "From",
+      "to": "To",
+      "remove": "Remove",
+      "saved": "Saved"
     }
   },
   "Privacy": {

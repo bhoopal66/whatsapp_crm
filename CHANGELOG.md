@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: coordinators, leave and queue alerts
+
+**Migration required:** apply `232_desk_bank_cover.sql` (as a superuser)
+after 231.
+- Case desk → Overview → **Coordinators and cover**: name each bank's
+  primary and second coordinator, record leave, and see who covers today
+  (primary, else second, else the desk duty owner).
+- Uploads waiting in a bank's sorting queue for over 2 hours now give
+  the second coordinator a follow-up task; over 4 hours, the lead.
+- See `docs/case-desk.md`.
+
 ### Case desk: one document for several banks
 
 **Migration required:** apply `231_desk_shared_documents.sql` (as a

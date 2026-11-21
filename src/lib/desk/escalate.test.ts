@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { runDeskTrayEscalation } from './escalate';
+import { runDeskQueueAlerts, runDeskTrayEscalation } from './escalate';
 import type { DeskStore } from './store';
 
 const db = {} as never;
@@ -66,6 +66,62 @@ describe('runDeskTrayEscalation', () => {
     };
     await expect(
       runDeskTrayEscalation(db, broken as unknown as DeskStore, create)
+    ).resolves.toBeNull();
+  });
+});
+
+describe('runDeskQueueAlerts', () => {
+  it('raises one task per upload and level, for the named person', async () => {
+    const store = {
+      queueAlertsDue: vi.fn().mockResolvedValue([
+        {
+          accountId: 'a1',
+          bankCode: 'RAK',
+          level: 'second',
+          itemId: 'i1',
+          ageMinutes: 130,
+          waiting: 3,
+          assignee: 'u2',
+        },
+        {
+          accountId: 'a1',
+          bankCode: null,
+          level: 'lead',
+          itemId: 'i9',
+          ageMinutes: 125,
+          waiting: 1,
+          assignee: 'u9',
+        },
+      ]),
+    };
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', created: true })
+      .mockResolvedValueOnce({ id: 't2', created: false });
+    const s = await runDeskQueueAlerts(
+      db,
+      store as unknown as DeskStore,
+      create
+    );
+    expect(s).toEqual({ due: 2, escalated: 1, failed: 0 });
+    expect(create.mock.calls[0]![1]).toMatchObject({
+      sourceRef: 'desk_queue:i1:second',
+      assignedTo: 'u2',
+      kind: 'follow_up',
+      source: 'automation',
+    });
+    expect(create.mock.calls[1]![1]).toMatchObject({
+      sourceRef: 'desk_queue:i9:lead',
+    });
+    expect(create.mock.calls[1]![1].title).toContain('no-bank');
+  });
+
+  it('never throws', async () => {
+    const broken = {
+      queueAlertsDue: vi.fn().mockRejectedValue(new Error('x')),
+    };
+    await expect(
+      runDeskQueueAlerts(db, broken as unknown as DeskStore, vi.fn())
     ).resolves.toBeNull();
   });
 });

@@ -53,6 +53,7 @@ import type {
 } from '@/lib/desk/store';
 
 import { CompaniesTab } from './companies-tab';
+import { CoverCard } from './cover-card';
 import { RoutingSettings } from './routing-settings';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
@@ -120,7 +121,12 @@ export function DeskView() {
       {tab === 'tray' && <TrayTab key={accountId ?? ''} isLead={isLead} />}
       {/* Keyed by workspace: a switch never shows the last one's companies. */}
       {tab === 'companies' && <CompaniesTab key={accountId ?? ''} />}
-      {tab === 'overview' && <OverviewTab />}
+      {tab === 'overview' && (
+        <div className="space-y-4">
+          <OverviewTab />
+          <CoverCard key={accountId ?? ''} isAdmin={isAdmin} />
+        </div>
+      )}
       {tab === 'codes' && (
         <div className="space-y-4">
           <CodesTab banks={banks} onSaved={loadBanks} />

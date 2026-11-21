@@ -191,6 +191,25 @@ alone**:
   hours) is not a candidate reason; nothing is sent back to the staff
   member who uploaded by WhatsApp (they see it under *My uploads*).
 
+## Coordinators, leave and cover
+
+Migration 232 (design 035 revision A: each bank has one or two
+coordinators). Under Overview → **Coordinators and cover** (team leaders
+and up):
+
+- Owners and admins name each bank's **primary** and **second**
+  coordinator from the people who hold that bank (Settings → Members).
+  Someone who stops holding the bank loses the role.
+- **Leave** is entered by the person or a team leader and up (first and
+  last day, Dubai dates). It changes no access.
+- **Who covers today:** the primary, else the second, else the lead
+  (the desk duty owner, else the workspace owner).
+- **Queue alerts** (instead of load caps): when a bank's sorting queue
+  has an upload waiting over 2 hours, the second coordinator (else
+  whoever covers) gets a follow-up task; over 4 hours, the lead does. The
+  no-bank queue goes to the lead at 2 hours. One task per upload and
+  level, from the automations cron.
+
 ## Rules held in the database
 
 - Tables (`desk_bank_codes`, `desk_customers`, `desk_number_seq`,
@@ -218,6 +237,9 @@ alone**:
   every insert into `case_document_files`.
   `supabase/ci/verify-desk-shared-documents.sql` asserts the refusals,
   consent, per-case status, stage-only visibility and the register.
+- `desk_bank_roles` and `desk_leave` (232) are closed the same way.
+  `supabase/ci/verify-desk-bank-cover.sql` asserts roles, leave, cover
+  and the alert levels.
 
 ## API
 
@@ -242,6 +264,9 @@ Refusals answer `{ error, code }`.
 | `GET /companies/[id]/overview` | readers of a company's case, team leaders and up | cases (stage only), your files, consents |
 | `PUT`, `DELETE /companies/[id]/consents/[bank]` | writers of a company's case, team leaders and up | record (`{ evidence }`) or revoke (`{ reason }`) |
 | `POST /files/[fileId]/link` | readers of the file's case who can write the target | `{ caseId }` |
+| `GET /cover` | team leaders and up | roles, today's cover, leave |
+| `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
+| `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |
 | `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
 | `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
 | `POST /tray/[id]/dismiss` | the same | `{ reason }` |
