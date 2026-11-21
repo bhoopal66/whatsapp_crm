@@ -65,6 +65,8 @@ export const DESK_REFUSALS = [
   'CROSS_CUSTOMER',
   'CONSENT_MISSING',
   'CONSENT_NOT_FOUND',
+  // 234: reminder digest
+  'TEMPLATE_INVALID',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -1005,6 +1007,55 @@ export class DeskStore {
       expiresOn: str(r.expires_on),
       assignee: str(r.assignee),
     }));
+  }
+  // ---------- reminder digest (migration 234) ----------
+
+  async digestSettings(
+    actor: string,
+    account: string
+  ): Promise<{
+    enabled: boolean;
+    templateName: string | null;
+    language: string;
+    sendHour: number;
+    gapDays: number;
+  }> {
+    const r = (
+      await this.rpc('desk_digest_settings_get', {
+        p_actor: actor,
+        p_account: account,
+      })
+    )[0];
+    return {
+      enabled: r?.enabled === true,
+      templateName: str(r?.template_name),
+      language: str(r?.language) ?? 'en',
+      sendHour: num(r?.send_hour) ?? 10,
+      gapDays: num(r?.gap_days) ?? 2,
+    };
+  }
+
+  async setDigestSettings(
+    actor: string,
+    account: string,
+    input: {
+      enabled: boolean;
+      templateName: string | null;
+      language: string;
+      sendHour: number;
+      gapDays: number;
+    }
+  ): Promise<void> {
+    await this.rpc('desk_digest_settings_set', {
+      p_actor: actor,
+      p_account: account,
+      p_enabled: input.enabled,
+      p_template_name: input.templateName,
+      p_language: input.language,
+      p_send_hour: input.sendHour,
+      p_gap_days: input.gapDays,
+      p_now: this.now(),
+    });
   }
 }
 

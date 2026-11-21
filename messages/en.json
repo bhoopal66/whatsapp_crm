@@ -12135,6 +12135,17 @@
       "to": "To",
       "remove": "Remove",
       "saved": "Saved"
+    },
+    "digest": {
+      "title": "Daily reminder to customers",
+      "hint": "One WhatsApp message per company per day at most, listing what is still missing across its banks, sent only with an approved utility template. Its text uses {one} for the application number and {two} for the missing items, and should end with \"Reply STOP to pause reminders\". Never before 08:00 or after 21:00 Dubai, never to someone opted out, and at most 3 automated messages per person per day.",
+      "enabled": "Send daily reminders",
+      "template": "Template name",
+      "language": "Language code",
+      "sendHour": "Send from (hour, Dubai)",
+      "gapDays": "Days between reminders",
+      "save": "Save",
+      "saved": "Reminders saved"
     }
   },
   "Privacy": {

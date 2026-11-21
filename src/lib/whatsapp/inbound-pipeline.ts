@@ -69,6 +69,7 @@ import {
   fileWithDurableCopy,
   isOwnStorageUrl,
 } from '@/lib/customer-docs/filing-copy';
+import { noteDigestStop } from '@/lib/desk/digest';
 import { routeDeskDocument } from '@/lib/desk/route-inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
@@ -1021,6 +1022,17 @@ export async function processMessage(
     if (later) later.push(fileDocument());
     else await fileDocument();
   };
+
+  // A STOP reply to a desk reminder digest (migration 234) opts the
+  // person out. Only a STOP word reaches the database; never throws.
+  if (!channel.isPersonal) {
+    await noteDigestStop(
+      supabaseAdmin(),
+      accountId,
+      contactRecord.id,
+      message.text
+    );
+  }
 
   // Everything above is the inbox; everything below reacts to it.
   if (options.fanOut === false) {

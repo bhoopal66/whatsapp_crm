@@ -559,6 +559,12 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
       'KYC: who acts for a company account (the contact row itself is anonymised)',
     exported: true,
   },
+  desk_digest_outbox: {
+    link: 'contact',
+    class: 'content',
+    erase: 'delete',
+    exported: true,
+  },
   desk_doc_consents: {
     link: 'desk',
     class: 'identifier',
@@ -857,6 +863,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'custom_fields',
             'deal_room_settings',
             'desk_bank_codes',
+            'desk_digest_settings',
             'desk_number_seq',
             'desk_settings',
             'privacy_extensions',

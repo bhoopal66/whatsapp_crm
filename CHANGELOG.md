@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: daily reminder to customers
+
+**Migration required:** apply `234_desk_reminder_digest.sql` (as a
+superuser) after 233.
+- Off until an owner or admin switches it on with an approved utility
+  template (`{{1}}` = application number, `{{2}}` = what is missing).
+- At most one WhatsApp reminder per company per day, listing each
+  missing document once across all its banks; not again for 2 days, nor
+  after the customer sent a document.
+- Never in quiet hours (21:00–08:00 Dubai), never to someone opted out,
+  at most 3 automated messages per person per day; replying STOP opts
+  the person out.
+- See `docs/case-desk.md`.
+
 ### Case desk: one checklist per application, and expiry tasks
 
 **Migration required:** apply `233_desk_application_view.sql` (as a

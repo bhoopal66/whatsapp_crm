@@ -54,6 +54,7 @@ import type {
 
 import { CompaniesTab } from './companies-tab';
 import { CoverCard } from './cover-card';
+import { DigestSettings } from './digest-settings';
 import { RoutingSettings } from './routing-settings';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
@@ -131,6 +132,7 @@ export function DeskView() {
         <div className="space-y-4">
           <CodesTab banks={banks} onSaved={loadBanks} />
           <RoutingSettings key={accountId ?? ''} />
+          <DigestSettings key={`digest-${accountId ?? ''}`} />
         </div>
       )}
     </div>

@@ -9,6 +9,8 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
+import { runDeskDigests } from '@/lib/desk/digest'
+import { sendDeskDigest } from '@/lib/desk/digest-send'
 import {
   runDeskDocTasks,
   runDeskQueueAlerts,
@@ -779,6 +781,31 @@ const hrSweepDue = everyInterval(5 * 60_000)
 const deskTrayDue = everyInterval(5 * 60_000)
 const deskDocTasksDue = everyInterval(60 * 60_000)
 
+/**
+ * Desk reminder digests (migration 234): queue today's, claim what may go
+ * now (quiet hours, opt-out and the daily cap are SQL's), send each once.
+ * Off until a workspace switches it on. Every 5 minutes per process,
+ * inside after(); runDeskDigests never throws.
+ */
+const deskDigestDue = everyInterval(5 * 60_000)
+
+function scheduleDeskDigests() {
+  try {
+    if (!deskDigestDue()) return
+    after(async () => {
+      const summary = await runDeskDigests(supabaseAdmin(), sendDeskDigest)
+      if (summary && (summary.sent > 0 || summary.failed > 0)) {
+        console.log('[automations-cron] desk digests:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule desk digests:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
 function scheduleDeskTrayEscalation() {
   try {
     if (!deskTrayDue()) return
@@ -920,6 +947,7 @@ export async function GET(request: Request) {
     schedulePersonalHistoryImport()
     scheduleHrSweep()
     scheduleDeskTrayEscalation()
+    scheduleDeskDigests()
     scheduleHrAutomsgDrain()
   }
 }

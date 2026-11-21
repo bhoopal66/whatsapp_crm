@@ -208,6 +208,38 @@ Migration 233 (design 035 section 5).
   follow-up task for the case's coordinator (else its agent). Nothing on
   the case changes, and a submitted case is never touched.
 
+## Daily reminder to customers
+
+Migration 234 (design 035 D9). **Off by default.** An owner or admin
+switches it on under Desk codes → Daily reminder to customers, naming an
+**approved utility** template whose text uses `{{1}}` for the
+application number and `{{2}}` for what is missing, for example:
+"Application {{1}}: still needed: {{2}}. Reply STOP to pause reminders."
+
+- **One message per company per Dubai day at most**, from the send hour
+  (default 10:00) until 21:00, only while a case is open and not yet
+  submitted and a required document is missing or rejected. Each
+  document is listed once: "All banks: Trade licence, Ejari. ENBD: KYC
+  form".
+- **Rhythm:** not again within the gap (default 2 days) of the last
+  reminder, nor of the last document anyone from the company sent: a
+  document resets it.
+- **Who receives it:** an authorised person of the company (Companies
+  tab), else the contact of its oldest open case, on their company chat
+  and the chat's own number. Never a personal chat or number, never
+  someone opted out or marked do-not-contact.
+- **At send time** everything is checked again: the switch and the
+  template, quiet hours (none before 08:00 or from 21:00 Dubai),
+  opt-out, and the **daily cap of 3 automated messages per person**,
+  counted across HR automated messages and these reminders. A send whose
+  result never came back is marked *unconfirmed* and never resent.
+- **STOP:** replying STOP (or *unsubscribe*, *توقف*, *إيقاف*) to a
+  reminder received in the last 30 days opts the person out.
+- Whether a reminder is a transactional message is for legal sign-off
+  (design section 8). HR automated messages do not yet count reminders
+  toward their own cap (a person could get 3 HR messages and a
+  reminder in one day).
+
 ## Coordinators, leave and cover
 
 Migration 232 (design 035 revision A: each bank has one or two
@@ -260,6 +292,10 @@ and up):
 - `supabase/ci/verify-desk-application-view.sql` (233) asserts the
   checklist's union, strictest validity, readable-only columns and the
   document task kinds.
+- `desk_digest_settings` and `desk_digest_outbox` (234) are closed the
+  same way. `supabase/ci/verify-desk-reminder-digest.sql` asserts the
+  switch, the template rule, one a day, the summary, the gap and reset,
+  quiet hours, opt-out, the cap and STOP.
 
 ## API
 
@@ -285,6 +321,7 @@ Refusals answer `{ error, code }`.
 | `PUT`, `DELETE /companies/[id]/consents/[bank]` | writers of a company's case, team leaders and up | record (`{ evidence }`) or revoke (`{ reason }`) |
 | `POST /files/[fileId]/link` | readers of the file's case who can write the target | `{ caseId }` |
 | `GET /companies/[id]/checklist` | readers of a company's case, team leaders and up | the merged checklist |
+| `GET /digest`, `PUT /digest` | staff / owners and admins | `{ enabled, templateName, language, sendHour, gapDays }` |
 | `GET /cover` | team leaders and up | roles, today's cover, leave |
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
 | `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |

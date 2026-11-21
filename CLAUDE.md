@@ -1673,6 +1673,21 @@ package 035a-c. `docs/case-desk.md` is the contract.
   (`group_id` NULL) desk cases; `runDeskDocTasks` hourly in the
   automations cron, `source_ref desk_doc:<file>:<kind>`; never writes a
   case or file. `verify-desk-application-view.sql`.
+- **Reminder digest (234, design 035 D9).** Off by default
+  (`desk_digest_settings`, an approved utility template with `{{1}}`
+  app number and `{{2}}` summary). `desk_digest_enqueue`: one per
+  company per Dubai day (UNIQUE), send hour to 21:00, open unsubmitted
+  cases with a required document missing/failed (233's cells), gap days
+  since the last digest and since the company's last customer document.
+  `desk_digest_claim` re-checks switch, template, day, quiet hours,
+  opt-out/DNC and the cap of 3 per person across `hr_automsg_outbox`
+  sent + digests; stale claims → 'unconfirmed', never resent.
+  `runDeskDigests` + `sendDeskDigest` (template on Meta, rendered text on
+  Whapi/OpenWA, the chat's own number, never personal) from the
+  automations cron every 5 min. `processMessage` calls `noteDigestStop`
+  for a STOP word (`isStopWord`); `desk_digest_stop` opts out only after
+  a digest in 30 days. HR's own claim does not count digests (one-way
+  cap). `verify-desk-reminder-digest.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

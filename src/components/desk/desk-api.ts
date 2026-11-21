@@ -24,6 +24,14 @@ import type {
   DeskContactRole,
 } from '@/lib/desk/companies';
 
+export interface DigestSettings {
+  enabled: boolean;
+  templateName: string | null;
+  language: string;
+  sendHour: number;
+  gapDays: number;
+}
+
 export type DeskAnswer<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; code: string | null; error: string };
@@ -148,6 +156,11 @@ export const deskApi = {
       { method: 'DELETE' },
       (b) => b.removed === true
     ),
+  // Reminder digest (migration 234)
+  digest: () =>
+    call('/api/desk/digest', undefined, (b) => b.settings as DigestSettings),
+  saveDigest: (body: DigestSettings) =>
+    call('/api/desk/digest', json('PUT', body), () => true),
   // Cover and leave (migration 232)
   cover: () =>
     call('/api/desk/cover', undefined, (b) => b.banks as BankCover[]),

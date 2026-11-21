@@ -277,6 +277,26 @@ beforeEach(() => {
   h.docRpc.mockReset().mockResolvedValue({ data: 'TC-000123', error: null });
 });
 
+describe('processMessage — desk reminder STOP (migration 234)', () => {
+  it('asks the desk to opt the person out on a STOP reply, and only then', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).not.toContain('desk_digest_stop');
+
+    await processMessage(
+      { ...message, id: 'wamid.stop', text: 'STOP' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    const i = h.rpcs.indexOf('desk_digest_stop');
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(h.rpcArgs[i]).toEqual({
+      p_account: 'acct-1',
+      p_contact: 'contact-1',
+    });
+  });
+});
+
 describe('processMessage — assigning from call history', () => {
   it('looks up an unassigned chat before the unread bump and the push', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
