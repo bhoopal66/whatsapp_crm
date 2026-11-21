@@ -170,7 +170,11 @@ describe('isCredentialFreeLink', () => {
 
 describe('fileWithDurableCopy', () => {
   it('records the mirrored URL when the copy succeeds', async () => {
-    await file();
+    // The recorded document comes back for the desk router (230).
+    await expect(file()).resolves.toEqual({
+      documentId: 'TC-000123',
+      mediaUrl: STORED,
+    });
 
     expect(mirror).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -212,7 +216,7 @@ describe('fileWithDurableCopy', () => {
 
   it('records nothing and logs once when the copy fails on a Meta link', async () => {
     mirror.mockResolvedValue(null);
-    await file();
+    await expect(file()).resolves.toBeNull();
 
     expect(h.record).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledTimes(1);
@@ -257,7 +261,7 @@ describe('fileWithDurableCopy', () => {
 
     const done = file({ deps: { timeoutMs: 1_000 } });
     await vi.advanceTimersByTimeAsync(1_000);
-    await expect(done).resolves.toBeUndefined();
+    await expect(done).resolves.toBeNull();
     expect(vi.getTimerCount()).toBe(0);
     expect(h.record).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledTimes(1);
@@ -272,7 +276,7 @@ describe('fileWithDurableCopy', () => {
 
   it('a throwing record never throws out', async () => {
     h.record.mockRejectedValue(new Error('boom'));
-    await expect(file()).resolves.toBeUndefined();
+    await expect(file()).resolves.toBeNull();
     expect(log).toHaveBeenCalledTimes(1);
   });
 
@@ -287,7 +291,7 @@ describe('fileWithDurableCopy', () => {
         record,
         deps: deps(),
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
     expect(mirror).not.toHaveBeenCalled();
     expect(h.record).not.toHaveBeenCalled();
   });

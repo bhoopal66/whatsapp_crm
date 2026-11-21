@@ -107,5 +107,5 @@ function fileOne(
       receivedAt: doc.sentAt,
     },
     deps: args.deps,
-  });
+  }).then(() => undefined);
 }

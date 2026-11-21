@@ -12,6 +12,7 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
+import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
 import type {
   DeskCompany,
   DeskCompanyContact,
@@ -142,6 +143,37 @@ export const deskApi = {
       { method: 'DELETE' },
       (b) => b.removed === true
     ),
+  // WhatsApp routing and the tray (migration 230)
+  tray: (state: TrayState = 'open') =>
+    call(
+      `/api/desk/tray?state=${state}`,
+      undefined,
+      (b) => b.items as TrayItem[]
+    ),
+  trayFile: (trayId: string, caseId: string, confirmCompany: string | null) =>
+    call(
+      `/api/desk/tray/${trayId}/file`,
+      json('POST', { caseId, confirmCompany }),
+      (b) => ({ caseNumber: (b.caseNumber as string | null) ?? null })
+    ),
+  trayDismiss: (trayId: string, reason: string) =>
+    call(
+      `/api/desk/tray/${trayId}/dismiss`,
+      json('POST', { reason }),
+      () => true
+    ),
+  settings: () =>
+    call('/api/desk/settings', undefined, (b) => ({
+      settings: b.settings as DeskSettings,
+      numbers: b.numbers as { id: string; label: string }[],
+    })),
+  saveSettings: (body: {
+    routingEnabled: boolean;
+    deskChannelIds: string[];
+    escalateMinutes: number;
+  }) => call('/api/desk/settings', json('PUT', body), () => true),
+  setDuty: (userId: string | null) =>
+    call('/api/desk/duty', json('PUT', { userId }), () => true),
   retag: (itemId: string, tags: ItemTags) =>
     call(
       `/api/desk/intake/${itemId}/retag`,

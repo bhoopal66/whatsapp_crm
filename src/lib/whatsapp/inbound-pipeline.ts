@@ -69,6 +69,7 @@ import {
   fileWithDurableCopy,
   isOwnStorageUrl,
 } from '@/lib/customer-docs/filing-copy';
+import { routeDeskDocument } from '@/lib/desk/route-inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -970,19 +971,33 @@ export async function processMessage(
     receivedAt: messageAt,
   };
   let fileDocument: (() => Promise<void>) | null = null;
+  // A recorded document is offered to the case desk (migration 230): off
+  // until an admin switches desk routing on, and it never throws.
+  const routeToDesk = async (documentId: string, url: string) => {
+    await routeDeskDocument(supabaseAdmin(), {
+      accountId,
+      documentId,
+      channelId: channel.id,
+      mediaUrl: url,
+      mime: mediaType,
+      originalName: message.media?.filename ?? null,
+      caption: message.text,
+    });
+  };
   // A document sent to a staff member's personal number is not filed: the
   // customer folder is visible to anyone who can see the contact.
   if (channel.isPersonal) {
     // nothing to file
   } else if (mediaUrl && isOwnStorageUrl(mediaUrl)) {
-    await recordCustomerDocument(supabaseAdmin(), {
+    const documentId = await recordCustomerDocument(supabaseAdmin(), {
       ...documentRecord,
       mediaUrl,
     });
+    if (documentId) await routeToDesk(documentId, mediaUrl);
   } else if (documentKind && mediaUrl && message.media) {
     const media = message.media;
-    fileDocument = () =>
-      fileWithDurableCopy({
+    fileDocument = async () => {
+      const filed = await fileWithDurableCopy({
         admin: supabaseAdmin(),
         channel: () => channel,
         media: {
@@ -998,6 +1013,8 @@ export async function processMessage(
         },
         record: documentRecord,
       });
+      if (filed) await routeToDesk(filed.documentId, filed.mediaUrl);
+    };
   }
   const fileDocumentLater = async () => {
     if (!fileDocument) return;

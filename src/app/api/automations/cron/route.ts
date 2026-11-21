@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
+import { runDeskTrayEscalation } from '@/lib/desk/escalate'
 import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
@@ -765,6 +766,31 @@ function schedulePersonalHistoryImport() {
  */
 const hrSweepDue = everyInterval(5 * 60_000)
 
+/**
+ * Desk tray escalation (migration 230): a WhatsApp document left in the
+ * tray past its workspace's delay becomes one follow-up task for the duty
+ * owner. At most once per 5 minutes per process, inside after();
+ * deduped per tray item. runDeskTrayEscalation never throws.
+ */
+const deskTrayDue = everyInterval(5 * 60_000)
+
+function scheduleDeskTrayEscalation() {
+  try {
+    if (!deskTrayDue()) return
+    after(async () => {
+      const summary = await runDeskTrayEscalation(supabaseAdmin())
+      if (summary && (summary.escalated > 0 || summary.failed > 0)) {
+        console.log('[automations-cron] desk tray escalation:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the desk tray escalation:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
 function scheduleHrSweep() {
   try {
     if (!hrSweepDue()) return
@@ -876,6 +902,7 @@ export async function GET(request: Request) {
     scheduleAssistHousekeeping()
     schedulePersonalHistoryImport()
     scheduleHrSweep()
+    scheduleDeskTrayEscalation()
     scheduleHrAutomsgDrain()
   }
 }

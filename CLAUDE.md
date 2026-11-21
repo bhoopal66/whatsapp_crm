@@ -1623,9 +1623,32 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_customers_for_contact` is routing's question (more than one
   company = ambiguous). `DESK_CONTACT_ROLES` is pinned to the CHECK by
   `companies.test.ts`. `verify-desk-customer-contacts.sql`.
+- **WhatsApp routing and the tray (230, design 035 section 4).** Off
+  by default (`desk_settings.routing_enabled`). `inbound-pipeline.ts`
+  offers each recorded 1:1 customer document (both the own-storage and
+  the durable-copy path; `fileWithDurableCopy` returns the recorded
+  document) to `routeDeskDocument` (`lib/desk/route-inbound.ts`, never
+  throws). `desk_route_customer_document` decides: E1 quoted message of
+  ours naming one open case, E2 caption code, E4 the single open case of
+  a one-company sender; anything ambiguous, or a chosen case whose
+  contact is not the sender (181 registers only the case customer's
+  document), goes to `desk_tray` with candidates and none chosen; an
+  unlinked sender only on a desk number. A staff phone (142's
+  `coordinator_phones`, exactly one live staff) answers 'staff' and the
+  TS uploads it through `desk_whatsapp_intake` (220's intake, channel
+  whatsapp, item id = the document id). Tray filing: bank scope
+  (`intake_scope_ok`), CONFIRM_COMPANY for a company the sender is not
+  linked to, the sender's own document registered directly, another
+  person's copied through the intake (item id = tray id) then
+  `desk_tray_resolve`. Escalation: `runDeskTrayEscalation` (automations
+  cron, 5 min) through `createSystemTask`, `source_ref desk_tray:<id>`.
+  `TRAY_REASONS` is pinned to the CHECK by `tray.test.ts`.
+  `verify-desk-whatsapp-routing.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
-  `erase_fn(account, contact) -> {counts, objects}`, so a new personal
+  `erase_fn(account, contact) -> {counts, objects}` (the erase ones run
+  before 222's own deletes, so a child row is removed and counted before
+  its chat, message or document cascades it), so a new personal
   table joins PDPL by registering, never by restating those bodies (the
   hooks sit behind a `to_regclass` guard; 229 refuses unless the
   installed 221/222 have them). `data-map.test.ts` reads the registered
@@ -2030,8 +2053,8 @@ Cron / GitHub Actions / any pinger):
   delivery, calendar reminders, the assist pending sweep and the
   personal-number history import and the HR automated-message drain
   (1 min),
-  closing empty instant meetings and the HR rule sweep with draft
-  expiry and reply nudges (5 min),
+  closing empty instant meetings, the HR rule sweep with draft
+  expiry and reply nudges, and desk tray escalation (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and
   the unsent-attachment sweep (24 h). An install that pings
   only this one is covered. A new background job joins this list.

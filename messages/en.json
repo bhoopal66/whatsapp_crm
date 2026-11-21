@@ -11902,7 +11902,8 @@
       "queue": "Sorting queue",
       "overview": "Overview",
       "codes": "Desk codes",
-      "companies": "Companies"
+      "companies": "Companies",
+      "tray": "Tray"
     },
     "kind": {
       "pending_doc": "Pending document",
@@ -12026,6 +12027,56 @@
         "accountant": "Accountant",
         "other": "Other"
       }
+    },
+    "tray": {
+      "intro": "Customer documents from WhatsApp that could not be filed with certainty. Nothing is pre-selected: choose the case yourself.",
+      "count": "{count, plural, one {# document waiting} other {# documents waiting}}",
+      "oldest": "oldest {age}",
+      "duty": "On duty",
+      "dutyYou": "you",
+      "dutyOther": "another person",
+      "dutyNobody": "nobody",
+      "takeDuty": "Put me on duty",
+      "clearDuty": "Clear",
+      "empty": "Nothing is waiting in the tray.",
+      "unknownSender": "Unknown sender",
+      "actsFor": "Acts for {companies}",
+      "received": "{age} ago",
+      "escalated": "Escalated",
+      "open": "Open document",
+      "candidates": "Choose the case",
+      "noCandidates": "No open case to suggest. Find the case number and file from the sorting queue, or dismiss.",
+      "confirmCompany": "This sender does not act for {company}. Type its legal name to confirm.",
+      "file": "File to case",
+      "filed": "Filed to {caseNumber}",
+      "dismissReason": "Why does it belong to no case?",
+      "dismiss": "Dismiss",
+      "dismissed": "Dismissed",
+      "reasons": {
+        "unknown_sender": "Sender is not linked to any company",
+        "no_open_case": "The sender's companies have no open case",
+        "many_companies": "The sender acts for several companies",
+        "many_cases": "Several open cases, no case number given",
+        "evidence_conflict": "The quoted message and the caption name different cases",
+        "other_person": "Sent by someone other than the case's customer",
+        "file_refused": "The case would not accept the file"
+      },
+      "why": {
+        "quoted": "quoted",
+        "code": "case code",
+        "prompt": "asked for a document",
+        "sender": "sender's own case"
+      }
+    },
+    "routing": {
+      "title": "WhatsApp routing",
+      "hint": "When on, documents customers send 1:1 are filed to their desk case only when a quoted message, a case code or a single open case makes it certain; everything else goes to the tray. Staff send from their saved number with a caption such as 4271RAKD ejari.",
+      "enabled": "Route WhatsApp documents to desk cases",
+      "numbers": "Desk numbers (documents from unknown senders on these numbers go to the tray)",
+      "noNumbers": "No company WhatsApp numbers are connected.",
+      "escalate": "Escalate a waiting document after (minutes)",
+      "save": "Save",
+      "saved": "Routing saved"
     }
   },
   "Privacy": {

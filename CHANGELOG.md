@@ -12,6 +12,27 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: WhatsApp documents and the tray
+
+**Migration required:** apply `230_desk_whatsapp_routing.sql` (as a
+superuser) after 229.
+- Off until an owner or admin switches it on (Case desk → Desk codes →
+  WhatsApp routing).
+- A customer's 1:1 WhatsApp document is filed to their desk case only
+  when it is certain: a reply to our message naming the case, a case
+  code in the caption, or the single open case of a one-company sender.
+  Never by phone number alone.
+- Everything else goes to the new **Tray** tab with the candidate cases
+  and none pre-selected; a document from someone other than the case's
+  customer (a PRO) is always filed by a person. Filing to a company the
+  sender does not act for needs its name typed.
+- Staff can send documents from their saved WhatsApp number with a
+  caption such as `4271RAKD ejari`; they become desk uploads in their
+  name.
+- A duty owner for the tray; a document left waiting past the delay
+  (default 2 hours) becomes a follow-up task.
+- See `docs/case-desk.md`.
+
 ### Case desk: who acts for a company
 
 **Migration required:** re-apply `221_privacy_export.sql` and

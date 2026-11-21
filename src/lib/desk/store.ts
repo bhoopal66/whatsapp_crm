@@ -15,6 +15,14 @@ import type {
   DeskCompanyContact,
   DeskContactRole,
 } from './companies';
+import {
+  parseCandidates,
+  type DeskSettings,
+  type RouteDecision,
+  type TrayItem,
+  type TrayReason,
+  type TrayState,
+} from './tray';
 
 export const DESK_REFUSALS = [
   'INVALID',
@@ -41,6 +49,10 @@ export const DESK_REFUSALS = [
   // 229: company contacts
   'CUSTOMER_NOT_FOUND',
   'CONTACT_INVALID',
+  // 230: WhatsApp routing and the tray
+  'TRAY_NOT_FOUND',
+  'TRAY_NOT_OPEN',
+  'CONFIRM_COMPANY',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -540,6 +552,241 @@ export class DeskStore {
       p_account: account,
       p_customer: customerId,
       p_contact: contactId,
+    });
+    return scalarTrue(rows[0]);
+  }
+  // ---------- WhatsApp routing and the tray (migration 230) ----------
+
+  async routeDocument(
+    account: string,
+    documentId: string,
+    channelId: string | null
+  ): Promise<RouteDecision> {
+    const r = (
+      await this.rpc('desk_route_customer_document', {
+        p_account: account,
+        p_document: documentId,
+        p_channel: channelId,
+        p_now: this.now(),
+      })
+    )[0];
+    if (!r) throw new DeskStoreError('desk_route_customer_document', null);
+    return {
+      action: String(r.action) as RouteDecision['action'],
+      caseId: str(r.case_id),
+      trayId: str(r.tray_id),
+      reason: str(r.reason) as TrayReason | null,
+      staffUserId: str(r.staff_user_id),
+    };
+  }
+
+  /** A desk upload that arrived by WhatsApp (220's intake, channel whatsapp). */
+  whatsappIntake(
+    actor: string,
+    account: string,
+    input: { itemId: string; idemKey: string; tags: ItemTags; file: ItemFile }
+  ): Promise<ItemResult> {
+    const { tags, file } = input;
+    return this.result('desk_whatsapp_intake', {
+      p_actor: actor,
+      p_account: account,
+      p_item: input.itemId,
+      p_idem_key: input.idemKey,
+      p_kind: tags.kind,
+      p_bank_code: tags.bankCode,
+      p_case_ref: tags.caseRef,
+      p_company_name: tags.companyName,
+      p_trade_licence: tags.tradeLicence,
+      p_product: tags.product,
+      p_doc_key: tags.docKey,
+      p_note: tags.note,
+      p_storage_path: file.storagePath,
+      p_original_name: file.originalName,
+      p_mime: file.mime,
+      p_size: file.sizeBytes,
+      p_sha256: file.sha256,
+      p_now: this.now(),
+    });
+  }
+
+  async tray(
+    actor: string,
+    account: string,
+    state: TrayState = 'open'
+  ): Promise<TrayItem[]> {
+    const rows = await this.rpc('desk_tray_list', {
+      p_actor: actor,
+      p_account: account,
+      p_state: state,
+      p_limit: 100,
+      p_now: this.now(),
+    });
+    return rows.map((r) => ({
+      trayId: String(r.tray_id),
+      reason: String(r.reason) as TrayReason,
+      candidates: parseCandidates(r.candidates),
+      state: String(r.state) as TrayState,
+      receivedAt: String(r.received_at),
+      ageSeconds: num(r.age_seconds) ?? 0,
+      escalatedAt: str(r.escalated_at),
+      dutyUserId: str(r.duty_user_id),
+      contactId: str(r.contact_id),
+      contactName: str(r.contact_name),
+      contactPhone: str(r.contact_phone),
+      senderCompanies: Array.isArray(r.sender_companies)
+        ? (r.sender_companies as { company: string; role: string }[])
+        : [],
+      documentKind: str(r.document_kind),
+      mime: str(r.mime),
+      originalName: str(r.original_name),
+      caption: str(r.caption),
+      mediaUrl: str(r.media_url),
+      resolvedCaseId: str(r.resolved_case_id),
+      dismissReason: str(r.dismiss_reason),
+    }));
+  }
+
+  /** 'filed', or 'needs_copy' with the file to copy through the intake. */
+  async trayFile(
+    actor: string,
+    account: string,
+    trayId: string,
+    caseId: string,
+    confirmCompany: string | null
+  ): Promise<{
+    outcome: 'filed' | 'needs_copy';
+    caseNumber: string | null;
+    mediaUrl: string | null;
+    mime: string | null;
+    originalName: string | null;
+  }> {
+    const r = (
+      await this.rpc('desk_tray_file', {
+        p_actor: actor,
+        p_account: account,
+        p_tray: trayId,
+        p_case: caseId,
+        p_confirm_company: confirmCompany,
+        p_now: this.now(),
+      })
+    )[0];
+    if (!r) throw new DeskStoreError('desk_tray_file', null);
+    return {
+      outcome: r.outcome === 'filed' ? 'filed' : 'needs_copy',
+      caseNumber: str(r.case_number),
+      mediaUrl: str(r.media_url),
+      mime: str(r.mime),
+      originalName: str(r.original_name),
+    };
+  }
+
+  async trayResolve(
+    actor: string,
+    account: string,
+    trayId: string,
+    caseId: string,
+    itemId: string
+  ): Promise<void> {
+    await this.rpc('desk_tray_resolve', {
+      p_actor: actor,
+      p_account: account,
+      p_tray: trayId,
+      p_case: caseId,
+      p_item: itemId,
+      p_now: this.now(),
+    });
+  }
+
+  async trayDismiss(
+    actor: string,
+    account: string,
+    trayId: string,
+    reason: string
+  ): Promise<void> {
+    await this.rpc('desk_tray_dismiss', {
+      p_actor: actor,
+      p_account: account,
+      p_tray: trayId,
+      p_reason: reason,
+      p_now: this.now(),
+    });
+  }
+
+  async settings(actor: string, account: string): Promise<DeskSettings> {
+    const r = (
+      await this.rpc('desk_settings_get', {
+        p_actor: actor,
+        p_account: account,
+      })
+    )[0];
+    return {
+      routingEnabled: r?.routing_enabled === true,
+      deskChannelIds: Array.isArray(r?.desk_channel_ids)
+        ? (r.desk_channel_ids as string[])
+        : [],
+      dutyUserId: str(r?.duty_user_id),
+      escalateMinutes: num(r?.escalate_minutes) ?? 120,
+      updatedAt: str(r?.updated_at),
+    };
+  }
+
+  async setSettings(
+    actor: string,
+    account: string,
+    input: {
+      routingEnabled: boolean;
+      deskChannelIds: string[];
+      escalateMinutes: number;
+    }
+  ): Promise<void> {
+    await this.rpc('desk_settings_set', {
+      p_actor: actor,
+      p_account: account,
+      p_routing_enabled: input.routingEnabled,
+      p_desk_channel_ids: input.deskChannelIds,
+      p_escalate_minutes: input.escalateMinutes,
+      p_now: this.now(),
+    });
+  }
+
+  async setDuty(
+    actor: string,
+    account: string,
+    userId: string | null
+  ): Promise<void> {
+    await this.rpc('desk_duty_set', {
+      p_actor: actor,
+      p_account: account,
+      p_user: userId,
+      p_now: this.now(),
+    });
+  }
+
+  /** Service-role sweep: open items past their workspace's delay. */
+  async dueEscalations(): Promise<
+    {
+      trayId: string;
+      accountId: string;
+      assignee: string | null;
+      ageMinutes: number;
+    }[]
+  > {
+    const rows = await this.rpc('desk_tray_due_escalation', {
+      p_now: this.now(),
+      p_limit: 200,
+    });
+    return rows.map((r) => ({
+      trayId: String(r.tray_id),
+      accountId: String(r.account_id),
+      assignee: str(r.assignee),
+      ageMinutes: num(r.age_minutes) ?? 0,
+    }));
+  }
+
+  async markEscalated(trayId: string): Promise<boolean> {
+    const rows = await this.rpc('desk_tray_mark_escalated', {
+      p_tray: trayId,
+      p_now: this.now(),
     });
     return scalarTrue(rows[0]);
   }

@@ -126,6 +126,50 @@ Migration 229 (design 035 D1). A company is not a phone number: the
   erasure (KYC: who acted for a company account); the contact itself is
   anonymised as before.
 
+## WhatsApp routing and the tray
+
+Migration 230 (design 035 section 4). **Off by default:** an owner or
+admin switches it on under Case desk → Desk codes → WhatsApp routing.
+
+When a customer sends a document 1:1, it is first kept in their document
+archive as before. Then the desk decides, and **never by phone number
+alone**:
+
+| Evidence | Effect |
+|---|---|
+| E1: the customer replied to one of our messages that names a case number | file to that case |
+| E2: the caption carries a case number or caption code (check character verified) | file to that case |
+| E4: the sender acts for one company, which has exactly one open case | file to that case |
+| E1 and E2 name different cases, several codes, several companies or several open cases without E1/E2 | tray, every open case listed, none chosen |
+| the chosen case belongs to another person (a PRO sending for the owner) | tray: a person files it |
+| the sender acts for no company | ignored, unless it arrived on a **desk number**: tray |
+
+- An automatic filing is the system intake (`registered_by` empty), the
+  file then waiting *unclassified* on the case like any other.
+- **Staff on WhatsApp.** A document from a staff member's saved WhatsApp
+  number (Settings → Members, the coordinator number) becomes a desk
+  upload in their name, tagged from its caption exactly like the upload
+  form's caption field (`4271RAKD ejari`, `NEW RAK Kite General Trading
+  12345`); what the caption does not settle waits in the sorting queue.
+  It shows under *My uploads* as arriving by WhatsApp.
+- **The tray** (Case desk → Tray) shows the sender, the companies they
+  act for, why the document is there, the document, and the candidate
+  cases with their reasons (*quoted*, *case code*, *asked for a
+  document*, *sender's own case*). Nothing is pre-selected. Team leaders
+  and up see every item; a bank's holders the items with a candidate at
+  their bank. Filing to a company the sender does not act for needs its
+  legal name typed. Another person's document is copied through the
+  desk intake in the sorter's name. Dismissing needs a reason; the
+  document stays in the customer's archive.
+- **Duty owner and escalation.** A team leader puts someone on duty;
+  new tray items carry them. An item still open after the delay
+  (default 120 minutes, 15–1440) becomes one follow-up task for the duty
+  owner (else the workspace owner), from the automations cron. The task
+  names no customer.
+- Not built yet: E5 (a case that asked for a document in the last 72
+  hours) is not a candidate reason; nothing is sent back to the staff
+  member who uploaded by WhatsApp (they see it under *My uploads*).
+
 ## Rules held in the database
 
 - Tables (`desk_bank_codes`, `desk_customers`, `desk_number_seq`,
@@ -143,6 +187,11 @@ Migration 229 (design 035 D1). A company is not a phone number: the
   `supabase/ci/verify-desk-customer-contacts.sql` asserts the automatic
   link, who may read and change, one phone across two companies, the
   privacy export and the closed tables.
+- `desk_tray` and `desk_settings` (230) are closed the same way; the
+  tray changes only through `desk_tray_file` / `_resolve` / `_dismiss`
+  and the router. `supabase/ci/verify-desk-whatsapp-routing.sql` asserts
+  the evidence order, the tray rules, escalation, privacy and the closed
+  tables.
 
 ## API
 
@@ -164,11 +213,14 @@ Refusals answer `{ error, code }`.
 | `GET /companies?q=` | staff | find a company you can see (licence or name) |
 | `GET /companies/[id]/contacts` | readers of a company's case, team leaders and up | its people |
 | `PUT`, `DELETE /companies/[id]/contacts/[contactId]` | writers of a company's case, team leaders and up | link (`{ role, authorised }`) or unlink |
+| `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
+| `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
+| `POST /tray/[id]/dismiss` | the same | `{ reason }` |
+| `GET /settings`, `PUT /settings` | staff / owners and admins | routing switch, desk numbers, escalation delay |
+| `PUT /duty` | team leaders and up | `{ userId }` or `null` |
 
 ## Not built (known gaps)
 
-- WhatsApp media is not wired to the desk: the caption parser is ready,
-  but uploads come only from the screen.
 - A refused or replayed upload with a file leaves its stored object
   behind (`intake/<item id>/…`, unreferenced).
 - No function closes an application or merges two companies

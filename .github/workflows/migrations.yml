@@ -1115,6 +1115,14 @@ jobs:
       - name: Verify desk company contacts
         run: supabase db query --local --file supabase/ci/verify-desk-customer-contacts.sql
 
+      # Migration 230: desk WhatsApp routing and the tray (design 035
+      # slice C). Off by default; E1 quoted message, E2 caption code, E4
+      # only open case of a one-company sender; ambiguity and other
+      # people's documents go to the tray with no case chosen; bank scope,
+      # typed company confirmation, one escalation; privacy registry.
+      - name: Verify desk WhatsApp routing and tray
+        run: supabase db query --local --file supabase/ci/verify-desk-whatsapp-routing.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

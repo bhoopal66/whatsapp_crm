@@ -126,13 +126,19 @@ function recordLabel(record: FilingRecordInput): string {
  * the race with the timeout but is still running can never reject
  * unhandled: the caller awaits this inside the route's `after()`.
  */
+/** The document a durable copy recorded (178), for the desk router (230). */
+export interface FiledDocument {
+  documentId: string;
+  mediaUrl: string;
+}
+
 export async function fileWithDurableCopy(args: {
   admin: Pick<SupabaseClient, 'rpc'> & { storage: MirrorStorage };
   channel: () => WhatsAppChannel;
   media: FilingMedia;
   record: FilingRecordInput;
   deps?: Partial<FilingCopyDeps>;
-}): Promise<void> {
+}): Promise<FiledDocument | null> {
   const { admin, media, record } = args;
   const deps: FilingCopyDeps = { ...DEFAULT_DEPS, ...args.deps };
   const label = recordLabel(record);
@@ -186,12 +192,13 @@ export async function fileWithDurableCopy(args: {
 
     if (!mediaUrl) {
       console.error(`[customer-docs] no durable copy for ${label}`);
-      return;
+      return null;
     }
-    await recordCustomerDocument(admin, {
+    const documentId = await recordCustomerDocument(admin, {
       ...record,
       mediaUrl,
     } as CustomerDocumentInput);
+    return documentId ? { documentId, mediaUrl } : null;
   } catch (err) {
     // The error's name only: a gateway or fetch message can carry a URL.
     console.error(
@@ -199,5 +206,6 @@ export async function fileWithDurableCopy(args: {
         err instanceof Error ? err.name : typeof err
       }`
     );
+    return null;
   }
 }

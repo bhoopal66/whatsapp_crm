@@ -864,11 +864,18 @@ describe('processMessage — customer documents', () => {
       media_type: 'application/pdf',
       created_at: '2025-10-09T08:53:20.000Z',
     });
+    // Then offered to the case desk (migration 230), by the recorded id.
     expect(h.rpcs).toEqual([
       'bump_conversation_on_inbound',
       'push_whatsapp_inbound',
       'customer_documents_record',
+      'desk_route_customer_document',
     ]);
+    expect(h.rpcArgs.at(-1)).toMatchObject({
+      p_account: 'acct-1',
+      p_document: 'TC-000123',
+      p_channel: channel.id,
+    });
   });
 
   it('records a customer document for a photo, with no caption', async () => {
@@ -1044,7 +1051,11 @@ describe('processMessage — customer documents without our own copy', () => {
       })
     );
     expect(docUrls()).toEqual([STORED]);
-    expect(h.rpcs.at(-1)).toBe('customer_documents_record');
+    // Recorded, then offered to the case desk (migration 230).
+    expect(h.rpcs.slice(-2)).toEqual([
+      'customer_documents_record',
+      'desk_route_customer_document',
+    ]);
     expect(h.flows).toHaveBeenCalledTimes(1);
     expect(h.watch).toHaveBeenCalledTimes(1);
   });
