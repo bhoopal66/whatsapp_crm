@@ -53,15 +53,38 @@ jobs:
       - name: Start Postgres
         run: supabase db start
 
-      # `db start` already applies the migrations on a cold volume, but
-      # only on a cold volume — it is a no-op against a database that
-      # already exists. `db reset` drops and rebuilds unconditionally,
-      # so this step, not the one above, is the guarantee that every
-      # migration ran in filename order against nothing. It fails on the
-      # first statement Postgres rejects. --no-seed because there is no
-      # seed script and this is about schema, not data.
-      - name: Replay every migration from scratch
+      # An empty database: supabase/config.toml turns the CLI's own
+      # migration runner off (see below), so `db reset` only rebuilds
+      # the Supabase base schema. --no-seed: there is no seed script.
+      - name: Reset to an empty database
         run: supabase db reset --local --no-seed
+
+      # The default grants a classic Supabase project gives the API
+      # roles, which the migrations and verify files assume and the
+      # CLI's current image no longer sets (supabase/ci/classic-grants.sql
+      # says why). Before the first migration, so every object they
+      # create gets them, as in production.
+      - name: Restore Supabase's classic default grants
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/classic-grants.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Every migration in filename order against nothing, through psql
+      # in autocommit, the way they are applied by hand. Not the CLI's
+      # runner: it wraps each file in one transaction, and 044 adds an
+      # enum value and uses it in the same file, which Postgres refuses
+      # inside a transaction (hence `enabled = false` in config.toml).
+      # Stops at the first statement Postgres rejects.
+      - name: Replay every migration from scratch
+        run: |
+          command -v psql >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$f"
+            psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+            echo "::endgroup::"
+          done
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # A migration can apply "successfully" and still do nothing —
       # every DDL statement here is IF NOT EXISTS-guarded, which turns a

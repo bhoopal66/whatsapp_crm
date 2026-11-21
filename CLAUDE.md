@@ -2227,7 +2227,13 @@ nothing in the app runs them. Every statement is guarded (`IF NOT EXISTS`,
 `ON CONFLICT`) so files stay re-runnable, which also means a typo'd object name
 is a silent no-op; `.github/workflows/migrations.yml` replays the whole stack
 against a clean Postgres and asserts `supabase/ci/verify-schema.sql` (it only
-fires on `supabase/**` changes). Apply 082 and 083 in separate runs (a
+fires on `supabase/**` changes). It replays through `psql` in autocommit, not
+the CLI's runner (off in `config.toml`: 044 adds an enum value and uses it in
+one file), after `supabase/ci/classic-grants.sql` restores the default grants
+a classic Supabase project gives `anon` / `authenticated` / `service_role`,
+which the CLI's current image no longer sets and the migrations assume. A
+verify file that commits its fixtures (older ones do) leaves its users behind:
+give a new file's fixture emails a prefix of its own. Apply 082 and 083 in separate runs (a
 new enum value cannot be used in the transaction that adds it); 087 and
 088 refuse to apply except as a superuser or BYPASSRLS role. A schema
 change ships as: new numbered

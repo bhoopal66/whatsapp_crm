@@ -63,10 +63,12 @@ BEGIN
   $fn$;
 
   -- ---------- fixture ----------
+  -- Emails of our own: verify-typesafe.sql commits its ts-* users, and an
+  -- email it already holds would make this insert a no-op.
   INSERT INTO auth.users (id, email) VALUES
-    (u_owner, 'ts-owner@example.invalid'),
-    (u_agent, 'ts-agent@example.invalid'),
-    (u_other, 'ts-other@example.invalid')
+    (u_owner, 'tsales-owner@example.invalid'),
+    (u_agent, 'tsales-agent@example.invalid'),
+    (u_other, 'tsales-other@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO a_other FROM profiles WHERE user_id = u_other;

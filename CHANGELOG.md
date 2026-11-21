@@ -12,6 +12,25 @@ and polish.
 
 ## [Unreleased]
 
+### Push helpers closed to the service role
+
+**Migration required:** apply `227_push_helper_grants.sql` (as a
+superuser) after 226. On a classic Supabase project the service role
+could still call `push_eligible` and `can_view_conversation_for_user`
+over the API (109 and 190 revoked them from every other role); nothing
+in the app does, and now it cannot.
+
+### Migrations check in CI
+
+The "Apply to a clean database" job had never passed: the CLI's own
+runner is off (`supabase/config.toml`, because 044 must run in
+autocommit), and the CLI's current image no longer grants the API roles
+access to new tables. CI now replays every migration through `psql` in
+autocommit after restoring the classic default grants
+(`supabase/ci/classic-grants.sql`, CI only), and all 117 verify steps
+run. Two verify files got fixture emails of their own, because older
+ones commit their test users.
+
 ### Node 22
 
 **Rebuild required:** the app now needs Node 22 (`engines`, the
