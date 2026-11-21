@@ -13,7 +13,22 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   await reportTypeSafe();
+  await reportPosture();
   await startPushDelivery();
+}
+
+/** Which optional integrations are on, and which run on an untested wire format. */
+async function reportPosture() {
+  try {
+    const { startupPosture, postureLogLine } =
+      await import('@/lib/metrics/posture');
+    const posture = startupPosture();
+    const line = postureLogLine(posture);
+    if (posture.some((i) => i.configured && i.unverified)) console.warn(line);
+    else console.info(line);
+  } catch (err) {
+    console.error('[posture] could not report:', err);
+  }
 }
 
 async function reportTypeSafe() {

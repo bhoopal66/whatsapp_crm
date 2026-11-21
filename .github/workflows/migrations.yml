@@ -1100,6 +1100,13 @@ jobs:
       - name: Verify HR automated-message SMS channel
         run: supabase db query --local --file supabase/ci/verify-hr-automsg-sms.sql
 
+      # Migration 228: hr_automsg_outbox_stats() for GET /api/metrics.
+      # Counts per status and channel, held rows by reason, the oldest
+      # queued row's age and terminal failures, across workspaces;
+      # counts only; service role only.
+      - name: Verify HR automated-message outbox stats
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg-outbox-stats.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

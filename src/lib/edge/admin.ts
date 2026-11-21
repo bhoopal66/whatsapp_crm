@@ -9,6 +9,7 @@
  * around it: `admitAdmin` before, `settleAdmin` after, so a locked or
  * rate-limited caller never reaches the check.
  */
+import { countEdgeRefusal } from '@/lib/metrics/registry';
 import { ipKey } from './ip';
 import type { AuthLockout } from './lockout';
 import type { RateLimiter } from './ratelimit';
@@ -38,15 +39,18 @@ export async function admitAdmin(
   const userId = userKey(req.userId);
   const lock = await ctx.lockout.state(req.ip, now, userId);
   if (lock.locked) {
+    countEdgeRefusal('signin_locked');
     return { allowed: false, status: 423, retryAfterMs: lock.retryAfterMs };
   }
   const byIp = await ctx.limiter.check('admin.ip', ipKey(req.ip), now);
   if (!byIp.allowed) {
+    countEdgeRefusal('signin_rate_limited');
     return { allowed: false, status: 429, retryAfterMs: byIp.retryAfterMs };
   }
   if (userId) {
     const byUser = await ctx.limiter.check('admin.user', userId, now);
     if (!byUser.allowed) {
+      countEdgeRefusal('signin_rate_limited');
       return { allowed: false, status: 429, retryAfterMs: byUser.retryAfterMs };
     }
   }

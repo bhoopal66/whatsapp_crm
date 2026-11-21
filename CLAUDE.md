@@ -1614,6 +1614,26 @@ package 035a-c. `docs/case-desk.md` is the contract.
   hint is in `DESK_REFUSALS` (`store.test.ts` reads the migration).
   `verify-case-desk.sql`.
 
+### Health and metrics (`lib/metrics/*`, migration 228)
+
+Port of package 033c and 033f-g. `docs/monitoring.md` is the contract.
+
+- `GET /api/healthz` never touches the database (Docker's HEALTHCHECK
+  uses it); `GET /api/readyz` is a 2 s one-row read, 503 with no detail.
+- `GET /api/metrics`: Prometheus text 0.0.4, `Authorization: Bearer
+  METRICS_TOKEN` (>= 32 chars, timing-safe; unset 501). Per process; the
+  registry is a `globalThis` singleton because route chunks may each
+  bundle the module. Families cap at 500 label sets (then `overflow`).
+- Edge refusals are counted at the refusal points (`admitAdmin`,
+  `screenWebhook`'s `done`, `rateLimited()` in `lib/api/v1/respond.ts`)
+  through `countEdgeRefusal`, which never throws and never changes the
+  answer.
+- Queue gauges read `hr_automsg_outbox_stats()` (228, service role only,
+  counts only) with a 2 s timeout; failure renders `wacrm_outbox_stats_up
+  0` only. `startupPosture` reads each integration's own config reader;
+  `instrumentation.ts` logs it at start (no refusal, unlike the package).
+  `verify-hr-automsg-outbox-stats.sql`.
+
 ### Privacy, PDPL (`lib/privacy/*`, migrations 221-224)
 
 Port of package 033h-k. `docs/privacy.md` is the contract.
@@ -2306,6 +2326,6 @@ fails if one is wired to plain `t()`.
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
   `customer-documents.md`, `departments.md`, `second-brain.md`,
-  `hr-workflows.md`, `case-desk.md`, `privacy.md`.
+  `hr-workflows.md`, `case-desk.md`, `privacy.md`, `monitoring.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

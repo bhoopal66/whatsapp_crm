@@ -62,4 +62,8 @@ COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 
 USER nextjs
 EXPOSE 3000
+# Liveness only (GET /api/healthz never touches the database), so a slow
+# database doesn't get the container restarted; readiness is /api/readyz.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["node", "-e", "fetch('http://localhost:'+(process.env.PORT||3000)+'/api/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 CMD ["node", "server.js"]

@@ -12,6 +12,7 @@
  * lapsed (→ processed) or the confirm has landed (→ duplicate). Never 429 —
  * that only makes the gateway retry sooner.
  */
+import { countEdgeRefusal, type EdgeRefusal } from '@/lib/metrics/registry';
 import { ipKey } from './ip';
 import { consoleLogger, type EdgeLogger } from './logger';
 import type { RateLimiter } from './ratelimit';
@@ -61,10 +62,12 @@ export async function screenWebhook(
 ): Promise<ScreenResult> {
   const log = ctx.logger ?? consoleLogger;
   let degraded = false;
-  const done = (status: 200 | 503, decisions: ScreenDecision[]) =>
-    degraded
+  const done = (status: 200 | 503, decisions: ScreenDecision[]) => {
+    countScreenRefusals(decisions);
+    return degraded
       ? { status, decisions, degraded: true as const }
       : { status, decisions };
+  };
 
   const ip = ipKey(input.ip);
   const byIp = await ctx.limiter.check('webhook.ip', ip, now);
@@ -198,5 +201,20 @@ async function release(
     await replay.release(key, token);
   } catch (err) {
     log.warn('replay release failed', { key, err: String(err) });
+  }
+}
+
+const SCREEN_REFUSALS: Partial<Record<ScreenDecision['outcome'], EdgeRefusal>> =
+  {
+    ip_limited: 'webhook_ip_limited',
+    rate_limited: 'webhook_sender_limited',
+    duplicate: 'webhook_duplicate',
+  };
+
+/** Counts the events this screen turned away, for /api/metrics. */
+function countScreenRefusals(decisions: ScreenDecision[]): void {
+  for (const d of decisions) {
+    const kind = SCREEN_REFUSALS[d.outcome];
+    if (kind) countEdgeRefusal(kind);
   }
 }

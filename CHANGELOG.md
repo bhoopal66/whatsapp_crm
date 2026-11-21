@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Health checks and metrics
+
+**Migration required:** apply `228_hr_automsg_outbox_stats.sql` (as a
+superuser) after 227.
+- `GET /api/healthz` (the app is up) and `GET /api/readyz` (the database
+  answers within 2 seconds), no sign-in needed. Docker's health check now
+  uses `/api/healthz`.
+- `GET /api/metrics` for Prometheus: memory, uptime, event-loop delay,
+  refused requests, the HR automated-message queue (queued, held,
+  failed, by channel) and which optional integrations are on. Off until
+  `METRICS_TOKEN` (32+ characters) is set; send it as a Bearer token.
+- At start the server logs which optional integrations are on, and
+  warns when an untested one (RCS, SMS) is in use.
+- See `docs/monitoring.md`.
+
 ### Push helpers closed to the service role
 
 **Migration required:** apply `227_push_helper_grants.sql` (as a

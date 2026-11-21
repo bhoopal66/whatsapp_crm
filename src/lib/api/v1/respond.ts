@@ -14,6 +14,7 @@
 // is versioned and shouldn't inherit internal wording changes.
 // ============================================================
 
+import { countEdgeRefusal } from '@/lib/metrics/registry';
 import { NextResponse } from 'next/server';
 import type { RateLimitResult } from '@/lib/rate-limit';
 
@@ -67,6 +68,7 @@ export function badRequest(message: string): ApiError {
 
 /** 429 — built from a `checkRateLimit` miss, with the standard headers. */
 export function rateLimited(result: RateLimitResult): ApiError {
+  countEdgeRefusal('api_rate_limited');
   const retryAfter = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
   return new ApiError(
     'rate_limited',
