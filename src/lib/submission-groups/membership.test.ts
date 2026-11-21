@@ -166,6 +166,49 @@ describe('recordSubmissionGroupMembership', () => {
     ]);
   });
 
+  it('offers every added number but the customer and ours to the staff grant (219)', async () => {
+    const store = fake();
+    const joined = vi.fn().mockResolvedValue('u1');
+    await recordSubmissionGroupMembership(
+      store,
+      { ...channel, wabaId: '971500000000' },
+      [
+        event('add', [PHONE, OTHER, '971500000000', '123456@lid']),
+        event('remove', [OTHER]),
+      ],
+      joined
+    );
+    expect(joined.mock.calls).toEqual([['g1', OTHER]]);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([['g1', 'joined']]);
+  });
+
+  it('never asks the staff grant about the customer joining', async () => {
+    const store = fake();
+    const joined = vi.fn();
+    await recordSubmissionGroupMembership(
+      store,
+      channel,
+      [event('add', [PHONE])],
+      joined
+    );
+    expect(joined).not.toHaveBeenCalled();
+  });
+
+  it('a failing staff grant throws nothing and the customer is still recorded', async () => {
+    const store = fake();
+    const joined = vi.fn().mockRejectedValue(new Error('rpc down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await recordSubmissionGroupMembership(
+      store,
+      channel,
+      [event('add', [OTHER, PHONE])],
+      joined
+    );
+    expect(joined).toHaveBeenCalledWith('g1', OTHER);
+    expect(failed).toBe(0);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([['g1', 'joined']]);
+  });
+
   it('add of the customer beside a hidden number is joined', async () => {
     const store = fake();
     await recordSubmissionGroupMembership(store, channel, [

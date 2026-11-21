@@ -44,6 +44,17 @@ export function PeoplePanel({
   const candidates = addableStaff(members, access);
   const titleId = useId();
 
+  // What happened to the person's saved WhatsApp number (219); quiet when
+  // they have none or the group has no WhatsApp side.
+  const noteNumber = (body: unknown) => {
+    const status = (body as { number?: { status?: string } } | null)?.number
+      ?.status;
+    if (status === 'added') toast.success(t('numberAdded'));
+    else if (status === 'removed') toast.success(t('numberRemoved'));
+    else if (status === 'refused') toast.warning(t('numberRefused'));
+    else if (status === 'failed') toast.warning(t('numberFailed'));
+  };
+
   const put = async (userId: string, label: StaffLabel) => {
     setBusy(userId);
     try {
@@ -56,6 +67,7 @@ export function PeoplePanel({
         toast.error(t('saveFailed'));
         return false;
       }
+      noteNumber(await res.json().catch(() => null));
       onChanged();
       return true;
     } catch {
@@ -76,7 +88,10 @@ export function PeoplePanel({
         { method: 'DELETE' }
       );
       if (!res.ok) toast.error(t('removeFailed'));
-      else onChanged();
+      else {
+        noteNumber(await res.json().catch(() => null));
+        onChanged();
+      }
     } catch {
       toast.error(t('removeFailed'));
     } finally {

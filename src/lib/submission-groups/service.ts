@@ -179,6 +179,11 @@ export interface SubmissionGroupServiceDeps {
   consent: (contactId: string) => Promise<ConsentAnswer>;
   /** profiles.full_name of the user in the group's account (store.displayName). */
   displayName: (userId: string, accountId: string) => Promise<string | null>;
+  /**
+   * 219: a number now in the group; a staff member's saved number gets
+   * them access (sg_staff_number_joined). Best-effort.
+   */
+  staffNumberJoined?: (groupId: string, phone: string) => Promise<unknown>;
   /** 170: the case's product and bank name for the welcome message. */
   welcomeDetails?: (
     groupId: string
@@ -724,7 +729,17 @@ export class SubmissionGroupService {
       return { status: 'failed', reason };
     }
     await settle(outcome, null);
-    if (outcome === 'added') return { status: 'added' };
+    if (outcome === 'added') {
+      try {
+        await this.deps.staffNumberJoined?.(groupId, phone);
+      } catch (err) {
+        this.log.warn('staff number access could not be granted', {
+          groupId,
+          err: errText(err),
+        });
+      }
+      return { status: 'added' };
+    }
     let link = begun.inviteLink;
     if (!link) {
       try {

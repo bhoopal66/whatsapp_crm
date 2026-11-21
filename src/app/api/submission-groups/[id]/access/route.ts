@@ -3,7 +3,9 @@
 // (115). Admin only. PUT `{ user_id, label }` adds or relabels a person;
 // DELETE `?user_id=` closes their row. Only while the group is ACTIVE
 // (the RPCs raise 55000 otherwise); the access trigger refuses anyone
-// who is not live staff of the group's workspace.
+// who is not live staff of the group's workspace. Once the row is
+// written, the person's saved WhatsApp number (219) is added to or taken
+// out of the WhatsApp group; the answer's `number` says how that went.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -20,7 +22,11 @@ import {
   parseAccessRemove,
   parseAccessSet,
 } from '@/lib/submission-groups/http';
-import { submissionGroupStore } from '@/lib/submission-groups/server';
+import {
+  linkStaffNumber,
+  submissionGroupStore,
+  unlinkStaffNumber,
+} from '@/lib/submission-groups/server';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -43,7 +49,10 @@ export async function PUT(request: Request, { params }: Params) {
       await request.json().catch(() => null)
     );
     await store.accessSet(group.id, userId, label, ctx.userId);
-    return NextResponse.json({ ok: true });
+    // Their saved WhatsApp number follows the access (never throws, and
+    // never changes the access outcome above).
+    const number = await linkStaffNumber(group, userId);
+    return NextResponse.json({ ok: true, number });
   } catch (err) {
     return errorResponse(err);
   }
@@ -60,7 +69,8 @@ export async function DELETE(request: Request, { params }: Params) {
     );
     const { userId } = parseAccessRemove(new URL(request.url).searchParams);
     const removed = await store.accessRemove(group.id, userId);
-    return NextResponse.json({ removed });
+    const number = await unlinkStaffNumber(group, userId);
+    return NextResponse.json({ removed, number });
   } catch (err) {
     return errorResponse(err);
   }

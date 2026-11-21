@@ -575,10 +575,9 @@ async function processWhapiGroups(
   try {
     // Leaves `ok` alone: the cron re-reads the group, so a lost event is no
     // reason to have Whapi redeliver the callback.
-    await recordSubmissionGroupMembership(
-      new SubmissionGroupStore(admin),
-      channel,
-      events,
+    const sgStore = new SubmissionGroupStore(admin)
+    await recordSubmissionGroupMembership(sgStore, channel, events, (g, p) =>
+      sgStore.staffNumberJoined(g, p),
     )
   } catch (error) {
     console.error('[whapi-webhook] submission group membership failed:', error)

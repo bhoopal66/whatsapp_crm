@@ -36,10 +36,20 @@ export interface ParticipantsApi {
   ): Promise<string[] | null>;
 }
 
+/** Taking a staff member's saved number out of a group (staff-number.ts). */
+export interface RemoveParticipantApi {
+  /** Removes one number (digits); never our own number. Throws on failure. */
+  removeParticipant(
+    channelId: string,
+    waGroupId: string,
+    phone: string
+  ): Promise<void>;
+}
+
 export function createWhapiGroupsApi(
   admin: SupabaseClient,
   accountId: string
-): GroupsApi & ParticipantsApi {
+): GroupsApi & ParticipantsApi & RemoveParticipantApi {
   // Loaded per call rather than cached: a reconnected number carries a
   // new token, and the adapter may outlive a single request in the cron.
   async function channelFor(channelId: string): Promise<WhatsAppChannel> {
@@ -150,6 +160,19 @@ export function createWhapiGroupsApi(
       throw new Error(
         `add participant failed: ${out.error ?? 'not attempted'}`
       );
+    },
+
+    async removeParticipant(channelId, waGroupId, phone) {
+      const channel = await channelFor(channelId);
+      const ours = normalizePhone(channel.wabaId ?? '');
+      if (ours && normalizePhone(phone) === ours)
+        throw new Error('refusing to remove our own number');
+      const out = await groups.removeParticipants({
+        channel,
+        groupId: waGroupId,
+        participants: [phone],
+      });
+      if (out.failed.length > 0) throw new Error('remove participant failed');
     },
 
     async getInviteLink(channelId, waGroupId) {

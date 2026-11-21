@@ -256,8 +256,13 @@ export type MembershipStore = Pick<
  */
 export async function recordSubmissionGroupMembership(
   store: MembershipStore,
-  channel: Pick<GroupChannel, 'id' | 'accountId'>,
-  events: readonly WhapiGroupEvent[]
+  channel: Pick<GroupChannel, 'id' | 'accountId'> & { wabaId?: string | null },
+  events: readonly WhapiGroupEvent[],
+  /**
+   * 219: a number other than the customer's and ours was added; a staff
+   * member's saved number gets them access (sg_staff_number_joined).
+   */
+  staffNumberJoined?: (groupId: string, phone: string) => Promise<unknown>
 ): Promise<number> {
   let failed = 0;
   for (const e of events) {
@@ -269,13 +274,30 @@ export async function recordSubmissionGroupMembership(
         channel.id,
         e.groupId
       );
-      if (!group?.contactId) continue;
-      const { phone } = await store.contactConsent(group.contactId);
+      if (!group) continue;
+      const phone = group.contactId
+        ? (await store.contactConsent(group.contactId)).phone
+        : null;
       const customer = new Set(forms(phone).filter(Boolean));
+      const isCustomer = (id: string) =>
+        !id.includes('@') && forms(id).some((f) => customer.has(f));
+      if (e.action === 'add' && staffNumberJoined) {
+        const ours = new Set(forms(channel.wabaId ?? '').filter(Boolean));
+        for (const id of e.waIds) {
+          if (id.includes('@') || isCustomer(id)) continue;
+          if (forms(id).some((f) => ours.has(f))) continue;
+          try {
+            await staffNumberJoined(group.id, id);
+          } catch (error) {
+            console.error(
+              `[submission-groups] staff number join on channel ${channel.id} failed:`,
+              error instanceof Error ? error.message : 'unknown error'
+            );
+          }
+        }
+      }
       if (customer.size === 0) continue;
-      const named = e.waIds.some(
-        (id) => !id.includes('@') && forms(id).some((f) => customer.has(f))
-      );
+      const named = e.waIds.some(isCustomer);
       const hidden = e.unresolved > 0 || e.waIds.some((id) => id.includes('@'));
       if (named) {
         await store.noteCustomerMembership(

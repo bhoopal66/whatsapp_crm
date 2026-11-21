@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   accessSet: vi.fn(),
   accessRemove: vi.fn(),
+  link: vi.fn(),
+  unlink: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -17,6 +19,8 @@ vi.mock('@/lib/submission-groups/server', () => ({
     accessSet: mocks.accessSet,
     accessRemove: mocks.accessRemove,
   }),
+  linkStaffNumber: mocks.link,
+  unlinkStaffNumber: mocks.unlink,
 }));
 
 import { ForbiddenError } from '@/lib/auth/account';
@@ -46,6 +50,8 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ id: G, accountId: 'acct-1' });
   mocks.accessSet.mockResolvedValue(undefined);
   mocks.accessRemove.mockResolvedValue(true);
+  mocks.link.mockResolvedValue({ status: 'none', reason: 'no_saved_number' });
+  mocks.unlink.mockResolvedValue({ status: 'none', reason: 'no_saved_number' });
 });
 
 describe('PUT access', () => {
@@ -105,12 +111,51 @@ describe('PUT access', () => {
   });
 });
 
+describe('PUT access: saved WhatsApp number', () => {
+  it('adds their saved number after the access row and reports it', async () => {
+    mocks.link.mockResolvedValue({ status: 'added' });
+    const res = await put({ user_id: U, label: 'agent' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, number: { status: 'added' } });
+    expect(mocks.link).toHaveBeenCalledWith(
+      expect.objectContaining({ id: G }),
+      U
+    );
+    expect(mocks.accessSet.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.link.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('keeps the access when WhatsApp refuses the number', async () => {
+    mocks.link.mockResolvedValue({ status: 'refused', reason: 'privacy' });
+    const res = await put({ user_id: U, label: 'agent' });
+    expect(res.status).toBe(200);
+    expect((await res.json()).number.status).toBe('refused');
+  });
+
+  it('touches no number when the access write fails', async () => {
+    mocks.accessSet.mockRejectedValue(
+      new SubmissionGroupDbError('sg_access_set: not ACTIVE', '55000')
+    );
+    await put({ user_id: U, label: 'agent' });
+    expect(mocks.link).not.toHaveBeenCalled();
+  });
+});
+
 describe('DELETE access', () => {
-  it('closes the person’s row', async () => {
+  it('closes the person’s row and takes their number out', async () => {
+    mocks.unlink.mockResolvedValue({ status: 'removed' });
     const res = await del(`?user_id=${U}`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ removed: true });
+    expect(await res.json()).toEqual({
+      removed: true,
+      number: { status: 'removed' },
+    });
     expect(mocks.accessRemove).toHaveBeenCalledWith(G, U);
+    expect(mocks.unlink).toHaveBeenCalledWith(
+      expect.objectContaining({ id: G }),
+      U
+    );
   });
 
   it('rejects a missing user_id with 400', async () => {

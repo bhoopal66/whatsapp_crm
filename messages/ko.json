@@ -8082,6 +8082,10 @@
       }
     },
     "people": {
+      "numberAdded": "Their WhatsApp number was added to the group.",
+      "numberRefused": "WhatsApp would not add their number. Share the group's invite link with them.",
+      "numberFailed": "Access saved, but their WhatsApp number could not be updated in the group.",
+      "numberRemoved": "Their WhatsApp number was removed from the group.",
       "title": "참여자",
       "hint": "이 목록의 직원은 그룹을 읽고 메시지를 보낼 수 있습니다.",
       "empty": "아직 목록에 아무도 없습니다.",

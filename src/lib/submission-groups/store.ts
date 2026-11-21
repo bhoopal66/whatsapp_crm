@@ -819,6 +819,33 @@ export class SubmissionGroupStore {
     );
   }
 
+  /** 219: a live staff member's saved WhatsApp number (digits), or null. */
+  async staffSavedPhone(
+    accountId: string,
+    userId: string
+  ): Promise<string | null> {
+    const v = await this.rpc('staff_saved_phone', {
+      p_account: accountId,
+      p_user: userId,
+    });
+    return typeof v === 'string' && v ? v : null;
+  }
+
+  /**
+   * 219: a phone joined the group; when it is a staff member's saved number
+   * they get access ('coordinator'). Their user id, or null.
+   */
+  async staffNumberJoined(
+    groupId: string,
+    phone: string
+  ): Promise<string | null> {
+    const v = await this.rpc('sg_staff_number_joined', {
+      p_group: groupId,
+      p_phone: phone,
+    });
+    return typeof v === 'string' && v ? v : null;
+  }
+
   /** The account's groups due a membership check, oldest first. */
   async membershipDue(accountId: string, limit: number): Promise<string[]> {
     return scalarIds(
