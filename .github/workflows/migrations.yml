@@ -1118,3 +1118,10 @@ jobs:
       # same file as they land.
       - name: Verify privacy (PDPL)
         run: supabase db query --local --file supabase/ci/verify-privacy.sql
+
+      # Migration 225: the case file reviewer. Off until switched on; a
+      # passed file queues its case 60 s out (debounced); claims take back
+      # stale runs and three failures end one; drafts are idempotent, a new
+      # one supersedes the pending one, writers decide once.
+      - name: Verify case review
+        run: supabase db query --local --file supabase/ci/verify-case-review.sql

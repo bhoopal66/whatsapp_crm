@@ -1556,6 +1556,19 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   for a rule's task. Restates 187/189/134 bodies: apply in order, once.
   `verify-case-rules-stage-automation.sql`.
 
+- **Case file reviewer (225, `lib/case-review/*`, package 031).** Off
+  by default (`case_account_settings.review_enabled` /
+  `review_send_to_model`). A file turning `passed` queues its case 60 s
+  out (`case_review_on_file_passed`, debounced); the automations cron
+  runs `runCaseReviewTick` each minute. Drafts only: never a document,
+  file, stage or task write, no send path. The checklist is always
+  there; a model narrative only with the switch, an AI key, clean
+  `redact()` output (fail closed) and `assertAiTransfer` (224) via
+  `generateReply({ purpose: 'case_review' })`. PDF text via
+  `extractPdfPages` (no OCR; under 40 characters a page = scanned).
+  `case_review_draft_create` is idempotent on input_hash and supersedes
+  the pending draft. `verify-case-review.sql`.
+
 ### Case desk (`lib/desk/*`, migration 220)
 
 Staff uploads to bank cases at `/desk`, with human case numbers. Port of

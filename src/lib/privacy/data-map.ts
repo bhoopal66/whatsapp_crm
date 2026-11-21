@@ -770,6 +770,13 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: AUDIT,
     exported: false,
   },
+  case_review_drafts: {
+    link: 'case',
+    class: 'content',
+    erase: 'retain',
+    reason: KYC,
+    exported: false,
+  },
   // PDPL itself
   privacy_legal_holds: {
     link: 'contact',
@@ -951,6 +958,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'workspace_audit',
             'privacy_requests',
             'privacy_retention_settings',
+            'case_review_queue',
             'ai_transfer_basis',
             'ai_transfer_log',
           ],

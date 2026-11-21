@@ -25,6 +25,7 @@ import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { runPersonalHistoryImportTick } from '@/lib/whatsapp/personal-history-import'
 import { runStagedMediaSweep } from '@/lib/storage/staged-media-sweep'
 import { runRetentionSweeps } from '@/lib/privacy/retention'
+import { runCaseReviewTick } from '@/lib/case-review/review'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
 import { ConfirmationGate } from '@/lib/assist/confirm'
@@ -200,6 +201,37 @@ function scheduleStagedMediaSweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the staged media sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * The case file reviewer (migration 225): up to 20 due cases a minute,
+ * each drafted and settled. Only workspaces that switched it on ever
+ * queue a case. Once a minute per process, inside after(); a failure is
+ * only logged and the queue retries.
+ */
+const caseReviewDue = everyInterval(60_000)
+
+function scheduleCaseReview() {
+  try {
+    if (!caseReviewDue()) return
+    after(async () => {
+      try {
+        const admin = supabaseAdmin()
+        const out = await runCaseReviewTick({ db: admin, storage: admin.storage })
+        if (out.claimed > 0) console.log('[automations-cron] case review', out)
+      } catch (err) {
+        console.error(
+          '[automations-cron] case review failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the case review:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -829,6 +861,7 @@ export async function GET(request: Request) {
     scheduleChatFileSweep()
     scheduleStagedMediaSweep()
     scheduleRetentionSweep()
+    scheduleCaseReview()
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
     scheduleSubmissionGroups()

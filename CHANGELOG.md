@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Case file reviewer
+
+**Migration required:** apply `225_case_review.sql` (as a superuser)
+after 224, before deploying this build.
+- Off by default. Settings → Cases → Case file reviewer.
+- When a case document passes its file checks, a reviewer's note appears
+  on the case's Documents tab, listing which required documents are in,
+  missing, failed or expired, and where the checklist and the files
+  disagree.
+- Optionally, an AI-written summary of the documents' text, with identity
+  numbers removed, sent with the workspace's AI key and logged in
+  Settings → Privacy. Scans cannot be read (no OCR) and are marked for a
+  person.
+- The note is advice only: Agree or Disagree records your view and
+  changes nothing on the case. See "Case file reviewer" in
+  `docs/cases.md`.
+
 ### Privacy (UAE PDPL): export, erase, legal hold, retention, AI transfer basis
 
 **Migration required:** apply `221_privacy_export.sql`,

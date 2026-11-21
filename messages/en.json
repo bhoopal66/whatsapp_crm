@@ -12045,5 +12045,28 @@
       "stats": "Last 30 days: {calls} AI calls logged, {refused} refused.",
       "saved": "Saved"
     }
+  },
+  "CaseReview": {
+    "title": "Reviewer's note",
+    "none": "No note yet.",
+    "aiWritten": "AI-written, not verified",
+    "checklist": "The checklist it was given",
+    "approve": "Agree",
+    "reject": "Disagree",
+    "advice": "Advice only: deciding records your view and changes nothing on the case.",
+    "status": {
+      "pending": "To decide",
+      "approved": "Agreed",
+      "rejected": "Disagreed",
+      "superseded": "Replaced by a newer note"
+    },
+    "settings": {
+      "title": "Case file reviewer",
+      "description": "When a document passes its file checks, the reviewer writes a note for the case team: which required documents are in, missing, failed or expired, and where the checklist and the files disagree. It only advises.",
+      "enabled": "Write a reviewer's note when a document passes",
+      "sendToModel": "Add an AI-written summary of the documents' text",
+      "modelNote": "The AI summary sends the documents' text (with identity numbers removed) to your AI provider, using the workspace's AI key, and is logged in Settings → Privacy. Scanned files cannot be read and are marked for a person.",
+      "saved": "Saved"
+    }
   }
 }
