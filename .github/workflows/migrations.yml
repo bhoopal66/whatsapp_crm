@@ -1110,3 +1110,11 @@ jobs:
       # holder of a bank only that bank's; tables are service-role only.
       - name: Verify case desk
         run: supabase db query --local --file supabase/ci/verify-case-desk.sql
+
+      # Migrations 221-224: PDPL. The subject export is owners and admins
+      # only, confined to the account, strips staff ids and storage
+      # locations and logs a hash, never the contact id; erase, legal
+      # hold, retention and the AI transfer register are asserted in the
+      # same file as they land.
+      - name: Verify privacy (PDPL)
+        run: supabase db query --local --file supabase/ci/verify-privacy.sql
