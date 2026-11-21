@@ -69,7 +69,12 @@ export async function DELETE(request: Request, { params }: Params) {
     );
     const { userId } = parseAccessRemove(new URL(request.url).searchParams);
     const removed = await store.accessRemove(group.id, userId);
-    const number = await unlinkStaffNumber(group, userId);
+    // Only a row that was really closed takes the number out: access that
+    // comes from a rule (163 bank holder, 173 team leader) is unchanged by
+    // this DELETE, so their number must stay in the group too.
+    const number = removed
+      ? await unlinkStaffNumber(group, userId)
+      : { status: 'none' as const, reason: 'no_access_row' };
     return NextResponse.json({ removed, number });
   } catch (err) {
     return errorResponse(err);

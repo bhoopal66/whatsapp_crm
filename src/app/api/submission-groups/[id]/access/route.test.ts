@@ -158,6 +158,17 @@ describe('DELETE access', () => {
     );
   });
 
+  it('leaves the number alone when there was no row to close', async () => {
+    mocks.accessRemove.mockResolvedValue(false);
+    const res = await del(`?user_id=${U}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      removed: false,
+      number: { status: 'none', reason: 'no_access_row' },
+    });
+    expect(mocks.unlink).not.toHaveBeenCalled();
+  });
+
   it('rejects a missing user_id with 400', async () => {
     expect((await del('')).status).toBe(400);
     expect(mocks.accessRemove).not.toHaveBeenCalled();

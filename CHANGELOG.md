@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Staff numbers follow group access
+
+**Migration required:** apply `219_group_staff_numbers.sql` (as a
+superuser) after 218, before deploying this build.
+- Making someone a manager of a WhatsApp group adds their saved
+  WhatsApp number (Settings → Members) to the group; removing them as a
+  manager removes it. Submission groups do the same through their
+  access list.
+- The other way round: when a staff member's saved number is added to a
+  WhatsApp group or a submission group's WhatsApp group, from the app or
+  from a phone, they become a manager (or get Coordinator access) and
+  can send from the app.
+- Someone with no saved number keeps sending from the app through the
+  group's number, as before. If WhatsApp will not add a number, the
+  screen says so and the invite link can be shared instead.
+
 ### Faster screens for team leaders and agents, and fewer errors
 
 **Migration required:** apply `216_team_activity_perf.sql`, then

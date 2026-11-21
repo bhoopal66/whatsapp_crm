@@ -1174,6 +1174,15 @@ the contract.
   nothing), then `whatsapp_group_tombstones` (173), then the row;
   children cascade. A submission group is refused. `persistGroupSnapshot`
   and Sync skip tombstoned groups; Sync skips submission groups too.
+- **Staff numbers (219).** A live agent/team leader's saved number
+  (`coordinator_phones`) follows group access both ways: the managers
+  PUT adds/removes it (`lib/groups/manager-numbers.ts`), the
+  `whatsapp_group_participants_staff_manager` trigger (AFTER INSERT
+  only, so a snapshot upsert never re-grants a removed manager) makes
+  a joining number a manager. Submission groups: the access route
+  (`lib/submission-groups/staff-number.ts`) and `sg_staff_number_joined`
+  (Add number, webhook add events). WhatsApp failures never undo the
+  CRM write. `verify-group-staff-numbers.sql`.
 - **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
   invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.
 

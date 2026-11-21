@@ -246,6 +246,33 @@ its own label, leading the agent comes before holding the bank, and an
 owner or admin who also leads a team stays an owner or admin. An ENDED
 group is unchanged here too.
 
+### A staff member's saved number follows their access (migration 219)
+
+A staff member's saved WhatsApp number (the coordinator number in
+Settings → Members; only live agents and team leaders have one) is
+linked to the access list both ways, on an ACTIVE group that has a
+WhatsApp group:
+
+- **Access given → number added.** After an admin adds someone to the
+  list (`PUT …/access`), their saved number is added to the WhatsApp
+  group unless it is already in. The list change is saved first and is
+  never undone by WhatsApp: the response's `number` field says what
+  happened (`added`, `already`, `none` for no saved number, `skipped`
+  with a reason, `refused` when WhatsApp would not add them — share the
+  invite link — or `failed`).
+- **Access removed → number removed** (`DELETE …/access`), if it is in
+  the group. A coordinator of the case's bank keeps reading and sending
+  through 163 even without a row.
+- **Number joins → access given.** When a staff member's saved number is
+  added to the WhatsApp group (by **Add number**, or from a phone, seen
+  through the webhook), `sg_staff_number_joined` opens a list row
+  labelled Coordinator. An open row keeps its own label. A number two
+  people saved, or a person no longer live staff, gets nothing.
+
+Our own number and the customer's number are never added or removed this
+way. Staff numbers are not customers: no consent check, and they do not
+use Add number's 10-a-day allowance.
+
 ## The prefix
 
 Every staff message goes out from the hosting number as

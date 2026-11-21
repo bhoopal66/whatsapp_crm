@@ -78,7 +78,7 @@ requests. **Refresh** re-reads the group from WhatsApp.
   uploaded to the `chat-media` bucket under `account-<id>/groups/`
   (never `staged/`, so the unsent-attachment sweep leaves it alone) and
   posted as `{ media: { kind, url, path, caption?, filename?,
-mimeType? } }`. The server accepts only an upload of the caller's own
+  mimeType? } }`. The server accepts only an upload of the caller's own
   workspace in that folder and rebuilds the link on the app's public
   storage address, so the gateway is never handed another host. A voice
   note is stored as `audio`, with no caption. Templates, interactive
