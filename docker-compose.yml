@@ -42,9 +42,10 @@ services:
       start_period: 15s
 
   # Optional Yeastar event gateway (docs/yeastar.md, "Running the
-  # gateway"): `docker compose --profile pbx up -d`. Not the app image:
-  # that one is Node 20, and the gateway needs Node 22's global
-  # WebSocket. It reaches the app over the compose network and needs
+  # gateway"): `docker compose --profile pbx up -d`. Its own plain
+  # Node 22 image (it needs the global WebSocket), not the app image,
+  # which carries the whole app. It reaches the app over the compose
+  # network and needs
   # PBX_GATEWAY_SECRET (and PBX_CONNECTION_ID when several PBXs are
   # configured) in .env.local.
   pbx-gateway:

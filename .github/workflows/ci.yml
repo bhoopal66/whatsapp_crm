@@ -33,9 +33,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Node 22: @supabase/supabase-js (2.108) builds its Realtime client
+      # in createClient and throws on Node < 22, which has no global
+      # WebSocket ("Node.js 20 detected without native WebSocket
+      # support"). On 20 every route that makes a server client
+      # answered 500, and the groups route tests failed only here.
+      # Keep in step with the Dockerfile.
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies

@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Node 22
+
+**Rebuild required:** the app now needs Node 22 (`engines`, the
+Dockerfile and CI). `@supabase/supabase-js` 2.108 creates its Realtime
+client inside `createClient` and throws on Node 20, which has no global
+WebSocket ("Node.js 20 detected without native WebSocket support"), so
+on Node 20 every server-side Supabase client failed. Rebuild the Docker
+image, or run the app on Node 22 or later.
+
 ### SMS for HR automated messages
 
 **Migration required:** apply `226_hr_automsg_sms.sql` (as a superuser)
