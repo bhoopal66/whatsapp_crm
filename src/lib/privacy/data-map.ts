@@ -269,7 +269,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'delete',
     exported: true,
   },
-  deals: { link: 'contact', class: 'content', erase: 'delete', exported: true },
+  deals: {
+    link: 'contact',
+    class: 'content',
+    erase: 'anonymise',
+    exported: true,
+    reason:
+      'the pipeline row stays (title and notes cleared) so deal rooms and reports keep their reference',
+  },
   deal_files: {
     link: 'deal',
     class: 'special',
@@ -567,10 +574,9 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
   submission_group_messages: {
     link: 'submission_group',
     class: 'content',
-    erase: 'anonymise',
+    erase: 'retain',
+    reason: KYC,
     exported: true,
-    reason:
-      "the bodies of the customer's own messages are emptied; staff messages stay with the case",
   },
   submission_group_added_numbers: {
     link: 'submission_group',
@@ -764,6 +770,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: AUDIT,
     exported: false,
   },
+  // PDPL itself
+  privacy_legal_holds: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'retain',
+    reason: 'the legal hold is itself a legal record, kept after release',
+    exported: false,
+  },
   // Sales app
   taamul_sales_contacts: {
     link: 'phone',
@@ -774,7 +788,7 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
   taamul_sales_events: {
     link: 'phone',
     class: 'identifier',
-    erase: 'delete',
+    erase: 'retain',
     exported: false,
     reason: 'event ids; the snapshot is in taamul_sales_contacts',
   },

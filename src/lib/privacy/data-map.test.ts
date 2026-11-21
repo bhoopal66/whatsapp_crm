@@ -54,4 +54,28 @@ describe('PDPL data map', () => {
       .filter((t) => !new RegExp(`public\\.${t}\\b`).test(sql));
     expect(missing).toEqual([]);
   });
+
+  it('erases every table it marks delete or anonymise (migration 222)', () => {
+    const sql = readFileSync(join(DIR, '222_privacy_erase.sql'), 'utf8');
+    const missing = Object.entries(PERSONAL)
+      .filter(([, e]) => e.erase !== 'retain')
+      .map(([t]) => t)
+      .filter(
+        (t) =>
+          !new RegExp(`(DELETE FROM|UPDATE) public\\.${t}\\b`).test(sql) &&
+          !sql.includes(`('${t}')`) &&
+          // erased through an existing function or a cascade
+          !(t === 'memory_items' && sql.includes('memory_forget(')) &&
+          !(
+            t === 'brain_embeddings' &&
+            /DELETE FROM public\.brain_items/.test(sql)
+          ) &&
+          !(t === 'flow_run_events' && sql.includes("('flow_runs')")) &&
+          !(
+            (t === 'journey_outbox' || t === 'journey_processed_events') &&
+            sql.includes("('journey_files')")
+          )
+      );
+    expect(missing).toEqual([]);
+  });
 });

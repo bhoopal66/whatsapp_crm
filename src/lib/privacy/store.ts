@@ -68,4 +68,91 @@ export class PrivacyStore {
       ? (data as Record<string, unknown>)
       : null;
   }
+
+  async erase(
+    actor: string,
+    account: string,
+    contactId: string,
+    input: { dryRun: boolean; confirm: string | null }
+  ): Promise<EraseResult | null> {
+    const data = (await this.rpc('privacy_subject_erase', {
+      p_actor: actor,
+      p_account: account,
+      p_contact: contactId,
+      p_dry_run: input.dryRun,
+      p_confirm: input.confirm,
+    })) as Record<string, unknown> | null;
+    if (!data || typeof data !== 'object') return null;
+    return {
+      mode: data.mode === 'erase' ? 'erase' : 'dry_run',
+      blocked: data.blocked === 'legal_hold' ? 'legal_hold' : null,
+      requestId: Number(data.request_id),
+      counts: (data.counts as Record<string, number> | undefined) ?? {},
+      objects: Array.isArray(data.objects)
+        ? (data.objects as StoredObject[])
+        : [],
+      objectsCount: Number(data.objects_count ?? 0),
+    };
+  }
+
+  async objectsDone(
+    actor: string,
+    account: string,
+    requestId: number,
+    remaining: StoredObject[]
+  ): Promise<void> {
+    await this.rpc('privacy_erase_objects_done', {
+      p_actor: actor,
+      p_account: account,
+      p_request: requestId,
+      p_remaining: remaining,
+    });
+  }
+
+  async legalHold(
+    actor: string,
+    account: string,
+    contactId: string,
+    change?: { place: boolean; reason: string | null }
+  ): Promise<LegalHold | null> {
+    const data = (await (change
+      ? this.rpc('privacy_legal_hold_set', {
+          p_actor: actor,
+          p_account: account,
+          p_contact: contactId,
+          p_place: change.place,
+          p_reason: change.reason,
+        })
+      : this.rpc('privacy_legal_hold_get', {
+          p_actor: actor,
+          p_account: account,
+          p_contact: contactId,
+        }))) as Record<string, unknown> | null;
+    if (!data || typeof data !== 'object') return null;
+    const hold = data.hold as { reason?: string; placed_at?: string } | null;
+    return {
+      onHold: data.on_hold === true,
+      reason: hold?.reason ?? null,
+      placedAt: hold?.placed_at ?? null,
+    };
+  }
+}
+
+/** A stored file the erase removed the row of: by bucket and path, or a chat-media URL. */
+export type StoredObject =
+  { bucket: string; path: string } | { bucket: 'chat-media'; url: string };
+
+export interface EraseResult {
+  mode: 'dry_run' | 'erase';
+  blocked: 'legal_hold' | null;
+  requestId: number;
+  counts: Record<string, number>;
+  objects: StoredObject[];
+  objectsCount: number;
+}
+
+export interface LegalHold {
+  onHold: boolean;
+  reason: string | null;
+  placedAt: string | null;
 }
