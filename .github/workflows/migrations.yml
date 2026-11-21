@@ -1089,3 +1089,14 @@ jobs:
       # granted to nobody, the two public functions to service_role only.
       - name: Verify submission group media sends
         run: supabase db query --local --file supabase/ci/verify-submission-group-media.sql
+
+      # Migration 219: a staff member's saved WhatsApp number links them
+      # to its groups. The one live agent / team leader whose saved
+      # number joins a WhatsApp group becomes its manager (AFTER INSERT
+      # only, so a snapshot upsert never re-grants); saving a number
+      # grants the groups already holding it; a number two people saved,
+      # an @lid id, a viewer, an owner or a deactivated agent grants
+      # nothing. sg_staff_number_joined adds an open 'coordinator' row on
+      # an ACTIVE submission group only. Service role only.
+      - name: Verify group staff numbers
+        run: supabase db query --local --file supabase/ci/verify-group-staff-numbers.sql
