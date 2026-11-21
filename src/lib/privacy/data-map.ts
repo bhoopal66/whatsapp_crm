@@ -950,6 +950,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'webhook_event_outbox',
             'workspace_audit',
             'privacy_requests',
+            'privacy_retention_settings',
           ],
         ],
       ] as const

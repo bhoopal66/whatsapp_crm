@@ -136,6 +136,29 @@ export class PrivacyStore {
       placedAt: hold?.placed_at ?? null,
     };
   }
+
+  async retention(
+    actor: string,
+    account: string,
+    change?: { policy: unknown; apply: boolean }
+  ): Promise<{ policy: unknown; apply: boolean; updatedAt: string | null }> {
+    const data = (await (change
+      ? this.rpc('privacy_retention_set', {
+          p_actor: actor,
+          p_account: account,
+          p_policy: change.policy,
+          p_apply: change.apply,
+        })
+      : this.rpc('privacy_retention_get', {
+          p_actor: actor,
+          p_account: account,
+        }))) as Record<string, unknown>;
+    return {
+      policy: data.policy,
+      apply: data.apply === true,
+      updatedAt: (data.updated_at as string | null) ?? null,
+    };
+  }
 }
 
 /** A stored file the erase removed the row of: by bucket and path, or a chat-media URL. */

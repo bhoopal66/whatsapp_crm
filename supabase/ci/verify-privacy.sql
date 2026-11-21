@@ -9,6 +9,11 @@
 -- messages, notes and tasks go, the contact is anonymised with its
 -- opt-out kept, and a bank case (KYC) stays.
 --
+-- 223: only owners and admins set a retention policy, and only
+-- allow-listed keys, 30+ days and an allowed action; the sweep is a dry
+-- run until applied, deletes only what is old enough, and skips a
+-- customer under a legal hold.
+--
 -- ONE statement on purpose: `supabase db query --file` sends the file as
 -- a single prepared statement and rejects several. Fixtures are rolled
 -- back by a sentinel exception; failures are named in the final one.
@@ -25,6 +30,11 @@ DECLARE
   c_b      UUID;
   v1       UUID;
   k1       UUID;
+  c2       UUID;
+  c3       UUID;
+  v2       UUID;
+  v3       UUID;
+  pol      JSONB;
   j        JSONB;
   v        TEXT;
   n        INT := 0;
@@ -147,6 +157,51 @@ BEGIN
     (SELECT count(*) FROM privacy_requests WHERE account_id = a_acct AND contact_hash = privacy_contact_hash(a_acct, c1)
        AND kind IN ('erase', 'erase_dry_run', 'legal_hold_placed', 'legal_hold_released')) = 5,
     'the erase requests were not all logged');
+
+  -- ---------- 223: retention ----------
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500221003', 'PV two') RETURNING id INTO c2;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500221004', 'PV held') RETURNING id INTO c3;
+  INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_agent, c2) RETURNING id INTO v2;
+  INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_agent, c3) RETURNING id INTO v3;
+  INSERT INTO hr_conversations (conversation_id, account_id, inbox, stage_key) VALUES (v2, a_acct, 'recruiter', 'cv_review'),
+    (v3, a_acct, 'recruiter', 'cv_review');
+  INSERT INTO hr_agent_drafts (account_id, conversation_id, agent_kind, intent, status, body, created_at) VALUES
+    (a_acct, v2, 'orchestrator', 'cv_received', 'rejected', 'old decided', now() - interval '100 days'),
+    (a_acct, v2, 'orchestrator', 'cv_received', 'pending', 'old pending', now() - interval '100 days'),
+    (a_acct, v2, 'orchestrator', 'cv_received', 'rejected', 'recent decided', now() - interval '5 days'),
+    (a_acct, v3, 'orchestrator', 'cv_received', 'rejected', 'held decided', now() - interval '100 days');
+  PERFORM privacy_legal_hold_set(u_admin, a_acct, c3, true, 'dispute');
+  pol := '{"tables": {"hr_agent_drafts": {"days": 90, "action": "delete"}, "hr_outbox_bodies": {"days": 365, "action": "anonymise"},
+           "deal_room_messages": {"days": 365, "action": "anonymise"}, "whatsapp_group_messages": {"days": 365, "action": "delete"},
+           "call_records": {"days": 730, "action": "anonymise"}}}';
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try(format('SELECT privacy_retention_set(%L, %L, %L, false)::text', u_agent, a_acct, pol)) LIKE 'ERROR % NOT_ALLOWED:%',
+    'an agent set a retention policy');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try(format('SELECT privacy_retention_set(%L, %L, %L, false)::text', u_admin, a_acct,
+      '{"tables": {"cases": {"days": 90, "action": "delete"}}}')) LIKE 'ERROR % INVALID:%'
+    AND pg_temp.pv_try(format('SELECT privacy_retention_set(%L, %L, %L, false)::text', u_admin, a_acct,
+      '{"tables": {"hr_agent_drafts": {"days": 10, "action": "delete"}}}')) LIKE 'ERROR % INVALID:%'
+    AND pg_temp.pv_try(format('SELECT privacy_retention_set(%L, %L, %L, false)::text', u_admin, a_acct,
+      '{"tables": {"hr_outbox_bodies": {"days": 90, "action": "delete"}}}')) LIKE 'ERROR % INVALID:%',
+    'a retention policy outside the allow-list, under 30 days or with a disallowed action was accepted');
+  PERFORM privacy_retention_set(u_admin, a_acct, pol, false);
+  j := privacy_retention_sweep(a_acct);
+  n := n + 1; failed := failed || pg_temp.pv_ok(j->>'mode' = 'dry_run'
+    AND (j->'tables'->'hr_agent_drafts'->>'rows')::int = 1 AND (j->'tables'->'hr_agent_drafts'->>'held_skipped')::int = 1
+    AND (SELECT count(*) FROM hr_agent_drafts WHERE account_id = a_acct) = 4,
+    format('the retention dry run is wrong (%s)', j::text));
+  PERFORM privacy_retention_set(u_owner, a_acct, pol, true);
+  j := privacy_retention_sweep(a_acct);
+  n := n + 1; failed := failed || pg_temp.pv_ok(j->>'mode' = 'apply'
+    AND (SELECT string_agg(body, ',' ORDER BY body) FROM hr_agent_drafts WHERE account_id = a_acct)
+        = 'held decided,old pending,recent decided',
+    format('the sweep removed the wrong drafts (%s)', j::text));
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (SELECT count(*) FROM privacy_requests WHERE account_id = a_acct AND kind IN ('retention', 'retention_dry_run')
+       AND actor_label = 'system:retention') = 2, 'the sweeps were not logged');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    a_acct IN (SELECT privacy_retention_accounts()), 'the account is not on the sweep list');
 
   RAISE EXCEPTION USING ERRCODE = 'ZT221', MESSAGE = 'verify-privacy rollback';
   EXCEPTION WHEN SQLSTATE 'ZT221' THEN
