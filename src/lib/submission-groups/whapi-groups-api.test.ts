@@ -319,3 +319,31 @@ describe('addParticipant (211)', () => {
     expect(h.addParticipants).not.toHaveBeenCalled();
   });
 });
+
+describe('removeParticipant', () => {
+  it('refuses our own number without calling the gateway', async () => {
+    await expect(
+      api().removeParticipant('cfg-1', WA_GROUP, '971500000000')
+    ).rejects.toThrow('our own number');
+    expect(h.removeParticipants).not.toHaveBeenCalled();
+  });
+
+  it('removes one number through the gateway', async () => {
+    h.removeParticipants.mockResolvedValue({ failed: [] });
+    await expect(
+      api().removeParticipant('cfg-1', WA_GROUP, '971501234567')
+    ).resolves.toBeUndefined();
+    expect(h.removeParticipants).toHaveBeenCalledWith({
+      channel: whapi,
+      groupId: WA_GROUP,
+      participants: ['971501234567'],
+    });
+  });
+
+  it('throws when the gateway reports the number as failed', async () => {
+    h.removeParticipants.mockResolvedValue({ failed: ['971501234567'] });
+    await expect(
+      api().removeParticipant('cfg-1', WA_GROUP, '971501234567')
+    ).rejects.toThrow('remove participant failed');
+  });
+});

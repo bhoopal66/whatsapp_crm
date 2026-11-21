@@ -445,6 +445,7 @@ function setup(
     api?: FakeApi;
     welcomeDetails?: SubmissionGroupServiceDeps['welcomeDetails'];
     logger?: SubmissionGroupServiceDeps['logger'];
+    staffNumberJoined?: SubmissionGroupServiceDeps['staffNumberJoined'];
   } = {}
 ) {
   const store = o.store ?? new FakeStore();
@@ -464,6 +465,7 @@ function setup(
     logger: o.logger ?? { warn: () => {} },
     ...(o.welcomeDetails ? { welcomeDetails: o.welcomeDetails } : {}),
     ...(o.now ? { now: o.now } : {}),
+    ...(o.staffNumberJoined ? { staffNumberJoined: o.staffNumberJoined } : {}),
   });
   const open = (
     ref = 'S-1',
@@ -2046,5 +2048,33 @@ describe('addNumber (211)', () => {
     expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
       status: 'added',
     });
+  });
+
+  it('tells the staff-number hook which group and phone were added', async () => {
+    const joined = vi.fn().mockResolvedValue(undefined);
+    const s = setup({ staffNumberJoined: joined });
+    expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
+      status: 'added',
+    });
+    expect(joined).toHaveBeenCalledTimes(1);
+    expect(joined).toHaveBeenCalledWith('g-1', '971501234567');
+  });
+
+  it('still answers added when the staff-number hook throws', async () => {
+    const joined = vi.fn().mockRejectedValue(new Error('grant failed'));
+    const s = setup({ staffNumberJoined: joined });
+    expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
+      status: 'added',
+    });
+    expect(joined).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call the staff-number hook when the add is refused', async () => {
+    const joined = vi.fn();
+    const s = setup({ staffNumberJoined: joined });
+    s.api.addOutcome = 'refused';
+    const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+    expect(r.status).toBe('refused');
+    expect(joined).not.toHaveBeenCalled();
   });
 });
