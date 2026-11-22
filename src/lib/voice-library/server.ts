@@ -1,8 +1,14 @@
 /**
  * Server-only helpers for the voice-library routes: the workspace's TTS
- * key and storing audio in chat-media. Storage writes go through the
- * caller's own client: 023's policies let a member write under their
- * `account-<id>` prefix, so no service role is needed for the bytes.
+ * key and storing audio in chat-media.
+ *
+ * Library audio (`account-<id>/voice-library/`) is written and removed
+ * with the service role only: 242's RESTRICTIVE storage policies refuse
+ * the folder to `authenticated`, because 023 would otherwise let any
+ * member (viewers included) overwrite or delete it. Callers pass
+ * `supabaseAdmin()` only AFTER their own role, author and active-account
+ * checks. A personalised render goes under `staged/` with the caller's
+ * own client, like any composer attachment.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -55,16 +61,54 @@ export async function storeVoiceAudio(
   return toPublicSupabaseUrl(publicUrl);
 }
 
-/** Best-effort removal; a leftover object is only wasted space. */
-export async function removeVoiceAudio(
-  db: SupabaseClient,
-  path: string
-): Promise<void> {
+/**
+ * Best-effort removal with the service role; a leftover object is only
+ * wasted space. Only for an object no message points at: the entries
+ * POST's own just-stored audio, or through removeLibraryAudioIfUnused.
+ */
+export async function removeVoiceAudio(path: string): Promise<void> {
   try {
-    const { error } = await db.storage.from(CHAT_MEDIA_BUCKET).remove([path]);
+    const { error } = await supabaseAdmin()
+      .storage.from(CHAT_MEDIA_BUCKET)
+      .remove([path]);
     if (error) console.error('[voice-library] remove failed:', error.message);
   } catch (err) {
     console.error('[voice-library] remove threw:', err);
+  }
+}
+
+/**
+ * After a library entry's row is deleted: remove its audio unless a
+ * message of the account still points at it (a fixed entry is sent
+ * with its library URL, which messages.media_url keeps). 242's
+ * `voice_library_audio_in_use` compares on the URL path, as 155 does.
+ * When the check cannot run the object is kept: a leftover is only
+ * space, a removed one is a dead voice note in every chat it was sent.
+ * Returns what happened, for the route's tests and logs.
+ */
+export async function removeLibraryAudioIfUnused(
+  accountId: string,
+  path: string
+): Promise<'removed' | 'in_use' | 'kept'> {
+  try {
+    const admin = supabaseAdmin();
+    const { data, error } = await admin.rpc('voice_library_audio_in_use', {
+      p_account: accountId,
+      p_path: path,
+    });
+    if (error || typeof data !== 'boolean') {
+      console.error(
+        '[voice-library] in-use check failed:',
+        error?.message ?? 'no answer'
+      );
+      return 'kept';
+    }
+    if (data) return 'in_use';
+    await removeVoiceAudio(path);
+    return 'removed';
+  } catch (err) {
+    console.error('[voice-library] in-use check threw:', err);
+    return 'kept';
   }
 }
 

@@ -112,10 +112,13 @@ function mentionPattern(name: string): RegExp {
   return new RegExp(`(^|\\s)@${escaped}(?![\\p{L}\\p{N}])`, 'u');
 }
 
+/** 241 refuses a note naming more people (trigger and CHECK). */
+export const NOTE_MAX_MENTIONS = 20;
+
 /**
  * The picked people still named in `body` as "@Full Name", each once,
- * in picking order. Someone picked and then deleted from the text is
- * not rung.
+ * in picking order, at most NOTE_MAX_MENTIONS. Someone picked and then
+ * deleted from the text is not rung.
  */
 export function mentionedIds(
   body: string,
@@ -123,6 +126,7 @@ export function mentionedIds(
 ): string[] {
   const out: string[] = [];
   for (const p of picked) {
+    if (out.length >= NOTE_MAX_MENTIONS) break;
     if (!p.full_name.trim() || out.includes(p.user_id)) continue;
     if (mentionPattern(p.full_name).test(body)) out.push(p.user_id);
   }

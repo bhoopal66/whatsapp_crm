@@ -32,6 +32,16 @@
 --     each of them once with a `chat_note_mention` bell. They are frozen
 --     after the insert, so editing a note never rings again.
 --     conversation_note_mention_candidates() lists who may be mentioned.
+--     At most 20 a note (NOTE_MAX_MENTIONS in src/lib/inbox/notes.ts):
+--     the trigger refuses a longer list before testing anyone, and a
+--     CHECK holds the stored one. The kept list is readable by whoever
+--     reads the note; it says who can see the chat, which the mention
+--     list already tells any writer of it, never more.
+--   * A bell quotes the note. Editing the note rewrites the quote in
+--     its bells and their unsent pushes; deleting it deletes them, sent
+--     pushes included (087's chat_edit_message / chat_delete_message,
+--     156's erase). A push is found by its tag, 'bell:<notification id>'
+--     (109's push_on_notification).
 --   * "Can person X see chat Y" for an explicit X is
 --     conversation_note_user_can_see(), written over 190's
 --     can_view_conversation_for_user (the push path's explicit-user
@@ -72,6 +82,14 @@ CREATE TABLE IF NOT EXISTS public.conversation_notes (
   CONSTRAINT conversation_notes_body_check
     CHECK (body !~ '^[[:space:]]*$' AND char_length(body) <= 4000)
 );
+
+-- At most 20 mentions. Drop-and-add so a re-run over an older 241
+-- converges.
+ALTER TABLE public.conversation_notes
+  DROP CONSTRAINT IF EXISTS conversation_notes_mentions_check;
+ALTER TABLE public.conversation_notes
+  ADD CONSTRAINT conversation_notes_mentions_check
+    CHECK (cardinality(mention_ids) <= 20);
 
 CREATE INDEX IF NOT EXISTS idx_conversation_notes_conversation
   ON public.conversation_notes (conversation_id, created_at);
@@ -129,6 +147,11 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+  -- Refuse before testing anyone: each kept id costs a visibility check.
+  IF cardinality(coalesce(NEW.mention_ids, '{}'::uuid[])) > 20 THEN
+    RAISE EXCEPTION 'A note can mention at most 20 people'
+      USING ERRCODE = '22023';
+  END IF;
   NEW.author_id := auth.uid();
   NEW.created_at := now();
   NEW.edited_at := NULL;
@@ -210,9 +233,65 @@ CREATE TRIGGER conversation_notes_ring_mentions
   AFTER INSERT ON public.conversation_notes
   FOR EACH ROW EXECUTE FUNCTION public.conversation_notes_ring_mentions();
 
+-- An edit rewrites the quote in the note's bells and their unsent
+-- pushes, as 087's chat_edit_message does for team chat; a delete
+-- removes the bells and every push of them (087's chat_delete_message,
+-- 156's erase). Not swallowed: a stale quote of deleted text is worse
+-- than a refused delete.
+CREATE OR REPLACE FUNCTION public.conversation_notes_sync_bells()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    DELETE FROM public.push_outbox o
+     USING public.notifications n
+     WHERE n.account_id = OLD.account_id
+       AND n.type = 'chat_note_mention'
+       AND n.meta->>'note_id' = OLD.id::text
+       AND o.account_id = OLD.account_id
+       AND o.tag = 'bell:' || n.id::text;
+    DELETE FROM public.notifications n
+     WHERE n.account_id = OLD.account_id
+       AND n.type = 'chat_note_mention'
+       AND n.meta->>'note_id' = OLD.id::text;
+    RETURN NULL;
+  END IF;
+  IF NEW.body IS DISTINCT FROM OLD.body THEN
+    UPDATE public.push_outbox o
+       SET body = left(NEW.body, 140)
+      FROM public.notifications n
+     WHERE n.account_id = NEW.account_id
+       AND n.type = 'chat_note_mention'
+       AND n.meta->>'note_id' = NEW.id::text
+       AND o.account_id = NEW.account_id
+       AND o.tag = 'bell:' || n.id::text
+       AND o.sent_at IS NULL;
+    UPDATE public.notifications n
+       SET body = left(NEW.body, 140)
+     WHERE n.account_id = NEW.account_id
+       AND n.type = 'chat_note_mention'
+       AND n.meta->>'note_id' = NEW.id::text;
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS conversation_notes_sync_bells_update ON public.conversation_notes;
+CREATE TRIGGER conversation_notes_sync_bells_update
+  AFTER UPDATE OF body ON public.conversation_notes
+  FOR EACH ROW EXECUTE FUNCTION public.conversation_notes_sync_bells();
+
+DROP TRIGGER IF EXISTS conversation_notes_sync_bells_delete ON public.conversation_notes;
+CREATE TRIGGER conversation_notes_sync_bells_delete
+  AFTER DELETE ON public.conversation_notes
+  FOR EACH ROW EXECUTE FUNCTION public.conversation_notes_sync_bells();
+
 REVOKE ALL ON FUNCTION public.conversation_notes_before_insert(),
   public.conversation_notes_before_update(),
-  public.conversation_notes_ring_mentions()
+  public.conversation_notes_ring_mentions(),
+  public.conversation_notes_sync_bells()
 FROM PUBLIC, anon, authenticated;
 
 -- ---------- 4. Row-level security and grants ----------

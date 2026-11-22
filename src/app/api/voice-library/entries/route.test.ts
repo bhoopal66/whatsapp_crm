@@ -17,6 +17,9 @@ vi.mock('@/lib/auth/account', () => ({
     Response.json({ error: 'auth failed' }, { status: 403 })
   ),
 }));
+vi.mock('@/lib/ai/admin-client', () => ({
+  supabaseAdmin: () => adminClient,
+}));
 vi.mock('@/lib/voice-library/server', () => ({
   loadTtsKey: mocks.loadTtsKey,
   storeVoiceAudio: mocks.storeVoiceAudio,
@@ -31,7 +34,15 @@ import { POST } from './route';
 
 const ACCOUNT = '11111111-2222-4333-8444-555555555555';
 
-const client = {
+// The caller's own client: the route must not write with it (242 gives
+// `authenticated` no INSERT on entries and no write in voice-library/).
+const callerClient = {
+  from() {
+    throw new Error('caller client used for a library write');
+  },
+};
+
+const adminClient = {
   from() {
     const b: Record<string, unknown> = {};
     b.insert = (row: unknown) => {
@@ -69,7 +80,7 @@ beforeEach(() => {
   mocks.inserted = [];
   mocks.insertResult = { data: { id: 'row' }, error: null };
   mocks.requireRole.mockResolvedValue({
-    supabase: client,
+    supabase: callerClient,
     accountId: ACCOUNT,
     userId: 'user-1',
     role: 'agent',
@@ -81,10 +92,11 @@ beforeEach(() => {
 });
 
 describe('POST /api/voice-library/entries', () => {
-  it('stores a recording in the library folder and inserts the row', async () => {
+  it('stores a recording in the library folder and inserts the row, both as the service role', async () => {
     const res = await post({ ...base, source: 'recording', file: ogg() });
     expect(res.status).toBe(201);
-    const [, path] = mocks.storeVoiceAudio.mock.calls[0];
+    const [db, path] = mocks.storeVoiceAudio.mock.calls[0];
+    expect(db).toBe(adminClient);
     expect(path).toMatch(
       new RegExp(`^account-${ACCOUNT}/voice-library/[0-9a-f-]{36}\\.ogg$`)
     );
@@ -99,6 +111,14 @@ describe('POST /api/voice-library/entries', () => {
       personalised: false,
     });
     expect(mocks.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the role check refuses', async () => {
+    mocks.requireRole.mockRejectedValue(new Error('forbidden'));
+    const res = await post({ ...base, source: 'recording', file: ogg() });
+    expect(res.status).toBe(403);
+    expect(mocks.storeVoiceAudio).not.toHaveBeenCalled();
+    expect(mocks.inserted).toHaveLength(0);
   });
 
   it('refuses a file that is not Ogg/Opus', async () => {
@@ -119,6 +139,9 @@ describe('POST /api/voice-library/entries', () => {
     const res = await post({ ...base, source: 'recording', file: ogg() });
     expect(res.status).toBe(500);
     expect(mocks.removeVoiceAudio).toHaveBeenCalledTimes(1);
+    expect(mocks.removeVoiceAudio).toHaveBeenCalledWith(
+      mocks.storeVoiceAudio.mock.calls[0][1]
+    );
   });
 
   it('speaks a fixed script once; stores no audio for a personalised one', async () => {
