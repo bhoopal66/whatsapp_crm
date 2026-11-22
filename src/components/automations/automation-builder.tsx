@@ -39,6 +39,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { TimePicker } from "@/components/ui/time-picker"
 import { MeaningTriggerFields } from "@/components/insights/meaning-trigger-fields"
 import {
   DropdownMenu,
@@ -75,6 +83,17 @@ import {
   type ParentScope,
   type StepPath,
 } from "@/lib/automations/builder-tree"
+import {
+  buildSchedule,
+  DEFAULT_SCHEDULE,
+  DEFAULT_SCHEDULE_TIME,
+  DEFAULT_TIME_RANGE,
+  formatTimeRange,
+  parseSchedule,
+  parseTimeRange,
+  SCHEDULE_MODES,
+  type ScheduleMode,
+} from "@/lib/automations/schedule"
 import { cn } from "@/lib/utils"
 
 // ------------------------------------------------------------
@@ -125,6 +144,14 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
   post_team_chat: { label: "post_team_chat", icon: MessagesSquare, border: "border-l-primary" },
 }
+
+/** The condition subjects engine.ts evaluates, in menu order. */
+const CONDITION_SUBJECTS: string[] = [
+  "chat_tag_presence",
+  "contact_field",
+  "message_content",
+  "time_of_day",
+]
 
 const ADDABLE_STEPS: AutomationStepType[] = [
   "send_message",
@@ -502,7 +529,7 @@ function ChatTagPairSelect({
             </select>
           </div>
           {allowNone && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t("chatTags.keepSubHint", { title: subTitle })}
             </p>
           )}
@@ -1014,7 +1041,20 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
             <TriggerCard
               type={state.trigger_type}
               config={state.trigger_config}
-              onTypeChange={(tVal) => patchTop("trigger_type", tVal)}
+              onTypeChange={(tVal) => {
+                patchTop("trigger_type", tVal)
+                // A schedule trigger opens on its first preset, so the
+                // picker shows what is actually stored.
+                if (
+                  tVal === "time_based" &&
+                  !String(state.trigger_config.schedule ?? "").trim()
+                ) {
+                  patchTop("trigger_config", {
+                    ...state.trigger_config,
+                    schedule: DEFAULT_SCHEDULE,
+                  })
+                }
+              }}
               onConfigChange={(c) => patchTop("trigger_config", c)}
               t={t}
             />
@@ -1073,7 +1113,7 @@ function TriggerCard({
             <Zap className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] uppercase tracking-wide text-blue-700 dark:text-blue-300">{t("trigger")}</div>
+            <div className="text-xs uppercase tracking-wide text-blue-700 dark:text-blue-300">{t("trigger")}</div>
             <div className="truncate text-sm font-medium text-foreground">
               {label(type)}
             </div>
@@ -1099,7 +1139,7 @@ function TriggerCard({
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {type === "intent_match"
                   ? tm("triggerHint")
                   : t(`triggers.${type}.hint`)}
@@ -1129,26 +1169,128 @@ function TriggerCard({
               />
             )}
             {type === "time_based" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  {t("schedule")}
-                </label>
-                <Input
-                  placeholder="Cron expression or HH:mm"
-                  value={(config.schedule as string) ?? ""}
-                  onChange={(e) =>
-                    onConfigChange({ ...config, schedule: e.target.value })
-                  }
-                  className="text-foreground"
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t("scheduleHint")}
-                </p>
-              </div>
+              <ScheduleField
+                value={(config.schedule as string) ?? ""}
+                onChange={(schedule) => onConfigChange({ ...config, schedule })}
+              />
             )}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * A time-based trigger's schedule as presets (every day / weekdays at a
+ * time, every hour) over the same cron string the trigger has always
+ * stored; anything else stays editable as raw cron under "Custom".
+ * The mode is local state so choosing Custom over a preset-shaped
+ * value does not snap back to the preset.
+ */
+function ScheduleField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (schedule: string) => void
+}) {
+  const t = useTranslations("Automations.builder")
+  const parsed = parseSchedule(value)
+  const [mode, setMode] = useState<ScheduleMode>(parsed.mode)
+  const time = parsed.time ?? DEFAULT_SCHEDULE_TIME
+
+  function pickMode(next: ScheduleMode) {
+    setMode(next)
+    // Custom keeps whatever is stored, ready to edit as text.
+    if (next !== "custom") onChange(buildSchedule(next, time))
+  }
+
+  return (
+    <div>
+      <FieldBlock label={t("schedule")}>
+        <Select
+          value={mode}
+          onValueChange={(v) => v && pickMode(v as ScheduleMode)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue>{t(`scheduleModes.${mode}`)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {SCHEDULE_MODES.map((m) => (
+              <SelectItem key={m} value={m}>
+                {t(`scheduleModes.${m}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldBlock>
+      {(mode === "daily" || mode === "weekdays") && (
+        <FieldBlock label={t("scheduleAt")}>
+          <TimePicker
+            value={time}
+            onChange={(v) => onChange(buildSchedule(mode, v))}
+            hourLabel={t("timeHour")}
+            minuteLabel={t("timeMinute")}
+          />
+        </FieldBlock>
+      )}
+      {mode === "custom" && (
+        <FieldBlock label={t("scheduleCustomLabel")}>
+          <Input
+            placeholder="0 9 * * 1-5"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="font-mono text-foreground"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("scheduleHint")}
+          </p>
+        </FieldBlock>
+      )}
+    </div>
+  )
+}
+
+/** A condition's "HH:mm-HH:mm" window as two time pickers. */
+function TimeRangeField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (operand: string) => void
+}) {
+  const t = useTranslations("Automations.builder")
+  const parsed = parseTimeRange(value)
+  const range = parsed ?? DEFAULT_TIME_RANGE
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <FieldBlock label={t("config.timeFrom")}>
+          <TimePicker
+            value={range.from}
+            onChange={(from) => onChange(formatTimeRange({ ...range, from }))}
+            hourLabel={t("timeHour")}
+            minuteLabel={t("timeMinute")}
+          />
+        </FieldBlock>
+        <FieldBlock label={t("config.timeUntil")}>
+          <TimePicker
+            value={range.to}
+            onChange={(to) => onChange(formatTimeRange({ ...range, to }))}
+            hourLabel={t("timeHour")}
+            minuteLabel={t("timeMinute")}
+          />
+        </FieldBlock>
+      </div>
+      {!parsed && value.trim() && (
+        <p className="mt-1 text-xs text-warning">
+          {t("config.timeRangeInvalid", { value })}
+        </p>
+      )}
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t("config.timeRangeHint")}
+      </p>
     </div>
   )
 }
@@ -1284,7 +1426,7 @@ function InteractiveReplyConfig({
         placeholder={t("replyIdsHint")}
         className="font-mono text-foreground"
       />
-      <p className="mt-1 text-[11px] text-muted-foreground">{t("replyIdsHelp")}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t("replyIdsHelp")}</p>
     </div>
   )
 }
@@ -1392,11 +1534,11 @@ function StepRenderer({
               <Icon className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
                 {isCondition ? "Condition" : step.step_type === "wait" ? "Wait" : "Action"}
               </div>
               <div className="truncate text-sm font-medium text-foreground">{meta ? t(`steps.${meta.label}`) : step.step_type}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{previewFor(step)}</div>
+              <div className="truncate text-xs text-muted-foreground">{previewFor(step)}</div>
             </div>
             <ChevronDown
               className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
@@ -1508,7 +1650,7 @@ function BranchColumn({
 }) {
   return (
     <div className="flex min-w-0 flex-col items-center">
-      <div className={cn("mb-2 text-[11px] font-semibold uppercase", color)}>{label}</div>
+      <div className={cn("mb-2 text-xs font-semibold uppercase", color)}>{label}</div>
       {children}
     </div>
   )
@@ -1713,22 +1855,42 @@ function StepEditor({
           </FieldBlock>
         </div>
       )
-    case "condition":
+    case "condition": {
+      const subject = (cfg.subject as string) ?? "chat_tag_presence"
+      const pickSubject = (next: string) => {
+        if (next === subject) return
+        // The operand means something different per subject (a tag id,
+        // a field name, a time window), so a new subject starts clean.
+        set({
+          subject: next,
+          operand:
+            next === "time_of_day" ? formatTimeRange(DEFAULT_TIME_RANGE) : "",
+        })
+      }
       return (
         <>
           <FieldBlock label={t("config.subjectLabel")}>
-            <select
-              value={(cfg.subject as string) ?? "chat_tag_presence"}
-              onChange={(e) => set({ subject: e.target.value })}
-              className="w-full rounded-md border border-border bg-card dark:bg-muted px-2 py-1.5 text-sm text-foreground"
+            <Select
+              value={subject}
+              onValueChange={(v) => v && pickSubject(String(v))}
             >
-              <option value="chat_tag_presence">{t("config.subjects.chat_tag_presence")}</option>
-              <option value="contact_field">{t("config.subjects.contact_field")}</option>
-              <option value="message_content">{t("config.subjects.message_content")}</option>
-              <option value="time_of_day">{t("config.subjects.time_of_day")}</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {CONDITION_SUBJECTS.includes(subject)
+                    ? t(`config.subjects.${subject}`)
+                    : subject}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {CONDITION_SUBJECTS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {t(`config.subjects.${s}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FieldBlock>
-          {(cfg.subject ?? "chat_tag_presence") === "chat_tag_presence" ? (
+          {subject === "chat_tag_presence" && (
             <FieldBlock label={t("chatTags.label")}>
               <ChatTagAnySelect
                 value={(cfg.operand as string) ?? ""}
@@ -1736,33 +1898,46 @@ function StepEditor({
                 t={t}
               />
             </FieldBlock>
-          ) : (
-            <FieldBlock label={t("config.operandLabel")}>
-              <Input
-                placeholder={
-                  cfg.subject === "time_of_day"
-                    ? t("config.placeholderTime")
-                    : cfg.subject === "contact_field"
-                    ? t("config.placeholderContact")
-                    : ""
-                }
-                value={(cfg.operand as string) ?? ""}
-                onChange={(e) => set({ operand: e.target.value })}
-                className="text-foreground"
-              />
-            </FieldBlock>
           )}
-          {(cfg.subject === "contact_field" || cfg.subject === "message_content") && (
-            <FieldBlock label="Value">
+          {subject === "contact_field" && (
+            <>
+              <FieldBlock label={t("config.operandLabel")}>
+                <Input
+                  placeholder={t("config.placeholderContact")}
+                  value={(cfg.operand as string) ?? ""}
+                  onChange={(e) => set({ operand: e.target.value })}
+                  className="text-foreground"
+                />
+              </FieldBlock>
+              <FieldBlock label={t("config.conditionIs")}>
+                <Input
+                  placeholder={t("config.conditionValuePlaceholder")}
+                  value={(cfg.value as string) ?? ""}
+                  onChange={(e) => set({ value: e.target.value })}
+                  className="text-foreground"
+                />
+              </FieldBlock>
+            </>
+          )}
+          {subject === "message_content" && (
+            <FieldBlock label={t("config.conditionContains")}>
               <Input
+                placeholder={t("config.conditionTextPlaceholder")}
                 value={(cfg.value as string) ?? ""}
                 onChange={(e) => set({ value: e.target.value })}
                 className="text-foreground"
               />
             </FieldBlock>
           )}
+          {subject === "time_of_day" && (
+            <TimeRangeField
+              value={(cfg.operand as string) ?? ""}
+              onChange={(operand) => set({ operand })}
+            />
+          )}
         </>
       )
+    }
     case "send_webhook":
       return (
         <>
