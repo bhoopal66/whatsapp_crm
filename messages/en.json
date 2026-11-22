@@ -27,6 +27,16 @@
     "unavailable": "Sign-in is temporarily unavailable. Try again shortly.",
     "genericError": "Sign-in failed. Try again."
   },
+  "ServiceWindow": {
+    "closedHours": "Customer last wrote {count} h ago. WhatsApp only allows a template now.",
+    "closedDays": "Customer last wrote {count, plural, one {# day} other {# days}} ago. WhatsApp only allows a template now.",
+    "closedNever": "The customer hasn't written yet. WhatsApp only allows a template now.",
+    "sendTemplate": "Send template",
+    "timeHoursMinutes": "{hours} h {minutes} m",
+    "timeMinutes": "{minutes} m",
+    "countdown": "{time} left to reply",
+    "tooltip": "On a WhatsApp Business (Cloud API) number you can send free text only within 24 hours of the customer's last message. After that, only an approved template can be sent until they write again."
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
@@ -10132,7 +10142,8 @@
   },
   "Coordinators": {
     "share": {
-      "action": "Share with coordinator",
+      "action": "Share with bank",
+      "buttonTitle": "Share this chat with a bank's coordinator",
       "title": "Share with a coordinator",
       "description": "The coordinator can read this chat and reply in it on its own number, and sees the contact read-only, until the share is revoked.",
       "bank": "Bank",
@@ -10150,7 +10161,8 @@
       "shareError": "Could not share this chat.",
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
-      "sharedLabel": "Shared · {bank}"
+      "sharedLabel": "Shared · {bank}",
+      "fromSubTag": "Chosen from the chat's sub-tag."
     },
     "members": {
       "title": "Coordinator banks",

@@ -197,6 +197,8 @@ interface MessageComposerProps {
   /** The open chat's customer, named in the "wasn't sent" notice. */
   contactName?: string | null;
   textControl?: Ref<ComposerDraftHandle>;
+  /** Meta's 24-hour window has closed: only templates may be sent. */
+  freeTextBlocked?: boolean;
 }
 
 /** The send a check holds back until it answers. */
@@ -250,6 +252,7 @@ export function MessageComposer({
   onRestoreReply,
   contactName,
   textControl,
+  freeTextBlocked = false,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
   const tCheck = useTranslations('ComposeCheck');
@@ -607,9 +610,10 @@ export function MessageComposer({
   // every capability — so the disabled branch is a no-op there.
   const canSend = useCan('send-messages');
   const readOnly = !canSend;
-  // Whapi has no 24-hour send window (that was a Meta rule), so the
-  // only thing that disables the inputs now is a viewer-role user.
-  const inputsDisabled = readOnly;
+  // A viewer-role user, or a Meta (Cloud API) chat whose 24-hour window
+  // has closed (`freeTextBlocked`, decided by the thread): templates
+  // stay usable. Whapi and OpenWA have no window.
+  const inputsDisabled = readOnly || freeTextBlocked;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -1337,12 +1341,14 @@ export function MessageComposer({
       icon: Zap,
       label: tMenu('quickReplies'),
       onSelect: () => setQuickReplyOpen(true),
+      disabled: freeTextBlocked,
     },
     {
       id: 'interactive',
       icon: MessageSquareDashed,
       label: tMenu('interactiveMessage'),
       onSelect: () => openInteractiveBuilder(),
+      disabled: freeTextBlocked,
     },
     {
       // Also an icon beside the box on wider screens; on a phone this
@@ -1353,7 +1359,7 @@ export function MessageComposer({
         ? t('translatingToArabic')
         : tMenu('translateToArabic'),
       onSelect: () => void handleTranslate(),
-      disabled: translating || checking,
+      disabled: translating || checking || freeTextBlocked,
       busy: translating,
       hidden: !showTranslate,
     },
@@ -1473,7 +1479,9 @@ export function MessageComposer({
         <div className="flex items-end gap-1">
           <ComposerMoreMenu
             items={moreMenuItems}
-            disabled={inputsDisabled}
+            // Not inputsDisabled: with the Meta window closed, Templates
+            // (in this menu) is the one way left to write.
+            disabled={readOnly}
             title={readOnly ? t('readOnlyTitle') : undefined}
           />
 
@@ -1576,7 +1584,7 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={drafting}
+              disabled={drafting || freeTextBlocked}
               title={
                 readOnly
                   ? undefined
@@ -1606,7 +1614,7 @@ export function MessageComposer({
                 size="sm"
                 canAct={!readOnly}
                 gateReason="send messages"
-                disabled={translating || checking}
+                disabled={translating || checking || freeTextBlocked}
                 title={
                   readOnly
                     ? undefined
@@ -1640,7 +1648,7 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={!text.trim() || checking}
+              disabled={!text.trim() || checking || freeTextBlocked}
               onClick={handleSend}
               className={SEND_BUTTON}
               aria-label={t('send')}

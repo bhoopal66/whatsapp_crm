@@ -77,6 +77,7 @@ import {
   lastMessageFromCustomer as newestIsCustomer,
 } from '@/lib/ai/banner-state';
 import { OutreachBanner } from './outreach-banner';
+import { ServiceWindowBanner } from './service-window';
 import { BlockedSendCard } from './blocked-send-card';
 import {
   cardFor,
@@ -118,6 +119,11 @@ import {
   type SendAttempt,
 } from '@/lib/inbox/failed-send';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
+import {
+  latestCustomerMessageAt,
+  serviceWindowCountdown,
+  serviceWindowState,
+} from '@/lib/inbox/service-window';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
 import { ForwardDialog } from './forward-dialog';
@@ -559,19 +565,18 @@ export function MessageThread({
     };
   }, [accountRole, user?.id]);
 
-  // There is no 24-hour session window any more.
-  //
-  // That rule was Meta's: a business could only send free-form text
-  // within 24h of the customer's last message, and had to re-open the
-  // conversation with a pre-approved template otherwise. This app now
-  // talks to WhatsApp through Whapi, which drives a normal WhatsApp Web
-  // account — no window, no template registry, no approval step. The
-  // timer that used to live here therefore measured nothing, and its
-  // `expired` flag disabled the composer on precisely the threads that
-  // needed it most: a brand-new conversation has no customer message
-  // yet, so it counted as expired and there was no way to send the
-  // first one. Templates are still available from the composer toolbar
-  // as saved canned replies.
+  // The 24-hour session window is Meta's rule only: on the Cloud API a
+  // business may send free-form text within 24h of the customer's last
+  // message, and only a pre-approved template otherwise. Whapi and
+  // OpenWA drive a normal WhatsApp account — no window, no template
+  // registry, no approval step. An earlier timer here applied the
+  // window to every chat, and its `expired` flag disabled the composer
+  // on precisely the threads that needed it most: a brand-new Whapi
+  // conversation has no customer message yet, so it counted as expired
+  // and there was no way to send the first one. So the window below is
+  // judged only for a chat whose predicted sending number is Meta, and
+  // even there it never blocks templates, which is how a Meta chat's
+  // first message goes out.
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -724,6 +729,70 @@ export function MessageThread({
     myOutreach,
     outreachNow,
   ]);
+
+  // Meta's 24-hour window (lib/inbox/service-window.ts), for a company
+  // chat whose next reply goes out on the Cloud API number. The last
+  // customer message comes from the loaded page; a page without one asks
+  // for the latest (one row). Until that is known nothing is blocked.
+  // Re-judged each minute (`outreachNow`) and on every new message.
+  const metaThread =
+    !!conversation &&
+    !conversation.personal_owner_id &&
+    !!accountNumbers &&
+    predictSendingNumber(accountNumbers, {
+      channel_id: threadChannelId,
+      send_channel_id: threadPin,
+    })?.provider === 'meta';
+  const loadedLastCustomerAt = useMemo(
+    () => latestCustomerMessageAt(messages, conversationId),
+    [messages, conversationId]
+  );
+  const [lastCustomerLookup, setLastCustomerLookup] = useState<{
+    conversationId: string;
+    at: string | null;
+  } | null>(null);
+  const needsLastCustomerLookup =
+    metaThread &&
+    !loading &&
+    !!conversationId &&
+    loadedLastCustomerAt === null &&
+    lastCustomerLookup?.conversationId !== conversationId;
+  useEffect(() => {
+    if (!needsLastCustomerLookup || !conversationId) return;
+    let cancelled = false;
+    void createClient()
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        // A failed read leaves the window unknown: nothing is blocked.
+        if (cancelled || error) return;
+        setLastCustomerLookup({
+          conversationId,
+          at: (data as { created_at?: string } | null)?.created_at ?? null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsLastCustomerLookup, conversationId]);
+  const lastCustomerAt: string | null | undefined =
+    loadedLastCustomerAt ??
+    (loading
+      ? undefined
+      : lastCustomerLookup &&
+          lastCustomerLookup.conversationId === conversationId
+        ? lastCustomerLookup.at
+        : undefined);
+  const serviceWindow = metaThread
+    ? serviceWindowState(lastCustomerAt, outreachNow)
+    : null;
+  const freeTextBlocked = serviceWindow?.kind === 'closed';
+  const windowCountdown = serviceWindowCountdown(serviceWindow);
 
   // The standing "use the marketing number" reminder (migration 207):
   // shown while the next send would open a chat, on a company chat,
@@ -2056,6 +2125,7 @@ export function MessageThread({
           contactPanelOpen={contactPanelOpen}
           onToggleContactPanel={onToggleContactPanel}
           sharedBank={sharedBank}
+          serviceWindowCountdown={windowCountdown}
         />
 
         {/* A chat the AI handed to a person (migration 078): its banner
@@ -2316,6 +2386,16 @@ export function MessageThread({
           ) : null;
         })()}
 
+        {/* Meta's 24-hour window has closed: only a template now. */}
+        {serviceWindow?.kind === 'closed' &&
+          !!accountRole &&
+          canSendMessages(accountRole) && (
+            <ServiceWindowBanner
+              agoMs={serviceWindow.agoMs}
+              onOpenTemplates={handleOpenTemplates}
+            />
+          )}
+
         {/* Composer */}
         <MessageComposer
           conversationId={conversation.id}
@@ -2328,6 +2408,7 @@ export function MessageThread({
           onRestoreReply={setReplyTo}
           contactName={contact.name || contact.phone || null}
           textControl={composerDraftRef}
+          freeTextBlocked={freeTextBlocked}
         />
 
         <ForwardDialog

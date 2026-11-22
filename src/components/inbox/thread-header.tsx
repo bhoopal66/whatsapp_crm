@@ -51,9 +51,11 @@ import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatTags } from '@/hooks/use-chat-tags';
 import { isShareOnlyViewer } from '@/lib/coordinators/ui';
 import { ChatReminderButton } from './chat-reminder-button';
 import { CoordinatorShareButton } from './coordinator-share-button';
+import { ServiceWindowCountdown } from './service-window';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
 import { ThreadTagBar, type ChatTagRowPatch } from './thread-tag-bar';
@@ -103,6 +105,11 @@ export interface ThreadHeaderProps {
   onToggleContactPanel?: () => void;
   /** The bank this chat was shared with the viewer under (migration 133). */
   sharedBank?: string | null;
+  /**
+   * Time left in Meta's 24-hour window when under 2 hours (Cloud API
+   * chats only, see MessageThread); null shows nothing.
+   */
+  serviceWindowCountdown?: { hours: number; minutes: number } | null;
 }
 
 export function ThreadHeader({
@@ -126,10 +133,16 @@ export function ThreadHeader({
   contactPanelOpen,
   onToggleContactPanel,
   sharedBank = null,
+  serviceWindowCountdown = null,
 }: ThreadHeaderProps) {
   const t = useTranslations('Inbox.messageThread');
   const tShare = useTranslations('Coordinators.share');
   const { accountRole } = useAuth();
+  // The sub-tag's name, which may name the bank to share with.
+  const { tree: chatTagTree } = useChatTags();
+  const subTagName = conversation.chat_sub_tag_id
+    ? (chatTagTree.byId.get(conversation.chat_sub_tag_id)?.name ?? null)
+    : null;
   const shareOnly = isShareOnlyViewer(
     accountRole,
     currentUserId,
@@ -264,6 +277,12 @@ export function ThreadHeader({
           refresh button. The number and the person are the same h-8
           pill so the pair reads as one set. */}
         <div className="flex shrink-0 items-center gap-1 @lg/thread:gap-1.5">
+          {serviceWindowCountdown && (
+            <ServiceWindowCountdown
+              hours={serviceWindowCountdown.hours}
+              minutes={serviceWindowCountdown.minutes}
+            />
+          )}
           {/* Which number this chat sends from (migration 061):
             automatic, or pinned by a person to one they may use. */}
           {!personalOwnerId && (
@@ -435,6 +454,7 @@ export function ThreadHeader({
             <CoordinatorShareButton
               key={`coord-${conversation.id}`}
               conversationId={conversation.id}
+              subTagName={subTagName}
             />
           )}
 
