@@ -239,7 +239,7 @@ call passes `assertAiTransfer` (purpose `voice_note_tts`). No
 ## Gate results
 
 <!-- TRACK_A_GATES -->
-Final state `a71222d` (all eight items), run 2026-11-22 ~09:15 UTC:
+Final state `a71222d` (all eight items), run 2026-11-22 ~08:30 UTC:
 
 - `npm run lint`: 0 errors, 31 warnings (pre-existing count was ~32).
 - `npm run typecheck`: clean.
