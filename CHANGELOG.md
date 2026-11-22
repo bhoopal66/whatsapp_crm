@@ -12,6 +12,151 @@ and polish.
 
 ## [Unreleased]
 
+### Merge follow-ups: phone-push links and lead source privacy
+
+**Migration required:** apply `253_merge_followups.sql` as a superuser or
+BYPASSRLS role, after 252. It restates 205's `push_bell_url`: apply in
+order, once.
+- A phone push for a notes @mention or a response-time bell opens the
+  chat, as the in-app bell already did.
+- PDPL export includes a contact's lead source; erase empties its
+  details (the ad referral) and keeps the category.
+
+### Lead source, public web form, contacts table, saved views, audiences and Recycle
+
+**Migration required**, each as a superuser or BYPASSRLS role:
+`249_lead_source_web_form.sql` **before deploying the build** (the contact
+form and CSV import now write `lead_source`; without the column those
+inserts fail), then `250_saved_views.sql`, `251_recycle_declined.sql` and
+`252_broadcast_drafts.sql`.
+- **Lead source.** Contacts record where they came from (ad, web form,
+  broadcast, manual, import, Compass, other). A Meta click-to-WhatsApp
+  ad's referral is captured on the contact's first inbound message; Add
+  contact records `manual`, Import `import`. Automatic writers only fill
+  an empty source. The public API's contacts carry a read-only
+  `lead_source`.
+- **Public web form** (Settings → Integrations → Web form, owners and
+  admins, off by default): a hosted page `/f/<token>` and an HTML snippet
+  post to `POST /api/public/web-form/<token>`, which creates or completes
+  the contact and opens an unassigned "New web lead" task (one per number
+  per 10 minutes). Allowed websites, rate limits, honeypot, 8 KB cap.
+  Never sends WhatsApp, never touches consent. `docs/web-form.md`.
+- **Contacts table.** Sortable Name and Created, sticky header, phones as
+  `+971 50 123 4401` with Copy, bulk "Set chat tag" and "Add to
+  campaign", hide empty columns, a Source column and filter.
+- **Saved views** on WhatsApp inbox and Contacts: personal ones for
+  everyone, shared ones saved by team leaders and up.
+- **Campaign audiences.** Match any / match all for chat tags; narrow by
+  bank (from the case, or the chat's sub-tag) and by lead source; Save
+  draft saves the whole wizard and reopens from the Broadcasts list.
+- **New broadcast with no templates** shows a "Create template" button
+  that leads back to the wizard.
+- **Recycle** (`/recycle`, team leaders and up): customers declined,
+  withdrawn or tagged not interested at least 90 days ago (settable),
+  never opted-out, do-not-contact, open-case or returning ones; start a
+  campaign or file follow-up tasks. Nothing is sent automatically.
+  `docs/recycle.md`.
+
+### Cases and Case desk
+
+**Migration required**, each as a superuser or BYPASSRLS role:
+`246_case_csat.sql` (after 234) and `248_intake_file_preview.sql` (after
+220 and 230). 248 adds the Supabase origin to the CSP `frame-src`:
+rebuild so `NEXT_PUBLIC_SUPABASE_URL` is inlined.
+- **Customer ratings (CSAT)**, off by default. When a case is submitted
+  and when it is approved, the customer is asked to rate the service 1–5
+  from their chat's own number: plain text on Whapi/OpenWA and inside
+  Meta's 24-hour window, an approved utility template on Meta outside it
+  (else the request waits). A reply within 7 days is stored once and
+  shown on the case page; Cases shows the 90-day average per agent and
+  per bank. Respects opt-out, do-not-contact, send hours (09:00–20:00
+  Dubai) and one request per person a day. `docs/case-csat.md`.
+  **Meta templates to submit** before switching CSAT on with a Meta
+  number (utility, names changeable in the settings card):
+  - `case_csat_submitted`: "Hi {{1}}, your {{2}} application has been
+    submitted to the bank. How happy are you with our service so far?
+    Reply with a number from 1 (not happy) to 5 (very happy)."
+  - `case_csat_approved`: "Hi {{1}}, good news: your {{2}} account has been
+    approved! How would you rate our service? Reply with a number from 1
+    (not happy) to 5 (very happy)."
+- **Case page.** Overview opens on the document checklist, the next step
+  and the customer's last message; empty history boxes are hidden. The
+  header shows the case number and caption code with Copy buttons.
+- **Cases list.** A search box finds by case number, caption code or
+  customer name (kept in the link). The main filters fit one row; the
+  toggles sit behind "More filters" with a count.
+- **Case desk.** See the PDF or image beside the sort panel and in the
+  Tray (5-minute signed links, every preview audited). The open tab is
+  in the link (`?tab=`), Sorting queue and Tray show counts, and the My
+  worklist card opens the right tab. Desk codes, WhatsApp routing, the
+  reminder digest and coordinator cover moved to **Settings → Case
+  desk**. Forms use a labelled document-type list, the app's own
+  controls, look the case up as its number is typed, say why a button is
+  disabled, and the Tray has "Find case". Card spacing fixed.
+- Customer page: the "WhatsApp" button is now "Open chat".
+
+### Chat assignment, response times, My worklist and Live view
+
+**Migration required:** apply `236_assignment_rotation.sql` (as a
+superuser or BYPASSRLS role), `237_response_targets.sql` and
+`238_live_view.sql`, in order, after 235.
+- **A real rotation.** One engine picks the next person from a chosen
+  list in turn, skipping anyone offline, deactivated, a guest or viewer,
+  or at their chat limit; nobody free means nobody assigned. The
+  automation **round robin** step now rotates (before, it gave every chat
+  to the first member, usually the owner), with an on/off switch and a
+  people list.
+- **Settings → Chat assignment** (owners and admins), all off by
+  default: first replies to a broadcast go through the rotation; a chat
+  Compass writes to goes to the case's agent and is shared with the
+  coordinator; chat limits (30 open chats by default, per-person
+  overrides), with each person's load in the Assign menu.
+- **Response times** (Settings → Inbox & CRM), off by default: business
+  hours (Mon–Sat 09:00–18:00 Asia/Dubai), a 15-minute target, and bells
+  for the assignee at the target, their team leader (or admins) at twice
+  it, and admins for unassigned waiting chats. Personal chats never
+  count.
+- **My worklist** opens with customers waiting for a reply, oldest
+  first, unassigned flagged. After sign-in agents and team leaders land
+  on My worklist; owners, admins and viewers on the dashboard.
+- **Live view** (`/live`, team leaders and up): who is online, open
+  chats, customers waiting and the oldest wait, replies today.
+- **My team** on My worklist and Cases for team leaders; "Overdue by
+  2 h" instead of a raw score.
+- Automations: "Start from template" always in the Create menu, the
+  condition step as a sentence, time pickers and preset schedules.
+  Team activity's Replied card reads "100% (8 of 8)".
+
+### Inbox and message box
+
+**Migration required:** apply `241_conversation_notes.sql` (after 229)
+and `242_voice_note_library.sql`, in order, before the build.
+- **Inbox list rows.** The preview has its own line; tags sit on the
+  agent line with a short bank sub-tag; an unassigned chat reads
+  "Unassigned" with an Assign menu; the contact panel is hidden until a
+  chat is open.
+- **Browser tab and alerts.** "(3) Inbox — Taamul Connect"; an optional
+  new-message sound (off by default, per person); a one-time prompt to
+  turn on notifications when push is set up.
+- **Share with bank**: a labelled button, the bank pre-selected from the
+  chat's sub-tag.
+- **WhatsApp-like composer.** Attach and AI inside the box, a mic that
+  turns into Send; templates, quick replies, interactive messages,
+  translate and voice notes in one **More** menu. Type `/` for quick
+  replies; the picker has search.
+- **Meta 24-hour window.** On Meta chats a closed window shows a banner
+  with **Send template** and refuses free text by every path; the header
+  counts down the last 2 hours. Whapi, OpenWA and personal chats are
+  unchanged.
+- **In-chat notes and @mentions.** Switch Reply to Note; only the team
+  sees notes, and they never reach the customer, AI, unread counts,
+  webhooks or the public API. An @mention rings a bell that opens the
+  chat. `docs/chat-notes.md`.
+- **Voice-note library.** Voice notes per subject and language (English,
+  Hindi, Arabic, Urdu), recorded in the browser or spoken by AI from a
+  fixed or personalised script (the workspace's OpenAI key). Shared with
+  the whole workspace at once. `docs/voice-library.md`.
+
 ### Case desk: My worklist and suggested cases
 
 **Migration required:** apply `235_desk_worklist_suggest.sql` (as a

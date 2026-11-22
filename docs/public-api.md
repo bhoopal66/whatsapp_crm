@@ -217,6 +217,7 @@ or phone).
       "avatar_url": null,
       "tags": [],
       "opted_out_at": null,
+      "lead_source": "ad",
       "created_at": "…",
       "updated_at": "…"
     }
@@ -228,6 +229,10 @@ or phone).
 `opted_out_at` is when the customer asked not to be messaged, or `null`.
 Broadcasts skip a contact that has it (see
 [`POST /api/v1/broadcasts`](#post-apiv1broadcasts)).
+
+`lead_source` is where the contact came from: `ad`, `web_form`,
+`broadcast`, `manual`, `import`, `compass` or `other`, or `null` when
+unknown. It is read-only here: `POST /api/v1/contacts` does not set it.
 
 **Contact tags are retired.** Conversations carry a chat tag instead
 (see [`GET /api/v1/conversations`](#get-apiv1conversations)). Until a

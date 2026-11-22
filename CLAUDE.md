@@ -2075,6 +2075,90 @@ knowledge-gap topics. `docs/jev-insights.md` is the contract.
   `verify-compose-check-events.sql`, `verify-meaning-triggers.sql`,
   `verify-case-status-map.sql`, `verify-kb-gap-topics.sql`.
 
+### Release 2026-11-22 (migrations 236–253)
+
+Built as four parallel tracks; each feature names its contract doc where
+one exists.
+
+- **Chat assignment (236, `lib/assignment/*`).** `assignment_rotate_assign`
+  (service role) is the only automatic assigner: account advisory lock +
+  chat row lock; refuses personal, assigned or `human_engaged_at` chats;
+  round robin after the pool's stored `last_user_id`. Eligible = live, not
+  guest/viewer, presence within 75 s (`OFFLINE_AFTER_MS`: change both),
+  under the chat limit when limits are on; nobody eligible assigns nobody.
+  Callers: the automation `round_robin` step, a broadcast's first reply
+  (inbound pipeline, awaited in `after()`, never on `fanOut: false`) and
+  Compass notify (`assignment_compass_assign`, only while
+  `compass_assign_enabled`; off = notify never touches ownership).
+  `verify-assignment-rotation.sql`.
+- **Response times (237, `lib/response-times/*`).** One "waiting"
+  definition: `conversations.customer_waiting_since` on an open company
+  chat, kept by the `messages_response_waiting` trigger (never fails an
+  insert). Business minutes are SQL, mirrored for display in `hours.ts`.
+  `response_escalation_sweep()` (automations cron) rings each level once
+  per wait (`response_escalations`). `verify-response-targets.sql`.
+- **Worklist and Live view (238).** `worklist_waiting_chats` is INVOKER (RLS
+  decides) and repeats `conversations_customer_waiting_idx`'s predicate:
+  keep them equal. `live_team_view()` (DEFINER, team leader+) is `/live`'s
+  one round trip. Agents and team leaders land on `/worklist`
+  (`workspaceHomePath`, which `landingPathForRole` returns).
+  `verify-live-view.sql`.
+- **In-chat notes (241, `docs/chat-notes.md`).** Own table, never
+  `messages`: a note must not reach AI context, unread counts, aggregates,
+  webhooks or the public API (`notes-isolation.test.ts` reads those paths).
+  Visible exactly when the chat is; author-only edit/delete; at most 20
+  mentions, each filtered by `conversation_note_user_can_see` and rung once
+  (`chat_note_mention`). `verify-conversation-notes.sql`.
+- **Voice-note library (242, `docs/voice-library.md`).** Sent through the
+  ordinary `/api/whatsapp/send` path (limits, opt-out, Meta window apply).
+  Entries are service-role writes; audio at
+  `account-<id>/voice-library/<id>.ogg` (CHECK-pinned, client writes
+  blocked by RESTRICTIVE storage policies), deleted only when no message
+  uses it. AI speech passes `assertAiTransfer` on every call.
+  `verify-voice-note-library.sql`.
+- **Inbox UI rules.** A composer action is a `moreMenuItems` entry, never
+  another icon in the row. `useUnreadChats` is mounted once
+  (`UnreadChatsProvider`): read `useSharedUnreadChats()`. The tab title goes
+  through `tabTitle` (`title-owner.ts`), never `document.title`. The Meta
+  window (`lib/inbox/service-window.ts`) uses Compass's `serviceWindowOpen`:
+  change both.
+- **Case CSAT (246, `docs/case-csat.md`).** Off by default. The
+  `case_stage_history_csat` trigger (never fails the stage write) queues one
+  request per case per trigger; `runCaseCsat` claims under an advisory lock
+  (switches, send hours, opt-out/DNC, one per person per 24 h); stale claims
+  become 'unconfirmed', never resent; the chat's own number, never personal.
+  Replies are read by `noteCsatReply` after Flows. `verify-case-csat.sql`.
+- **Case desk (248 and UI).** A preview writes an append-only
+  `desk_file_previews` row before the route signs 300 s, `no-store`. `/desk`
+  holds daily work only, tab in `?tab=` (`resolveDeskTab`); codes, routing,
+  digest and cover roles live in Settings → Case desk; forms use
+  `DeskSelect` / `DeskFilePicker`. Cases search (`GET /api/cases?q=`) pages
+  `case_inbox` (no SQL text filter); `q` is not part of a saved view.
+  `verify-intake-file-preview.sql`.
+- **Lead source and web form (249, `docs/web-form.md`).** `lead_source`
+  (CHECK ↔ `LEAD_SOURCES`); automatic writers fill an EMPTY source only
+  (`contact_set_lead_source_if_empty`). The Meta referral is captured after
+  the idempotency boundary, before the `fanOut: false` cut, first inbound
+  only. `web_lead_forms` is FORCE RLS, RPCs only; unknown and disabled
+  tokens look the same; `web_form_submit` never writes consent.
+  `web_form_origin_ok` ↔ `normalizeAllowedOrigin`. `verify-web-lead-form.sql`.
+- **Saved views (250).** Inbox and Contacts (cases keep 185's). Personal:
+  owner only, not even admins; shared: read by the workspace, saved by team
+  leader+. Each screen parses its filters defensively.
+  `verify-saved-views.sql`.
+- **Recycle (251, `docs/recycle.md`).** `recycle_candidates` is INVOKER;
+  opted-out, DNC, open-case and returning customers are always excluded
+  (`recycle_excluded_among`, DEFINER). Nothing sends. `verify-recycle.sql`.
+- **Audiences and drafts (252).** Audiences resolve in the browser
+  (`lib/broadcasts/audience-narrow.ts`); the server replays frozen
+  recipients. `broadcasts.draft_state` holds the wizard, CSV rows included;
+  a real send deletes it. Contacts sort only by name and created
+  (PostgREST cannot order by the conversations embed).
+  `verify-broadcast-drafts.sql`.
+- **253** restates 205's `push_bell_url` for the four new bell types and
+  registers the lead source in `privacy_extensions`.
+  `verify-merge-followups.sql`.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:
@@ -2420,6 +2504,8 @@ fails if one is wired to plain `t()`.
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
   `customer-documents.md`, `departments.md`, `second-brain.md`,
-  `hr-workflows.md`, `case-desk.md`, `privacy.md`, `monitoring.md`.
+  `hr-workflows.md`, `case-desk.md`, `privacy.md`, `monitoring.md`,
+  `case-csat.md`, `chat-notes.md`, `voice-library.md`, `web-form.md`,
+  `recycle.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
