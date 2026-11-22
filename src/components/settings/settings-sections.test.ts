@@ -49,6 +49,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'phone-extensions',
   'deals',
   'response-times',
+  'chat-assignment',
   'members',
 ];
 
@@ -146,6 +147,7 @@ describe('categories', () => {
         'fields',
         'deals',
         'response-times',
+        'chat-assignment',
       ],
       automation: ['ai', 'insights', 'journey-bot'],
       collaboration: ['cases', 'deal-rooms', 'team-chat'],

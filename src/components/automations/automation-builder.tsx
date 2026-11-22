@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useState,
   type ReactNode,
 } from "react"
@@ -71,6 +72,8 @@ import {
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
 import { staffOnly } from '@/lib/account/members'
+import { rotationPeople } from "@/lib/assignment/ui"
+import { AssignmentPeoplePicker } from "@/components/assignment/people-picker"
 import { useChatTags } from "@/hooks/use-chat-tags"
 import { useAuth } from "@/hooks/use-auth"
 import { chatTagColor } from "@/lib/chat-tags/style"
@@ -1782,6 +1785,19 @@ function StepEditor({
               />
             </FieldBlock>
           )}
+          {cfg.mode !== "specific" && (
+            <RoundRobinFields
+              enabled={cfg.enabled !== false}
+              people={
+                Array.isArray(cfg.people)
+                  ? (cfg.people as unknown[]).filter(
+                      (p): p is string => typeof p === "string" && p !== "",
+                    )
+                  : []
+              }
+              onChange={(patch) => set(patch)}
+            />
+          )}
         </>
       )
     case "update_contact_field":
@@ -1989,6 +2005,50 @@ function StepEditor({
     default:
       return null
   }
+}
+
+/** Round-robin assign step (migration 236): an on/off switch (absent =
+ *  on, so steps saved before it keep running) and who takes turns
+ *  (`people`, auth user ids; none ticked = every live agent and team
+ *  leader). The rotation engine decides who is eligible. */
+function RoundRobinFields({
+  enabled,
+  people,
+  onChange,
+}: {
+  enabled: boolean
+  people: string[]
+  onChange: (patch: { enabled?: boolean; people?: string[] }) => void
+}) {
+  const t = useTranslations("ChatAssignment.automation")
+  const { members } = useResources()
+  const options = rotationPeople(members, people)
+  const switchId = useId()
+  return (
+    <div className="mb-2 space-y-3 rounded-md border border-border bg-card-2 p-3 last:mb-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p id={switchId} className="text-sm font-medium text-foreground">
+            {t("enabled")}
+          </p>
+          <p className="text-xs text-muted-foreground">{t("hint")}</p>
+        </div>
+        <Switch
+          checked={enabled}
+          aria-labelledby={switchId}
+          onCheckedChange={(on) => onChange({ enabled: !!on })}
+        />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">{t("people")}</p>
+        <AssignmentPeoplePicker
+          people={options}
+          value={people}
+          onChange={(next) => onChange({ people: next })}
+        />
+      </div>
+    </div>
+  )
 }
 
 function FieldBlock({
