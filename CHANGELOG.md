@@ -12,6 +12,8 @@ and polish.
 
 ## [Unreleased]
 
+- Docs: CLAUDE.md split into a short index plus docs/agents/*
+
 ### Tooling: apply a range of migrations
 
 `scripts/apply-migrations.sh FROM TO` applies `supabase/migrations` files in
