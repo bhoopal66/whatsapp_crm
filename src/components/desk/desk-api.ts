@@ -3,6 +3,7 @@
  * Every call answers `{ ok: true, data }` or `{ ok: false, code, error }`
  * so the screen can show the server's wording and branch on the code.
  */
+import type { DocType } from '@/lib/desk/doc-types';
 import type {
   CaseLookup,
   DeskBank,
@@ -94,6 +95,8 @@ export const deskApi = {
       undefined,
       (b) => b.case as CaseLookup | null
     ),
+  docTypes: () =>
+    call('/api/desk/doc-types', undefined, (b) => b.types as DocType[]),
   file: (
     itemId: string,
     body: {

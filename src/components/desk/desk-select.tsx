@@ -16,6 +16,7 @@ import {
 export interface DeskOption {
   value: string;
   label: string;
+  disabled?: boolean;
 }
 
 // base-ui treats '' as "no value", so "nothing" gets a real sentinel.
@@ -72,7 +73,7 @@ export function DeskSelect({
           <SelectItem value={NONE}>{noneLabel}</SelectItem>
         )}
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </SelectItem>
         ))}

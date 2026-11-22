@@ -12168,6 +12168,71 @@
       "open": "케이스 데스크 열기"
     }
   },
+  "DeskForms": {
+    "file": {
+      "choose": "Choose a file",
+      "change": "Change file",
+      "remove": "Remove the chosen file",
+      "none": "No file chosen"
+    },
+    "docType": {
+      "placeholder": "Choose a document type",
+      "none": "Not sure yet"
+    },
+    "lookup": {
+      "keepTyping": "Keep typing the case number or code, for example 4271RAKD.",
+      "badCheck": "That code does not match a case. Check each character.",
+      "invalid": "That is not a case number or code. Use a code like 4271RAKD or a number like TC-26-04271-RAK.",
+      "looking": "Looking up the case…",
+      "found": "Case found",
+      "customer": "Customer",
+      "bank": "Bank",
+      "product": "Product",
+      "stage": "Stage",
+      "notFound": "No case with that number is open to you. It may not exist, or it belongs to another bank.",
+      "unavailable": "This case cannot be previewed for you. It is checked when you upload.",
+      "error": "The case could not be looked up just now. You can try again."
+    },
+    "find": {
+      "label": "Find case",
+      "placeholder": "Case number, code or customer name",
+      "button": "Find",
+      "searching": "Searching…",
+      "hint": "Search by case number, caption code or customer name. Found cases are added to the list above.",
+      "short": "Type a case number, or at least 2 letters of the customer name.",
+      "none": "No open case matched. A name search covers companies you can read.",
+      "added": "{count, plural, one {# case added to the list above.} other {# cases added to the list above.}}",
+      "error": "The search failed. Try again in a moment.",
+      "badge": "Found by search"
+    },
+    "why": {
+      "upload": {
+        "fileNeeded": "Choose a file first: a pending document needs one."
+      },
+      "sort": {
+        "noCase": "Find the case first: type its number above.",
+        "confirm": "The company names differ. Type the word shown above to file anyway."
+      },
+      "newCase": {
+        "missing": "Still needed: {fields}.",
+        "fields": {
+          "company": "company name",
+          "licence": "trade licence",
+          "bank": "bank",
+          "product": "product",
+          "contact": "customer contact"
+        }
+      },
+      "reject": {
+        "reason": "Write why it is rejected. The uploader sees it."
+      },
+      "tray": {
+        "pick": "Choose a case above first, or find one.",
+        "confirm": "Type the company's legal name above to confirm.",
+        "dismiss": "To dismiss, write a reason of at least 3 characters."
+      }
+    }
+  },
   "CaseDeskSettings": {
     "intro": "Set up the case desk here. Uploading, sorting and the tray stay on the Case desk page.",
     "codes": "Desk codes",

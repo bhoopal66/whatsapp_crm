@@ -17,14 +17,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
+import { mergeCandidates } from '@/lib/desk/case-search';
+import { trayDismissBlock, trayFileBlock } from '@/lib/desk/form-hints';
 import { formatAge } from '@/lib/desk/intake-form';
 import {
   needsCompanyConfirm,
   type DeskSettings,
+  type TrayCandidate,
   type TrayItem,
 } from '@/lib/desk/tray';
 
 import { deskApi } from './desk-api';
+import { DisabledHint } from './disabled-hint';
+import { TrayCaseFinder } from './tray-case-finder';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
   const t = useTranslations('Desk');
@@ -122,14 +127,18 @@ function TrayCard({
   onDone: () => Promise<unknown>;
 }) {
   const t = useTranslations('Desk');
+  const tf = useTranslations('DeskForms');
   // Never pre-selected (design 035): the person chooses.
   const [caseId, setCaseId] = useState<string | null>(null);
+  // Cases the person found with "Find case", listed after the item's own.
+  const [foundCases, setFoundCases] = useState<TrayCandidate[]>([]);
+  const candidates = mergeCandidates(item.candidates, foundCases);
   const [confirm, setConfirm] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   // Advice only (design 035 D12): shown as text, never selected for you.
   const [suggestion, setSuggestion] = useState<string | null>(null);
-  const picked = item.candidates.find((c) => c.caseId === caseId) ?? null;
+  const picked = candidates.find((c) => c.caseId === caseId) ?? null;
   const suggest = async () => {
     setBusy(true);
     const r = await deskApi.suggest(item.trayId);
@@ -150,6 +159,12 @@ function TrayCard({
     } else setSuggestion(t(`tray.suggestions.${s.status}`));
   };
   const mustConfirm = picked ? needsCompanyConfirm(item, picked) : false;
+  const fileBlocked = trayFileBlock({
+    picked: picked !== null,
+    mustConfirm,
+    confirm,
+  });
+  const dismissBlocked = trayDismissBlock(reason);
 
   const file = async () => {
     if (!picked) return;
@@ -232,12 +247,12 @@ function TrayCard({
           <legend className="text-foreground mb-1 font-medium">
             {t('tray.candidates')}
           </legend>
-          {item.candidates.length === 0 && (
+          {candidates.length === 0 && (
             <p className="text-muted-foreground text-xs">
               {t('tray.noCandidates')}
             </p>
           )}
-          {item.candidates.map((c) => (
+          {candidates.map((c) => (
             <label
               key={c.caseId}
               className={`flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 ${
@@ -264,9 +279,16 @@ function TrayCard({
                   {t(`tray.why.${w}`)}
                 </Badge>
               ))}
+              {c.why.length === 0 && (
+                <Badge variant="outline">{tf('find.badge')}</Badge>
+              )}
             </label>
           ))}
         </fieldset>
+        <TrayCaseFinder
+          trayId={item.trayId}
+          onFound={(f) => setFoundCases((prev) => mergeCandidates(prev, f))}
+        />
         {item.candidates.length > 1 && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -300,7 +322,10 @@ function TrayCard({
         )}
         <div className="flex flex-wrap items-end gap-2">
           <Button
-            disabled={busy || !picked || (mustConfirm && !confirm.trim())}
+            disabled={busy || fileBlocked !== null}
+            aria-describedby={
+              fileBlocked ? `tray-file-why-${item.trayId}` : undefined
+            }
             onClick={file}
           >
             {t('tray.file')}
@@ -316,13 +341,26 @@ function TrayCard({
             />
             <Button
               variant="outline"
-              disabled={busy || reason.trim().length < 3}
+              disabled={busy || dismissBlocked !== null}
+              aria-describedby={
+                dismissBlocked ? `tray-dismiss-why-${item.trayId}` : undefined
+              }
               onClick={dismiss}
             >
               {t('tray.dismiss')}
             </Button>
           </div>
         </div>
+        {fileBlocked && (
+          <DisabledHint id={`tray-file-why-${item.trayId}`}>
+            {tf(`why.tray.${fileBlocked}`)}
+          </DisabledHint>
+        )}
+        {dismissBlocked && (
+          <DisabledHint id={`tray-dismiss-why-${item.trayId}`}>
+            {tf('why.tray.dismiss')}
+          </DisabledHint>
+        )}
       </CardContent>
     </Card>
   );
