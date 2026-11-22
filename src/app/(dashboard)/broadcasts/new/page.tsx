@@ -17,6 +17,7 @@ import {
 } from '@/hooks/use-broadcast-sending';
 import { pickTemplateVariables } from '@/lib/broadcasts/variables';
 import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
+import { readRecycleAudience } from '@/lib/recycle/handoff';
 import { Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -36,7 +37,9 @@ export default function NewBroadcastPage() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [template, setTemplate] = useState<MessageTemplate | null>(null);
-  const [audience, setAudience] = useState<AudienceConfig>({ type: 'all' });
+  const [audience, setAudience] = useState<AudienceConfig>(
+    () => readRecycleAudience() ?? { type: 'all' }
+  );
   const [variables, setVariables] = useState<Record<string, VariableMapping>>(
     {}
   );

@@ -37,6 +37,12 @@ const AGENT = {
   submissions: ['/cases', '/desk', '/submission-groups', '/banks'],
 };
 
+/** Team leader and up: Declined recycling (migration 251). */
+const LEADER = {
+  ...AGENT,
+  submissions: ['/cases', '/desk', '/recycle', '/submission-groups', '/banks'],
+};
+
 const TEAM = [
   '/team-inbox',
   '/team-contacts',
@@ -88,14 +94,14 @@ describe('visibleNavGroups', () => {
 
   it('adds the team views and Team activity for a team leader', () => {
     expect(layout(visibleNavGroups('team_leader'))).toEqual({
-      ...AGENT,
+      ...LEADER,
       team: TEAM,
     });
   });
 
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
-      ...AGENT,
+      ...LEADER,
       team: TEAM,
       hr: HR_ALL,
       automation: ['/broadcasts', '/automations', '/flows'],
@@ -165,6 +171,7 @@ describe('visibleNavGroups', () => {
       ).toEqual([
         '/cases',
         '/desk',
+        ...(role === 'agent' ? [] : ['/recycle']),
         '/submission-groups',
         '/banks',
         '/brain',
@@ -433,6 +440,7 @@ describe('navPrefetch', () => {
         '/cases',
         '/compass',
         '/desk',
+        '/recycle',
         '/flows',
         '/groups',
         ...HR_ALL,

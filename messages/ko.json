@@ -91,7 +91,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "openHrChats": "{count, plural, other {열린 채팅 #개}}",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "recycle": "Recycle declined"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -143,7 +144,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "hr": "HR",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "recycle": "Recycle declined"
   },
   "Notifications": {
     "title": "알림",
@@ -6905,6 +6907,66 @@
     "generic": "지금 회의에 초대되었습니다",
     "join": "참여",
     "notNow": "나중에"
+  },
+  "Recycle": {
+    "intro": "Customers whose case was declined or withdrawn, or whose chat carries a declined-type tag, long enough ago to try again. Customers who opted out, asked not to be contacted, have an open case or wrote back since are never listed. Nothing is sent from here.",
+    "searchLabel": "Search",
+    "searchPlaceholder": "Name or phone",
+    "daysLabel": "Declined at least (days) ago",
+    "daysPlaceholder": "Workspace setting: {days}",
+    "selected": "{count, plural, =0 {No customers selected} one {# customer selected} other {# customers selected}}",
+    "selectAll": "Select all {count}",
+    "selectPage": "Select this page",
+    "selectOne": "Select {name}",
+    "selectCapped": "Selected the first {count}; narrow the filters to reach the rest.",
+    "clear": "Clear",
+    "startCampaign": "Start a campaign",
+    "createTasks": "Create follow-up tasks",
+    "campaignNote": "A campaign opens the broadcast wizard with these customers as the audience. You pick the template and send it yourself; opt-outs are checked again then.",
+    "handoffFailed": "Could not pass the customers to the campaign wizard.",
+    "tasksFailed": "Could not create the tasks.",
+    "tasksDone": "{created} tasks created, {already} already existed, {skipped} no longer eligible.",
+    "loading": "Loading...",
+    "loadFailed": "Could not load the list",
+    "loadFailedHint": "Try again in a moment.",
+    "empty": "No customers to recycle",
+    "emptyHint": "Nobody declined or withdrew long enough ago, or they were all excluded.",
+    "noName": "Unnamed",
+    "noOwner": "No owner",
+    "daysAgo": "{count, plural, =0 {Today} one {# day ago} other {# days ago}}",
+    "pageOf": "Page {page} of {pages} ({total} customers)",
+    "previous": "Previous",
+    "next": "Next",
+    "outcome": {
+      "Declined": "Declined",
+      "Withdrawn": "Withdrawn"
+    },
+    "reason": {
+      "INCOMPLETE_DOCS": "Incomplete documents",
+      "CREDIT_POLICY": "Credit policy",
+      "INCOME_INSUFFICIENT": "Income insufficient",
+      "KYC_AML": "KYC / AML",
+      "CUSTOMER_WITHDREW": "Customer withdrew",
+      "OTHER": "Other"
+    },
+    "why": {
+      "caseDeclined": "Case declined",
+      "caseWithdrawn": "Case withdrawn",
+      "chatTag": "Chat tagged as declined"
+    },
+    "settings": {
+      "title": "Recycling settings",
+      "hint": "Only owners and admins can change these.",
+      "days": "Days since the ending ({min} to {max})",
+      "outcomes": "Case outcomes that count",
+      "declined": "Declined",
+      "withdrawn": "Withdrawn",
+      "chatTags": "Chat tags that mean declined",
+      "noTags": "No chat tags yet.",
+      "save": "Save settings",
+      "saved": "Settings saved",
+      "saveFailed": "Could not save the settings"
+    }
   },
   "Reminders": {
     "alarm": {
