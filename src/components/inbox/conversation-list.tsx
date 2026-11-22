@@ -15,6 +15,7 @@ import {
   REFERENCE_CACHE_TTL_MS,
   cachedQuery,
   membersCacheKey,
+  teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
 import { messagesCacheKey } from '@/lib/inbox/message-cache';
@@ -137,7 +138,6 @@ import {
   type ChatTagTree,
 } from '@/lib/chat-tags/tree';
 import { chatTagColor } from '@/lib/chat-tags/style';
-import { ChatTagPill } from '@/components/inbox/chat-tag-pill';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
 import type { Profile } from '@/types';
@@ -146,6 +146,7 @@ import {
   ChevronDown,
   X,
   UserRound,
+  UserPlus,
   Radio,
   Phone,
   Share2,
@@ -168,9 +169,22 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import { MemberPresenceDot } from './thread-presence';
+import { RowChatTags } from './row-chat-tags';
+import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import {
+  rowAssignee,
+  rowHasDetailLine,
+  rowOffersAssign,
+} from '@/lib/inbox/row-layout';
+import { isShareOnlyViewer } from '@/lib/coordinators/ui';
+import type { AccountRole } from '@/lib/auth/roles';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useOverflowEnd } from '@/hooks/use-overflow-end';
 import { ContactAvatar } from './contact-avatar';
@@ -196,6 +210,11 @@ interface ConversationListProps {
   /** Opens a chat by id: the "New chat" button's target. Without it,
    *  or for a viewer or bank guest, there is no button. */
   onOpenConversationById?: (conversationId: string) => void;
+  /**
+   * A row's Assign wrote a new assignee (the page patches its copy).
+   * Without it, rows offer no Assign.
+   */
+  onAssignChange?: (conversationId: string, userId: string | null) => void;
   conversations: ConversationListItem[];
   onConversationsLoaded: (
     conversations: ConversationListItem[],
@@ -634,6 +653,7 @@ export function ConversationList({
   activeConversationId,
   onSelect,
   onOpenConversationById,
+  onAssignChange,
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
@@ -659,6 +679,8 @@ export function ConversationList({
   initialPinned = false,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
+  const tRowsList = useTranslations('InboxRows');
+  const tThread = useTranslations('Inbox.messageThread');
   const tInsights = useTranslations('InsightsUi.list');
   const tSearch = useTranslations('ContactSearch');
   const locale = useLocale();
@@ -913,7 +935,7 @@ export function ConversationList({
     departmentView && 'mainFor' in departmentView
       ? (departmentView.ownDepartment ?? null)
       : null;
-  const { accountId, user } = useAuth();
+  const { accountId, user, accountRole, profileLoading } = useAuth();
   const viewerId = user?.id ?? null;
   // Keyed by content, so a parent passing a fresh but equal object does
   // not refire the fetch.
@@ -1406,6 +1428,107 @@ export function ConversationList({
     },
     [membersByUserId, t]
   );
+
+  // The rows' Assign menu: the thread header's rule exactly
+  // (lib/inbox/assign.ts) — admins everyone, a team leader themselves
+  // and the people they lead, never a deactivated member. Only where the
+  // rows name who holds each chat (`showAssignee`, not the HR screens:
+  // the HR panel assigns there). Who a leader leads shares the thread's
+  // cache entry, so this normally costs nothing.
+  const rowAssignOn = showAssignee && !!onAssignChange;
+  const [leadableUserIds, setLeadableUserIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  useEffect(() => {
+    if (!rowAssignOn || accountRole !== 'team_leader' || !viewerId) {
+      setLeadableUserIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const leaderId = viewerId;
+    (async () => {
+      // Same key and same value shape as message-thread.tsx's query:
+      // whichever runs first fills the entry for the other.
+      const ids = await cachedQuery(
+        teamRosterCacheKey(leaderId),
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from('teams')
+            .select('team_members(user_id)')
+            .eq('leader_user_id', leaderId);
+          if (error || !data) return null;
+          const found = new Set<string>();
+          for (const team of data as {
+            team_members: { user_id: string }[] | null;
+          }[]) {
+            for (const m of team.team_members ?? []) found.add(m.user_id);
+          }
+          return found;
+        }
+      ).catch(() => null);
+      if (cancelled || !ids) return;
+      setLeadableUserIds(ids);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rowAssignOn, accountRole, viewerId]);
+  const rowAssignableProfiles = useMemo<readonly Profile[]>(
+    () =>
+      rowAssignOn
+        ? assignableMembers({
+            accountRole: profileLoading ? null : accountRole,
+            myUserId: viewerId,
+            profiles: members,
+            leadableUserIds,
+          })
+        : [],
+    [
+      rowAssignOn,
+      profileLoading,
+      accountRole,
+      viewerId,
+      members,
+      leadableUserIds,
+    ]
+  );
+  // The question the row's Assign asks, remembered with its chat; one
+  // answered after the list moved on still writes to that chat only.
+  const [pendingRowAssign, setPendingRowAssign] = useState<{
+    conversationId: string;
+    customer: string;
+    userId: string;
+    name: string;
+  } | null>(null);
+  const requestRowAssign = useCallback(
+    (conv: ConversationListItem, userId: string, name: string) => {
+      setPendingRowAssign({
+        conversationId: conv.id,
+        customer: conv.contact?.name || conv.contact?.phone || t('unknown'),
+        userId,
+        name,
+      });
+    },
+    [t]
+  );
+  const confirmRowAssign = useCallback(async () => {
+    const pending = pendingRowAssign;
+    setPendingRowAssign(null);
+    if (!pending) return;
+    const result = await assignConversation(
+      createClient(),
+      pending.conversationId,
+      pending.userId
+    );
+    if (!result.ok) {
+      console.error('Failed to update assignment:', result.error);
+      toast.error(tRowsList('assignFailed'));
+      return;
+    }
+    onAssignChange?.(pending.conversationId, pending.userId);
+  }, [pendingRowAssign, onAssignChange, tRowsList]);
 
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
@@ -2104,6 +2227,10 @@ export function ConversationList({
                   // does; the list-level `showAssignee` stays off there
                   // (no Agent filter, no narrowing).
                   showAssignee={showAssigneeProp || hrHeaderOn}
+                  assignableProfiles={rowAssignableProfiles}
+                  currentUserId={viewerId}
+                  viewerRole={accountRole}
+                  onRequestAssign={rowAssignOn ? requestRowAssign : undefined}
                   memberName={memberName}
                   chatTagTree={chatTagTree}
                   insights={signalsOn}
@@ -2152,6 +2279,23 @@ export function ConversationList({
           </div>
         )}
       </ScrollArea>
+
+      {/* The row's Assign asks first, in the thread header's words:
+          assigning decides who can see the customer's history. */}
+      <ConfirmDialog
+        open={pendingRowAssign !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRowAssign(null);
+        }}
+        title={tThread('confirmAssignTitle')}
+        description={tThread('confirmAssignBody', {
+          customer: pendingRowAssign?.customer ?? '',
+          name: pendingRowAssign?.name ?? '',
+        })}
+        cancelLabel={tThread('confirmAssignCancel')}
+        confirmLabel={tThread('assign')}
+        onConfirm={() => void confirmRowAssign()}
+      />
     </div>
   );
 }
@@ -2215,6 +2359,10 @@ function InsightChip({
 /** Handled's box: shared by the button and the copy that holds its place. */
 const HANDLED_CLASS =
   'shrink-0 rounded-full border px-2 text-[11px] leading-5 font-medium';
+
+/** The row's Assign button and the placeholder that holds its width. */
+const ROW_ASSIGN_CLASS =
+  'inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-2 text-xs leading-none font-medium';
 
 const PIN_LABEL = {
   urgent: 'pin.urgent',
@@ -2284,7 +2432,26 @@ interface ConversationItemProps {
   similar?: { label: string; hint: string } | null;
   /** The HR screens: the normal row plus one HR line (`HrRowTags`). */
   hrChips?: boolean;
+  /**
+   * Who the row's Assign menu offers (`assignableMembers`, stable: a
+   * useMemo). Empty: no Assign on the row.
+   */
+  assignableProfiles?: readonly Profile[];
+  /** The viewer, for "(me)" and the share-only check. */
+  currentUserId?: string | null;
+  viewerRole?: AccountRole | null;
+  /**
+   * A person was picked in the row's Assign menu; the list asks before
+   * it writes (stable: a useCallback). Absent: no Assign on the row.
+   */
+  onRequestAssign?: (
+    conversation: ConversationListItem,
+    userId: string,
+    name: string
+  ) => void;
 }
+
+const NO_PROFILES: readonly Profile[] = [];
 
 /** Hover or focus this long before a row's messages are prefetched. */
 export const ROW_PREFETCH_DELAY_MS = 100;
@@ -2312,7 +2479,12 @@ export const ConversationItem = memo(function ConversationItem({
   onPrefetch,
   similar = null,
   hrChips = false,
+  assignableProfiles = NO_PROFILES,
+  currentUserId = null,
+  viewerRole = null,
+  onRequestAssign,
 }: ConversationItemProps) {
+  const tRows = useTranslations('InboxRows');
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
   // has taken it. The thread header runs the same rule with the
@@ -2456,6 +2628,28 @@ export const ConversationItem = memo(function ConversationItem({
     showAssignee,
     personalLabel,
   });
+  // The third line also carries the chat tags now, so a tagged chat
+  // gets it even where nothing else would.
+  const hasDetail = rowHasDetailLine({
+    hasMeta,
+    hasChatTag: !!(chatTag.main && chatTagText),
+  });
+  const assignee = showAssignee ? rowAssignee(handler, handlerName) : null;
+  const offersAssign =
+    !!onRequestAssign &&
+    rowOffersAssign({
+      showAssignee,
+      assignedAgentId: conversation.assigned_agent_id,
+      personalOwnerId: conversation.personal_owner_id,
+      hrRow: hrChips,
+      assignableCount: assignableProfiles.length,
+      shareOnly: isShareOnlyViewer(
+        viewerRole,
+        currentUserId,
+        conversation,
+        !!sharedBank
+      ),
+    });
 
   const row = (
     <button
@@ -2564,41 +2758,29 @@ export const ConversationItem = memo(function ConversationItem({
             )}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center justify-between gap-2">
+        {/* The preview owns its whole line (the unread count closes
+            it), so the narrow desktop column shows a sentence, not two
+            words. The tags moved down to the holder's line. */}
+        <div className="mt-0.5 flex min-w-0 items-center gap-2">
           <p
             className={cn(
-              'truncate text-[13.5px] leading-5',
+              'min-w-0 flex-1 truncate text-[13.5px] leading-5',
               unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
             )}
           >
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
-          {/* The chat tag sits on the right, beside the unread count:
-              one pill, the main tag tinted in its colour and its
-              sub-tag joined on fainter. It may take most of the line;
-              the preview truncates first, and the count never does. */}
-          <div className="flex max-w-[65%] min-w-0 shrink-0 items-center justify-end gap-1.5">
-            {chatTag.main && chatTagText && (
-              <ChatTagPill
-                main={chatTag.main}
-                sub={chatTag.sub}
-                size="sm"
-                title={chatTagText}
-                className="min-w-0"
-              />
-            )}
-            {unread && (
-              <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
-                {conversation.unread_count > 99
-                  ? '99+'
-                  : conversation.unread_count}
-              </span>
-            )}
-          </div>
+          {unread && (
+            <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs leading-none font-semibold">
+              {conversation.unread_count > 99
+                ? '99+'
+                : conversation.unread_count}
+            </span>
+          )}
         </div>
 
-        {hasMeta && (
-          <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+        {hasDetail && (
+          <div className="text-wa-text-secondary mt-1 flex min-h-5 min-w-0 items-center gap-x-2 text-xs leading-4">
             {personalLabel && (
               <span className="text-info inline-flex shrink-0 items-center gap-1 font-medium">
                 <Smartphone className="h-3 w-3 shrink-0" />
@@ -2610,6 +2792,46 @@ export const ConversationItem = memo(function ConversationItem({
               <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
                 <Share2 className="h-3 w-3 shrink-0" />
                 {t('sharedWithMe', { bank: sharedBank })}
+              </span>
+            )}
+
+            {/* The chat tag: the main tag compact, the sub-tag (a bank)
+                as a short pill, the full name in the tooltip. */}
+            {chatTag.main && chatTagText && (
+              <RowChatTags
+                main={chatTag.main}
+                sub={chatTag.sub}
+                label={chatTagText}
+              />
+            )}
+
+            {/* Who answers for this thread. Only rendered for a viewer
+                whose list mixes owners — see `showAssignee`.
+                An assigned chat names its assignee. Anything else reads
+                "Unassigned" in the muted text: the word is the signal
+                (it used to be the owner's name in amber, which read as
+                a warning about that person). The owner, when there is
+                one, stays in the tooltip. */}
+            {assignee && (
+              <span
+                className={cn(
+                  'inline-flex min-w-0 shrink items-center gap-1',
+                  assignee.kind === 'assigned' && 'text-wa-text'
+                )}
+                title={
+                  assignee.kind === 'assigned'
+                    ? t('assignedTo', { name: assignee.name })
+                    : assignee.ownerName
+                      ? t('ownedBy', { name: assignee.ownerName })
+                      : t('unassigned')
+                }
+              >
+                <UserRound className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {assignee.kind === 'assigned'
+                    ? assignee.name
+                    : t('unassigned')}
+                </span>
               </span>
             )}
 
@@ -2630,52 +2852,31 @@ export const ConversationItem = memo(function ConversationItem({
               </span>
             )}
 
-            {/* Who answers for this thread. Only rendered for a viewer
-                whose list mixes owners — see `showAssignee`.
-                The name is whoever the row can actually name: the
-                assignee, or its owner when nobody pressed Assign. The
-                amber icon is the separate signal — it says the chat is
-                still nobody's formally, the one thing on this screen
-                that needs an action. A row with no name at all falls
-                back to the word itself. */}
-            {showAssignee && (
-              <span
-                className="inline-flex min-w-0 shrink items-center gap-1"
-                title={
-                  handler && handlerName
-                    ? handler.kind === 'assigned'
-                      ? t('assignedTo', { name: handlerName })
-                      : t('ownedBy', { name: handlerName })
-                    : t('unassigned')
-                }
-              >
-                <UserRound
-                  className={cn(
-                    'h-3 w-3 shrink-0',
-                    handler?.kind !== 'assigned' && 'text-warning'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'truncate',
-                    handler?.kind !== 'assigned' && 'text-warning'
-                  )}
-                >
-                  {handlerName ?? t('unassigned')}
-                </span>
-              </span>
-            )}
-
-            {/* Insight chips close the meta line, right-aligned: named
-                chips on a wide row, coloured dots on a narrow one (a
-                container query on the row). They never shrink; the
-                number and the name truncate instead. */}
-            {chips.length > 0 && (
+            {/* Insight chips close the line, right-aligned: named chips
+                on a wide row, coloured dots on a narrow one (a container
+                query on the row). They never shrink; the number and the
+                name truncate instead. */}
+            {chips.length > 0 && hasMeta && (
               <InsightChips
                 conversation={conversation}
                 chips={chips}
                 className="ml-auto"
               />
+            )}
+
+            {/* Holds the Assign button's width (the button itself sits
+                outside the row button, below). */}
+            {offersAssign && (
+              <span
+                aria-hidden
+                className={cn(
+                  ROW_ASSIGN_CLASS,
+                  'invisible',
+                  !(chips.length > 0 && hasMeta) && 'ml-auto'
+                )}
+              >
+                {tRows('assign')}
+              </span>
             )}
           </div>
         )}
@@ -2711,6 +2912,48 @@ export const ConversationItem = memo(function ConversationItem({
         >
           {tInsights('handled')}
         </button>
+      )}
+      {/* Assign, on an unassigned chat, for someone who may assign it.
+          Outside the row button for the same reason as Handled, laid
+          over the end of the holder's line (the row holds its width).
+          Picking a person asks first (the list's confirmation), as the
+          thread header does; opening the menu never opens the chat. */}
+      {offersAssign && onRequestAssign && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={tRows('assignAria', { name: displayName })}
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              ROW_ASSIGN_CLASS,
+              'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute right-3 bottom-3 focus-visible:ring-2 focus-visible:outline-none'
+            )}
+          >
+            <UserPlus className="h-3 w-3 shrink-0" />
+            {tRows('assign')}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{tRows('assignTo')}</DropdownMenuLabel>
+              {assignableProfiles.map((p) => {
+                const name =
+                  (p.full_name?.trim() || p.email || tRows('unknownAgent')) +
+                  (p.user_id === currentUserId ? tRows('me') : '');
+                return (
+                  <DropdownMenuItem
+                    key={p.id}
+                    onClick={() =>
+                      onRequestAssign(conversation, p.user_id, name)
+                    }
+                    className="text-sm"
+                  >
+                    <MemberPresenceDot userId={p.user_id} className="mr-2" />
+                    <span className="flex-1 truncate">{name}</span>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );

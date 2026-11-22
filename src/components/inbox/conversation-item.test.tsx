@@ -203,3 +203,91 @@ describe('ConversationItem, HR row', () => {
     expect(html).not.toContain('Reply state: ');
   });
 });
+
+describe('ConversationItem, the row lines (InboxRows)', () => {
+  const tagRow = (over: Record<string, unknown>) =>
+    ({
+      account_id: 'a1',
+      color: '#16a34a',
+      sub_tag_title: null,
+      position: 0,
+      created_at: '2026-11-01T00:00:00Z',
+      updated_at: '2026-11-01T00:00:00Z',
+      ...over,
+    }) as never;
+  const tree = buildChatTagTree([
+    tagRow({ id: 't1', parent_id: null, name: 'Interested customer' }),
+    tagRow({ id: 't2', parent_id: 't1', name: 'Abu Dhabi Commercial Bank' }),
+  ]);
+
+  function renderWith(
+    c: ConversationListItem,
+    extra: Record<string, unknown> = {}
+  ) {
+    return renderToStaticMarkup(
+      <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+        <ConversationItem
+          conversation={c}
+          isActive={false}
+          onSelect={() => {}}
+          t={t as never}
+          today={TODAY}
+          locale="en"
+          showAssignee={false}
+          memberName={(id) => NAMES[id] ?? 'Unknown'}
+          chatTagTree={tree}
+          {...extra}
+        />
+      </NextIntlClientProvider>
+    );
+  }
+
+  it('gives the preview its own line and puts the tags on the next', () => {
+    const html = renderWith(
+      conv({ chat_tag_id: 't1', chat_sub_tag_id: 't2', unread_count: 2 })
+    );
+    const preview = html.indexOf('Hello, any news on my application?');
+    const count = html.indexOf('>2</span>');
+    const tag = html.indexOf('Interested customer');
+    expect(preview).toBeGreaterThan(-1);
+    expect(count).toBeGreaterThan(preview);
+    expect(tag).toBeGreaterThan(count);
+    // The sub-tag is compact; the full name is the label.
+    expect(html).toContain('ADCB</span>');
+    expect(html).toContain(
+      'aria-label="Interested customer · Abu Dhabi Commercial Bank"'
+    );
+  });
+
+  it('reads Unassigned in the muted text, never amber', () => {
+    const html = renderWith(conv({ user_id: 'u1' }), { showAssignee: true });
+    expect(html).toContain('>Unassigned</span>');
+    expect(html).not.toContain('text-warning');
+    expect(html).toContain(`title="${t('ownedBy', { name: 'Omar Farouk' })}"`);
+  });
+
+  it('offers Assign on an unassigned chat to someone who may assign', () => {
+    const profiles = [
+      { id: 'p1', user_id: 'u1', full_name: 'Omar Farouk' },
+    ] as never;
+    const offered = renderWith(conv(), {
+      showAssignee: true,
+      assignableProfiles: profiles,
+      onRequestAssign: () => {},
+    });
+    expect(offered).toContain('aria-label="Assign the chat with Vishnu Kumar"');
+    const assigned = renderWith(conv({ assigned_agent_id: 'u1' }), {
+      showAssignee: true,
+      assignableProfiles: profiles,
+      onRequestAssign: () => {},
+    });
+    expect(assigned).not.toContain('Assign the chat with');
+    expect(assigned).toContain('>Omar Farouk</span>');
+    const noRight = renderWith(conv(), {
+      showAssignee: true,
+      assignableProfiles: [],
+      onRequestAssign: () => {},
+    });
+    expect(noRight).not.toContain('Assign the chat with');
+  });
+});
