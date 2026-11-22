@@ -277,6 +277,14 @@ export function canSendMessages(role: AccountRole): boolean {
 }
 
 /**
+ * Agent and up: write team notes inside a chat they can see and
+ * @mention teammates (migration 241's insert policy). Viewers read them.
+ */
+export function canWriteChatNotes(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}
+
+/**
  * Viewer: read-only across everything. Provided as a positive
  * predicate so UI gates read naturally (`if (canViewOnly(role))`
  * shows the "Read-only" tooltip without inverting `canSendMessages`).

@@ -7455,6 +7455,7 @@
       "conversation_assigned": "A chat is assigned to me",
       "conversation_shared": "A chat is shared with me",
       "insight_attention": "A chat needs my attention",
+      "chat_note_mention": "Someone mentions me in a chat note",
       "ai_handoff": "The AI hands a chat to a person",
       "task_assigned": "A task is assigned to me",
       "task_due": "A task is due",

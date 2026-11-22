@@ -87,6 +87,7 @@ function hrefFor(
     case 'ai_handoff':
     case 'conversation_shared':
     case 'insight_attention':
+    case 'chat_note_mention':
       return chat(n.conversation_id);
     case 'task_assigned':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';
