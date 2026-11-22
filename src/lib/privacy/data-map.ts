@@ -886,6 +886,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'pipeline_stages',
             'pipelines',
             'quick_replies',
+            'saved_views',
             'tags',
             'team_activity_new_chat_notice',
             'team_activity_settings',

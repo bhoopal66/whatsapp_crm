@@ -1214,3 +1214,10 @@ jobs:
       # one supersedes the pending one, writers decide once.
       - name: Verify case review
         run: supabase db query --local --file supabase/ci/verify-case-review.sql
+
+      # Migration 250: saved views. A personal view is its owner's alone
+      # (not even an admin reads it); a shared view is read by the whole
+      # workspace and saved by a team leader or above, edited by its
+      # owner or an admin; nothing crosses accounts.
+      - name: Verify saved views
+        run: supabase db query --local --file supabase/ci/verify-saved-views.sql
