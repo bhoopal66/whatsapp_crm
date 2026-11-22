@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import {
@@ -487,6 +487,7 @@ function RetagForm({
 
 function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
   const t = useTranslations('Desk');
+  const locale = useLocale();
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [denied, setDenied] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -527,7 +528,7 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
                 {bankName(banks, i.queueBankCode) ?? t('noBankQueue')}
               </Badge>
               <span className="text-muted-foreground">
-                {formatAge(i.ageSeconds)}
+                {formatAge(i.ageSeconds, locale)}
               </span>
               {i.kind && <span>{t(`kind.${i.kind}`)}</span>}
               {i.originalName && (
@@ -913,6 +914,7 @@ function SortPanel({
 // ---------- Overview ----------
 
 function OverviewTab() {
+  const locale = useLocale();
   const t = useTranslations('Desk');
   const [rows, setRows] = useState<OverviewRow[] | null>(null);
   useEffect(() => {
@@ -951,7 +953,7 @@ function OverviewTab() {
                 </TableCell>
                 <TableCell>{r.bankCode === null ? '—' : r.holders}</TableCell>
                 <TableCell>{r.toSort}</TableCell>
-                <TableCell>{formatAge(r.oldestAgeSeconds)}</TableCell>
+                <TableCell>{formatAge(r.oldestAgeSeconds, locale)}</TableCell>
                 <TableCell className={alertClass[r.alert]}>
                   {t(`overview.alerts.${r.alert}`)}
                 </TableCell>

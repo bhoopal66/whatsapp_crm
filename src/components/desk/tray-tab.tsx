@@ -8,7 +8,7 @@
  * for needs its legal name typed, and filing needs a chosen case.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +34,7 @@ import { TrayCaseFinder } from './tray-case-finder';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
   const t = useTranslations('Desk');
+  const locale = useLocale();
   const { user } = useAuth();
   const [items, setItems] = useState<TrayItem[] | null>(null);
   const [settings, setSettings] = useState<DeskSettings | null>(null);
@@ -82,7 +83,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
                 {oldest !== null && (
                   <span className="text-muted-foreground font-normal">
                     {' · '}
-                    {t('tray.oldest', { age: formatAge(oldest) })}
+                    {t('tray.oldest', { age: formatAge(oldest, locale) })}
                   </span>
                 )}
               </span>
@@ -129,6 +130,7 @@ function TrayCard({
 }) {
   const t = useTranslations('Desk');
   const tf = useTranslations('DeskForms');
+  const locale = useLocale();
   // Never pre-selected (design 035): the person chooses.
   const [caseId, setCaseId] = useState<string | null>(null);
   // Cases the person found with "Find case", listed after the item's own.
@@ -210,7 +212,7 @@ function TrayCard({
             </span>
           )}
           <span className="text-muted-foreground text-xs">
-            {t('tray.received', { age: formatAge(item.ageSeconds) })}
+            {t('tray.received', { age: formatAge(item.ageSeconds, locale) })}
           </span>
           {item.escalatedAt && (
             <Badge variant="destructive">{t('tray.escalated')}</Badge>

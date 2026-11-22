@@ -83,12 +83,19 @@ export function newIdemKey(
   return `up-${rand()}`;
 }
 
-export function formatAge(seconds: number | null): string {
+/** An age such as "3h 2m", in the reader's language ("3 س 2 د" in Arabic). */
+export function formatAge(seconds: number | null, locale = 'en'): string {
   if (seconds === null) return '—';
-  if (seconds < 60) return `${Math.max(0, Math.floor(seconds))}s`;
+  const unit = (n: number, u: 'second' | 'minute' | 'hour' | 'day') =>
+    new Intl.NumberFormat(locale, {
+      style: 'unit',
+      unit: u,
+      unitDisplay: 'narrow',
+    }).format(n);
+  if (seconds < 60) return unit(Math.max(0, Math.floor(seconds)), 'second');
   const m = Math.floor(seconds / 60);
-  if (m < 60) return `${m}m`;
+  if (m < 60) return unit(m, 'minute');
   const h = Math.floor(m / 60);
-  if (h < 48) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d`;
+  if (h < 48) return `${unit(h, 'hour')} ${unit(m % 60, 'minute')}`;
+  return unit(Math.floor(h / 24), 'day');
 }

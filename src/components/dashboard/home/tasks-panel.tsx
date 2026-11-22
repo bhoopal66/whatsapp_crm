@@ -194,7 +194,7 @@ export function TasksPanel({
                 <ChevronDown
                   className={cn(
                     'h-3.5 w-3.5 transition-transform',
-                    !restOpen && '-rotate-90'
+                    !restOpen && '-rotate-90 rtl:rotate-90'
                   )}
                   aria-hidden
                 />

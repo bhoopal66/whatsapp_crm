@@ -51,8 +51,16 @@ What deliberately does not mirror:
 - **Direction icons** (chevrons and arrows meaning back/forward, next/
   previous) carry `rtl:rotate-180`; icons that mean something else (a
   dropdown chevron, "expand", "send") do not.
-- **Chat bubbles:** bubble text never gets `dir="auto"` (the time overlay
-  reserves room at the end of the last line); the composer does.
+- **Chat bubbles:** the bubble paragraph never gets `dir="auto"` (the time
+  overlay reserves room at the end of the last line); only the words sit in
+  an inline `<span dir="auto">`, so an English message in the Arabic screen
+  keeps its punctuation. The inbox preview line has `dir="auto"` with the
+  UI's alignment, and customer names are wrapped in `<bdi>`, so a number
+  shown as a name keeps its order. The composer has `dir="auto"`.
+- **Side panels and the phone menu:** a sheet's `left` / `right` mean the
+  start / end side, so in Arabic they open from the right; the phone menu
+  hides rightwards. A closed expand arrow points in the reading direction
+  (`-rotate-90 rtl:rotate-90` on a down chevron).
 
 ## The Arabic catalogue
 

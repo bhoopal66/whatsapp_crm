@@ -22,7 +22,7 @@ export function PhoneCell({
   if (!phone) return <span className="text-muted-foreground">-</span>;
   return (
     <div className="flex items-center gap-1">
-      <span className="text-xs whitespace-nowrap tabular-nums">
+      <span dir="ltr" className="text-xs whitespace-nowrap tabular-nums">
         {formatPhoneDisplay(phone)}
       </span>
       <button

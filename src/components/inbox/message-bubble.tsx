@@ -142,7 +142,7 @@ function MessageContent({
     case 'text':
       return (
         <p className={BODY_TEXT}>
-          {message.content_text}
+          <span dir="auto">{message.content_text}</span>
           {trailing}
         </p>
       );
@@ -157,7 +157,7 @@ function MessageContent({
           )}
           {message.content_text && (
             <p className={cn('mt-1', BODY_TEXT)}>
-              {message.content_text}
+              <span dir="auto">{message.content_text}</span>
               {trailing}
             </p>
           )}
@@ -174,7 +174,7 @@ function MessageContent({
           )}
           {message.content_text && (
             <p className={cn('mt-1', BODY_TEXT)}>
-              {message.content_text}
+              <span dir="auto">{message.content_text}</span>
               {trailing}
             </p>
           )}
@@ -216,13 +216,13 @@ function MessageContent({
           </span>
           {message.content_text ? (
             <p className={cn('mt-1', BODY_TEXT)}>
-              {message.content_text}
+              <span dir="auto">{message.content_text}</span>
               {trailing}
             </p>
           ) : (
             message.template_name && (
               <p className={cn('mt-1 italic opacity-80', BODY_TEXT)}>
-                {message.template_name}
+                <span dir="auto">{message.template_name}</span>
                 {trailing}
               </p>
             )
@@ -277,7 +277,9 @@ function MessageContent({
               {t('buttonReply')}
             </span>
             <p className={BODY_TEXT}>
-              {message.content_text || t('interactiveReply')}
+              <span dir="auto">
+                {message.content_text || t('interactiveReply')}
+              </span>
               {trailing}
             </p>
           </div>
@@ -285,7 +287,9 @@ function MessageContent({
       }
       return (
         <p className={BODY_TEXT}>
-          {message.content_text || t('interactiveReply')}
+          <span dir="auto">
+            {message.content_text || t('interactiveReply')}
+          </span>
           {trailing}
         </p>
       );
@@ -294,7 +298,7 @@ function MessageContent({
     default:
       return (
         <p className={BODY_TEXT}>
-          {message.content_text || t('unsupported')}
+          <span dir="auto">{message.content_text || t('unsupported')}</span>
           {trailing}
         </p>
       );
@@ -525,8 +529,11 @@ export function MessageBubble({
   const translation = useMessageTranslation(message);
   // The English goes in place of the Arabic, in the same bubble; only
   // content_text changes, so the time overlay below is laid out as before.
-  // No dir="auto" on the text: the time's room is reserved at the end of
-  // the last line, and an RTL paragraph would move it under the words.
+  // No dir="auto" on the paragraph: the time's room is reserved at the end
+  // of the last line, and an RTL paragraph would move it under the words.
+  // The words alone sit in an inline <span dir="auto"> (an isolate), so an
+  // English message in the Arabic screen keeps its own word order and
+  // punctuation while the paragraph, and the time's room, keep the UI's.
   const shown =
     translation.enabled &&
     translation.view.kind === 'done' &&

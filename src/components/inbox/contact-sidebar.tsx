@@ -199,7 +199,7 @@ export function ContactSidebar({
           <section className="bg-wa-panel flex flex-col items-center px-5 pt-6 pb-4 text-center">
             <ContactAvatar contact={contact} name={displayName} size={88} />
             <h3 className="text-wa-text mt-3 max-w-full truncate text-lg">
-              {displayName}
+              <bdi>{displayName}</bdi>
             </h3>
             {contact.opted_out_at && (
               <span

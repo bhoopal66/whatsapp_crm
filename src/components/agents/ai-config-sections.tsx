@@ -120,7 +120,7 @@ export function AdvancedSection({ children }: { children: ReactNode }) {
   return (
     <details className="group border-border rounded-md border">
       <summary className="text-foreground flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium select-none">
-        <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+        <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90 rtl:rotate-180 rtl:group-open:rotate-90" />
         {t('advanced')}
       </summary>
       <div className="space-y-4 border-t px-3 py-3">{children}</div>
@@ -224,7 +224,7 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
                 <button
                   type="button"
                   onClick={() => setShowKey((s) => !s)}
-                  className="text-muted-foreground hover:text-foreground absolute top-1/2 end-2 -translate-y-1/2"
+                  className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
                   tabIndex={-1}
                 >
                   {showKey ? (

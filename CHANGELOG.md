@@ -27,6 +27,13 @@ everyone sees the workspace default.
   default (`NEXT_PUBLIC_APP_LOCALE`, still build time). Arabic is shown right
   to left, with Noto Sans Arabic for its letters. The Arabic text is
   machine-translated and still needs a native reader (`docs/languages.md`).
+- **Fixed (Arabic screens, checked on screen):** the phone menu no longer
+  sticks out over the left edge when closed; side panels open from the right;
+  switches move the right way; expand arrows point the reading way; English
+  message previews and bubbles keep their punctuation and are cut at their
+  own end; phone numbers in Contacts and numbers shown as a name keep their
+  order; the Appearance mode and colour names, Contacts' Created date, deal
+  dates and the Case desk ages ("10 س 32 د") follow the person's language.
 - **Changed:** the layout uses logical (start/end) Tailwind classes, so every
   screen mirrors in Arabic. Direction icons flip; charts, phone numbers and
   email fields stay left to right. `scripts/rtl-sweep.mjs` converts physical

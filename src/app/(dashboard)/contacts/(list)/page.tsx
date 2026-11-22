@@ -1089,7 +1089,7 @@ export function ContactsPageInner({
       <div className="space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative w-full max-w-sm">
-            <Search className="text-muted-foreground absolute top-1/2 start-2.5 size-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute start-2.5 top-1/2 size-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={(e) => {
@@ -1533,7 +1533,7 @@ export function ContactsPageInner({
                     {show('createdAt') && (
                       <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
                         {new Date(contact.created_at).toLocaleDateString(
-                          'en-US',
+                          locale,
                           {
                             month: 'short',
                             day: 'numeric',

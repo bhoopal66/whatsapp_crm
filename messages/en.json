@@ -3100,7 +3100,37 @@
       "language": "Language",
       "languageDescription": "The language of menus and screens. Saved to your profile, so it follows you to every device. Arabic is shown right to left.",
       "languageDefault": "Workspace default ({language})",
-      "languageFailed": "Could not change the language. Try again."
+      "languageFailed": "Could not change the language. Try again.",
+      "modes": {
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "themes": {
+        "taamul": {
+          "name": "Taamul Blue",
+          "tagline": "The default — the brand blue, calm and professional."
+        },
+        "violet": {
+          "name": "Violet",
+          "tagline": "Confident, slightly playful."
+        },
+        "emerald": {
+          "name": "Emerald",
+          "tagline": "Growth-coded, nods at messaging without copying WhatsApp green."
+        },
+        "cobalt": {
+          "name": "Cobalt",
+          "tagline": "Clean B2B-SaaS blue — calm and product-y."
+        },
+        "amber": {
+          "name": "Amber",
+          "tagline": "Warm and friendly — feels good for SMB teams."
+        },
+        "rose": {
+          "name": "Rose",
+          "tagline": "Bold and modern — D2C, creator-economy, lifestyle."
+        }
+      }
     },
     "security": {
       "title": "Login & security",

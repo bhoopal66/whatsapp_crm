@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
@@ -19,6 +19,7 @@ import { deskApi } from './desk-api';
 
 export function DeskWorklistCard() {
   const t = useTranslations('Desk');
+  const locale = useLocale();
   const { accountId } = useAuth();
   const [w, setW] = useState<{
     account: string | null;
@@ -64,7 +65,7 @@ export function DeskWorklistCard() {
               {w.data[k].oldestSeconds !== null && (
                 <span className="text-muted-foreground">
                   {t('worklist.oldest', {
-                    age: formatAge(w.data[k].oldestSeconds),
+                    age: formatAge(w.data[k].oldestSeconds, locale),
                   })}
                 </span>
               )}

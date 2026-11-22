@@ -208,7 +208,7 @@ export function ThreadHeader({
       <ContactAvatar contact={contact} name={displayName} size={40} />
       <div className="min-w-0">
         <h2 className="text-wa-text truncate text-[15px] leading-5 font-medium">
-          {displayName}
+          <bdi>{displayName}</bdi>
         </h2>
         {/* The number, unless it is already the name. */}
         {contact.name && (
@@ -490,7 +490,7 @@ export function ThreadHeader({
             className={cn(
               'items-center gap-1 @3xl/thread:static @3xl/thread:flex @3xl/thread:gap-1.5 @3xl/thread:border-0 @3xl/thread:bg-transparent @3xl/thread:p-0 @3xl/thread:shadow-none',
               actionsOpen
-                ? 'bg-wa-panel-header border-wa-divider absolute top-full end-2 z-20 flex rounded-lg border p-1.5 shadow-md'
+                ? 'bg-wa-panel-header border-wa-divider absolute end-2 top-full z-20 flex rounded-lg border p-1.5 shadow-md'
                 : 'hidden'
             )}
           >

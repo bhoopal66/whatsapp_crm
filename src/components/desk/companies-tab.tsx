@@ -223,7 +223,7 @@ function CompanyPeople({
                 className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
               >
                 <span className="text-foreground min-w-0 font-medium break-words">
-                  {p.name ?? p.phone ?? p.contactId}
+                  <bdi>{p.name ?? p.phone ?? p.contactId}</bdi>
                 </span>
                 {p.phone && (
                   <span className="text-muted-foreground font-mono text-xs">

@@ -6,7 +6,7 @@ import { dealOwnerProfile } from '@/lib/pipelines/owner';
 import { Calendar, Check, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency';
 import type { LeadScore } from '@/lib/pipelines/lead-score';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { LeadScoreBadge } from './lead-score-badge';
 
 interface DealCardProps {
@@ -20,8 +20,8 @@ interface DealCardProps {
   score?: LeadScore | null;
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
+function formatDate(dateStr: string, locale: string) {
+  return new Date(dateStr).toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -43,6 +43,7 @@ export function DealCard({
   score,
 }: DealCardProps) {
   const t = useTranslations('Pipelines.card');
+  const locale = useLocale();
   const contactLabel =
     deal.contact?.name || deal.contact?.phone || t('noContact');
   // The owner: the assignee, else whoever created the deal.
@@ -59,7 +60,7 @@ export function DealCard({
         e.stopPropagation();
         onEdit(deal);
       }}
-      className={`group border-border bg-card dark:bg-card-2 focus-visible:ring-ring relative w-full cursor-pointer rounded-xl border py-3 pe-3 ps-4 text-start shadow-sm transition-all focus-visible:ring-2 focus-visible:outline-none ${
+      className={`group border-border bg-card dark:bg-card-2 focus-visible:ring-ring relative w-full cursor-pointer rounded-xl border py-3 ps-4 pe-3 text-start shadow-sm transition-all focus-visible:ring-2 focus-visible:outline-none ${
         isOverlay
           ? 'shadow-xl'
           : 'hover:border-input hover:-translate-y-0.5 hover:shadow-md'
@@ -68,7 +69,7 @@ export function DealCard({
       {/* 4px left accent bar using stage color */}
       <span
         aria-hidden
-        className="absolute top-0 start-0 h-full w-1 rounded-s-xl"
+        className="absolute start-0 top-0 h-full w-1 rounded-s-xl"
         style={{ backgroundColor: stage?.color ?? '#94a3b8' }}
       />
 
@@ -108,7 +109,7 @@ export function DealCard({
         {deal.expected_close_date && (
           <span className="text-muted-foreground flex items-center gap-1 text-xs">
             <Calendar className="h-3 w-3" />
-            {formatDate(deal.expected_close_date)}
+            {formatDate(deal.expected_close_date, locale)}
           </span>
         )}
       </div>

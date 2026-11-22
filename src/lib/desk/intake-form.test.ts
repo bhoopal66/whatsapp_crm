@@ -97,5 +97,6 @@ describe('desk helpers', () => {
     expect(formatAge(42)).toBe('42s');
     expect(formatAge(3 * 3600 + 120)).toBe('3h 2m');
     expect(formatAge(72 * 3600)).toBe('3d');
+    expect(formatAge(3 * 3600 + 120, 'ar')).toBe('3 س 2 د');
   });
 });

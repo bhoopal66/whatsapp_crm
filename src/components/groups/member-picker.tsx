@@ -81,7 +81,7 @@ export function MemberPicker({
               return (
                 <li
                   key={c.id}
-                  className="bg-muted flex max-w-full items-center gap-1 rounded-full py-0.5 pe-1 ps-2.5 text-xs"
+                  className="bg-muted flex max-w-full items-center gap-1 rounded-full py-0.5 ps-2.5 pe-1 text-xs"
                 >
                   <span className="max-w-40 truncate">{name}</span>
                   <button
@@ -136,7 +136,7 @@ export function MemberPicker({
                       }
                     />
                     <span className="min-w-0 flex-1 truncate">
-                      {c.name || c.phone}
+                      <bdi>{c.name || c.phone}</bdi>
                       {c.name && c.phone && (
                         <span className="text-muted-foreground ms-1.5 text-xs">
                           <span dir="ltr">{c.phone}</span>

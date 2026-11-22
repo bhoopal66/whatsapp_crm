@@ -1845,7 +1845,7 @@ export function ConversationList({
         {hrHeader?.title}
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
-            <Search className="text-wa-icon pointer-events-none absolute top-1/2 start-3.5 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-wa-icon pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={handleSearchChange}
@@ -2749,7 +2749,7 @@ export const ConversationItem = memo(function ConversationItem({
               unread ? 'font-semibold' : 'font-normal'
             )}
           >
-            {displayName}
+            <bdi>{displayName}</bdi>
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
             {similar && (
@@ -2815,9 +2815,13 @@ export const ConversationItem = memo(function ConversationItem({
             it), so the narrow desktop column shows a sentence, not two
             words. The tags moved down to the holder's line. */}
         <div className="mt-0.5 flex min-w-0 items-center gap-2">
+          {/* dir="auto": an English preview in the Arabic screen (or the
+              reverse) keeps its own word order and is cut at its own end;
+              the ltr:/rtl: alignment keeps short ones lined up with the UI. */}
           <p
+            dir="auto"
             className={cn(
-              'min-w-0 flex-1 truncate text-[13.5px] leading-5',
+              'min-w-0 flex-1 truncate text-[13.5px] leading-5 ltr:text-left rtl:text-right',
               unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
             )}
           >
@@ -2960,7 +2964,7 @@ export const ConversationItem = memo(function ConversationItem({
           aria-label={tInsights('handledAria', { name: displayName })}
           className={cn(
             HANDLED_CLASS,
-            'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute top-2.5 end-3 shadow-sm focus-visible:ring-2 focus-visible:outline-none'
+            'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute end-3 top-2.5 shadow-sm focus-visible:ring-2 focus-visible:outline-none'
           )}
         >
           {tInsights('handled')}

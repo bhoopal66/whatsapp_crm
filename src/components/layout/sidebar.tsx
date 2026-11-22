@@ -407,10 +407,13 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         ref={asideRef}
         className={cn(
-          // Mobile: fixed drawer that slides in from the left.
+          // Mobile: fixed drawer that slides in from the start side.
           'border-sidebar-border bg-sidebar fixed inset-y-0 start-0 z-40 flex h-full w-64 flex-row border-e',
           'transition-transform duration-200 ease-out will-change-transform',
-          open ? 'translate-x-0' : '-translate-x-full',
+          // In Arabic the drawer sits at the right (start-0), so it hides rightwards.
+          open
+            ? 'translate-x-0'
+            : '-translate-x-full max-lg:rtl:translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
           'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
         )}
@@ -487,7 +490,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                             aria-hidden="true"
                             className={cn(
                               'size-3.5 shrink-0 transition-transform',
-                              !open && '-rotate-90',
+                              !open && '-rotate-90 rtl:rotate-90',
                               locked && 'opacity-40'
                             )}
                           />
