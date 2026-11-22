@@ -16,6 +16,8 @@ import {
   Users,
   PhoneCall,
   Loader2,
+  ChevronDown,
+  FilePlus,
 } from "lucide-react"
 
 import { createClient } from "@/lib/supabase/client"
@@ -28,7 +30,9 @@ import { Switch } from "@/components/ui/switch"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -161,22 +165,64 @@ export default function AutomationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("subtitle")}
           </p>
         </div>
-        <GatedButton
-          canAct={canCreate}
-          gateReason="create automations"
-          onClick={() => router.push("/automations/new")}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" />
-          {t("create")}
-        </GatedButton>
+        {canCreate ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button className="bg-primary text-primary-foreground hover:bg-primary/90" />
+              }
+            >
+              <Plus className="h-4 w-4" />
+              {t("create")}
+              <ChevronDown className="h-4 w-4" aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 max-w-[calc(100vw-2rem)]">
+              <DropdownMenuItem onClick={() => router.push("/automations/new")}>
+                <FilePlus className="h-4 w-4" />
+                {t("createBlank")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("createFromTemplate")}</DropdownMenuLabel>
+                {TEMPLATE_ORDER.map((slug) => {
+                  const Icon = TEMPLATE_ICON[slug]
+                  const tpl = AUTOMATION_TEMPLATES[slug]
+                  return (
+                    <DropdownMenuItem
+                      key={slug}
+                      onClick={() => startFromTemplate(slug)}
+                      className="items-start"
+                    >
+                      <Icon className="mt-0.5 h-4 w-4" />
+                      <span className="min-w-0">
+                        <span className="block text-sm text-foreground">{tpl.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {tpl.description}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <GatedButton
+            canAct={false}
+            gateReason="create automations"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            {t("create")}
+          </GatedButton>
+        )}
       </div>
 
       {showTemplates && (
@@ -318,7 +364,7 @@ function AutomationCard({
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span
               className={cn(
-                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
                 meta.pillClass,
               )}
               title={meta.description}
