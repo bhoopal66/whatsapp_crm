@@ -100,6 +100,7 @@ export async function middleware(request: NextRequest) {
     '/team-contacts',
     '/team-activity',
     '/my-activity',
+    '/live',
     '/pipelines',
     '/broadcasts',
     '/automations',

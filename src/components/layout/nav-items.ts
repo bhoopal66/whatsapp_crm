@@ -22,6 +22,7 @@ import {
   Users,
   UsersRound,
   FolderKanban,
+  Gauge,
   Video,
   CalendarDays,
   Workflow,
@@ -347,6 +348,16 @@ export const NAV_GROUPS: NavGroup[] = [
         minRole: 'team_leader',
         callReviewerVisible: true,
         needsPbx: true,
+        guarded: true,
+      },
+      // Who is online right now, their open chats and waiting customers
+      // (migration 238). The route's layout is the team_leader+ guard;
+      // live_team_view() scopes a leader to the teams they lead.
+      {
+        href: '/live',
+        labelKey: 'liveView',
+        icon: Gauge,
+        minRole: 'team_leader',
         guarded: true,
       },
       // Who starts chats and how many get an answer, against the limits

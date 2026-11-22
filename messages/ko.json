@@ -91,7 +91,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "openHrChats": "{count, plural, other {열린 채팅 #개}}",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "liveView": "Live view"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -143,7 +144,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "hr": "HR",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "liveView": "Live view"
   },
   "Notifications": {
     "title": "알림",
@@ -11085,6 +11087,44 @@
     "sortDefault": "최신순",
     "sortByScore": "리드 점수순 정렬"
   },
+  "LiveView": {
+    "help": "Who is online and how their customers are doing. Updates every 30 seconds and when you come back to this tab.",
+    "scopeAll": "Everyone in this workspace",
+    "scopeTeam": "The teams you lead, and you",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "updated": "Updated {time}",
+    "loading": "Loading the live view...",
+    "failed": "The live view could not be loaded. It will try again in 30 seconds.",
+    "notAllowed": "Only team leaders, admins and owners can open the live view.",
+    "unassignedWaiting": "{count, plural, =0 {No unassigned customer is waiting} one {# unassigned customer is waiting} other {# unassigned customers are waiting}}",
+    "list": "People",
+    "person": "Person",
+    "status": "Status",
+    "openChats": "Open chats",
+    "waiting": "Customers waiting",
+    "oldestWait": "Oldest wait",
+    "repliesToday": "Replies today",
+    "waitTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "businessTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "outside business hours",
+    "noneWaiting": "None waiting",
+    "waitNote": "Oldest wait is clock time since the customer wrote; the business-hours part is shown underneath. Replies today count from midnight ({timezone}).",
+    "empty": "Nobody to show yet",
+    "emptyHint": "People appear here when they are in a team you lead.",
+    "presence": {
+      "online": "Online",
+      "away": "Away",
+      "offline": "Offline"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "team_leader": "Team leader",
+      "agent": "Agent",
+      "viewer": "Viewer"
+    }
+  },
   "TeamRecordings": {
     "title": "팀 통화 녹음",
     "subtitle": "팀의 녹음된 통화를 사람별, 날짜별로 봅니다. 모든 재생은 기록됩니다.",
@@ -12037,6 +12077,23 @@
       "draft_waiting": "초안 대기 중",
       "draft_old": "24시간 넘은 초안"
     }
+  },
+  "WorklistWaiting": {
+    "title": "Customers waiting for a reply",
+    "help": "Oldest first. The time is how long each customer has waited since they wrote (clock time); the business-hours part is underneath.",
+    "list": "Customers waiting for a reply",
+    "loading": "Loading waiting customers...",
+    "empty": "No customers are waiting for a reply",
+    "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
+    "emptyOthers": "Nothing else needs action right now.",
+    "count": "{count, plural, one {# waiting} other {# waiting}}",
+    "unassigned": "Unassigned",
+    "unknownPerson": "Unknown person",
+    "unknownCustomer": "Customer",
+    "wait": "Waiting {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "business": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "Outside business hours so far",
+    "capped": "Showing the {count} longest waits."
   },
   "Desk": {
     "title": "케이스 데스크",
