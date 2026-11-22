@@ -472,7 +472,7 @@ export function VoiceNotePlayer({
               className={cn(
                 c.rate,
                 c.focus,
-                'h-6 min-w-[2.5rem] rounded-full px-2 text-[11px] font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2'
+                'h-6 min-w-[2.5rem] rounded-full px-2 text-xs font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2'
               )}
             >
               {formatRate(rate)}
@@ -494,7 +494,7 @@ export function VoiceNotePlayer({
       <div
         className={cn(
           c.meta,
-          'mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 pl-[3.125rem] text-[11px] leading-[15px] tabular-nums'
+          'mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 pl-[3.125rem] text-xs leading-[15px] tabular-nums'
         )}
       >
         {broken ? (

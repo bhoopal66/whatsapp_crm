@@ -439,7 +439,7 @@ function GroupTimeline({ roomId }: { roomId: string }) {
             <p className="text-sm whitespace-pre-wrap">{c.text}</p>
           ) : c.kind === 'template' ? (
             <>
-              <p className="text-muted-foreground text-[11px] font-medium">
+              <p className="text-muted-foreground text-xs font-medium">
                 {t('timeline.template', { name: c.name })}
               </p>
               {c.text && (
@@ -453,7 +453,7 @@ function GroupTimeline({ roomId }: { roomId: string }) {
                 <p className="truncate text-sm font-medium">
                   {c.name ?? t('timeline.file')}
                 </p>
-                <p className="text-muted-foreground text-[11px]">
+                <p className="text-muted-foreground text-xs">
                   {t('timeline.savedToDeal')}
                 </p>
               </div>
@@ -488,12 +488,12 @@ function GroupTimeline({ roomId }: { roomId: string }) {
             key={m.id}
             className={cn('flex flex-col', ours ? 'items-end' : 'items-start')}
           >
-            <p className="text-muted-foreground mb-0.5 flex items-center gap-1.5 text-[11px]">
+            <p className="text-muted-foreground mb-0.5 flex items-center gap-1.5 text-xs">
               <span className="text-foreground font-medium">{b.name}</span>
               {b.tag && (
                 <span
                   className={cn(
-                    'rounded px-1.5 py-px text-[10px] font-semibold',
+                    'rounded px-1.5 py-px text-xs font-semibold',
                     b.tag === 'bank'
                       ? 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200'
                       : 'bg-muted text-muted-foreground'
@@ -515,7 +515,7 @@ function GroupTimeline({ roomId }: { roomId: string }) {
               {text}
             </div>
             {receipt && (
-              <p className="text-muted-foreground mt-0.5 text-[11px]">
+              <p className="text-muted-foreground mt-0.5 text-xs">
                 {receipt.key === 'reached'
                   ? t('receipts.reached', {
                       delivered: receipt.delivered,
@@ -776,7 +776,7 @@ function GroupComposer({
           </Button>
         </div>
       )}
-      <p className="text-muted-foreground mt-2 text-[11px]">
+      <p className="text-muted-foreground mt-2 text-xs">
         {t(
           mode.mode === 'text' ? 'composer.footer' : 'composer.templateFooter'
         )}

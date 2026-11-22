@@ -129,7 +129,7 @@ const PRIORITY_CHIP: Partial<Record<CasePriority, string>> = {
 const SWITCH_OFF = 'data-[unchecked]:bg-input';
 
 const chip =
-  'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium';
+  'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium';
 
 /** The workspace's case banks; null while loading, [] on any failure. */
 function useCaseBanks(): CaseBankOption[] | null {
@@ -322,7 +322,7 @@ export function CasesInbox() {
             <SlidersHorizontal className="size-4" aria-hidden />
             {t('filtersButton')}
             {narrowed > 0 && (
-              <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[11px]">
+              <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-xs">
                 {narrowed}
               </span>
             )}

@@ -1374,11 +1374,11 @@ function ActivityRow({
             {label(d.outcome)}
           </OutcomeChip>
           {d.effect === 'acted' ? (
-            <span className="text-primary inline-flex items-center gap-1 text-[11px] font-medium">
+            <span className="text-primary inline-flex items-center gap-1 text-xs font-medium">
               <Zap className="size-3" /> {t('activity.legend.intervened')}
             </span>
           ) : d.effect === 'logged' ? (
-            <span className="text-muted-foreground inline-flex items-center gap-1 text-[11px]">
+            <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
               <Eye className="size-3" /> {t('activity.legend.logged')}
             </span>
           ) : null}
@@ -1393,7 +1393,7 @@ function ActivityRow({
               <span
                 key={reason.raw}
                 title={reason.raw}
-                className="border-border bg-muted text-foreground rounded border px-1.5 py-0.5 text-[11px]"
+                className="border-border bg-muted text-foreground rounded border px-1.5 py-0.5 text-xs"
               >
                 {label(reason)}
                 {reason.key === null && reason.count > 1
@@ -1402,7 +1402,7 @@ function ActivityRow({
               </span>
             ))}
             {item.errorCode ? (
-              <span className="text-muted-foreground px-0.5 py-0.5 text-[11px]">
+              <span className="text-muted-foreground px-0.5 py-0.5 text-xs">
                 {t('activity.errorCode', { code: item.errorCode })}
               </span>
             ) : null}

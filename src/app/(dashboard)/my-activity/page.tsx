@@ -103,7 +103,7 @@ function useRuleSentence() {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-border bg-card-2 rounded-lg border px-3 py-2">
-      <p className="text-muted-foreground text-[11px]">{label}</p>
+      <p className="text-muted-foreground text-xs">{label}</p>
       <p className="text-foreground text-sm font-semibold tabular-nums">
         {value}
       </p>

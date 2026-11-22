@@ -21,7 +21,7 @@ import { FloatingReactions } from '../room/control-bar';
 import { VideoTrack } from '../room/video-track';
 
 const CHIP =
-  'flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm';
+  'flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm';
 const SPEAKING_RING =
   'shadow-[inset_0_0_0_3px_rgb(52_211_153),inset_0_0_18px_rgb(52_211_153/0.45)]';
 
@@ -171,7 +171,7 @@ export function FloatStage({
         </div>
       )}
       {call.phase === 'reconnecting' && (
-        <div className="absolute inset-x-0 top-0 bg-amber-400 py-0.5 text-center text-[11px] font-medium text-black">
+        <div className="absolute inset-x-0 top-0 bg-amber-400 py-0.5 text-center text-xs font-medium text-black">
           {t('reconnecting')}
         </div>
       )}
@@ -221,7 +221,7 @@ export function FloatStage({
                 <FloatAvatar
                   id={p.id}
                   people={people}
-                  className="size-6 text-[10px]"
+                  className="size-6 text-xs"
                 />
               </span>
             ))}

@@ -201,7 +201,7 @@ export function ContactJourneySections({
               >
                 {file ? t('card.startAgain') : t('card.start')}
               </Button>
-              <p className="text-wa-text-secondary text-[11px]">
+              <p className="text-wa-text-secondary text-xs">
                 {blocker ? t(`card.blocked.${blocker}`) : t('card.startHint')}
               </p>
             </div>
@@ -252,12 +252,12 @@ function JourneyDetails({
           {stateLabel(file.state)}
         </span>
         {file.product && (
-          <span className="bg-wa-search text-wa-text-secondary rounded-full px-1.5 py-0.5 text-[10px]">
+          <span className="bg-wa-search text-wa-text-secondary rounded-full px-1.5 py-0.5 text-xs">
             {t(`products.${file.product}`)}
           </span>
         )}
         {file.entry && (
-          <span className="text-wa-text-secondary text-[10px]">
+          <span className="text-wa-text-secondary text-xs">
             {t(`entry.${file.entry}`)}
           </span>
         )}
@@ -288,7 +288,7 @@ function JourneyDetails({
       )}
       {(file.body.history ?? []).length > 0 && (
         <div>
-          <p className="text-wa-text-secondary mt-1 text-[11px]">
+          <p className="text-wa-text-secondary mt-1 text-xs">
             {t('card.history')}
           </p>
           <ul className="mt-0.5 space-y-0.5">
@@ -296,7 +296,7 @@ function JourneyDetails({
               <li
                 key={`${h.at}-${i}`}
                 title={h.cause}
-                className="text-wa-text-secondary truncate text-[11px]"
+                className="text-wa-text-secondary truncate text-xs"
               >
                 {dateTime(h.at)} · {stateLabel(h.to)}
               </li>
@@ -340,7 +340,7 @@ function DecisionPanel({
             key={o.decision}
             size="sm"
             variant="outline"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-xs"
             disabled={busy}
             onClick={() => choose(o)}
           >
@@ -451,7 +451,7 @@ function ConsentControls({
   return (
     <div className="mt-2.5 space-y-2.5 text-xs">
       {consent.opted_out_at && (
-        <span className="bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium">
+        <span className="bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium">
           {t('optedOut')} · {date(consent.opted_out_at)}
         </span>
       )}
@@ -469,7 +469,7 @@ function ConsentControls({
           <Button
             size="sm"
             variant="outline"
-            className="mt-1 h-7 px-2 text-[11px]"
+            className="mt-1 h-7 px-2 text-xs"
             disabled={busy}
             onClick={() => edit('optIn')}
           >
@@ -480,7 +480,7 @@ function ConsentControls({
           <Button
             size="sm"
             variant="outline"
-            className="mt-1 h-7 px-2 text-[11px]"
+            className="mt-1 h-7 px-2 text-xs"
             disabled={busy}
             onClick={() => setWithdrawing(true)}
           >
@@ -515,7 +515,7 @@ function ConsentControls({
           <Button
             size="sm"
             variant="outline"
-            className="mt-1 h-7 px-2 text-[11px]"
+            className="mt-1 h-7 px-2 text-xs"
             disabled={busy}
             onClick={() => edit('dnc')}
           >
@@ -526,7 +526,7 @@ function ConsentControls({
           <Button
             size="sm"
             variant="outline"
-            className="mt-1 h-7 px-2 text-[11px]"
+            className="mt-1 h-7 px-2 text-xs"
             disabled={busy || !canClear}
             title={canClear ? undefined : t('clearAdminOnly')}
             onClick={() =>
@@ -585,10 +585,10 @@ function ConsentControls({
       )}
       {events.length > 0 && (
         <div>
-          <p className="text-wa-text-secondary text-[11px]">{t('history')}</p>
+          <p className="text-wa-text-secondary text-xs">{t('history')}</p>
           <ul className="mt-0.5 space-y-0.5">
             {events.map((e) => (
-              <li key={e.id} className="text-wa-text-secondary text-[11px]">
+              <li key={e.id} className="text-wa-text-secondary text-xs">
                 {dateTime(e.at)} ·{' '}
                 {t.has(`events.${e.kind}`) ? t(`events.${e.kind}`) : e.kind}
               </li>

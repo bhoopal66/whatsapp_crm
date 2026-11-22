@@ -116,7 +116,7 @@ export default function JourneysPage() {
                 <div className="text-foreground text-lg font-semibold tabular-nums">
                   {counts[s]}
                 </div>
-                <div className="text-muted-foreground truncate text-[11px]">
+                <div className="text-muted-foreground truncate text-xs">
                   {t(`stages.${s}`)}
                 </div>
               </div>

@@ -206,7 +206,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           </span>
         )}
       </div>
-      <div className="text-muted-foreground mt-2 truncate font-mono text-[11px]">
+      <div className="text-muted-foreground mt-2 truncate font-mono text-xs">
         {node.node_key}
       </div>
       {summary && (
@@ -220,7 +220,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           {slots.map((slot) => (
             <div
               key={slot.id}
-              className="text-muted-foreground relative flex items-center justify-between gap-2 rounded px-1 py-0.5 text-[11px]"
+              className="text-muted-foreground relative flex items-center justify-between gap-2 rounded px-1 py-0.5 text-xs"
             >
               <span className="truncate" title={slot.label}>
                 {slot.label}
@@ -638,10 +638,10 @@ function NodeEditSheet({
         <SheetHeader className="border-border flex-row items-center gap-3 space-y-0 border-b px-5 py-4">
           <NodeIconChip type={node.node_type} size={36} iconSize={18} />
           <div className="min-w-0 flex-1">
-            <SheetTitle className="flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase">
+            <SheetTitle className="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase">
               <span style={{ color: c.text }}>{t(`nodes.${node.node_type}.label`)}</span>
               {isEntry && (
-                <span className="rounded bg-success-soft px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-success uppercase">
+                <span className="rounded bg-success-soft px-1.5 py-0.5 text-xs font-semibold tracking-wider text-success uppercase">
                   {t('badgeEntry')}
                 </span>
               )}
@@ -650,7 +650,7 @@ function NodeEditSheet({
               {t(`nodes.${node.node_type}.blurb`)}
             </SheetDescription>
           </div>
-          <code className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]">
+          <code className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-xs">
             {node.node_key}
           </code>
         </SheetHeader>
@@ -756,7 +756,7 @@ function CanvasAddNodeButton({ t }: { t: ReturnType<typeof useTranslations> }) {
           <Fragment key={group.id}>
             {i > 0 && <DropdownMenuSeparator />}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-muted-foreground px-2 py-1.5 text-[11px] font-semibold tracking-wider uppercase">
+              <DropdownMenuLabel className="text-muted-foreground px-2 py-1.5 text-xs font-semibold tracking-wider uppercase">
                 {t(`categories.${group.id}`)}
               </DropdownMenuLabel>
               {group.types.map((t_type) => {

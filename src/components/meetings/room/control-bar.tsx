@@ -187,7 +187,7 @@ function DockCell({
       {children}
       <span
         aria-hidden
-        className="text-muted-foreground h-3.5 text-[11px] leading-3.5 whitespace-nowrap"
+        className="text-muted-foreground h-4 text-xs leading-4 whitespace-nowrap"
       >
         {caption}
       </span>
@@ -633,7 +633,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
             {badge && (
               <span
                 aria-hidden
-                className="bg-destructive absolute -top-1 -right-1 min-w-5 rounded-full px-1 text-center text-[10px] leading-5 font-semibold text-white"
+                className="bg-destructive absolute -top-1 -right-1 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold text-white"
               >
                 {badge}
               </span>

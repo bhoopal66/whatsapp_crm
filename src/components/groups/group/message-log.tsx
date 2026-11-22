@@ -110,7 +110,7 @@ export function GroupMessageLog({
                       )}
                     </p>
                   )}
-                  <p className="text-muted-foreground mt-0.5 flex items-center justify-end gap-1 text-[11px]">
+                  <p className="text-muted-foreground mt-0.5 flex items-center justify-end gap-1 text-xs">
                     {timeLabel(m.created_at)}
                     {tick === 'clock' && <Clock className="size-3" />}
                     {tick === 'single' && <Check className="size-3.5" />}

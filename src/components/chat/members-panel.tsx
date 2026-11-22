@@ -74,11 +74,11 @@ import { RestrictMemberDialog } from './restrict-member-dialog';
 import { useChannelRestrictions } from './use-channel-restrictions';
 
 const RESTRICTED_CHIP =
-  'bg-warning-soft text-warning inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[11px] font-semibold';
+  'bg-warning-soft text-warning inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-xs font-semibold';
 const GUEST_CHIP =
-  'rounded-full bg-violet-100 px-1.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200';
+  'rounded-full bg-violet-100 px-1.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200';
 const ADMIN_BADGE =
-  'shrink-0 rounded-full bg-primary-soft text-primary px-1.5 text-[11px] font-semibold';
+  'shrink-0 rounded-full bg-primary-soft text-primary px-1.5 text-xs font-semibold';
 const ICON_BUTTON =
   'hover:bg-muted flex size-7 shrink-0 items-center justify-center rounded-md';
 const BLOCK_KEY = {

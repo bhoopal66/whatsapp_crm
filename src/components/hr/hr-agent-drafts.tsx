@@ -39,7 +39,7 @@ import {
 import type { DraftStatus } from '@/lib/hr/agents/types';
 
 const PILL =
-  'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium';
+  'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium';
 
 const STATUS_PILL: Record<DraftStatus, string> = {
   pending: 'border-warning/40 bg-warning-soft text-warning',
@@ -105,7 +105,7 @@ export function HrAgentDraftList({
               <span className={`${PILL} ${STATUS_PILL[d.status]}`}>
                 {t(draftStatusKey(d.status))}
               </span>
-              <span className="text-muted-foreground ml-auto text-[11px]">
+              <span className="text-muted-foreground ml-auto text-xs">
                 {formatDistanceToNow(new Date(d.created_at), {
                   addSuffix: true,
                 })}
@@ -127,17 +127,17 @@ export function HrAgentDraftList({
               </span>
             )}
             {d.requires_template && (
-              <p className="text-warning text-[11px]">
+              <p className="text-warning text-xs">
                 {t('agents.needsTemplate')}
               </p>
             )}
             {d.status === 'approved' && (
-              <p className="text-success text-[11px]">
+              <p className="text-success text-xs">
                 {t('agents.approvedHint')}
               </p>
             )}
             {d.status === 'rejected' && d.reject_reason && (
-              <p className="text-muted-foreground text-[11px]">
+              <p className="text-muted-foreground text-xs">
                 {t('agents.rejectedWith', { reason: d.reject_reason })}
               </p>
             )}
@@ -313,7 +313,7 @@ export function HrAgentDrafts({
     <section className="space-y-2">
       <div>
         <h5 className="text-sm font-semibold">{t('agents.title')}</h5>
-        <p className="text-muted-foreground text-[11px]">{t('agents.note')}</p>
+        <p className="text-muted-foreground text-xs">{t('agents.note')}</p>
       </div>
 
       {failed && drafts === null ? (
@@ -373,8 +373,8 @@ export function HrAgentDrafts({
           <p
             className={
               slotError
-                ? 'text-destructive text-[11px]'
-                : 'text-muted-foreground text-[11px]'
+                ? 'text-destructive text-xs'
+                : 'text-muted-foreground text-xs'
             }
           >
             {slotError === 'tooMany'

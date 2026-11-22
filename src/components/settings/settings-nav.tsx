@@ -214,7 +214,7 @@ export function SettingsNav({
           {groups.map((g) => (
             <div key={g.id} className="mt-5 first:mt-0">
               {g.id === 'overview' ? null : (
-                <p className="text-muted-foreground px-2.5 pb-1.5 text-[11px] font-semibold tracking-wider uppercase">
+                <p className="text-muted-foreground px-2.5 pb-1.5 text-xs font-semibold tracking-wider uppercase">
                   {t(`categories.${g.id}`)}
                 </p>
               )}

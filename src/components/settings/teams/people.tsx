@@ -53,7 +53,7 @@ export function MemberAvatar({
       {member.avatar_url ? (
         <AvatarImage src={member.avatar_url} alt={name} />
       ) : null}
-      <AvatarFallback className="bg-primary/10 text-primary font-medium group-data-[size=sm]/avatar:text-[10px]">
+      <AvatarFallback className="bg-primary/10 text-primary font-medium group-data-[size=sm]/avatar:text-xs">
         {initialsOf(name)}
       </AvatarFallback>
     </Avatar>
@@ -83,7 +83,7 @@ export function AvatarStack({
         <Tooltip>
           <TooltipTrigger
             render={
-              <AvatarGroupCount className="text-[11px] font-medium">
+              <AvatarGroupCount className="text-xs font-medium">
                 +{rest}
               </AvatarGroupCount>
             }
@@ -107,7 +107,7 @@ export function RoleChip({ role }: { role: AccountMember['role'] }) {
   return (
     <SettingsChip
       variant={meta.variant}
-      className="px-2 text-[11px] [&_svg]:size-3"
+      className="px-2 text-xs [&_svg]:size-3"
     >
       <Icon />
       {tRoles(role)}

@@ -133,7 +133,7 @@ export function RoomChatPanel({
           role="log"
           aria-live="polite"
         >
-          <p className="text-muted-foreground mb-2 px-2 text-center text-[11px]">
+          <p className="text-muted-foreground mb-2 px-2 text-center text-xs">
             {t('panels.chat.hint')}
           </p>
           {groups.length === 0 && (
@@ -145,7 +145,7 @@ export function RoomChatPanel({
             <div key={g.key}>
               {g.key === dividerId && (
                 <div
-                  className="text-primary my-2 flex items-center gap-2 px-2 text-[11px] font-medium"
+                  className="text-primary my-2 flex items-center gap-2 px-2 text-xs font-medium"
                   role="separator"
                 >
                   <span className="bg-primary/40 h-px flex-1" />

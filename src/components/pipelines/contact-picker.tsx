@@ -197,7 +197,7 @@ export function ContactPicker({
                 {c.closeMatch && (
                   <span
                     title={t('similarHint')}
-                    className="bg-warning-soft text-warning shrink-0 rounded px-1 text-[10px] font-medium"
+                    className="bg-warning-soft text-warning shrink-0 rounded px-1 text-xs font-medium"
                   >
                     {t('similar')}
                   </span>

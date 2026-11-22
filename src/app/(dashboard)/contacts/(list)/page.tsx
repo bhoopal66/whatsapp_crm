@@ -1048,7 +1048,7 @@ export function ContactsPageInner({
               <Filter className="size-4" />
               {t('filterByChatTag')}
               {chatTagFilterIds.length > 0 && (
-                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
+                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
                   {chatTagFilterIds.length}
                 </span>
               )}
@@ -1130,7 +1130,7 @@ export function ContactsPageInner({
                 <span
                   key={id}
                   style={chatTagChipStyle(chip.color)}
-                  className="text-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                  className="text-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
                 >
                   <span
                     className="size-1.5 shrink-0 rounded-full"
@@ -1335,7 +1335,7 @@ export function ContactsPageInner({
                         {contact.closeMatch && (
                           <span
                             title={tSearch('similarHint')}
-                            className="bg-card-2 text-muted-foreground shrink-0 rounded px-1 text-[10px] font-medium"
+                            className="bg-card-2 text-muted-foreground shrink-0 rounded px-1 text-xs font-medium"
                           >
                             {tSearch('similar')}
                           </span>

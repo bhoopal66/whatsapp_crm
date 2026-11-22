@@ -48,7 +48,7 @@ export function SeenBy({ message, kind, members, peopleById }: SeenByProps) {
   });
   if (label === 'none') return null;
 
-  const line = 'text-muted-foreground pr-4 pl-16 text-[11px] leading-5';
+  const line = 'text-muted-foreground pr-4 pl-16 text-xs leading-5';
   if (label === 'seen' || (label === 'sent' && unseen.length <= 1))
     return <p className={line}>{t(label)}</p>;
 
@@ -60,7 +60,7 @@ export function SeenBy({ message, kind, members, peopleById }: SeenByProps) {
       aria-hidden
       className={cn(
         'ring-card flex items-center justify-center rounded-full font-bold ring-2',
-        small ? 'size-4 text-[9px]' : 'size-5 text-[10px]',
+        small ? 'size-5 text-xs' : 'size-6 text-xs',
         avatarTint(id)
       )}
     >

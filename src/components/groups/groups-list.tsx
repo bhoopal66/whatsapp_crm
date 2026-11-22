@@ -703,7 +703,7 @@ function GroupRow({
               <span
                 role="img"
                 aria-label={t('unreadBadge', { count: g.unread })}
-                className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold"
+                className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs leading-none font-semibold"
               >
                 {unreadText}
               </span>

@@ -72,7 +72,7 @@ function LegendSection({ family }: { family: PaletteFamily }) {
           <li key={key} className="flex items-start gap-2 text-xs">
             <span
               className={cn(
-                'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
+                'inline-flex shrink-0 items-center rounded px-1.5 text-xs leading-4 font-semibold',
                 paletteFor(family, key).chip
               )}
             >

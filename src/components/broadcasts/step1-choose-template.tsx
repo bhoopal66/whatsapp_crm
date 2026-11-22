@@ -113,13 +113,13 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
                 <div className="flex items-start justify-between">
                   <h3 className="text-sm font-medium text-foreground">{template.name}</h3>
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${catColor}`}
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${catColor}`}
                   >
                     {template.category}
                   </span>
                 </div>
                 <p className="line-clamp-3 text-xs text-muted-foreground">{template.body_text}</p>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{template.language ?? 'en_US'}</span>
                   {/* Status is omitted on purpose — every template
                       shown here is already filtered to APPROVED,

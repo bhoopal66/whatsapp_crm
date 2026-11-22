@@ -375,7 +375,7 @@ export function CustomerHeader({
             {contact.do_not_contact_at && (
               <span
                 title={contact.do_not_contact_reason ?? undefined}
-                className="border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium"
+                className="border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center rounded-full border px-1.5 text-xs leading-4 font-medium"
               >
                 {tj('dnc')}
               </span>

@@ -76,7 +76,7 @@ export function AvatarStack({
       {hidden > 0 && (
         <span
           className={cn(
-            'bg-muted text-muted-foreground ring-card relative flex size-6 items-center justify-center rounded-full text-[10px] font-medium ring-2'
+            'bg-muted text-muted-foreground ring-card relative flex size-6 items-center justify-center rounded-full text-xs font-medium ring-2'
           )}
         >
           {moreLabel(hidden)}

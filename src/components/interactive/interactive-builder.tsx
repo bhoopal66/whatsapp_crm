@@ -170,7 +170,7 @@ export function InteractiveBuilder({
 
         {showPreview && (
           <div className="flex shrink-0 flex-col gap-1.5 @2xl:w-[280px]">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Preview
             </span>
             <div className="rounded-lg bg-muted/40 p-3">
@@ -239,7 +239,7 @@ function ButtonsEditor({
               placeholder="Button label"
               className="flex-1"
             />
-            <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
+            <span className="w-10 shrink-0 text-right text-xs text-muted-foreground">
               {b.title.length}/{INTERACTIVE_LIMITS.buttonTitleMaxLength}
             </span>
             {buttons.length > 1 && (
@@ -383,7 +383,7 @@ function ListEditor({
                     placeholder="Row title"
                     className="flex-1"
                   />
-                  <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
+                  <span className="w-10 shrink-0 text-right text-xs text-muted-foreground">
                     {row.title.length}/{INTERACTIVE_LIMITS.listRowTitleMaxLength}
                   </span>
                   {totalRows > 1 && (
@@ -469,7 +469,7 @@ function Field({
     <div>
       <div className="mb-1 flex items-center justify-between">
         <label className="text-xs text-muted-foreground">{label}</label>
-        {counter && <span className="text-[10px] text-muted-foreground">{counter}</span>}
+        {counter && <span className="text-xs text-muted-foreground">{counter}</span>}
       </div>
       {children}
     </div>

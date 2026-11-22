@@ -301,7 +301,7 @@ export function ReminderAlarmCard({
         </span>
         <span className="truncate">{t(KIND_LABEL[alarm.kind])}</span>
         {alarm.missed && (
-          <span className="bg-destructive-soft text-destructive rounded-full px-2 py-0.5 text-[11px] font-medium">
+          <span className="bg-destructive-soft text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
             {t('missed')}
           </span>
         )}

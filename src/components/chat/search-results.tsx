@@ -29,7 +29,7 @@ const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 const MARK =
   'rounded-sm bg-amber-200/80 px-0.5 text-inherit dark:bg-amber-400/30';
 const HEADING =
-  'text-muted-foreground px-1 pb-2 text-[11px] font-semibold tracking-[0.14em] uppercase';
+  'text-muted-foreground px-1 pb-2 text-xs font-semibold tracking-[0.14em] uppercase';
 
 const dayOf = (ts: string) => {
   const d = new Date(ts.replace(' ', 'T'));

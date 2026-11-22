@@ -176,7 +176,7 @@ export function MeaningTriggerFields({
           rows={3}
           aria-invalid={descriptionError ? true : undefined}
         />
-        <div className="mt-1 flex items-start justify-between gap-2 text-[11px]">
+        <div className="mt-1 flex items-start justify-between gap-2 text-xs">
           <span className="text-destructive">{descriptionError}</span>
           <span className="text-muted-foreground tabular-nums">
             {description.trim().length}/{MEANING_DESCRIPTION_MAX_CHARS}
@@ -221,7 +221,7 @@ export function MeaningTriggerFields({
                   </Button>
                 </div>
                 {err && (
-                  <p className="text-destructive mt-0.5 text-[11px]">{err}</p>
+                  <p className="text-destructive mt-0.5 text-xs">{err}</p>
                 )}
               </div>
             );
@@ -243,7 +243,7 @@ export function MeaningTriggerFields({
           </Button>
         )}
         {examplesError && (
-          <p className="text-destructive mt-0.5 text-[11px]">{examplesError}</p>
+          <p className="text-destructive mt-0.5 text-xs">{examplesError}</p>
         )}
       </div>
 
@@ -264,7 +264,7 @@ export function MeaningTriggerFields({
             </option>
           ))}
         </select>
-        <p className="text-muted-foreground mt-1 text-[11px]">
+        <p className="text-muted-foreground mt-1 text-xs">
           {t(`sensitivityHint.${sensitivity}`)}
         </p>
       </div>
@@ -301,7 +301,7 @@ export function MeaningTriggerFields({
           </Button>
         </div>
         {!configValid && (
-          <p className="text-muted-foreground mt-1 text-[11px]">
+          <p className="text-muted-foreground mt-1 text-xs">
             {t('testFixConfig')}
           </p>
         )}

@@ -204,7 +204,7 @@ export function ContactSidebar({
             {contact.opted_out_at && (
               <span
                 title={tSidebar('optedOutHint')}
-                className="bg-destructive/10 text-destructive mt-1.5 inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                className="bg-destructive/10 text-destructive mt-1.5 inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
               >
                 <span className="truncate">
                   {tSidebar('optedOut', {
@@ -270,7 +270,7 @@ export function ContactSidebar({
                       </span>
                       {deal.stage && (
                         <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px]"
+                          className="rounded-full px-1.5 py-0.5 text-xs"
                           style={{
                             backgroundColor: `${deal.stage.color}20`,
                             color: deal.stage.color,
@@ -357,7 +357,7 @@ export function ContactSidebar({
                     <p className="text-wa-text text-xs whitespace-pre-wrap">
                       {note.note_text}
                     </p>
-                    <p className="text-wa-text-secondary mt-1 text-[10px]">
+                    <p className="text-wa-text-secondary mt-1 text-xs">
                       {format(new Date(note.created_at), 'MMM d, yyyy HH:mm')}
                     </p>
                   </div>

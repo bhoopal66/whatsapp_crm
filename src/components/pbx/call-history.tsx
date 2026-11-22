@@ -88,7 +88,7 @@ export function useCallHistory(
 }
 
 const chip =
-  'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium';
+  'inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-xs font-medium';
 
 export function CallHistoryList({
   contactId,

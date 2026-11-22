@@ -253,7 +253,7 @@ export function DealsCard({ contactId }: { contactId: string }) {
                 </span>
                 {d.stage && (
                   <span
-                    className="bg-muted shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                    className="bg-muted shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium"
                     style={
                       d.color
                         ? { backgroundColor: `${d.color}20`, color: d.color }

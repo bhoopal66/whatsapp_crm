@@ -821,7 +821,7 @@ export function CalendarView({
             />
             {query.trim() && (
               <span
-                className="text-muted-foreground absolute -bottom-4 left-1 text-[10px]"
+                className="text-muted-foreground absolute -bottom-4 left-1 text-xs"
                 aria-live="polite"
               >
                 {t('searchCount', { count: matches.length })}
@@ -1141,7 +1141,7 @@ function MiniMonth({
           </Button>
         </span>
       </div>
-      <div className="text-muted-foreground grid grid-cols-7 text-center text-[11px]">
+      <div className="text-muted-foreground grid grid-cols-7 text-center text-xs">
         {weeks[0].map((d) => (
           <span key={d.key} className="py-1">
             {weekday.format(new Date(`${d.key}T00:00:00Z`))}

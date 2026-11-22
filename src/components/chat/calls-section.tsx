@@ -86,7 +86,7 @@ export function CallsSection({
             <span className="min-w-0 flex-1 truncate">{t('missed')}</span>
             {state.missed > 0 && (
               <span
-                className="min-w-5 rounded-full bg-amber-400 px-1.5 text-center text-[11px] font-bold text-amber-950"
+                className="min-w-5 rounded-full bg-amber-400 px-1.5 text-center text-xs font-bold text-amber-950"
                 aria-label={t('missedCount', { count: state.missed })}
               >
                 {state.missed}

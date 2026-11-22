@@ -160,7 +160,7 @@ function Metric({
 }) {
   return (
     <div className="flex flex-col justify-between rounded-lg border border-border bg-card-2 p-3">
-      <div className="flex items-start gap-1.5 text-[11px] leading-tight font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-start gap-1.5 text-xs leading-tight font-medium uppercase tracking-wide text-muted-foreground">
         {icon}
         <span>{label}</span>
         <Tooltip>

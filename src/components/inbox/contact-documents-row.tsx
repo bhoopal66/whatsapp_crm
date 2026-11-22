@@ -60,7 +60,7 @@ export function ContactDocumentsRow({ contactId }: { contactId: string }) {
     >
       <FolderOpen className="text-wa-icon h-4 w-4 shrink-0" />
       <span className="shrink-0">{t('sidebarLabel')}</span>
-      <span className="bg-wa-search min-w-0 truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold">
+      <span className="bg-wa-search min-w-0 truncate rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold">
         {summary.folder.ref}
       </span>
       <span className="text-wa-text-secondary ml-auto shrink-0 text-xs">

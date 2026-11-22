@@ -571,7 +571,7 @@ function Panel() {
   };
 
   const control =
-    'flex w-14 flex-col items-center gap-1 text-[10px] text-white/80 disabled:opacity-40';
+    'flex w-14 flex-col items-center gap-1 text-xs text-white/80 disabled:opacity-40';
   const disc = (on: boolean) =>
     cn(
       'flex size-11 items-center justify-center rounded-full transition-colors',

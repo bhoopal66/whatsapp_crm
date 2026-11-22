@@ -131,7 +131,7 @@ function InsightBadgeInner({
         render={
           <span
             className={cn(
-              'inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 text-[10px] leading-4 font-semibold',
+              'inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 text-xs leading-4 font-semibold',
               TONE[kind],
               className
             )}
@@ -207,7 +207,7 @@ export function InsightChips({
               <span
                 aria-hidden
                 className={cn(
-                  'hidden shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold whitespace-nowrap',
+                  'hidden shrink-0 items-center rounded px-1.5 text-xs leading-4 font-semibold whitespace-nowrap',
                   !dotsOnly && '@min-[30rem]:inline-flex',
                   swatch.chip
                 )}

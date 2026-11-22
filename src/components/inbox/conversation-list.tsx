@@ -1977,7 +1977,7 @@ export function ConversationList({
                 >
                   {t('chatTag')}
                   {chatTagFilterIds.length > 0 && (
-                    <span className="bg-wa-green text-wa-green-fg flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                    <span className="bg-wa-green text-wa-green-fg flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-xs font-bold">
                       {chatTagFilterIds.length}
                     </span>
                   )}
@@ -2220,7 +2220,7 @@ export function ConversationList({
             )}
             <button
               onClick={clearAllFilters}
-              className="text-wa-teal px-1 text-[11px] font-medium hover:underline"
+              className="text-wa-teal px-1 text-xs font-medium hover:underline"
             >
               {t('clearAll')}
             </button>
@@ -2255,7 +2255,7 @@ export function ConversationList({
                 {conv.id === firstCloseId && (
                   <div
                     role="separator"
-                    className="text-muted-foreground border-wa-divider border-b px-4 pt-3 pb-1 text-[11px] font-medium tracking-wide uppercase"
+                    className="text-muted-foreground border-wa-divider border-b px-4 pt-3 pb-1 text-xs font-medium tracking-wide uppercase"
                   >
                     {tSearch('closeMatches')}
                   </div>
@@ -2409,7 +2409,7 @@ function InsightChip({
 /** Pin reasons with a label of their own (Important has ImportantBadge). */
 /** Handled's box: shared by the button and the copy that holds its place. */
 const HANDLED_CLASS =
-  'shrink-0 rounded-full border px-2 text-[11px] leading-5 font-medium';
+  'shrink-0 rounded-full border px-2 text-xs leading-5 font-medium';
 
 /** The row's Assign button and the placeholder that holds its width. */
 const ROW_ASSIGN_CLASS =
@@ -2444,7 +2444,7 @@ const FACET_TRIGGER_ACTIVE =
   'border-transparent bg-wa-chip-active text-wa-teal font-medium';
 /** A removable "this filter is on" chip. */
 const ACTIVE_FILTER_CHIP =
-  'bg-wa-search text-wa-text hover:bg-wa-row-active inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]';
+  'bg-wa-search text-wa-text hover:bg-wa-row-active inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs';
 
 interface ConversationItemProps {
   conversation: ConversationListItem;
@@ -2753,7 +2753,7 @@ export const ConversationItem = memo(function ConversationItem({
             {similar && (
               <span
                 title={similar.hint}
-                className="bg-info-soft text-info self-center rounded-full px-1.5 py-px text-[10px] leading-4 font-medium"
+                className="bg-info-soft text-info self-center rounded-full px-1.5 py-px text-xs leading-4 font-medium"
               >
                 {similar.label}
               </span>
@@ -2780,7 +2780,7 @@ export const ConversationItem = memo(function ConversationItem({
             {!important && pinLabelKey && pinLabel?.reason && (
               <span
                 className={cn(
-                  'inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold',
+                  'inline-flex shrink-0 items-center rounded px-1.5 text-xs leading-4 font-semibold',
                   paletteFor('attention', pinLabel.reason).chip
                 )}
               >

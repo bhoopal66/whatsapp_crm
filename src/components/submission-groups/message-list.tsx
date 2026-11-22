@@ -87,7 +87,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       </span>
                     )}
                     {m.post_end && (
-                      <span className="bg-warning-soft text-warning rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+                      <span className="bg-warning-soft text-warning rounded-full px-1.5 py-0.5 text-xs font-medium">
                         {t('afterEnd')}
                       </span>
                     )}
@@ -105,7 +105,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       )}
                     </p>
                   )}
-                  <p className="text-wa-meta mt-0.5 flex items-center justify-end gap-1 text-[11px]">
+                  <p className="text-wa-meta mt-0.5 flex items-center justify-end gap-1 text-xs">
                     {timeLabel(m.created_at)}
                     {status && (
                       <span

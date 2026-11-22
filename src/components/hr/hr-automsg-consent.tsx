@@ -129,7 +129,7 @@ export function HrAutomsgConsent({
               }
             />
           ))}
-          <p className="text-muted-foreground text-[11px]">
+          <p className="text-muted-foreground text-xs">
             {t('consent.perChannel')}
           </p>
         </>
@@ -188,7 +188,7 @@ function ChannelRow({
                 : t('consent.none')}
       </p>
       {state.kind === 'given' && (state.source || state.notedAt) && (
-        <p className="text-muted-foreground text-[11px]">
+        <p className="text-muted-foreground text-xs">
           {[
             state.source ? t(consentSourceKey(state.source)) : null,
             state.notedAt ? format(new Date(state.notedAt), 'PP') : null,

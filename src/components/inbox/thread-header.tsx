@@ -214,13 +214,13 @@ export function ThreadHeader({
           </p>
         )}
         {personalLabel && (
-          <p className="text-info inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+          <p className="text-info inline-flex items-center gap-1 text-xs leading-4 font-medium">
             <Smartphone className="h-3 w-3 shrink-0" />
             {personalLabel}
           </p>
         )}
         {sharedBank && (
-          <p className="text-wa-teal inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+          <p className="text-wa-teal inline-flex items-center gap-1 text-xs leading-4 font-medium">
             <Share2 className="h-3 w-3 shrink-0" />
             {tShare('sharedLabel', { bank: sharedBank })}
           </p>

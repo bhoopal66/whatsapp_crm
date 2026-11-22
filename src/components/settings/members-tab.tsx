@@ -680,18 +680,18 @@ export function MembersTab() {
                           {member.full_name || t('unnamed')}
                         </span>
                         {isSelf && (
-                          <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
+                          <Badge className="bg-muted text-muted-foreground border-border text-xs tracking-wide uppercase">
                             {t('you')}
                           </Badge>
                         )}
                         {(coordBanks.get(member.user_id)?.length ?? 0) > 0 && (
-                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-xs tracking-wide uppercase">
                             {tCoord('badge')} ·{' '}
                             {coordBanks.get(member.user_id)!.join(', ')}
                           </Badge>
                         )}
                         {member.may_connect_personal_whatsapp && (
-                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-xs tracking-wide uppercase">
                             {t('personal.badge')}
                             {member.personal_number
                               ? ` · ${member.personal_number.phone}`
@@ -699,17 +699,17 @@ export function MembersTab() {
                           </Badge>
                         )}
                         {member.may_review_all_calls && (
-                          <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
+                          <Badge className="bg-primary/10 text-primary border-primary/30 text-xs tracking-wide uppercase">
                             {t('reviewCalls.badge')}
                           </Badge>
                         )}
                         {toDepartment(member.department) !== 'sales' && (
-                          <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
+                          <Badge className="bg-muted text-muted-foreground border-border text-xs tracking-wide uppercase">
                             {tDept(`names.${toDepartment(member.department)}`)}
                           </Badge>
                         )}
                         {isInactive && (
-                          <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
+                          <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-xs tracking-wide uppercase">
                             {t('inactive')}
                           </Badge>
                         )}
@@ -1069,7 +1069,7 @@ export function MembersTab() {
                             {inv.label || t('untitledInvite')}
                           </span>
                           <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${inviteRoleMeta.className}`}
                           >
                             <InviteRoleIcon className="size-3" />
                             {tRoles(inv.role)}

@@ -19,7 +19,7 @@ export function ChatTagChip({
     <span
       title={chip.label}
       style={chatTagChipStyle(chip.color)}
-      className="text-foreground inline-flex max-w-[14rem] min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium"
+      className="text-foreground inline-flex max-w-[14rem] min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs leading-4 font-medium"
     >
       <span
         className="size-1.5 shrink-0 rounded-full"
@@ -48,7 +48,7 @@ export function OptedOutBadge({
             role="img"
             tabIndex={0}
             aria-label={hint}
-            className="border-destructive/40 bg-destructive/10 text-destructive focus-visible:ring-ring/50 inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium outline-none focus-visible:ring-2"
+            className="border-destructive/40 bg-destructive/10 text-destructive focus-visible:ring-ring/50 inline-flex shrink-0 items-center rounded-full border px-1.5 text-xs leading-4 font-medium outline-none focus-visible:ring-2"
           />
         }
       >

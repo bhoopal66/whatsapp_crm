@@ -284,7 +284,7 @@ function Tile({
   const t = useTranslations('Banks.dashboard');
   return (
     <div className={`bg-muted/50 min-w-0 rounded-lg p-3 ${className ?? ''}`}>
-      <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] font-medium tracking-wider uppercase">
+      <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wider uppercase">
         {icon}
         <span className="truncate">{label}</span>
         {tooltip && (

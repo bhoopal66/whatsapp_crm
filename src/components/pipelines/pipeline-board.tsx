@@ -256,7 +256,7 @@ function StageColumn({
         <h3 className="text-foreground truncate text-sm font-semibold">
           {stage.name}
         </h3>
-        <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+        <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs font-medium">
           {deals.length}
         </span>
       </div>
@@ -265,7 +265,7 @@ function StageColumn({
       </p>
       {linkedTag && (
         <span
-          className="text-foreground mt-1 w-fit max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-medium"
+          className="text-foreground mt-1 w-fit max-w-full truncate rounded-full border px-2 py-0.5 text-xs font-medium"
           style={chatTagChipStyle(linkedTag.color)}
           title={t('autoTagTitle', { tag: linkedTag.name })}
         >

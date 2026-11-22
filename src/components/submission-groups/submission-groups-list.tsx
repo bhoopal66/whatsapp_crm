@@ -436,9 +436,9 @@ function BankFilter({
   );
 }
 
-const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
+const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-xs font-medium';
 const UNREAD_BADGE =
-  'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold';
+  'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs leading-none font-semibold';
 
 function Row({
   group: g,
@@ -536,7 +536,7 @@ function Row({
           )}
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <span
-              className="text-muted-foreground shrink-0 font-mono text-[11px]"
+              className="text-muted-foreground shrink-0 font-mono text-xs"
               title={g.submission_ref}
             >
               {shortRef(g.submission_ref)}
@@ -544,7 +544,7 @@ function Row({
             {chip && (
               <span
                 className={cn(
-                  'min-w-0 truncate rounded-full px-1.5 py-px text-[10px] font-medium',
+                  'min-w-0 truncate rounded-full px-1.5 py-px text-xs font-medium',
                   chip.chipClass
                 )}
                 title={chip.text}
@@ -553,7 +553,7 @@ function Row({
               </span>
             )}
             {when && (
-              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] whitespace-nowrap">
+              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-xs whitespace-nowrap">
                 {ended ? t('endedAt', { when }) : when}
               </span>
             )}
@@ -593,7 +593,7 @@ function Row({
                 </span>
               )}
               {noGroupBadge && (
-                <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-[10px]">
+                <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs">
                   <MessageSquareOff className="size-3" aria-hidden />
                   {t('noWhatsappBadge')}
                 </span>

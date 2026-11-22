@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { SideCard } from './customer-cards';
 
 const chip =
-  'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium';
+  'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium';
 
 function useCaseBanks(): CaseBankOption[] | null {
   const [banks, setBanks] = useState<CaseBankOption[] | null>(null);

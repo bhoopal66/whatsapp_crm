@@ -91,7 +91,7 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
                 {view.filename ?? t('document')}
               </span>
               {view.sizeLabel && (
-                <span className="text-wa-meta block text-[11px]">
+                <span className="text-wa-meta block text-xs">
                   {view.sizeLabel}
                 </span>
               )}
