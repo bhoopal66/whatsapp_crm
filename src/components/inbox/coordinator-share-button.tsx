@@ -1,10 +1,12 @@
 'use client';
 
-// "Share with coordinator" (migration 133): pick a bank, then one of
-// its coordinators, and share this chat with them; the chat's open
-// shares are listed with Revoke. The rules live in SQL
+// "Share with bank" (migration 133): pick a bank, then one of its
+// coordinators, and share this chat with them; the chat's open shares
+// are listed with Revoke. The rules live in SQL
 // (share_conversation_with_coordinator / revoke_conversation_share);
-// this only offers the choice.
+// this only offers the choice. The bank starts selected when the chat's
+// sub-tag names one (`bankFromSubTag`); a successful share closes the
+// dialog with a toast.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -22,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { REFERENCE_CACHE_TTL_MS, cachedQuery } from '@/lib/client-cache';
+import { bankFromSubTag } from '@/lib/coordinators/bank-from-sub-tag';
 import {
   canShareWithCoordinator,
   coordinatorChoices,
@@ -44,8 +47,11 @@ async function getJson<T>(url: string): Promise<T> {
 
 export function CoordinatorShareButton({
   conversationId,
+  subTagName = null,
 }: {
   conversationId: string;
+  /** The chat's sub-tag name; a bank it names starts selected. */
+  subTagName?: string | null;
 }) {
   const t = useTranslations('Coordinators.share');
   const { accountRole } = useAuth();
@@ -53,18 +59,24 @@ export function CoordinatorShareButton({
   if (!canShareWithCoordinator(accountRole)) return null;
   return (
     <>
+      {/* Icon and word; in a narrow thread (a phone) only the icon,
+        which keeps its name through aria-label and the tooltip. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={t('action')}
+        title={t('buttonTitle')}
         aria-label={t('action')}
-        className="text-wa-text-secondary hover:bg-wa-row-hover flex size-9 shrink-0 items-center justify-center rounded-full"
+        className="border-wa-divider bg-wa-panel text-wa-text-secondary hover:bg-wa-row-hover inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2 text-xs font-medium transition-colors @md/thread:px-2.5"
       >
-        <Handshake className="size-4" />
+        <Handshake className="size-4 shrink-0" />
+        <span className="hidden whitespace-nowrap @md/thread:inline">
+          {t('action')}
+        </span>
       </button>
       {open && (
         <ShareDialog
           conversationId={conversationId}
+          subTagName={subTagName}
           onClose={() => setOpen(false)}
         />
       )}
@@ -74,9 +86,11 @@ export function CoordinatorShareButton({
 
 function ShareDialog({
   conversationId,
+  subTagName,
   onClose,
 }: {
   conversationId: string;
+  subTagName: string | null;
   onClose: () => void;
 }) {
   const t = useTranslations('Coordinators.share');
@@ -86,6 +100,8 @@ function ShareDialog({
   const [shares, setShares] = useState<ConversationShareRow[] | null>(null);
   const [bank, setBank] = useState<string | null>(null);
   const [person, setPerson] = useState<string | null>(null);
+  // The bank the sub-tag picked, while it is still the selection.
+  const [suggested, setSuggested] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadShares = useCallback(async () => {
@@ -126,8 +142,15 @@ function ShareDialog({
         if (cancelled) return;
         // Only banks someone coordinates can be shared under.
         const held = new Set(c.flatMap((x) => x.banks));
-        setBanks(b.filter((x) => held.has(x.code)));
+        const offered = b.filter((x) => held.has(x.code));
+        setBanks(offered);
         setCoordinators(c);
+        // Only a bank on offer, and never over the agent's own pick.
+        const picked = bankFromSubTag(subTagName, offered);
+        if (picked) {
+          setBank((prev) => prev ?? picked);
+          setSuggested((prev) => prev ?? picked);
+        }
       } catch {
         if (!cancelled) {
           setBanks([]);
@@ -139,7 +162,7 @@ function ShareDialog({
     return () => {
       cancelled = true;
     };
-  }, [accountId, accountRole, loadShares, t]);
+  }, [accountId, accountRole, loadShares, subTagName, t]);
 
   const choices = useMemo(
     () => coordinatorChoices(coordinators, bank, user?.id ?? null),
@@ -167,8 +190,7 @@ function ShareDialog({
         return;
       }
       toast.success(t('shared'));
-      setPerson(null);
-      await loadShares();
+      onClose();
     } catch {
       toast.error(t('shareError'));
     } finally {
@@ -233,6 +255,7 @@ function ShareDialog({
                     onClick={() => {
                       setBank(b.code);
                       setPerson(null);
+                      setSuggested(null);
                     }}
                     className={chip(bank === b.code)}
                   >
@@ -240,6 +263,9 @@ function ShareDialog({
                   </button>
                 ))}
               </div>
+            )}
+            {suggested !== null && suggested === bank && (
+              <p className="text-muted-foreground text-xs">{t('fromSubTag')}</p>
             )}
           </section>
 

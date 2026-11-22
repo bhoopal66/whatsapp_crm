@@ -10124,7 +10124,8 @@
   },
   "Coordinators": {
     "share": {
-      "action": "코디네이터와 공유",
+      "action": "은행과 공유",
+      "buttonTitle": "이 채팅을 은행 코디네이터와 공유",
       "title": "코디네이터와 공유",
       "description": "코디네이터는 공유가 취소될 때까지 이 채팅을 읽고 채팅의 번호로 답장할 수 있으며, 연락처는 읽기 전용으로 봅니다.",
       "bank": "은행",
@@ -10142,7 +10143,8 @@
       "shareError": "채팅을 공유하지 못했습니다.",
       "revokeError": "공유를 취소하지 못했습니다.",
       "loadError": "코디네이터를 불러오지 못했습니다.",
-      "sharedLabel": "공유됨 · {bank}"
+      "sharedLabel": "공유됨 · {bank}",
+      "fromSubTag": "채팅의 하위 태그에서 선택했습니다."
     },
     "members": {
       "title": "코디네이터 은행",

@@ -10124,7 +10124,8 @@
   },
   "Coordinators": {
     "share": {
-      "action": "Share with coordinator",
+      "action": "Share with bank",
+      "buttonTitle": "Share this chat with a bank's coordinator",
       "title": "Share with a coordinator",
       "description": "The coordinator can read this chat and reply in it on its own number, and sees the contact read-only, until the share is revoked.",
       "bank": "Bank",
@@ -10142,7 +10143,8 @@
       "shareError": "Could not share this chat.",
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
-      "sharedLabel": "Shared · {bank}"
+      "sharedLabel": "Shared · {bank}",
+      "fromSubTag": "Chosen from the chat's sub-tag."
     },
     "members": {
       "title": "Coordinator banks",

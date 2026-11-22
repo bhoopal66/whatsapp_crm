@@ -51,6 +51,7 @@ import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
+import { useChatTags } from '@/hooks/use-chat-tags';
 import { isShareOnlyViewer } from '@/lib/coordinators/ui';
 import { ChatReminderButton } from './chat-reminder-button';
 import { CoordinatorShareButton } from './coordinator-share-button';
@@ -130,6 +131,11 @@ export function ThreadHeader({
   const t = useTranslations('Inbox.messageThread');
   const tShare = useTranslations('Coordinators.share');
   const { accountRole } = useAuth();
+  // The sub-tag's name, which may name the bank to share with.
+  const { tree: chatTagTree } = useChatTags();
+  const subTagName = conversation.chat_sub_tag_id
+    ? (chatTagTree.byId.get(conversation.chat_sub_tag_id)?.name ?? null)
+    : null;
   const shareOnly = isShareOnlyViewer(
     accountRole,
     currentUserId,
@@ -435,6 +441,7 @@ export function ThreadHeader({
             <CoordinatorShareButton
               key={`coord-${conversation.id}`}
               conversationId={conversation.id}
+              subTagName={subTagName}
             />
           )}
 
