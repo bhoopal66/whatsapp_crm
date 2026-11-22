@@ -5,8 +5,10 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   KeyboardEvent,
   type Ref,
   type SetStateAction,
@@ -109,6 +111,13 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
 import type { InteractiveMessagePayload, QuickReply } from '@/types';
 import { QuickReplyPicker } from './quick-reply-picker';
 import { ComposerMoreMenu, type ComposerMenuItem } from './composer-more-menu';
+import { SlashQuickReplyList, slashOptionId } from './slash-quick-reply-list';
+import {
+  applySlashInsert,
+  detectSlashToken,
+  matchQuickReplies,
+  moveHighlight,
+} from '@/lib/inbox/slash-quick-replies';
 import {
   MAX_RECORDING_SECONDS,
   OPUS_ENCODER_PATH,
@@ -693,19 +702,10 @@ export function MessageComposer({
     contactName,
   ]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
-
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setText(e.target.value);
+      setCaret(e.target.selectionStart);
       adjustHeight();
     },
     [adjustHeight, setText]
@@ -926,6 +926,114 @@ export function MessageComposer({
       });
     },
     [openInteractiveBuilder, adjustHeight, setText]
+  );
+
+  // ---- "/" quick replies ---------------------------------------------
+  // "/" at the start of the box opens the account's quick replies,
+  // filtered by what follows the slash (lib/inbox/slash-quick-replies).
+  // Everything is derived from the box's text and caret, so a chat
+  // switch (which parks and restores the text) needs no extra handling.
+  // Escape hides the list until the slash token goes away.
+  const [caret, setCaret] = useState<number | null>(null);
+  const slashToken = detectSlashToken(text, caret);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  if (!slashToken && slashDismissed) setSlashDismissed(false);
+  const slashOpen = !!slashToken && !slashDismissed && !readOnly && !checking;
+  const [slashItems, setSlashItems] = useState<QuickReply[] | null>(null);
+  const slashQuery = slashToken?.query ?? '';
+  const slashMatches = useMemo(
+    () =>
+      slashOpen && slashItems ? matchQuickReplies(slashItems, slashQuery) : [],
+    [slashOpen, slashItems, slashQuery]
+  );
+  const [slashHighlight, setSlashHighlight] = useState(0);
+  const [slashQueryFor, setSlashQueryFor] = useState('');
+  if (slashQueryFor !== slashQuery) {
+    setSlashQueryFor(slashQuery);
+    setSlashHighlight(0);
+  }
+  const slashListId = useId();
+
+  // Read the list each time it opens, so a reply saved meanwhile shows.
+  useEffect(() => {
+    if (!slashOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/quick-replies', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setSlashItems(
+            res.ok ? ((data.quick_replies as QuickReply[]) ?? []) : []
+          );
+        }
+      } catch {
+        if (!cancelled) setSlashItems([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slashOpen]);
+
+  // Replace "/query" with the reply. An interactive reply opens the
+  // builder pre-filled, as the picker does, and the token is removed.
+  const pickSlash = useCallback(
+    (qr: QuickReply) => {
+      setSlashDismissed(true);
+      const interactive = qr.kind === 'interactive' && !!qr.interactive_payload;
+      const body = interactive ? '' : (qr.content_text ?? '');
+      setText((prev) => {
+        const token = detectSlashToken(prev, null);
+        return token ? applySlashInsert(prev, token, body).text : prev;
+      });
+      if (interactive && qr.interactive_payload) {
+        openInteractiveBuilder(qr.interactive_payload);
+        return;
+      }
+      setCaret(body.length);
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(body.length, body.length);
+        }
+      });
+    },
+    [openInteractiveBuilder, adjustHeight, setText]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSlashDismissed(true);
+          return;
+        }
+        const count = slashMatches.length;
+        if (count > 0) {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSlashHighlight((h) =>
+              moveHighlight(h, e.key === 'ArrowDown' ? 1 : -1, count)
+            );
+            return;
+          }
+          if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+            e.preventDefault();
+            pickSlash(slashMatches[Math.min(slashHighlight, count - 1)]);
+            return;
+          }
+        }
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    },
+    [handleSend, slashOpen, slashMatches, slashHighlight, pickSlash]
   );
 
   // An upload finishes after its chat may have been left: staged then,
@@ -1255,7 +1363,20 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-wa-divider bg-wa-panel-header shrink-0 border-t px-2 py-2 sm:px-4">
+    <div className="border-wa-divider bg-wa-panel-header relative shrink-0 border-t px-2 py-2 sm:px-4">
+      {/* "/" quick replies, above the composer. */}
+      {slashOpen && slashToken && !draft && !recording && (
+        <SlashQuickReplyList
+          id={slashListId}
+          query={slashToken.query}
+          items={slashMatches}
+          loading={slashItems === null}
+          highlight={slashHighlight}
+          onPick={pickSlash}
+          onHighlight={setSlashHighlight}
+          className="absolute inset-x-2 bottom-full mb-1 sm:inset-x-4"
+        />
+      )}
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
@@ -1367,6 +1488,19 @@ export function MessageComposer({
               value={text}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              aria-autocomplete="list"
+              aria-controls={
+                slashOpen && slashMatches.length > 0 ? slashListId : undefined
+              }
+              aria-activedescendant={
+                slashOpen && slashMatches.length > 0
+                  ? slashOptionId(
+                      slashListId,
+                      Math.min(slashHighlight, slashMatches.length - 1)
+                    )
+                  : undefined
+              }
               placeholder={
                 readOnly
                   ? t('readOnlyPlaceholder')
