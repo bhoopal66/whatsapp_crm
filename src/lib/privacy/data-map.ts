@@ -967,6 +967,10 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'whatsapp_groups',
             'whatsapp_group_invites',
             'whatsapp_group_tombstones',
+            // Staff voices and generic scripts ({name} / {company}
+            // placeholders, never a customer's details): migration 242.
+            'voice_note_subjects',
+            'voice_note_entries',
           ],
         ],
         [
