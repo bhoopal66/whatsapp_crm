@@ -9,6 +9,7 @@ export const OPTIONAL_COLUMNS = [
   'email',
   'company',
   'chatTag',
+  'source',
   'owner',
   'assignedTo',
   'createdAt',

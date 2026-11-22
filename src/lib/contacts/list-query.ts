@@ -8,6 +8,10 @@ import { phoneSearchDigits } from '@/lib/contacts/phone-search';
 import { escapeIlike, sanitizeContactSearch } from '@/lib/contacts/search';
 import type { SearchHit } from '@/lib/contacts/fuzzy-search';
 import { DEFAULT_CONTACT_SORT, type ContactSort } from '@/lib/contacts/sort';
+import {
+  LEAD_SOURCE_COLUMN_AVAILABLE,
+  parseLeadSources,
+} from '@/lib/contacts/lead-source';
 
 /**
  * The Contacts list (/contacts and /team-contacts) as one round trip and
@@ -53,6 +57,8 @@ export interface ContactListView {
   chatTagIds: readonly string[];
   /** Defaults to newest first. */
   sort?: ContactSort;
+  /** Lead sources to keep (any of); empty = all. */
+  sources?: readonly string[];
   page: number;
 }
 
@@ -69,6 +75,7 @@ export function contactListQuestion(view: ContactListView): string {
       q: view.search.trim(),
       tags: [...view.chatTagIds].sort(),
       sort: contactSortLabel(view.sort ?? DEFAULT_CONTACT_SORT),
+      src: parseLeadSources(view.sources ?? []),
       page: view.page,
     })
   );
@@ -135,6 +142,7 @@ export interface ContactListQuery<Q> {
   ): Q;
   range(from: number, to: number): Q;
   eq(column: string, value: string): Q;
+  in(column: string, values: string[]): Q;
   or(filter: string): Q;
 }
 
@@ -165,6 +173,7 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   table: ContactListQueryBuilder<Q>,
   view: Pick<ContactListView, 'personalOnlyUserId' | 'search' | 'page'> & {
     sort?: ContactSort;
+    sources?: readonly string[];
   },
   pageSize: number
 ): Q {
@@ -190,6 +199,10 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   }
   const search = contactSearchFilter(view.search);
   if (search) query = query.or(search);
+  const sources = parseLeadSources(view.sources ?? []);
+  if (LEAD_SOURCE_COLUMN_AVAILABLE && sources.length > 0) {
+    query = query.in('lead_source', sources);
+  }
   return query;
 }
 

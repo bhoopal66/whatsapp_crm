@@ -1035,10 +1035,23 @@
       "company": "Company",
       "createdAt": "Created",
       "email": "Email",
-      "owner": "Owner"
+      "owner": "Owner",
+      "source": "Source"
     },
     "columns": "Columns",
-    "hideEmpty": "Hide empty columns"
+    "hideEmpty": "Hide empty columns",
+    "clearSources": "Clear",
+    "filterBySource": "Source",
+    "source": {
+      "ad": "Ad",
+      "broadcast": "Broadcast",
+      "compass": "Compass",
+      "import": "Import",
+      "manual": "Added by hand",
+      "other": "Other",
+      "unknown": "Unknown",
+      "web_form": "Web form"
+    }
   },
   "Pipelines": {
     "page": {

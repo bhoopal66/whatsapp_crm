@@ -119,8 +119,17 @@ import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
+import { SourceFilter } from '@/components/contacts/source-filter';
+import { LeadSourceBadge } from '@/components/contacts/lead-source-badge';
+import {
+  LEAD_SOURCE_COLUMN_AVAILABLE,
+  leadSourceOf,
+  parseLeadSources,
+  type LeadSource,
+} from '@/lib/contacts/lead-source';
 import {
   columnPrefsKey,
+  OPTIONAL_COLUMNS,
   DEFAULT_COLUMN_PREFS,
   parseColumnPrefs,
   serializeColumnPrefs,
@@ -216,6 +225,8 @@ export function ContactsPageInner({
   // be read (`urlReady`) so a reload does not fetch the default first.
   const [sort, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
   const [urlReady, setUrlReady] = useState(false);
+  // Lead-source filter (any of), also in the URL: ?source=ad,web_form.
+  const [sources, setSources] = useState<LeadSource[]>([]);
   // Optional columns shown (per user, localStorage; try/catch: it can be
   // blocked or empty in a private window).
   const [columnPrefs, setColumnPrefs] =
@@ -297,6 +308,7 @@ export function ContactsPageInner({
             search: debouncedSearch,
             chatTagIds: chatTagFilterIds,
             sort,
+            sources,
             page,
           })
         );
@@ -307,6 +319,7 @@ export function ContactsPageInner({
     const searchFilter = contactSearchFilter(term);
 
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
+    const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
 
     // Close-match search: the RPC ranks (as the caller, so RLS applies),
     // then the page's own filters narrow its hits. A missing RPC
@@ -317,6 +330,7 @@ export function ContactsPageInner({
         term,
         chatTagFilterKey,
         personalOnlyUserId,
+        sources,
       ]);
       const cachedSearch = searchMatches.current;
       let ranked =
@@ -335,6 +349,7 @@ export function ContactsPageInner({
           const ids = hits.map((h) => h.contactId);
           let owned: Set<string> | null = null;
           let tagged: Set<string> | null = null;
+          let sourced: Set<string> | null = null;
           // Chunked: 500 UUIDs in one `in.(…)` is ~18 KB of URL, over
           // Cloudflare's ~16 KB limit in front of the tunnelled install.
           if (ids.length > 0 && personalOnlyUserId) {
@@ -374,7 +389,24 @@ export function ContactsPageInner({
               )
             );
           }
-          ranked = narrowHits(hits, [owned, tagged]);
+          if (ids.length > 0 && sourceList.length > 0) {
+            const results = await mapWithConcurrency(
+              chunkIds(ids),
+              FILTER_CHUNK_CONCURRENCY,
+              (chunk) =>
+                supabase
+                  .from('contacts')
+                  .select('id')
+                  .in('id', chunk)
+                  .in('lead_source', sourceList)
+            );
+            const failed = results.find((r) => r.error)?.error;
+            if (failed) throw failed;
+            sourced = new Set(
+              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
+            );
+          }
+          ranked = narrowHits(hits, [owned, tagged, sourced]);
           searchMatches.current = {
             key: searchKey,
             at: Date.now(),
@@ -412,7 +444,7 @@ export function ContactsPageInner({
       // for the Chat tag and Assigned to columns.
       const { data, count, error } = await buildContactListQuery(
         supabase.from('contacts'),
-        { personalOnlyUserId, search: term, page, sort },
+        { personalOnlyUserId, search: term, page, sort, sources },
         PAGE_SIZE
       );
       if (error) throw error;
@@ -434,6 +466,7 @@ export function ContactsPageInner({
       term,
       chatTagFilterKey,
       personalOnlyUserId,
+      sources,
     ]);
     const cached = filterMatches.current;
     let matchedRows =
@@ -470,6 +503,8 @@ export function ContactsPageInner({
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
           if (searchFilter) query = query.or(searchFilter);
+          if (sourceList.length > 0)
+            query = query.in('lead_source', sourceList);
           return query;
         }
       );
@@ -528,6 +563,7 @@ export function ContactsPageInner({
     chatTagFilterKey,
     personalOnlyUserId,
     sort,
+    sources,
   ]);
 
   const list = useSessionQuery(listKey, fetchList);
@@ -542,6 +578,7 @@ export function ContactsPageInner({
           email: !!c.email,
           company: !!c.company,
           chatTag: !!c.chatTags?.chat_tag_id,
+          source: leadSourceOf(c) !== null,
           owner: !!c.user_id && !!nameOf(c.user_id),
           assignedTo: !!c.assignedTo && !!nameOf(c.assignedTo),
           createdAt: true,
@@ -549,9 +586,14 @@ export function ContactsPageInner({
       ),
     [columnPrefs, contacts, nameOf]
   );
-  const show = (column: OptionalColumn) => shownColumns.has(column);
+  // The Source column exists only once migration 249 is applied.
+  const optionalColumns = OPTIONAL_COLUMNS.filter(
+    (c) => c !== 'source' || LEAD_SOURCE_COLUMN_AVAILABLE
+  );
+  const show = (column: OptionalColumn) =>
+    shownColumns.has(column) && optionalColumns.includes(column);
   // checkbox + name + phone + options, plus the optional ones shown.
-  const colCount = 4 + shownColumns.size;
+  const colCount = 4 + optionalColumns.filter(show).length;
   // A spinner only while nothing is cached for this view: a revisit
   // shows the last answer while the fresh one loads.
   const loading = list.loading;
@@ -651,6 +693,9 @@ export function ContactsPageInner({
     try {
       const q = new URLSearchParams(window.location.search);
       setSort(parseContactSort(q.get('sort'), q.get('dir')));
+      if (LEAD_SOURCE_COLUMN_AVAILABLE) {
+        setSources(parseLeadSources(q.get('source')));
+      }
     } catch {
       // No window or malformed URL: keep the default.
     }
@@ -826,7 +871,9 @@ export function ContactsPageInner({
   // A close-match search is ranked by relevance; sorting does not apply.
   const rankedBySearch = searchRpcTerm(debouncedSearch.trim()) !== null;
   const hasActiveFilters =
-    debouncedSearch.trim().length > 0 || chatTagFilterIds.length > 0;
+    debouncedSearch.trim().length > 0 ||
+    chatTagFilterIds.length > 0 ||
+    sources.length > 0;
 
   // Every filter change resets to page 0 — the result set shrinks or
   // grows, so page N may no longer be valid (mirrors the search box).
@@ -835,6 +882,23 @@ export function ContactsPageInner({
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
     setPage(0);
+  }
+
+  function changeSources(next: LeadSource[]) {
+    setSources(next);
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        source: next.length > 0 ? next.join(',') : null,
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience only.
+    }
   }
 
   function clearChatTagFilters() {
@@ -973,7 +1037,14 @@ export function ContactsPageInner({
               )}
             </PopoverContent>
           </Popover>
-          <ColumnsMenu prefs={columnPrefs} onChange={changeColumnPrefs} />
+          {LEAD_SOURCE_COLUMN_AVAILABLE && (
+            <SourceFilter selected={sources} onChange={changeSources} />
+          )}
+          <ColumnsMenu
+            prefs={columnPrefs}
+            onChange={changeColumnPrefs}
+            columns={optionalColumns}
+          />
         </div>
 
         {/* Active chat-tag filter chips */}
@@ -1074,6 +1145,11 @@ export function ContactsPageInner({
               {show('chatTag') && (
                 <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
                   {t('tableColumns.chatTag')}
+                </TableHead>
+              )}
+              {show('source') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {tTable('column.source')}
                 </TableHead>
               )}
               {show('owner') && (
@@ -1235,6 +1311,11 @@ export function ContactsPageInner({
                             chatTagTree
                           )}
                         />
+                      </TableCell>
+                    )}
+                    {show('source') && (
+                      <TableCell className="hidden md:table-cell">
+                        <LeadSourceBadge source={leadSourceOf(contact)} />
                       </TableCell>
                     )}
                     {show('owner') && (

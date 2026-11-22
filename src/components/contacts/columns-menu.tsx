@@ -13,6 +13,7 @@ import {
   OPTIONAL_COLUMNS,
   toggleHidden,
   type ColumnPrefs,
+  type OptionalColumn,
 } from '@/lib/contacts/columns';
 
 /**
@@ -22,9 +23,12 @@ import {
 export function ColumnsMenu({
   prefs,
   onChange,
+  columns = OPTIONAL_COLUMNS,
 }: {
   prefs: ColumnPrefs;
   onChange: (next: ColumnPrefs) => void;
+  /** The columns this install offers (Source needs migration 249). */
+  columns?: readonly OptionalColumn[];
 }) {
   const t = useTranslations('ContactsTable');
   return (
@@ -61,7 +65,7 @@ export function ColumnsMenu({
           <p className="text-muted-foreground px-3 py-1 text-xs">
             {t('alwaysShown')}
           </p>
-          {OPTIONAL_COLUMNS.map((column) => (
+          {columns.map((column) => (
             <label
               key={column}
               className="hover:bg-muted/50 flex min-h-9 cursor-pointer items-center gap-2.5 px-3 py-1.5"
