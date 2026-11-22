@@ -398,9 +398,9 @@ function RecycleItem({
       <div className="grid min-w-0 flex-1 gap-x-4 gap-y-1 sm:grid-cols-4">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
-            {row.name ?? t('noName')}
+            <bdi>{row.name ?? t('noName')}</bdi>
           </p>
-          <p className="text-muted-foreground text-xs">
+          <p dir="ltr" className="text-muted-foreground text-xs rtl:text-right">
             {formatPhone(row.phone)}
           </p>
         </div>

@@ -84,7 +84,9 @@ jobs:
               ('241', to_regclass('public.conversation_notes') is not null),
               ('249', to_regclass('public.web_lead_forms') is not null),
               ('255', to_regclass('public.report_access') is not null),
-              ('256', to_regclass('public.broadcast_drafts') is not null)
+              ('256', to_regclass('public.broadcast_drafts') is not null),
+              ('257', to_regproc('public.contacts_sorted_page') is not null),
+              ('259', to_regproc('public.set_my_language') is not null)
             ) t(m, present) order by m"
 
       - name: Apply the migrations

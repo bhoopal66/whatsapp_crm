@@ -193,7 +193,9 @@ export function ContactPicker({
               )}
             >
               <span className="flex min-w-0 items-baseline gap-1.5">
-                <span className="truncate">{label(c)}</span>
+                <span className="truncate">
+                  <bdi>{label(c)}</bdi>
+                </span>
                 {c.closeMatch && (
                   <span
                     title={t('similarHint')}

@@ -576,6 +576,38 @@ describe('sendCompassNotification', () => {
     });
   });
 
+  it('marks a contact it created as a Compass lead, and one it only found not at all', async () => {
+    // Migration 249: the source is filled only when this notification
+    // created the CRM contact (contact_set_lead_source_if_empty).
+    resolveConversationByPhone.mockResolvedValue({
+      conversationId: 'conv-1',
+      contactId: 'contact-new',
+      contactCreated: true,
+      conversationCreated: true,
+    });
+    const created = makeDb({ ...chatOnMeta(48 * HOUR), rpc: () => true });
+    await sendCompassNotification(created.db, 'acct', baseRequest());
+    expect(created.rpcs).toEqual([
+      {
+        fn: 'contact_set_lead_source_if_empty',
+        args: expect.objectContaining({
+          p_contact: 'contact-new',
+          p_source: 'compass',
+        }),
+      },
+    ]);
+
+    resolveConversationByPhone.mockResolvedValue({
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      contactCreated: false,
+      conversationCreated: false,
+    });
+    const found = makeDb({ ...chatOnMeta(48 * HOUR), rpc: () => true });
+    await sendCompassNotification(found.db, 'acct', baseRequest());
+    expect(found.rpcs).toEqual([]);
+  });
+
   it('never touches conversation ownership', async () => {
     // The only table notify.ts writes is its own; ownership lives on
     // `conversations`, which it only reads itself (the Meta gate) and

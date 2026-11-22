@@ -14,6 +14,23 @@ and polish.
 
 - Docs: CLAUDE.md split into a short index plus docs/agents/*
 
+### Small follow-ups (checked on the local demo)
+
+- **Fixed:** in Arabic, Groups and Team chat told people to pick from the
+  list "on the left"; the list is on the right there. They now say "from
+  the list".
+- **Fixed:** names and phone numbers in the pipeline contact picker and on
+  Recycle keep their order in Arabic.
+- **Tests:** Compass marking a contact it created as a `compass` lead (and
+  not one it only found) now has a test. Case CSAT was run end to end
+  against a stand-in WhatsApp gateway: queued on submission, sent once as
+  plain text from the chat's number, the customer's "5" captured, a
+  second reply not counted.
+- **Tooling:** the "Apply migrations" workflow's check lists 257 and 259;
+  `@formatjs/icu-messageformat-parser` (used by the Arabic catalogue
+  test) is a declared dev dependency at the version next-intl already
+  installs.
+
 ### Web form: browsers can submit it
 
 - **Fixed:** the hosted web form (`/f/<link>`) refused every submission
