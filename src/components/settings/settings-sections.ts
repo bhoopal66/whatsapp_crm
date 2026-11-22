@@ -29,6 +29,7 @@ import {
   Sparkles,
   Tag,
   TextCursorInput,
+  Timer,
   User,
   UsersRound,
   Vault,
@@ -82,6 +83,7 @@ export const SETTINGS_SECTIONS = [
   'quick-replies',
   'fields',
   'deals',
+  'response-times',
   // AI & automation.
   'ai',
   'insights',
@@ -258,6 +260,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   deals: {
     id: 'deals',
     icon: Coins,
+    category: 'inbox',
+    minRole: 'admin',
+  },
+  // Business hours, the response target and escalation (migration 237).
+  // Owner/admin, like response_settings_set behind it.
+  'response-times': {
+    id: 'response-times',
+    icon: Timer,
     category: 'inbox',
     minRole: 'admin',
   },

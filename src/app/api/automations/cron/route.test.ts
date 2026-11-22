@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   hrSweep: vi.fn(),
   automsgDrain: vi.fn(),
   automsgNudges: vi.fn(),
+  responseSweep: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -123,6 +124,9 @@ vi.mock('@/lib/calendar/reminders', () => ({
   runRecurringReminders: h.recurring,
 }));
 vi.mock('@/lib/hr/sweep', () => ({ runHrSweep: h.hrSweep }));
+vi.mock('@/lib/response-times/sweep', () => ({
+  runResponseEscalationSweep: h.responseSweep,
+}));
 vi.mock('@/lib/hr/automsg/drain', () => ({
   runHrAutomsgDrain: h.automsgDrain,
   runHrAutomsgNudges: h.automsgNudges,
@@ -154,6 +158,12 @@ beforeEach(() => {
     .mockResolvedValue({ checked: 1, changed: 0, notified: 0, failed: 0 });
   h.lapse.mockReset().mockResolvedValue({ checked: 0, ended: 0 });
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
+  h.responseSweep.mockReset().mockResolvedValue({
+    accounts: 0,
+    failed: 0,
+    chats: 0,
+    notifications: 0,
+  });
   h.rpc.mockReset().mockResolvedValue({ data: 3, error: null });
   h.pbx.mockReset().mockResolvedValue({ outOfTime: [], errors: {} });
   h.push.mockReset().mockResolvedValue({
@@ -419,6 +429,47 @@ describe('GET /api/automations/cron — team activity alerts piggy-back', () => 
     await GET(req());
     await runAfter();
     expect(h.sweep).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — response escalation piggy-back', () => {
+  it('runs the sweep after the response, at most every 5 minutes', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.responseSweep).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.responseSweep).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:04:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.responseSweep).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:05:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.responseSweep).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a pass that rang someone', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.responseSweep.mockResolvedValue({
+      accounts: 1,
+      failed: 0,
+      chats: 2,
+      notifications: 3,
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await GET(req());
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] response escalation:',
+      expect.objectContaining({ notifications: 3 })
+    );
     log.mockRestore();
   });
 });

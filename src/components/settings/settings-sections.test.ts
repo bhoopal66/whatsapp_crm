@@ -48,6 +48,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'api',
   'phone-extensions',
   'deals',
+  'response-times',
   'members',
 ];
 
@@ -139,7 +140,13 @@ describe('categories', () => {
       account: ACCOUNT_SECTIONS,
       workspace: ['workspace', 'members', 'teams', 'departments'],
       whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
-      inbox: ['chat-tags', 'quick-replies', 'fields', 'deals'],
+      inbox: [
+        'chat-tags',
+        'quick-replies',
+        'fields',
+        'deals',
+        'response-times',
+      ],
       automation: ['ai', 'insights', 'journey-bot'],
       collaboration: ['cases', 'deal-rooms', 'team-chat'],
       compliance: ['vault', 'consent-retention', 'privacy', 'audit-log'],

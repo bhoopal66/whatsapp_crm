@@ -35,6 +35,7 @@ export function kindGroup(kind: string): PushKindGroup {
     kind === 'whatsapp_message' ||
     kind === 'chat_message' ||
     kind === 'insight_attention' ||
+    kind.startsWith('response_') ||
     kind === 'submission_group_message'
   ) {
     return 'messages';
