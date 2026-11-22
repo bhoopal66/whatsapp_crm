@@ -118,6 +118,11 @@ import {
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
+import { BulkBar, type ChatTagChoice } from '@/components/contacts/bulk-bar';
+import {
+  writeAudienceHandoff,
+  AUDIENCE_HANDOFF_URL,
+} from '@/lib/broadcasts/audience-handoff';
 import {
   DEFAULT_CONTACT_SORT,
   nextContactSort,
@@ -689,6 +694,61 @@ export function ContactsPageInner({
     });
   }
 
+  // Same server path as the inbox header's tag control, per contact's
+  // company chat (compare-and-set, chat_tag_set dispatched once each).
+  async function applyBulkTag(choice: ChatTagChoice) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    try {
+      const res = await fetch('/api/contacts/bulk/chat-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactIds: ids,
+          chatTagId: choice.chatTagId,
+          ...(choice.subTagId !== undefined && { subTagId: choice.subTagId }),
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        updated?: number;
+        unchanged?: number;
+        skipped?: number;
+        failed?: number;
+        error?: string;
+      } | null;
+      if (!res.ok || !body || body.updated === undefined) {
+        toast.error(body?.error ?? tTable('toastTagFailed'));
+        return;
+      }
+      const summary = tTable('toastTagResult', {
+        updated: body.updated,
+        unchanged: body.unchanged ?? 0,
+        skipped: body.skipped ?? 0,
+        failed: body.failed ?? 0,
+      });
+      if ((body.failed ?? 0) > 0) toast.error(summary);
+      else toast.success(summary);
+      await refreshContacts();
+    } catch {
+      toast.error(tTable('toastTagFailed'));
+    }
+  }
+
+  function addSelectedToCampaign() {
+    const chosen = contacts.filter((c) => selected.has(c.id));
+    let storage: Storage | null = null;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = null;
+    }
+    if (!writeAudienceHandoff(storage, chosen, 'contacts')) {
+      toast.error(tTable('toastCampaignNone'));
+      return;
+    }
+    router.push(AUDIENCE_HANDOFF_URL);
+  }
+
   async function handleBulkDelete() {
     const ids = [...selected];
     if (ids.length === 0) return;
@@ -909,31 +969,15 @@ export function ContactsPageInner({
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
-          <p className="text-foreground text-sm">
-            {t('selectedCount', { count: selected.size })}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected(new Set())}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {t('clearSelection')}
-            </Button>
-            <GatedButton
-              variant="destructive"
-              size="sm"
-              canAct={canEdit}
-              gateReason="delete contacts"
-              onClick={() => setBulkDeleteOpen(true)}
-            >
-              <Trash2 className="size-4" />
-              {t('deleteSelected')}
-            </GatedButton>
-          </div>
-        </div>
+        <BulkBar
+          count={selected.size}
+          canAct={canEdit}
+          tree={chatTagTree}
+          onClear={() => setSelected(new Set())}
+          onDelete={() => setBulkDeleteOpen(true)}
+          onApplyTag={applyBulkTag}
+          onAddToCampaign={addSelectedToCampaign}
+        />
       )}
 
       {/* Table */}

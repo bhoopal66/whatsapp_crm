@@ -1014,7 +1014,20 @@
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
     "copyNumber": "Copy the phone number of {name}",
-    "copyNumberShort": "Copy number"
+    "copyNumberShort": "Copy number",
+    "addToCampaign": "Add to campaign",
+    "applyTag": "Apply",
+    "bulkBar": "Actions for the selected contacts",
+    "keepSubTag": "Keep the current sub-tag",
+    "optional": "(optional)",
+    "removeTag": "Remove the chat tag",
+    "setChatTag": "Set chat tag",
+    "subTag": "Sub-tag",
+    "tagDialogDesc": "Applies to each contact's chat. Chats you can't change are skipped.",
+    "tagDialogTitle": "Set chat tag for {count} contacts",
+    "toastCampaignNone": "None of the selected contacts has a phone number",
+    "toastTagFailed": "Couldn't set the chat tag",
+    "toastTagResult": "{updated} updated, {unchanged} already had it, {skipped} skipped, {failed} failed"
   },
   "Pipelines": {
     "page": {
