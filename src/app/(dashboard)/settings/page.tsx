@@ -231,6 +231,13 @@ const PrivacyPanel = dynamic(
     import('@/components/settings/privacy-panel').then((m) => m.PrivacyPanel),
   { loading: PanelLoading }
 );
+const CaseDeskPanel = dynamic(
+  () =>
+    import('@/components/settings/case-desk-panel').then(
+      (m) => m.CaseDeskPanel
+    ),
+  { loading: PanelLoading }
+);
 const DealRoomsPanel = dynamic(
   () =>
     import('@/components/settings/deal-rooms-panel').then(
@@ -309,6 +316,7 @@ const PRELOADERS: Record<
   departments: [() => import('@/components/settings/departments-panel')],
   'team-chat': [() => import('@/components/settings/team-chat-settings')],
   cases: [() => import('@/components/settings/cases-settings-panel')],
+  'case-desk': [() => import('@/components/settings/case-desk-panel')],
   vault: [() => import('@/components/settings/vault-panel')],
   'consent-retention': [
     () => import('@/components/settings/consent-retention-panel'),
@@ -530,6 +538,7 @@ function SettingsPageInner() {
     departments: <DepartmentsPanel />,
     'team-chat': <TeamChatSettings />,
     cases: <CasesSettingsPanel />,
+    'case-desk': <CaseDeskPanel />,
     vault: <VaultPanel />,
     'consent-retention': <ConsentRetentionPanel />,
     privacy: <PrivacyPanel />,

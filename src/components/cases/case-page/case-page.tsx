@@ -8,6 +8,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   ArrowRightLeft,
   Briefcase,
+  Copy,
   ExternalLink,
   FileQuestion,
   Hand,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +49,7 @@ import {
 } from '@/lib/cases/case-page';
 import { caseStatusView, contactPersonLine, formatAed } from '@/lib/cases/ui';
 import { canSnoozeCase } from '@/lib/cases/views-ui';
+import { captionCodeOf } from '@/lib/desk/case-number';
 import { cn } from '@/lib/utils';
 
 import { ApplyMacroMenu } from './apply-macro-menu';
@@ -87,6 +90,34 @@ const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
   brain: BrainTab,
   audit: AuditTab,
 };
+
+/** A labelled identifier with its own Copy button. */
+function CopyableId({ label, value }: { label: string; value: string }) {
+  const t = useTranslations('CasePage.numbers');
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">
+        {value}
+      </code>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        aria-label={t('copyLabel', { what: label })}
+        onClick={() =>
+          void copyWithToast(value, {
+            copied: t('copied', { what: label }),
+            failed: t('copyFailed'),
+          })
+        }
+      >
+        <Copy className="size-3" aria-hidden />
+        {t('copy')}
+      </Button>
+    </span>
+  );
+}
 
 /** /cases/[id] — header, actions, and the Overview plus the case's tabs. */
 export function CasePage({ caseId }: { caseId: string }) {
@@ -408,6 +439,20 @@ export function CasePage({ caseId }: { caseId: string }) {
                 .filter(Boolean)
                 .join(' · ')}
             </p>
+            {c.caseNumber && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <CopyableId
+                  label={t('numbers.caseNumber')}
+                  value={c.caseNumber}
+                />
+                {captionCodeOf(c.caseNumber) && (
+                  <CopyableId
+                    label={t('numbers.caption')}
+                    value={captionCodeOf(c.caseNumber)!}
+                  />
+                )}
+              </div>
+            )}
             <p className="text-muted-foreground mt-0.5 text-xs">
               {t('people', {
                 agent: person(c.agentId),

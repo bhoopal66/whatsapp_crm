@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAge } from '@/lib/desk/intake-form';
 import type { DeskWorklist } from '@/lib/desk/store';
+import { deskTabHref, worklistTab } from '@/lib/desk/tabs';
 
 import { deskApi } from './desk-api';
 
@@ -40,16 +41,26 @@ export function DeskWorklistCard() {
   if (rows.length === 0) return null;
   return (
     <Card className="mx-auto mb-4 w-full max-w-5xl">
-      <CardContent className="space-y-2 pt-6 text-sm">
+      <CardContent className="space-y-2 text-sm">
         <h2 className="text-foreground text-base font-semibold">
           {t('worklist.title')}
         </h2>
         <ul className="space-y-1">
           {rows.map((k) => (
             <li key={k} className="flex flex-wrap gap-x-2">
-              <span className="text-foreground">
-                {t(`worklist.${k}`, { count: w.data[k].count })}
-              </span>
+              {/* Each row opens its own tab; follow-ups have none. */}
+              {worklistTab(k) ? (
+                <Link
+                  href={deskTabHref(worklistTab(k)!)}
+                  className="text-foreground underline-offset-2 hover:underline"
+                >
+                  {t(`worklist.${k}`, { count: w.data[k].count })}
+                </Link>
+              ) : (
+                <span className="text-foreground">
+                  {t(`worklist.${k}`, { count: w.data[k].count })}
+                </span>
+              )}
               {w.data[k].oldestSeconds !== null && (
                 <span className="text-muted-foreground">
                   {t('worklist.oldest', {

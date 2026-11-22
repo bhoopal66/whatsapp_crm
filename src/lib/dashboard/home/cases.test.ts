@@ -8,6 +8,7 @@ function row(over: Partial<InboxRow> = {}): InboxRow {
   seq++;
   return {
     caseId: `c${seq}`,
+    caseNumber: null,
     bankCode: 'ADCB',
     bankName: 'ADCB',
     stage: 'Submitted',

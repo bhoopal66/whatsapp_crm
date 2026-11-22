@@ -118,6 +118,7 @@ export function aCase(over: Partial<Case> = {}): Case {
     groupEndedAt: null,
     externalUrl: null,
     externalChangedAt: null,
+    caseNumber: null,
     ...over,
   };
 }

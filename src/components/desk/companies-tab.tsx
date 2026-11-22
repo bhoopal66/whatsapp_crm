@@ -29,7 +29,7 @@ import {
 
 import { CompanyBanks } from './company-banks';
 import { deskApi } from './desk-api';
-import { NATIVE_FIELD } from './tag-fields';
+import { DeskSelect } from './desk-select';
 
 export function CompaniesTab() {
   const t = useTranslations('Desk');
@@ -57,7 +57,7 @@ export function CompaniesTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="space-y-3 pt-6">
+        <CardContent className="space-y-3">
           <p className="text-muted-foreground text-sm">
             {t('companies.intro')}
           </p>
@@ -203,7 +203,7 @@ function CompanyPeople({
 
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6">
+      <CardContent className="space-y-4">
         <h2 className="text-foreground text-base font-semibold">
           {t('companies.people', { company: company.legalName })}
         </h2>
@@ -236,25 +236,24 @@ function CompanyPeople({
                 <span className="ml-auto flex flex-wrap items-center gap-2">
                   {company.canManage ? (
                     <>
-                      <select
-                        className={`${NATIVE_FIELD} w-auto`}
+                      <DeskSelect
+                        className="w-40"
                         value={p.role}
                         disabled={busy}
-                        aria-label={t('companies.role')}
-                        onChange={(e) =>
+                        ariaLabel={t('companies.role')}
+                        placeholder={t('companies.role')}
+                        onChange={(v) =>
                           void save(
                             p.contactId,
-                            e.target.value as DeskContactRole,
+                            v as DeskContactRole,
                             p.authorised
                           )
                         }
-                      >
-                        {DESK_CONTACT_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {t(`companies.roles.${r}`)}
-                          </option>
-                        ))}
-                      </select>
+                        options={DESK_CONTACT_ROLES.map((r) => ({
+                          value: r,
+                          label: t(`companies.roles.${r}`),
+                        }))}
+                      />
                       <label className="flex items-center gap-1.5 text-xs">
                         <input
                           type="checkbox"
@@ -304,18 +303,16 @@ function CompanyPeople({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="desk-company-role">{t('companies.role')}</Label>
-              <select
+              <DeskSelect
                 id="desk-company-role"
-                className={NATIVE_FIELD}
                 value={role}
-                onChange={(e) => setRole(e.target.value as DeskContactRole)}
-              >
-                {DESK_CONTACT_ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {t(`companies.roles.${r}`)}
-                  </option>
-                ))}
-              </select>
+                placeholder={t('companies.role')}
+                onChange={(v) => setRole(v as DeskContactRole)}
+                options={DESK_CONTACT_ROLES.map((r) => ({
+                  value: r,
+                  label: t(`companies.roles.${r}`),
+                }))}
+              />
             </div>
             <label className="flex h-9 items-center gap-1.5 text-sm">
               <input

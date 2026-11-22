@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { docTypeLabel } from '@/lib/desk/doc-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,7 +25,7 @@ import {
 } from '@/lib/desk/shared-docs';
 
 import { deskApi } from './desk-api';
-import { NATIVE_FIELD } from './tag-fields';
+import { DeskSelect } from './desk-select';
 
 export function CompanyBanks({ company }: { company: DeskCompany }) {
   const t = useTranslations('Desk');
@@ -56,7 +57,7 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
 
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6 text-sm">
+      <CardContent className="space-y-4 text-sm">
         <div>
           <h2 className="text-foreground text-base font-semibold">
             {t('banks.title')}
@@ -236,34 +237,35 @@ function FileRow({
   return (
     <li className="flex flex-wrap items-center gap-2 px-3 py-2">
       <span className="text-foreground min-w-0 break-words">
-        {file.originalName ?? file.docKey ?? file.fileId}
+        {file.originalName ??
+          (file.docKey ? docTypeLabel(file.docKey) : file.fileId)}
       </span>
       {file.docKey && (
-        <span className="text-muted-foreground font-mono text-xs">
-          {file.docKey}
+        <span className="text-muted-foreground text-xs">
+          {docTypeLabel(file.docKey)}
         </span>
       )}
       <Badge variant="outline">{file.status}</Badge>
       {file.shared && <Badge variant="secondary">{t('banks.shared')}</Badge>}
       {targets.length > 0 && (
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            className={`${NATIVE_FIELD} w-auto`}
+          <DeskSelect
+            className="w-56"
             value={target}
-            aria-label={t('banks.linkTo')}
-            onChange={(e) => setTarget(e.target.value)}
-          >
-            <option value="">{t('banks.linkTo')}</option>
-            {targets.map(({ target: c, needsConsent }) => (
-              <option key={c.caseId} value={c.caseId} disabled={needsConsent}>
-                {needsConsent
-                  ? t('banks.needsConsent', {
-                      caseNumber: c.caseNumber ?? c.caseId,
-                    })
-                  : (c.caseNumber ?? c.caseId)}
-              </option>
-            ))}
-          </select>
+            ariaLabel={t('banks.linkTo')}
+            noneLabel={t('banks.linkTo')}
+            placeholder={t('banks.linkTo')}
+            onChange={setTarget}
+            options={targets.map(({ target: c, needsConsent }) => ({
+              value: c.caseId,
+              disabled: needsConsent,
+              label: needsConsent
+                ? t('banks.needsConsent', {
+                    caseNumber: c.caseNumber ?? c.caseId,
+                  })
+                : (c.caseNumber ?? c.caseId),
+            }))}
+          />
           <Button
             size="sm"
             variant="outline"
@@ -323,7 +325,7 @@ function Checklist({ list }: { list: ApplicationChecklist }) {
               <tr key={i.docKey}>
                 <td className="px-3 py-2">
                   <span className="text-foreground">
-                    {i.label ?? i.docKey.replace(/_/g, ' ')}
+                    {i.label ?? docTypeLabel(i.docKey)}
                   </span>
                   {i.minValidDays !== null && (
                     <span className="text-muted-foreground block">

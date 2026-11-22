@@ -15,6 +15,7 @@ import {
 import { EMPTY_FILTERS, type InboxFilters } from './ui';
 
 const FULL: InboxFilters = {
+  q: null,
   bank: 'ADCB',
   stage: 'Under review',
   agent: 'u1',

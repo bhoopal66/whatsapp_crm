@@ -2717,6 +2717,7 @@
       "audit-log": "감사 로그",
       "deal-rooms": "딜룸",
       "cases": "케이스",
+      "case-desk": "Case desk",
       "vault": "보관소",
       "privacy": "개인정보 (PDPL)"
     },
@@ -2768,6 +2769,7 @@
       "journey-bot": "Welcome to Close 봇의 템플릿과 메시지.",
       "insights": "Jev가 채팅을 읽고 리드 평가, 태그 제안, 캠페인 답장 분류, 메시지 점검을 합니다.",
       "cases": "은행, 단계, 작업 템플릿, 서류, SLA 타이머.",
+      "case-desk": "Desk codes, bank coordinators, WhatsApp routing and the customer reminder digest.",
       "deal-rooms": "딜룸 초대 링크를 보내는 템플릿.",
       "team-chat": "팀 채팅 켜기·끄기, 누가 누구에게 메시지할 수 있는지, 감사 기록이 남는 열람과 삭제.",
       "vault": "민감한 고객 번호와 열람 권한.",
@@ -2804,6 +2806,7 @@
       "journey-bot": "여정 봇 워크플로 자동화 journey bot",
       "insights": "스마트 인사이트 jev typesafe insights 리드 긴급 태그 제안 캠페인 답장 메시지 점검",
       "cases": "은행 단계 SLA 서류 작업 신청 코디네이터 banks stages documents",
+      "case-desk": "case desk desk codes bank code tray routing digest reminder coordinators cover upload sorting",
       "deal-rooms": "딜룸 그룹 초대 은행 담당자 deal room invite",
       "team-chat": "내부 채팅 채널 메시지 삭제 감사 internal chat 다이렉트 메시지 DM 메시지 규칙 상담원 팀장 direct messages",
       "vault": "민감 정보 에미레이트 ID 카드 IBAN 암호화 열람 sensitive",
@@ -6525,7 +6528,7 @@
     "ownerSuffix": "(대표)",
     "ownerRm": "담당 RM: {name}",
     "call": "전화",
-    "whatsappButton": "WhatsApp",
+    "whatsappButton": "Open chat",
     "filters": {
       "all": "전체",
       "calls": "통화",
@@ -8678,7 +8681,9 @@
       "bankQueryOpen": "은행 문의 진행 중",
       "noActivity": "활동 없음",
       "noActivityDays": "일 이상",
-      "includeClosed": "종료된 케이스 포함"
+      "includeClosed": "종료된 케이스 포함",
+      "more": "More filters",
+      "moreCount": "{count} on"
     },
     "sorts": {
       "most_overdue": "가장 많이 지연된 순",
@@ -8736,7 +8741,11 @@
     "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
     "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
     "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요.",
-    "leadChip": "리드"
+    "leadChip": "리드",
+    "search": {
+      "label": "Search cases",
+      "placeholder": "Case number, caption code or customer name"
+    }
   },
   "CaseViews": {
     "views": "보기",
@@ -8818,6 +8827,65 @@
       "bankUnknown": "설정되지 않은 은행입니다.",
       "assigneeInvalid": "이 사람은 리드를 담당할 수 없습니다.",
       "generic": "리드를 열지 못했습니다. 다시 시도하세요."
+    }
+  },
+  "CaseCsat": {
+    "score": {
+      "title": "Customer rating",
+      "trigger": {
+        "submitted": "After submission",
+        "approved": "After approval"
+      },
+      "outOf": "{score} out of 5",
+      "state": {
+        "waiting": "Waiting to be sent",
+        "asked": "Asked, no reply yet",
+        "rated": "Rated",
+        "not_sent": "Not sent"
+      },
+      "comment": "Comment: {comment}",
+      "askedOn": "Asked on {when}",
+      "ratedOn": "Rated on {when}"
+    },
+    "averages": {
+      "title": "Customer ratings",
+      "summary": "Average {average} out of 5 from {count, plural, one {# rating} other {# ratings}} in the last {days} days",
+      "empty": "No ratings in the last {days} days",
+      "show": "Show by agent and bank",
+      "hide": "Hide",
+      "byAgent": "By agent",
+      "byBank": "By bank",
+      "unknownAgent": "Unknown person",
+      "noBank": "No bank",
+      "row": "{average} out of 5 ({count})"
+    },
+    "settings": {
+      "title": "Customer ratings (CSAT)",
+      "hint": "Ask the customer to rate our service from 1 to 5 when their case is submitted and when it is approved. Sent from their chat number, never to someone who opted out.",
+      "enabled": "Ask for ratings",
+      "on": "On",
+      "off": "Off",
+      "askOnSubmitted": "When a case is submitted",
+      "askOnApproved": "When a case is approved",
+      "templateSubmitted": "Meta template: submitted",
+      "templateApproved": "Meta template: approved",
+      "templateHint": "Used on a Meta number when the customer has not written in the last 24 hours. It must be an approved utility template with {one} (first name) and {two} (bank and product). Until then those requests wait.",
+      "language": "Language",
+      "languages": {
+        "en": "English",
+        "ar": "Arabic"
+      },
+      "replyWindowDays": "Days a reply counts",
+      "sendStartHour": "Send from (hour)",
+      "sendEndHour": "Send until (hour)",
+      "hoursHint": "Hours are Dubai time. Requests outside these hours wait.",
+      "save": "Save",
+      "saved": "Rating settings saved",
+      "saveFailed": "Could not save the rating settings",
+      "invalid": "Check the values: hours 8 to 21, 1 to 30 days, template names in lower case",
+      "stale": "Someone else changed these settings. They have been reloaded.",
+      "loadFailed": "Could not load the rating settings",
+      "retry": "Retry"
     }
   },
   "CasePage": {
@@ -8936,7 +9004,26 @@
       "reassigned": "{field}: {from} → {to}",
       "details": "정보 변경 기록",
       "noDetails": "아직 정보 변경이 없습니다.",
-      "detailChange": "{field}: {from} → {to}"
+      "detailChange": "{field}: {from} → {to}",
+      "docsTitle": "Documents",
+      "docsFailed": "The document checklist could not be loaded.",
+      "docsNone": "No documents are required for this case.",
+      "docsComplete": "All {total} required documents received",
+      "docsProgress": "{received} of {total} required documents received",
+      "docsMissing": "Still needed: {list}{more, plural, =0 {} other { and # more}}",
+      "openDocuments": "Open documents",
+      "nextTitle": "Next step",
+      "nextClosed": "This case is closed. Nothing more to do.",
+      "nextDocuments": "Chase {count, plural, one {# missing document} other {# missing documents}}",
+      "nextRejected": "{count, plural, one {# document was} other {# documents were}} rejected and needs replacing.",
+      "nextMove": "Move the case to {stage} when it is ready",
+      "nextMoveHint": "Use Move stage above once the bank has what it needs.",
+      "nextNone": "No further move is available from this stage.",
+      "lastTitle": "Customer's last message",
+      "lastFailed": "The last message could not be loaded.",
+      "lastNone": "No message from this customer yet, or you cannot see their chat.",
+      "lastMedia": "Sent a file or media.",
+      "openChat": "Open chat"
     },
     "tasks": {
       "title": "작업",
@@ -9234,6 +9321,14 @@
       "open": "Compass에서 열기",
       "synced": "마지막 동기화 {time}",
       "detailsLocked": "은행, 상품 및 금액은 Compass에서 업데이트됩니다."
+    },
+    "numbers": {
+      "caseNumber": "Case number",
+      "caption": "Caption code",
+      "copy": "Copy",
+      "copyLabel": "Copy {what}",
+      "copied": "{what} copied",
+      "copyFailed": "Could not copy. Select the text and copy it by hand."
     }
   },
   "Brain": {
@@ -12488,6 +12583,104 @@
       "oldest": "가장 오래된 항목 {age}",
       "open": "케이스 데스크 열기"
     }
+  },
+  "DeskPreview": {
+    "title": "파일: {name}",
+    "unnamed": "이름 없는 파일",
+    "show": "파일 보기",
+    "reload": "다시 불러오기",
+    "loading": "파일을 불러오는 중…",
+    "openNewTab": "새 탭에서 열기",
+    "imageAlt": "업로드된 파일 {name}",
+    "frameTitle": "{name} 미리 보기",
+    "expired": "이 파일 링크가 만료되었습니다. 계속 보려면 다시 불러오세요.",
+    "errorWord": "표시되지 않음.",
+    "errors": {
+      "notFound": "이 파일은 더 이상 볼 수 없습니다.",
+      "notAllowed": "이 파일을 볼 권한이 없습니다.",
+      "notConfigured": "이 설치에서는 파일 미리 보기가 설정되지 않았습니다.",
+      "generic": "파일을 불러오지 못했습니다. 다시 시도하세요.",
+      "broken": "여기에 파일을 표시할 수 없습니다. 새 탭에서 여세요."
+    },
+    "other": {
+      "title": "이 형식의 파일은 여기에 표시할 수 없습니다",
+      "hint": "새 탭에서 열어 확인하세요."
+    }
+  },
+  "DeskForms": {
+    "file": {
+      "choose": "Choose a file",
+      "change": "Change file",
+      "remove": "Remove the chosen file",
+      "none": "No file chosen"
+    },
+    "docType": {
+      "placeholder": "Choose a document type",
+      "none": "Not sure yet"
+    },
+    "lookup": {
+      "keepTyping": "Keep typing the case number or code, for example 4271RAKD.",
+      "badCheck": "That code does not match a case. Check each character.",
+      "invalid": "That is not a case number or code. Use a code like 4271RAKD or a number like TC-26-04271-RAK.",
+      "looking": "Looking up the case…",
+      "found": "Case found",
+      "customer": "Customer",
+      "bank": "Bank",
+      "product": "Product",
+      "stage": "Stage",
+      "notFound": "No case with that number is open to you. It may not exist, or it belongs to another bank.",
+      "unavailable": "This case cannot be previewed for you. It is checked when you upload.",
+      "error": "The case could not be looked up just now. You can try again."
+    },
+    "find": {
+      "label": "Find case",
+      "placeholder": "Case number, code or customer name",
+      "button": "Find",
+      "searching": "Searching…",
+      "hint": "Search by case number, caption code or customer name. Found cases are added to the list above.",
+      "short": "Type a case number, or at least 2 letters of the customer name.",
+      "none": "No open case matched. A name search covers companies you can read.",
+      "added": "{count, plural, one {# case added to the list above.} other {# cases added to the list above.}}",
+      "error": "The search failed. Try again in a moment.",
+      "badge": "Found by search"
+    },
+    "why": {
+      "upload": {
+        "fileNeeded": "Choose a file first: a pending document needs one."
+      },
+      "sort": {
+        "noCase": "Find the case first: type its number above.",
+        "confirm": "The company names differ. Type the word shown above to file anyway."
+      },
+      "newCase": {
+        "missing": "Still needed: {fields}.",
+        "fields": {
+          "company": "company name",
+          "licence": "trade licence",
+          "bank": "bank",
+          "product": "product",
+          "contact": "customer contact"
+        }
+      },
+      "reject": {
+        "reason": "Write why it is rejected. The uploader sees it."
+      },
+      "tray": {
+        "pick": "Choose a case above first, or find one.",
+        "confirm": "Type the company's legal name above to confirm.",
+        "dismiss": "To dismiss, write a reason of at least 3 characters."
+      }
+    }
+  },
+  "CaseDeskSettings": {
+    "intro": "Set up the case desk here. Uploading, sorting and the tray stay on the Case desk page.",
+    "codes": "Desk codes",
+    "cover": "Coordinators per bank",
+    "rolesIntro": "Name each bank's primary and second coordinator from the people who hold that bank. They get the sorting queue first; if both are away, the desk lead covers.",
+    "noHolders": "Nobody holds this bank yet. Give someone the bank in Settings, Cases, then pick them here."
+  },
+  "DeskTabs": {
+    "waiting": "{count, plural, one {# item waiting} other {# items waiting}}"
   },
   "Privacy": {
     "loading": "불러오는 중...",

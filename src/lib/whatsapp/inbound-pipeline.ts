@@ -75,6 +75,7 @@ import {
   isOwnStorageUrl,
 } from '@/lib/customer-docs/filing-copy';
 import { noteDigestStop } from '@/lib/desk/digest';
+import { noteCsatReply } from '@/lib/cases/csat';
 import { routeDeskDocument } from '@/lib/desk/route-inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
@@ -1223,23 +1224,39 @@ export async function processMessage(
   });
   const flowConsumed = flowResult.consumed;
 
+  // A 1-5 reply to a case rating request (migration 246) is stored as the
+  // case's CSAT score. A Flow that consumed the message wins (its menus
+  // take typed numbers too); a captured rating is consumed like a Flow's,
+  // so no journey, content automation or AI reply answers it. Costs
+  // nothing unless the text reads as a rating; never throws.
+  const csatConsumed =
+    !flowConsumed &&
+    !interactiveReplyId &&
+    (await noteCsatReply(supabaseAdmin(), {
+      accountId,
+      contactId: contactRecord.id,
+      messageRowId: insertedRows[0].id,
+      text: contentText ?? message.text,
+    }));
+
   // Journey bot (module 016): the contact's open journey file takes the
   // message — only when no Flow consumed it (a Flow owns the thread
   // while it runs). A journey that handles it suppresses the content
   // automations and the AI reply exactly as a Flow does; relationship
   // triggers still fire. Awaited inside `after()`; never throws.
-  const journeyConsumed = flowConsumed
-    ? false
-    : (
-        await dispatchInboundToJourney({
-          db: supabaseAdmin(),
-          accountId,
-          contactId: contactRecord.id,
-          conversationId: conversation.id,
-          message,
-        }).catch(() => ({ consumed: false }))
-      ).consumed;
-  const botConsumed = flowConsumed || journeyConsumed;
+  const journeyConsumed =
+    flowConsumed || csatConsumed
+      ? false
+      : (
+          await dispatchInboundToJourney({
+            db: supabaseAdmin(),
+            accountId,
+            contactId: contactRecord.id,
+            conversationId: conversation.id,
+            message,
+          }).catch(() => ({ consumed: false }))
+        ).consumed;
+  const botConsumed = flowConsumed || journeyConsumed || csatConsumed;
 
   // An `interested` campaign reply tags an untagged chat with the
   // account's chosen main tag (and runs the chat_tag_set automations).
@@ -1348,7 +1365,12 @@ export async function processMessage(
   // back here too, so the customer is not left with a bot that stopped
   // mid-sentence.
   const flowBroke = flowResult.outcome === 'failed';
-  if (!journeyConsumed && (flowBroke || !flowConsumed) && inboundText.trim()) {
+  if (
+    !journeyConsumed &&
+    !csatConsumed &&
+    (flowBroke || !flowConsumed) &&
+    inboundText.trim()
+  ) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

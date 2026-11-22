@@ -40,6 +40,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'departments',
   'team-chat',
   'cases',
+  'case-desk',
   'vault',
   'consent-retention',
   'privacy',
@@ -150,7 +151,7 @@ describe('categories', () => {
         'chat-assignment',
       ],
       automation: ['ai', 'insights', 'journey-bot'],
-      collaboration: ['cases', 'deal-rooms', 'team-chat'],
+      collaboration: ['cases', 'case-desk', 'deal-rooms', 'team-chat'],
       compliance: ['vault', 'consent-retention', 'privacy', 'audit-log'],
       integrations: ['phone-system', 'phone-extensions', 'api'],
     });

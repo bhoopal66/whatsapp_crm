@@ -20,7 +20,8 @@ import {
 } from './ui';
 import type { CaseRole } from './types';
 
-export type ViewFilters = Omit<InboxFilters, 'sort'>;
+/** The search box is a moment's question, never part of a saved view. */
+export type ViewFilters = Omit<InboxFilters, 'sort' | 'q'>;
 
 export interface SavedView {
   viewId: string;
@@ -57,8 +58,9 @@ const pick = <T extends string>(list: readonly T[], v: unknown): T | null =>
 
 function parseViewFilters(raw: unknown): ViewFilters {
   const f = isObj(raw) ? raw : {};
-  const { sort: _sort, ...defaults } = EMPTY_FILTERS;
+  const { sort: _sort, q: _q, ...defaults } = EMPTY_FILTERS;
   void _sort;
+  void _q;
   return {
     ...defaults,
     bank: optStr(f.bank),
@@ -104,8 +106,9 @@ export function parseViews(payload: unknown): SavedView[] {
 
 /** The inbox filters a view stores: everything but `sort`. */
 export function viewFiltersFromInbox(f: InboxFilters): ViewFilters {
-  const { sort: _sort, ...rest } = f;
+  const { sort: _sort, q: _q, ...rest } = f;
   void _sort;
+  void _q;
   return rest;
 }
 
@@ -118,7 +121,7 @@ export function viewSortFromInbox(f: InboxFilters): InboxSort | null {
 export function inboxFiltersFromView(
   view: Pick<SavedView, 'filters' | 'sort'>
 ): InboxFilters {
-  return { ...view.filters, sort: view.sort ?? EMPTY_FILTERS.sort };
+  return { ...view.filters, q: null, sort: view.sort ?? EMPTY_FILTERS.sort };
 }
 
 /* ---- snooze ---- */

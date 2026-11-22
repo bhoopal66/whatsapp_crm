@@ -9,6 +9,7 @@ import {
   STAGE_CHIP_OTHER,
   stageChipClass,
   activeFilterCount,
+  moreFiltersCount,
   appendRows,
   DEFAULT_STAGES,
   EMPTY_FILTERS,
@@ -63,6 +64,7 @@ const search = (q: string) => {
 };
 
 const ALL: InboxFilters = {
+  q: 'tc-26',
   bank: 'ADCB',
   stage: 'Under review',
   agent: 'u1',
@@ -88,14 +90,14 @@ describe('filters <-> URL', () => {
   it('round-trips every filter', () => {
     const qs = filtersToSearch(ALL);
     expect(qs).toBe(
-      'bank=ADCB&stage=Under+review&agent=u1&priority=urgent&sla_state=overdue' +
+      'q=tc-26&bank=ADCB&stage=Under+review&agent=u1&priority=urgent&sla_state=overdue' +
         '&customer_waiting=true&documents_missing=true&bank_query_open=true' +
         '&include_closed=true&no_activity_days=5&snoozed=only&mentionedMe=true' +
         '&sort=stalest'
     );
     expect(filtersFromSearch(search(qs))).toEqual(ALL);
     // The sort orders, it does not narrow.
-    expect(activeFilterCount(ALL)).toBe(12);
+    expect(activeFilterCount(ALL)).toBe(13);
   });
 
   it('drops unknown values instead of sending them', () => {
@@ -186,6 +188,7 @@ describe('parseInboxPage', () => {
     expect(page.rows).toEqual([
       {
         caseId: 'c1',
+        caseNumber: null,
         bankCode: 'ADCB',
         bankName: 'ADCB',
         stage: 'Submitted',
@@ -455,5 +458,18 @@ describe('contactPersonLine', () => {
     expect(contactPersonLine('Acme  LLC', 'acme llc')).toBeNull();
     expect(contactPersonLine('Acme LLC', '  ')).toBeNull();
     expect(contactPersonLine('Acme LLC', null)).toBeNull();
+  });
+});
+
+describe('moreFiltersCount', () => {
+  it('counts only the toggles behind More filters', () => {
+    expect(moreFiltersCount(EMPTY_FILTERS)).toBe(0);
+    expect(moreFiltersCount({ ...EMPTY_FILTERS, bank: 'ADCB', q: 'x' })).toBe(
+      0
+    );
+    expect(moreFiltersCount(ALL)).toBe(7);
+    expect(
+      moreFiltersCount({ ...EMPTY_FILTERS, snoozed: 'all', noActivityDays: 3 })
+    ).toBe(2);
   });
 });

@@ -19,6 +19,7 @@ import {
   Hourglass,
   Loader2,
   MessageCircleQuestion,
+  Search,
   SlidersHorizontal,
   SquareArrowOutUpRight,
   TriangleAlert,
@@ -31,6 +32,7 @@ import {
   SnoozeChip,
   SnoozedControl,
 } from '@/components/cases/case-views-menu';
+import { CsatAverages } from '@/components/cases/csat-averages';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +79,7 @@ import {
   stageFilterOptions,
   inboxUrl,
   INBOX_SORTS,
+  moreFiltersCount,
   NO_ACTIVITY_DAYS_DEFAULT,
   NO_ACTIVITY_DAYS_MAX,
   parseBanks,
@@ -89,6 +92,7 @@ import {
   type InboxRow,
   type InboxSlaState,
 } from '@/lib/cases/ui';
+import { readSearchQuery, SEARCH_MAX_LENGTH } from '@/lib/cases/search';
 import type { CasePriority } from '@/lib/cases/types';
 import { relativeActivity } from '@/lib/groups/ui';
 import { cn } from '@/lib/utils';
@@ -427,6 +431,7 @@ export function CasesInbox() {
           )}
         </>
       )}
+      <CsatAverages />
     </div>
   );
 }
@@ -546,6 +551,30 @@ function FilterBar({
     setDaysSeen(urlDays);
     setDaysDraft(urlDays);
   }
+  // The search text being typed; it reaches the URL on blur or Enter, or
+  // after a short pause, so each keystroke is not a request.
+  const urlQ = f.q ?? '';
+  const [qDraft, setQDraft] = useState(urlQ);
+  const [qSeen, setQSeen] = useState(urlQ);
+  if (qSeen !== urlQ) {
+    setQSeen(urlQ);
+    setQDraft(urlQ);
+  }
+  const commitQ = () => {
+    const q = readSearchQuery(qDraft);
+    if (q !== f.q) setFilters({ q });
+  };
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const q = readSearchQuery(qDraft);
+      if (q !== f.q) setFilters({ q });
+    }, 400);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qDraft]);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreCount = moreFiltersCount(f);
+
   const commitDays = () => {
     const days = parseDays(daysDraft);
     if (days === null) setDaysDraft(urlDays);
@@ -559,7 +588,54 @@ function FilterBar({
         className
       )}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 basis-64">
+          <Search
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            inputMode="search"
+            maxLength={SEARCH_MAX_LENGTH}
+            aria-label={t('search.label')}
+            placeholder={t('search.placeholder')}
+            className="pl-8"
+            value={qDraft}
+            onChange={(e) => setQDraft(e.target.value)}
+            onBlur={commitQ}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitQ();
+            }}
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-expanded={moreOpen}
+          aria-controls="cases-more-filters"
+          onClick={() => setMoreOpen((o) => !o)}
+        >
+          <SlidersHorizontal className="size-4" aria-hidden />
+          {t('filters.more')}
+          {moreCount > 0 && (
+            <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-xs">
+              {t('filters.moreCount', { count: moreCount })}
+            </span>
+          )}
+        </Button>
+        {narrowed > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFilters({ ...EMPTY_FILTERS, sort: f.sort })}
+          >
+            <X className="size-4" aria-hidden />
+            {t('clearFilters')}
+          </Button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <FilterSelect
           label={t('filters.bank')}
           allLabel={t('filters.allBanks')}
@@ -619,86 +695,80 @@ function FilterBar({
           }
         />
       </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-        <Toggle
-          id="cases-customer-waiting"
-          label={t('filters.customerWaiting')}
-          checked={f.customerWaiting}
-          onChange={(customerWaiting) => setFilters({ customerWaiting })}
-        />
-        <Toggle
-          id="cases-documents-missing"
-          label={t('filters.documentsMissing')}
-          checked={f.documentsMissing}
-          onChange={(documentsMissing) => setFilters({ documentsMissing })}
-        />
-        <Toggle
-          id="cases-bank-query"
-          label={t('filters.bankQueryOpen')}
-          checked={f.bankQueryOpen}
-          onChange={(bankQueryOpen) => setFilters({ bankQueryOpen })}
-        />
-        <div className="flex items-center gap-2">
-          <Switch
-            id="cases-no-activity"
-            checked={f.noActivityDays !== null}
-            className={SWITCH_OFF}
-            onCheckedChange={(on) =>
-              setFilters({
-                noActivityDays: on
-                  ? (parseDays(daysDraft) ?? NO_ACTIVITY_DAYS_DEFAULT)
-                  : null,
-              })
-            }
+      {moreOpen && (
+        <div
+          id="cases-more-filters"
+          className="border-border flex flex-wrap items-center gap-x-5 gap-y-3 border-t pt-3"
+        >
+          <Toggle
+            id="cases-customer-waiting"
+            label={t('filters.customerWaiting')}
+            checked={f.customerWaiting}
+            onChange={(customerWaiting) => setFilters({ customerWaiting })}
           />
-          <Label htmlFor="cases-no-activity" className="text-sm font-normal">
-            {t('filters.noActivity')}
-          </Label>
-          <Input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={NO_ACTIVITY_DAYS_MAX}
-            aria-label={`${t('filters.noActivity')} (${t('filters.noActivityDays')})`}
-            className="disabled:bg-muted h-8 w-20 disabled:opacity-70"
-            disabled={f.noActivityDays === null}
-            value={f.noActivityDays === null ? '' : daysDraft}
-            onChange={(e) => setDaysDraft(e.target.value)}
-            onBlur={commitDays}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitDays();
-            }}
+          <Toggle
+            id="cases-documents-missing"
+            label={t('filters.documentsMissing')}
+            checked={f.documentsMissing}
+            onChange={(documentsMissing) => setFilters({ documentsMissing })}
           />
-          <span className="text-muted-foreground text-sm">
-            {t('filters.noActivityDays')}
-          </span>
+          <Toggle
+            id="cases-bank-query"
+            label={t('filters.bankQueryOpen')}
+            checked={f.bankQueryOpen}
+            onChange={(bankQueryOpen) => setFilters({ bankQueryOpen })}
+          />
+          <div className="flex items-center gap-2">
+            <Switch
+              id="cases-no-activity"
+              checked={f.noActivityDays !== null}
+              className={SWITCH_OFF}
+              onCheckedChange={(on) =>
+                setFilters({
+                  noActivityDays: on
+                    ? (parseDays(daysDraft) ?? NO_ACTIVITY_DAYS_DEFAULT)
+                    : null,
+                })
+              }
+            />
+            <Label htmlFor="cases-no-activity" className="text-sm font-normal">
+              {t('filters.noActivity')}
+            </Label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={NO_ACTIVITY_DAYS_MAX}
+              aria-label={`${t('filters.noActivity')} (${t('filters.noActivityDays')})`}
+              className="disabled:bg-muted h-8 w-20 disabled:opacity-70"
+              disabled={f.noActivityDays === null}
+              value={f.noActivityDays === null ? '' : daysDraft}
+              onChange={(e) => setDaysDraft(e.target.value)}
+              onBlur={commitDays}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitDays();
+              }}
+            />
+            <span className="text-muted-foreground text-sm">
+              {t('filters.noActivityDays')}
+            </span>
+          </div>
+          <Toggle
+            id="cases-include-closed"
+            label={t('filters.includeClosed')}
+            checked={f.includeClosed}
+            onChange={(includeClosed) => setFilters({ includeClosed })}
+          />
+          <SnoozedControl
+            value={f.snoozed}
+            onChange={(snoozed) => setFilters({ snoozed })}
+          />
+          <MentionsChip
+            on={f.mentionedMe}
+            onChange={(mentionedMe) => setFilters({ mentionedMe })}
+          />
         </div>
-        <Toggle
-          id="cases-include-closed"
-          label={t('filters.includeClosed')}
-          checked={f.includeClosed}
-          onChange={(includeClosed) => setFilters({ includeClosed })}
-        />
-        <SnoozedControl
-          value={f.snoozed}
-          onChange={(snoozed) => setFilters({ snoozed })}
-        />
-        <MentionsChip
-          on={f.mentionedMe}
-          onChange={(mentionedMe) => setFilters({ mentionedMe })}
-        />
-        {narrowed > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={() => setFilters({ ...EMPTY_FILTERS, sort: f.sort })}
-          >
-            <X className="size-4" aria-hidden />
-            {t('clearFilters')}
-          </Button>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -955,9 +1025,9 @@ function TableRowView({
             {t('contactPerson', { name: v.person })}
           </span>
         )}
-        {row.submissionRef && (
+        {(row.caseNumber || row.submissionRef) && (
           <span className="text-muted-foreground block text-xs">
-            {row.submissionRef}
+            {[row.caseNumber, row.submissionRef].filter(Boolean).join(' · ')}
           </span>
         )}
         <span className="mt-1 block">
@@ -1016,9 +1086,11 @@ function CaseCard({
                 {t('contactPerson', { name: v.person })}
               </span>
             )}
-            {row.submissionRef && (
+            {(row.caseNumber || row.submissionRef) && (
               <span className="text-muted-foreground block truncate text-xs">
-                {row.submissionRef}
+                {[row.caseNumber, row.submissionRef]
+                  .filter(Boolean)
+                  .join(' · ')}
               </span>
             )}
           </span>

@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * Coordinators and cover (migration 232), on the Overview tab for team
- * leaders and up: each bank's primary and second coordinator (owners and
- * admins change them), who covers today, and each holder's leave.
+ * Coordinators and cover (migration 232). `CoverCard` is the desk's
+ * Overview view for team leaders and up: each bank's primary and second
+ * coordinator (read-only), who covers today, and each holder's leave.
+ * `CoverRolesEditor` is the owners' and admins' half, in Settings -> Case
+ * desk: it names the primary and second coordinator of each bank.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -16,10 +18,9 @@ import { Input } from '@/components/ui/input';
 import type { BankCover, CoverHolder } from '@/lib/desk/cover';
 
 import { deskApi } from './desk-api';
-import { NATIVE_FIELD } from './tag-fields';
+import { DeskSelect } from './desk-select';
 
-export function CoverCard({ isAdmin }: { isAdmin: boolean }) {
-  const t = useTranslations('Desk');
+function useCover() {
   const [banks, setBanks] = useState<BankCover[] | null>(null);
   const load = useCallback(
     () =>
@@ -32,6 +33,12 @@ export function CoverCard({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     void load();
   }, [load]);
+  return { banks, load };
+}
+
+export function CoverCard() {
+  const t = useTranslations('Desk');
+  const { banks, load } = useCover();
 
   const done = async (r: { ok: boolean; error?: string }) => {
     if (!r.ok) toast.error(r.error ?? '');
@@ -42,7 +49,7 @@ export function CoverCard({ isAdmin }: { isAdmin: boolean }) {
   if (!banks) return null;
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6 text-sm">
+      <CardContent className="space-y-4 text-sm">
         <div>
           <h2 className="text-foreground text-base font-semibold">
             {t('cover.title')}
@@ -68,39 +75,11 @@ export function CoverCard({ isAdmin }: { isAdmin: boolean }) {
                   ({t(`cover.levels.${b.coverLevel}`)})
                 </span>
               </div>
-              <div className="flex flex-wrap gap-3">
-                {(['primary', 'second'] as const).map((role) => (
-                  <label key={role} className="flex items-center gap-2">
-                    <span className="text-muted-foreground">
-                      {t(`cover.${role}`)}
-                    </span>
-                    <select
-                      className={`${NATIVE_FIELD} w-auto`}
-                      disabled={!isAdmin}
-                      value={
-                        (role === 'primary' ? b.primaryUser : b.secondUser) ??
-                        ''
-                      }
-                      onChange={async (e) =>
-                        done(
-                          await deskApi.setBankRole(
-                            b.bankCode,
-                            role,
-                            e.target.value || null
-                          )
-                        )
-                      }
-                    >
-                      <option value="">{t('cover.none')}</option>
-                      {b.holders.map((h) => (
-                        <option key={h.userId} value={h.userId}>
-                          {h.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
+              <p className="text-muted-foreground">
+                {t('cover.primary')}: {nameOf(b.primaryUser) ?? t('cover.none')}
+                {' · '}
+                {t('cover.second')}: {nameOf(b.secondUser) ?? t('cover.none')}
+              </p>
               <ul className="space-y-1">
                 {b.holders.map((h) => (
                   <HolderLeave key={h.userId} holder={h} onDone={done} />
@@ -180,5 +159,63 @@ function HolderLeave({
         </Button>
       </span>
     </li>
+  );
+}
+
+export function CoverRolesEditor() {
+  const t = useTranslations('Desk');
+  const ts = useTranslations('CaseDeskSettings');
+  const { banks, load } = useCover();
+  if (!banks) return null;
+  const set = async (
+    bankCode: string,
+    role: 'primary' | 'second',
+    userId: string
+  ) => {
+    const r = await deskApi.setBankRole(bankCode, role, userId || null);
+    if (!r.ok) toast.error(r.error);
+    else toast.success(t('cover.saved'));
+    await load();
+  };
+  return (
+    <Card>
+      <CardContent className="space-y-4 text-sm">
+        <p className="text-muted-foreground">{ts('rolesIntro')}</p>
+        {banks.length === 0 && (
+          <p className="text-muted-foreground">{t('cover.noBanks')}</p>
+        )}
+        {banks.map((b) => (
+          <div key={b.bankCode} className="space-y-2 rounded-md border p-3">
+            <span className="text-foreground font-medium">{b.bankName}</span>
+            <div className="flex flex-wrap gap-3">
+              {(['primary', 'second'] as const).map((role) => (
+                <div key={role} className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {t(`cover.${role}`)}
+                  </span>
+                  <DeskSelect
+                    className="w-48"
+                    ariaLabel={`${b.bankName}: ${t(`cover.${role}`)}`}
+                    value={
+                      (role === 'primary' ? b.primaryUser : b.secondUser) ?? ''
+                    }
+                    noneLabel={t('cover.none')}
+                    placeholder={t('cover.none')}
+                    options={b.holders.map((h) => ({
+                      value: h.userId,
+                      label: h.name,
+                    }))}
+                    onChange={(v) => void set(b.bankCode, role, v)}
+                  />
+                </div>
+              ))}
+            </div>
+            {b.holders.length === 0 && (
+              <p className="text-muted-foreground text-xs">{ts('noHolders')}</p>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
