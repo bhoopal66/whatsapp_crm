@@ -12,21 +12,6 @@ and polish.
 
 ## [Unreleased]
 
-### Response times: business hours, a reply target and escalation
-
-**Migration required:** apply `237_response_targets.sql` after 235 (and
-after 236 when you have it).
-- Settings → Inbox & CRM → **Response times** (owners and admins):
-  business hours per weekday, the time zone and a response target.
-  Defaults: Monday to Saturday 09:00–18:00 Asia/Dubai, 15 business
-  minutes, switched off.
-- When switched on, a customer left waiting on a company chat rings the
-  assigned person at the target, their team leader (or the owners and
-  admins, when they have none) at twice the target, and the owners and
-  admins when nobody is assigned. Each bell opens the chat and rings
-  once per wait; only time inside business hours counts. Personal chats
-  never count.
-
 ### Case desk: My worklist and suggested cases
 
 **Migration required:** apply `235_desk_worklist_suggest.sql` (as a
