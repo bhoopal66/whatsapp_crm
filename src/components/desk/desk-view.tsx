@@ -3,7 +3,9 @@
 /**
  * The case desk screen (migration 220, package 035c): Upload, My
  * uploads, the Sorting queue (bank holders, team leaders and up), the
- * Overview (team leaders and up) and Desk codes (owners / admins).
+ * Tray, Companies and the Overview (team leaders and up). The admin
+ * settings (desk codes, routing, digest, bank roles) are in Settings ->
+ * Case desk.
  *
  * Misfiling guards from the package's UI rules: no case is pre-selected
  * when sorting; the case's number, bank and company are on screen before
@@ -12,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -35,13 +38,27 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
-import { canLeadTeam, canManageMembers } from '@/lib/auth/roles';
+import { canLeadTeam } from '@/lib/auth/roles';
+import { docTypeLabel, docTypeOptions } from '@/lib/desk/doc-types';
+import {
+  newCaseMissing,
+  rejectBlock,
+  sortFileBlock,
+  uploadBlock,
+} from '@/lib/desk/form-hints';
 import {
   formatAge,
   newIdemKey,
   queueReasonKey,
   sameCompany,
 } from '@/lib/desk/intake-form';
+import {
+  DEFAULT_DESK_TAB,
+  badgeText,
+  deskTabsFor,
+  legacyDeskRedirect,
+  resolveDeskTab,
+} from '@/lib/desk/tabs';
 import type {
   CaseLookup,
   DeskBank,
@@ -52,23 +69,23 @@ import type {
   QueueItem,
 } from '@/lib/desk/store';
 
+import { CaseRefStatus } from './case-ref-status';
 import { CompaniesTab } from './companies-tab';
 import { CoverCard } from './cover-card';
-import { DigestSettings } from './digest-settings';
 import { FilePreview, PreviewBeside } from './file-preview';
-import { RoutingSettings } from './routing-settings';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
+import { DeskFilePicker } from './desk-file-picker';
+import { DeskSelect } from './desk-select';
+import { DisabledHint } from './disabled-hint';
+import { useCaseLookup } from './use-case-lookup';
+import { useDocTypes } from './use-doc-types';
 import {
   EMPTY_DRAFT,
-  NATIVE_FIELD,
   TagFields,
   draftToTags,
   type TagDraft,
 } from './tag-fields';
-
-type Tab =
-  'upload' | 'mine' | 'queue' | 'tray' | 'companies' | 'overview' | 'codes';
 
 const STATE_CLASS: Record<ItemState, string> = {
   filed: 'bg-success-soft text-success',
@@ -79,8 +96,12 @@ const STATE_CLASS: Record<ItemState, string> = {
 
 export function DeskView() {
   const t = useTranslations('Desk');
+  const tTabs = useTranslations('DeskTabs');
   const { accountRole, accountId } = useAuth();
-  const [tab, setTab] = useState<Tab>('upload');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Registers the workspace's document labels for every tab below.
+  useDocTypes();
   const [banks, setBanks] = useState<DeskBank[]>([]);
 
   const loadBanks = useCallback(
@@ -95,25 +116,65 @@ export function DeskView() {
   }, [loadBanks, accountId]);
 
   const isLead = accountRole ? canLeadTeam(accountRole) : false;
-  const isAdmin = accountRole ? canManageMembers(accountRole) : false;
-  const tabs: Tab[] = ['upload', 'mine', 'queue', 'tray', 'companies'];
-  if (isLead) tabs.push('overview');
-  if (isAdmin) tabs.push('codes');
+  const tabs = deskTabsFor(isLead);
+  // The open tab lives in the link (`?tab=`), so a reload, a shared link
+  // and the worklist card land on the same tab. Unknown values fall back.
+  const rawTab = searchParams.get('tab');
+  const tab = resolveDeskTab(rawTab, isLead);
+  const legacy = legacyDeskRedirect(rawTab);
+  useEffect(() => {
+    if (legacy) router.replace(legacy);
+  }, [legacy, router]);
+  const changeTab = (next: unknown) => {
+    const to = resolveDeskTab(String(next), isLead);
+    const url = new URL(window.location.href);
+    if (to === DEFAULT_DESK_TAB) url.searchParams.delete('tab');
+    else url.searchParams.set('tab', to);
+    router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  };
+
+  // Counts for the Sorting queue and Tray badges: the desk worklist is one
+  // cheap call, re-read when the tab changes (a sort or filing just moved
+  // them). A person with no queue simply has a count of 0.
+  const [counts, setCounts] = useState<{ queue: number; tray: number } | null>(
+    null
+  );
+  useEffect(() => {
+    let live = true;
+    void deskApi.worklist().then((r) => {
+      if (live && r.ok)
+        setCounts({ queue: r.data.queue.count, tray: r.data.tray.count });
+    });
+    return () => {
+      live = false;
+    };
+  }, [tab, accountId]);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-foreground text-xl font-semibold">{t('title')}</h1>
-        <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
-      </div>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+      <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
+      <Tabs value={tab} onValueChange={changeTab}>
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
           <TabsList aria-label={t('title')}>
-            {tabs.map((id) => (
-              <TabsTrigger key={id} value={id} className="flex-none">
-                {t(`tabs.${id}`)}
-              </TabsTrigger>
-            ))}
+            {tabs.map((id) => {
+              const count =
+                id === 'queue' || id === 'tray' ? (counts?.[id] ?? 0) : 0;
+              const badge = badgeText(count);
+              return (
+                <TabsTrigger key={id} value={id} className="flex-none">
+                  {t(`tabs.${id}`)}
+                  {badge && (
+                    <span className="bg-warning-soft text-warning ml-1.5 rounded-full px-1.5 text-xs font-semibold">
+                      {badge}
+                      <span className="sr-only">
+                        {' '}
+                        {tTabs('waiting', { count })}
+                      </span>
+                    </span>
+                  )}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </div>
       </Tabs>
@@ -126,14 +187,7 @@ export function DeskView() {
       {tab === 'overview' && (
         <div className="space-y-4">
           <OverviewTab />
-          <CoverCard key={accountId ?? ''} isAdmin={isAdmin} />
-        </div>
-      )}
-      {tab === 'codes' && (
-        <div className="space-y-4">
-          <CodesTab banks={banks} onSaved={loadBanks} />
-          <RoutingSettings key={accountId ?? ''} />
-          <DigestSettings key={`digest-${accountId ?? ''}`} />
+          <CoverCard key={accountId ?? ''} />
         </div>
       )}
     </div>
@@ -184,6 +238,7 @@ function ResultLine({ item }: { item: ItemResult }) {
 
 function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
   const t = useTranslations('Desk');
+  const tf = useTranslations('DeskForms');
   const [draft, setDraft] = useState<TagDraft>(EMPTY_DRAFT);
   const [caption, setCaption] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -192,7 +247,7 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
   // One key per upload attempt, reused on retry, so a resend after a
   // timeout returns the first result instead of a second item.
   const idem = useRef(newIdemKey());
-  const fileInput = useRef<HTMLInputElement>(null);
+  const blocked = uploadBlock({ kind: draft.kind, hasFile: file !== null });
 
   const submit = async () => {
     setBusy(true);
@@ -213,7 +268,6 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
     setDraft(EMPTY_DRAFT);
     setCaption('');
     setFile(null);
-    if (fileInput.current) fileInput.current.value = '';
   };
 
   return (
@@ -221,14 +275,12 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="desk-file">{t('fields.file')}</Label>
-          <input
+          <DeskFilePicker
             id="desk-file"
-            ref={fileInput}
-            type="file"
+            file={file}
             accept="application/pdf,image/jpeg,image/png"
-            className="text-sm"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
+            onChange={(f) => {
+              setFile(f);
               idem.current = newIdemKey();
             }}
           />
@@ -249,10 +301,19 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
           </p>
         </div>
         <TagFields draft={draft} onChange={setDraft} banks={banks} />
-        <div className="flex items-center gap-3">
-          <Button onClick={submit} disabled={busy}>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={submit}
+            disabled={busy || blocked !== null}
+            aria-describedby={blocked ? 'desk-upload-why' : undefined}
+          >
             {busy ? t('actions.uploading') : t('actions.upload')}
           </Button>
+          {blocked && (
+            <DisabledHint id="desk-upload-why">
+              {tf(`why.upload.${blocked}`)}
+            </DisabledHint>
+          )}
         </div>
         {last && <ResultLine item={last} />}
       </CardContent>
@@ -490,7 +551,10 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
                 <Field label={t('fields.product')} value={i.product} />
               )}
               {i.docKey && (
-                <Field label={t('fields.docKey')} value={i.docKey} />
+                <Field
+                  label={t('fields.docKey')}
+                  value={docTypeLabel(i.docKey)}
+                />
               )}
               {i.note && <Field label={t('fields.note')} value={i.note} />}
             </dl>
@@ -553,6 +617,8 @@ function SortPanel({
   onDone: () => void;
 }) {
   const t = useTranslations('Desk');
+  const tf = useTranslations('DeskForms');
+  const docTypes = useDocTypes();
   const [mode, setMode] = useState<SortMode>(
     item.kind === 'new_case' ? 'new' : 'file'
   );
@@ -560,7 +626,11 @@ function SortPanel({
 
   // File: no case is pre-selected; the sorter types the number.
   const [ref, setRef] = useState('');
-  const [found, setFound] = useState<CaseLookup | null | undefined>(undefined);
+  // Looked up as the number is typed; a sorter's lookup is already
+  // confined to their banks and the cases they may read.
+  const lookup = useCaseLookup(ref);
+  const found: CaseLookup | null =
+    lookup.status === 'found' ? lookup.found : null;
   const [kind, setKind] = useState<'pending_doc' | 'info'>(
     item.hasFile ? 'pending_doc' : 'info'
   );
@@ -579,11 +649,24 @@ function SortPanel({
   const [reason, setReason] = useState('');
 
   const mismatch =
-    found &&
+    found !== null &&
     item.companyName !== null &&
     found.companyName !== null &&
     !sameCompany(found.companyName, item.companyName);
   const confirmWord = t('sort.confirmWord');
+  const fileBlocked = sortFileBlock({
+    found: found !== null,
+    mismatch,
+    confirmed: confirm.trim().toLowerCase() === confirmWord.toLowerCase(),
+  });
+  const newMissing = newCaseMissing({
+    legalName,
+    licence,
+    bankCode,
+    product,
+    hasContact: contact !== null,
+  });
+  const rejectBlocked = rejectBlock(reason);
 
   const run = async (
     op: () => Promise<{ ok: boolean; error?: string; data?: ItemResult }>
@@ -621,94 +704,99 @@ function SortPanel({
 
       {mode === 'file' && (
         <div className="space-y-3">
-          <div className="flex gap-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={`sort-ref-${item.itemId}`}>
+              {t('fields.caseRef')}
+            </Label>
             <Input
+              id={`sort-ref-${item.itemId}`}
               value={ref}
+              autoComplete="off"
               placeholder="4271RAKD / TC-26-04271-RAK"
               onChange={(e) => {
                 setRef(e.target.value);
-                setFound(undefined);
                 setConfirm('');
               }}
             />
-            <Button
-              variant="outline"
-              disabled={busy || ref.trim() === ''}
-              onClick={async () => {
-                const r = await deskApi.lookup(ref.trim());
-                if (r.ok) setFound(r.data);
-                else toast.error(r.error);
-              }}
-            >
-              {t('sort.find')}
-            </Button>
+            <CaseRefStatus
+              lookup={
+                lookup.status === 'unavailable'
+                  ? { status: 'not_found' }
+                  : lookup
+              }
+              banks={banks}
+            />
           </div>
-          {found === null && (
-            <p className="text-destructive text-sm">{t('sort.notFound')}</p>
-          )}
-          {found && (
-            <div className="bg-card-2 space-y-1 rounded-md p-3 text-sm">
-              <div className="font-mono font-semibold">
-                {found.caseNumber ?? found.caseId.slice(0, 8)}
-              </div>
-              <div>
-                {bankName(banks, found.bankCode)} · {found.companyName ?? '—'} ·{' '}
-                {found.product ?? '—'} · {found.stage}
-              </div>
-              {mismatch && (
-                <div className="space-y-1.5 pt-2">
-                  <p className="text-warning">
-                    {t('sort.mismatch', {
-                      item: item.companyName ?? '',
-                      found: found.companyName ?? '',
-                    })}
-                  </p>
-                  <Input
-                    value={confirm}
-                    placeholder={confirmWord}
-                    aria-label={t('sort.confirmLabel', { word: confirmWord })}
-                    onChange={(e) => setConfirm(e.target.value)}
-                  />
-                </div>
-              )}
+          {found && mismatch && (
+            <div className="bg-card-2 space-y-1.5 rounded-md p-3 text-sm">
+              <p className="text-warning">
+                {t('sort.mismatch', {
+                  item: item.companyName ?? '',
+                  found: found.companyName ?? '',
+                })}
+              </p>
+              <Input
+                value={confirm}
+                placeholder={confirmWord}
+                aria-label={t('sort.confirmLabel', { word: confirmWord })}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
             </div>
           )}
           <div className="grid gap-3 sm:grid-cols-2">
-            <select
-              className={NATIVE_FIELD}
-              value={kind}
-              onChange={(e) =>
-                setKind(e.target.value as 'pending_doc' | 'info')
+            <div className="space-y-1.5">
+              <Label htmlFor={`sort-kind-${item.itemId}`}>
+                {t('fields.kind')}
+              </Label>
+              <DeskSelect
+                id={`sort-kind-${item.itemId}`}
+                value={kind}
+                onChange={(v) => setKind(v === 'info' ? 'info' : 'pending_doc')}
+                placeholder={t('fields.kind')}
+                options={[
+                  { value: 'pending_doc', label: t('kind.pending_doc') },
+                  { value: 'info', label: t('kind.info') },
+                ]}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`sort-doc-${item.itemId}`}>
+                {t('fields.docKey')}
+              </Label>
+              <DeskSelect
+                id={`sort-doc-${item.itemId}`}
+                value={docKey}
+                onChange={setDocKey}
+                noneLabel={tf('docType.none')}
+                placeholder={tf('docType.placeholder')}
+                options={docTypeOptions(docTypes, docKey)}
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={busy || fileBlocked !== null}
+              aria-describedby={
+                fileBlocked ? `sort-file-why-${item.itemId}` : undefined
+              }
+              onClick={() =>
+                run(() =>
+                  deskApi.file(item.itemId, {
+                    caseId: found!.caseId,
+                    kind,
+                    docKey: docKey.trim() || null,
+                  })
+                )
               }
             >
-              <option value="pending_doc">{t('kind.pending_doc')}</option>
-              <option value="info">{t('kind.info')}</option>
-            </select>
-            <Input
-              value={docKey}
-              placeholder="trade_licence"
-              onChange={(e) => setDocKey(e.target.value.toLowerCase())}
-            />
+              {t('sort.fileTo', { number: found?.caseNumber ?? '' })}
+            </Button>
+            {fileBlocked && (
+              <DisabledHint id={`sort-file-why-${item.itemId}`}>
+                {tf(`why.sort.${fileBlocked}`)}
+              </DisabledHint>
+            )}
           </div>
-          <Button
-            disabled={
-              busy ||
-              !found ||
-              (mismatch === true &&
-                confirm.trim().toLowerCase() !== confirmWord.toLowerCase())
-            }
-            onClick={() =>
-              run(() =>
-                deskApi.file(item.itemId, {
-                  caseId: found!.caseId,
-                  kind,
-                  docKey: docKey.trim() || null,
-                })
-              )
-            }
-          >
-            {t('sort.fileTo', { number: found?.caseNumber ?? '' })}
-          </Button>
         </div>
       )}
 
@@ -730,19 +818,16 @@ function SortPanel({
           </div>
           <div className="space-y-1.5">
             <Label>{t('fields.bank')}</Label>
-            <select
-              className={NATIVE_FIELD}
+            <DeskSelect
               value={bankCode}
-              onChange={(e) => setBankCode(e.target.value)}
-            >
-              <option value="">{t('fields.bankNone')}</option>
-              {banks.map((b) => (
-                <option key={b.bankCode} value={b.bankCode}>
-                  {b.bankName}
-                  {b.shortCode ? ` (${b.shortCode})` : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setBankCode}
+              noneLabel={t('fields.bankNone')}
+              placeholder={t('fields.bankNone')}
+              options={banks.map((b) => ({
+                value: b.bankCode,
+                label: `${b.bankName}${b.shortCode ? ` (${b.shortCode})` : ''}`,
+              }))}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>{t('fields.product')}</Label>
@@ -759,15 +844,13 @@ function SortPanel({
               placeholder={t('fields.contactPlaceholder')}
             />
           </div>
-          <div className="sm:col-span-2">
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
             <Button
-              disabled={
-                busy ||
-                !contact ||
-                !bankCode ||
-                !licence.trim() ||
-                !legalName.trim() ||
-                !product.trim()
+              disabled={busy || newMissing.length > 0}
+              aria-describedby={
+                newMissing.length > 0
+                  ? `sort-new-why-${item.itemId}`
+                  : undefined
               }
               onClick={() =>
                 run(() =>
@@ -783,6 +866,15 @@ function SortPanel({
             >
               {t('sort.openCase')}
             </Button>
+            {newMissing.length > 0 && (
+              <DisabledHint id={`sort-new-why-${item.itemId}`}>
+                {tf('why.newCase.missing', {
+                  fields: newMissing
+                    .map((f) => tf(`why.newCase.fields.${f}`))
+                    .join(', '),
+                })}
+              </DisabledHint>
+            )}
           </div>
         </div>
       )}
@@ -795,9 +887,17 @@ function SortPanel({
             placeholder={t('sort.reasonPlaceholder')}
             onChange={(e) => setReason(e.target.value)}
           />
+          {rejectBlocked && (
+            <DisabledHint id={`sort-reject-why-${item.itemId}`}>
+              {tf('why.reject.reason')}
+            </DisabledHint>
+          )}
           <Button
             variant="destructive"
-            disabled={busy || reason.trim() === ''}
+            disabled={busy || rejectBlocked !== null}
+            aria-describedby={
+              rejectBlocked ? `sort-reject-why-${item.itemId}` : undefined
+            }
             onClick={() =>
               run(() => deskApi.reject(item.itemId, reason.trim()))
             }
@@ -859,64 +959,6 @@ function OverviewTab() {
             ))}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------- Desk codes ----------
-
-function CodesTab({
-  banks,
-  onSaved,
-}: {
-  banks: readonly DeskBank[];
-  onSaved: () => Promise<void>;
-}) {
-  const t = useTranslations('Desk');
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const save = async (b: DeskBank) => {
-    const v = (values[b.bankCode] ?? b.shortCode ?? '').trim().toUpperCase();
-    setBusy(b.bankCode);
-    const r = await deskApi.setBankCode(b.bankCode, v);
-    setBusy(null);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
-    }
-    toast.success(t('codes.saved', { bank: b.bankName }));
-    await onSaved();
-  };
-  return (
-    <Card>
-      <CardContent className="space-y-3">
-        <p className="text-muted-foreground text-sm">{t('codes.hint')}</p>
-        {banks.length === 0 && (
-          <p className="text-muted-foreground text-sm">{t('codes.noBanks')}</p>
-        )}
-        {banks.map((b) => (
-          <div key={b.bankCode} className="flex flex-wrap items-center gap-2">
-            <span className="min-w-40 text-sm">{b.bankName}</span>
-            <Input
-              className="w-24 font-mono uppercase"
-              maxLength={3}
-              value={values[b.bankCode] ?? b.shortCode ?? ''}
-              aria-label={t('codes.label', { bank: b.bankName })}
-              onChange={(e) =>
-                setValues({ ...values, [b.bankCode]: e.target.value })
-              }
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy === b.bankCode}
-              onClick={() => save(b)}
-            >
-              {t('codes.save')}
-            </Button>
-          </div>
-        ))}
       </CardContent>
     </Card>
   );

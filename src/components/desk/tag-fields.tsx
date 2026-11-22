@@ -15,7 +15,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { docTypeOptions } from '@/lib/desk/doc-types';
 import type { DeskBank, ItemKind } from '@/lib/desk/store';
+
+import { CaseRefStatus } from './case-ref-status';
+import { DeskSelect } from './desk-select';
+import { useCaseLookup } from './use-case-lookup';
+import { useDocTypes } from './use-doc-types';
 
 export interface TagDraft {
   kind: ItemKind | '';
@@ -56,6 +62,10 @@ export function TagFields({
   banks: readonly DeskBank[];
 }) {
   const t = useTranslations('Desk');
+  const tf = useTranslations('DeskForms');
+  const docTypes = useDocTypes();
+  // Looked up as the number is typed; only while the field is showing.
+  const lookup = useCaseLookup(draft.kind === 'new_case' ? '' : draft.caseRef);
   const set = <K extends keyof TagDraft>(k: K, v: TagDraft[K]) =>
     onChange({ ...draft, [k]: v });
   const id = (s: string) => `desk-${s}`;
@@ -94,36 +104,34 @@ export function TagFields({
             onChange={(e) => set('caseRef', e.target.value)}
             autoComplete="off"
           />
+          <CaseRefStatus lookup={lookup} banks={banks} />
         </div>
       )}
 
       <div className="space-y-1.5">
         <Label htmlFor={id('bank')}>{t('fields.bank')}</Label>
-        <select
+        <DeskSelect
           id={id('bank')}
-          className={NATIVE_FIELD}
           value={draft.bankCode}
-          onChange={(e) => set('bankCode', e.target.value)}
-        >
-          <option value="">{t('fields.bankNone')}</option>
-          {banks.map((b) => (
-            <option key={b.bankCode} value={b.bankCode}>
-              {b.bankName}
-              {b.shortCode ? ` (${b.shortCode})` : ''}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => set('bankCode', v)}
+          noneLabel={t('fields.bankNone')}
+          placeholder={t('fields.bankNone')}
+          options={banks.map((b) => ({
+            value: b.bankCode,
+            label: `${b.bankName}${b.shortCode ? ` (${b.shortCode})` : ''}`,
+          }))}
+        />
       </div>
 
       <div className="space-y-1.5">
         <Label htmlFor={id('doc')}>{t('fields.docKey')}</Label>
-        <Input
+        <DeskSelect
           id={id('doc')}
           value={draft.docKey}
-          placeholder="trade_licence"
-          onChange={(e) =>
-            set('docKey', e.target.value.toLowerCase().replace(/[\s-]+/g, '_'))
-          }
+          onChange={(v) => set('docKey', v)}
+          noneLabel={tf('docType.none')}
+          placeholder={tf('docType.placeholder')}
+          options={docTypeOptions(docTypes, draft.docKey)}
         />
       </div>
 
