@@ -242,6 +242,11 @@ BEGIN
   END IF;
 
   -- ---------- library audio in chat-media ----------
+  -- Newer storage-api refuses any direct DELETE on storage.objects unless
+  -- its own flag is set (it sets it itself when the Storage API deletes).
+  -- Set it here as the Storage API would, so RLS is what these checks test;
+  -- harmless on a storage schema without that guard.
+  PERFORM set_config('storage.allow_delete_query', 'true', true);
   INSERT INTO storage.objects (bucket_id, name) VALUES
     ('chat-media', 'account-' || a_acct || '/voice-library/' || e_lib1 || '.ogg'),
     ('chat-media', 'account-' || a_acct || '/staged/1-voice242.ogg');

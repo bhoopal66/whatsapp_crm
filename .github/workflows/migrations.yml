@@ -1294,3 +1294,11 @@ jobs:
       # opens one follow_up task per 10 minutes and never writes consent.
       - name: Verify web lead form
         run: supabase db query --local --file supabase/ci/verify-web-lead-form.sql
+
+      # Migration 253: merge follow-ups. A phone push for a notes @mention
+      # or a response-time bell opens the chat (205's push_bell_url,
+      # restated); the lead source joins PDPL export and erase through
+      # 229's registry, erase emptying only the details; both privacy
+      # functions are closed to every API role.
+      - name: Verify merge follow-ups
+        run: supabase db query --local --file supabase/ci/verify-merge-followups.sql

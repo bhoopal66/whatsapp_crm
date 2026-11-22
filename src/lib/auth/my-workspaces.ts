@@ -14,7 +14,13 @@
 // Pure: no I/O, so it is tested without a database or a DOM.
 // ============================================================
 
-import { isAccountRole, isBankGuest, type AccountRole } from './roles';
+import {
+  canManageMembers,
+  hasMinRole,
+  isAccountRole,
+  isBankGuest,
+  type AccountRole,
+} from './roles';
 
 export interface Workspace {
   accountId: string;
@@ -95,11 +101,23 @@ export function fallbackWorkspace(
   );
 }
 
-/** The landing page of a workspace for someone holding `role` there. */
+/**
+ * The landing page of a workspace for someone holding `role` there, after
+ * sign-in, on a workspace switch and behind the sidebar's logo: My worklist
+ * for agents and team leaders, the dashboard for owners, admins, viewers and
+ * an unknown role, team chat for a bank guest. `landingPathForRole`
+ * (`landing.ts`) answers with this, so the two never drift.
+ */
 export function workspaceHomePath(
   role: AccountRole | null | undefined
-): '/chat' | '/dashboard' {
-  return isBankGuest(role) ? GUEST_HOME_PATH : '/dashboard';
+): '/chat' | '/dashboard' | '/worklist' {
+  if (!role) return '/dashboard';
+  if (isBankGuest(role)) return GUEST_HOME_PATH;
+  // Owner / admin run the workspace: the overview is theirs.
+  if (canManageMembers(role)) return '/dashboard';
+  // Agent and team leader work items one by one.
+  if (hasMinRole(role, 'agent')) return '/worklist';
+  return '/dashboard';
 }
 
 /** A bank guest's only screen: team chat. */

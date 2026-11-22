@@ -141,11 +141,17 @@ describe('fallbackWorkspace', () => {
 });
 
 describe('workspaceHomePath', () => {
-  it('lands a bank guest on team chat and staff on the dashboard', () => {
+  it('lands a bank guest on team chat, owners, admins and viewers on the dashboard', () => {
     expect(workspaceHomePath('bank_guest')).toBe('/chat');
     expect(workspaceHomePath('viewer')).toBe('/dashboard');
     expect(workspaceHomePath('owner')).toBe('/dashboard');
+    expect(workspaceHomePath('admin')).toBe('/dashboard');
     expect(workspaceHomePath(null)).toBe('/dashboard');
+  });
+
+  it('lands agents and team leaders on My worklist, as sign-in does', () => {
+    expect(workspaceHomePath('agent')).toBe('/worklist');
+    expect(workspaceHomePath('team_leader')).toBe('/worklist');
   });
 });
 
@@ -219,7 +225,8 @@ describe('workspaceEntryPath', () => {
     expect(workspaceEntryPath('agent', '/inbox?c=1')).toBe('/inbox?c=1');
   });
   it('lands on the home page without a usable next', () => {
-    expect(workspaceEntryPath('agent')).toBe('/dashboard');
+    expect(workspaceEntryPath('agent')).toBe('/worklist');
+    expect(workspaceEntryPath('agent', '//evil.example')).toBe('/worklist');
     expect(workspaceEntryPath('admin', '//evil.example')).toBe('/dashboard');
     expect(workspaceEntryPath('bank_guest', 'https://evil.example')).toBe(
       '/chat'
