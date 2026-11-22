@@ -277,12 +277,32 @@ export function canSendMessages(role: AccountRole): boolean {
 }
 
 /**
+ * Agent and up: write team notes inside a chat they can see and
+ * @mention teammates (migration 241's insert policy). Viewers read them.
+ */
+export function canWriteChatNotes(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}
+
+/**
  * Viewer: read-only across everything. Provided as a positive
  * predicate so UI gates read naturally (`if (canViewOnly(role))`
  * shows the "Read-only" tooltip without inverting `canSendMessages`).
  */
 export function canViewOnly(role: AccountRole): boolean {
   return role === 'viewer';
+}
+
+/**
+ * Voice-note library (migration 242): agents and up add entries and
+ * delete their own; admins and owners delete anyone's.
+ */
+export function canAddVoiceNotes(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}
+
+export function canDeleteAnyVoiceNote(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
 }
 
 /** Owner only: irreversible destructive operations. */

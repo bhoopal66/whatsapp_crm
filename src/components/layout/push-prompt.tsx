@@ -13,22 +13,30 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import { useAuth } from '@/hooks/use-auth';
 import { usePushSubscription } from '@/hooks/use-push-subscription';
-import { shouldOfferPush } from '@/lib/push/client';
+import { pushPromptDismissKey, shouldShowPushPrompt } from '@/lib/push/client';
 
-const DISMISS_KEY = 'taamul.push-prompt-dismissed';
+/**
+ * The browser-wide key the banner used before dismissal was per person.
+ * Still honoured: whoever said "Not now" then is not asked again.
+ */
+const LEGACY_DISMISS_KEY = 'taamul.push-prompt-dismissed';
 
-function readDismissed(): boolean {
+function readDismissed(userId: string): boolean {
   try {
-    return window.localStorage.getItem(DISMISS_KEY) === '1';
+    return (
+      window.localStorage.getItem(pushPromptDismissKey(userId)) === '1' ||
+      window.localStorage.getItem(LEGACY_DISMISS_KEY) === '1'
+    );
   } catch {
     return true; // No storage: never nag on every page load.
   }
 }
 
-function writeDismissed() {
+function writeDismissed(userId: string) {
   try {
-    window.localStorage.setItem(DISMISS_KEY, '1');
+    window.localStorage.setItem(pushPromptDismissKey(userId), '1');
   } catch {
     // Storage unavailable: the banner just comes back next load.
   }
@@ -36,21 +44,51 @@ function writeDismissed() {
 
 /**
  * One-time "Turn on notifications" banner in the dashboard shell, shown
- * while this browser can take push and has never been asked. Also
- * registers the service worker on every dashboard load and follows a
- * notification click the worker could not navigate itself.
+ * while push is configured on this install, this browser can take it,
+ * has never been asked and has no subscription, and the person has not
+ * said "Not now" (remembered per person on this browser). Never for a
+ * bank guest. Also registers the service worker on every dashboard load
+ * and follows a notification click the worker could not navigate itself.
  */
 export function PushPrompt() {
   const t = useTranslations('PushNotifications');
   const router = useRouter();
+  const { user, isBankGuest } = useAuth();
+  const userId = user?.id ?? null;
   const push = usePushSubscription();
   const [dismissed, setDismissed] = useState(true);
+  const [serverConfigured, setServerConfigured] = useState<boolean | null>(
+    null
+  );
 
   useEffect(() => {
     // localStorage exists only after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDismissed(readDismissed());
-  }, []);
+    setDismissed(userId ? readDismissed(userId) : true);
+  }, [userId]);
+
+  // Asked only when the banner could otherwise show: no request at all
+  // for everyone who already answered.
+  const askServer =
+    !isBankGuest &&
+    !dismissed &&
+    push.support === 'supported' &&
+    push.permission === 'default';
+  useEffect(() => {
+    if (!askServer || serverConfigured !== null) return;
+    let cancelled = false;
+    fetch('/api/push/config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { publicKey?: string | null } | null) => {
+        if (!cancelled) setServerConfigured(!!body?.publicKey);
+      })
+      .catch(() => {
+        if (!cancelled) setServerConfigured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [askServer, serverConfigured]);
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
@@ -71,14 +109,21 @@ export function PushPrompt() {
   }, [router]);
 
   if (
-    push.support === null ||
-    !shouldOfferPush(push.support, push.permission, dismissed)
+    !userId ||
+    !shouldShowPushPrompt({
+      support: push.support,
+      permission: push.permission,
+      subscribed: push.state === 'on',
+      dismissed,
+      serverConfigured,
+      bankGuest: isBankGuest,
+    })
   ) {
     return null;
   }
 
   const dismiss = () => {
-    writeDismissed();
+    writeDismissed(userId);
     setDismissed(true);
   };
 

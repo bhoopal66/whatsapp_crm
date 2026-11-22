@@ -77,6 +77,7 @@ import {
   lastMessageFromCustomer as newestIsCustomer,
 } from '@/lib/ai/banner-state';
 import { OutreachBanner } from './outreach-banner';
+import { ServiceWindowBanner } from './service-window';
 import { BlockedSendCard } from './blocked-send-card';
 import {
   cardFor,
@@ -91,6 +92,10 @@ import {
 } from './thread-channel-switcher';
 import { ThreadAutoTagNote } from './thread-auto-tag-note';
 import { ThreadPinNote } from './thread-pin-note';
+import { ThreadNote } from './thread-note';
+import { NoteComposer } from './note-composer';
+import { ComposerModeSwitch, type ComposerMode } from './composer-mode-switch';
+import { useConversationNotes } from './use-conversation-notes';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
@@ -118,10 +123,19 @@ import {
   type SendAttempt,
 } from '@/lib/inbox/failed-send';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
+import {
+  latestCustomerMessageAt,
+  serviceWindowCountdown,
+  serviceWindowState,
+} from '@/lib/inbox/service-window';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
 import { ForwardDialog } from './forward-dialog';
-import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
+import {
+  canSendMessages,
+  canWriteChatNotes,
+  isBankGuest,
+} from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
@@ -559,19 +573,18 @@ export function MessageThread({
     };
   }, [accountRole, user?.id]);
 
-  // There is no 24-hour session window any more.
-  //
-  // That rule was Meta's: a business could only send free-form text
-  // within 24h of the customer's last message, and had to re-open the
-  // conversation with a pre-approved template otherwise. This app now
-  // talks to WhatsApp through Whapi, which drives a normal WhatsApp Web
-  // account — no window, no template registry, no approval step. The
-  // timer that used to live here therefore measured nothing, and its
-  // `expired` flag disabled the composer on precisely the threads that
-  // needed it most: a brand-new conversation has no customer message
-  // yet, so it counted as expired and there was no way to send the
-  // first one. Templates are still available from the composer toolbar
-  // as saved canned replies.
+  // The 24-hour session window is Meta's rule only: on the Cloud API a
+  // business may send free-form text within 24h of the customer's last
+  // message, and only a pre-approved template otherwise. Whapi and
+  // OpenWA drive a normal WhatsApp account — no window, no template
+  // registry, no approval step. An earlier timer here applied the
+  // window to every chat, and its `expired` flag disabled the composer
+  // on precisely the threads that needed it most: a brand-new Whapi
+  // conversation has no customer message yet, so it counted as expired
+  // and there was no way to send the first one. So the window below is
+  // judged only for a chat whose predicted sending number is Meta, and
+  // even there it never blocks templates, which is how a Meta chat's
+  // first message goes out.
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -724,6 +737,70 @@ export function MessageThread({
     myOutreach,
     outreachNow,
   ]);
+
+  // Meta's 24-hour window (lib/inbox/service-window.ts), for a company
+  // chat whose next reply goes out on the Cloud API number. The last
+  // customer message comes from the loaded page; a page without one asks
+  // for the latest (one row). Until that is known nothing is blocked.
+  // Re-judged each minute (`outreachNow`) and on every new message.
+  const metaThread =
+    !!conversation &&
+    !conversation.personal_owner_id &&
+    !!accountNumbers &&
+    predictSendingNumber(accountNumbers, {
+      channel_id: threadChannelId,
+      send_channel_id: threadPin,
+    })?.provider === 'meta';
+  const loadedLastCustomerAt = useMemo(
+    () => latestCustomerMessageAt(messages, conversationId),
+    [messages, conversationId]
+  );
+  const [lastCustomerLookup, setLastCustomerLookup] = useState<{
+    conversationId: string;
+    at: string | null;
+  } | null>(null);
+  const needsLastCustomerLookup =
+    metaThread &&
+    !loading &&
+    !!conversationId &&
+    loadedLastCustomerAt === null &&
+    lastCustomerLookup?.conversationId !== conversationId;
+  useEffect(() => {
+    if (!needsLastCustomerLookup || !conversationId) return;
+    let cancelled = false;
+    void createClient()
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        // A failed read leaves the window unknown: nothing is blocked.
+        if (cancelled || error) return;
+        setLastCustomerLookup({
+          conversationId,
+          at: (data as { created_at?: string } | null)?.created_at ?? null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsLastCustomerLookup, conversationId]);
+  const lastCustomerAt: string | null | undefined =
+    loadedLastCustomerAt ??
+    (loading
+      ? undefined
+      : lastCustomerLookup &&
+          lastCustomerLookup.conversationId === conversationId
+        ? lastCustomerLookup.at
+        : undefined);
+  const serviceWindow = metaThread
+    ? serviceWindowState(lastCustomerAt, outreachNow)
+    : null;
+  const freeTextBlocked = serviceWindow?.kind === 'closed';
+  const windowCountdown = serviceWindowCountdown(serviceWindow);
 
   // The standing "use the marketing number" reminder (migration 207):
   // shown while the next send would open a chat, on a company chat,
@@ -1794,6 +1871,9 @@ export function MessageThread({
         authorLabel: authorLabelFor(msg),
         preview: buildReplyPreview(msg, tQuote),
       });
+      // The quote lives on the reply composer, hidden in Note mode:
+      // show it rather than attach a forgotten quote to a later send.
+      setComposerMode((m) => (m.mode === 'note' ? { ...m, mode: 'reply' } : m));
     },
     [authorLabelFor, tQuote]
   );
@@ -1879,6 +1959,22 @@ export function MessageThread({
   const { events: threadEvents, reload: reloadThreadEvents } =
     useConversationEvents(conversationId ?? null);
 
+  // The team's notes in this chat (migration 241), placed by time too,
+  // and whether this person may write them (Reply / Note switch).
+  const teamNotes = useConversationNotes(conversationId ?? null);
+  const mayWriteNotes = !!accountRole && canWriteChatNotes(accountRole);
+  const [composerMode, setComposerMode] = useState<{
+    conversationId: string | null;
+    mode: ComposerMode;
+  }>({ conversationId: null, mode: 'reply' });
+  // A recording or staged attachment in the reply composer: Note waits.
+  const [composerBusy, setComposerBusy] = useState(false);
+  // Every chat opens on Reply.
+  const noteMode =
+    mayWriteNotes &&
+    composerMode.conversationId === (conversationId ?? null) &&
+    composerMode.mode === 'note';
+
   // Grouping walks and date-formats every message; only redo it when the
   // messages or notes change, not on every header/dropdown re-render.
   const visibleMessages = useMemo(
@@ -1889,8 +1985,14 @@ export function MessageThread({
     [messages, hiddenTempIds]
   );
   const timelineGroups = useMemo(
-    () => buildTimelineGroups(visibleMessages, threadEvents, hasOlder),
-    [visibleMessages, threadEvents, hasOlder]
+    () =>
+      buildTimelineGroups(
+        visibleMessages,
+        threadEvents,
+        hasOlder,
+        teamNotes.notes
+      ),
+    [visibleMessages, threadEvents, hasOlder, teamNotes.notes]
   );
   const failedHere = useMemo(
     () => failedSends.filter((f) => f.conversationId === conversationId),
@@ -2056,6 +2158,7 @@ export function MessageThread({
           contactPanelOpen={contactPanelOpen}
           onToggleContactPanel={onToggleContactPanel}
           sharedBank={sharedBank}
+          serviceWindowCountdown={windowCountdown}
         />
 
         {/* A chat the AI handed to a person (migration 078): its banner
@@ -2128,6 +2231,19 @@ export function MessageThread({
                     </span>
                   </div>
                   {group.items.map((item, index) => {
+                    if (item.kind === 'note')
+                      return (
+                        <ThreadNote
+                          key={`note-${item.note.id}`}
+                          note={item.note}
+                          authorName={profileName(item.note.author_id)}
+                          isMine={!!user?.id && item.note.author_id === user.id}
+                          canManage={mayWriteNotes}
+                          nameOf={profileName}
+                          onEdit={teamNotes.edit}
+                          onDelete={teamNotes.remove}
+                        />
+                      );
                     if (item.kind === 'event') {
                       if (item.event.kind === 'chat_tag_auto')
                         return (
@@ -2316,19 +2432,64 @@ export function MessageThread({
           ) : null;
         })()}
 
+        {/* Meta's 24-hour window has closed: only a template now. */}
+        {serviceWindow?.kind === 'closed' &&
+          !!accountRole &&
+          canSendMessages(accountRole) && (
+            <ServiceWindowBanner
+              agoMs={serviceWindow.agoMs}
+              onOpenTemplates={handleOpenTemplates}
+            />
+          )}
+
+        {/* Reply / Note (migration 241). The reply composer stays
+            mounted (hidden) in Note mode so its draft survives. */}
+        {mayWriteNotes && (
+          <div className="bg-wa-panel-header border-wa-divider border-t px-2 pt-1.5 sm:px-4">
+            <ComposerModeSwitch
+              mode={noteMode ? 'note' : 'reply'}
+              onChange={(mode) =>
+                setComposerMode({ conversationId: conversation.id, mode })
+              }
+              noteDisabled={composerBusy}
+            />
+          </div>
+        )}
+        {/* Kept mounted (hidden) in Reply mode, like the composer, so a
+            half-written note survives a switch; keyed per chat. */}
+        {mayWriteNotes && (
+          <div
+            className={cn(
+              'bg-wa-panel-header shrink-0 px-2 pb-2 sm:px-4',
+              !noteMode && 'hidden'
+            )}
+          >
+            <NoteComposer
+              key={conversation.id}
+              conversationId={conversation.id}
+              onSave={teamNotes.add}
+              active={noteMode}
+            />
+          </div>
+        )}
+
         {/* Composer */}
-        <MessageComposer
-          conversationId={conversation.id}
-          onSend={handleSend}
-          onSendMedia={handleSendMedia}
-          onSendInteractive={handleSendInteractive}
-          onOpenTemplates={handleOpenTemplates}
-          replyTo={replyTo}
-          onClearReply={() => setReplyTo(null)}
-          onRestoreReply={setReplyTo}
-          contactName={contact.name || contact.phone || null}
-          textControl={composerDraftRef}
-        />
+        <div className={cn('contents', noteMode && 'hidden')}>
+          <MessageComposer
+            conversationId={conversation.id}
+            onSend={handleSend}
+            onSendMedia={handleSendMedia}
+            onSendInteractive={handleSendInteractive}
+            onOpenTemplates={handleOpenTemplates}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            onRestoreReply={setReplyTo}
+            contactName={contact.name || contact.phone || null}
+            textControl={composerDraftRef}
+            freeTextBlocked={freeTextBlocked}
+            onBusyChange={setComposerBusy}
+          />
+        </div>
 
         <ForwardDialog
           message={

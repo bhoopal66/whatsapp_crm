@@ -10,6 +10,7 @@ import {
   canSendMessages,
   canTransferOwnership,
   canViewOnly,
+  canWriteChatNotes,
 } from '@/lib/auth/roles';
 
 /**
@@ -26,7 +27,8 @@ export type CanAction =
   | 'delete-account'
   | 'transfer-ownership'
   | 'create-meetings'
-  | 'retry-customer-documents';
+  | 'retry-customer-documents'
+  | 'write-chat-notes';
 
 /**
  * Inline alternative to `<RequireRole>` for places that need a
@@ -62,6 +64,8 @@ export function useCan(action: CanAction): boolean {
       return canCreateMeetings(accountRole);
     case 'retry-customer-documents':
       return canRetryCustomerDocuments(accountRole);
+    case 'write-chat-notes':
+      return canWriteChatNotes(accountRole);
     default: {
       // Exhaustiveness check — adding a new `CanAction` without a
       // case here fails the typecheck because TS narrows `action`

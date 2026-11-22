@@ -13,6 +13,7 @@ import {
   canInviteMembers,
   canManageMembers,
   canSendMessages,
+  canWriteChatNotes,
   grantableRoles,
   canTransferOwnership,
   canUseMeetings,
@@ -128,6 +129,14 @@ describe('capability predicates', () => {
     expect(canSendMessages('admin')).toBe(true);
     expect(canSendMessages('agent')).toBe(true);
     expect(canSendMessages('viewer')).toBe(false);
+  });
+
+  it('canWriteChatNotes: agent+ only, never a bank guest', () => {
+    expect(canWriteChatNotes('owner')).toBe(true);
+    expect(canWriteChatNotes('team_leader')).toBe(true);
+    expect(canWriteChatNotes('agent')).toBe(true);
+    expect(canWriteChatNotes('viewer')).toBe(false);
+    expect(canWriteChatNotes('bank_guest')).toBe(false);
   });
 
   it('canViewOnly: viewer only', () => {

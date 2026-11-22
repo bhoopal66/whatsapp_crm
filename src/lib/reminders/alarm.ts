@@ -23,8 +23,10 @@
 //   Done / Snooze / dismiss: mark the row read (the UPDATE removes it on
 //     every tab), and queue.remove(alarm.id) for this tab at once.
 //     Snooze moves the task's due_at to snoozeUntil(option, new Date()).
-//   While the tab is hidden: document.title = flashTitle(original,
-//     alarms[0].title, tick++) on an interval; restore it when visible.
+//   While the tab is hidden: flashTitle(tabTitle.base(), alarms[0].title,
+//     tick++) on an interval through lib/tab-alerts/title-owner.ts (the
+//     unread tab title stands down meanwhile); its current title comes
+//     back when visible.
 //   Unmount: queue.close().
 //
 // Alarms of every workspace the person belongs to arrive (the bell covers

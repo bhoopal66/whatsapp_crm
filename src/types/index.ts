@@ -479,7 +479,11 @@ export type NotificationType =
   // Meta number health (188): the Meta number's assessed sending state
   // got worse (ringMetaNumberAlert). Sent to live owners and admins.
   // meta = {config_id, previous, next, reasons}.
-  | 'meta_number_alert';
+  | 'meta_number_alert'
+  // In-chat notes (241): someone mentioned you in a team note inside a
+  // customer chat you can see. The row carries conversation_id and
+  // contact_id; meta = {note_id, author}.
+  | 'chat_note_mention';
 
 export interface Notification {
   id: string;

@@ -95,6 +95,7 @@ function hrefFor(
     case 'response_target_missed':
     case 'response_escalated':
     case 'response_unassigned':
+    case 'chat_note_mention':
       return chat(n.conversation_id);
     case 'task_assigned':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';

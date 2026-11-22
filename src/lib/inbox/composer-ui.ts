@@ -23,6 +23,11 @@ export const PICKER_ACCEPT: Record<'image' | 'video' | 'document', string> = {
 export const TOOL_BUTTON =
   'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-0 text-wa-icon transition-colors hover:bg-wa-icon-hover hover:text-wa-icon disabled:cursor-not-allowed disabled:opacity-50';
 
+/** A smaller round button that sits inside the inbox composer's text
+ *  box (attach, AI draft), so the box keeps its width on a phone. */
+export const PILL_BUTTON =
+  'inline-flex h-10 w-8 shrink-0 items-center justify-center rounded-full p-0 text-wa-icon transition-colors hover:bg-wa-icon-hover hover:text-wa-icon disabled:cursor-not-allowed disabled:opacity-50 sm:w-10';
+
 /** The round green send button. */
 export const SEND_BUTTON =
   'h-10 w-10 shrink-0 rounded-full bg-wa-green p-0 text-wa-green-fg hover:bg-wa-green/90 disabled:opacity-40';

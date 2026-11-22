@@ -128,6 +128,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'delete',
     exported: true,
   },
+  // Team notes inside the chat (241): erased and exported through
+  // privacy_extensions.
+  conversation_notes: {
+    link: 'conversation',
+    class: 'content',
+    erase: 'delete',
+    exported: true,
+  },
   conversation_insight_events: {
     link: 'conversation',
     class: 'content',
@@ -971,6 +979,10 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'whatsapp_groups',
             'whatsapp_group_invites',
             'whatsapp_group_tombstones',
+            // Staff voices and generic scripts ({name} / {company}
+            // placeholders, never a customer's details): migration 242.
+            'voice_note_subjects',
+            'voice_note_entries',
           ],
         ],
         [

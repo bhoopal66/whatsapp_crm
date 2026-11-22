@@ -182,6 +182,11 @@ export const RATE_LIMITS = {
    *  call (a cached translation spends nothing), so it caps the whole
    *  team's translation draws on the one shared BYO provider key. */
   aiTranslateAccount: { limit: 120, windowMs: 60_000 },
+  /** Voice-note library AI speech (OpenAI TTS), per user: a saved note
+   *  or a personalised one spoken for one send. */
+  voiceTts: { limit: 20, windowMs: 60_000 },
+  /** The same, per account: one shared BYO key for the whole team. */
+  voiceTtsAccount: { limit: 60, windowMs: 60_000 },
   /** AI auto-reply generation, per account. The per-conversation cap
    *  (`auto_reply_max_per_conversation`) bounds one thread; this bounds
    *  the whole account across threads, so a burst of inbound from many

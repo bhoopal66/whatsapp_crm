@@ -112,7 +112,14 @@ describe('kinds', () => {
 
   it('no chat_* bell type is a preference (its message pushes instead)', () => {
     expect(
-      PUSH_KINDS.some((k) => k.startsWith('chat_') && k !== 'chat_message')
+      PUSH_KINDS.some(
+        (k) =>
+          k.startsWith('chat_') &&
+          k !== 'chat_message' &&
+          // A note mention in a customer chat (241), not team chat: its
+          // own bell is what pushes.
+          k !== 'chat_note_mention'
+      )
     ).toBe(false);
   });
 });

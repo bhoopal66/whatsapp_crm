@@ -115,3 +115,32 @@ export function shouldOfferPush(
 ): boolean {
   return support === 'supported' && permission === 'default' && !dismissed;
 }
+
+/**
+ * Where the banner's "Not now" is remembered: this browser, per person,
+ * so the next person signing in on a shared PC is still asked.
+ */
+export function pushPromptDismissKey(userId: string): string {
+  return `taamul.push-prompt-dismissed:${userId}`;
+}
+
+/** Everything the one-time banner waits on; null = not known yet. */
+export interface PushPromptInput {
+  support: PushSupport | null;
+  permission: PushPermission;
+  /** This browser already has a live subscription. */
+  subscribed: boolean;
+  dismissed: boolean;
+  /** The install has VAPID keys (GET /api/push/config's publicKey). */
+  serverConfigured: boolean | null;
+  /** Bank guests have team chat only; push would bring them nothing. */
+  bankGuest: boolean;
+}
+
+/** Whether the one-time "Turn on notifications" banner shows now. */
+export function shouldShowPushPrompt(input: PushPromptInput): boolean {
+  if (input.support === null || input.bankGuest || input.subscribed)
+    return false;
+  if (input.serverConfigured !== true) return false;
+  return shouldOfferPush(input.support, input.permission, input.dismissed);
+}

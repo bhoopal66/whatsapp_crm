@@ -1318,6 +1318,7 @@ export function InboxPageInner({
             sharedBanks={sharedBanks}
             numberNames={numberNames}
             showAssignee={showAssignee}
+            onAssignChange={handleAssignChange}
             campaignOnly={campaignOnly}
             aiLive={aiLive === true}
           />
@@ -1369,8 +1370,11 @@ export function InboxPageInner({
         {/* Right panel: Contact sidebar — desktop only, and only when the
             agent hasn't collapsed it via the thread-header toggle (#258).
             On mobile it's always hidden (the `lg:block` below), so the
-            toggle — which is itself desktop-only — never affects it. */}
-        {contactPanelOpen && (
+            toggle — which is itself desktop-only — never affects it.
+            With no chat open there is nothing to show: the thread's own
+            empty state already says "Select a conversation", and the
+            panel used to say it a second time beside it. */}
+        {contactPanelOpen && activeConversation && (
           <div className="hidden lg:block">
             {/* The panel shows what it has: the cached full row on a
                 revisit, else the list row's contact while the full row

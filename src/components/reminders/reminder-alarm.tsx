@@ -28,6 +28,7 @@ import {
   type SnoozeOption,
 } from '@/lib/reminders/alarm';
 import { createClient } from '@/lib/supabase/client';
+import { tabTitle } from '@/lib/tab-alerts/title-owner';
 import { cn } from '@/lib/utils';
 import type { Notification } from '@/types';
 
@@ -477,18 +478,23 @@ export function ConnectedAlarmCard({
   );
 }
 
-/** Flips the tab title while an alarm is shown and the tab is hidden. */
+/**
+ * Flips the tab title while an alarm is shown and the tab is hidden.
+ * Through `tabTitle` (lib/tab-alerts/title-owner.ts): the unread tab
+ * title stands down while this flashes, the even ticks show its current
+ * title, and the end puts the current one back, not the one saved when
+ * the flash began.
+ */
 function useFlashingTitle(alarmTitle: string | null) {
   useEffect(() => {
     if (!alarmTitle) return;
-    let original: string | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
     let tick = 0;
     const stop = () => {
-      if (timer !== null) clearInterval(timer);
+      if (timer === null) return;
+      clearInterval(timer);
       timer = null;
-      if (original !== null) document.title = original;
-      original = null;
+      tabTitle.endFlash();
     };
     const sync = () => {
       if (document.visibilityState !== 'hidden') {
@@ -496,12 +502,11 @@ function useFlashingTitle(alarmTitle: string | null) {
         return;
       }
       if (timer !== null) return;
-      const base = document.title;
-      original = base;
+      tabTitle.beginFlash();
       tick = 0;
       timer = setInterval(() => {
         tick += 1;
-        document.title = flashTitle(base, alarmTitle, tick);
+        tabTitle.flashWrite(flashTitle(tabTitle.base(), alarmTitle, tick));
       }, 1000);
     };
     sync();

@@ -27,6 +27,7 @@ import {
   type PushPreferences,
 } from '@/lib/push/settings';
 import { SettingsPanelHead } from './settings-panel-head';
+import { MessageSoundSetting } from './message-sound-setting';
 
 const SAVE_DELAY_MS = 600;
 
@@ -177,6 +178,8 @@ export function NotificationsSettings() {
           {t('sendTest')}
         </Button>
       </div>
+
+      <MessageSoundSetting />
 
       {prefs ? (
         <>

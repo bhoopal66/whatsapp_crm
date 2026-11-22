@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ConversationNote } from '@/lib/inbox/notes';
 import type { ConversationEvent, Message } from '@/types';
 
 import {
@@ -16,11 +17,31 @@ const note = (id: string, at: string) =>
 const flat = (groups: ReturnType<typeof buildTimelineGroups>) =>
   groups.flatMap((g) =>
     g.items.map((i) =>
-      i.kind === 'message' ? i.message.id : `note:${i.event.id}`
+      i.kind === 'message'
+        ? i.message.id
+        : i.kind === 'event'
+          ? `note:${i.event.id}`
+          : `team:${i.note.id}`
     )
   );
 
+const teamNote = (id: string, at: string) =>
+  ({ id, created_at: at }) as unknown as ConversationNote;
+
 describe('buildTimelineGroups', () => {
+  it('interleaves team notes (241) with messages and events by time', () => {
+    const groups = buildTimelineGroups(
+      [msg('m1', '2026-09-25T10:00:00Z'), msg('m2', '2026-09-25T10:05:00Z')],
+      [note('e1', '2026-09-25T10:03:00Z')],
+      false,
+      [
+        teamNote('n2', '2026-09-25T10:06:00Z'),
+        teamNote('n1', '2026-09-25T10:01:00Z'),
+      ]
+    );
+    expect(flat(groups)).toEqual(['m1', 'team:n1', 'note:e1', 'm2', 'team:n2']);
+  });
+
   it('places a switch note between the messages either side of it', () => {
     const groups = buildTimelineGroups(
       [msg('m1', '2026-09-25T10:00:00Z'), msg('m2', '2026-09-25T10:05:00Z')],
