@@ -19,6 +19,7 @@ import {
 } from '@/lib/cases/overview';
 import { formatAed } from '@/lib/cases/ui';
 
+import { CsatScore } from './csat-score';
 import { SlaChip } from './sla-chip';
 import { useCaseResource } from './tab-kit';
 
@@ -161,6 +162,7 @@ export function OverviewTab({ caseId, detail }: CaseTabProps) {
 
   return (
     <div className="space-y-4">
+      <CsatScore caseId={detail.case.id} />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card title={t('overview.docsTitle')} icon={FileText}>
           {docsRes.failed && !docs ? (

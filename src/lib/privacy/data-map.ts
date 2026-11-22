@@ -814,6 +814,19 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: KYC,
     exported: false,
   },
+  // Case CSAT (246): the rating requests and the customer's 1-5 ratings
+  case_csat_requests: {
+    link: 'contact',
+    class: 'content',
+    erase: 'delete',
+    exported: true,
+  },
+  case_csat_responses: {
+    link: 'contact',
+    class: 'content',
+    erase: 'delete',
+    exported: true,
+  },
   // PDPL itself
   privacy_legal_holds: {
     link: 'contact',
@@ -855,6 +868,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'case_account_settings',
             'case_bank_stages',
             'case_banks',
+            'case_csat_settings',
             'case_doc_requirements',
             'case_file_specs',
             'case_intake_templates',

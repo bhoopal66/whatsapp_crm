@@ -8624,6 +8624,65 @@
       "generic": "Couldn't open the lead. Try again."
     }
   },
+  "CaseCsat": {
+    "score": {
+      "title": "Customer rating",
+      "trigger": {
+        "submitted": "After submission",
+        "approved": "After approval"
+      },
+      "outOf": "{score} out of 5",
+      "state": {
+        "waiting": "Waiting to be sent",
+        "asked": "Asked, no reply yet",
+        "rated": "Rated",
+        "not_sent": "Not sent"
+      },
+      "comment": "Comment: {comment}",
+      "askedOn": "Asked on {when}",
+      "ratedOn": "Rated on {when}"
+    },
+    "averages": {
+      "title": "Customer ratings",
+      "summary": "Average {average} out of 5 from {count, plural, one {# rating} other {# ratings}} in the last {days} days",
+      "empty": "No ratings in the last {days} days",
+      "show": "Show by agent and bank",
+      "hide": "Hide",
+      "byAgent": "By agent",
+      "byBank": "By bank",
+      "unknownAgent": "Unknown person",
+      "noBank": "No bank",
+      "row": "{average} out of 5 ({count})"
+    },
+    "settings": {
+      "title": "Customer ratings (CSAT)",
+      "hint": "Ask the customer to rate our service from 1 to 5 when their case is submitted and when it is approved. Sent from their chat number, never to someone who opted out.",
+      "enabled": "Ask for ratings",
+      "on": "On",
+      "off": "Off",
+      "askOnSubmitted": "When a case is submitted",
+      "askOnApproved": "When a case is approved",
+      "templateSubmitted": "Meta template: submitted",
+      "templateApproved": "Meta template: approved",
+      "templateHint": "Used on a Meta number when the customer has not written in the last 24 hours. It must be an approved utility template with {one} (first name) and {two} (bank and product). Until then those requests wait.",
+      "language": "Language",
+      "languages": {
+        "en": "English",
+        "ar": "Arabic"
+      },
+      "replyWindowDays": "Days a reply counts",
+      "sendStartHour": "Send from (hour)",
+      "sendEndHour": "Send until (hour)",
+      "hoursHint": "Hours are Dubai time. Requests outside these hours wait.",
+      "save": "Save",
+      "saved": "Rating settings saved",
+      "saveFailed": "Could not save the rating settings",
+      "invalid": "Check the values: hours 8 to 21, 1 to 30 days, template names in lower case",
+      "stale": "Someone else changed these settings. They have been reloaded.",
+      "loadFailed": "Could not load the rating settings",
+      "retry": "Retry"
+    }
+  },
   "CasePage": {
     "back": "Back to cases",
     "notFound": "This case was not found, or you cannot see it.",

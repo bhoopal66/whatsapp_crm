@@ -15,6 +15,7 @@ import { CoverRolesEditor } from '@/components/desk/cover-card';
 import { DeskCodes } from '@/components/desk/desk-codes';
 import { DigestSettings } from '@/components/desk/digest-settings';
 import { RoutingSettings } from '@/components/desk/routing-settings';
+import { CsatSettingsCard } from '@/components/settings/csat-settings-card';
 import { useAuth } from '@/hooks/use-auth';
 
 export function CaseDeskPanel() {
@@ -49,7 +50,7 @@ export function CaseDeskPanel() {
       <RoutingSettings key={`routing-${key}`} />
       <DigestSettings key={`digest-${key}`} />
 
-      {/* CSAT settings card mounts here */}
+      <CsatSettingsCard />
     </div>
   );
 }

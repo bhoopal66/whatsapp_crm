@@ -32,6 +32,7 @@ import {
   SnoozeChip,
   SnoozedControl,
 } from '@/components/cases/case-views-menu';
+import { CsatAverages } from '@/components/cases/csat-averages';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -349,6 +350,7 @@ export function CasesInbox() {
           )}
         </>
       )}
+      <CsatAverages />
     </div>
   );
 }
