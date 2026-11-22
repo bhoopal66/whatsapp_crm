@@ -12,6 +12,35 @@ and polish.
 
 ## [Unreleased]
 
+### Leads, contacts and campaigns
+
+**Migrations required:** apply `249_lead_source_web_form.sql` and
+`251_recycle_declined.sql` (both as a superuser) and `250_saved_views.sql`,
+`252_broadcast_drafts.sql`, in that order. Apply 249 **before**
+deploying: the contact form and CSV import now write `lead_source`.
+- **Broadcast wizard:** with no approved template, step 1 has a *Create
+  template* button that opens Settings, with a way back to the broadcast.
+- **Contacts table:** sort by name or created date (kept in the link),
+  sticky header, phones shown like +971 50 123 4401 with a Copy button,
+  bulk *Set chat tag* and *Add to campaign*, a Columns menu with *Hide
+  empty columns*, and a Source column and filter.
+- **Saved views:** save the filters of the WhatsApp inbox and Contacts as
+  views. Anyone keeps personal views only they see; team leaders and up
+  can share a view with the whole workspace.
+- **Lead source:** every contact can carry where it came from (ad, web
+  form, broadcast, manual, import, Compass, other). Meta click-to-WhatsApp
+  ads are captured on a customer's first message. A public web form
+  (Settings → Web form, off until switched on) adds leads as contacts and
+  a *New web lead* task; it never sends a WhatsApp message. See
+  `docs/web-form.md`.
+- **Campaign audiences:** match all or any chat tag, narrow by bank or lead
+  source, and *Save draft* now reopens the whole campaign from the list.
+- **Recycle:** `/recycle` lists customers whose case or chat ended declined,
+  not interested or withdrawn long ago (90 days by default), never those
+  who opted out or asked not to be contacted. Start a campaign from the
+  list or create follow-up tasks; nothing sends by itself. See
+  `docs/recycle.md`.
+
 ### Case desk: My worklist and suggested cases
 
 **Migration required:** apply `235_desk_worklist_suggest.sql` (as a

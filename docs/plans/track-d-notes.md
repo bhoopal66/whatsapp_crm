@@ -59,7 +59,7 @@ trigger. Each screen owns its filter shape and reads it back defensively (`parse
 
 - Contacts sort by Owner, Assigned and Last activity (PostgREST cannot order contacts by a to-many embed;
   needs an RPC/view: no migration number left).
-- `lead_source` not auto-set for broadcast / compass / v1 POST /contacts.
+- (Done later) `lead_source` is now stamped for broadcast, compass and v1 creations; CHANGELOG.md and CLAUDE.md are edited directly (expect textual merge conflicts with other tracks' entries at the top of Unreleased and before "Health and metrics").
 - No iframe embed for the web form (global frame-ancestors none): HTML form snippet only.
 - Browser checks (375px, sticky header) not run: tests are node-only.
 

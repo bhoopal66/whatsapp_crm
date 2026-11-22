@@ -312,6 +312,7 @@ export async function createBroadcast(
     }
     const { id } = await findOrCreateContact(db, accountId, auditUserId, {
       phone: checked.normalized,
+      leadSource: 'broadcast',
     });
     resolved.push({
       contactId: id,

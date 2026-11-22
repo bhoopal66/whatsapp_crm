@@ -24,6 +24,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
+import type { LeadSource } from '@/lib/leads/lead-source';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
 
 export interface ResolvedConversation {
@@ -43,6 +44,9 @@ export interface ResolveConversationOptions {
    * has curated on a contact they already work.
    */
   renameExisting?: boolean;
+  /** Where a contact CREATED by this call came from (migration 249). */
+  leadSource?: LeadSource;
+  leadSourceDetail?: Record<string, unknown>;
 }
 
 /**
@@ -63,7 +67,11 @@ export async function resolveConversationByPhone(
   accountId: string,
   phone: string,
   name?: string | null,
-  { renameExisting = true }: ResolveConversationOptions = {}
+  {
+    renameExisting = true,
+    leadSource = 'other',
+    leadSourceDetail = { via: 'api' },
+  }: ResolveConversationOptions = {}
 ): Promise<ResolvedConversation> {
   const sanitized = sanitizePhoneForMeta(phone);
   if (!isValidE164(sanitized)) {
@@ -160,6 +168,8 @@ export async function resolveConversationByPhone(
         user_id: ownerUserId,
         phone: normalized,
         name: name || normalized,
+        lead_source: leadSource,
+        lead_source_detail: leadSourceDetail,
       })
       .select('id')
       .single();

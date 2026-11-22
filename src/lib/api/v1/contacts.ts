@@ -11,6 +11,7 @@
 // working; nothing here reads or writes the old tag tables any more.
 // ============================================================
 
+import type { LeadSource } from '@/lib/leads/lead-source';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
@@ -111,6 +112,9 @@ export interface ContactInput {
   name?: string | null;
   email?: string | null;
   company?: string | null;
+  /** Where a NEW contact came from (migration 249); ignored for existing ones. */
+  leadSource?: LeadSource;
+  leadSourceDetail?: Record<string, unknown>;
 }
 
 /**
@@ -145,6 +149,12 @@ export async function findOrCreateContact(
       name: input.name ?? sanitized,
       email: input.email ?? null,
       company: input.company ?? null,
+      ...(input.leadSource
+        ? {
+            lead_source: input.leadSource,
+            lead_source_detail: input.leadSourceDetail ?? {},
+          }
+        : {}),
     })
     .select('id')
     .single();

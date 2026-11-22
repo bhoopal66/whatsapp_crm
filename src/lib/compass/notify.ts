@@ -894,7 +894,11 @@ export async function sendCompassNotification(
       accountId,
       `+${phone}`,
       name,
-      { renameExisting: false }
+      {
+        renameExisting: false,
+        leadSource: 'compass',
+        leadSourceDetail: { via: 'compass_notify' },
+      }
     );
 
     handedToGateway = true;

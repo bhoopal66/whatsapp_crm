@@ -333,7 +333,11 @@ describe('sendCompassNotification', () => {
       'acct',
       '+971501234567',
       null,
-      { renameExisting: false }
+      {
+        renameExisting: false,
+        leadSource: 'compass',
+        leadSourceDetail: { via: 'compass_notify' },
+      }
     );
     const params = sendMessageToConversation.mock.calls[0][2];
     expect(params).toEqual({
@@ -733,7 +737,11 @@ describe('sendCompassNotification', () => {
       'acct',
       '+971509999999',
       'Jane',
-      { renameExisting: false }
+      {
+        renameExisting: false,
+        leadSource: 'compass',
+        leadSourceDetail: { via: 'compass_notify' },
+      }
     );
     expect(tables.compass_contacts[0].contact_id).toBe('contact-1');
     expect(tables.compass_notifications[0].phone).toBe('971509999999');

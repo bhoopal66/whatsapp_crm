@@ -938,6 +938,8 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         phone: uniqueByPhone.get(k)!.phone,
         name: uniqueByPhone.get(k)?.name ?? null,
         company: uniqueByPhone.get(k)?.company ?? null,
+        lead_source: 'broadcast' as const,
+        lead_source_detail: { via: 'csv_audience' },
       }));
 
     const INSERT_CHUNK = 200;

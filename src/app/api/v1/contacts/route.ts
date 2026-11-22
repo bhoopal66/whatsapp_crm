@@ -119,6 +119,9 @@ export async function POST(request: Request) {
         name: typeof body.name === 'string' ? body.name : undefined,
         email: typeof body.email === 'string' ? body.email : undefined,
         company: typeof body.company === 'string' ? body.company : undefined,
+        // An integration made it: no better label than 'other'.
+        leadSource: 'other',
+        leadSourceDetail: { via: 'api' },
       }
     );
 

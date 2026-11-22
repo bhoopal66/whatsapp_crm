@@ -1708,6 +1708,72 @@ package 035a-c. `docs/case-desk.md` is the contract.
   function bodies as well as 221/222. Name a plpgsql record variable in
   221 anything but `r`: its body aliases tables as `r`.
 
+### Lead source and web form (`lib/leads/*`, `lib/web-form/*`, migration 249)
+
+`contacts.lead_source` (seven values or NULL = unknown; CHECK
+`contacts_lead_source_check` ↔ `LEAD_SOURCES`, pinned by
+`lead-source.test.ts`) and `lead_source_detail` (object ≤ 4 KB) are plain
+columns people set at insert (Add contact `manual`, Import `import`);
+automatic writers fill an EMPTY source only, through
+`contact_set_lead_source_if_empty` (service role), so the first known source
+wins. The Meta referral (`message.referral`, already normalised) is captured
+in `inbound-pipeline.ts` after the idempotency boundary and before the
+`fanOut: false` cut, on the chat's first inbound only, never a personal
+number, via `later` (never throws). Contacts created by code carry a source on insert: the v1 API's `POST /contacts` and `/messages` stamp `other` (`{via: 'api'}`), v1 broadcast recipients `broadcast`, Compass notifications `compass`, and CSV-audience contacts made by the wizard `broadcast`; existing contacts are never restamped. The web form (`docs/web-form.md`):
+`web_lead_forms` (one row per account, FORCE RLS, no grants; 64-hex token
+generated in SQL) is read and written only through `web_form_get` /
+`web_form_set` (owner/admin of the ACTIVE account) and the service-role
+`web_form_public_config` / `web_form_submit`; unknown and disabled tokens are
+indistinguishable (404). `web_form_submit` finds the contact by
+`phone_normalized` (the route normalises with `validateContactPhone`) or
+creates it owned by `accounts.owner_user_id`, fills only empty name/email,
+never writes consent, and opens one `follow_up` task (`source 'automation'`,
+`source_ref web_form:<contact>:<ms>`, no assignee) per contact per 10 minutes
+under a per-(account, phone) advisory lock. `web_form_origin_ok` (SQL) ↔
+`normalizeAllowedOrigin` (TS): change both. Rate scopes `webform.ip` /
+`webform.token` fail closed. No iframe embedding: frame headers unchanged.
+`verify-web-lead-form.sql`.
+
+### Contacts table (`lib/contacts/*`, `components/contacts/*`)
+
+The list is server-paginated (25/page). **Sort** is `lib/contacts/sort.ts`:
+only `name` and `created` (columns of `contacts`) are offered, ordered in the
+query, or over the whole match set when the chat-tag filter is on
+(`pageOfContactIds(…, sort)`). Owner, Assigned to and Last activity are NOT
+sortable: owner/assignee are uuids and the assignee and last message live in
+the to-many `conversations` embed, which PostgREST cannot order contacts by;
+sorting only the loaded page would mislead. A close-match search ranks by
+relevance, so the sort headers are disabled while it is active. State lives in
+the URL (`sort`, `dir`, `source`), read on mount (`urlReady` gates the first
+fetch). `formatPhoneDisplay` is display-only (stored phones untouched);
+`phoneForCopy` copies the raw international number. Bulk tag is
+`POST /api/contacts/bulk/chat-tag` (agent+, <= 200 ids, concurrency 4): each
+contact's company chat goes through `writeConversationChatTags({contactId})`
+under the caller's RLS client, `clearTagSuggestion` (now shared,
+`lib/chat-tags/clear-suggestion.ts`) and `dispatchChatTagSet` once per
+changed chat; answer `{updated, unchanged, skipped, failed}`. Add to
+campaign uses `lib/broadcasts/audience-handoff.ts` (sessionStorage key
+`taamul.broadcast.audienceHandoff`, `?audience=handoff`). Column prefs
+(`lib/contacts/columns.ts`) are per user in localStorage. `lead-source.ts` is
+the dependency-free source list; `view-filters.ts` is the saved-view shape.
+
+### Saved views (`lib/saved-views/*`, migration 250)
+
+One generic `saved_views` table (`screen` text, `filters` jsonb object <= 16 KB) for the inbox and
+Contacts; the cases inbox keeps its own 185 views (they run through case-role RPCs and a server
+validator). RLS is the rule: a personal view is read/changed/deleted by its owner only (not even an
+admin reads it); a shared view is read by the workspace, saved or kept shared only by a team leader+
+(`canShareSavedViews`), changed/deleted by its owner or an admin. Identity columns are frozen by a
+trigger. Each screen owns its filter shape and reads it back defensively (`parseInboxView`,
+`fromViewFilters`). `SavedViewsMenu` is the shared UI. `verify-saved-views.sql`.
+
+### Campaign audiences and drafts (`lib/broadcasts/*`, migration 252)
+
+Broadcast audiences (track D U14). Audiences are resolved in the browser (`estimateAudience` / `resolveAudience` in `use-broadcast-sending.ts`); the server only replays frozen `broadcast_recipients`, so there is no server-side re-resolution. Pure filter semantics live in `lib/broadcasts/audience-narrow.ts`: `chatTagMatch` 'any' (default/absent) | 'all' (chat holds every picked tag: main + its sub-tag), `bankCodes` + `bankSource` ('case' = any case at the bank via `cases.contact_id`, any stage; 'chat_tag' = chat sub-tag named like the bank's name or code), `leadSources` (any-of, `contacts.lead_source`). Not offered for CSV/Compass. Stored in `audience_filter` only when set. Drafts: `broadcasts.draft_state` (252) holds the whole wizard (`lib/broadcasts/draft-state.ts`, v1; CSV rows kept up to 5,000, else flagged and re-uploaded); the list opens `/broadcasts/new?draft=<id>`; Save updates the row; a real send deletes the draft. `verify-broadcast-drafts.sql`.
+
+### Declined recycling (`lib/recycle/*`, migration 251)
+`/recycle` lists customers whose latest case ended Declined/Withdrawn (`cases.outcome`, `closed_at`) or whose company chat has a main chat tag in `recycle_settings.chat_tag_ids`, at least `days` ago (chat ended = `last_message_at`; no tag timestamp exists). `recycle_candidates` is SECURITY INVOKER (contacts/cases/conversations RLS decide, team leader and up); one row per contact for the latest ending, then the days filter. Always excluded: opted out, do-not-contact, an open case/lead of any bank, a customer message newer than the ending; the last two come from the DEFINER helper `recycle_excluded_among` (answers only for ids passed, own workspace) because they must hold whatever the caller sees. `recycle_create_tasks` (INVOKER) files `follow_up` tasks as the caller, source `chat`, source_ref `recycle:<contact>:<UTC date>` (`recycleTaskRef` mirrors it), assigned to the contact owner if live staff else the caller. Settings: `recycle_settings`, written only by `recycle_settings_set` (owner/admin). The campaign goes through `lib/recycle/handoff.ts` (session storage + `?audience=recycle`, read by the wizard page as its initial CSV audience); nothing is sent automatically. `verify-recycle.sql`.
+
 ### Health and metrics (`lib/metrics/*`, migration 228)
 
 Port of package 033c and 033f-g. `docs/monitoring.md` is the contract.
@@ -2420,6 +2486,7 @@ fails if one is wired to plain `t()`.
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
   `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`,
   `customer-documents.md`, `departments.md`, `second-brain.md`,
-  `hr-workflows.md`, `case-desk.md`, `privacy.md`, `monitoring.md`.
+  `hr-workflows.md`, `case-desk.md`, `privacy.md`, `monitoring.md`,
+  `web-form.md`, `recycle.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
