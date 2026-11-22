@@ -813,7 +813,7 @@ export function CallStatsReport() {
         t('charts.heatDescription'),
         <div className="overflow-x-auto">
           <div className="min-w-[36rem]">
-            <div className="text-muted-foreground ml-9 grid grid-cols-24 gap-0.5 text-[10px]">
+            <div className="text-muted-foreground ml-9 grid grid-cols-24 gap-0.5 text-xs">
               {Array.from({ length: 24 }, (_, h) => (
                 <span key={h} className="text-center">
                   {h % 3 === 0 ? h : ''}

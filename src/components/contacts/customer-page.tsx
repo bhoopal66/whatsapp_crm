@@ -650,7 +650,7 @@ export function CustomerPage({
         <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
       )}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <section className="order-2 min-w-0 space-y-4 lg:order-1">
+        <section className="order-1 min-w-0 space-y-4">
           {access.addNote && (
             <NoteComposer contactId={contactId} onAdded={addNote} />
           )}
@@ -707,7 +707,7 @@ export function CustomerPage({
           )}
         </section>
 
-        <aside className="order-1 min-w-0 space-y-4 lg:order-2">
+        <aside className="order-2 min-w-0 space-y-4">
           {/* The cards that read by contact id alone mount at once (their
               reads stay silent for a missing contact); the rest wait for
               the basics. */}

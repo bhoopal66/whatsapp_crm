@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 
 // Complete literal class strings (Tailwind cannot see composed names),
 // status tokens, each raw hue with a dark: pair (CLAUDE.md).
-const TAG = 'inline-flex shrink-0 items-center gap-1 text-[11px] leading-4';
+const TAG = 'inline-flex shrink-0 items-center gap-1 text-xs leading-4';
 const TOPIC_DOT = 'bg-violet-500 dark:bg-violet-300';
 const REPLY_CLASS = {
   new: 'text-info',
@@ -94,7 +94,7 @@ export function HrRowTags({ hr }: { hr: HrListRow | null }) {
             key="notSorted"
             role="img"
             aria-label={t('list.tabUnsorted')}
-            className="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1.5 text-[11px] leading-4"
+            className="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1.5 text-xs leading-4"
           >
             {t('list.tabUnsorted')}
           </span>
@@ -119,7 +119,7 @@ export function HrRowTags({ hr }: { hr: HrListRow | null }) {
             key="closed"
             role="img"
             aria-label={t('list.closed')}
-            className="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1.5 text-[11px] leading-4"
+            className="bg-muted text-muted-foreground inline-flex shrink-0 items-center rounded px-1.5 text-xs leading-4"
           >
             {t('list.closed')}
           </span>

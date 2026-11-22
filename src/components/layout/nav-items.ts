@@ -116,6 +116,12 @@ export interface NavItem {
    * waits out a round trip; see {@link navPrefetch}.
    */
   guarded?: boolean;
+  /**
+   * Other routes that light this row as well. The Mine / Team switch
+   * moved /team-inbox and /team-contacts out of the sidebar, so their
+   * parent rows stay highlighted on them. Matched like `href`.
+   */
+  alsoActiveFor?: string[];
 }
 
 /** What the sidebar knows beyond the role. */
@@ -163,8 +169,8 @@ export interface NavGroup {
     | 'customers'
     | 'submissions'
     | 'collaboration'
+    | 'reports'
     | 'team'
-    | 'hr'
     | 'automation'
     | 'integrations';
   /** Heading key in the `Sidebar` namespace; null renders no heading. */
@@ -182,6 +188,18 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
       // My worklist (029c): read-only ranked list, open to every staff role.
       { href: '/worklist', labelKey: 'worklist', icon: ListOrdered },
+      // A person's own Team-activity figures against the send limits,
+      // their blocked sends and unlock requests (migration 205). Sits
+      // beside the worklist: it is the agent's own daily page. The
+      // route's layout is the agent+ guard; the report route answers
+      // 403 while switched off.
+      {
+        href: '/my-activity',
+        labelKey: 'myActivity',
+        icon: UserCheck,
+        minRole: 'agent',
+        guarded: true,
+      },
     ],
   },
   {
@@ -211,7 +229,14 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'conversations',
     labelKey: 'groups.conversations',
     items: [
-      { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
+      // Also lit on /team-inbox: the Mine / Team switch on the screen
+      // replaced the separate sidebar row.
+      {
+        href: '/inbox',
+        labelKey: 'inbox',
+        icon: MessageSquare,
+        alsoActiveFor: ['/team-inbox'],
+      },
       // Missed calls and the call log (module 015). Staff only: the
       // route's layout turns a bank guest away; which calls come back is
       // RLS's call (`pbx_can_view_call`).
@@ -238,7 +263,12 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'customers',
     labelKey: 'groups.customers',
     items: [
-      { href: '/contacts', labelKey: 'contacts', icon: Users },
+      {
+        href: '/contacts',
+        labelKey: 'contacts',
+        icon: Users,
+        alsoActiveFor: ['/team-contacts'],
+      },
       // Everyone's: each member works their own deals, a team leader
       // their team's too, an admin all of them. Which deals come back
       // is RLS's call (migration 080, `can_view_deal`).
@@ -326,27 +356,21 @@ export const NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  // REPORTS SLOT. Another track adds the report screens here: push
+  // NavItems onto this group's `items` and nothing else needs to change.
+  // While `items` is empty the group renders nothing (`visibleNavGroups`
+  // drops any group the role may open nothing in, so no heading is shown
+  // over an empty list). The heading text already exists as
+  // `Sidebar.groups.reports`. nav-items.test.ts covers both states.
+  {
+    id: 'reports',
+    labelKey: 'groups.reports',
+    items: [],
+  },
   {
     id: 'team',
     labelKey: 'groups.team',
     items: [
-      // A team leader's wider view of Inbox and Contacts. Admins see
-      // them too (they outrank a leader); what each gets back is RLS's
-      // call.
-      {
-        href: '/team-inbox',
-        labelKey: 'teamInbox',
-        icon: Inbox,
-        minRole: 'team_leader',
-        guarded: true,
-      },
-      {
-        href: '/team-contacts',
-        labelKey: 'teamContacts',
-        icon: ContactRound,
-        minRole: 'team_leader',
-        guarded: true,
-      },
       // The recorded calls of the people a leader leads (an admin:
       // everyone's), to listen back by person. The route's layout is the
       // team_leader+ guard; which calls come back is RLS's call
@@ -380,75 +404,17 @@ export const NAV_GROUPS: NavGroup[] = [
         minRole: 'team_leader',
         guarded: true,
       },
-      // A person's own figures against those limits, their blocked sends
-      // and unlock requests (migration 205). The route's layout is the
-      // agent+ guard; the report route answers 403 while switched off.
+      // HR (migrations 192, 200): one row for the whole HR area. The
+      // tabs inside (components/hr/hr-tabs.tsx, `HR_TABS` in lib/hr/tabs.ts) carry the
+      // individual screens, each gated as before by hrGateOpen. Owners
+      // and admins see it; an HR team member when any HR role opens a
+      // tab (`hr: 'any'`). /hr/layout.tsx's HrAccessLayout is the
+      // server-side guard, and the old /hr/* URLs keep working.
       {
-        href: '/my-activity',
-        labelKey: 'myActivity',
-        icon: UserCheck,
-        minRole: 'agent',
-        guarded: true,
-      },
-    ],
-  },
-  // HR (migrations 192, 200): HR people's chats, which leave the
-  // inboxes above, one route per inbox, then the HR tools. Owners and
-  // admins see every row; an HR team member the rows their roles open
-  // (`hr`, see hrGateOpen). Each route's HrAccessLayout guards it.
-  {
-    id: 'hr',
-    labelKey: 'groups.hr',
-    items: [
-      {
-        href: '/hr/recruiter',
-        labelKey: 'hrRecruiter',
+        href: '/hr',
+        labelKey: 'hr',
         icon: UserSearch,
-        hr: 'recruiter',
-        guarded: true,
-      },
-      {
-        href: '/hr/department',
-        labelKey: 'hrDepartment',
-        icon: IdCard,
-        hr: 'dept',
-        guarded: true,
-      },
-      // HR-department chats with no HR row yet (neither a candidate
-      // nor an employee topic), so they have somewhere to be sorted.
-      {
-        href: '/hr/unsorted',
-        labelKey: 'hrUnsorted',
-        icon: Inbox,
         hr: 'any',
-        guarded: true,
-      },
-      {
-        href: '/hr/tasks',
-        labelKey: 'hrTasks',
-        icon: ListTodo,
-        hr: 'any',
-        guarded: true,
-      },
-      {
-        href: '/hr/rules',
-        labelKey: 'hrRules',
-        icon: SlidersHorizontal,
-        hr: 'any',
-        guarded: true,
-      },
-      {
-        href: '/hr/hire-fast',
-        labelKey: 'hrHireFast',
-        icon: Rocket,
-        hr: 'hireFast',
-        guarded: true,
-      },
-      {
-        href: '/hr/automated-messages',
-        labelKey: 'hrAutomatedMessages',
-        icon: MessageSquareText,
-        hr: 'automatedMessages',
         guarded: true,
       },
     ],
@@ -509,6 +475,41 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+/**
+ * The team leader's wider views of Inbox and Contacts. They are no
+ * longer sidebar rows: the Mine / Team switch at the top of each screen
+ * (components/layout/team-view-switch.tsx) links to them, shown by the
+ * very same predicate the rows used ({@link isNavItemVisible}: team
+ * leader and up, admins included, and /team-contacts hidden from a
+ * restricted department). The routes keep working as plain links, and
+ * each is guarded by its own layout. What each returns is RLS's call.
+ */
+export const TEAM_VIEW_ITEMS: Record<'inbox' | 'contacts', NavItem> = {
+  inbox: {
+    href: '/team-inbox',
+    labelKey: 'teamInbox',
+    icon: Inbox,
+    minRole: 'team_leader',
+    guarded: true,
+  },
+  contacts: {
+    href: '/team-contacts',
+    labelKey: 'teamContacts',
+    icon: ContactRound,
+    minRole: 'team_leader',
+    guarded: true,
+  },
+};
+
+/** Does this person get the Mine / Team switch on `screen`? */
+export function canUseTeamView(
+  screen: 'inbox' | 'contacts',
+  role: AccountRole | null,
+  ctx: NavContext = {}
+): boolean {
+  return isNavItemVisible(TEAM_VIEW_ITEMS[screen], role, ctx);
+}
+
 /** Set apart at the foot of the nav, below every group. */
 export const BOTTOM_NAV_ITEMS: NavItem[] = [
   { href: '/settings', labelKey: 'settings', icon: Settings },
@@ -524,12 +525,15 @@ export const BOTTOM_NAV_ITEMS: NavItem[] = [
  */
 export function visibleNavGroups(
   role: AccountRole | null,
-  ctx: NavContext = {}
+  ctx: NavContext = {},
+  groups: NavGroup[] = NAV_GROUPS
 ): NavGroup[] {
-  return NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => isNavItemVisible(item, role, ctx)),
-  })).filter((group) => group.items.length > 0);
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isNavItemVisible(item, role, ctx)),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 /** The rows of `items` this person may see (restricted departments lose sales areas). */
@@ -582,6 +586,13 @@ export function isNavItemVisible(
 export function isNavItemActive(href: string, pathname: string): boolean {
   if (pathname === href) return true;
   return href !== '/dashboard' && pathname.startsWith(`${href}/`);
+}
+
+/** Is `item`'s row lit on `pathname`? (Its own route, or an `alsoActiveFor` one.) */
+export function isNavRowActive(item: NavItem, pathname: string): boolean {
+  return [item.href, ...(item.alsoActiveFor ?? [])].some((href) =>
+    isNavItemActive(href, pathname)
+  );
 }
 
 /**

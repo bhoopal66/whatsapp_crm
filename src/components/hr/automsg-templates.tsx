@@ -198,7 +198,7 @@ export function TemplateCard({
             language,
           })}
         </span>
-        <span className="border-border text-muted-foreground rounded-full border px-1.5 text-[10px] leading-4 font-medium">
+        <span className="border-border text-muted-foreground rounded-full border px-1.5 text-xs leading-4 font-medium">
           {t(CHANNEL_LABEL_KEYS[slot.channel])}
         </span>
       </legend>

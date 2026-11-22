@@ -907,7 +907,7 @@ function AuditCard() {
                         {outcome(r)}
                       </Badge>
                       {r.why ? (
-                        <div className="text-muted-foreground mt-0.5 font-mono text-[11px]">
+                        <div className="text-muted-foreground mt-0.5 font-mono text-xs">
                           {r.why}
                         </div>
                       ) : null}

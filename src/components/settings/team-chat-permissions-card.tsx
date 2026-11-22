@@ -242,7 +242,7 @@ export function PermissionsCard({
                               />
                               {channelCreationLimit(rc, cap) ===
                                 'coordinatorsOnly' && (
-                                <span className="text-muted-foreground text-[11px] leading-tight whitespace-nowrap">
+                                <span className="text-muted-foreground text-xs leading-tight whitespace-nowrap">
                                   {t('coordinatorsOnly')}
                                 </span>
                               )}

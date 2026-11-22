@@ -78,13 +78,13 @@ export function DealCard({
         </h4>
         {score && <LeadScoreBadge score={score} />}
         {deal.status === 'won' && (
-          <span className="bg-primary/15 text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+          <span className="bg-primary/15 text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold">
             <Check className="h-3 w-3" />
             {t('won')}
           </span>
         )}
         {deal.status === 'lost' && (
-          <span className="bg-destructive-soft text-destructive inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+          <span className="bg-destructive-soft text-destructive inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold">
             <X className="h-3 w-3" />
             {t('lost')}
           </span>
@@ -93,7 +93,7 @@ export function DealCard({
 
       {/* Contact row */}
       <div className="mt-2 flex items-center gap-2">
-        <span className="bg-secondary text-secondary-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold">
+        <span className="bg-secondary text-secondary-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
           {initials(deal.contact?.name, deal.contact?.phone)}
         </span>
         <span className="text-muted-foreground truncate text-xs">
@@ -106,7 +106,7 @@ export function DealCard({
           {formatCurrency(deal.value, deal.currency)}
         </span>
         {deal.expected_close_date && (
-          <span className="text-muted-foreground flex items-center gap-1 text-[11px]">
+          <span className="text-muted-foreground flex items-center gap-1 text-xs">
             <Calendar className="h-3 w-3" />
             {formatDate(deal.expected_close_date)}
           </span>
@@ -115,12 +115,12 @@ export function DealCard({
 
       {ownerLabel && (
         <div className="mt-2 flex min-w-0 items-center justify-end gap-1.5">
-          <span className="text-muted-foreground truncate text-[11px]">
+          <span className="text-muted-foreground truncate text-xs">
             {ownerLabel}
           </span>
           <span
             aria-hidden
-            className="bg-primary/15 text-primary flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+            className="bg-primary/15 text-primary flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
           >
             {initials(ownerLabel)}
           </span>

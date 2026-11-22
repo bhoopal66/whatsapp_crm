@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { isUuid } from '@/lib/chat/mentions';
 import { customerPath } from '@/lib/contacts/customer-links';
 import {
@@ -161,6 +164,7 @@ import {
 import { withParams } from '@/lib/contacts/url-state';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
+import { TeamViewSwitch } from '@/components/layout/team-view-switch';
 
 const PAGE_SIZE = 25;
 /** Typing pause before the search box re-queries. Every keystroke used
@@ -968,10 +972,15 @@ export function ContactsPageInner({
 
   return (
     <div className="space-y-6">
+      {/* Mine / Team: only for people who have a team view. */}
+      <TeamViewSwitch
+        screen="contacts"
+        teamView={teamView}
+        className="sm:w-60"
+      />
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0
               ? t('subtitle', { count: totalCount })
@@ -1048,7 +1057,7 @@ export function ContactsPageInner({
               <Filter className="size-4" />
               {t('filterByChatTag')}
               {chatTagFilterIds.length > 0 && (
-                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
+                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
                   {chatTagFilterIds.length}
                 </span>
               )}
@@ -1130,7 +1139,7 @@ export function ContactsPageInner({
                 <span
                   key={id}
                   style={chatTagChipStyle(chip.color)}
-                  className="text-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                  className="text-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
                 >
                   <span
                     className="size-1.5 shrink-0 rounded-full"
@@ -1252,25 +1261,30 @@ export function ContactsPageInner({
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={colCount} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="text-primary size-6 animate-spin" />
-                    <p className="text-muted-foreground text-sm">
-                      {t('loading')}
-                    </p>
-                  </div>
+                <TableCell colSpan={colCount} className="p-0">
+                  <LoadingState label={t('loading')} />
+                </TableCell>
+              </TableRow>
+            ) : list.error && contacts.length === 0 ? (
+              <TableRow className="border-border">
+                <TableCell colSpan={colCount} className="p-3">
+                  <ErrorState
+                    message={t('toastFailedLoad')}
+                    onRetry={() => void refreshList()}
+                  />
                 </TableCell>
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={colCount} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Users className="text-muted-foreground size-8" />
-                    <p className="text-muted-foreground text-sm">
-                      {hasActiveFilters
+                <TableCell colSpan={colCount} className="p-3">
+                  <EmptyState
+                    icon={Users}
+                    title={
+                      hasActiveFilters
                         ? t('noContactsMatch')
-                        : t('noContactsYet')}
-                    </p>
+                        : t('noContactsYet')
+                    }
+                  >
                     {!hasActiveFilters && (
                       <GatedButton
                         canAct={canEdit}
@@ -1284,7 +1298,7 @@ export function ContactsPageInner({
                         {t('addFirstContact')}
                       </GatedButton>
                     )}
-                  </div>
+                  </EmptyState>
                 </TableCell>
               </TableRow>
             ) : (
@@ -1335,7 +1349,7 @@ export function ContactsPageInner({
                         {contact.closeMatch && (
                           <span
                             title={tSearch('similarHint')}
-                            className="bg-card-2 text-muted-foreground shrink-0 rounded px-1 text-[10px] font-medium"
+                            className="bg-card-2 text-muted-foreground shrink-0 rounded px-1 text-xs font-medium"
                           >
                             {tSearch('similar')}
                           </span>

@@ -44,7 +44,7 @@ export interface ChannelHeaderProps {
 }
 
 const BADGE =
-  'flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold';
+  'flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold';
 
 const CHIP =
   'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50';
@@ -112,7 +112,7 @@ export function ChannelHeader({
         <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
         <h2 className="min-w-0 truncate text-base font-bold">{name}</h2>
         {channel.archivedAt && (
-          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold">
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold">
             {tSettings('archivedBadge')}
           </span>
         )}

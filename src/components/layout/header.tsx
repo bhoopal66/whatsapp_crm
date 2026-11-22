@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { CommandBarTrigger } from '@/components/command/command-bar-trigger';
 import { ModeToggle } from '@/components/layout/mode-toggle';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { pageTitleKey } from '@/components/layout/page-title';
@@ -53,6 +54,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        <CommandBarTrigger />
         <NotificationBell />
         <ModeToggle />
 

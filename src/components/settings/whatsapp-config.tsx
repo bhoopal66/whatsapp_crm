@@ -623,12 +623,12 @@ export function WhatsAppConfig({
                   </>
                 )}
                 {webhookHooks.length > 0 && (
-                  <ul className="text-foreground/80 mt-2 space-y-1 font-mono text-[11px]">
+                  <ul className="text-foreground/80 mt-2 space-y-1 font-mono text-xs">
                     {webhookHooks.map((hook) => (
                       <li key={hook.url} className="break-all">
                         {hook.url}
                         {!hook.ours && (
-                          <span className="border-warning/30 bg-warning-soft text-warning ml-2 inline-flex items-center gap-1 rounded border px-1.5 py-px font-sans text-[11px] font-medium">
+                          <span className="border-warning/30 bg-warning-soft text-warning ml-2 inline-flex items-center gap-1 rounded border px-1.5 py-px font-sans text-xs font-medium">
                             <AlertTriangle className="size-3 shrink-0" />
                             {t('webhookForeign')}
                           </span>
@@ -860,7 +860,7 @@ export function WhatsAppConfig({
                   <div key={hook.url} className="space-y-1">
                     <p
                       className={
-                        'flex items-center gap-1 text-[11px] ' +
+                        'flex items-center gap-1 text-xs ' +
                         (hook.ours
                           ? 'text-muted-foreground'
                           : 'text-warning font-medium')

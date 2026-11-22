@@ -46,7 +46,7 @@ function Fact({
 }) {
   return (
     <div className="border-border rounded-lg border px-3 py-2">
-      <p className="text-muted-foreground text-[11px]">{label}</p>
+      <p className="text-muted-foreground text-xs">{label}</p>
       <p
         className={cn(
           'text-foreground text-sm font-semibold tabular-nums',
@@ -380,13 +380,13 @@ export function PersonSheet({
                         </div>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {c.new_contact && (
-                            <span className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]">
+                            <span className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs">
                               <UserPlus className="h-3 w-3" />
                               {t('badgeNew')}
                             </span>
                           )}
                           {c.has_link && (
-                            <span className="bg-warning-soft text-warning inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]">
+                            <span className="bg-warning-soft text-warning inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs">
                               <Link2 className="h-3 w-3" />
                               {t('badgeLink')}
                             </span>
@@ -394,7 +394,7 @@ export function PersonSheet({
                           {c.in_a_row > 1 && (
                             <span
                               className={cn(
-                                'rounded-full px-2 py-0.5 text-[11px]',
+                                'rounded-full px-2 py-0.5 text-xs',
                                 c.in_a_row > limits.maxUnansweredInRow
                                   ? 'bg-destructive-soft text-destructive'
                                   : 'bg-muted text-muted-foreground'
@@ -404,7 +404,7 @@ export function PersonSheet({
                             </span>
                           )}
                           {c.replied && (
-                            <span className="bg-success-soft text-success rounded-full px-2 py-0.5 text-[11px]">
+                            <span className="bg-success-soft text-success rounded-full px-2 py-0.5 text-xs">
                               {t('badgeReplied')}
                             </span>
                           )}

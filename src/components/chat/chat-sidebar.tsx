@@ -59,7 +59,7 @@ import { PresenceDot } from './presence-dot';
 import { useSavedCount } from './saved-items';
 
 const SECTION_LABEL =
-  'px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground';
+  'px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground';
 /** A hover this long warms the route and the timeline (not a pass-over). */
 const HOVER_PREFETCH_MS = 100;
 const ROW =
@@ -269,7 +269,7 @@ export function ChatSidebar({
           )}
           {e.badge?.kind === 'mentions' ? (
             <span
-              className="bg-primary text-primary-foreground min-w-5 rounded-full px-1.5 text-center text-[11px] font-bold"
+              className="bg-primary text-primary-foreground min-w-5 rounded-full px-1.5 text-center text-xs font-bold"
               aria-label={t('mentions', { count: e.badge.count })}
             >
               {e.badge.count}

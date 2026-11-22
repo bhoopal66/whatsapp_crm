@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import type { ValidationIssue } from "@/lib/flows/validate";
 import { useFlowEditor } from "./flow-editor-state";
+import { useStepNamer } from "./step-name";
 
 export function ValidationPanel() {
   const { issues, requestFlash } = useFlowEditor();
@@ -79,6 +80,9 @@ export function IssueLine({
   onJump?: (key: string) => void;
   t?: ReturnType<typeof useTranslations>;
 }) {
+  const { state } = useFlowEditor();
+  const stepName = useStepNamer(state.nodes);
+  const nodeName = issue.node_key ? stepName(issue.node_key) : "";
   const tone =
     issue.severity === "error" ? "text-destructive" : "text-warning";
   const iconTone =
@@ -87,9 +91,9 @@ export function IssueLine({
     <>
       <CircleAlert className={cn("mt-0.5 h-3 w-3 shrink-0", iconTone)} />
       <span className="min-w-0 flex-1">
-        {issue.node_key && (
-          <code className="mr-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-            {issue.node_key}
+        {nodeName && (
+          <code className="mr-1 rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
+            {nodeName}
           </code>
         )}
         {issue.message}
@@ -109,7 +113,7 @@ export function IssueLine({
           "flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-muted/60",
           tone,
         )}
-        aria-label={t ? t("jumpToNode", { key: issue.node_key! }) : `Jump to node ${issue.node_key}`}
+        aria-label={t ? t("jumpToNode", { key: nodeName }) : `Jump to ${nodeName}`}
       >
         {body}
       </button>

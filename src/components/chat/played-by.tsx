@@ -94,7 +94,7 @@ export function PlayedBy({
   if (label === 'none') return null;
 
   const line =
-    'text-muted-foreground flex items-center gap-1 px-1 text-[11px] leading-5';
+    'text-muted-foreground flex items-center gap-1 px-1 text-xs leading-5';
   const mic = <Mic aria-hidden className="text-info size-3 fill-current" />;
   if (label === 'played')
     return (
@@ -110,7 +110,7 @@ export function PlayedBy({
     <span
       aria-hidden
       className={cn(
-        'ring-card flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-2',
+        'ring-card flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-2',
         avatarTint(id)
       )}
     >

@@ -244,8 +244,6 @@ export default function HrSetupPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4">
-      <h1 className="text-xl font-semibold">{t('setup.title')}</h1>
-
       <section className="border-border bg-card space-y-3 rounded-lg border p-4">
         <div>
           <h2 className="font-semibold">{t('setup.team.title')}</h2>

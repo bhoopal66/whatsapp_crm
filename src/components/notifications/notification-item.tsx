@@ -229,7 +229,7 @@ export function NotificationItem({
               <span
                 title={tBell('switchHint', { name: workspaceName })}
                 className={cn(
-                  'border-border bg-muted text-muted-foreground flex-shrink-0 truncate rounded-md border px-1.5 py-0.5 text-[10px] font-medium',
+                  'border-border bg-muted text-muted-foreground flex-shrink-0 truncate rounded-md border px-1.5 py-0.5 text-xs font-medium',
                   compact ? 'max-w-28' : 'max-w-40'
                 )}
               >
@@ -257,7 +257,7 @@ export function NotificationItem({
               {n.body}
             </p>
           )}
-          <p className="text-muted-foreground/70 mt-1 text-[11px]">
+          <p className="text-muted-foreground/70 mt-1 text-xs">
             {formatDistanceToNow(new Date(n.created_at), {
               addSuffix: true,
             })}

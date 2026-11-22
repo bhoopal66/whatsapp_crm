@@ -396,7 +396,7 @@ function TemplatesCard({
                       <td className="py-2 pr-3">
                         <span
                           className={cn(
-                            'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                            'rounded-full px-2 py-0.5 text-xs font-medium',
                             i.category === 'MARKETING'
                               ? 'bg-primary-soft text-primary'
                               : 'bg-muted text-muted-foreground'

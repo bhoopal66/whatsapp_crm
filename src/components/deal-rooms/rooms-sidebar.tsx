@@ -80,7 +80,7 @@ export function DealRoomsSidebar({
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-4"
         aria-label={t('sections.dealRooms')}
       >
-        <p className="text-muted-foreground px-3 pt-3 pb-1 text-[11px] font-semibold tracking-[0.12em] uppercase">
+        <p className="text-muted-foreground px-3 pt-3 pb-1 text-xs font-semibold tracking-[0.12em] uppercase">
           {t('sections.dealRooms')}
         </p>
         {rooms === null ? (

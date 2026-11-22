@@ -50,6 +50,15 @@
     "countdown": "{time} left to reply",
     "tooltip": "On a WhatsApp Business (Cloud API) number you can send free text only within 24 hours of the customer's last message. After that, only an approved template can be sent until they write again."
   },
+  "States": {
+    "emptyTitle": "Nothing here yet",
+    "errorMessage": "We could not load this. Check your connection and try again.",
+    "errorTitle": "Something went wrong",
+    "flowVsAutomationBody": "A Flow is a back-and-forth conversation with one customer that waits for their replies. An Automation is a rule that runs steps when something happens.",
+    "flowVsAutomationTitle": "Flow or Automation?",
+    "loading": "Loading…",
+    "retry": "Try again"
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
@@ -91,7 +100,8 @@
       "team": "Team",
       "automation": "Campaigns & automation",
       "integrations": "Integrations",
-      "hr": "HR"
+      "hr": "HR",
+      "reports": "Reports"
     },
     "roleBankGuest": "Bank guest",
     "switchWorkspace": "Switch workspace",
@@ -124,7 +134,11 @@
     "openHrChats": "{count, plural, one {# open chat} other {# open chats}}",
     "desk": "Case desk",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "hr": "HR",
+    "groupHasCurrentPage": "This group holds the page you are on",
+    "workspaceSwitching": "Switching…",
+    "workspaceCurrent": "Current workspace"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -194,6 +208,10 @@
     "retry": "Retry",
     "unread": "Unread",
     "viewAll": "View all"
+  },
+  "MobileNav": {
+    "label": "Main navigation",
+    "more": "More"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -507,6 +525,7 @@
       "hideContact": "Hide contact",
       "showContact": "Show contact",
       "refresh": "Refresh",
+      "chatActions": "Chat actions",
       "refreshConversation": "Refresh conversation",
       "assign": "Assign",
       "assigned": "Assigned",
@@ -1961,7 +1980,7 @@
           "blurb": "Sends an image, video, or document"
         },
         "collect_input": {
-          "label": "Collect input",
+          "label": "Ask a question",
           "blurb": "Asks a question, saves the reply"
         },
         "condition": {
@@ -1997,7 +2016,7 @@
     "validation": {
       "noIssues": "No issues. Ready to activate.",
       "summary": "{errorCount} {errorCount, plural, =1 {error} other {errors}}, {warningCount} {warningCount, plural, =1 {warning} other {warnings}}",
-      "jumpToNode": "Jump to node {key}"
+      "jumpToNode": "Jump to {key}"
     },
     "editorState": {
       "saved": "Saved.",
@@ -11325,6 +11344,41 @@
       "not_allowed": "Only owners and admins can change response times."
     }
   },
+  "CommandBar": {
+    "title": "Command bar",
+    "inputLabel": "Search pages, people and actions",
+    "placeholder": "Search or jump to…",
+    "results": "Results",
+    "trigger": "Search or jump to… ({key} K)",
+    "groups": {
+      "pages": "Pages",
+      "actions": "Actions",
+      "settings": "Settings",
+      "contacts": "Contacts and chats"
+    },
+    "actions": {
+      "newBroadcast": "New broadcast",
+      "addContact": "Add contact",
+      "newMeeting": "New meeting",
+      "shortcuts": "Keyboard shortcuts"
+    },
+    "unnamed": "Unnamed contact",
+    "chatWith": "Open chat with {name}",
+    "searching": "Searching contacts…",
+    "empty": "Start typing to search.",
+    "noResults": "Nothing matches “{query}”.",
+    "hintMove": "Up and down arrows to move",
+    "hintOpen": "Enter to open",
+    "hintClose": "Esc to close",
+    "hintContacts": "Type 2 or more letters to search contacts",
+    "resultCount": "{count, plural, =0 {No results} =1 {1 result} other {# results}}",
+    "shortcutsTitle": "Keyboard shortcuts",
+    "shortcutsDescription": "These work when you are not typing in a field.",
+    "shortcutOpen": "Open the command bar",
+    "shortcutHelp": "Show this list",
+    "goTo": "Go to {screen}",
+    "then": "then"
+  },
   "ComposeCheck": {
     "title": "Check this message before sending",
     "description": "Nothing has been sent yet.",
@@ -11614,6 +11668,17 @@
         "outbound": "Outgoing call",
         "internal": "Internal call"
       }
+    }
+  },
+  "TeamViewSwitch": {
+    "mine": "Mine",
+    "team": "Team",
+    "unread": "{count} unread team {count, plural, =1 {conversation} other {conversations}}",
+    "inbox": {
+      "label": "Inbox view"
+    },
+    "contacts": {
+      "label": "Contacts view"
     }
   },
   "CustomerDocuments": {
@@ -12383,6 +12448,18 @@
         "note": "Consent is kept per channel; there is no fallback from one channel to another."
       }
     }
+  },
+  "HrTabs": {
+    "label": "HR sections",
+    "opening": "Opening HR…",
+    "openChats": "{count, plural, one {# open chat} other {# open chats}}",
+    "recruiter": "Recruiter HR",
+    "department": "HR department",
+    "unsorted": "Not sorted",
+    "tasks": "Tasks",
+    "rules": "Rules",
+    "hireFast": "Hire fast",
+    "automatedMessages": "Automated messages"
   },
   "MyActivity": {
     "findings": {

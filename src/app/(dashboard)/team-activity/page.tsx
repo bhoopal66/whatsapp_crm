@@ -433,10 +433,12 @@ function TeamActivityPageInner() {
       {/* 1. Header */}
       <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
         <div className="min-w-0">
-          <h1 className="text-foreground text-2xl font-bold break-words">
-            {title}
-          </h1>
-          <p className="text-muted-foreground mt-1 max-w-[65ch] text-sm">
+          {team && report && report.teamNames.length > 0 && (
+            <p className="text-foreground text-sm font-medium break-words">
+              {title}
+            </p>
+          )}
+          <p className="text-muted-foreground max-w-[65ch] text-sm">
             {t('description')}
           </p>
         </div>

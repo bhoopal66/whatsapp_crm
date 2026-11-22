@@ -103,7 +103,7 @@ function useRuleSentence() {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-border bg-card-2 rounded-lg border px-3 py-2">
-      <p className="text-muted-foreground text-[11px]">{label}</p>
+      <p className="text-muted-foreground text-xs">{label}</p>
       <p className="text-foreground text-sm font-semibold tabular-nums">
         {value}
       </p>
@@ -196,7 +196,6 @@ export default function MyActivityPage() {
     <div className="min-w-0 space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 max-w-[65ch] text-sm">
             {t('description')}
           </p>

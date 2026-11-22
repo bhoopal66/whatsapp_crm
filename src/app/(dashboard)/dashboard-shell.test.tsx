@@ -33,6 +33,12 @@ vi.mock('@/components/layout/unread-chats-provider', () => ({
   UnreadChatsProvider: ({ children }: { children: React.ReactNode }) =>
     children,
 }));
+vi.mock('@/components/command/command-bar', () => ({
+  CommandBar: () => null,
+}));
+vi.mock('@/components/layout/mobile-tab-bar', () => ({
+  MobileTabBar: () => null,
+}));
 vi.mock('@/components/layout/tab-title', () => ({ TabTitle: () => null }));
 vi.mock('@/components/layout/account-access-alert', () => ({
   AccountAccessAlert: () => null,

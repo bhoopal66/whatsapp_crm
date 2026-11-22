@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
+  MoreVertical,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
@@ -25,7 +26,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import {
   DropdownMenu,
@@ -143,6 +144,8 @@ export function ThreadHeader({
   // Each person's open chats and limit (migration 236), asked when the
   // Assign menu opens.
   const [assignMenuOpen, setAssignMenuOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsId = useId();
   const memberLoads = useMemberLoads(assignMenuOpen);
   const { accountRole } = useAuth();
   // The sub-tag's name, which may name the bank to share with.
@@ -214,13 +217,13 @@ export function ThreadHeader({
           </p>
         )}
         {personalLabel && (
-          <p className="text-info inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+          <p className="text-info inline-flex items-center gap-1 text-xs leading-4 font-medium">
             <Smartphone className="h-3 w-3 shrink-0" />
             {personalLabel}
           </p>
         )}
         {sharedBank && (
-          <p className="text-wa-teal inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+          <p className="text-wa-teal inline-flex items-center gap-1 text-xs leading-4 font-medium">
             <Share2 className="h-3 w-3 shrink-0" />
             {tShare('sharedLabel', { bank: sharedBank })}
           </p>
@@ -231,7 +234,7 @@ export function ThreadHeader({
 
   return (
     // WhatsApp's grey bar, solid so the wallpaper never shows through.
-    <div className="bg-wa-panel-header border-wa-divider shrink-0 border-b">
+    <div className="bg-wa-panel-header border-wa-divider relative shrink-0 border-b">
       {/* Row 1: the customer on the left; the number, the person on
         the chat, and past a hairline the two view utilities (refresh,
         contact panel) at the far right. */}
@@ -461,66 +464,97 @@ export function ThreadHeader({
             onConfirm={confirmAssign}
           />
 
+          {/* On a phone the icon buttons share one labelled "Chat
+            actions" menu, so the customer's name and the agent keep their
+            room. The buttons stay mounted (their dialogs live inside
+            them); the strip is only shown or hidden. */}
+          <button
+            type="button"
+            onClick={() => setActionsOpen((v) => !v)}
+            aria-expanded={actionsOpen}
+            aria-controls={actionsId}
+            aria-label={t('chatActions')}
+            title={t('chatActions')}
+            className={cn(
+              HEADER_ICON_BUTTON,
+              '@lg/thread:hidden',
+              actionsOpen && 'bg-wa-icon-hover'
+            )}
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
+          <div
+            id={actionsId}
+            role="group"
+            aria-label={t('chatActions')}
+            className={cn(
+              'items-center gap-1 @lg/thread:static @lg/thread:flex @lg/thread:gap-1.5 @lg/thread:border-0 @lg/thread:bg-transparent @lg/thread:p-0 @lg/thread:shadow-none',
+              actionsOpen
+                ? 'bg-wa-panel-header border-wa-divider absolute top-full right-2 z-20 flex rounded-lg border p-1.5 shadow-md'
+                : 'hidden'
+            )}
+          >
           {fullContact && (
-            <CallButton
-              contact={fullContact}
-              conversationId={conversation.id}
-            />
-          )}
-          <ShareToChatButton conversationId={conversation.id} />
-          {/* A follow-up task about this customer and chat. Not for a
-            share-only coordinator: the task's links must be visible to
-            the writer (can_link_task), and a share does not extend
-            can_view_contact / can_view_conversation. */}
-          {!shareOnly && (
-            <ChatReminderButton
-              key={`remind-${conversation.id}`}
-              conversationId={conversation.id}
-              contactId={contact.id}
-              customerName={displayName}
-              assignableProfiles={assignableProfiles}
-              currentUserId={currentUserId}
-            />
-          )}
-          {!shareOnly && !personalOwnerId && (
-            <CoordinatorShareButton
-              key={`coord-${conversation.id}`}
-              conversationId={conversation.id}
-              subTagName={subTagName}
-            />
-          )}
-
-          {onRefresh && (
-            <span
-              aria-hidden="true"
-              className="bg-wa-divider mx-0.5 hidden h-6 w-px @lg/thread:block"
-            />
-          )}
-
-          {/* Manual refresh — forces a refetch of the messages + the
-            conversation list (the parent bumps its resyncToken). Useful
-            when realtime missed an event or the agent just wants to be
-            sure nothing's stale. Only rendered when the parent wires
-            up `onRefresh`, and folded away in a narrow thread, where
-            the contact's name needs the room more (realtime and the
-            reconnect resync still keep the thread current). */}
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={isRefreshing}
-              aria-label={t('refreshConversation')}
-              title={t('refresh')}
-              className={cn(
-                HEADER_ICON_BUTTON,
-                'hidden disabled:opacity-60 @lg/thread:inline-flex'
-              )}
-            >
-              <RefreshCw
-                className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
+              <CallButton
+                contact={fullContact}
+                conversationId={conversation.id}
               />
-            </button>
-          )}
+            )}
+            <ShareToChatButton conversationId={conversation.id} />
+            {/* A follow-up task about this customer and chat. Not for a
+              share-only coordinator: the task's links must be visible to
+              the writer (can_link_task), and a share does not extend
+              can_view_contact / can_view_conversation. */}
+            {!shareOnly && (
+              <ChatReminderButton
+                key={`remind-${conversation.id}`}
+                conversationId={conversation.id}
+                contactId={contact.id}
+                customerName={displayName}
+                assignableProfiles={assignableProfiles}
+                currentUserId={currentUserId}
+              />
+            )}
+            {!shareOnly && !personalOwnerId && (
+              <CoordinatorShareButton
+                key={`coord-${conversation.id}`}
+                conversationId={conversation.id}
+                subTagName={subTagName}
+              />
+            )}
+
+            {onRefresh && (
+              <span
+                aria-hidden="true"
+                className="bg-wa-divider mx-0.5 hidden h-6 w-px @lg/thread:block"
+              />
+            )}
+
+            {/* Manual refresh — forces a refetch of the messages + the
+              conversation list (the parent bumps its resyncToken). Useful
+              when realtime missed an event or the agent just wants to be
+              sure nothing's stale. Only rendered when the parent wires
+              up `onRefresh`, and folded away in a narrow thread, where
+              the contact's name needs the room more (realtime and the
+              reconnect resync still keep the thread current). */}
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                aria-label={t('refreshConversation')}
+                title={t('refresh')}
+                className={cn(
+                  HEADER_ICON_BUTTON,
+                  'inline-flex disabled:opacity-60'
+                )}
+              >
+                <RefreshCw
+                  className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
+                />
+              </button>
+            )}
+          </div>
 
           {/* Contact-panel toggle — desktop only. The contact sidebar
             eats a chunk of horizontal width that crowds the thread on

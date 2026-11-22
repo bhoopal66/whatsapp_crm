@@ -504,7 +504,7 @@ function SortableStageRow({
             ))}
           </select>
         </div>
-        <p className="text-muted-foreground text-[11px]">{t('autoTagHelp')}</p>
+        <p className="text-muted-foreground text-xs">{t('autoTagHelp')}</p>
       </div>
     </div>
   );

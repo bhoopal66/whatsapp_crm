@@ -132,7 +132,7 @@ function BarRow({
         >
           {label}
           {bar.warmingUp && (
-            <span className="text-info bg-info-soft ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
+            <span className="text-info bg-info-soft ml-1.5 rounded-full px-1.5 py-0.5 text-xs font-medium">
               {t('warmingUp')}
             </span>
           )}

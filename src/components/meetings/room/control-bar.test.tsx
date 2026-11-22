@@ -115,7 +115,7 @@ describe('ControlBar (the full dock)', () => {
 });
 
 describe('Dock forms', () => {
-  const caption = '<span aria-hidden="true" class="text-muted-foreground h-3.5';
+  const caption = '<span aria-hidden="true" class="text-muted-foreground h-4';
 
   it('captions the buttons only in the full form', () => {
     expect(renderDock('full')).toContain(caption);

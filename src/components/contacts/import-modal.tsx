@@ -61,7 +61,7 @@ function PreviewCell({
       className={cn(
         'block truncate',
         maxWidth,
-        mono && 'font-mono text-[11px]'
+        mono && 'font-mono text-xs'
       )}
       title={value}
     >
@@ -267,11 +267,11 @@ export function ImportModal({
             <DialogDescription className="leading-relaxed text-muted-foreground"
               dangerouslySetInnerHTML={{
                 __html: t.markup('desc', {
-                  phoneCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  nameCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  emailCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  companyCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  tagsCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  phoneCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  nameCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  emailCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  companyCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  tagsCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
                 })
               }}
             />
@@ -303,7 +303,7 @@ export function ImportModal({
                 >
                   {truncateFilename(file.name)}
                 </p>
-                <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                   {t('rowsReady', { count: parsedRows.length })}
                 </span>
               </>
@@ -315,7 +315,7 @@ export function ImportModal({
                 <p className="text-sm text-muted-foreground">
                   {t('uploadDropzone')}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {t('uploadHint')}
                 </p>
               </>
@@ -334,7 +334,7 @@ export function ImportModal({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {preview.length > 0 && !result && (
             <div className="space-y-3">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+              <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                 {t('preview', { count: preview.length })}
               </p>
 
@@ -400,7 +400,7 @@ export function ImportModal({
               </div>
 
               {parsedRows.length > PREVIEW_LIMIT && (
-                <p className="text-center text-[11px] text-muted-foreground">
+                <p className="text-center text-xs text-muted-foreground">
                   {t('moreRows', { count: parsedRows.length - PREVIEW_LIMIT })}
                 </p>
               )}

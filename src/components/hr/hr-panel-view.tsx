@@ -104,7 +104,7 @@ function Field({
     <fieldset className="border-input min-w-0 space-y-1.5 rounded-md border px-2.5 pt-0.5 pb-2.5">
       <legend className="text-muted-foreground px-1 text-xs">{legend}</legend>
       {children}
-      {hint && <p className="text-muted-foreground text-[11px]">{hint}</p>}
+      {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
     </fieldset>
   );
 }
@@ -247,7 +247,7 @@ export function HrPanelView(props: HrPanelViewProps) {
           )}
         </label>
         {hint('topic') && (
-          <p className="text-muted-foreground text-[11px]">{hint('topic')}</p>
+          <p className="text-muted-foreground text-xs">{hint('topic')}</p>
         )}
       </div>
     ),
@@ -299,7 +299,7 @@ export function HrPanelView(props: HrPanelViewProps) {
         </span>
         <span className="text-muted-foreground">{t('pane.replyAuto')}</span>
         {!actions.edit && !closed && (
-          <span className="text-muted-foreground basis-full text-[11px]">
+          <span className="text-muted-foreground basis-full text-xs">
             {t('panel.readOnly')}
           </span>
         )}
@@ -424,7 +424,7 @@ export function HrPanelView(props: HrPanelViewProps) {
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs">{task.title}</p>
-                  <p className="text-muted-foreground text-[11px]">
+                  <p className="text-muted-foreground text-xs">
                     {task.due_at
                       ? t('panel.due', {
                           when: formatDistanceToNow(new Date(task.due_at), {

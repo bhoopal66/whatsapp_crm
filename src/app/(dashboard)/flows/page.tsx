@@ -20,6 +20,10 @@ import {
 
 import { useTranslations } from "next-intl";
 import { useCan } from "@/hooks/use-can";
+import { EmptyState } from "@/components/dashboard/empty-state";
+import { ErrorState } from "@/components/dashboard/error-state";
+import { LoadingState } from "@/components/dashboard/loading-state";
+import { FlowVsAutomationHelp } from "@/components/dashboard/flow-vs-automation-help";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
 import {
@@ -89,6 +93,8 @@ export default function FlowsPage() {
   const t = useTranslations("Flows.list");
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -96,6 +102,8 @@ export default function FlowsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoadFailed(false);
+    setLoading(true);
     (async () => {
       try {
         const [flowsRes, tmplRes] = await Promise.all([
@@ -119,6 +127,7 @@ export default function FlowsPage() {
         if (!cancelled) {
           console.error(err);
           toast.error(t("loadError"));
+          setLoadFailed(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -127,7 +136,7 @@ export default function FlowsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -193,11 +202,11 @@ export default function FlowsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <LoadingState />;
+  }
+
+  if (loadFailed) {
+    return <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />;
   }
 
   return (
@@ -205,8 +214,7 @@ export default function FlowsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
-            <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+            <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-warning">
               {t("beta")}
             </span>
           </div>
@@ -224,12 +232,25 @@ export default function FlowsPage() {
         </GatedButton>
       </header>
 
+      <FlowVsAutomationHelp />
+
       {flows.length === 0 ? (
         <EmptyState
-          onCreate={() => setCreateOpen(true)}
-          canCreate={canCreate}
-          t={t}
-        />
+          icon={Workflow}
+          title={t("emptyTitle")}
+          hint={t("emptyDesc")}
+          className="px-6 py-16"
+        >
+          <GatedButton
+            canAct={canCreate}
+            gateReason="create flows"
+            onClick={() => setCreateOpen(true)}
+            className="mt-3"
+          >
+            <Plus className="h-4 w-4" />
+            {t("createFirst")}
+          </GatedButton>
+        </EmptyState>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {flows.map((flow) => (
@@ -280,7 +301,7 @@ export default function FlowsPage() {
                       <span className="text-xs leading-relaxed text-muted-foreground">
                         {template.description}
                       </span>
-                      <span className="mt-auto border-t border-border pt-2 text-[11px] text-muted-foreground">
+                      <span className="mt-auto border-t border-border pt-2 text-xs text-muted-foreground">
                         {t("nodeCount", { count: template.node_count })}
                       </span>
                     </button>
@@ -323,39 +344,6 @@ export default function FlowsPage() {
   );
 }
 
-function EmptyState({
-  onCreate,
-  canCreate,
-  t,
-}: {
-  onCreate: () => void;
-  canCreate: boolean;
-  t: ReturnType<typeof useTranslations>;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/50 px-6 py-16 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-        <Workflow className="h-6 w-6 text-muted-foreground" />
-      </div>
-      <h2 className="mt-4 text-base font-medium text-foreground">
-        {t("emptyTitle")}
-      </h2>
-      <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        {t("emptyDesc")}
-      </p>
-      <GatedButton
-        canAct={canCreate}
-        gateReason="create flows"
-        onClick={onCreate}
-        className="mt-5"
-      >
-        <Plus className="h-4 w-4" />
-        {t("createFirst")}
-      </GatedButton>
-    </div>
-  );
-}
-
 function FlowCard({
   flow,
   onEdit,
@@ -387,7 +375,7 @@ function FlowCard({
         <Badge
           variant="outline"
           className={cn(
-            "shrink-0 gap-1 text-[10px]",
+            "shrink-0 gap-1 text-xs",
             STATUS_COLORS[flow.status],
           )}
         >
@@ -400,7 +388,7 @@ function FlowCard({
         {flow.description || triggerSummary}
       </p>
 
-      <div className="mt-4 flex items-center gap-3 text-[11px] text-muted-foreground">
+      <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <MessageSquare className="h-3 w-3" />
           {t("runCount", { count: flow.execution_count })}

@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
@@ -109,6 +112,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
 
   const listReady = callsListReady(tab, accountRole);
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     // The report tab loads its own figures; Unrouted waits for the role.
     if (!listReady) return;
@@ -152,7 +156,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     return () => {
       cancelled = true;
     };
-  }, [tab, listReady, wide]);
+  }, [tab, listReady, wide, reloadKey]);
 
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
@@ -313,8 +317,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('title')}</h1>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/calls/report"
@@ -398,26 +401,27 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       ) : tab === 'people' ? (
         <CallReport />
       ) : !current ? (
-        <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
+        <LoadingState />
       ) : current.failed ? (
-        <p className="text-destructive text-sm">{t('loadFailed')}</p>
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => {
+            setLoaded(null);
+            setReloadKey((k) => k + 1);
+          }}
+        />
       ) : current.calls.length === 0 ? (
-        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
-          <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
-            {tab === 'missed' ? (
-              <PhoneMissed className="size-5" aria-hidden />
-            ) : (
-              <Phone className="size-5" aria-hidden />
-            )}
-          </span>
-          <p className="text-muted-foreground text-sm">
-            {tab === 'missed'
+        <EmptyState
+          icon={tab === 'missed' ? PhoneMissed : Phone}
+          title={
+            tab === 'missed'
               ? t(wide ? 'emptyMissed' : 'emptyMyMissed')
               : tab === 'unrouted'
                 ? t('unrouted.empty')
-                : t('emptyLog')}
-          </p>
-        </div>
+                : t('emptyLog')
+          }
+          className="bg-card rounded-xl py-12"
+        />
       ) : split ? (
         <>
           {numbers}

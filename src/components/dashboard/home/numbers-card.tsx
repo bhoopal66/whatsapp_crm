@@ -84,11 +84,11 @@ export function NumbersCard({
                 <span className="text-foreground min-w-0 truncate text-sm font-medium">
                   {numberName(n) ?? t('cloudNumber')}
                 </span>
-                <span className="border-border text-muted-foreground shrink-0 rounded border px-1.5 text-[11px] leading-4">
+                <span className="border-border text-muted-foreground shrink-0 rounded border px-1.5 text-xs leading-4">
                   {providerLabel(n.provider)}
                 </span>
                 {n.is_primary && (
-                  <span className="bg-primary-soft text-primary shrink-0 rounded px-1.5 text-[11px] leading-4 font-medium">
+                  <span className="bg-primary-soft text-primary shrink-0 rounded px-1.5 text-xs leading-4 font-medium">
                     {t('primary')}
                   </span>
                 )}

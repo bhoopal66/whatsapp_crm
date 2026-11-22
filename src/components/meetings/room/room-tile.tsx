@@ -279,7 +279,7 @@ export function RoomTile(p: RoomTileProps) {
           className={cn(
             'absolute z-20 flex items-center gap-1 rounded-md bg-amber-400 font-semibold text-black tabular-nums shadow-sm',
             compact
-              ? 'top-1 left-1 px-1 py-0.5 text-[11px]'
+              ? 'top-1 left-1 px-1 py-0.5 text-xs'
               : 'top-2 left-2 px-1.5 py-1 text-xs'
           )}
           aria-label={
@@ -351,7 +351,7 @@ export function RoomTile(p: RoomTileProps) {
         className={cn(
           'absolute z-20 flex items-center gap-1.5 rounded-md bg-black/55 text-white backdrop-blur-sm',
           compact
-            ? 'bottom-1 left-1 max-w-[calc(100%-0.5rem)] px-1.5 py-0.5 text-[11px]'
+            ? 'bottom-1 left-1 max-w-[calc(100%-0.5rem)] px-1.5 py-0.5 text-xs'
             : 'bottom-2 left-2 max-w-[calc(100%-1rem)] px-2 py-1 text-xs'
         )}
       >

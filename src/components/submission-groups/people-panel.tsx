@@ -124,7 +124,7 @@ export function PeoplePanel({
               <span
                 aria-hidden
                 className={cn(
-                  'flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                  'flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
                   avatarTone(a.name)
                 )}
               >
@@ -165,7 +165,7 @@ export function PeoplePanel({
                   </Button>
                 </>
               ) : (
-                <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-xs font-medium">
                   {tl(a.label)}
                 </span>
               )}

@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
@@ -215,8 +218,7 @@ export function SubmissionGroupsList({
   return (
     <div className="bg-card flex h-full min-h-0 w-full flex-col">
       <div className="border-border shrink-0 space-y-2 border-b px-3 pt-3 pb-2.5">
-        <div className="flex items-baseline justify-between gap-2">
-          <h1 className="truncate text-base font-semibold">{t('title')}</h1>
+        <div className="flex items-baseline justify-end gap-2">
           {rows && (
             <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
               {loaded?.next && !mineOnly
@@ -279,31 +281,13 @@ export function SubmissionGroupsList({
           taller than the screen and scrolling moved the whole page. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         {!loaded ? (
-          <ul aria-hidden>
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <li
-                key={i}
-                className="border-border/60 flex items-center gap-3 border-b px-3 py-3"
-              >
-                <span className="bg-muted size-10 shrink-0 animate-pulse rounded-full" />
-                <span className="flex-1 space-y-2">
-                  <span className="bg-muted block h-3.5 w-2/3 animate-pulse rounded" />
-                  <span className="bg-muted block h-3 w-1/2 animate-pulse rounded" />
-                </span>
-              </li>
-            ))}
-          </ul>
+          <LoadingState />
         ) : loaded.failed ? (
-          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-            <p className="text-destructive text-sm">{t('loadFailed')}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void load(tab, debounced, bank)}
-            >
-              {t('retry')}
-            </Button>
-          </div>
+          <ErrorState
+            message={t('loadFailed')}
+            onRetry={() => void load(tab, debounced, bank)}
+            className="m-3"
+          />
         ) : rows && rows.length === 0 ? (
           loaded.next && !mineOnly ? (
             // A filtered page can come back empty with more to read: never
@@ -322,25 +306,24 @@ export function SubmissionGroupsList({
               })}
             </p>
           ) : (
-            <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-              <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
-                <FolderKanban className="size-5" aria-hidden />
-              </span>
-              <p className="font-semibold">
-                {mineOnly
+            <EmptyState
+              icon={FolderKanban}
+              title={
+                mineOnly
                   ? tl('emptyMineTitle')
                   : tab === 'active'
                     ? t('emptyActiveTitle')
-                    : t('emptyEndedTitle')}
-              </p>
-              <p className="text-muted-foreground max-w-xs text-sm">
-                {mineOnly
+                    : t('emptyEndedTitle')
+              }
+              hint={
+                mineOnly
                   ? tl('emptyMineBody')
                   : tab === 'active'
                     ? t('emptyActiveBody')
-                    : t('emptyEndedBody')}
-              </p>
-            </div>
+                    : t('emptyEndedBody')
+              }
+              className="m-3"
+            />
           )
         ) : (
           <nav aria-label={tl('navLabel')}>
@@ -436,9 +419,9 @@ function BankFilter({
   );
 }
 
-const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
+const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-xs font-medium';
 const UNREAD_BADGE =
-  'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold';
+  'bg-wa-green text-wa-green-fg flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs leading-none font-semibold';
 
 function Row({
   group: g,
@@ -536,7 +519,7 @@ function Row({
           )}
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <span
-              className="text-muted-foreground shrink-0 font-mono text-[11px]"
+              className="text-muted-foreground shrink-0 font-mono text-xs"
               title={g.submission_ref}
             >
               {shortRef(g.submission_ref)}
@@ -544,7 +527,7 @@ function Row({
             {chip && (
               <span
                 className={cn(
-                  'min-w-0 truncate rounded-full px-1.5 py-px text-[10px] font-medium',
+                  'min-w-0 truncate rounded-full px-1.5 py-px text-xs font-medium',
                   chip.chipClass
                 )}
                 title={chip.text}
@@ -553,7 +536,7 @@ function Row({
               </span>
             )}
             {when && (
-              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] whitespace-nowrap">
+              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-xs whitespace-nowrap">
                 {ended ? t('endedAt', { when }) : when}
               </span>
             )}
@@ -593,7 +576,7 @@ function Row({
                 </span>
               )}
               {noGroupBadge && (
-                <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-[10px]">
+                <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs">
                   <MessageSquareOff className="size-3" aria-hidden />
                   {t('noWhatsappBadge')}
                 </span>

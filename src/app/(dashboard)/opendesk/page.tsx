@@ -13,13 +13,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { format, formatDistanceToNow } from 'date-fns';
-import {
-  ChevronDown,
-  ChevronRight,
-  Headset,
-  Loader2,
-  Search,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Search } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -85,10 +79,6 @@ export default function OpenDeskPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-foreground flex items-center gap-2 text-2xl font-bold">
-          <Headset className="h-6 w-6" />
-          {t('title')}
-        </h1>
         <p className="text-muted-foreground mt-1 text-sm">{t('subtitle')}</p>
       </div>
       {accountId && <ContactsList accountId={accountId} />}

@@ -341,7 +341,7 @@ function EditorBody({
                               {m.user_id === draft.leader_user_id ? (
                                 <Badge
                                   variant="secondary"
-                                  className="h-4 px-1.5 text-[10px]"
+                                  className="h-4 px-1.5 text-xs"
                                 >
                                   {t('leaderBadge')}
                                 </Badge>

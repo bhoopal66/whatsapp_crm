@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import {
   useCallback,
   useEffect,
@@ -254,7 +257,6 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
     <div className="mx-auto w-full max-w-6xl space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
           <p className="text-muted-foreground min-h-5 text-sm">
             {clock !== null &&
               new Intl.DateTimeFormat(locale, {
@@ -327,26 +329,22 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
       </div>
 
       {current?.failed && (
-        <p className="text-destructive text-sm">{t('loadFailed')}</p>
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => void load()}
+          className="min-h-0 py-4"
+        />
       )}
 
       {!current ? (
-        <div className="space-y-3" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="bg-muted h-24 animate-pulse rounded-xl" />
-          ))}
-        </div>
+        <LoadingState />
       ) : noMatches ? (
         <p className="text-muted-foreground text-sm">
           {t('noMatches', { query: query.trim() })}
         </p>
       ) : tab === 'past' ? (
         past.length === 0 ? (
-          !current.failed && (
-            <p className="text-muted-foreground py-10 text-center text-sm">
-              {t('emptyPast')}
-            </p>
-          )
+          !current.failed && <EmptyState icon={Video} title={t('emptyPast')} />
         ) : (
           <ul className="space-y-2">
             {past.map((m) => (
@@ -355,21 +353,19 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
           </ul>
         )
       ) : nothingAtAll ? (
-        <div className="bg-card flex flex-col items-center gap-3 rounded-xl border px-4 py-14 text-center">
-          <span className="bg-primary-soft text-primary flex size-12 items-center justify-center rounded-full">
-            <Video className="size-5" aria-hidden />
-          </span>
-          <h2 className="font-semibold">{t('welcomeTitle')}</h2>
-          <p className="text-muted-foreground max-w-sm text-sm">
-            {canCreate ? t('welcomeBody') : t('welcomeGuest')}
-          </p>
+        <EmptyState
+          icon={Video}
+          title={t('welcomeTitle')}
+          hint={canCreate ? t('welcomeBody') : t('welcomeGuest')}
+          className="bg-card rounded-xl border-solid py-14"
+        >
           {canCreate && (
             <div className="flex flex-wrap justify-center gap-2">
               {startButton}
               {scheduleButton}
             </div>
           )}
-        </div>
+        </EmptyState>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="min-w-0 space-y-6">

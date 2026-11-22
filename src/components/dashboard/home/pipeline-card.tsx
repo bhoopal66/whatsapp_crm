@@ -145,7 +145,7 @@ function Donut({
           x={cx}
           y={cy - 6}
           textAnchor="middle"
-          className="fill-muted-foreground text-[11px]"
+          className="fill-muted-foreground text-xs"
         >
           {t('total')}
         </text>

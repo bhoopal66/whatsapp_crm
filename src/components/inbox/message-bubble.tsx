@@ -210,7 +210,7 @@ function MessageContent({
       // green outbound and the white inbound bubble.
       return (
         <div>
-          <span className="bg-wa-quote text-wa-meta mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium">
+          <span className="bg-wa-quote text-wa-meta mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium">
             <LayoutTemplate className="h-3 w-3" />
             {t('template')}
           </span>
@@ -272,7 +272,7 @@ function MessageContent({
       if (message.sender_type === 'customer') {
         return (
           <div className="flex flex-col gap-0.5">
-            <span className="text-wa-meta inline-flex items-center gap-1 text-[10px] font-medium tracking-wide uppercase">
+            <span className="text-wa-meta inline-flex items-center gap-1 text-xs font-medium tracking-wide uppercase">
               <CornerDownLeft className="h-3 w-3" />
               {t('buttonReply')}
             </span>
@@ -546,7 +546,7 @@ export function MessageBubble({
     <>
       {message.ai_generated && (
         <span
-          className="bg-wa-teal/15 text-wa-teal inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] leading-none font-semibold tracking-wide uppercase"
+          className="bg-wa-teal/15 text-wa-teal inline-flex items-center gap-0.5 rounded px-1 py-px text-xs leading-none font-semibold tracking-wide uppercase"
           title={t('aiBadgeTitle')}
         >
           <Sparkles className="h-2.5 w-2.5" />
@@ -592,7 +592,7 @@ export function MessageBubble({
               // the time, onto a line of its own.
               <span
                 aria-hidden="true"
-                className="invisible ml-2 inline-flex items-center gap-1 align-bottom text-[11px] leading-[15px] select-none"
+                className="invisible ml-2 inline-flex items-center gap-1 align-bottom text-xs leading-[15px] select-none"
               >
                 {meta}
               </span>
@@ -601,7 +601,7 @@ export function MessageBubble({
         />
         <div
           className={cn(
-            'text-wa-meta flex items-center gap-1 text-[11px] leading-[15px]',
+            'text-wa-meta flex items-center gap-1 text-xs leading-[15px]',
             metaOverlay ? 'absolute right-2 bottom-1' : 'mt-1 justify-end'
           )}
         >

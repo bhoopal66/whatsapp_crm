@@ -40,7 +40,7 @@ export function InteractivePreview({
           )}
         </p>
         {payload.footer ? (
-          <p className="mt-1 break-words text-[11px] text-muted-foreground">
+          <p className="mt-1 break-words text-xs text-muted-foreground">
             {payload.footer}
           </p>
         ) : null}

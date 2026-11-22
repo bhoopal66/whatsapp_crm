@@ -319,7 +319,7 @@ export function MessageRow({
                 <span
                   key={id}
                   className={cn(
-                    'ring-background flex size-5 items-center justify-center rounded text-[10px] font-bold ring-2',
+                    'ring-background flex size-6 items-center justify-center rounded text-xs font-bold ring-2',
                     avatarTint(id)
                   )}
                 >

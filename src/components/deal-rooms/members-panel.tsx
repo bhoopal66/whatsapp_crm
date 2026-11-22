@@ -274,7 +274,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                     <span
                       key={b}
                       className={cn(
-                        'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                        'rounded-full px-2 py-0.5 text-xs font-medium',
                         BADGE_CLASS[b]
                       )}
                     >

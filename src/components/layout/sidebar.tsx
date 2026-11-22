@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { trapTabTarget } from '@/lib/layout/focus-trap';
 import { LiveDot } from '@/components/meetings/meeting-status-badge';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
 import { isInCall } from '@/lib/meetings/session/session';
@@ -21,6 +23,8 @@ import { useHrCounts } from '@/hooks/use-hr-counts';
 import { hasHrAccess } from '@/lib/hr/access';
 import {
   ArrowLeftRight,
+  Check,
+  ChevronDown,
   Crown,
   LogOut,
   Settings,
@@ -33,8 +37,17 @@ import {
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
 import { workspaceHomePath } from '@/lib/auth/my-workspaces';
+import { isSwitchableWorkspace } from '@/lib/auth/workspace-archive';
 import {
-  isNavItemActive,
+  activeGroupId,
+  browserNavStorage,
+  isGroupOpen,
+  readCollapsed,
+  toggleCollapsed,
+  writeCollapsed,
+} from '@/lib/layout/nav-collapse';
+import {
+  isNavRowActive,
   navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
@@ -115,6 +128,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     accountRole,
     signOut,
     workspaces,
+    activeWorkspaceId,
+    switchWorkspace,
+    user,
     isBankGuest,
     salesRestricted,
     reviewsAllCalls,
@@ -143,6 +159,45 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();
 
+  // Folded groups, remembered per user in localStorage. Read after
+  // mount (never during render, so the server and first client paint
+  // agree) and every access is guarded: with no storage everything is
+  // simply open. The group holding the current page is always open.
+  const userId = user?.id ?? null;
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  useEffect(() => {
+    setCollapsed(readCollapsed(browserNavStorage(), userId));
+  }, [userId]);
+  const activeId = activeGroupId(navGroups, (href) =>
+    navGroups.some((g) =>
+      g.items.some((i) => i.href === href && isNavRowActive(i, pathname))
+    )
+  );
+  function toggleGroup(groupId: string) {
+    const next = toggleCollapsed(collapsed, groupId);
+    setCollapsed(next);
+    writeCollapsed(browserNavStorage(), userId, next);
+  }
+
+  // Workspace switcher: only for someone in more than one workspace.
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  async function chooseWorkspace(accountId: string) {
+    if (switchingTo || accountId === activeWorkspaceId) return;
+    setSwitchingTo(accountId);
+    try {
+      // switchWorkspace clears the client caches and reloads into the
+      // chosen workspace, so state is never reset on success.
+      await switchWorkspace(accountId);
+    } catch (err) {
+      setSwitchingTo(null);
+      toast.error(
+        t('workspaceSwitchFailed', {
+          reason: err instanceof Error ? err.message : String(err),
+        })
+      );
+    }
+  }
+
   const chatUnread = useChatUnreadTotal();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
@@ -167,19 +222,48 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Lock body scroll and allow Escape to close while the drawer is open on
-  // mobile. No-ops on desktop because the sidebar isn't positioned there.
+  // The open drawer behaves as a dialog: focus moves in, Tab wraps
+  // inside it, Escape closes it, and focus goes back to whatever opened
+  // it (the top bar's menu button or the bottom bar's More). Body scroll
+  // is locked. No-ops on desktop because the sidebar isn't a drawer there.
+  const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!open) return;
+    const aside = asideRef.current;
+    const opener = document.activeElement as HTMLElement | null;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const focusables = () =>
+      Array.from(
+        aside?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((el) => el.offsetParent !== null);
+    // Only on a phone, where the aside is the drawer.
+    const isDrawer = !window.matchMedia('(min-width: 1024px)').matches;
+    if (isDrawer) focusables()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'Escape') {
+        onClose?.();
+        return;
+      }
+      if (e.key !== 'Tab' || !isDrawer) return;
+      const els = focusables();
+      const target = trapTabTarget(
+        els.length,
+        els.indexOf(document.activeElement as HTMLElement),
+        e.shiftKey
+      );
+      if (target !== null) {
+        e.preventDefault();
+        els[target]?.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
+      if (isDrawer && opener?.isConnected) opener.focus();
     };
   }, [open, onClose]);
 
@@ -197,24 +281,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           label: t('unreadConversations', { count: unreadChats.inbox }),
           className: PRIMARY_BADGE,
         };
-      case '/team-inbox':
-        return {
-          count: unreadChats.team,
-          label: t('unreadConversations', { count: unreadChats.team }),
-          className: PRIMARY_BADGE,
-        };
-      // The HR inboxes: open chats (hr_counts), as the package's
-      // sidebar shows them, not unread.
-      case '/hr/recruiter':
-      case '/hr/department':
-      case '/hr/unsorted': {
+      // The one HR row: open chats across the three HR inboxes
+      // (hr_counts), not unread; each tab shows its own figure.
+      case '/hr': {
         if (!hrCounts) return null;
         const count =
-          href === '/hr/recruiter'
-            ? hrCounts.recruiter.all
-            : href === '/hr/department'
-              ? hrCounts.dept.all
-              : hrCounts.unsorted;
+          hrCounts.recruiter.all + hrCounts.dept.all + hrCounts.unsorted;
         return {
           count,
           label: t('openHrChats', { count }),
@@ -260,7 +332,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   }
 
   function renderNavItem(item: NavItem) {
-    const isActive = isNavItemActive(item.href, pathname);
+    const isActive = isNavRowActive(item, pathname);
 
     // What waits behind the row, as a number: a dot said only
     // "something", not how much.
@@ -290,7 +362,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           {item.beta && (
             <span
               aria-label={t('beta')}
-              className="border-warning/40 bg-warning-soft text-warning rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase"
+              className="border-warning/40 bg-warning-soft text-warning rounded-full border px-1.5 py-0.5 text-xs font-semibold tracking-wider uppercase"
             >
               {t('beta')}
             </span>
@@ -299,7 +371,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <span
               aria-label={badge.label}
               className={cn(
-                'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold',
+                'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-semibold',
                 badge.className
               )}
             >
@@ -329,6 +401,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       />
 
       <aside
+        ref={asideRef}
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
           'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-row border-r',
@@ -385,19 +458,43 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <div className="flex flex-col gap-4">
               {navGroups.map((group) => {
                 const headingId = `${groupIdPrefix}-${group.id}`;
+                const listId = `${groupIdPrefix}-${group.id}-list`;
+                // A group with no heading (the home row) has nothing to
+                // fold; every other one folds, except the group that
+                // holds the current page.
+                const open =
+                  !group.labelKey || isGroupOpen(group.id, collapsed, activeId);
+                const locked = group.id === activeId;
                 return (
                   <div key={group.id}>
                     {group.labelKey ? (
-                      <div
-                        id={headingId}
-                        className="text-muted-foreground px-3 pb-1.5 text-[11px] font-semibold tracking-[0.09em] uppercase"
-                      >
-                        {t(group.labelKey)}
-                      </div>
+                      <h2 id={headingId} className="m-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.id)}
+                          aria-expanded={open}
+                          aria-controls={listId}
+                          disabled={locked}
+                          title={locked ? t('groupHasCurrentPage') : undefined}
+                          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-xs font-semibold tracking-[0.09em] uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:opacity-100"
+                        >
+                          <span>{t(group.labelKey)}</span>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className={cn(
+                              'size-3.5 shrink-0 transition-transform',
+                              !open && '-rotate-90',
+                              locked && 'opacity-40'
+                            )}
+                          />
+                        </button>
+                      </h2>
                     ) : null}
                     <ul
+                      id={listId}
+                      hidden={!open}
                       aria-labelledby={group.labelKey ? headingId : undefined}
-                      className="flex flex-col gap-0.5"
+                      className="mt-0.5 flex flex-col gap-0.5"
                     >
                       {group.items.map(renderNavItem)}
                     </ul>
@@ -442,7 +539,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                       const Icon = meta.icon;
                       return (
                         <span
-                          className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wider uppercase ${meta.className}`}
+                          className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium tracking-wider uppercase ${meta.className}`}
                         >
                           <Icon className="size-3" />
                           {t(meta.labelKey as string)}
@@ -451,6 +548,59 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     })()
                   : null}
               </div>
+            ) : null}
+            {workspaces.length > 1 && !profileLoading ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label={t('switchWorkspace')}
+                  className="border-border text-sidebar-foreground hover:bg-muted/60 data-popup-open:bg-muted/60 focus-visible:ring-ring mb-2 flex min-h-9 w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  <ArrowLeftRight className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {account?.name ?? t('switchWorkspace')}
+                  </span>
+                  <ChevronDown className="size-3.5 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  side="top"
+                  sideOffset={6}
+                  className="bg-popover text-popover-foreground ring-border min-w-56"
+                >
+                  {workspaces.map((w) => {
+                    const current = w.accountId === activeWorkspaceId;
+                    const switchable = isSwitchableWorkspace(w);
+                    return (
+                      <DropdownMenuItem
+                        key={w.accountId}
+                        disabled={!switchable || !!switchingTo}
+                        onClick={() => chooseWorkspace(w.accountId)}
+                        className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {w.name}
+                        </span>
+                        {w.deactivated ? (
+                          <span className="text-muted-foreground text-xs">
+                            {t('workspaceDeactivated')}
+                          </span>
+                        ) : null}
+                        {switchingTo === w.accountId ? (
+                          <span className="text-muted-foreground text-xs">
+                            {t('workspaceSwitching')}
+                          </span>
+                        ) : null}
+                        {current ? (
+                          <Check
+                            aria-label={t('workspaceCurrent')}
+                            className="size-4 shrink-0"
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">

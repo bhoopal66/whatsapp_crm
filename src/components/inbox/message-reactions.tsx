@@ -61,7 +61,7 @@ export function MessageReactions({
           onClick={() => onToggle(g.emoji)}
           aria-pressed={g.byCurrentUser}
           className={cn(
-            'text-wa-text-secondary ring-wa-chat inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-none shadow-[0_1px_2px_rgba(11,20,26,0.18)] ring-2 transition-colors',
+            'text-wa-text-secondary ring-wa-chat inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-xs leading-none shadow-[0_1px_2px_rgba(11,20,26,0.18)] ring-2 transition-colors',
             g.byCurrentUser
               ? 'bg-wa-chip-active'
               : 'bg-wa-bubble-in hover:bg-wa-row-hover'

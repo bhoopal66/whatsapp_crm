@@ -97,7 +97,7 @@ export function FloatControls({
       <FloatButton label={t('chat')} onClick={onChat}>
         <MessageSquare className="size-4" />
         {chatUnread > 0 && (
-          <span className="bg-destructive absolute -top-1 -right-1 min-w-4 rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white">
+          <span className="bg-destructive absolute -top-1 -right-1 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold text-white">
             {chatUnread > 9 ? '9+' : chatUnread}
           </span>
         )}

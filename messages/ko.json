@@ -50,6 +50,15 @@
     "countdown": "답장 가능 시간 {time} 남음",
     "tooltip": "WhatsApp Business(Cloud API) 번호에서는 고객의 마지막 메시지 후 24시간 동안만 자유 텍스트를 보낼 수 있습니다. 그 후에는 고객이 다시 메시지를 보낼 때까지 승인된 템플릿만 보낼 수 있습니다."
   },
+  "States": {
+    "emptyTitle": "아직 아무것도 없습니다",
+    "errorMessage": "불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.",
+    "errorTitle": "문제가 발생했습니다",
+    "flowVsAutomationBody": "플로우는 고객 한 명과 답장을 기다리며 주고받는 대화입니다. 자동화는 어떤 일이 발생하면 단계를 실행하는 규칙입니다.",
+    "flowVsAutomationTitle": "플로우와 자동화의 차이",
+    "loading": "불러오는 중…",
+    "retry": "다시 시도"
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "대시보드",
@@ -91,7 +100,8 @@
       "team": "팀",
       "automation": "캠페인 및 자동화",
       "integrations": "연동",
-      "hr": "HR"
+      "hr": "HR",
+      "reports": "보고서"
     },
     "roleBankGuest": "은행 게스트",
     "switchWorkspace": "워크스페이스 전환",
@@ -124,7 +134,11 @@
     "openHrChats": "{count, plural, other {열린 채팅 #개}}",
     "desk": "케이스 데스크",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "hr": "HR",
+    "groupHasCurrentPage": "현재 보고 있는 페이지가 이 그룹에 있습니다",
+    "workspaceSwitching": "전환 중…",
+    "workspaceCurrent": "현재 워크스페이스"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -194,6 +208,10 @@
     "retry": "다시 시도",
     "unread": "읽지 않음",
     "viewAll": "모두 보기"
+  },
+  "MobileNav": {
+    "label": "주 메뉴",
+    "more": "더보기"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -507,6 +525,7 @@
       "hideContact": "연락처 숨기기",
       "showContact": "연락처 표시",
       "refresh": "새로고침",
+      "chatActions": "채팅 작업",
       "refreshConversation": "대화 새로고침",
       "assign": "담당자 지정",
       "assigned": "담당자 지정됨",
@@ -1997,7 +2016,7 @@
     "validation": {
       "noIssues": "문제가 없습니다. 활성화할 준비가 되었습니다.",
       "summary": "오류 {errorCount}건, 경고 {warningCount}건",
-      "jumpToNode": "{key} 노드로 이동"
+      "jumpToNode": "{key}(으)로 이동"
     },
     "editorState": {
       "saved": "저장되었습니다.",
@@ -11325,6 +11344,41 @@
       "not_allowed": "소유자와 관리자만 응답 시간을 바꿀 수 있습니다."
     }
   },
+  "CommandBar": {
+    "title": "명령 막대",
+    "inputLabel": "페이지, 사람, 작업 검색",
+    "placeholder": "검색하거나 이동…",
+    "results": "결과",
+    "trigger": "검색하거나 이동… ({key} K)",
+    "groups": {
+      "pages": "페이지",
+      "actions": "작업",
+      "settings": "설정",
+      "contacts": "연락처 및 채팅"
+    },
+    "actions": {
+      "newBroadcast": "새 브로드캐스트",
+      "addContact": "연락처 추가",
+      "newMeeting": "새 회의",
+      "shortcuts": "키보드 단축키"
+    },
+    "unnamed": "이름 없는 연락처",
+    "chatWith": "{name}님과의 채팅 열기",
+    "searching": "연락처 검색 중…",
+    "empty": "검색어를 입력하세요.",
+    "noResults": "“{query}”와(과) 일치하는 항목이 없습니다.",
+    "hintMove": "위아래 화살표로 이동",
+    "hintOpen": "Enter로 열기",
+    "hintClose": "Esc로 닫기",
+    "hintContacts": "연락처를 검색하려면 2자 이상 입력하세요",
+    "resultCount": "{count, plural, =0 {결과 없음} other {결과 #개}}",
+    "shortcutsTitle": "키보드 단축키",
+    "shortcutsDescription": "입력란에 입력 중이 아닐 때 사용할 수 있습니다.",
+    "shortcutOpen": "명령 막대 열기",
+    "shortcutHelp": "이 목록 보기",
+    "goTo": "{screen}(으)로 이동",
+    "then": "다음"
+  },
   "ComposeCheck": {
     "title": "보내기 전에 이 메시지를 확인하세요",
     "description": "아직 아무것도 보내지 않았습니다.",
@@ -11614,6 +11668,17 @@
         "outbound": "발신 통화",
         "internal": "내부 통화"
       }
+    }
+  },
+  "TeamViewSwitch": {
+    "mine": "내 것",
+    "team": "팀",
+    "unread": "{count, plural, other {읽지 않은 팀 대화 #개}}",
+    "inbox": {
+      "label": "받은편지함 보기"
+    },
+    "contacts": {
+      "label": "연락처 보기"
     }
   },
   "CustomerDocuments": {
@@ -12383,6 +12448,18 @@
         "note": "동의는 채널별로 관리되며, 한 채널에서 다른 채널로 대체되지 않습니다."
       }
     }
+  },
+  "HrTabs": {
+    "label": "HR 섹션",
+    "opening": "HR을 여는 중…",
+    "openChats": "{count, plural, other {열린 대화 #개}}",
+    "recruiter": "채용 HR",
+    "department": "HR 부서",
+    "unsorted": "미분류",
+    "tasks": "작업",
+    "rules": "규칙",
+    "hireFast": "빠른 채용",
+    "automatedMessages": "자동 메시지"
   },
   "MyActivity": {
     "findings": {

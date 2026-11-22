@@ -16,7 +16,7 @@ export function ImportantBadge({
   return (
     <span
       className={cn(
-        'bg-destructive inline-flex shrink-0 items-center rounded px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-white uppercase',
+        'bg-destructive inline-flex shrink-0 items-center rounded px-1.5 text-xs leading-4 font-semibold tracking-wide text-white uppercase',
         className
       )}
     >

@@ -97,6 +97,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { stepOrdinal } from './step-name';
 import { useFlowEditor } from './flow-editor-state';
 import { NodeConfigForm } from './forms/node-config-form';
 
@@ -138,6 +139,8 @@ function slotColor(nodeType: NodeType, slotId: string, fallback: string) {
 function FlowNodeCard({ data, selected }: NodeProps) {
   const t = useTranslations('Flows.builder');
   const { node, isEntry, isFlashed } = data as NodeData;
+  const { state: editorState } = useFlowEditor();
+  const ord = stepOrdinal(editorState.nodes, node.node_key);
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
   const tSummary = useTranslations('Flows.summary');
@@ -206,9 +209,11 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           </span>
         )}
       </div>
-      <div className="text-muted-foreground mt-2 truncate font-mono text-[11px]">
-        {node.node_key}
-      </div>
+      {ord && ord.total > 1 && (
+        <div className="text-muted-foreground mt-2 truncate text-xs">
+          #{ord.n}
+        </div>
+      )}
       {summary && (
         <div className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-relaxed">
           {summary}
@@ -220,7 +225,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           {slots.map((slot) => (
             <div
               key={slot.id}
-              className="text-muted-foreground relative flex items-center justify-between gap-2 rounded px-1 py-0.5 text-[11px]"
+              className="text-muted-foreground relative flex items-center justify-between gap-2 rounded px-1 py-0.5 text-xs"
             >
               <span className="truncate" title={slot.label}>
                 {slot.label}
@@ -629,6 +634,7 @@ function NodeEditSheet({
   }
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
+  const sheetOrd = stepOrdinal(allNodes, node.node_key);
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
@@ -638,10 +644,10 @@ function NodeEditSheet({
         <SheetHeader className="border-border flex-row items-center gap-3 space-y-0 border-b px-5 py-4">
           <NodeIconChip type={node.node_type} size={36} iconSize={18} />
           <div className="min-w-0 flex-1">
-            <SheetTitle className="flex items-center gap-2 text-[11px] font-semibold tracking-wider uppercase">
+            <SheetTitle className="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase">
               <span style={{ color: c.text }}>{t(`nodes.${node.node_type}.label`)}</span>
               {isEntry && (
-                <span className="rounded bg-success-soft px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-success uppercase">
+                <span className="rounded bg-success-soft px-1.5 py-0.5 text-xs font-semibold tracking-wider text-success uppercase">
                   {t('badgeEntry')}
                 </span>
               )}
@@ -650,9 +656,11 @@ function NodeEditSheet({
               {t(`nodes.${node.node_type}.blurb`)}
             </SheetDescription>
           </div>
-          <code className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]">
-            {node.node_key}
-          </code>
+          {sheetOrd && sheetOrd.total > 1 && (
+            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
+              #{sheetOrd.n}
+            </span>
+          )}
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
@@ -756,7 +764,7 @@ function CanvasAddNodeButton({ t }: { t: ReturnType<typeof useTranslations> }) {
           <Fragment key={group.id}>
             {i > 0 && <DropdownMenuSeparator />}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-muted-foreground px-2 py-1.5 text-[11px] font-semibold tracking-wider uppercase">
+              <DropdownMenuLabel className="text-muted-foreground px-2 py-1.5 text-xs font-semibold tracking-wider uppercase">
                 {t(`categories.${group.id}`)}
               </DropdownMenuLabel>
               {group.types.map((t_type) => {

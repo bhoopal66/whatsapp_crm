@@ -64,13 +64,13 @@ export function FailedSendRow({
         {/* The toast with the reason is gone in seconds, so the reason
             stays here too. */}
         <p
-          className="line-clamp-2 max-w-full text-right text-[11px] break-words"
+          className="line-clamp-2 max-w-full text-right text-xs break-words"
           title={failed.reason}
         >
           <span className="text-destructive font-medium">{t('notSent')}</span>
           <span className="text-muted-foreground"> · {failed.reason}</span>
         </p>
-        <div className="flex items-center gap-2 text-[11px]">
+        <div className="flex items-center gap-2 text-xs">
           <button
             type="button"
             onClick={() => onRetry(failed)}

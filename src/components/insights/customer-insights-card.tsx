@@ -207,7 +207,7 @@ function CardBody({
     </div>
   );
   const trendWord = (word: string, arrow: string) => (
-    <span className={cn('text-[11px]', c.sub)}>
+    <span className={cn('text-xs', c.sub)}>
       <span aria-hidden>{arrow} </span>
       {word}
     </span>
@@ -258,7 +258,7 @@ function CardBody({
                     aria-current={s.current ? 'step' : undefined}
                     title={t(`bands.lead.${s.band}`)}
                     className={cn(
-                      'min-w-0 flex-auto truncate rounded px-1 py-1 text-center text-[10px] leading-tight whitespace-nowrap',
+                      'min-w-0 flex-auto truncate rounded px-1 py-1 text-center text-xs leading-tight whitespace-nowrap',
                       s.current
                         ? cn(paletteFor('lead', s.band).chip, 'font-semibold')
                         : s.reached
@@ -331,7 +331,7 @@ function CardBody({
                     <p className={cn('text-sm font-medium', sw.text)}>
                       {t(`actions.codes.${a.code}`)}
                     </p>
-                    <p className={cn('text-[11px] leading-snug', c.sub)}>
+                    <p className={cn('text-xs leading-snug', c.sub)}>
                       {t(`actions.hints.${a.code}`)}
                     </p>
                   </li>
@@ -346,7 +346,7 @@ function CardBody({
           )}
         <div className="flex flex-wrap items-center justify-between gap-1">
           {view.basedOnAt && (
-            <p className={cn('text-[11px]', c.sub)}>
+            <p className={cn('text-xs', c.sub)}>
               {t('card.basedOn', {
                 when: format.relativeTime(view.basedOnAt),
               })}
@@ -444,13 +444,13 @@ export function TrendLines({
   });
   if (drawn.length === 0)
     return (
-      <p className={cn('text-[11px]', sub)}>{t('card.notEnoughHistory')}</p>
+      <p className={cn('text-xs', sub)}>{t('card.notEnoughHistory')}</p>
     );
   return (
     <div className="space-y-1">
       {drawn.map((l) => (
         <div key={l.scale} className="flex items-center gap-2">
-          <span className={cn('w-10 shrink-0 text-[11px]', sub)}>
+          <span className={cn('w-10 shrink-0 text-xs', sub)}>
             {t(
               l.scale === 'sentiment'
                 ? 'trends.mood.label'
@@ -477,7 +477,7 @@ export function TrendLines({
               strokeLinejoin="round"
             />
           </svg>
-          <span className={cn('text-[11px]', sub)}>{l.trend}</span>
+          <span className={cn('text-xs', sub)}>{l.trend}</span>
         </div>
       ))}
     </div>

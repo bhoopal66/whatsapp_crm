@@ -155,7 +155,7 @@ export function NodeConfigForm({
               placeholder={t("varKeyPlaceholder")}
               className="font-mono text-xs"
             />
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t("varKeyHelp")}{" "}
               <code className="rounded bg-muted px-1">
                 {"{{vars."}
@@ -934,7 +934,7 @@ function SetTagForm({
                 ))}
               </SelectContent>
             </Select>
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t("keepSubTagHint", { title: subTitle })}
             </p>
           </div>

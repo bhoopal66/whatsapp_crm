@@ -182,17 +182,17 @@ export function WorkspacesPanel() {
                       {w.name || t('unnamed')}
                     </span>
                     {active ? (
-                      <span className="bg-primary-soft text-primary rounded-full px-2 py-0.5 text-[11px] font-semibold">
+                      <span className="bg-primary-soft text-primary rounded-full px-2 py-0.5 text-xs font-semibold">
                         {t('active')}
                       </span>
                     ) : null}
                     {w.deactivated ? (
-                      <span className="border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                      <span className="border-border text-muted-foreground rounded-full border px-2 py-0.5 text-xs font-medium">
                         {tSidebar('workspaceDeactivated')}
                       </span>
                     ) : null}
                     {w.archived ? (
-                      <span className="border-border text-muted-foreground rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                      <span className="border-border text-muted-foreground rounded-full border px-2 py-0.5 text-xs font-medium">
                         {t('archived')}
                       </span>
                     ) : null}
@@ -202,7 +202,7 @@ export function WorkspacesPanel() {
                       <span>{tSidebar(ROLE_LABEL_KEY[w.role])}</span>
                     ) : null}
                     {badge?.kind === 'mentions' ? (
-                      <span className="bg-primary text-primary-foreground inline-flex h-5 min-w-5 items-center rounded-full px-1.5 text-[11px] font-semibold">
+                      <span className="bg-primary text-primary-foreground inline-flex h-5 min-w-5 items-center rounded-full px-1.5 text-xs font-semibold">
                         {t('mentions', { count: badge.count })}
                       </span>
                     ) : badge ? (
