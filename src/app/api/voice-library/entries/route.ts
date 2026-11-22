@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { NextResponse } from 'next/server';
 
+import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { AiError } from '@/lib/ai/types';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isOggOpus } from '@/lib/voice-library/audio';
@@ -44,13 +45,21 @@ const INPUT_ERRORS: Record<string, string> = {
  *
  * A recording and a fixed script are stored once at
  * chat-media/account-<id>/voice-library/<entry id>.ogg; a personalised
- * script stores no audio (it is spoken per send). The row is inserted
- * with the caller's client, so 242's policy decides; the object is
- * removed again if it refuses.
+ * script stores no audio (it is spoken per send).
+ *
+ * Audio and row are both written with the service role: 242 gives
+ * `authenticated` no INSERT on voice_note_entries and no write in the
+ * voice-library/ folder, so a client cannot point an entry at a foreign
+ * URL or a colleague's object. The checks that stand in for RLS are
+ * here: agent and up (requireRole), the caller's ACTIVE account as the
+ * row's account and path, the author stamped from the session, and a
+ * custom subject resolved through the composite FK (subject_id,
+ * account_id), so another workspace's subject is refused. The object is
+ * removed again if the insert fails.
  */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireRole('agent');
+    const { accountId, userId } = await requireRole('agent');
 
     const form = await request.formData().catch(() => null);
     if (!form) {
@@ -126,10 +135,10 @@ export async function POST(request: Request) {
     let mediaUrl: string | null = null;
     if (bytes) {
       path = voiceLibraryPath(accountId, entryId);
-      mediaUrl = await storeVoiceAudio(supabase, path, bytes);
+      mediaUrl = await storeVoiceAudio(supabaseAdmin(), path, bytes);
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin()
       .from('voice_note_entries')
       .insert({
         id: entryId,
@@ -150,7 +159,7 @@ export async function POST(request: Request) {
       .select(ENTRY_COLUMNS)
       .single();
     if (error) {
-      if (path) await removeVoiceAudio(supabase, path);
+      if (path) await removeVoiceAudio(path);
       console.error('[voice-library] entry insert failed:', error.message);
       return NextResponse.json(
         { error: 'Could not save the voice note.' },

@@ -2,15 +2,20 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isUuid } from '@/lib/coordinators/errors';
-import { removeVoiceAudio } from '@/lib/voice-library/server';
+import { removeLibraryAudioIfUnused } from '@/lib/voice-library/server';
 
 /**
  * DELETE /api/voice-library/entries/[id]  (agent and up)
  *
  * The author deletes their own entry, an admin anyone's: 242's DELETE
- * policy decides, through the caller's client. The audio object goes
- * after the row (a leftover object is only space; a row without its
- * audio would send a dead link).
+ * policy decides, through the caller's client, within the caller's
+ * active account. Only once that row is gone is the audio touched, with
+ * the service role (242 refuses the folder to clients), and only when
+ * no message of the account still points at it: a fixed entry is sent
+ * with its library URL, so removing the object would silence every
+ * voice note already sent from it. The object goes after the row (a
+ * leftover object is only space; a row without its audio would send a
+ * dead link).
  */
 export async function DELETE(
   _request: Request,
@@ -60,7 +65,7 @@ export async function DELETE(
       );
     }
     if (existing.storage_path) {
-      await removeVoiceAudio(supabase, existing.storage_path);
+      await removeLibraryAudioIfUnused(accountId, existing.storage_path);
     }
     return NextResponse.json({ ok: true });
   } catch (err) {
