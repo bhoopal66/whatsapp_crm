@@ -184,6 +184,13 @@ const ResponseTimesPanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const ChatAssignmentPanel = dynamic(
+  () =>
+    import('@/components/settings/chat-assignment-panel').then(
+      (m) => m.ChatAssignmentPanel
+    ),
+  { loading: PanelLoading }
+);
 const TeamChatSettings = dynamic(
   () =>
     import('@/components/settings/team-chat-settings').then(
@@ -292,6 +299,9 @@ const PRELOADERS: Record<
   deals: [() => import('@/components/settings/deals-settings')],
   'response-times': [
     () => import('@/components/settings/response-times-panel'),
+  ],
+  'chat-assignment': [
+    () => import('@/components/settings/chat-assignment-panel'),
   ],
   workspace: [() => import('@/components/settings/workspace-panel')],
   members: [() => import('@/components/settings/members-tab')],
@@ -513,6 +523,7 @@ function SettingsPageInner() {
     insights: <InsightsPanel />,
     deals: <DealsSettings />,
     'response-times': <ResponseTimesPanel />,
+    'chat-assignment': <ChatAssignmentPanel />,
     workspace: <WorkspacePanel />,
     members: <MembersTab />,
     teams: <TeamsTab />,

@@ -2695,6 +2695,7 @@
       "api": "API keys",
       "deals": "Deals & currency",
       "response-times": "Response times",
+      "chat-assignment": "Chat assignment",
       "team-chat": "Team chat",
       "journey-bot": "Journey bot",
       "insights": "Smart insights",
@@ -2750,6 +2751,7 @@
       "fields": "Extra fields on every contact, such as lead source.",
       "deals": "The currency of deals and of pipeline totals.",
       "response-times": "Business hours, the reply target and who is told when a customer waits.",
+      "chat-assignment": "Broadcast first replies, Compass chats and chat limits.",
       "ai": "The AI assistant, auto-reply, knowledge and safety checks.",
       "journey-bot": "The Welcome to Close bot: its templates and messages.",
       "insights": "Jev reads chats to rate leads, suggest tags, sort campaign replies and check messages.",
@@ -2785,6 +2787,7 @@
       "fields": "custom fields contact properties attributes data",
       "deals": "currency aed usd pipelines money totals",
       "response-times": "business hours opening hours sla reply target response time waiting escalation escalate overdue late",
+      "chat-assignment": "assign assignment round robin rotation auto assign take turns broadcast compass chat limit workload capacity",
       "ai": "artificial intelligence bot chatbot assistant auto reply knowledge base openai anthropic model gpt claude safety typesafe guardrail playground usage approved answers",
       "journey-bot": "journey bot welcome to close workflow automation",
       "insights": "jev typesafe insights signals lead hot urgent upset intent tag suggestions auto tag campaign replies message check meaning triggers",
@@ -6001,6 +6004,71 @@
         "travel": "Travel and places",
         "flags": "Flags"
       }
+    }
+  },
+  "ChatAssignment": {
+    "title": "Chat assignment",
+    "description": "Who gets new chats without anyone pressing Assign, and how many open chats one person may hold. Everything here is off until you switch it on.",
+    "notAvailable": "Chat assignment needs a database update (migration 236). Ask whoever runs your server to apply it.",
+    "loadFailed": "Couldn't load the chat assignment settings",
+    "save": "Save",
+    "saved": "Chat assignment saved",
+    "saveFailed": "Couldn't save the chat assignment settings",
+    "limitSaved": "Chat limit saved",
+    "limitRemoved": "Chat limit removed; the default applies",
+    "limitFailed": "Couldn't save the chat limit",
+    "broadcast": {
+      "title": "Assign the first reply to a broadcast",
+      "hint": "Only chats that come from a broadcast are assigned automatically, when the customer first replies. People take turns. Offline people and people at their chat limit are skipped. A chat someone already has is left alone.",
+      "people": "Who takes turns"
+    },
+    "compass": {
+      "title": "Assign Compass chats to the case's agent",
+      "hint": "When Compass writes to a customer whose chat has nobody assigned, the chat goes to the case's agent. The case's coordinator gets the chat shared, and the agent's team leader sees it through their team."
+    },
+    "limits": {
+      "title": "Chat limits",
+      "hint": "Automatic assignment skips anyone who already holds this many open chats. People can still assign chats by hand.",
+      "default": "Default limit",
+      "openChats": "open chats",
+      "defaultHint": "Applies to everyone without a limit of their own.",
+      "ownTitle": "Limits for one person",
+      "ownHint": "A person's own limit replaces the default for them. These save as soon as you add, change or remove them.",
+      "none": "Nobody has a limit of their own.",
+      "openNow": "{count, plural, one {# open chat now} other {# open chats now}}",
+      "limitFor": "Chat limit for {name}",
+      "update": "Update",
+      "remove": "Remove the limit for {name}",
+      "person": "Person",
+      "pickPerson": "Choose a person",
+      "limit": "Limit",
+      "add": "Add",
+      "range": "A limit is a whole number from {min} to {max}."
+    },
+    "picker": {
+      "everyone": "Nobody ticked: everyone takes turns (all live agents and team leaders).",
+      "picked": "{count, plural, one {# person takes turns} other {# people take turns}}",
+      "pickEveryone": "Use everyone",
+      "nobody": "There are no agents or team leaders in this workspace yet."
+    },
+    "automation": {
+      "enabled": "Assign automatically",
+      "hint": "People take turns. Offline people and people at their chat limit are skipped. A chat someone is already working is left alone.",
+      "people": "Who takes turns"
+    },
+    "load": {
+      "open": "{count, plural, one {# open chat} other {# open chats}}",
+      "openOf": "{count} of {limit} open chats",
+      "full": "At their limit: {count} of {limit} open chats"
+    },
+    "errors": {
+      "bad_limit": "A chat limit must be a whole number from 1 to 500.",
+      "pool_member_invalid": "Everyone who takes turns must be an active agent or team leader here. Refresh and try again.",
+      "pool_too_large": "At most 500 people can take turns.",
+      "no_such_member": "That person is no longer in this workspace.",
+      "not_allowed": "Only an owner or admin can change chat assignment.",
+      "not_available": "Chat assignment needs a database update (migration 236).",
+      "invalid_body": "Something in the form was not valid. Refresh and try again."
     }
   },
   "Workspaces": {
