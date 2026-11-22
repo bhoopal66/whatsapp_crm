@@ -6,8 +6,8 @@ import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { normalizeNarrowing } from '@/lib/broadcasts/audience-narrow';
 
 /**
- * A saved broadcast draft (migration 252, `broadcasts.draft_state`): the
- * whole wizard, so "Open draft" lands where the person left off. Pure and
+ * A saved broadcast draft (`broadcast_drafts.state`, migration 256; it
+ * was `broadcasts.draft_state` in 252): the whole wizard, so "Open draft" lands where the person left off. Pure and
  * JSON-safe; the page does the I/O.
  */
 
@@ -92,12 +92,24 @@ export function serializeDraft(input: DraftInput): WizardDraftState {
 
 const AUDIENCE_TYPES = ['all', 'chat_tags', 'custom_field', 'csv', 'compass'];
 
+/**
+ * The list's `draft:broadcast_drafts(v:state->v)` embed, as a version
+ * number or null. PostgREST hands a one-to-one embed back as an object,
+ * a one-element array or null depending on how it reads the FK, and a
+ * person below admin gets null (RLS): every shape is accepted.
+ */
+export function embeddedDraftVersion(embed: unknown): number | null {
+  const row = Array.isArray(embed) ? embed[0] : embed;
+  if (!isRecord(row)) return null;
+  return typeof row.v === 'number' && Number.isFinite(row.v) ? row.v : null;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /**
- * Read a stored `draft_state`, tolerantly: null for anything that is not
+ * Read a stored `broadcast_drafts.state`, tolerantly: null for anything that is not
  * a version-1 object, defaults for missing parts, narrowing keys
  * normalised (an old row has none, which means today's behaviour).
  */

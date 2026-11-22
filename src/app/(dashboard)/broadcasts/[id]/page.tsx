@@ -46,6 +46,7 @@ import { toast } from 'sonner';
 import { getBroadcastStatus, getRecipientStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
 import { ReplyClassesCard } from '@/components/broadcasts/reply-classes-card';
+import { buildCsv } from '@/lib/csv/build';
 import {
   REPLY_CLASS_LABEL_KEY,
   REPLY_CLASS_TONE,
@@ -157,15 +158,6 @@ const RECIPIENT_STATUSES: readonly RecipientStatus[] = [
   'replied',
   'failed',
 ];
-
-/**
- * CSV export helper — RFC 4180 quoting. Quote every field so
- * commas/newlines/quotes round-trip cleanly.
- */
-function toCsv(rows: string[][]): string {
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  return rows.map((r) => r.map(escape).join(',')).join('\n');
-}
 
 function downloadBlob(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
@@ -381,7 +373,8 @@ export default function BroadcastDetailPage() {
       r.read_at ?? '',
       r.error_message ?? '',
     ]);
-    const csv = toCsv([header, ...rows]);
+    // The shared builder: every field quoted, formula starts neutralised.
+    const csv = buildCsv(header, rows);
     const safeName = broadcast.name
       .replace(/[^a-z0-9-_]+/gi, '-')
       .toLowerCase();

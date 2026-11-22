@@ -22,6 +22,7 @@ import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
 import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
+import { embeddedDraftVersion } from '@/lib/broadcasts/draft-state';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -34,7 +35,7 @@ const POLL_INTERVAL_MS = 5_000;
 /** Only what the list renders — `select('*')` also shipped every
  *  campaign's template variables and audience filter, on every poll. */
 const LIST_COLUMNS =
-  'id, name, template_name, status, total_recipients, delivered_count, read_count, created_at, draft_version:draft_state->v';
+  'id, name, template_name, status, total_recipients, delivered_count, read_count, created_at, draft:broadcast_drafts(v:state->v)';
 type BroadcastListRow = Pick<
   Broadcast,
   | 'id'
@@ -46,8 +47,14 @@ type BroadcastListRow = Pick<
   | 'read_count'
   | 'created_at'
 > & {
-  /** `draft_state->v` (migration 252): set when the draft can be reopened. */
+  /** `broadcast_drafts.state->v` (migration 256): set when the draft can
+   *  be reopened. Admin-only by RLS, so null for everyone else. */
   draft_version?: number | null;
+};
+
+/** The raw row: the draft embed before `embeddedDraftVersion` reads it. */
+type BroadcastListQueryRow = Omit<BroadcastListRow, 'draft_version'> & {
+  draft?: unknown;
 };
 
 function percent(numerator: number, denominator: number): number {
@@ -102,7 +109,14 @@ export default function BroadcastsPage() {
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setBroadcasts((data ?? []) as BroadcastListRow[]);
+      setBroadcasts(
+        ((data ?? []) as unknown as BroadcastListQueryRow[]).map(
+          ({ draft, ...row }) => ({
+            ...row,
+            draft_version: embeddedDraftVersion(draft),
+          })
+        )
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errorLoad'));
     } finally {

@@ -4,6 +4,7 @@ import {
   DRAFT_CSV_MAX_ROWS,
   deserializeDraft,
   draftResumeStep,
+  embeddedDraftVersion,
   reopenedScheduledAt,
   serializeDraft,
   type DraftInput,
@@ -108,5 +109,24 @@ describe('reopenedScheduledAt', () => {
       new Date('2031-01-01T00:00:00Z')
     );
     expect(reopenedScheduledAt(null, now)).toBeNull();
+  });
+});
+
+describe('embeddedDraftVersion', () => {
+  it('reads the version from an object embed', () => {
+    expect(embeddedDraftVersion({ v: 1 })).toBe(1);
+  });
+  it('reads the version from a one-element array embed', () => {
+    expect(embeddedDraftVersion([{ v: 1 }])).toBe(1);
+  });
+  it('is null with no draft row (RLS hides it below admin)', () => {
+    expect(embeddedDraftVersion(null)).toBeNull();
+    expect(embeddedDraftVersion(undefined)).toBeNull();
+    expect(embeddedDraftVersion([])).toBeNull();
+  });
+  it('is null when the state carries no numeric version', () => {
+    expect(embeddedDraftVersion({ v: null })).toBeNull();
+    expect(embeddedDraftVersion([{ v: '1' }])).toBeNull();
+    expect(embeddedDraftVersion({})).toBeNull();
   });
 });

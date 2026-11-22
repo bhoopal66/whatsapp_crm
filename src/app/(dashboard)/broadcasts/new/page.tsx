@@ -79,15 +79,26 @@ function NewBroadcastWizard() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from('broadcasts')
-        .select('id, name, status, draft_state')
+        .select('id, name, status')
         .eq('id', draftParam)
         .maybeSingle();
       if (cancelled) return;
-      const state =
-        data && data.status === 'draft'
-          ? deserializeDraft(data.draft_state)
-          : null;
-      if (error || !state) {
+      // The wizard state lives in `broadcast_drafts` (migration 256),
+      // admins and owners only by RLS.
+      let stateError: unknown = null;
+      let rawState: unknown = null;
+      if (!error && data && data.status === 'draft') {
+        const res = await supabase
+          .from('broadcast_drafts')
+          .select('state')
+          .eq('broadcast_id', draftParam)
+          .maybeSingle();
+        if (cancelled) return;
+        stateError = res.error;
+        rawState = res.data?.state ?? null;
+      }
+      const state = rawState ? deserializeDraft(rawState) : null;
+      if (error || stateError || !state) {
         setDraftId(null);
         toast.error(t('toastDraftCannotOpen'));
         return;
@@ -180,8 +191,9 @@ function NewBroadcastWizard() {
   /**
    * Writes (or, when this wizard was opened from a draft, updates) a
    * draft broadcast row — no recipients, no sending. The whole wizard
-   * state goes into `draft_state` (migration 252) so "Open draft" on the
-   * list brings the person back to exactly here.
+   * state goes into `broadcast_drafts.state` (migration 256, admin-only)
+   * so "Open draft" on the list brings the person back to exactly here.
+   * A send deletes the draft broadcasts row, which cascades the state.
    */
   async function handleSaveDraft() {
     if (!template || !name.trim()) {
@@ -230,15 +242,22 @@ function NewBroadcastWizard() {
       header_media_url: headerMediaUrl.trim() || null,
       quiet_hours: quietHours,
       follow_up_flow_id: followUpFlowId,
-      draft_state: draftState,
     };
-    const { error } = draftId
-      ? await supabase
-          .from('broadcasts')
-          .update(fields)
-          .eq('id', draftId)
-          .eq('status', 'draft')
-      : await supabase.from('broadcasts').insert({
+    let savedId = draftId;
+    if (draftId) {
+      const { error } = await supabase
+        .from('broadcasts')
+        .update(fields)
+        .eq('id', draftId)
+        .eq('status', 'draft');
+      if (error) {
+        toast.error(t('toastFailedDraft', { error: error.message }));
+        return;
+      }
+    } else {
+      const { data: inserted, error } = await supabase
+        .from('broadcasts')
+        .insert({
           ...fields,
           user_id: user.id,
           account_id: accountId,
@@ -249,10 +268,33 @@ function NewBroadcastWizard() {
           read_count: 0,
           replied_count: 0,
           failed_count: 0,
-        });
+        })
+        .select('id')
+        .single();
+      if (error || !inserted) {
+        toast.error(
+          t('toastFailedDraft', { error: error?.message ?? 'no row' })
+        );
+        return;
+      }
+      savedId = inserted.id as string;
+      // A retry after a failed state write updates this row, not a new one.
+      setDraftId(savedId);
+    }
 
-    if (error) {
-      toast.error(t('toastFailedDraft', { error: error.message }));
+    const { error: stateError } = await supabase
+      .from('broadcast_drafts')
+      .upsert(
+        {
+          broadcast_id: savedId,
+          account_id: accountId,
+          state: draftState,
+          updated_by: user.id,
+        },
+        { onConflict: 'broadcast_id' }
+      );
+    if (stateError) {
+      toast.error(t('toastFailedDraft', { error: stateError.message }));
       return;
     }
     toast.success(t('toastDraftSaved'));
