@@ -27,6 +27,14 @@ describe('locales', () => {
     for (const list of lists) expect(list).toEqual([...LOCALES].sort());
   });
 
+  it('every supported locale has a catalogue', () => {
+    for (const l of LOCALES) {
+      expect(() =>
+        readFileSync(join(process.cwd(), 'messages', `${l}.json`))
+      ).not.toThrow();
+    }
+  });
+
   it('prefers the cookie, then the workspace default, then English', () => {
     expect(resolveLocale('ar', 'ko')).toBe('ar');
     expect(resolveLocale(undefined, 'ko')).toBe('ko');
