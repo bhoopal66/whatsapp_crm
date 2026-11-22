@@ -8478,7 +8478,9 @@
       "bankQueryOpen": "은행 문의 진행 중",
       "noActivity": "활동 없음",
       "noActivityDays": "일 이상",
-      "includeClosed": "종료된 케이스 포함"
+      "includeClosed": "종료된 케이스 포함",
+      "more": "More filters",
+      "moreCount": "{count} on"
     },
     "sorts": {
       "most_overdue": "가장 많이 지연된 순",
@@ -8531,7 +8533,11 @@
     "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
     "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
     "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요.",
-    "leadChip": "리드"
+    "leadChip": "리드",
+    "search": {
+      "label": "Search cases",
+      "placeholder": "Case number, caption code or customer name"
+    }
   },
   "CaseViews": {
     "views": "보기",
@@ -9048,6 +9054,14 @@
       "open": "Compass에서 열기",
       "synced": "마지막 동기화 {time}",
       "detailsLocked": "은행, 상품 및 금액은 Compass에서 업데이트됩니다."
+    },
+    "numbers": {
+      "caseNumber": "Case number",
+      "caption": "Caption code",
+      "copy": "Copy",
+      "copyLabel": "Copy {what}",
+      "copied": "{what} copied",
+      "copyFailed": "Could not copy. Select the text and copy it by hand."
     }
   },
   "Brain": {

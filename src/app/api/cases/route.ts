@@ -32,6 +32,8 @@ import {
 } from '@/lib/cases/http';
 import { contactNames } from '@/lib/cases/contact-names';
 import { CaseInbox } from '@/lib/cases/inbox';
+import { readSearchQuery } from '@/lib/cases/search';
+import { searchInbox } from '@/lib/cases/search-inbox';
 import { caseStore } from '@/lib/cases/server';
 import { submissionStatuses } from '@/lib/cases/submission-status';
 import {
@@ -46,12 +48,11 @@ export async function GET(request: Request) {
       new URL(request.url).searchParams
     );
     const db = supabaseAdmin();
-    const page = await new CaseInbox(db).list(
-      ctx.userId,
-      ctx.accountId,
-      filters,
-      { limit, after }
-    );
+    const q = readSearchQuery(new URL(request.url).searchParams.get('q'));
+    const inbox = new CaseInbox(db);
+    const page = q
+      ? await searchInbox(db, inbox, ctx, q, filters, { limit, after })
+      : await inbox.list(ctx.userId, ctx.accountId, filters, { limit, after });
     const [statuses, names] = await Promise.all([
       submissionStatuses(
         db,

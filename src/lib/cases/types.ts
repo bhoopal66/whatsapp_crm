@@ -79,6 +79,8 @@ export interface Case {
   externalUrl: string | null;
   /** 134: when Compass last changed the case. */
   externalChangedAt: Date | null;
+  /** 220: 'TC-YY-NNNNN-BBB' for a desk case, else NULL. */
+  caseNumber: string | null;
 }
 
 export interface StageChange {

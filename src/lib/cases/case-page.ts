@@ -44,6 +44,8 @@ export interface CaseRecord {
   externalUrl: string | null;
   /** 134: last sync from Compass (ISO). */
   externalChangedAt: string | null;
+  /** 220: 'TC-YY-NNNNN-BBB' for a desk case, else null. */
+  caseNumber: string | null;
 }
 
 export interface CaseStageChange {
@@ -181,6 +183,7 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
       groupEndedAt: str(c.groupEndedAt),
       externalUrl: str(c.externalUrl),
       externalChangedAt: str(c.externalChangedAt),
+      caseNumber: str(c.caseNumber),
     },
     role: role as CaseRole,
     permissions: {

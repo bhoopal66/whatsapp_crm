@@ -8478,7 +8478,9 @@
       "bankQueryOpen": "Bank query open",
       "noActivity": "No activity for",
       "noActivityDays": "days",
-      "includeClosed": "Include closed"
+      "includeClosed": "Include closed",
+      "more": "More filters",
+      "moreCount": "{count} on"
     },
     "sorts": {
       "most_overdue": "Most overdue",
@@ -8531,7 +8533,11 @@
     "emptyBody": "Cases you are the agent or coordinator on, or that your team works, show up here once a submission is opened as a case.",
     "noMatchesTitle": "No cases match these filters",
     "noMatchesBody": "Try fewer filters, or include closed cases.",
-    "leadChip": "Lead"
+    "leadChip": "Lead",
+    "search": {
+      "label": "Search cases",
+      "placeholder": "Case number, caption code or customer name"
+    }
   },
   "CaseViews": {
     "views": "Views",
@@ -9048,6 +9054,14 @@
       "open": "Open in Compass",
       "synced": "Last synced {time}",
       "detailsLocked": "Bank, product and amount are updated from Compass."
+    },
+    "numbers": {
+      "caseNumber": "Case number",
+      "caption": "Caption code",
+      "copy": "Copy",
+      "copyLabel": "Copy {what}",
+      "copied": "{what} copied",
+      "copyFailed": "Could not copy. Select the text and copy it by hand."
     }
   },
   "Brain": {

@@ -5,6 +5,7 @@
  * defensively (an unknown value is dropped, not sent), and `inboxUrl`
  * turns them into GET /api/cases (lib/cases/http.ts parseInboxQuery).
  */
+import { readSearchQuery } from './search';
 import { PRIORITIES, type CasePriority } from './types';
 
 export type InboxSort = 'most_overdue' | 'due_soonest' | 'stalest';
@@ -182,6 +183,8 @@ export const NO_ACTIVITY_DAYS_DEFAULT = 7;
 export const INBOX_PAGE_SIZE = 50;
 
 export interface InboxFilters {
+  /** The search box: case number, caption code or customer name. */
+  q: string | null;
   bank: string | null;
   stage: string | null;
   /** An agent's auth user id. */
@@ -204,6 +207,7 @@ export const SNOOZED_MODES = ['hide', 'only', 'all'] as const;
 export type InboxSnoozed = (typeof SNOOZED_MODES)[number];
 
 export const EMPTY_FILTERS: InboxFilters = {
+  q: null,
   bank: null,
   stage: null,
   agent: null,
@@ -247,6 +251,7 @@ export function filtersFromSearch(
   get: (key: string) => string | null
 ): InboxFilters {
   return {
+    q: readSearchQuery(get('q')),
     bank: text(get('bank')),
     stage: text(get('stage')),
     agent: text(get('agent')),
@@ -270,6 +275,7 @@ export function filtersFromSearch(
  */
 export function filterParams(f: InboxFilters): URLSearchParams {
   const qs = new URLSearchParams();
+  if (f.q) qs.set('q', f.q);
   if (f.bank) qs.set('bank', f.bank);
   if (f.stage) qs.set('stage', f.stage);
   if (f.agent) qs.set('agent', f.agent);
@@ -297,6 +303,24 @@ export function activeFilterCount(f: InboxFilters): number {
   return [...filterParams({ ...f, sort: 'most_overdue' }).keys()].length;
 }
 
+/**
+ * How many of the filters behind "More filters" are on: the toggles, the
+ * no-activity days and a snooze mode other than the default. The row's own
+ * selects (bank, stage, agent, priority, SLA, sort) and the search box are
+ * not counted.
+ */
+export function moreFiltersCount(f: InboxFilters): number {
+  return [
+    f.customerWaiting,
+    f.documentsMissing,
+    f.bankQueryOpen,
+    f.noActivityDays !== null,
+    f.includeClosed,
+    f.snoozed !== 'hide',
+    f.mentionedMe,
+  ].filter(Boolean).length;
+}
+
 /** GET /api/cases for these filters and page (`after` = nextCursor). */
 export function inboxUrl(
   f: InboxFilters,
@@ -312,6 +336,8 @@ export function inboxUrl(
 /** One row of GET /api/cases, as the screen uses it. */
 export interface InboxRow {
   caseId: string;
+  /** 220: 'TC-YY-NNNNN-BBB' of a desk case; sent only while searching. */
+  caseNumber: string | null;
   bankCode: string | null;
   bankName: string | null;
   stage: string;
@@ -373,6 +399,7 @@ function parseRow(r: unknown): InboxRow | null {
   if (!isObj(r) || typeof r.caseId !== 'string' || !r.caseId) return null;
   return {
     caseId: r.caseId,
+    caseNumber: optStr(r.caseNumber),
     bankCode: optStr(r.bankCode),
     bankName: optStr(r.bankName),
     stage: optStr(r.stage) ?? '',
