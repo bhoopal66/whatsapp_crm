@@ -11325,6 +11325,41 @@
       "not_allowed": "Only owners and admins can change response times."
     }
   },
+  "CommandBar": {
+    "title": "Command bar",
+    "inputLabel": "Search pages, people and actions",
+    "placeholder": "Search or jump to…",
+    "results": "Results",
+    "trigger": "Search or jump to… ({key} K)",
+    "groups": {
+      "pages": "Pages",
+      "actions": "Actions",
+      "settings": "Settings",
+      "contacts": "Contacts and chats"
+    },
+    "actions": {
+      "newBroadcast": "New broadcast",
+      "addContact": "Add contact",
+      "newMeeting": "New meeting",
+      "shortcuts": "Keyboard shortcuts"
+    },
+    "unnamed": "Unnamed contact",
+    "chatWith": "Open chat with {name}",
+    "searching": "Searching contacts…",
+    "empty": "Start typing to search.",
+    "noResults": "Nothing matches “{query}”.",
+    "hintMove": "Up and down arrows to move",
+    "hintOpen": "Enter to open",
+    "hintClose": "Esc to close",
+    "hintContacts": "Type 2 or more letters to search contacts",
+    "resultCount": "{count, plural, =0 {No results} =1 {1 result} other {# results}}",
+    "shortcutsTitle": "Keyboard shortcuts",
+    "shortcutsDescription": "These work when you are not typing in a field.",
+    "shortcutOpen": "Open the command bar",
+    "shortcutHelp": "Show this list",
+    "goTo": "Go to {screen}",
+    "then": "then"
+  },
   "ComposeCheck": {
     "title": "Check this message before sending",
     "description": "Nothing has been sent yet.",
