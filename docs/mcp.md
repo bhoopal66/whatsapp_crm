@@ -46,7 +46,7 @@ data or send messages, add `"TAAMUL_ENABLE_WRITES": "true"` (and
   (list/get, each with its chat tag and sub-tag), messages (list),
   broadcast status.
 - **Writes (opt-in):** send a message, create/update a contact (name,
-  email, company). Contact tags are retired, so the contact tools no
+  email, company, and an optional `lead_source` on create). Contact tags are retired, so the contact tools no
   longer take or filter by tags.
 - **Broadcasts (opt-in):** launch a template broadcast — requires an
   explicit `confirm` and is marked destructive. Contacts who opted out

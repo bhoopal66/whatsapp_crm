@@ -13,7 +13,12 @@ import {
   readFields,
   validateSubmission,
 } from './submission';
-import { hostedFormUrl, htmlFormSnippet, submitEndpoint } from './snippet';
+import {
+  hostedFormUrl,
+  htmlFormSnippet,
+  iframeSnippet,
+  submitEndpoint,
+} from './snippet';
 
 describe('normalizeAllowedOrigin', () => {
   it('accepts https origins, lower-cased, with a port', () => {
@@ -208,5 +213,16 @@ describe('snippet', () => {
     expect(html).toContain('name="website"');
     expect(html).toContain('name="phone"');
     expect(html).not.toMatch(/<script|<iframe/);
+  });
+  it('frames the hosted page, with the URL attribute escaped', () => {
+    expect(iframeSnippet('https://crm.example.com/', tok)).toBe(
+      `<iframe src="https://crm.example.com/f/${tok}" title="Contact form" width="100%" height="640" style="border:0;max-width:480px" loading="lazy"></iframe>`
+    );
+    const evil = iframeSnippet('https://x.com/"><script>a&b</script>', tok);
+    expect(evil).not.toContain('"><script>');
+    expect(evil).toContain(
+      `src="https://x.com/&quot;&gt;&lt;script&gt;a&amp;b&lt;/script&gt;/f/${tok}"`
+    );
+    expect(evil).not.toMatch(/<script/);
   });
 });

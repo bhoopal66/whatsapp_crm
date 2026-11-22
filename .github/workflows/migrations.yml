@@ -1324,3 +1324,11 @@ jobs:
       # 237's helper grants each keep their fixed rule.
       - name: Verify review fixes
         run: supabase db query --local --file supabase/ci/verify-review-fixes.sql
+
+      # Migration 257: sorting Contacts by owner, assigned person and
+      # last activity. Each key both ways with NULLs last, paging with no
+      # overlap or gap, every screen filter, personal chats ignored, and
+      # contacts RLS still deciding: an agent's, a team leader's and an
+      # admin's pages hold exactly what a plain SELECT shows them.
+      - name: Verify contact sort
+        run: supabase db query --local --file supabase/ci/verify-contact-sort.sql

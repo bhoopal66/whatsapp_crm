@@ -10,6 +10,10 @@ import {
   CONTACT_LIST_SELECT,
   contactListQuestion,
   contactSearchFilter,
+  contactSearchTerms,
+  contactSortLabel,
+  inIdOrder,
+  lastActivityByContact,
   toContactListRows,
   type ContactListView,
   type ContactWithConversations,
@@ -43,6 +47,22 @@ describe('contactListQuestion', () => {
 
   it('names the sort, so a future sort control cannot share an entry', () => {
     expect(contactListQuestion(base)).toContain('created_at.desc');
+  });
+
+  it('gives every sort key and direction its own entry', () => {
+    const keys = ['name', 'created', 'owner', 'assignee', 'activity'] as const;
+    const questions = keys.flatMap((sort) =>
+      (['asc', 'desc'] as const).map((dir) =>
+        contactListQuestion({ ...base, sort: { sort, dir } })
+      )
+    );
+    expect(new Set(questions).size).toBe(questions.length);
+    expect(contactSortLabel({ sort: 'activity', dir: 'desc' })).toBe(
+      'activity.desc'
+    );
+    expect(contactSortLabel({ sort: 'created', dir: 'asc' })).toBe(
+      'created_at.asc'
+    );
   });
 
   it('is the same question for the same view however it was typed', () => {
@@ -104,8 +124,24 @@ describe('buildContactListQuery', () => {
       ['range', 50, 74],
     ]);
     expect(CONTACT_LIST_SELECT).toBe(
-      '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)'
+      '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id, personal_owner_id, last_message_at)'
     );
+  });
+
+  it('orders an RPC-only key newest first (its fallback without 257)', () => {
+    for (const sort of [
+      { sort: 'owner', dir: 'asc' },
+      { sort: 'assignee', dir: 'desc' },
+      { sort: 'activity', dir: 'asc' },
+    ] as const) {
+      const { q, calls } = recorder();
+      buildContactListQuery(
+        q,
+        { personalOnlyUserId: null, search: '', page: 0, sort },
+        25
+      );
+      expect(calls[1]).toEqual(['order', 'created_at', { ascending: false }]);
+    }
   });
 
   it('orders by name (blank last), then newest first', () => {
@@ -215,7 +251,93 @@ describe('toContactListRows', () => {
     expect(out[0].assignedTo).toBe('agent-1');
     expect(out[1].chatTags).toBeNull();
     expect(out[2].assignedTo).toBeNull();
+    expect(out[0].lastActivityAt).toBeNull();
     for (const row of out) expect('conversations' in row).toBe(false);
+  });
+
+  it('reads Assigned to and Last activity from company chats only', () => {
+    const rows: ContactWithConversations[] = [
+      {
+        ...contact('c1'),
+        conversations: [
+          {
+            contact_id: 'c1',
+            chat_tag_id: null,
+            chat_sub_tag_id: null,
+            assigned_agent_id: 'personal-owner',
+            personal_owner_id: 'personal-owner',
+            last_message_at: '2026-11-21T10:00:00+00:00',
+          },
+          {
+            contact_id: 'c1',
+            chat_tag_id: null,
+            chat_sub_tag_id: null,
+            assigned_agent_id: 'agent-1',
+            personal_owner_id: null,
+            last_message_at: '2026-11-01T10:00:00+00:00',
+          },
+        ],
+      },
+      {
+        ...contact('c2'),
+        conversations: [
+          {
+            contact_id: 'c2',
+            chat_tag_id: null,
+            chat_sub_tag_id: null,
+            assigned_agent_id: 'agent-2',
+            personal_owner_id: 'agent-2',
+            last_message_at: '2026-11-21T10:00:00+00:00',
+          },
+        ],
+      },
+    ];
+    const out = toContactListRows(rows);
+    expect(out[0].assignedTo).toBe('agent-1');
+    expect(out[0].lastActivityAt).toBe('2026-11-01T10:00:00+00:00');
+    expect(out[1].assignedTo).toBeNull();
+    expect(out[1].lastActivityAt).toBeNull();
+  });
+});
+
+describe('lastActivityByContact', () => {
+  it('keeps the newest message per contact and skips chats with none', () => {
+    const map = lastActivityByContact([
+      { contact_id: 'a', last_message_at: '2026-11-01T00:00:00Z' },
+      { contact_id: 'a', last_message_at: '2026-11-03T00:00:00Z' },
+      { contact_id: 'a', last_message_at: '2026-11-02T00:00:00Z' },
+      { contact_id: 'b', last_message_at: null },
+      { contact_id: 'c' },
+    ]);
+    expect(map.get('a')).toBe('2026-11-03T00:00:00Z');
+    expect(map.has('b')).toBe(false);
+    expect(map.has('c')).toBe(false);
+  });
+});
+
+describe('inIdOrder', () => {
+  it('follows the server order and drops ids with no row', () => {
+    const rows = [{ id: 'b' }, { id: 'a' }, { id: 'c' }];
+    expect(inIdOrder(rows, ['c', 'gone', 'a', 'b']).map((r) => r.id)).toEqual([
+      'c',
+      'a',
+      'b',
+    ]);
+  });
+});
+
+describe('contactSearchTerms', () => {
+  it('is the pattern and digits contactSearchFilter uses', () => {
+    expect(contactSearchTerms('058 833 6503')).toEqual({
+      like: '%058 833 6503%',
+      digits: '588336503',
+    });
+    expect(contactSearchTerms('50%_off')).toEqual({
+      like: '%50\\%\\_off%',
+      digits: null,
+    });
+    expect(contactSearchTerms('  ')).toBeNull();
+    expect(contactSearchTerms('(),')).toBeNull();
   });
 });
 

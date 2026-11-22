@@ -20,7 +20,11 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { parseAllowedOrigins } from '@/lib/web-form/origin';
-import { hostedFormUrl, htmlFormSnippet } from '@/lib/web-form/snippet';
+import {
+  hostedFormUrl,
+  htmlFormSnippet,
+  iframeSnippet,
+} from '@/lib/web-form/snippet';
 
 import { SettingsPanelHead } from './settings-panel-head';
 
@@ -33,8 +37,8 @@ interface FormState {
 /**
  * Settings → Integrations → Web form (owner/admin, migration 249,
  * docs/web-form.md): the public lead form's switch (off by default), its
- * link, a script-free HTML snippet, the websites allowed to post to it,
- * and rotating its address. Reads and saves through /api/web-form, whose
+ * link, a script-free HTML snippet and an iframe snippet, the websites
+ * allowed to post it or frame it, and rotating its address. Reads and saves through /api/web-form, whose
  * RPCs check the role again and generate the token.
  */
 export function WebFormPanel() {
@@ -126,6 +130,7 @@ export function WebFormPanel() {
 
   const link = saved.token ? hostedFormUrl(siteUrl, saved.token) : null;
   const snippet = saved.token ? htmlFormSnippet(siteUrl, saved.token) : null;
+  const frame = saved.token ? iframeSnippet(siteUrl, saved.token) : null;
   const dirty =
     enabled !== saved.enabled ||
     parsed.origins.join('\n') !== saved.allowed_origins.join('\n');
@@ -186,7 +191,7 @@ export function WebFormPanel() {
         </CardContent>
       </Card>
 
-      {link && snippet ? (
+      {link && snippet && frame ? (
         <Card>
           <CardContent className="space-y-5">
             <div className="space-y-1.5">
@@ -231,6 +236,28 @@ export function WebFormPanel() {
               <p className="text-muted-foreground text-xs">
                 {t('snippetHint')}
               </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="web-form-iframe">{t('iframeLabel')}</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copy(frame)}
+                >
+                  <Copy className="size-4" />
+                  {t('copyIframe')}
+                </Button>
+              </div>
+              <Textarea
+                id="web-form-iframe"
+                value={frame}
+                readOnly
+                rows={3}
+                className="font-mono text-xs"
+              />
+              <p className="text-muted-foreground text-xs">{t('iframeHint')}</p>
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

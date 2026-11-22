@@ -2,10 +2,11 @@
  * The links and the embeddable snippet Settings → Web form hands out
  * (migration 249). Pure, so the exact markup is tested.
  *
- * No iframe snippet: every page keeps `X-Frame-Options: DENY` and
- * `frame-ancestors 'none'` (next.config.ts, src/lib/csp.ts). A site
- * embeds the form as plain HTML that posts to the public endpoint; the
- * visitor lands on the hosted thank-you page.
+ * Two ways to embed: plain HTML that posts to the public endpoint (the
+ * visitor lands on the hosted thank-you page), or an <iframe> of the
+ * hosted page. The frame only loads on a site in the form's allowed
+ * origins: /f/<token> answers `frame-ancestors <those origins>` and
+ * `'none'` while the list is empty (frame-headers.ts).
  */
 
 import { HONEYPOT_FIELD } from './submission';
@@ -46,4 +47,16 @@ export function htmlFormSnippet(siteUrl: string, token: string): string {
     `  <button type="submit">Send</button>`,
     `</form>`,
   ].join('\n');
+}
+
+/**
+ * An <iframe> of the hosted form. Framing works only on a site listed
+ * in Allowed websites; elsewhere the browser shows an empty frame.
+ */
+export function iframeSnippet(siteUrl: string, token: string): string {
+  const src = attr(hostedFormUrl(siteUrl, token));
+  return (
+    `<iframe src="${src}" title="Contact form" width="100%" height="640"` +
+    ` style="border:0;max-width:480px" loading="lazy"></iframe>`
+  );
 }

@@ -97,6 +97,41 @@ describe('POST /api/v1/contacts', () => {
   });
 });
 
+describe('POST /api/v1/contacts lead_source', () => {
+  it('passes a valid lead_source through', async () => {
+    const res = await post({
+      phone: '+971 50 123 4567',
+      lead_source: 'import',
+    });
+    expect(res.status).toBe(201);
+    expect(findOrCreateContact).toHaveBeenCalledWith(
+      {},
+      'acct-1',
+      'owner-1',
+      expect.objectContaining({ lead_source: 'import' })
+    );
+  });
+
+  it('leaves it null when absent', async () => {
+    await post({ phone: '+971 50 123 4567' });
+    expect(findOrCreateContact).toHaveBeenCalledWith(
+      {},
+      'acct-1',
+      'owner-1',
+      expect.objectContaining({ lead_source: null })
+    );
+  });
+
+  it.each(['facebook', 7, ''])('refuses %j and creates nothing', async (v) => {
+    const res = await post({ phone: '+971 50 123 4567', lead_source: v });
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error.code).toBe('bad_request');
+    expect(error.message).toContain('web_form');
+    expect(findOrCreateContact).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/v1/contacts', () => {
   // `?tag=` used to filter on contact tags; none exist any more, so it
   // answers an empty page without querying (the mocked client is `{}`).

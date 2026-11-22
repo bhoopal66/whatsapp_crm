@@ -901,6 +901,7 @@
         "chatTag": "채팅 태그",
         "createdBy": "소유자",
         "assignedTo": "담당자",
+        "lastActivity": "마지막 활동",
         "createdAt": "생성일"
       },
       "loading": "연락처를 불러오는 중...",
@@ -1078,6 +1079,7 @@
   },
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
+    "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",
@@ -1100,6 +1102,7 @@
       "company": "Company",
       "createdAt": "Created",
       "email": "Email",
+      "lastActivity": "Last activity",
       "owner": "Owner",
       "source": "Source"
     },
@@ -4532,7 +4535,7 @@
       "enabledOn": "On: the link and the snippet accept new leads.",
       "enabledOff": "Off: the link shows a not-found page and posts are refused.",
       "originsLabel": "Allowed websites",
-      "originsHint": "One per line, for example https://www.example.com. Only these sites may post the form from their own pages. Leave empty to accept the hosted link only.",
+      "originsHint": "One per line, for example https://www.example.com. Only these sites may post the form from their own pages or show it in an iframe. Leave empty to accept the hosted link only.",
       "originsInvalid": "\"{line}\" is not a website address. Use https:// and the host only, with no path.",
       "save": "Save",
       "saving": "Saving…",
@@ -4547,6 +4550,9 @@
       "copyFailed": "Could not copy. Select the text and copy it by hand.",
       "snippetLabel": "Embed on your website (HTML)",
       "snippetHint": "Paste it into a page of a website listed above. It needs no script; after sending, the visitor sees the hosted thank-you page.",
+      "iframeLabel": "Embed on your website (iframe)",
+      "copyIframe": "Copy iframe",
+      "iframeHint": "Shows the hosted form inside a page of your website. It only loads on a website listed in Allowed websites; while the list is empty, no website can show it.",
       "noLinkYet": "Save once to create the form's link.",
       "rotate": "New link",
       "rotateHint": "Issue a new link if the old one is being misused. The old link and every pasted snippet stop working.",
