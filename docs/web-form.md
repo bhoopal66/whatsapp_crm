@@ -47,18 +47,56 @@ Settings → Integrations → Web form (owners and admins).
   are refused with 404, exactly like a link that never existed.
 - **Link**: `<site>/f/<token>`, a hosted page with name, phone (required),
   email and message. It needs no JavaScript and works on a phone.
-- **Embed**: a plain HTML `<form>` snippet that posts to
+- **Embed (HTML)**: a plain HTML `<form>` snippet that posts to
   `<site>/api/public/web-form/<token>`. After sending, the visitor lands
-  on the hosted thank-you page. There is no iframe snippet: every page
-  keeps `X-Frame-Options: DENY` / `frame-ancestors 'none'`, and the form
-  page is no exception.
+  on the hosted thank-you page.
+- **Embed (iframe)**: an `<iframe>` of the hosted link. It loads only on
+  a website in Allowed websites (see *Embedding in a frame* below).
 - **Allowed websites**: the https origins (`https://www.example.com`, no
-  path) that may post the form from their own pages. Empty means the
+  path) that may post the form from their own pages **and** show the
+  hosted form in an iframe; one list serves both. Empty means the
   hosted link only. With a list, a post must carry one of those origins
   (browsers always send it); a post with no `Origin` header is accepted
   only while the list is empty.
 - **New link** issues a new token. The old link and every pasted snippet
   stop working at once.
+
+### Embedding in a frame
+
+Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
+`frame-ancestors 'none'` in the Report-Only CSP), except the hosted form
+`/f/<token>`, which a site on that form's Allowed websites may frame.
+
+- `next.config.ts` leaves `/f/*` out of its global `X-Frame-Options` and
+  Report-Only CSP; every other route gets exactly the same values as
+  before.
+- The middleware sets the frame headers on each `/f/*` response
+  (`src/lib/web-form/frame-headers.ts`), from the form's
+  `allowed_origins` read on the service role
+  (`web_form_public_config`):
+  - **a non-empty list**: an enforced
+    `Content-Security-Policy: frame-ancestors <origins>` and **no**
+    `X-Frame-Options`. XFO cannot list several sites, and a `DENY`
+    would block the frame whatever the CSP says. The CSP is enforced
+    (not Report-Only like the rest of the app's policy), because a
+    report-only rule would not stop anyone else framing the form.
+  - **an empty list, an unknown or switched-off link, any other path
+    under `/f/`, or a lookup error or timeout (2 s)**:
+    `Content-Security-Policy: frame-ancestors 'none'` and
+    `X-Frame-Options: DENY`. It fails closed.
+  - The app's Report-Only policy is still sent, with its
+    `frame-ancestors` set to the same value.
+- Only entries that pass the origin check (`https://` + host, optional
+  port) become sources: never `*`, a bare scheme, a path or anything
+  that could add another directive; at most 20.
+- The answer is cached for 30 seconds per server process, so an edit to
+  Allowed websites reaches framing within 30 seconds.
+- Inside the frame, sending works as on the hosted page: the post comes
+  from the app's own origin, and the thank-you page loads in the frame.
+
+On a site that is not listed, the browser shows an empty or refused
+frame. `http://` sites (including `http://localhost`) cannot be listed,
+so they cannot frame the form either.
 
 ### What a submission does
 

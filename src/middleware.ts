@@ -2,6 +2,38 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
 import { safeNextPath } from '@/lib/auth/login-client'
+import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { contentSecurityPolicy } from '@/lib/csp'
+import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
+import { frameHeadersFor } from '@/lib/web-form/frame-headers'
+import { loadPublicForm } from '@/lib/web-form/server'
+import { isWellFormedToken } from '@/lib/web-form/submission'
+
+// The hosted web form (/f/<token>) is the one page another site may
+// frame, and only a site on that form's own allow-list. next.config.ts
+// leaves /f/* out of the global X-Frame-Options / Report-Only CSP, and
+// the frame headers are set here per request (frame-headers.ts explains
+// the exact headers). Here rather than in the page: a server component
+// cannot set response headers. The lookup is the service-role
+// `web_form_public_config`, cached 30 s per process, and fails closed
+// to frame-ancestors 'none' + X-Frame-Options DENY.
+const webFormFrameOrigins = createFrameOriginsLookup({
+  load: (token) => loadPublicForm(supabaseAdmin(), token),
+})
+const REPORT_ONLY_CSP = contentSecurityPolicy({
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  linkusSdkUrl: process.env.NEXT_PUBLIC_LINKUS_SDK_URL,
+  pbxOrigin: process.env.NEXT_PUBLIC_PBX_ORIGIN,
+})
+
+async function webFormFrameHeaders(pathname: string) {
+  // Exactly /f/<64 hex>; anything else under /f/ is never framable.
+  const token = pathname.match(/^\/f\/([^/]+)\/?$/)?.[1] ?? ''
+  const origins = isWellFormedToken(token)
+    ? await webFormFrameOrigins(token)
+    : []
+  return frameHeadersFor(origins, { reportOnlyCsp: REPORT_ONLY_CSP })
+}
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -153,6 +185,18 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )
+  }
+
+  // /f/* got no frame headers from next.config.ts: every /f/ response
+  // that reaches this point gets them here. (No branch above returns
+  // early for /f/: it is neither an auth page, a protected screen nor
+  // an API route.) Set on `supabaseResponse` itself, so the refreshed
+  // cookies ride along unchanged.
+  if (request.nextUrl.pathname.startsWith('/f/')) {
+    const headers = await webFormFrameHeaders(request.nextUrl.pathname)
+    for (const [key, value] of Object.entries(headers)) {
+      supabaseResponse.headers.set(key, value)
+    }
   }
 
   return supabaseResponse

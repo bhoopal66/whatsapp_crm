@@ -5,7 +5,8 @@ import { contentSecurityPolicy } from './src/lib/csp';
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 /**
- * Baseline security headers applied to every response.
+ * Baseline security headers applied to every response (X-Frame-Options
+ * and the CSP: every response but /f/*, see FRAME_HEADERS below).
  *
  * CSP ships as `Content-Security-Policy-Report-Only` so the browser
  * surfaces violations in the console without blocking anything — once
@@ -26,7 +27,6 @@ const SECURITY_HEADERS = [
     value: 'max-age=63072000; includeSubDomains; preload',
   },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
@@ -40,6 +40,21 @@ const SECURITY_HEADERS = [
     value:
       'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()',
   },
+] as const;
+
+/**
+ * The two headers that forbid framing, kept apart from the rest so the
+ * hosted web form (/f/<token>) can be left out of them: another site may
+ * frame that one page, if it is on the form's own allowed-origins list.
+ * The middleware sends /f/'s frame headers per request instead
+ * (src/lib/web-form/frame-headers.ts): a non-empty list gets an
+ * enforced `frame-ancestors <origins>` and no X-Frame-Options (XFO has
+ * no allow-list, and a DENY here would block framing whatever the CSP
+ * says); anything else gets `frame-ancestors 'none'` + DENY, as here.
+ * Every other route gets exactly these two values.
+ */
+const FRAME_HEADERS = [
+  { key: 'X-Frame-Options', value: 'DENY' },
   {
     // Directives and the env-derived origins (Supabase media, the
     // Linkus SDK bundle, the PBX for the browser softphone) are built in
@@ -182,6 +197,14 @@ const nextConfig: NextConfig = {
         // policy don't hurt).
         source: '/:path*',
         headers: [...SECURITY_HEADERS],
+      },
+      {
+        // X-Frame-Options + the Report-Only CSP on every response except
+        // /f/* (the hosted web form), whose frame headers the middleware
+        // sets per request: two frame-ancestors / XFO headers on one
+        // response would combine to the stricter one.
+        source: '/:path((?!f/).*)',
+        headers: [...FRAME_HEADERS],
       },
       {
         // The push service worker (public/sw.js): browsers re-check it on
