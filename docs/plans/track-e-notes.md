@@ -58,4 +58,16 @@ top bar's `<h1>` only.
   many page `title` keys are now unused; left in place for key parity.
 
 ## Gate results
-See the final section appended below.
+- `npm run lint`: 0 errors, 31 warnings (the baseline).
+- `npm run typecheck`: clean.
+- `npm test`: 1148 files, 16,154 tests passed.
+- `npm run build` with the CI dummy env: exit 0.
+
+## Not done / not verified
+- Nothing was clicked through in a browser: 375px layout, the full-bleed
+  HR pages under the new tab bar, the Chat actions strip and the bottom bar
+  are checked by typecheck and tests only.
+- `command-bar.tsx`, `mobile-tab-bar.tsx` and the thread header have no
+  render tests (no DOM in the test env); the logic is in `lib/` and tested.
+- Status-by-colour-only sweep was not done repo-wide, only where touched.
+- The closed phone drawer's links are still reachable by Tab (off-screen).
