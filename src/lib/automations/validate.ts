@@ -106,6 +106,19 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
           message: 'agent is required when mode is "specific"',
         })
       }
+      if (
+        c.people !== undefined &&
+        c.people !== null &&
+        (!Array.isArray(c.people) || !c.people.every((p) => nonEmpty(p)))
+      ) {
+        issues.push({
+          path: `${path}.people`,
+          message: 'people must be a list of team members',
+        })
+      }
+      if (c.enabled !== undefined && typeof c.enabled !== 'boolean') {
+        issues.push({ path: `${path}.enabled`, message: 'enabled must be true or false' })
+      }
       break
     case 'update_contact_field':
       if (!nonEmpty(c.field)) {

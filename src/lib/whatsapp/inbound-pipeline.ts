@@ -62,6 +62,11 @@ import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush, shouldPushInbound } from '@/lib/push/inbound';
 import { assignChatFromCallHistory } from '@/lib/pbx/assign-from-calls';
 import {
+  BROADCAST_POOL_KEY,
+  loadAssignmentSettings,
+  rotateAssign,
+} from '@/lib/assignment/rotation';
+import {
   customerDocumentKind,
   recordCustomerDocument,
 } from '@/lib/customer-docs/record';
@@ -525,6 +530,42 @@ async function flagBroadcastReplyIfAny(
   } catch (err) {
     console.error('flagBroadcastReplyIfAny failed:', err);
     return null;
+  }
+}
+
+/**
+ * Broadcast first-reply rotation (migration 236): the FIRST reply to a
+ * campaign hands a chat nobody holds to the next person of the account's
+ * broadcast pool (empty = every live agent and team leader), when the
+ * account's `broadcast_rotation_enabled` is on. Runs after the call-
+ * history pick, so the customer's last caller wins; the SQL re-checks
+ * under the row lock that the chat is still unassigned and unengaged.
+ * Awaited inside the route's after(); never throws.
+ */
+export async function rotateBroadcastReply(
+  accountId: string,
+  conversation: {
+    id: string;
+    assigned_agent_id?: string | null;
+    human_engaged_at?: string | null;
+  }
+): Promise<void> {
+  if (conversation.assigned_agent_id || conversation.human_engaged_at) return;
+  try {
+    const db = supabaseAdmin();
+    const settings = await loadAssignmentSettings(db, accountId);
+    if (!settings.broadcastRotationEnabled) return;
+    const result = await rotateAssign(db, {
+      accountId,
+      conversationId: conversation.id,
+      poolKey: BROADCAST_POOL_KEY,
+      candidates: settings.broadcastPool,
+    });
+    if (result.reason === 'error') {
+      console.error('[webhook] broadcast reply rotation failed:', result.error);
+    }
+  } catch (err) {
+    console.error('[webhook] broadcast reply rotation failed:', err);
   }
 }
 
@@ -1090,6 +1131,14 @@ export async function processMessage(
     contactRecord.id,
     conversation.id
   );
+
+  // The first reply to a campaign goes to the next person of the
+  // broadcast pool when that switch is on (migration 236). Ahead of the
+  // follow-up flow and the bots, so they see the assignee. The call-
+  // history pick above ran first and keeps its person. Never throws.
+  if (campaignReply) {
+    await rotateBroadcastReply(accountId, conversation);
+  }
 
   // Campaign reply sorting (migration 148, docs/jev-insights.md): Jev
   // sorts that first reply into a class, stored on the recipient row and

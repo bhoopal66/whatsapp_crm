@@ -60,6 +60,11 @@ function makeDb(
     templates?: Row[];
     /** Tables whose reads answer an error. */
     failReads?: string[];
+    /** assignment_settings rows (migration 236). */
+    settings?: Row[];
+    cases?: Row[];
+    /** The answer of any rpc (or a throw). */
+    rpc?: (fn: string, args: unknown) => unknown;
   } = {}
 ) {
   const tables: Record<string, Row[]> = {
@@ -69,12 +74,23 @@ function makeDb(
     submission_groups: seed.groups ?? [],
     messages: seed.messages ?? [],
     message_templates: seed.templates ?? [SUBMITTED_ROW, APPROVED_ROW],
+    assignment_settings: seed.settings ?? [],
+    cases: seed.cases ?? [],
   };
   let nextId = 1;
   /** Every table an insert or update was run against. */
   const written = new Set<string>();
+  /** Every table read. */
+  const read = new Set<string>();
+  const rpcs: { fn: string; args: unknown }[] = [];
 
   const db = {
+    rpc(fn: string, args: unknown) {
+      rpcs.push({ fn, args });
+      return Promise.resolve(
+        seed.rpc ? seed.rpc(fn, args) : { data: null, error: null }
+      );
+    },
     from(table: string) {
       const rows = tables[table];
       let op: 'select' | 'insert' | 'update' = 'select';
@@ -92,6 +108,7 @@ function makeDb(
 
       const run = (): { data: unknown; error: unknown } => {
         if (op !== 'select') written.add(table);
+        else read.add(table);
         if (op === 'select' && seed.failReads?.includes(table))
           return { data: null, error: { message: 'read failed' } };
         if (op === 'insert') {
@@ -163,7 +180,7 @@ function makeDb(
       return builder;
     },
   };
-  return { db: db as unknown as SupabaseClient, tables, written };
+  return { db: db as unknown as SupabaseClient, tables, written, read, rpcs };
 }
 
 const META = { id: 'cfg-meta', provider: 'meta', status: 'connected' };
@@ -563,14 +580,17 @@ describe('sendCompassNotification', () => {
     // The only table notify.ts writes is its own; ownership lives on
     // `conversations`, which it only reads itself (the Meta gate) and
     // otherwise reaches solely through the (mocked) resolver and send
-    // core.
+    // core. With migration 236's switch off (no settings row) it reads
+    // that switch and nothing else.
     findExistingContact.mockResolvedValue({ id: 'contact-1' });
-    const { db, written } = makeDb(chatOnMeta(48 * HOUR));
+    const { db, written, rpcs } = makeDb(chatOnMeta(48 * HOUR));
     const from = vi.spyOn(db, 'from');
     await sendCompassNotification(db, 'acct', baseRequest());
     expect([...written].sort()).toEqual(['compass_notifications']);
+    expect(rpcs).toEqual([]);
     const touched = new Set(from.mock.calls.map(([t]) => t));
     expect([...touched].sort()).toEqual([
+      'assignment_settings',
       'compass_notifications',
       'conversations',
       'message_templates',
@@ -1187,5 +1207,178 @@ describe('sendCompassNotification into a submission group (170)', () => {
       message_id: 'msg-1',
     });
     expect(outcome.notification.delivered_to).toBe('customer');
+  });
+});
+
+// Migration 236: Compass assignment. Off (the default, or no settings
+// row) notify behaves exactly as before: it reads the switch and never
+// touches ownership, cases or any RPC.
+describe('sendCompassNotification — Compass assignment (236)', () => {
+  const caseRow = (over: Row = {}): Row => ({
+    id: 'case-1',
+    account_id: 'acct',
+    group_id: 'g-1',
+    contact_id: null,
+    agent_id: 'agent-1',
+    coordinator_id: 'coord-1',
+    bank_code: 'ADCB',
+    closed_at: null,
+    ...over,
+  });
+  const groupRow: Row = {
+    id: 'g-1',
+    account_id: 'acct',
+    submission_ref: 'SUB-9',
+    contact_id: 'contact-1',
+  };
+  const seedChat = () => {
+    const chat = chatOnMeta(HOUR);
+    return {
+      ...chat,
+      conversations: chat.conversations.map((c) => ({
+        ...c,
+        assigned_agent_id: null as string | null,
+      })),
+    };
+  };
+  const compassAnswer = {
+    data: {
+      enabled: true,
+      assigned_to: 'agent-1',
+      reason: 'assigned',
+      shared_with: 'coord-1',
+      share_created: true,
+      share_reason: 'shared',
+    },
+    error: null,
+  };
+
+  const offCases: [string, Row[]][] = [
+    ['no settings row', []],
+    ['the switch off', [{ account_id: 'acct', compass_assign_enabled: false }]],
+  ];
+  for (const [label, settings] of offCases) {
+    it(`with ${label} never touches ownership`, async () => {
+      const { db, tables, written, read, rpcs } = makeDb({
+        ...seedChat(),
+        settings,
+        cases: [caseRow()],
+        groups: [groupRow],
+      });
+      const outcome = await sendCompassNotification(
+        db,
+        'acct',
+        baseRequest({ reference: 'SUB-9' })
+      );
+      expect(outcome.notification.status).toBe('sent');
+      expect(rpcs).toEqual([]);
+      expect(read.has('cases')).toBe(false);
+      expect(written.has('conversations')).toBe(false);
+      expect(tables.conversations[0].assigned_agent_id).toBeNull();
+    });
+  }
+
+  it('on: the case named by the reference gives its agent and coordinator', async () => {
+    const { db, rpcs } = makeDb({
+      ...seedChat(),
+      settings: [{ account_id: 'acct', compass_assign_enabled: true }],
+      cases: [caseRow()],
+      groups: [groupRow],
+      rpc: () => compassAnswer,
+    });
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'SUB-9' })
+    );
+    expect(outcome.notification.status).toBe('sent');
+    expect(rpcs).toEqual([
+      {
+        fn: 'assignment_compass_assign',
+        args: {
+          p_account_id: 'acct',
+          p_conversation_id: 'conv-1',
+          p_agent_user_id: 'agent-1',
+          p_coordinator_user_id: 'coord-1',
+          p_bank_code: 'ADCB',
+        },
+      },
+    ]);
+  });
+
+  it("on, no reference: the contact's one open case", async () => {
+    const { db, rpcs } = makeDb({
+      ...seedChat(),
+      settings: [{ account_id: 'acct', compass_assign_enabled: true }],
+      cases: [
+        caseRow({
+          id: 'lead-1',
+          group_id: null,
+          contact_id: 'contact-1',
+          agent_id: 'agent-7',
+        }),
+        caseRow({
+          id: 'old',
+          group_id: null,
+          contact_id: 'contact-1',
+          closed_at: '2026-01-01',
+        }),
+      ],
+      rpc: () => compassAnswer,
+    });
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(rpcs).toHaveLength(1);
+    expect(rpcs[0].args).toMatchObject({ p_agent_user_id: 'agent-7' });
+  });
+
+  it('on, several open cases: nothing is assigned rather than guessing', async () => {
+    const { db, rpcs } = makeDb({
+      ...seedChat(),
+      settings: [{ account_id: 'acct', compass_assign_enabled: true }],
+      cases: [
+        caseRow({ id: 'c-a', group_id: null, contact_id: 'contact-1' }),
+        caseRow({ id: 'c-b', group_id: 'g-1' }),
+      ],
+      groups: [groupRow],
+      rpc: () => compassAnswer,
+    });
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(rpcs).toEqual([]);
+  });
+
+  it('on, a referenced case of another customer is not used', async () => {
+    const { db, rpcs } = makeDb({
+      ...seedChat(),
+      settings: [{ account_id: 'acct', compass_assign_enabled: true }],
+      cases: [caseRow({ contact_id: 'someone-else' })],
+      groups: [{ ...groupRow, contact_id: 'someone-else' }],
+      rpc: () => compassAnswer,
+    });
+    await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'SUB-9' })
+    );
+    expect(rpcs).toEqual([]);
+  });
+
+  it('a failing assignment never fails a sent notification', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { db } = makeDb({
+      ...seedChat(),
+      settings: [{ account_id: 'acct', compass_assign_enabled: true }],
+      cases: [caseRow()],
+      groups: [groupRow],
+      rpc: () => {
+        throw new Error('db down');
+      },
+    });
+    const outcome = await sendCompassNotification(
+      db,
+      'acct',
+      baseRequest({ reference: 'SUB-9' })
+    );
+    expect(outcome.notification.status).toBe('sent');
+    quiet.mockRestore();
   });
 });
