@@ -216,7 +216,13 @@
   },
   "MobileNav": {
     "label": "주 메뉴",
-    "more": "더보기"
+    "more": "더보기",
+    "tabs": {
+      "inbox": "Inbox",
+      "worklist": "Worklist",
+      "contacts": "Contacts",
+      "chat": "Chat"
+    }
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"

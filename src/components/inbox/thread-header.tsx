@@ -239,7 +239,7 @@ export function ThreadHeader({
         the chat, and past a hairline the two view utilities (refresh,
         contact panel) at the far right. */}
       <div className="flex min-h-[60px] items-center justify-between gap-2 px-2 py-2 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2 @lg/thread:gap-3">
+        <div className="flex min-w-0 items-center gap-2 @3xl/thread:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
             conversation list is always visible next to the thread. */}
           {onBack && (
@@ -261,7 +261,7 @@ export function ThreadHeader({
             the tab order and the accessibility tree. */}
           {onToggleContactPanel ? (
             <>
-              <div className="flex min-w-0 items-center gap-2 lg:hidden @lg/thread:gap-3">
+              <div className="flex min-w-0 items-center gap-2 lg:hidden @3xl/thread:gap-3">
                 {identity}
               </div>
               <button
@@ -269,13 +269,13 @@ export function ThreadHeader({
                 onClick={onToggleContactPanel}
                 title={t('contactInfo')}
                 aria-pressed={contactPanelOpen}
-                className="hover:bg-wa-icon-hover -mx-1 hidden min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left transition-colors lg:flex @lg/thread:gap-3"
+                className="hover:bg-wa-icon-hover -mx-1 hidden min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left transition-colors lg:flex @3xl/thread:gap-3"
               >
                 {identity}
               </button>
             </>
           ) : (
-            <div className="flex min-w-0 items-center gap-2 @lg/thread:gap-3">
+            <div className="flex min-w-0 items-center gap-2 @3xl/thread:gap-3">
               {identity}
             </div>
           )}
@@ -286,7 +286,7 @@ export function ThreadHeader({
           name always keeps its room: labels go first, then the
           refresh button. The number and the person are the same h-8
           pill so the pair reads as one set. */}
-        <div className="flex shrink-0 items-center gap-1 @lg/thread:gap-1.5">
+        <div className="flex shrink-0 items-center gap-1 @3xl/thread:gap-1.5">
           {serviceWindowCountdown && (
             <ServiceWindowCountdown
               hours={serviceWindowCountdown.hours}
@@ -477,7 +477,7 @@ export function ThreadHeader({
             title={t('chatActions')}
             className={cn(
               HEADER_ICON_BUTTON,
-              '@lg/thread:hidden',
+              '@3xl/thread:hidden',
               actionsOpen && 'bg-wa-icon-hover'
             )}
           >
@@ -488,13 +488,13 @@ export function ThreadHeader({
             role="group"
             aria-label={t('chatActions')}
             className={cn(
-              'items-center gap-1 @lg/thread:static @lg/thread:flex @lg/thread:gap-1.5 @lg/thread:border-0 @lg/thread:bg-transparent @lg/thread:p-0 @lg/thread:shadow-none',
+              'items-center gap-1 @3xl/thread:static @3xl/thread:flex @3xl/thread:gap-1.5 @3xl/thread:border-0 @3xl/thread:bg-transparent @3xl/thread:p-0 @3xl/thread:shadow-none',
               actionsOpen
                 ? 'bg-wa-panel-header border-wa-divider absolute top-full right-2 z-20 flex rounded-lg border p-1.5 shadow-md'
                 : 'hidden'
             )}
           >
-          {fullContact && (
+            {fullContact && (
               <CallButton
                 contact={fullContact}
                 conversationId={conversation.id}
@@ -526,7 +526,7 @@ export function ThreadHeader({
             {onRefresh && (
               <span
                 aria-hidden="true"
-                className="bg-wa-divider mx-0.5 hidden h-6 w-px @lg/thread:block"
+                className="bg-wa-divider mx-0.5 hidden h-6 w-px @3xl/thread:block"
               />
             )}
 

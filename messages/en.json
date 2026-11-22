@@ -216,7 +216,13 @@
   },
   "MobileNav": {
     "label": "Main navigation",
-    "more": "More"
+    "more": "More",
+    "tabs": {
+      "inbox": "Inbox",
+      "worklist": "Worklist",
+      "contacts": "Contacts",
+      "chat": "Chat"
+    }
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"

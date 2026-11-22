@@ -69,7 +69,9 @@ export function MobileTabBar({ onOpenMenu }: { onOpenMenu: () => void }) {
                 active ? 'border-primary' : 'border-transparent'
               )}
             >
-              {t(item.labelKey)}
+              {tNav.has(`tabs.${item.href.slice(1)}`)
+                ? tNav(`tabs.${item.href.slice(1)}`)
+                : t(item.labelKey)}
             </span>
           </Link>
         );
