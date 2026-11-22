@@ -7,6 +7,7 @@ import {
   frameAncestorSources,
   frameHeadersFor,
   withFrameAncestors,
+  webFormFramePathToken,
 } from './frame-headers';
 import { createFrameOriginsLookup } from './frame-lookup';
 import { MAX_ALLOWED_ORIGINS } from './origin';
@@ -15,6 +16,23 @@ const NONE = {
   'Content-Security-Policy': "frame-ancestors 'none'",
   'X-Frame-Options': 'DENY',
 };
+
+describe('webFormFramePathToken', () => {
+  const tok = 'a'.repeat(64);
+  it('finds the token of the hosted page and of the route it posts to', () => {
+    expect(webFormFramePathToken(`/f/${tok}`)).toBe(tok);
+    expect(webFormFramePathToken(`/f/${tok}/`)).toBe(tok);
+    // The post's 303 (and its errors) are shown inside the iframe too.
+    expect(webFormFramePathToken(`/api/public/web-form/${tok}`)).toBe(tok);
+  });
+  it('gives nothing else a token', () => {
+    expect(webFormFramePathToken(`/f/${tok}/x`)).toBeNull();
+    expect(webFormFramePathToken(`/api/public/web-form/${tok}/x`)).toBeNull();
+    expect(webFormFramePathToken(`/api/public/other/${tok}`)).toBeNull();
+    expect(webFormFramePathToken('/inbox')).toBeNull();
+    expect(webFormFramePathToken('/f/')).toBeNull();
+  });
+});
 
 describe('frameHeadersFor', () => {
   it('forbids framing for no list, an empty list or only garbage', () => {

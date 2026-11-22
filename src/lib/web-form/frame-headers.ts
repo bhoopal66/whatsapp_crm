@@ -35,6 +35,21 @@ import { MAX_ALLOWED_ORIGINS, normalizeAllowedOrigin } from './origin';
 
 export const FRAME_ANCESTORS_NONE = "frame-ancestors 'none'";
 
+/**
+ * The form token of an address whose frame headers are the form's own:
+ * the hosted page `/f/<token>` and the route it posts to,
+ * `/api/public/web-form/<token>`. The post answers with a 303 back to the
+ * page (or an error), and Chrome applies X-Frame-Options / frame-ancestors
+ * to that response inside the iframe too, so it must carry the same
+ * allow-list as the page or an embedded submit goes blank. Anything else
+ * (another path, a deeper path) is null: not framable.
+ */
+export function webFormFramePathToken(pathname: string): string | null {
+  return (
+    pathname.match(/^\/(?:f|api\/public\/web-form)\/([^/]+)\/?$/)?.[1] ?? null
+  );
+}
+
 /** The allowed origins as frame-ancestors sources: normalised, unique, capped. */
 export function frameAncestorSources(
   allowedOrigins: readonly unknown[] | null | undefined

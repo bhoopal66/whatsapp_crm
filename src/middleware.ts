@@ -5,7 +5,10 @@ import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { contentSecurityPolicy } from '@/lib/csp'
 import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
-import { frameHeadersFor } from '@/lib/web-form/frame-headers'
+import {
+  frameHeadersFor,
+  webFormFramePathToken,
+} from '@/lib/web-form/frame-headers'
 import { loadPublicForm } from '@/lib/web-form/server'
 import { isWellFormedToken } from '@/lib/web-form/submission'
 
@@ -27,8 +30,9 @@ const REPORT_ONLY_CSP = contentSecurityPolicy({
 })
 
 async function webFormFrameHeaders(pathname: string) {
-  // Exactly /f/<64 hex>; anything else under /f/ is never framable.
-  const token = pathname.match(/^\/f\/([^/]+)\/?$/)?.[1] ?? ''
+  // Exactly /f/<64 hex> or the route it posts to; anything else under
+  // those prefixes is never framable.
+  const token = webFormFramePathToken(pathname) ?? ''
   const origins = isWellFormedToken(token)
     ? await webFormFrameOrigins(token)
     : []
@@ -192,7 +196,13 @@ export async function middleware(request: NextRequest) {
   // early for /f/: it is neither an auth page, a protected screen nor
   // an API route.) Set on `supabaseResponse` itself, so the refreshed
   // cookies ride along unchanged.
-  if (request.nextUrl.pathname.startsWith('/f/')) {
+  // The form's post route (/api/public/web-form/<token>) too: its 303
+  // back to the page is shown inside the iframe, and Chrome applies the
+  // frame headers to it there (next.config.ts leaves it out as well).
+  if (
+    request.nextUrl.pathname.startsWith('/f/') ||
+    request.nextUrl.pathname.startsWith('/api/public/web-form/')
+  ) {
     const headers = await webFormFrameHeaders(request.nextUrl.pathname)
     for (const [key, value] of Object.entries(headers)) {
       supabaseResponse.headers.set(key, value)

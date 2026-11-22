@@ -14,6 +14,20 @@ and polish.
 
 - Docs: CLAUDE.md split into a short index plus docs/agents/*
 
+### Web form: browsers can submit it
+
+- **Fixed:** the hosted web form (`/f/<link>`) refused every submission
+  from a real browser with 403. Its pages told the browser to send no
+  referrer, so the browser posted with `Origin: null`, which the form
+  rightly refuses; only scripts that set an Origin got through. The pages
+  now use `Referrer-Policy: same-origin` (the link still never reaches
+  another site).
+- **Fixed:** inside an iframe on an allowed website, the "thank you"
+  redirect after sending was blocked by the app-wide `X-Frame-Options`.
+  The post route now gets the form's own frame headers, as the page does.
+  Tried end to end in Chromium: an allowed https site embeds and submits,
+  an unlisted site and an emptied list are refused.
+
 ### Your own language, including Arabic
 
 **Migration required:** apply `259_preferred_language.sql` (adds

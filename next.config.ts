@@ -200,10 +200,11 @@ const nextConfig: NextConfig = {
       },
       {
         // X-Frame-Options + the Report-Only CSP on every response except
-        // /f/* (the hosted web form), whose frame headers the middleware
-        // sets per request: two frame-ancestors / XFO headers on one
-        // response would combine to the stricter one.
-        source: '/:path((?!f/).*)',
+        // /f/* (the hosted web form) and the route it posts to, whose
+        // frame headers the middleware sets per request (the post's 303
+        // is shown inside the iframe): two frame-ancestors / XFO headers
+        // on one response would combine to the stricter one.
+        source: '/:path((?!f/|api/public/web-form/).*)',
         headers: [...FRAME_HEADERS],
       },
       {

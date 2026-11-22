@@ -3,15 +3,18 @@
 // (auth) and (dashboard): visitors are anonymous strangers, and the
 // middleware gates neither /f nor /api/public.
 //
-// Referrer-Policy no-referrer: the form's token is its address; nothing
-// the page loads should receive it. Not indexed.
+// Referrer-Policy same-origin: the form's token is its address, so no
+// other site the page loads from may receive it. Not no-referrer: under
+// no-referrer a browser sends `Origin: null` with the form's own POST
+// (Fetch: serializing a request origin), which the post route rightly
+// refuses, so no real browser could submit. Not indexed.
 // ============================================================
 
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
-  referrer: 'no-referrer',
+  referrer: 'same-origin',
   robots: { index: false, follow: false },
 };
 

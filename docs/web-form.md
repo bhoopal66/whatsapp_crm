@@ -67,10 +67,13 @@ Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
 `frame-ancestors 'none'` in the Report-Only CSP), except the hosted form
 `/f/<token>`, which a site on that form's Allowed websites may frame.
 
-- `next.config.ts` leaves `/f/*` out of its global `X-Frame-Options` and
+- `next.config.ts` leaves `/f/*` and the route the form posts to,
+  `/api/public/web-form/<token>`, out of its global `X-Frame-Options` and
   Report-Only CSP; every other route gets exactly the same values as
   before.
-- The middleware sets the frame headers on each `/f/*` response
+- The middleware sets the frame headers on each response of those two
+  (the post answers with a 303 back to the page, and Chrome applies the
+  frame headers to that response inside the frame too)
   (`src/lib/web-form/frame-headers.ts`), from the form's
   `allowed_origins` read on the service role
   (`web_form_public_config`):
@@ -93,6 +96,11 @@ Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
   Allowed websites reaches framing within 30 seconds.
 - Inside the frame, sending works as on the hosted page: the post comes
   from the app's own origin, and the thank-you page loads in the frame.
+- The form pages use `Referrer-Policy: same-origin`, so no other site
+  receives the link, but the form's own post still carries its real
+  `Origin`. Under `no-referrer` a browser sends `Origin: null` with the
+  post, which the route refuses (as it refuses a sandboxed frame), so no
+  browser could submit; `src/app/f/layout.test.ts` pins this.
 
 On a site that is not listed, the browser shows an empty or refused
 frame. `http://` sites (including `http://localhost`) cannot be listed,
