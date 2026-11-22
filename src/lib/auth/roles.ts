@@ -200,6 +200,14 @@ export function canEditSettings(role: AccountRole): boolean {
 }
 
 /**
+ * Team leader and up: save a view the whole workspace sees (migration
+ * 250). Anyone with a staff login may keep personal views.
+ */
+export function canShareSavedViews(role: AccountRole): boolean {
+  return hasMinRole(role, 'team_leader');
+}
+
+/**
  * Owner / admin: put a customer document the NAS worker could not save
  * back in its queue (customer_documents_retry, migration 178).
  */

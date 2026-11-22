@@ -19,6 +19,27 @@
     "unavailable": "Sign-in is temporarily unavailable. Try again shortly.",
     "genericError": "Sign-in failed. Try again."
   },
+  "SavedViews": {
+    "button": "Views",
+    "title": "Saved views",
+    "empty": "No saved views yet.",
+    "loadFailed": "Could not load your views.",
+    "personalTag": "Mine",
+    "sharedTag": "Shared",
+    "replace": "Update",
+    "replaceHint": "Replace this view's filters with the ones on screen",
+    "delete": "Delete view {name}",
+    "namePlaceholder": "Name this view",
+    "nameInvalid": "Give the view a name of up to 60 characters.",
+    "shareWithTeam": "Share with the whole team",
+    "saveCurrent": "Save current filters",
+    "pickFiltersFirst": "Choose some filters, then save them here as a view.",
+    "saved": "View saved.",
+    "updated": "View updated.",
+    "deleted": "View deleted.",
+    "saveFailed": "Could not save the view.",
+    "deleteFailed": "Could not delete the view."
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
