@@ -46,6 +46,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'audit-log',
   'ai',
   'api',
+  'web-form',
   'phone-extensions',
   'deals',
   'members',
@@ -143,7 +144,7 @@ describe('categories', () => {
       automation: ['ai', 'insights', 'journey-bot'],
       collaboration: ['cases', 'deal-rooms', 'team-chat'],
       compliance: ['vault', 'consent-retention', 'privacy', 'audit-log'],
-      integrations: ['phone-system', 'phone-extensions', 'api'],
+      integrations: ['phone-system', 'phone-extensions', 'api', 'web-form'],
     });
   });
 

@@ -59,6 +59,10 @@ import { autoOpenRecruiterChat } from '@/lib/hr/auto-open';
 import { recordHrDelivery } from '@/lib/hr/automsg/delivery';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
+import {
+  adLeadSourceToCapture,
+  setLeadSourceIfEmpty,
+} from '@/lib/leads/lead-source';
 import { enqueueInboundPush, shouldPushInbound } from '@/lib/push/inbound';
 import { assignChatFromCallHistory } from '@/lib/pbx/assign-from-calls';
 import {
@@ -1022,6 +1026,29 @@ export async function processMessage(
     if (later) later.push(fileDocument());
     else await fileDocument();
   };
+
+  // Lead source (migration 249): the first inbound of a chat opened
+  // from a Click-to-WhatsApp ad (Meta's `referral`) records where the
+  // contact came from, only while the source is still empty (the SQL
+  // setter decides). After the idempotency boundary, so a replay
+  // records nothing twice; before the fan-out cut, because it is part
+  // of the contact, not a reaction to it. One RPC, handed to `later`
+  // when the route collects it so it never holds up the fan-out;
+  // awaited inside the same after() either way. Never throws.
+  const leadSource = adLeadSourceToCapture({
+    referral: message.referral,
+    isFirstInbound: isFirstInboundMessage,
+    isPersonal: channel.isPersonal,
+  });
+  if (leadSource) {
+    const recordSource = setLeadSourceIfEmpty(supabaseAdmin(), {
+      accountId,
+      contactId: contactRecord.id,
+      capture: leadSource,
+    });
+    if (later) later.push(recordSource);
+    else await recordSource;
+  }
 
   // A STOP reply to a desk reminder digest (migration 234) opts the
   // person out. Only a STOP word reaches the database; never throws.

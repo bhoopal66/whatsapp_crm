@@ -1234,3 +1234,12 @@ jobs:
       # and filing follow-up tasks twice adds nothing.
       - name: Verify recycle
         run: supabase db query --local --file supabase/ci/verify-recycle.sql
+
+      # Migration 249: lead source and the public web form. lead_source
+      # takes the seven sources or NULL and automatic writers fill it only
+      # while empty; the form's settings are owner/admin RPCs (no client
+      # reads the token); an unknown and a disabled token answer alike; a
+      # submission finds or creates the contact, fills only empty fields,
+      # opens one follow_up task per 10 minutes and never writes consent.
+      - name: Verify web lead form
+        run: supabase db query --local --file supabase/ci/verify-web-lead-form.sql

@@ -128,6 +128,11 @@ const QuickRepliesManager = dynamic(
     ),
   { loading: PanelLoading }
 );
+const WebFormPanel = dynamic(
+  () =>
+    import('@/components/settings/web-form-panel').then((m) => m.WebFormPanel),
+  { loading: PanelLoading }
+);
 const ChatTagsPanel = dynamic(
   () =>
     import('@/components/settings/chat-tags-panel').then(
@@ -282,6 +287,7 @@ const PRELOADERS: Record<
   'quick-replies': [
     () => import('@/components/settings/quick-replies-manager'),
   ],
+  'web-form': [() => import('@/components/settings/web-form-panel')],
   'chat-tags': [() => import('@/components/settings/chat-tags-panel')],
   fields: [() => import('@/components/settings/custom-fields-panel')],
   'journey-bot': [() => import('@/components/settings/journey-bot-settings')],
@@ -520,6 +526,7 @@ function SettingsPageInner() {
     privacy: <PrivacyPanel />,
     'audit-log': <AuditLogPanel />,
     api: <ApiKeysSettings />,
+    'web-form': <WebFormPanel />,
     'phone-system': <PhoneSystemPanel />,
     'phone-extensions': <PhoneExtensionsPanel />,
     ai: (

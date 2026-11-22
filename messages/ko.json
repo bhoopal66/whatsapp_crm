@@ -2792,7 +2792,8 @@
       "deal-rooms": "딜룸",
       "cases": "케이스",
       "vault": "보관소",
-      "privacy": "개인정보 (PDPL)"
+      "privacy": "개인정보 (PDPL)",
+      "web-form": "Web form"
     },
     "categories": {
       "overview": "개요",
@@ -2848,7 +2849,8 @@
       "phone-system": "Yeastar PBX: 내선, 녹음, 통화 결과.",
       "phone-extensions": "각 전화 내선을 응답하는 사람과 연결합니다.",
       "api": "공개 REST API와 자체 연동을 위한 키.",
-      "privacy": "고객 데이터 내보내기·삭제·법적 보존, 보관 기간, AI 전송 근거."
+      "privacy": "고객 데이터 내보내기·삭제·법적 보존, 보관 기간, AI 전송 근거.",
+      "web-form": "A public form on your website that creates leads."
     },
     "keywords": {
       "overview": "홈 현황 요약 home status",
@@ -2882,7 +2884,8 @@
       "phone-system": "PBX yeastar 전화 통화 내선 녹음 소프트폰 calls extensions",
       "phone-extensions": "PBX yeastar 내선 사람 연결 소프트폰 상태 extensions",
       "api": "API 키 개발자 REST 연동 토큰 developer integration",
-      "privacy": "privacy pdpl 개인정보 내보내기 삭제 법적 보존 보관 ai"
+      "privacy": "privacy pdpl 개인정보 내보내기 삭제 법적 보존 보관 ai",
+      "web-form": "web form website lead capture contact form embed snippet link landing page"
     },
     "nav": {
       "label": "설정 메뉴",
@@ -4378,6 +4381,39 @@
       "saved": "딜룸 설정을 저장했습니다.",
       "saveFailed": "저장하지 못했습니다: {error}",
       "loadFailed": "딜룸 설정을 불러오지 못했습니다."
+    },
+    "webForm": {
+      "title": "Web form",
+      "description": "A public form on your website that adds the person as a contact (source: web form) and opens a follow-up task. It never sends a WhatsApp message.",
+      "loading": "Loading the web form…",
+      "loadFailed": "The web form settings could not be loaded.",
+      "enabledLabel": "Accept submissions",
+      "enabledOn": "On: the link and the snippet accept new leads.",
+      "enabledOff": "Off: the link shows a not-found page and posts are refused.",
+      "originsLabel": "Allowed websites",
+      "originsHint": "One per line, for example https://www.example.com. Only these sites may post the form from their own pages. Leave empty to accept the hosted link only.",
+      "originsInvalid": "\"{line}\" is not a website address. Use https:// and the host only, with no path.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Web form saved",
+      "saveFailed": "The web form could not be saved",
+      "linkLabel": "Form link",
+      "linkOffHint": "The link works once submissions are switched on.",
+      "copy": "Copy",
+      "copyLink": "Copy the form link",
+      "copySnippet": "Copy snippet",
+      "copied": "Copied",
+      "copyFailed": "Could not copy. Select the text and copy it by hand.",
+      "snippetLabel": "Embed on your website (HTML)",
+      "snippetHint": "Paste it into a page of a website listed above. It needs no script; after sending, the visitor sees the hosted thank-you page.",
+      "noLinkYet": "Save once to create the form's link.",
+      "rotate": "New link",
+      "rotateHint": "Issue a new link if the old one is being misused. The old link and every pasted snippet stop working.",
+      "rotateTitle": "Issue a new link?",
+      "rotateBody": "The current link and every snippet already on a website stop working at once. You will need to paste the new snippet again.",
+      "rotateConfirm": "Issue new link",
+      "rotated": "New link issued",
+      "cancel": "Cancel"
     }
   },
   "Compass": {
@@ -6765,6 +6801,25 @@
     "deleted": "음성 메일을 삭제했습니다",
     "deleteFailed": "음성 메일을 삭제하지 못했습니다",
     "audioFailed": "이 메시지를 재생하지 못했습니다"
+  },
+  "WebForm": {
+    "pageTitle": "Contact us",
+    "heading": "Get in touch",
+    "intro": "Leave your details and we will contact you.",
+    "name": "Name",
+    "phone": "Phone number",
+    "phoneHint": "With the country code, for example +971 50 123 4567.",
+    "email": "Email (optional)",
+    "message": "Message (optional)",
+    "submit": "Send",
+    "privacy": "We use your details only to answer your request.",
+    "sent": "Thank you. We have your details and will be in touch soon.",
+    "errors": {
+      "phone_required": "Enter your phone number.",
+      "bad_phone": "That phone number does not look right. Enter it with the country code, for example +971 50 123 4567.",
+      "bad_email": "That email address does not look right.",
+      "too_long": "One of the fields is too long. Shorten it and send again."
+    }
   },
   "PbxGroups": {
     "title": "그룹 및 대기열",
