@@ -5,7 +5,8 @@
 // Pure, so csp.test.ts can pin every directive.
 //
 // Optional origins, each added only when its env var parses:
-//   - NEXT_PUBLIC_SUPABASE_URL → media-src, and connect-src with its
+//   - NEXT_PUBLIC_SUPABASE_URL → media-src, frame-src (the desk's PDF
+//     preview, 248), and connect-src with its
 //     WebSocket twin: recordings and media are played from signed URLs
 //     on the Supabase origin, and the browser's REST and Realtime calls
 //     go there too, which on a self-hosted install is not *.supabase.co.
@@ -73,6 +74,10 @@ export function contentSecurityPolicy(env: CspEnv): string {
     // and Supabase audio/video the inbox and call screens render.
     join("media-src 'self' blob: https://*.supabase.co", supabase),
     "font-src 'self' data:",
+    // The case desk's file preview (248) shows a PDF from a short-lived
+    // signed URL on the Supabase origin in an <iframe>; without this
+    // frame-src falls back to default-src 'self' and the frame is empty.
+    join("frame-src 'self' https://*.supabase.co", supabase),
     // Supabase REST + realtime (WSS), hosted or self-hosted. All Meta
     // API calls happen server-side, so graph.facebook.com does not
     // belong here. Cloudflare Realtime for video meetings (106). The

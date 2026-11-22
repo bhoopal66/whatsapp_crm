@@ -15,6 +15,7 @@ describe('contentSecurityPolicy', () => {
         "img-src 'self' data: blob: https:",
         "media-src 'self' blob: https://*.supabase.co",
         "font-src 'self' data:",
+        "frame-src 'self' https://*.supabase.co",
         "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rtc.live.cloudflare.com",
         "frame-ancestors 'none'",
         "base-uri 'self'",
@@ -37,6 +38,9 @@ describe('contentSecurityPolicy', () => {
     );
     expect(directive(csp, 'media-src')).toBe(
       "media-src 'self' blob: https://*.supabase.co https://db.example.com"
+    );
+    expect(directive(csp, 'frame-src')).toBe(
+      "frame-src 'self' https://*.supabase.co https://db.example.com"
     );
   });
 
