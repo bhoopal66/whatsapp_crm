@@ -13,7 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Radio, Plus, Loader2 } from 'lucide-react';
+import { Radio, Plus, Loader2, PenLine, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
@@ -30,7 +31,7 @@ const POLL_INTERVAL_MS = 5_000;
 /** Only what the list renders — `select('*')` also shipped every
  *  campaign's template variables and audience filter, on every poll. */
 const LIST_COLUMNS =
-  'id, name, template_name, status, total_recipients, delivered_count, read_count, created_at';
+  'id, name, template_name, status, total_recipients, delivered_count, read_count, created_at, draft_version:draft_state->v';
 type BroadcastListRow = Pick<
   Broadcast,
   | 'id'
@@ -41,7 +42,10 @@ type BroadcastListRow = Pick<
   | 'delivered_count'
   | 'read_count'
   | 'created_at'
->;
+> & {
+  /** `draft_state->v` (migration 252): set when the draft can be reopened. */
+  draft_version?: number | null;
+};
 
 function percent(numerator: number, denominator: number): number {
   if (!denominator) return 0;
@@ -106,6 +110,21 @@ export default function BroadcastsPage() {
   useEffect(() => {
     fetchBroadcasts();
   }, []);
+
+  async function deleteDraft(id: string) {
+    if (!window.confirm(t('draft.confirmDelete'))) return;
+    const { error: delErr } = await createClient()
+      .from('broadcasts')
+      .delete()
+      .eq('id', id)
+      .eq('status', 'draft');
+    if (delErr) {
+      toast.error(t('draft.deleteFailed', { error: delErr.message }));
+      return;
+    }
+    setBroadcasts((rows) => rows.filter((b) => b.id !== id));
+    toast.success(t('draft.deleted'));
+  }
 
   const anySending = useMemo(
     () => broadcasts.some((b) => b.status === 'sending'),
@@ -260,6 +279,9 @@ export default function BroadcastsPage() {
                 <TableHead className="text-muted-foreground hidden sm:table-cell">
                   {t('table.date')}
                 </TableHead>
+                <TableHead className="text-muted-foreground text-right">
+                  <span className="sr-only">{t('table.actions')}</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -269,7 +291,13 @@ export default function BroadcastsPage() {
                   <TableRow
                     key={broadcast.id}
                     className="border-border hover:bg-muted/50 cursor-pointer"
-                    onClick={() => router.push(`/broadcasts/${broadcast.id}`)}
+                    onClick={() =>
+                      router.push(
+                        broadcast.status === 'draft' && broadcast.draft_version
+                          ? `/broadcasts/new?draft=${broadcast.id}`
+                          : `/broadcasts/${broadcast.id}`
+                      )
+                    }
                   >
                     <TableCell className="text-foreground font-medium">
                       {broadcast.name}
@@ -309,6 +337,44 @@ export default function BroadcastsPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground hidden sm:table-cell">
                       {new Date(broadcast.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {broadcast.status === 'draft' && (
+                        <div
+                          className="flex justify-end gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {broadcast.draft_version ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                router.push(
+                                  `/broadcasts/new?draft=${broadcast.id}`
+                                )
+                              }
+                            >
+                              <PenLine className="h-3.5 w-3.5" />
+                              {t('draft.open')}
+                            </Button>
+                          ) : (
+                            <span
+                              className="text-muted-foreground self-center text-xs"
+                              title={t('draft.oldHint')}
+                            >
+                              {t('draft.old')}
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={t('draft.delete')}
+                            onClick={() => deleteDraft(broadcast.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

@@ -1158,6 +1158,30 @@
     }
   },
   "Broadcasts": {
+    "audienceNarrow": {
+      "active": "On",
+      "bank": {
+        "fromCase": "From the customer's case",
+        "fromChatTag": "From the chat sub-tag",
+        "help": "Keep only customers with a case at one of these banks (any stage), or whose chat sub-tag is named for the bank.",
+        "none": "No banks are set up yet.",
+        "title": "Bank"
+      },
+      "source": {
+        "help": "Keep only contacts that came from one of these sources.",
+        "title": "Lead source",
+        "values": {
+          "ad": "Ad",
+          "web_form": "Web form",
+          "broadcast": "Broadcast",
+          "manual": "Added by hand",
+          "import": "Import",
+          "compass": "Compass",
+          "other": "Other"
+        }
+      },
+      "title": "Narrow this audience"
+    },
     "page": {
       "title": "Broadcasts",
       "subtitle": "Send bulk messages to your contacts using approved templates.",
@@ -1171,10 +1195,20 @@
         "delivery": "Delivery",
         "read": "Read",
         "status": "Status",
-        "date": "Date"
+        "date": "Date",
+        "actions": "Actions"
       },
       "errorLoad": "Failed to load broadcasts",
-      "retry": "Retry"
+      "retry": "Retry",
+      "draft": {
+        "confirmDelete": "Delete this draft?",
+        "delete": "Delete draft",
+        "deleted": "Draft deleted",
+        "deleteFailed": "Could not delete the draft: {error}",
+        "old": "Old draft",
+        "oldHint": "Saved before drafts could be reopened. Delete it and create the broadcast again.",
+        "open": "Open draft"
+      }
     },
     "status": {
       "draft": "Draft",
@@ -1255,7 +1289,10 @@
       "toastNotLinked": "Your profile is not linked to an account.",
       "toastFailedDraft": "Failed to save draft: {error}",
       "toastDraftSaved": "Draft saved",
-      "toastScheduled": "Broadcast scheduled for {when}."
+      "toastScheduled": "Broadcast scheduled for {when}.",
+      "toastDraftCannotOpen": "This draft cannot be opened.",
+      "toastDraftTemplateGone": "The draft's template is no longer available. Choose another one.",
+      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again."
     },
     "wizard": {
       "next": "Next",
@@ -1332,7 +1369,10 @@
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
         "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
         "assumeUaeNumbers": "Numbers without a country code are UAE mobiles (add +971)",
-        "rowsWithoutPhone": "{count, plural, one {# row has no phone number and was skipped.} other {# rows have no phone number and were skipped.}}"
+        "rowsWithoutPhone": "{count, plural, one {# row has no phone number and was skipped.} other {# rows have no phone number and were skipped.}}",
+        "matchAny": "Match any",
+        "matchAll": "Match all",
+        "matchHelp": "Match any: the chat has at least one selected tag. Match all: the chat has every selected tag, for example a main tag and its sub-tag."
       },
       "personalize": {
         "title": "Personalize Variables",

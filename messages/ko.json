@@ -1158,6 +1158,30 @@
     }
   },
   "Broadcasts": {
+    "audienceNarrow": {
+      "active": "On",
+      "bank": {
+        "fromCase": "From the customer's case",
+        "fromChatTag": "From the chat sub-tag",
+        "help": "Keep only customers with a case at one of these banks (any stage), or whose chat sub-tag is named for the bank.",
+        "none": "No banks are set up yet.",
+        "title": "Bank"
+      },
+      "source": {
+        "help": "Keep only contacts that came from one of these sources.",
+        "title": "Lead source",
+        "values": {
+          "ad": "Ad",
+          "web_form": "Web form",
+          "broadcast": "Broadcast",
+          "manual": "Added by hand",
+          "import": "Import",
+          "compass": "Compass",
+          "other": "Other"
+        }
+      },
+      "title": "Narrow this audience"
+    },
     "page": {
       "title": "브로드캐스트",
       "subtitle": "승인된 템플릿을 사용해 연락처에 대량 메시지를 보내세요.",
@@ -1171,10 +1195,20 @@
         "delivery": "전달",
         "read": "읽음",
         "status": "상태",
-        "date": "날짜"
+        "date": "날짜",
+        "actions": "Actions"
       },
       "errorLoad": "브로드캐스트를 불러오지 못했습니다",
-      "retry": "다시 시도"
+      "retry": "다시 시도",
+      "draft": {
+        "confirmDelete": "Delete this draft?",
+        "delete": "Delete draft",
+        "deleted": "Draft deleted",
+        "deleteFailed": "Could not delete the draft: {error}",
+        "old": "Old draft",
+        "oldHint": "Saved before drafts could be reopened. Delete it and create the broadcast again.",
+        "open": "Open draft"
+      }
     },
     "status": {
       "draft": "초안",
@@ -1255,7 +1289,10 @@
       "toastNotLinked": "프로필이 계정에 연결되어 있지 않습니다.",
       "toastFailedDraft": "초안 저장 실패: {error}",
       "toastDraftSaved": "초안이 저장되었습니다",
-      "toastScheduled": "{when}에 발송하도록 예약되었습니다."
+      "toastScheduled": "{when}에 발송하도록 예약되었습니다.",
+      "toastDraftCannotOpen": "This draft cannot be opened.",
+      "toastDraftTemplateGone": "The draft's template is no longer available. Choose another one.",
+      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again."
     },
     "wizard": {
       "next": "다음",
@@ -1332,7 +1369,10 @@
         "errorCsvMissingPhone": "파일에 'phone' 또는 'Phone Number' 열이 있어야 합니다.",
         "errorXls": "이전 형식의 .xls 통합 문서입니다. .xlsx 또는 CSV로 저장한 뒤 업로드하세요.",
         "assumeUaeNumbers": "국가 코드가 없는 번호는 UAE 휴대폰 번호로 처리(+971 추가)",
-        "rowsWithoutPhone": "{count, plural, other {전화번호가 없는 #개 행을 건너뛰었습니다.}}"
+        "rowsWithoutPhone": "{count, plural, other {전화번호가 없는 #개 행을 건너뛰었습니다.}}",
+        "matchAny": "Match any",
+        "matchAll": "Match all",
+        "matchHelp": "Match any: the chat has at least one selected tag. Match all: the chat has every selected tag, for example a main tag and its sub-tag."
       },
       "personalize": {
         "title": "변수 개인화",
