@@ -1,0 +1,94 @@
+# Apply a range of supabase/migrations files to the LIVE database, by hand.
+#
+# Run it from Actions → "Apply migrations" → Run workflow, choosing the
+# branch whose migrations you want (the files come from that branch).
+#
+#   mode = check  reads only: the connecting role and which migrations'
+#                 objects already exist. Run this first.
+#   mode = apply  runs scripts/apply-migrations.sh FROM TO: each file in
+#                 order, stopping at the first error. Needs confirm = APPLY.
+#
+# Needs the repository secret DATABASE_URL: the database connection string
+# of a superuser or BYPASSRLS role. On supabase.com use the "Session pooler"
+# string (IPv4; GitHub's runners cannot reach the IPv6-only direct host).
+#
+# No pg_dump here: a dump would leave customer data on a runner or in an
+# artifact. Take a backup or snapshot in the Supabase dashboard first; the
+# APPLY confirmation is that promise.
+name: Apply migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check (read only) or apply'
+        required: true
+        default: check
+        type: choice
+        options: [check, apply]
+      from:
+        description: 'First migration number (e.g. 236)'
+        required: true
+      to:
+        description: 'Last migration number (e.g. 256)'
+        required: true
+      confirm:
+        description: 'For apply: type APPLY to confirm a fresh backup exists'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODE: ${{ inputs.mode }}
+      FROM: ${{ inputs.from }}
+      TO: ${{ inputs.to }}
+      CONFIRM: ${{ inputs.confirm }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check the inputs and the secret
+        run: |
+          [[ "$FROM" =~ ^[0-9]{1,3}$ && "$TO" =~ ^[0-9]{1,3}$ ]] || { echo "from and to must be migration numbers"; exit 1; }
+          (( 10#$FROM <= 10#$TO )) || { echo "from must not be after to"; exit 1; }
+          [[ -n "$DATABASE_URL" ]] || { echo "Add the repository secret DATABASE_URL first"; exit 1; }
+          if [[ "$MODE" == apply && "$CONFIRM" != APPLY ]]; then
+            echo "apply needs confirm = APPLY (after taking a backup)"; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Show the role and what is already there
+        run: |
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "select current_user as role, (select rolsuper from pg_roles where rolname = current_user) as superuser, (select rolbypassrls from pg_roles where rolname = current_user) as bypassrls, version()"
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "
+            select m as migration, present from (values
+              ('220', to_regclass('public.intake_items') is not null),
+              ('225', to_regproc('public.case_review_draft_create') is not null),
+              ('228', to_regproc('public.hr_automsg_outbox_stats') is not null),
+              ('229', to_regclass('public.privacy_extensions') is not null),
+              ('230', to_regclass('public.desk_settings') is not null),
+              ('231', to_regclass('public.desk_doc_consents') is not null),
+              ('232', to_regclass('public.desk_bank_roles') is not null),
+              ('233', to_regproc('public.desk_case_doc_cell') is not null),
+              ('234', to_regclass('public.desk_digest_settings') is not null),
+              ('235', to_regproc('public.desk_worklist') is not null),
+              ('236', to_regclass('public.assignment_settings') is not null),
+              ('241', to_regclass('public.conversation_notes') is not null),
+              ('249', to_regclass('public.web_lead_forms') is not null),
+              ('255', to_regclass('public.report_access') is not null),
+              ('256', to_regclass('public.broadcast_drafts') is not null)
+            ) t(m, present) order by m"
+
+      - name: Apply the migrations
+        if: inputs.mode == 'apply'
+        env:
+          SKIP_BACKUP: '1'
+        run: scripts/apply-migrations.sh "$FROM" "$TO"
