@@ -111,6 +111,10 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
 import type { InteractiveMessagePayload, QuickReply } from '@/types';
 import { QuickReplyPicker } from './quick-reply-picker';
 import { ComposerMoreMenu, type ComposerMenuItem } from './composer-more-menu';
+import {
+  VoiceLibraryPicker,
+  useVoiceLibraryMenuItem,
+} from './voice-library-picker';
 import { SlashQuickReplyList, slashOptionId } from './slash-quick-reply-list';
 import {
   applySlashInsert,
@@ -1325,6 +1329,13 @@ export function MessageComposer({
     setDraft((d) => (d ? { ...d, caption } : d));
   }, []);
 
+  // Voice-note library: sent through onSendMedia like a recorded note.
+  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  const voiceLibraryItem = useVoiceLibraryMenuItem(
+    () => setVoiceLibraryOpen(true),
+    freeTextBlocked
+  );
+
   // ---- More menu items ----------------------------------------------
   // Everything that is not attach, AI draft or mic/send. One entry per
   // action, icon + word; a new action is a new entry here (keep the
@@ -1363,6 +1374,7 @@ export function MessageComposer({
       busy: translating,
       hidden: !showTranslate,
     },
+    voiceLibraryItem,
     // ---- Add new More menu items above this line ----
   ];
 
@@ -1727,6 +1739,20 @@ export function MessageComposer({
         open={quickReplyOpen}
         onOpenChange={setQuickReplyOpen}
         onPick={handlePickQuickReply}
+      />
+      <VoiceLibraryPicker
+        open={voiceLibraryOpen}
+        onOpenChange={setVoiceLibraryOpen}
+        conversationId={conversationId}
+        onSend={(note) =>
+          onSendMedia({
+            kind: 'audio',
+            mediaUrl: note.mediaUrl,
+            path: note.path,
+            filename: 'voice-note.ogg',
+            replyToId: replyTo?.id,
+          })
+        }
       />
     </div>
   );
