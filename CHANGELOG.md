@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Tooling: apply a range of migrations
+
+`scripts/apply-migrations.sh FROM TO` applies `supabase/migrations` files in
+order with `DATABASE_URL`, one psql call each, stopping at the first error.
+It checks the role first (superuser or BYPASSRLS), takes a `pg_dump` backup
+into `backups/` unless `SKIP_BACKUP=1`, and tells PostgREST to reload.
+
 ### Review fixes
 
 **Migration required:** apply `256_review_fixes.sql` (as a superuser or

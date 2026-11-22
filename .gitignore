@@ -57,3 +57,6 @@ public/meeting-effects/wasm/
 # TypeSafe Phase 3 eval outputs (scripts/typesafe-eval)
 scripts/typesafe-eval/*.answers*.jsonl
 calibration/
+
+# pg_dump backups written by scripts/apply-migrations.sh
+backups/
