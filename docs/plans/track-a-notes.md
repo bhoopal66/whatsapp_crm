@@ -55,6 +55,18 @@ paragraphs, the defaults chosen, the merge needs and the gate results.
   each send). New entries reach the whole workspace at once; the author
   or an admin deletes. Sends go through the normal send path as a voice
   message.
+- **Notes and voice library hardening (same migrations, re-apply).**
+  Editing a note updates the text quoted in its mention bells and unsent
+  pushes; deleting a note removes them. A note mentions at most 20
+  people. Library audio can no longer be overwritten or deleted through
+  Storage by members (viewers included), and library entries can no
+  longer be inserted directly through the database API: the server
+  writes both after its own checks. Deleting a library entry keeps its
+  audio while any sent message still uses it. Operator guides:
+  `docs/chat-notes.md`, `docs/voice-library.md`.
+- **Meta window, every path.** With the window closed, Enter, the "/"
+  list and a restored attachment or voice note are refused too, not only
+  the Send button.
 - **Migration required:** apply `supabase/migrations/241_conversation_notes.sql`
   (after 229) and `supabase/migrations/242_voice_note_library.sql`, in
   order, before the build.
@@ -157,6 +169,23 @@ call passes `assertAiTransfer` (purpose `voice_note_tts`). No
 `ai_usage_log` row (TTS is not token-billed).
 `verify-voice-note-library.sql`.
 
+**Hardening (review fixes, same files).** 241: mentions capped at 20
+(CHECK, BEFORE trigger, `NOTE_MAX_MENTIONS`, pinned by `notes.test.ts`);
+`conversation_notes_sync_bells` rewrites the bells and their unsent
+pushes (tag `bell:<id>`) on an edit and deletes them on a delete (087's
+pattern). 242: `voice_note_entries` is written by the service role only
+(`authenticated` has SELECT/DELETE; the POST inserts after `requireRole`
+and the active account); a CHECK pins `storage_path` to
+`account-<acct>/voice-library/<id>.ogg` and `media_url` to that path;
+RESTRICTIVE storage policies take `chat-media/*/voice-library/` away from
+every client write 023 allows; a delete removes the audio (service role)
+only when `voice_library_audio_in_use` finds no message of the account
+pointing at it (URL path compared as 155 does). With the Meta window
+closed the composer's `handleSend` and `sendDraft` refuse too (Enter,
+restored attachments), not only the Send button. Note mode waits while
+the reply composer has a recording or staged attachment
+(`onBusyChange`), since the hidden composer would keep the mic live.
+
 ## Defaults chosen
 
 <!-- TRACK_A_DEFAULTS -->
@@ -236,14 +265,19 @@ call passes `assertAiTransfer` (purpose `voice_note_tts`). No
 - `.github/workflows/migrations.yml`: two steps at the end (241's then
   242's verify). Other tracks appending there will conflict trivially.
 
+- Voice library: when the in-use check cannot run, the audio is kept
+  (a leftover file is only space). A send in flight at the moment of a
+  delete can miss the check (small, accepted window).
+
 ## Gate results
 
 <!-- TRACK_A_GATES -->
-Final state `a71222d` (all eight items), run 2026-11-22 ~08:30 UTC:
+Final state `ba2365c` + this notes commit (all eight items plus review
+fixes), run 2026-11-22 ~09:30 UTC:
 
 - `npm run lint`: 0 errors, 31 warnings (pre-existing count was ~32).
 - `npm run typecheck`: clean.
-- `npm test`: 1095 files, 15,628 tests passed.
+- `npm test`: 1096 files, 15,636 tests passed.
 - `npm run build` with the CI dummy env (`NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY` from `ci.yml`):
   success.
@@ -252,7 +286,11 @@ Final state `a71222d` (all eight items), run 2026-11-22 ~08:30 UTC:
   `storage-api`, as the CLI does), `classic-grants.sql`, every migration
   001–242 in order through `psql -v ON_ERROR_STOP=1`, then all 127 verify
   files in workflow order: 0 failures. 241 and 242 re-applied a second
-  time cleanly and their verify files passed again.
+  time cleanly (also over their earlier drafts) and their verify files
+  passed again.
+- Two independent reviews (SQL/routes, merged UI) ran after the first
+  push; every confirmed finding was fixed except the `push_bell_url`
+  merge need above.
 
 Not done / known limits:
 - Nothing was tried in a real browser or at 375px on a device; layouts
@@ -264,8 +302,5 @@ Not done / known limits:
 - Voice library: no `ai_usage_log` row for speech (its `mode` CHECK, the
   TS type and the usage route would have to change together); spend is
   visible in `ai_transfer_log` under purpose `voice_note_tts`.
-- Meta window: a staged attachment parked earlier and restored into a
-  Meta chat after the window closed can still be sent from its preview
-  (Meta refuses it).
 - Inbox rows: the `ChatTagPill` `sm` size and the "Similar"/pin/Handled
   chips still use 10–11px text (pre-existing, out of scope).
