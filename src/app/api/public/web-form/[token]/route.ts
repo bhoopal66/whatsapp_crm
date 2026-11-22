@@ -14,11 +14,14 @@
 // ?sent=1 on success, ?error=<code> on a 422; the other refusals stay
 // plain statuses.
 //
-// Order: token shape, rate limits (per client IP, then per form; fail
-// closed), body type and size, the form lookup, the Origin rule
+// Order: token shape, rate limits (per client IP, per client IP on
+// this form, then per form; fail closed), body type and size, the form lookup, the Origin rule
 // (src/lib/web-form/origin.ts), the honeypot (a bot gets the success
 // answer and nothing is stored), validation, then web_form_submit. It
 // never sends a WhatsApp message.
+//
+// OPTIONS (the CORS preflight) spends the per-IP bucket before its form
+// lookup, so preflights cannot be used to hammer the database.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -112,17 +115,45 @@ async function readCapped(
   return new TextDecoder().decode(all);
 }
 
+function limiter(): RateLimiter {
+  return new RateLimiter(new RpcRateStore(supabaseAdmin()));
+}
+
+function ipOf(request: Request): string {
+  return clientIp(request.headers) ?? 'unknown';
+}
+
+function tooMany(retryAfterMs: number): NextResponse {
+  const res = json(429, { error: 'rate_limited' });
+  res.headers.set(
+    'Retry-After',
+    String(Math.max(1, Math.ceil(retryAfterMs / 1000)))
+  );
+  return res;
+}
+
+/** The preflight's limit: per client IP only, before any lookup. */
+async function preflightRateLimited(request: Request): Promise<number | null> {
+  const byIp = await limiter().check('webform.ip', ipOf(request));
+  return byIp.allowed ? null : byIp.retryAfterMs;
+}
+
 async function rateLimited(
   request: Request,
   token: string
 ): Promise<number | null> {
-  const limiter = new RateLimiter(new RpcRateStore(supabaseAdmin()));
-  const byIp = await limiter.check(
-    'webform.ip',
-    clientIp(request.headers) ?? 'unknown'
-  );
+  const rl = limiter();
+  const ip = ipOf(request);
+  const byIp = await rl.check('webform.ip', ip);
   if (!byIp.allowed) return byIp.retryAfterMs;
-  const byForm = await limiter.check('webform.token', token);
+  // Keyed like 'webform.token' (the token itself), plus the address.
+  // Skipped with no known client IP: every visitor would share one
+  // bucket of 5 an hour, far below the form's own allowance.
+  if (clientIp(request.headers)) {
+    const byIpForm = await rl.check('webform.ip_token', `${token}|${ip}`);
+    if (!byIpForm.allowed) return byIpForm.retryAfterMs;
+  }
+  const byForm = await rl.check('webform.token', token);
   if (!byForm.allowed) return byForm.retryAfterMs;
   return null;
 }
@@ -131,6 +162,8 @@ export async function OPTIONS(request: Request, { params }: Params) {
   const { token } = await params;
   if (!isWellFormedToken(token)) return json(404, { error: 'not_found' });
   try {
+    const retryAfterMs = await preflightRateLimited(request);
+    if (retryAfterMs !== null) return tooMany(retryAfterMs);
     const form = await loadPublicForm(supabaseAdmin(), token);
     if (!form) return json(404, { error: 'not_found' });
     const decision = decideOrigin({
@@ -158,14 +191,7 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
     const retryAfterMs = await rateLimited(request, token);
-    if (retryAfterMs !== null) {
-      const res = json(429, { error: 'rate_limited' });
-      res.headers.set(
-        'Retry-After',
-        String(Math.max(1, Math.ceil(retryAfterMs / 1000)))
-      );
-      return res;
-    }
+    if (retryAfterMs !== null) return tooMany(retryAfterMs);
 
     const kind: BodyKind | null = bodyKindOf(
       request.headers.get('content-type')

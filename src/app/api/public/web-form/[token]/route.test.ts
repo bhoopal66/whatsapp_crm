@@ -13,16 +13,20 @@ const params = (token = TOKEN) => ({ params: Promise.resolve({ token }) });
 let config: unknown;
 let submit: { data: unknown; error: unknown };
 let allowed: boolean;
+/** When set, only this scope refuses. */
+let denyScope: string | null;
 
 beforeEach(() => {
   rpc.mockReset();
   config = { allowed_origins: ['https://www.shop.com'] };
   submit = { data: { status: 'ok', task_created: true }, error: null };
   allowed = true;
-  rpc.mockImplementation(async (name: string) => {
+  denyScope = null;
+  rpc.mockImplementation(async (name: string, args?: { p_scope?: string }) => {
     if (name === 'edge_rate_check') {
+      const ok = allowed && args?.p_scope !== denyScope;
       return {
-        data: [{ allowed, remaining: 1, retry_after_ms: allowed ? 0 : 5000 }],
+        data: [{ allowed: ok, remaining: 1, retry_after_ms: ok ? 0 : 5000 }],
         error: null,
       };
     }
@@ -44,6 +48,12 @@ const JSON_TYPE = { 'content-type': 'application/json' };
 const FORM_TYPE = { 'content-type': 'application/x-www-form-urlencoded' };
 const submitCalls = () =>
   rpc.mock.calls.filter(([name]) => name === 'web_form_submit');
+const rateCalls = () =>
+  rpc.mock.calls
+    .filter(([name]) => name === 'edge_rate_check')
+    .map(([, args]) => [args.p_scope, args.p_key]);
+const configCalls = () =>
+  rpc.mock.calls.filter(([name]) => name === 'web_form_public_config');
 
 describe('POST /api/public/web-form/[token]', () => {
   it('stores a JSON lead from a listed site and echoes CORS', async () => {
@@ -150,9 +160,75 @@ describe('POST /api/public/web-form/[token]', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).toBe('5');
   });
+
+  it('checks per IP, per IP on this form, then per form', async () => {
+    config = { allowed_origins: [] };
+    vi.stubEnv('EDGE_CLIENT_IP_HEADER', 'x-real-ip');
+    await POST(
+      post(JSON.stringify({ name: 'Sara', phone: '971501234567' }), {
+        ...JSON_TYPE,
+        'x-real-ip': '203.0.113.7',
+      }),
+      params()
+    );
+    vi.unstubAllEnvs();
+    expect(rateCalls()).toEqual([
+      ['webform.ip', '203.0.113.7'],
+      ['webform.ip_token', `${TOKEN}|203.0.113.7`],
+      ['webform.token', TOKEN],
+    ]);
+  });
+
+  it('skips the per-IP-per-form bucket when no client IP is known', async () => {
+    config = { allowed_origins: [] };
+    await POST(
+      post(JSON.stringify({ name: 'Sara', phone: '971501234567' }), JSON_TYPE),
+      params()
+    );
+    expect(rateCalls()).toEqual([
+      ['webform.ip', 'unknown'],
+      ['webform.token', TOKEN],
+    ]);
+  });
+
+  it('refuses one address over its share of a form before the form cap', async () => {
+    config = { allowed_origins: [] };
+    denyScope = 'webform.ip_token';
+    vi.stubEnv('EDGE_CLIENT_IP_HEADER', 'x-real-ip');
+    const res = await POST(
+      post(JSON.stringify({ phone: '971501234567' }), {
+        ...JSON_TYPE,
+        'x-real-ip': '203.0.113.7',
+      }),
+      params()
+    );
+    vi.unstubAllEnvs();
+    expect(res.status).toBe(429);
+    expect(rateCalls().map(([scope]) => scope)).toEqual([
+      'webform.ip',
+      'webform.ip_token',
+    ]);
+    expect(configCalls()).toHaveLength(0);
+    expect(submitCalls()).toHaveLength(0);
+  });
 });
 
 describe('OPTIONS /api/public/web-form/[token]', () => {
+  it('is rate limited per IP before any form lookup', async () => {
+    denyScope = 'webform.ip';
+    const res = await OPTIONS(
+      new Request(`https://crm.example.com/api/public/web-form/${TOKEN}`, {
+        method: 'OPTIONS',
+        headers: { origin: 'https://www.shop.com' },
+      }),
+      params()
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('5');
+    expect(rateCalls()).toEqual([['webform.ip', 'unknown']]);
+    expect(configCalls()).toHaveLength(0);
+  });
+
   it('allows a listed site only', async () => {
     const ok = await OPTIONS(
       new Request(`https://crm.example.com/api/public/web-form/${TOKEN}`, {

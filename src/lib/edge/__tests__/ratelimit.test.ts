@@ -82,6 +82,7 @@ describe('default scopes', () => {
       'admin.user': { limit: 30, windowMs: 1000, failOpen: false },
       'brain.search': { limit: 60, windowMs: 60000, failOpen: true },
       'webform.ip': { limit: 10, windowMs: 60000, failOpen: false },
+      'webform.ip_token': { limit: 5, windowMs: 3600000, failOpen: false },
       'webform.token': { limit: 200, windowMs: 3600000, failOpen: false },
     });
   });
