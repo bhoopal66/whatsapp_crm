@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
 import { useAuth } from '@/hooks/use-auth';
@@ -19,7 +19,7 @@ import type { Conversation } from '@/types';
  * What the counts need of a row: its unread count, which list it is in,
  * and whose it is (a team leader's Inbox lists only their own).
  */
-type UnreadRow = UnreadCountRow & Pick<Conversation, 'id'>;
+export type UnreadRow = UnreadCountRow & Pick<Conversation, 'id'>;
 
 /** The columns `UnreadRow` reads; the home dashboard's strip reuses them. */
 export const UNREAD_ROW_COLUMNS =
@@ -50,9 +50,21 @@ export interface UnreadChats {
  * does not show.
  *
  * Lives on its own realtime channel (distinct from the inbox page's
- * "inbox-realtime") so both can coexist without sharing state.
+ * "inbox-realtime") so both can coexist without sharing state. Mount it
+ * once per tab (`UnreadChatsProvider` in the dashboard shell): a second
+ * caller would open a second channel on the same topic.
+ *
+ * `onUnreadRise` hears every realtime event that raises a chat's unread
+ * count, i.e. a new customer message (only `bump_conversation_on_inbound`
+ * raises it). The initial read never calls it.
  */
-export function useUnreadChats(): UnreadChats {
+export function useUnreadChats(
+  onUnreadRise?: (row: UnreadRow) => void
+): UnreadChats {
+  const onRiseRef = useRef(onUnreadRise);
+  useEffect(() => {
+    onRiseRef.current = onUnreadRise;
+  });
   const aiLive = useAiAutoReplyLive() === true;
   const { accountId, accountRole, user, department } = useAuth();
   const userId = user?.id ?? null;
@@ -104,6 +116,10 @@ export function useUnreadChats(): UnreadChats {
     if (!bindings) return;
     const supabase = createClient();
     let cancelled = false;
+    // The last unread count seen per chat, for `onUnreadRise`. Kept here
+    // rather than read from state: the state updater must stay pure, and
+    // two events between renders would both compare against one render.
+    const seen = new Map<string, number>();
 
     // Initial load. RLS scopes this to the signed-in user automatically —
     // no explicit user_id filter needed here.
@@ -121,7 +137,11 @@ export function useUnreadChats(): UnreadChats {
       if (cancelled || error || !data) return;
 
       const map = new Map<string, UnreadRow>();
-      for (const row of data as UnreadRow[]) map.set(row.id, row);
+      for (const row of data as UnreadRow[]) {
+        map.set(row.id, row);
+        // An event that beat the read is newer: keep what it saw.
+        if (!seen.has(row.id)) seen.set(row.id, row.unread_count ?? 0);
+      }
       setRows(map);
     })();
 
@@ -130,6 +150,22 @@ export function useUnreadChats(): UnreadChats {
     let channel = supabase.channel(`total-unread-realtime:${accountId}`);
     for (const binding of bindings) {
       channel = channel.on('postgres_changes', binding, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const oldId = (payload.old as Partial<Conversation>).id;
+          if (oldId) seen.delete(oldId);
+        } else {
+          const row = payload.new as UnreadRow;
+          const next = row.unread_count ?? 0;
+          const previous = seen.get(row.id) ?? 0;
+          seen.set(row.id, next);
+          if (next > previous) {
+            try {
+              onRiseRef.current?.(row);
+            } catch {
+              // A listener's failure must never cost the count.
+            }
+          }
+        }
         setRows((prev) => {
           const next = new Map(prev);
           if (payload.eventType === 'DELETE') {

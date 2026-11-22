@@ -28,6 +28,12 @@ vi.mock('@/hooks/use-auth', () => ({
 }));
 vi.mock('@/components/layout/sidebar', () => ({ Sidebar: () => null }));
 vi.mock('@/components/layout/header', () => ({ Header: () => null }));
+// The unread mirror opens a realtime channel; the tab title reads it.
+vi.mock('@/components/layout/unread-chats-provider', () => ({
+  UnreadChatsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+}));
+vi.mock('@/components/layout/tab-title', () => ({ TabTitle: () => null }));
 vi.mock('@/components/layout/account-access-alert', () => ({
   AccountAccessAlert: () => null,
 }));

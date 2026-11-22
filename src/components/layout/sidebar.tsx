@@ -9,7 +9,7 @@ import { LiveDot } from '@/components/meetings/meeting-status-badge';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
 import { isInCall } from '@/lib/meetings/session/session';
 import { useAuth } from '@/hooks/use-auth';
-import { useUnreadChats } from '@/hooks/use-total-unread';
+import { useSharedUnreadChats } from '@/components/layout/unread-chats-provider';
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
 import { useGroupsUnread } from '@/hooks/use-groups-unread';
 import { useSubmissionGroupsUnread } from '@/hooks/use-submission-groups-unread';
@@ -119,7 +119,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     salesRestricted,
     reviewsAllCalls,
   } = useAuth();
-  const unreadChats = useUnreadChats();
+  // The shell's one unread mirror (UnreadChatsProvider), shared with
+  // the tab title.
+  const unreadChats = useSharedUnreadChats();
   const casesOverdue = useCasesOverdue();
   const groupsUnread = useGroupsUnread();
   const submissionGroupsUnread = useSubmissionGroupsUnread();

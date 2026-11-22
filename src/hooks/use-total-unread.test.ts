@@ -15,6 +15,7 @@ vi.mock('react', async (importOriginal) => ({
     if (cleanup) cleanups.push(cleanup);
   },
   useMemo: (fn: () => unknown) => fn(),
+  useRef: (current: unknown) => ({ current }),
 }));
 
 let accountId: string | null = null;

@@ -6,7 +6,9 @@ import {
   isIosDevice,
   pushSupport,
   readPushEnv,
+  pushPromptDismissKey,
   shouldOfferPush,
+  shouldShowPushPrompt,
   toPushPermission,
   urlBase64ToUint8Array,
   type PushEnv,
@@ -150,5 +152,32 @@ describe('permission and device state', () => {
     expect(shouldOfferPush('supported', 'default', true)).toBe(false);
     expect(shouldOfferPush('supported', 'granted', false)).toBe(false);
     expect(shouldOfferPush('ios-needs-install', 'default', false)).toBe(false);
+  });
+
+  it('shows the banner only when everything it needs is known and true', () => {
+    const base = {
+      support: 'supported' as const,
+      permission: 'default' as const,
+      subscribed: false,
+      dismissed: false,
+      serverConfigured: true,
+      bankGuest: false,
+    };
+    expect(shouldShowPushPrompt(base)).toBe(true);
+    expect(shouldShowPushPrompt({ ...base, support: null })).toBe(false);
+    expect(shouldShowPushPrompt({ ...base, serverConfigured: null })).toBe(
+      false
+    );
+    expect(shouldShowPushPrompt({ ...base, serverConfigured: false })).toBe(
+      false
+    );
+    expect(shouldShowPushPrompt({ ...base, bankGuest: true })).toBe(false);
+    expect(shouldShowPushPrompt({ ...base, subscribed: true })).toBe(false);
+    expect(shouldShowPushPrompt({ ...base, dismissed: true })).toBe(false);
+    expect(shouldShowPushPrompt({ ...base, permission: 'denied' })).toBe(false);
+  });
+
+  it('remembers a dismissal per person', () => {
+    expect(pushPromptDismissKey('u1')).not.toBe(pushPromptDismissKey('u2'));
   });
 });

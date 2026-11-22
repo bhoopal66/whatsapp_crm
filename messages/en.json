@@ -4398,6 +4398,15 @@
       "notes": "Call notes"
     }
   },
+  "TabAlerts": {
+    "soundTitle": "Sound",
+    "soundSwitch": "Play a sound for new customer messages",
+    "soundDescription": "On this browser only. Plays when a customer writes in a chat you can see, at most once every 3 seconds, and not for the chat you have open.",
+    "soundTry": "Play the sound",
+    "turnedOn": "Message sound turned on in this browser",
+    "turnedOff": "Message sound turned off in this browser",
+    "saveFailed": "This browser could not save the setting. Check that site storage is allowed."
+  },
   "TeamActivity": {
     "page": {
       "title": "Team activity",

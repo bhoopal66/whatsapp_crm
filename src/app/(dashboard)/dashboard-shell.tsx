@@ -20,6 +20,8 @@ import { SoftphoneMount } from "@/components/pbx/softphone-mount";
 import { AppContextMenu } from "@/components/context-menu/app-context-menu";
 import { NotificationsProvider } from "@/components/notifications/notifications-provider";
 import { BackNavTracker } from "@/components/layout/back-nav-tracker";
+import { UnreadChatsProvider } from "@/components/layout/unread-chats-provider";
+import { TabTitle } from "@/components/layout/tab-title";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -80,12 +82,17 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* The bell: one list, count and realtime subscription for the
           top bar's dropdown and the /notifications page. */}
       <NotificationsProvider>
+      {/* The tab's one unread mirror: the sidebar's counts, the tab
+          title's "(N)" and the optional new-message sound. */}
+      <UnreadChatsProvider>
       {/* `h-app` is the visible screen (100dvh): 100vh on a phone also
           counts the space under the browser's address bar. */}
       <div className="flex h-app overflow-hidden bg-background">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
+      {/* "(N) <page> — Taamul Connect" on the browser tab. Headless. */}
+      <TabTitle />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
@@ -124,6 +131,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* The app's own right-click menu, for every screen of the shell. */}
       <AppContextMenu />
       </div>
+      </UnreadChatsProvider>
       </NotificationsProvider>
     </CallProvider>
     </MeetingSessionProvider>
