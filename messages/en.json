@@ -50,6 +50,15 @@
     "countdown": "{time} left to reply",
     "tooltip": "On a WhatsApp Business (Cloud API) number you can send free text only within 24 hours of the customer's last message. After that, only an approved template can be sent until they write again."
   },
+  "States": {
+    "emptyTitle": "Nothing here yet",
+    "errorMessage": "We could not load this. Check your connection and try again.",
+    "errorTitle": "Something went wrong",
+    "flowVsAutomationBody": "A Flow is a back-and-forth conversation with one customer that waits for their replies. An Automation is a rule that runs steps when something happens.",
+    "flowVsAutomationTitle": "Flow or Automation?",
+    "loading": "Loading…",
+    "retry": "Try again"
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",

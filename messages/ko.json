@@ -50,6 +50,15 @@
     "countdown": "답장 가능 시간 {time} 남음",
     "tooltip": "WhatsApp Business(Cloud API) 번호에서는 고객의 마지막 메시지 후 24시간 동안만 자유 텍스트를 보낼 수 있습니다. 그 후에는 고객이 다시 메시지를 보낼 때까지 승인된 템플릿만 보낼 수 있습니다."
   },
+  "States": {
+    "emptyTitle": "아직 아무것도 없습니다",
+    "errorMessage": "불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.",
+    "errorTitle": "문제가 발생했습니다",
+    "flowVsAutomationBody": "플로우는 고객 한 명과 답장을 기다리며 주고받는 대화입니다. 자동화는 어떤 일이 발생하면 단계를 실행하는 규칙입니다.",
+    "flowVsAutomationTitle": "플로우와 자동화의 차이",
+    "loading": "불러오는 중…",
+    "retry": "다시 시도"
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "대시보드",
