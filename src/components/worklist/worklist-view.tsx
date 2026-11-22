@@ -88,6 +88,11 @@ export interface WorklistViewProps {
   noTeam?: boolean;
   /** The clock the items were ranked against (epoch ms). */
   now: number;
+  /**
+   * The empty list's wording, when the page knows better than "Nothing
+   * needs action" (customers are waiting for a reply above it).
+   */
+  emptyLabel?: string;
 }
 
 export function WorklistView({
@@ -100,6 +105,7 @@ export function WorklistView({
   teamOption = false,
   noTeam = false,
   now,
+  emptyLabel,
 }: WorklistViewProps) {
   const t = useTranslations('Worklist');
   const tAll = useTranslations();
@@ -186,7 +192,7 @@ export function WorklistView({
             data-testid="worklist-empty"
             className="text-muted-foreground p-6 text-center text-sm"
           >
-            {t('empty')}
+            {emptyLabel ?? t('empty')}
           </p>
         ) : (
           <Table aria-label={t('list')}>
