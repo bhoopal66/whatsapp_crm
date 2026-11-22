@@ -213,9 +213,9 @@ export function SavedItems() {
         <Link
           href="/chat"
           aria-label={t('channel.back')}
-          className="hover:bg-muted -ml-1 flex size-8 items-center justify-center rounded-md lg:hidden"
+          className="hover:bg-muted -ms-1 flex size-8 items-center justify-center rounded-md lg:hidden"
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft className="size-4 rtl:rotate-180" />
         </Link>
         <Bookmark className="text-primary size-4" aria-hidden />
         <div className="min-w-0 flex-1">

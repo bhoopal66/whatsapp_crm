@@ -64,7 +64,7 @@ export function DealRoomsSidebar({
   return (
     <aside
       className={cn(
-        'bg-card text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-r',
+        'bg-card text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-e',
         className
       )}
     >
@@ -73,7 +73,7 @@ export function DealRoomsSidebar({
         aria-label={t('rooms.back', { name: workspaceName })}
         className="text-foreground hover:text-primary flex items-center gap-1 px-3 pt-4 pb-2 text-[15px] font-bold"
       >
-        <ChevronLeft className="size-4 shrink-0" aria-hidden />
+        <ChevronLeft className="size-4 shrink-0 rtl:rotate-180" aria-hidden />
         <span className="truncate">{workspaceName}</span>
       </Link>
       <nav

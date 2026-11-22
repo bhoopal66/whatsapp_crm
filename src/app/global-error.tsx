@@ -1,7 +1,7 @@
 'use client'; // Error boundaries must be Client Components
 
 import Link from 'next/link';
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect, useSyncExternalStore, type CSSProperties } from 'react';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
@@ -14,6 +14,11 @@ import {
   isMode,
   isThemeId,
 } from '@/lib/themes';
+import {
+  localeDir,
+  readLocaleCookie,
+  workspaceDefaultLocale,
+} from '@/i18n/locales';
 import './globals.css';
 
 // This replaces the root layout, so nothing the layout mounts is here:
@@ -34,6 +39,14 @@ const COPY = {
     home: 'Go to home',
     digest: (id: string) => `Error ID: ${id}`,
   },
+  ar: {
+    title: 'حدث خطأ ما',
+    description:
+      'أوقف خطأ غير متوقع تحميل هذه الصفحة. حاول مرة أخرى، أو ارجع إلى الشاشة الرئيسية.',
+    retry: 'حاول مرة أخرى',
+    home: 'الانتقال إلى الرئيسية',
+    digest: (id: string) => `معرّف الخطأ: ${id}`,
+  },
   ko: {
     title: '문제가 발생했습니다',
     description:
@@ -44,13 +57,22 @@ const COPY = {
   },
 };
 
-// The build-time locale src/i18n/request.ts reads, falling back to
-// English for a locale with no copy here, as request.ts does for one
-// with no catalogue.
-const requested = process.env.NEXT_PUBLIC_APP_LOCALE ?? '';
-const LOCALE: keyof typeof COPY = Object.hasOwn(COPY, requested)
-  ? (requested as keyof typeof COPY)
-  : 'en';
+// The locale src/i18n/request.ts would pick: the person's NEXT_LOCALE
+// cookie, else the build-time workspace default, else English. The
+// server render cannot read the cookie here (this module is a client
+// component), so it renders the default and switches to the cookie's
+// language after hydration.
+function copyLocale(requested: string | undefined): keyof typeof COPY {
+  return requested && Object.hasOwn(COPY, requested)
+    ? (requested as keyof typeof COPY)
+    : 'en';
+}
+/** The cookie does not change while this page is up. */
+const noSubscription = () => () => {};
+
+const DEFAULT_COPY_LOCALE = copyLocale(
+  workspaceDefaultLocale(process.env.NEXT_PUBLIC_APP_LOCALE)
+);
 
 // Inter reaches the app as the --font-sans variable on the root
 // layout's <html>. Unset, `font-sans` would fall back to the browser's
@@ -73,7 +95,14 @@ export default function GlobalError({
   error: Error & { digest?: string };
   unstable_retry: () => void;
 }) {
-  const copy = COPY[LOCALE];
+  // The cookie is read on the client only; the server render (and
+  // hydration) use the workspace default, then React re-renders.
+  const locale = useSyncExternalStore(
+    noSubscription,
+    () => copyLocale(readLocaleCookie(document.cookie) ?? undefined),
+    () => DEFAULT_COPY_LOCALE
+  );
+  const copy = COPY[locale];
 
   useEffect(() => {
     console.error(error);
@@ -100,7 +129,8 @@ export default function GlobalError({
 
   return (
     <html
-      lang={LOCALE}
+      lang={locale}
+      dir={localeDir(locale)}
       data-theme={DEFAULT_THEME}
       data-mode={DEFAULT_MODE}
       className="h-full antialiased"

@@ -44,7 +44,7 @@ export function BackLink({
   const cls = className ?? DEFAULT_CLASS;
   const content = (
     <>
-      <ArrowLeft className={iconClassName} aria-hidden />
+      <ArrowLeft className={cn(iconClassName, 'rtl:rotate-180')} aria-hidden />
       {!iconOnly && label}
     </>
   );

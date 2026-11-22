@@ -138,7 +138,7 @@ function WaitingRow({
             </p>
           )}
         </div>
-        <div className="shrink-0 sm:text-right">
+        <div className="shrink-0 sm:text-end">
           <p
             data-testid="worklist-waiting-wait"
             className={cn(

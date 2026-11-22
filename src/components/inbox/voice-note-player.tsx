@@ -403,7 +403,7 @@ export function VoiceNotePlayer({
           ) : playing ? (
             <Pause className="h-[18px] w-[18px] fill-current" />
           ) : (
-            <Play className="ml-0.5 h-[18px] w-[18px] fill-current" />
+            <Play className="ms-0.5 h-[18px] w-[18px] fill-current" />
           )}
         </button>
 
@@ -494,7 +494,7 @@ export function VoiceNotePlayer({
       <div
         className={cn(
           c.meta,
-          'mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 pl-[3.125rem] text-xs leading-[15px] tabular-nums'
+          'mt-0.5 -mb-1 flex h-[15px] items-center gap-1.5 ps-[3.125rem] text-xs leading-[15px] tabular-nums'
         )}
       >
         {broken ? (

@@ -30,7 +30,7 @@ export function ReplyQuote({
   return (
     <div
       className={cn(
-        'border-wa-quote-bar flex items-start gap-2 rounded-md border-l-4 py-1 pr-1.5 pl-2',
+        'border-wa-quote-bar flex items-start gap-2 rounded-md border-s-4 py-1 pe-1.5 ps-2',
         isChip ? 'bg-wa-input' : 'bg-wa-quote mb-1'
       )}
     >

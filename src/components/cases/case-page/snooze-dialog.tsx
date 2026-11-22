@@ -146,7 +146,7 @@ export function SnoozeDialog({
                     setCustom('');
                   }}
                   className={cn(
-                    'flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                    'flex items-center justify-between rounded-md border px-3 py-2 text-start text-sm transition-colors',
                     on
                       ? 'border-primary bg-primary/10 text-foreground'
                       : 'bg-card-2 hover:bg-muted text-foreground'
@@ -191,7 +191,7 @@ export function SnoozeDialog({
               placeholder={t('reasonPlaceholder')}
               onChange={(e) => setReason(e.target.value)}
             />
-            <p className="text-muted-foreground text-right text-xs">
+            <p className="text-muted-foreground text-end text-xs">
               {reason.length}/{SNOOZE_REASON_MAX}
             </p>
           </div>

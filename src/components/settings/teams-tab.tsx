@@ -435,7 +435,7 @@ export function TeamsTab() {
             </DialogTitle>
             <DialogDescription>{t('deleteIntro')}</DialogDescription>
           </DialogHeader>
-          <ul className="text-muted-foreground list-disc space-y-1.5 pl-5 text-sm">
+          <ul className="text-muted-foreground list-disc space-y-1.5 ps-5 text-sm">
             <li>
               {t('deleteMembers', {
                 count: deleting?.member_ids.length ?? 0,
@@ -532,7 +532,7 @@ function TeamRow({
             type="button"
             onClick={onEdit}
             title={team.name}
-            className="text-foreground line-clamp-2 max-w-full text-left text-sm font-semibold break-words hover:underline"
+            className="text-foreground line-clamp-2 max-w-full text-start text-sm font-semibold break-words hover:underline"
           >
             {team.name}
           </button>

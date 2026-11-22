@@ -121,7 +121,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
             type="button"
             onClick={() => onJump(m)}
             aria-label={t('pins.jump', { name })}
-            className="hover:bg-muted/50 flex w-full gap-3 px-4 py-3 pr-11 text-left"
+            className="hover:bg-muted/50 flex w-full gap-3 px-4 py-3 pe-11 text-start"
           >
             <span
               className={cn(
@@ -150,7 +150,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
             </span>
           </button>
         ) : (
-          <p className="text-muted-foreground px-4 py-3 pr-11 text-sm italic">
+          <p className="text-muted-foreground px-4 py-3 pe-11 text-sm italic">
             {t('thread.gone')}
           </p>
         )}
@@ -160,7 +160,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
             onClick={() => void marks.setPinned(p.messageId, false)}
             aria-label={t('actions.unpin')}
             title={t('actions.unpin')}
-            className="hover:bg-muted text-muted-foreground absolute top-2.5 right-3 flex size-7 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            className="hover:bg-muted text-muted-foreground absolute top-2.5 end-3 flex size-7 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
           >
             <PinOff className="size-4" aria-hidden />
           </button>
@@ -172,7 +172,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
   return (
     <aside
       aria-label={t('pins.title')}
-      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-l"
+      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-s"
     >
       <header className="flex items-start gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -187,7 +187,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
           type="button"
           onClick={onClose}
           aria-label={t('pins.close')}
-          className="hover:bg-muted -mr-1 rounded p-1"
+          className="hover:bg-muted -me-1 rounded p-1"
         >
           <X className="size-4" />
         </button>

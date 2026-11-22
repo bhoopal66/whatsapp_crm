@@ -268,7 +268,7 @@ export function AiApprovedAnswers({
       <CardContent className="space-y-6">
         {loading && entries.length === 0 ? (
           <div className="text-muted-foreground flex items-center py-4 text-sm">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
+            <Loader2 className="me-2 h-4 w-4 animate-spin" /> {t('loading')}
           </div>
         ) : (
           <>
@@ -321,9 +321,9 @@ export function AiApprovedAnswers({
                     disabled={uploading}
                   >
                     {uploading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="me-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <Upload className="mr-2 h-4 w-4" />
+                      <Upload className="me-2 h-4 w-4" />
                     )}
                     {uploading ? t('import.uploading') : t('import.button')}
                   </Button>
@@ -855,7 +855,7 @@ function EditEntryDialog({
                 onClick={() => setConfirmDelete(true)}
                 disabled={busy}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 className="me-2 h-4 w-4" />
                 {t('edit.delete')}
               </Button>
             ) : (
@@ -869,7 +869,7 @@ function EditEntryDialog({
                 <Button onClick={() => void save()} disabled={busy}>
                   {busy ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="me-2 h-4 w-4 animate-spin" />
                       {t('edit.saving')}
                     </>
                   ) : (

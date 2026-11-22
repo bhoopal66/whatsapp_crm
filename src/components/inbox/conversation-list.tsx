@@ -1838,19 +1838,19 @@ export function ConversationList({
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed width on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-r lg:w-80 2xl:w-96">
+    <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-e lg:w-80 2xl:w-96">
       {/* Search + Filter */}
       <div className="space-y-2 px-3 pt-3 pb-2">
         {!hrHeaderOn && <TeamViewSwitch screen="inbox" teamView={teamView} />}
         {hrHeader?.title}
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
-            <Search className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+            <Search className="text-wa-icon pointer-events-none absolute top-1/2 start-3.5 h-4 w-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={handleSearchChange}
               placeholder={t('searchPlaceholder')}
-              className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 pl-11 text-sm shadow-none focus-visible:ring-2"
+              className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 ps-11 text-sm shadow-none focus-visible:ring-2"
             />
           </div>
           {/* Agents and up (viewers and bank guests never): a chat with
@@ -2004,7 +2004,7 @@ export function ConversationList({
                         key={sub.id}
                         checked={chatTagFilterIds.includes(sub.id)}
                         onCheckedChange={() => toggleChatTag(sub.id)}
-                        className="text-popover-foreground pl-6 text-sm"
+                        className="text-popover-foreground ps-6 text-sm"
                       >
                         <ChatTagOption color={sub.color} name={sub.name} />
                       </DropdownMenuCheckboxItem>
@@ -2715,16 +2715,16 @@ export const ConversationItem = memo(function ConversationItem({
       aria-current={isActive ? 'true' : undefined}
       className={cn(
         // @container: the insight chips size themselves to the row.
-        '@container flex w-full items-center gap-3 pl-3 text-left transition-colors',
+        '@container flex w-full items-center gap-3 ps-3 text-start transition-colors',
         isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover',
         // Signals on: the left stripe in the row's colour, transparent
         // when it has none so rows never shift. Off: today's red edge.
         signals
           ? cn(
-              'border-l-4',
+              'border-s-4',
               signals.stripe
                 ? swatchOf(signals.stripe).stripe
-                : 'border-l-transparent'
+                : 'border-s-transparent'
             )
           : important && 'shadow-[inset_3px_0_0_var(--destructive)]'
       )}
@@ -2741,7 +2741,7 @@ export const ConversationItem = memo(function ConversationItem({
 
       {/* The divider runs under the text only, starting past the
           avatar, the way WhatsApp draws it. */}
-      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
+      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pe-3">
         <div className="flex items-baseline justify-between gap-2">
           <span
             className={cn(
@@ -2913,7 +2913,7 @@ export const ConversationItem = memo(function ConversationItem({
               <InsightChips
                 conversation={conversation}
                 chips={chips}
-                className="ml-auto"
+                className="ms-auto"
               />
             )}
 
@@ -2925,7 +2925,7 @@ export const ConversationItem = memo(function ConversationItem({
                 className={cn(
                   ROW_ASSIGN_CLASS,
                   'invisible',
-                  !(chips.length > 0 && hasMeta) && 'ml-auto'
+                  !(chips.length > 0 && hasMeta) && 'ms-auto'
                 )}
               >
                 {tRows('assign')}
@@ -2960,7 +2960,7 @@ export const ConversationItem = memo(function ConversationItem({
           aria-label={tInsights('handledAria', { name: displayName })}
           className={cn(
             HANDLED_CLASS,
-            'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute top-2.5 right-3 shadow-sm focus-visible:ring-2 focus-visible:outline-none'
+            'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute top-2.5 end-3 shadow-sm focus-visible:ring-2 focus-visible:outline-none'
           )}
         >
           {tInsights('handled')}
@@ -2978,7 +2978,7 @@ export const ConversationItem = memo(function ConversationItem({
             onClick={(e) => e.stopPropagation()}
             className={cn(
               ROW_ASSIGN_CLASS,
-              'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute right-3 bottom-3 focus-visible:ring-2 focus-visible:outline-none'
+              'bg-card text-wa-text border-wa-divider hover:bg-wa-row-hover focus-visible:ring-ring absolute end-3 bottom-3 focus-visible:ring-2 focus-visible:outline-none'
             )}
           >
             <UserPlus className="h-3 w-3 shrink-0" />
@@ -2999,7 +2999,7 @@ export const ConversationItem = memo(function ConversationItem({
                     }
                     className="text-sm"
                   >
-                    <MemberPresenceDot userId={p.user_id} className="mr-2" />
+                    <MemberPresenceDot userId={p.user_id} className="me-2" />
                     <span className="flex-1 truncate">{name}</span>
                   </DropdownMenuItem>
                 );

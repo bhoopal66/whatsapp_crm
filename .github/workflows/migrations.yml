@@ -1332,3 +1332,11 @@ jobs:
       # admin's pages hold exactly what a plain SELECT shows them.
       - name: Verify contact sort
         run: supabase db query --local --file supabase/ci/verify-contact-sort.sql
+
+      # Migration 259: a per-person interface language. set_my_language
+      # writes every workspace row of the caller and nobody else's,
+      # refuses an unsupported language and an anonymous caller; a direct
+      # client UPDATE of the column is refused; a new workspace row
+      # inherits the choice; only `authenticated` may execute the RPC.
+      - name: Verify preferred language
+        run: supabase db query --local --file supabase/ci/verify-preferred-language.sql

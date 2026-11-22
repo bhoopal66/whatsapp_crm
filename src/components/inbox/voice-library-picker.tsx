@@ -227,7 +227,7 @@ export function VoiceLibraryPicker({
                 counts={counts}
                 subjectName={subjectName}
               />
-              <div className="max-h-[45dvh] space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-[45dvh] space-y-2 overflow-y-auto pe-1">
                 {shown.length === 0 ? (
                   <EmptyState
                     icon={AudioLines}

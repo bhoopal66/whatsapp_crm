@@ -175,7 +175,7 @@ export function FloatStage({
           {t('reconnecting')}
         </div>
       )}
-      <div className="absolute top-2 left-2 flex gap-1">
+      <div className="absolute top-2 start-2 flex gap-1">
         {hands > 0 && (
           <span className={CHIP} title={t('hands', { count: hands })}>
             <Hand className="size-3 text-amber-300" />
@@ -183,7 +183,7 @@ export function FloatStage({
           </span>
         )}
       </div>
-      <div className="absolute top-2 right-2 flex items-center gap-1">
+      <div className="absolute top-2 end-2 flex items-center gap-1">
         {focus.screenId && (
           <div data-no-drag className={cn(CHIP, 'p-0.5')}>
             {(['speaker', 'screen'] as const).map((v) => (
@@ -206,7 +206,7 @@ export function FloatStage({
           {t('inCall', { count: call.participants.length })}
         </span>
       </div>
-      <div className="absolute bottom-2 left-2 flex max-w-[60%] flex-col items-start gap-1.5">
+      <div className="absolute bottom-2 start-2 flex max-w-[60%] flex-col items-start gap-1.5">
         {showRow && (
           <div className="flex items-center gap-1">
             {others.shown.map((p) => (
@@ -242,7 +242,7 @@ export function FloatStage({
         </span>
       </div>
       {!alone && (
-        <div className="absolute right-2 bottom-2 flex items-end gap-1">
+        <div className="absolute end-2 bottom-2 flex items-end gap-1">
           <button
             type="button"
             title={t(selfHidden ? 'showSelf' : 'hideSelf')}

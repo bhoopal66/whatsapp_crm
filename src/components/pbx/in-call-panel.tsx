@@ -615,7 +615,7 @@ function Panel() {
           <div
             {...handleProps}
             className={cn(
-              'flex h-12 items-center gap-2 pr-1.5 pl-3',
+              'flex h-12 items-center gap-2 pe-1.5 ps-3',
               handleRing
             )}
           >
@@ -720,7 +720,7 @@ function Panel() {
                 aria-label={t('minimize')}
                 title={t('minimize')}
                 onClick={() => setMinimized(true)}
-                className="-my-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
+                className="-my-1 -me-1 flex size-7 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
               >
                 <Minus className="size-4" />
               </button>

@@ -74,7 +74,7 @@ export function RejoinCard() {
   return (
     <div
       role="status"
-      className="bg-card text-card-foreground fixed right-4 bottom-4 z-40 flex w-72 flex-col gap-2 rounded-lg border p-3 shadow-lg"
+      className="bg-card text-card-foreground fixed end-4 bottom-4 z-40 flex w-72 flex-col gap-2 rounded-lg border p-3 shadow-lg"
     >
       <p className="text-sm font-medium break-words">
         {t('title', { title: marker.title })}

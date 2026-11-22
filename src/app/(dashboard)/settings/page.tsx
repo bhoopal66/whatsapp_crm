@@ -592,7 +592,7 @@ function SettingsPageInner() {
         {showMenu ? (
           <aside
             data-settings-scroll=""
-            className="hidden xl:sticky xl:top-6 xl:block xl:max-h-[calc(100dvh-6.5rem)] xl:overflow-y-auto xl:pr-1 xl:pb-2"
+            className="hidden xl:sticky xl:top-6 xl:block xl:max-h-[calc(100dvh-6.5rem)] xl:overflow-y-auto xl:pe-1 xl:pb-2"
           >
             <SettingsNav
               groups={groups}
@@ -621,7 +621,7 @@ function SettingsPageInner() {
               nativeButton={false}
               render={<Link href={backTo} />}
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
               {t('backToBroadcast')}
             </Button>
           ) : null}

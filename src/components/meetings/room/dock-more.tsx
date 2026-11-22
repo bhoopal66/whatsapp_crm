@@ -177,7 +177,7 @@ export function MoreSheet({
             onClick={closing(() => item.onChange(!item.checked))}
           >
             {item.icon}
-            <span className="flex-1 text-left">{item.label}</span>
+            <span className="flex-1 text-start">{item.label}</span>
             {item.checked && <Check aria-hidden />}
           </Button>
         );
@@ -193,7 +193,7 @@ export function MoreSheet({
             onClick={closing(item.onClick)}
           >
             {item.icon}
-            <span className="flex-1 text-left">{item.label}</span>
+            <span className="flex-1 text-start">{item.label}</span>
           </Button>
         );
       case 'reactions':

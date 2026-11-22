@@ -42,7 +42,7 @@ export function SourceFilter({
         <Filter className="size-4" />
         {t('filterBySource')}
         {selected.length > 0 && (
-          <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
+          <span className="bg-primary text-primary-foreground ms-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
             {selected.length}
           </span>
         )}

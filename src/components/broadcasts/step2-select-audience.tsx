@@ -662,7 +662,7 @@ export function Step2SelectAudience({
                         : undefined,
                   });
                 }}
-                className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-all ${
+                className={`flex items-start gap-3 rounded-xl border p-4 text-start transition-all ${
                   isSelected
                     ? 'border-primary bg-primary/5 ring-primary/30 ring-1'
                     : 'border-border bg-card/50 hover:border-border'
@@ -1095,7 +1095,7 @@ export function Step2SelectAudience({
           onClick={onBack}
           className="border-border text-muted-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t('back')}
         </Button>
         <Button
@@ -1104,7 +1104,7 @@ export function Step2SelectAudience({
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {t('next')}
-          <ArrowRight className="h-4 w-4" />
+          <ArrowRight className="h-4 w-4 rtl:rotate-180" />
         </Button>
       </div>
     </div>
@@ -1141,7 +1141,7 @@ function ChatTagPicker({
         type="button"
         aria-pressed={on}
         onClick={() => onToggle(tag.id)}
-        className={`flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition-all ${
+        className={`flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-start text-xs font-medium transition-all ${
           on
             ? CHAT_TAG_TONE[tone]
             : 'border-border bg-muted text-muted-foreground hover:border-border'
@@ -1161,7 +1161,7 @@ function ChatTagPicker({
         <div key={main.id} className="space-y-1">
           {option(main)}
           {main.subs.length > 0 && (
-            <div className="space-y-1 pl-6">{main.subs.map(option)}</div>
+            <div className="space-y-1 ps-6">{main.subs.map(option)}</div>
           )}
         </div>
       ))}

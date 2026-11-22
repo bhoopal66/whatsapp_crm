@@ -154,7 +154,7 @@ function BankPoliciesCard() {
         ) : (
           <div className="border-border overflow-x-auto rounded-lg border">
             <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+              <thead className="bg-muted/50 text-muted-foreground text-start text-xs">
                 <tr>
                   <th className="px-3 py-2 font-medium">{t('bank')}</th>
                   <th className="px-3 py-2 font-medium">{t('guests')}</th>

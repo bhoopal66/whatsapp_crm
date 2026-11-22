@@ -157,7 +157,7 @@ export function ReportAccessCard({ report }: { report: ReportKey }) {
               onClick={save}
               disabled={!dirty || saving}
             >
-              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              {saving && <Loader2 className="me-1 h-4 w-4 animate-spin" />}
               {t('save')}
             </Button>
           </div>

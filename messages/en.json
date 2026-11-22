@@ -3096,7 +3096,11 @@
       "useMode": "Use {mode} mode",
       "active": "Active",
       "accentColor": "Accent color",
-      "useTheme": "Use {name} theme"
+      "useTheme": "Use {name} theme",
+      "language": "Language",
+      "languageDescription": "The language of menus and screens. Saved to your profile, so it follows you to every device. Arabic is shown right to left.",
+      "languageDefault": "Workspace default ({language})",
+      "languageFailed": "Could not change the language. Try again."
     },
     "security": {
       "title": "Login & security",

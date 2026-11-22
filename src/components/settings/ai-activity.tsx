@@ -82,7 +82,7 @@ export function AiActivityCard({
       <CardContent className="space-y-5">
         {loading && !data ? (
           <div className="text-muted-foreground flex items-center py-2 text-sm">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
+            <Loader2 className="me-2 h-4 w-4 animate-spin" /> {t('loading')}
           </div>
         ) : !data || data.total === 0 ? (
           <p className="text-muted-foreground text-sm">{t('empty')}</p>
@@ -207,7 +207,7 @@ export function AiActivityCard({
           onClick={() => void fetchActivity()}
           disabled={loading}
         >
-          <RefreshCw className="mr-2 h-4 w-4" /> {t('refresh')}
+          <RefreshCw className="me-2 h-4 w-4" /> {t('refresh')}
         </Button>
       </CardContent>
     </Card>

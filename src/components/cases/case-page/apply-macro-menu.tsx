@@ -158,7 +158,7 @@ export function ApplyMacroMenu({
               {t('apply.resultTitle', { name: shown?.name ?? '' })}
             </DialogTitle>
           </DialogHeader>
-          <ul className="list-disc space-y-1 pl-5 text-sm">
+          <ul className="list-disc space-y-1 ps-5 text-sm">
             {shown?.lines.map((l, i) => (
               <li key={i}>{lineText(l)}</li>
             ))}

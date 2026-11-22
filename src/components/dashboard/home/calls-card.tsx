@@ -129,7 +129,7 @@ function Outcomes({
                   style={{ width: `${b.percent}%` }}
                 />
               </span>
-              <span className="text-muted-foreground w-6 shrink-0 text-right tabular-nums">
+              <span className="text-muted-foreground w-6 shrink-0 text-end tabular-nums">
                 {b.count}
               </span>
             </li>

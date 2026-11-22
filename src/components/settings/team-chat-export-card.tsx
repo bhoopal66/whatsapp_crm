@@ -230,7 +230,7 @@ export function TeamChatExportCard({
                         aria-pressed={c.id === selectedId}
                         onClick={() => setSelectedId(c.id)}
                         className={cn(
-                          'hover:bg-muted/60 flex w-full items-center gap-3 px-3 py-2 text-left text-sm',
+                          'hover:bg-muted/60 flex w-full items-center gap-3 px-3 py-2 text-start text-sm',
                           c.id === selectedId && 'bg-primary/10'
                         )}
                       >

@@ -66,7 +66,7 @@ export function ResponseTimeCard({
       error={w.error && !w.data}
       onRetry={w.reload}
       aside={
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-right text-xs">
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-end text-xs">
           <span className="border-destructive/30 bg-destructive-soft text-destructive rounded-full border px-2 py-0.5 font-medium tabular-nums">
             {t('target', { minutes: THRESHOLD_MINUTES })}
           </span>

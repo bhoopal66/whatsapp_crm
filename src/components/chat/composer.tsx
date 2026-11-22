@@ -1036,7 +1036,7 @@ export function Composer({
                 onClick={() =>
                   setChips((c) => c.filter((x) => x.id !== chip.id))
                 }
-                className="hover:bg-muted -mr-1 rounded p-0.5"
+                className="hover:bg-muted -me-1 rounded p-0.5"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1047,7 +1047,7 @@ export function Composer({
       {quote && (
         <div
           className={cn(
-            'bg-muted/50 mb-2 flex items-start gap-2 rounded-md border-l-4 py-1 pr-1 pl-2',
+            'bg-muted/50 mb-2 flex items-start gap-2 rounded-md border-s-4 py-1 pe-1 ps-2',
             quoteTint(quote.authorId)
           )}
         >

@@ -125,6 +125,7 @@ export default async function WebFormPage({
                 id="wf-email"
                 name="email"
                 type="email"
+                dir="ltr"
                 autoComplete="email"
                 maxLength={FIELD_LIMITS.email}
                 aria-invalid={error === 'bad_email'}
@@ -143,7 +144,7 @@ export default async function WebFormPage({
                 that fills every field is answered "sent" and ignored. */}
             <div
               aria-hidden
-              className="absolute -left-[10000px] h-px w-px overflow-hidden"
+              className="absolute -start-[10000px] h-px w-px overflow-hidden"
             >
               <label htmlFor="wf-website">Website</label>
               <input

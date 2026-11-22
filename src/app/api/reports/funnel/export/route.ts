@@ -1,4 +1,4 @@
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { buildCsv, csvFileName, csvResponse } from '@/lib/csv/build';
@@ -30,7 +30,9 @@ export async function GET(request: Request) {
     );
     if (!loaded.ok) return loaded.response;
 
-    const locale = process.env.NEXT_PUBLIC_APP_LOCALE || 'en';
+    // The caller's language (NEXT_LOCALE cookie, else the workspace
+    // default), as src/i18n/request.ts resolves it for pages.
+    const locale = await getLocale();
     const t = await getTranslations({ locale, namespace: 'FunnelReport' });
     const tSource = await getTranslations({
       locale,

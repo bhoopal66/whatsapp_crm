@@ -148,7 +148,7 @@ export function CsatSettingsCard({
           <p className="text-muted-foreground">{t('hint')}</p>
         </div>
         {toggle('enabled', t('enabled'), s.enabled ? t('on') : t('off'))}
-        <div className="space-y-3 border-l pl-3">
+        <div className="space-y-3 border-s ps-3">
           {toggle('askOnSubmitted', t('askOnSubmitted'))}
           {toggle('askOnApproved', t('askOnApproved'))}
         </div>

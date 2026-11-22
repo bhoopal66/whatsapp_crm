@@ -73,7 +73,7 @@ function Choice({
     <button
       type="button"
       aria-pressed={selected}
-      className="focus-visible:ring-ring flex min-w-0 flex-col gap-1 rounded-lg text-left outline-none focus-visible:ring-2"
+      className="focus-visible:ring-ring flex min-w-0 flex-col gap-1 rounded-lg text-start outline-none focus-visible:ring-2"
       onClick={onClick}
     >
       <span

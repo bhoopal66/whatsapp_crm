@@ -155,7 +155,7 @@ export function MessageRow({
         unknownName={t('unknownPerson')}
         trailing={
           m.editedAt && (
-            <span className="text-muted-foreground ml-1 text-xs">
+            <span className="text-muted-foreground ms-1 text-xs">
               {t('timeline.edited')}
             </span>
           )

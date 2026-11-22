@@ -256,7 +256,7 @@ function ShareDialog({
                 aria-selected={c.id === picked}
                 onClick={() => setPicked(c.id)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
+                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm',
                   c.id === picked
                     ? 'bg-primary/10 text-primary font-semibold'
                     : 'hover:bg-muted'

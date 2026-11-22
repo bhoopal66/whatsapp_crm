@@ -123,7 +123,7 @@ export function SearchResults({ query }: { query: string }) {
           <p className={HEADING}>
             {t('search.messages')}
             {!loading && result.hits.length > 0 && (
-              <span className="ml-2 tracking-normal normal-case">
+              <span className="ms-2 tracking-normal normal-case">
                 {t('search.count', { count: result.hits.length })}
               </span>
             )}

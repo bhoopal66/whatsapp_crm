@@ -60,7 +60,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="hover:bg-muted/70 focus:bg-muted/70 data-popup-open:bg-muted/70 flex items-center gap-2 rounded-md px-1 py-1 transition-colors focus:outline-none sm:gap-3 sm:pr-3 sm:pl-1"
+            className="hover:bg-muted/70 focus:bg-muted/70 data-popup-open:bg-muted/70 flex items-center gap-2 rounded-md px-1 py-1 transition-colors focus:outline-none sm:gap-3 sm:pe-3 sm:ps-1"
             aria-label={t('openAccountMenu')}
           >
             <Avatar className="size-8">
@@ -119,7 +119,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
               onClick={signOut}
               className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
             >
-              <LogOut className="size-4" />
+              <LogOut className="size-4 rtl:rotate-180" />
               {t('menuSignOut')}
             </DropdownMenuItem>
           </DropdownMenuContent>

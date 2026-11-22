@@ -124,7 +124,7 @@ function PreviewToggle({
       >
         {children}
         {warn && (
-          <span className="absolute -top-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-amber-400 text-black">
+          <span className="absolute -top-0.5 -end-0.5 flex size-5 items-center justify-center rounded-full bg-amber-400 text-black">
             <AlertTriangle className="size-3!" aria-hidden />
           </span>
         )}

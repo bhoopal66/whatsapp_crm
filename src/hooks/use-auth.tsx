@@ -45,6 +45,7 @@ import {
   shouldReloadOnPageShow,
 } from "@/lib/session-cache";
 import { signOutReleasingPush } from "@/lib/push/sign-out";
+import { isLocale, syncLocaleCookie, type Locale } from "@/i18n/locales";
 
 interface Profile {
   id: string;
@@ -66,6 +67,11 @@ interface Profile {
   sales_restricted: boolean;
   /** Migration 198: allowed to review every call; false before 198. */
   may_review_all_calls: boolean;
+  /**
+   * Migration 259: the interface language this person chose; null = the
+   * workspace default (also before 259).
+   */
+  preferred_language: Locale | null;
 }
 
 interface AccountSummary {
@@ -231,6 +237,8 @@ interface ProfileRow {
   department?: string | null;
   /** Migration 198. Absent on a database that predates it. */
   may_review_all_calls?: boolean | null;
+  /** Migration 259. Absent on a database that predates it. */
+  preferred_language?: string | null;
 }
 
 /** Other tabs of this browser follow a workspace switch (see below). */
@@ -467,6 +475,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // The person's saved interface language (259) follows them to this
+      // device: sign-in writes the cookie, but a session restored here
+      // (or a choice made on another device since) skipped that. Reload
+      // once to render in it; the cookie then matches and this is a no-op.
+      if (data && syncLocaleCookie(data.preferred_language)) {
+        leaving = true;
+        window.location.reload();
+        return;
+      }
+
       if (data) {
         // Narrow the DB enum into our AccountRole union. The DB
         // constraint should make this unconditional, but a future
@@ -575,6 +593,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           may_review_all_calls:
             data.may_review_all_calls === true &&
             !isBankGuestRole(accountRole),
+          preferred_language: isLocale(data.preferred_language)
+            ? data.preferred_language
+            : null,
         });
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {

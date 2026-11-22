@@ -679,7 +679,7 @@ export function CalendarView({
               <li key={itemKey(item)}>
                 <button
                   type="button"
-                  className="hover:bg-muted flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-sm"
+                  className="hover:bg-muted flex w-full items-start gap-2 rounded-md px-2 py-1 text-start text-sm"
                   onClick={(e) => {
                     const anchor = e.currentTarget;
                     api()?.gotoDate(item.start);
@@ -755,7 +755,7 @@ export function CalendarView({
             onClick={() => api()?.prev()}
             aria-label={t('prev')}
           >
-            <ChevronLeft className="size-4" />
+            <ChevronLeft className="size-4 rtl:rotate-180" />
           </Button>
           <Button
             variant="ghost"
@@ -763,7 +763,7 @@ export function CalendarView({
             onClick={() => api()?.next()}
             aria-label={t('next')}
           >
-            <ChevronRight className="size-4" />
+            <ChevronRight className="size-4 rtl:rotate-180" />
           </Button>
         </div>
         <h2 className="min-w-0 truncate text-lg font-semibold">{title}</h2>
@@ -774,7 +774,7 @@ export function CalendarView({
           <Clock className="size-3.5" />
           {formatClock.format(now)} · {zoneLabel}
         </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ms-auto flex flex-wrap items-center gap-2">
           <div
             role="radiogroup"
             aria-label={t('viewSwitcher')}
@@ -797,7 +797,7 @@ export function CalendarView({
             ))}
           </div>
           <div className="relative">
-            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2 size-4 -translate-y-1/2" />
             <Input
               ref={searchRef}
               value={query}
@@ -817,11 +817,11 @@ export function CalendarView({
               }}
               placeholder={t('searchPlaceholder')}
               aria-label={t('searchLabel')}
-              className="h-8 w-44 pl-8"
+              className="h-8 w-44 ps-8"
             />
             {query.trim() && (
               <span
-                className="text-muted-foreground absolute -bottom-4 left-1 text-xs"
+                className="text-muted-foreground absolute -bottom-4 start-1 text-xs"
                 aria-live="polite"
               >
                 {t('searchCount', { count: matches.length })}
@@ -831,7 +831,7 @@ export function CalendarView({
           <div className="inline-flex">
             <Button
               size="sm"
-              className="rounded-r-none"
+              className="rounded-e-none"
               onClick={() => callbacks.current.onCreate()}
             >
               <Plus className="size-4" />
@@ -842,7 +842,7 @@ export function CalendarView({
                 render={
                   <Button
                     size="sm"
-                    className="border-primary-foreground/20 rounded-l-none border-l px-1.5"
+                    className="border-primary-foreground/20 rounded-s-none border-s px-1.5"
                   />
                 }
                 aria-label={t('createMenu')}
@@ -1128,7 +1128,7 @@ function MiniMonth({
             aria-label={prevLabel}
             onClick={() => setShown((s) => addMonths(s.year, s.month0, -1))}
           >
-            <ChevronLeft className="size-4" />
+            <ChevronLeft className="size-4 rtl:rotate-180" />
           </Button>
           <Button
             variant="ghost"
@@ -1137,7 +1137,7 @@ function MiniMonth({
             aria-label={nextLabel}
             onClick={() => setShown((s) => addMonths(s.year, s.month0, 1))}
           >
-            <ChevronRight className="size-4" />
+            <ChevronRight className="size-4 rtl:rotate-180" />
           </Button>
         </span>
       </div>

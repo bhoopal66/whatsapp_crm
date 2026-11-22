@@ -133,19 +133,19 @@ interface StepMeta {
 }
 
 const STEP_META: Record<AutomationStepType, StepMeta> = {
-  send_message: { label: "send_message", icon: MessageSquare, border: "border-l-primary" },
-  send_buttons: { label: "send_buttons", icon: MousePointerClick, border: "border-l-primary" },
-  send_list: { label: "send_list", icon: List, border: "border-l-primary" },
-  send_template: { label: "send_template", icon: FileText, border: "border-l-primary" },
-  set_chat_tag: { label: "set_chat_tag", icon: Tag, border: "border-l-primary" },
-  assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
-  update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-l-primary" },
-  create_deal: { label: "create_deal", icon: Briefcase, border: "border-l-primary" },
-  wait: { label: "wait", icon: Hourglass, border: "border-l-border" },
-  condition: { label: "condition", icon: GitBranch, border: "border-l-warning" },
-  send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
-  close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
-  post_team_chat: { label: "post_team_chat", icon: MessagesSquare, border: "border-l-primary" },
+  send_message: { label: "send_message", icon: MessageSquare, border: "border-s-primary" },
+  send_buttons: { label: "send_buttons", icon: MousePointerClick, border: "border-s-primary" },
+  send_list: { label: "send_list", icon: List, border: "border-s-primary" },
+  send_template: { label: "send_template", icon: FileText, border: "border-s-primary" },
+  set_chat_tag: { label: "set_chat_tag", icon: Tag, border: "border-s-primary" },
+  assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-s-primary" },
+  update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-s-primary" },
+  create_deal: { label: "create_deal", icon: Briefcase, border: "border-s-primary" },
+  wait: { label: "wait", icon: Hourglass, border: "border-s-border" },
+  condition: { label: "condition", icon: GitBranch, border: "border-s-warning" },
+  send_webhook: { label: "send_webhook", icon: Webhook, border: "border-s-primary" },
+  close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-s-primary" },
+  post_team_chat: { label: "post_team_chat", icon: MessagesSquare, border: "border-s-primary" },
 }
 
 /** The condition subjects engine.ts evaluates, in menu order. */
@@ -1010,7 +1010,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
           className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           aria-label={t("backToAutomations")}
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
         </button>
         <input
           value={state.name}
@@ -1106,11 +1106,11 @@ function TriggerCard({
     // Card width: full on mobile, fixed 320px on sm+. The canvas wrapper
     // (max-w-2xl + px-4) keeps this tidy on tablet/desktop.
     <div className="z-10 w-full max-w-[320px] sm:w-80">
-      <div className="rounded-lg border border-border border-l-4 border-l-blue-500 bg-card shadow-lg">
+      <div className="rounded-lg border border-border border-s-4 border-s-blue-500 bg-card shadow-lg">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-center gap-3 px-4 py-3 text-left"
+          className="flex w-full items-center gap-3 px-4 py-3 text-start"
         >
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
             <Zap className="h-4 w-4" />
@@ -1523,14 +1523,14 @@ function StepRenderer({
       <div className={cn("z-10 flex min-w-0 flex-col", width)}>
         <div
           className={cn(
-            "rounded-lg border border-border border-l-4 bg-card shadow-lg",
-            meta?.border ?? "border-l-border",
+            "rounded-lg border border-border border-s-4 bg-card shadow-lg",
+            meta?.border ?? "border-s-border",
           )}
         >
           <button
             type="button"
             onClick={() => props.setExpandedId(expanded ? null : step.cid)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left"
+            className="flex w-full items-center gap-3 px-4 py-3 text-start"
           >
             <GripVertical className="h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden />
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">

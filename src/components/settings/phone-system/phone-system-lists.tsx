@@ -353,7 +353,7 @@ export function OutcomeRuleCard() {
           onChange={(v) => void save(v)}
           label={t('rules.mandatory')}
         />
-        <p className="text-muted-foreground pl-[1.625rem] text-xs">
+        <p className="text-muted-foreground ps-[1.625rem] text-xs">
           {t('outcomes.hint')}
         </p>
       </div>
@@ -543,7 +543,7 @@ export function RecordingRulesCard() {
         <>
           {t('rules.title')}
           {paused ? (
-            <span className="bg-destructive/10 text-destructive ml-2 rounded-md px-1.5 py-0.5 align-middle text-xs font-medium">
+            <span className="bg-destructive/10 text-destructive ms-2 rounded-md px-1.5 py-0.5 align-middle text-xs font-medium">
               {t('rules.paused')}
             </span>
           ) : null}
@@ -554,7 +554,7 @@ export function RecordingRulesCard() {
       <div className="space-y-3 text-sm">
         <div>
           {flag('storeRecordings', t('rules.storeRecordings'))}
-          <p className="text-muted-foreground mt-1 pl-[1.625rem] text-xs">
+          <p className="text-muted-foreground mt-1 ps-[1.625rem] text-xs">
             {t('rules.storeRecordingsHint')}
           </p>
         </div>

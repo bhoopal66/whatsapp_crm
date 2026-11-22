@@ -299,7 +299,7 @@ export function AiThreadBanner({
             />
           )}
           {editText === null ? (
-            <blockquote className="border-wa-teal bg-wa-panel text-wa-text max-h-48 overflow-y-auto rounded-r border-l-2 px-2.5 py-1.5 break-words whitespace-pre-wrap">
+            <blockquote className="border-wa-teal bg-wa-panel text-wa-text max-h-48 overflow-y-auto rounded-e border-s-2 px-2.5 py-1.5 break-words whitespace-pre-wrap">
               {state.draft}
             </blockquote>
           ) : (

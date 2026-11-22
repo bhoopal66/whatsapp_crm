@@ -173,7 +173,7 @@ export function MessageActions({
             'border-border bg-popover/95 absolute -top-3 z-10 flex h-7 items-center gap-0.5 rounded-full border px-1 shadow-md backdrop-blur-sm transition-opacity',
             'opacity-0 group-focus-within/actions:opacity-100 group-hover/actions:opacity-100',
             'data-[touch-open=true]:opacity-100',
-            isAgent ? 'right-3' : 'left-3'
+            isAgent ? 'end-3' : 'start-3'
           )}
         >
           <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -206,7 +206,7 @@ export function MessageActions({
             className="text-popover-foreground hover:bg-muted hover:text-foreground flex h-5 w-5 items-center justify-center rounded-full"
             aria-label={t('reply')}
           >
-            <CornerUpLeft className="h-3.5 w-3.5" />
+            <CornerUpLeft className="h-3.5 w-3.5 rtl:rotate-180" />
           </button>
           {canForward && (
             <button
@@ -215,7 +215,7 @@ export function MessageActions({
               className="text-popover-foreground hover:bg-muted hover:text-foreground flex h-5 w-5 items-center justify-center rounded-full"
               aria-label={t('forward')}
             >
-              <Forward className="h-3.5 w-3.5" />
+              <Forward className="h-3.5 w-3.5 rtl:rotate-180" />
             </button>
           )}
           <button

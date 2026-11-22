@@ -582,13 +582,13 @@ function NodeCard({
     >
       {/* type-colored left rail, ties the list row to the canvas hue */}
       <span
-        className="absolute inset-y-0 left-0 w-[3px]"
+        className="absolute inset-y-0 start-0 w-[3px]"
         style={{ background: c.solid }}
       />
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 pl-5 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 ps-5 text-start"
       >
         <NodeIconChip type={node.node_type} size={32} iconSize={16} />
         <div className="min-w-0 flex-1">

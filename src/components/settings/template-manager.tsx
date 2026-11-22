@@ -580,7 +580,7 @@ export function TemplateManager() {
                       </div>
                     )}
                   </div>
-                  <div className="ml-2 flex shrink-0 items-center gap-1">
+                  <div className="ms-2 flex shrink-0 items-center gap-1">
                     {statusKey === 'APPROVED' && (
                       <Button
                         variant="ghost"
@@ -1031,7 +1031,7 @@ export function TemplateManager() {
                         </Button>
                       </div>
                       {btn.type === 'URL' && (
-                        <div className="space-y-1 pl-1">
+                        <div className="space-y-1 ps-1">
                           <Input
                             placeholder={t.raw('urlPlaceholder')}
                             value={btn.url}

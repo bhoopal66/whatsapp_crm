@@ -121,7 +121,7 @@ export function DashboardPanel({
                 className="text-primary inline-flex items-center gap-1 rounded-md text-xs font-medium hover:underline"
               >
                 {action.label}
-                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                <ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" aria-hidden />
               </Link>
             )}
           </div>

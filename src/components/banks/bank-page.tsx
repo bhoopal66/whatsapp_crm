@@ -395,7 +395,7 @@ function ThreadsTab({
                 <button
                   type="button"
                   onClick={() => onOpen(th.threadId)}
-                  className="border-border bg-card hover:bg-accent block w-full space-y-1.5 rounded-xl border p-3 text-left transition-colors"
+                  className="border-border bg-card hover:bg-accent block w-full space-y-1.5 rounded-xl border p-3 text-start transition-colors"
                 >
                   <span className="block font-semibold break-words">
                     {th.title}
@@ -666,7 +666,7 @@ function ThreadView({
   return (
     <div className="space-y-3 pt-2">
       <Button variant="ghost" size="sm" onClick={onBack}>
-        <ArrowLeft className="size-4" aria-hidden />
+        <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
         {t('threads.back')}
       </Button>
       {thread && (
@@ -702,7 +702,7 @@ function ThreadView({
           <li key={n.post.postId} className="space-y-2">
             {renderPost(n.post)}
             {(n.replies.length > 0 || replyTo === n.post.postId) && (
-              <div className="border-border ml-4 space-y-2 border-l pl-3">
+              <div className="border-border ms-4 space-y-2 border-s ps-3">
                 {n.replies.map((r) => (
                   <div key={r.postId}>{renderPost(r, true)}</div>
                 ))}

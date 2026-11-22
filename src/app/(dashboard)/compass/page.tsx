@@ -167,12 +167,12 @@ function CustomersTab({ accountId }: { accountId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative w-full max-w-sm">
-          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+          <Search className="text-muted-foreground absolute top-1/2 start-3 h-4 w-4 -translate-y-1/2" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         {total !== null && (
@@ -542,10 +542,10 @@ function SubmissionsTab() {
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead>{t('submissions.webhooks.event')}</TableHead>
-                <TableHead className="text-right">
+                <TableHead className="text-end">
                   {t('submissions.webhooks.delivered')}
                 </TableHead>
-                <TableHead className="text-right">
+                <TableHead className="text-end">
                   {t('submissions.webhooks.pending')}
                 </TableHead>
               </TableRow>
@@ -556,14 +556,14 @@ function SubmissionsTab() {
                   <TableCell className="font-mono text-xs">
                     {row.event}
                   </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums">
+                  <TableCell className="text-end text-sm tabular-nums">
                     {row.delivered}
                   </TableCell>
                   <TableCell
                     className={
                       row.pending > 0
-                        ? 'text-warning text-right text-sm tabular-nums'
-                        : 'text-right text-sm tabular-nums'
+                        ? 'text-warning text-end text-sm tabular-nums'
+                        : 'text-end text-sm tabular-nums'
                     }
                   >
                     {row.pending}

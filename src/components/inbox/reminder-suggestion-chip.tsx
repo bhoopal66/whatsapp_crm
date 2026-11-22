@@ -63,7 +63,7 @@ export function ReminderSuggestionChip({
         onClick={onDismiss}
         aria-label={t('dismiss')}
         title={t('dismiss')}
-        className="hover:bg-warning/15 -mr-1 inline-flex h-4 w-4 items-center justify-center rounded-full"
+        className="hover:bg-warning/15 -me-1 inline-flex h-4 w-4 items-center justify-center rounded-full"
       >
         <X className="h-3 w-3" aria-hidden="true" />
       </button>

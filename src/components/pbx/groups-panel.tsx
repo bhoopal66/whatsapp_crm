@@ -254,7 +254,7 @@ function QueueCard({
                   : t(mine.loggedIn ? 'loggedIn' : 'loggedOut')}
                 {mine.paused ? ` · ${t('pausedNote')}` : ''}
               </span>
-              <span className="ml-auto flex gap-1">
+              <span className="ms-auto flex gap-1">
                 {mine.actions.map((a) => (
                   <Button
                     key={a}
@@ -293,7 +293,7 @@ function QueueCard({
                     </span>
                   )}
                   <StatusChip chip={agentChip(a)} />
-                  <span className="ml-auto flex gap-1">
+                  <span className="ms-auto flex gap-1">
                     {agentActions(a, { canManage, isMe }).map((action) => (
                       <Button
                         key={action}

@@ -128,7 +128,7 @@ export function DetailsCard({
       className="flex items-baseline justify-between gap-3 text-sm"
     >
       <dt className="text-muted-foreground shrink-0">{label}</dt>
-      <dd className="min-w-0 truncate text-right">{value || '—'}</dd>
+      <dd className="min-w-0 truncate text-end">{value || '—'}</dd>
     </div>
   );
   return (

@@ -70,8 +70,8 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                     'text-foreground max-w-[85%] rounded-xl px-3 py-1.5 text-sm shadow-sm sm:max-w-[70%]',
                     color.stripe,
                     out
-                      ? 'bg-wa-bubble-out rounded-tr-sm border-e-4'
-                      : 'bg-wa-bubble-in rounded-tl-sm border-s-4'
+                      ? 'bg-wa-bubble-out rounded-se-sm border-e-4'
+                      : 'bg-wa-bubble-in rounded-ss-sm border-s-4'
                   )}
                 >
                   <p

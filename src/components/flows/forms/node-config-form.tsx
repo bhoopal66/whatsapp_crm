@@ -674,7 +674,7 @@ function ConditionForm({
                   </SelectItem>,
                   // Sub-tags sit indented under their main tag.
                   ...m.subs.map((sub) => (
-                    <SelectItem key={sub.id} value={sub.id} className="pl-6">
+                    <SelectItem key={sub.id} value={sub.id} className="ps-6">
                       <ChatTagOption color={sub.color} name={sub.name} />
                     </SelectItem>
                   )),

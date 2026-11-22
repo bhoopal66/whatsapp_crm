@@ -419,21 +419,21 @@ export function GroupComposer({
               className="border-border bg-popover"
             >
               <DropdownMenuItem onClick={() => inputs.image.current?.click()}>
-                <ImageIcon className="mr-2 h-4 w-4" />
+                <ImageIcon className="me-2 h-4 w-4" />
                 {t('photo')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => inputs.video.current?.click()}>
-                <Video className="mr-2 h-4 w-4" />
+                <Video className="me-2 h-4 w-4" />
                 {t('video')}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => inputs.document.current?.click()}
               >
-                <FileText className="mr-2 h-4 w-4" />
+                <FileText className="me-2 h-4 w-4" />
                 {t('document')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void startRecording()}>
-                <Mic className="mr-2 h-4 w-4" />
+                <Mic className="me-2 h-4 w-4" />
                 {t('voiceNote')}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -453,7 +453,7 @@ export function GroupComposer({
               className="border-border bg-popover"
             >
               <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
-                <Zap className="mr-2 h-4 w-4" />
+                <Zap className="me-2 h-4 w-4" />
                 {t('quickReplies')}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -526,7 +526,7 @@ function GroupDraftPreview({
 }) {
   if (draft.kind === 'voice') {
     return (
-      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pr-1.5 pl-1">
+      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pe-1.5 ps-1">
         <button
           type="button"
           onClick={onDiscard}

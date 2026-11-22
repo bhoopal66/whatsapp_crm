@@ -263,7 +263,7 @@ export function AiKnowledgeGapsCard({
       <CardContent className="space-y-3">
         {shownView === null ? (
           <div className="text-muted-foreground flex items-center py-2 text-sm">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
+            <Loader2 className="me-2 h-4 w-4 animate-spin" /> {t('loading')}
           </div>
         ) : (
           <Tabs value={shownView} onValueChange={(v) => setView(v as GapView)}>
@@ -293,7 +293,7 @@ export function AiKnowledgeGapsCard({
           <>
             {loading ? (
               <div className="text-muted-foreground flex items-center py-2 text-sm">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
+                <Loader2 className="me-2 h-4 w-4 animate-spin" /> {t('loading')}
               </div>
             ) : gaps.length === 0 ? (
               <p className="text-muted-foreground text-sm">{t('empty')}</p>
@@ -339,7 +339,7 @@ export function AiKnowledgeGapsCard({
                 onClick={() => void fetchGaps()}
                 disabled={loading}
               >
-                <RefreshCw className="mr-2 h-4 w-4" /> {t('refresh')}
+                <RefreshCw className="me-2 h-4 w-4" /> {t('refresh')}
               </Button>
               {gaps.length > 0 && (
                 <Button
@@ -350,7 +350,7 @@ export function AiKnowledgeGapsCard({
                   className="text-muted-foreground"
                 >
                   {clearing && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
                   )}
                   {t('clearAll')}
                 </Button>
@@ -436,9 +436,9 @@ function GapTopicsList({
           disabled={refreshing || loading}
         >
           {refreshing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="me-2 h-4 w-4 animate-spin" />
           ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCw className="me-2 h-4 w-4" />
           )}
           {refreshing ? tk('refreshing') : tk('refresh')}
         </Button>
@@ -446,7 +446,7 @@ function GapTopicsList({
 
       {loading && topics.length === 0 ? (
         <div className="text-muted-foreground flex items-center py-2 text-sm">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tk('loading')}
+          <Loader2 className="me-2 h-4 w-4 animate-spin" /> {tk('loading')}
         </div>
       ) : open.length === 0 && dismissed.length === 0 ? (
         <div className="space-y-1 py-2">
@@ -467,14 +467,14 @@ function GapTopicsList({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground -ml-2"
+                className="text-muted-foreground -ms-2"
                 aria-expanded={showDismissed}
                 onClick={onToggleDismissed}
               >
                 {showDismissed ? (
-                  <ChevronDown className="mr-1 h-4 w-4" />
+                  <ChevronDown className="me-1 h-4 w-4" />
                 ) : (
-                  <ChevronRight className="mr-1 h-4 w-4" />
+                  <ChevronRight className="me-1 h-4 w-4 rtl:rotate-180" />
                 )}
                 {tk('dismissedGroup', { count: dismissed.length })}
               </Button>
@@ -574,14 +574,14 @@ export function GapTopicCard({
             onClick={() => setExpanded((v) => !v)}
           >
             {expanded ? (
-              <ChevronDown className="mr-1 h-3.5 w-3.5" />
+              <ChevronDown className="me-1 h-3.5 w-3.5" />
             ) : (
-              <ChevronRight className="mr-1 h-3.5 w-3.5" />
+              <ChevronRight className="me-1 h-3.5 w-3.5 rtl:rotate-180" />
             )}
             {tk('examples', { count: examples.length })}
           </button>
           {expanded && (
-            <ul className="text-muted-foreground mt-1 space-y-1 pl-5 text-xs">
+            <ul className="text-muted-foreground mt-1 space-y-1 ps-5 text-xs">
               {examples.map((q) => (
                 <li key={q} className="list-disc break-words">
                   {q}
@@ -601,9 +601,9 @@ export function GapTopicCard({
             onClick={() => onWrite(topic)}
           >
             {busy === 'write' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <PenLine className="mr-2 h-4 w-4" />
+              <PenLine className="me-2 h-4 w-4" />
             )}
             {tk('write')}
           </Button>
@@ -616,11 +616,11 @@ export function GapTopicCard({
           onClick={() => onStatus(topic, dismissed ? 'open' : 'dismissed')}
         >
           {busy === 'status' ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="me-2 h-4 w-4 animate-spin" />
           ) : dismissed ? (
-            <RotateCcw className="mr-2 h-4 w-4" />
+            <RotateCcw className="me-2 h-4 w-4" />
           ) : (
-            <X className="mr-2 h-4 w-4" />
+            <X className="me-2 h-4 w-4" />
           )}
           {dismissed ? tk('reopen') : tk('dismiss')}
         </Button>

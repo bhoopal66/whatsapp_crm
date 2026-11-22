@@ -183,7 +183,7 @@ export function NotificationItem({
         type="button"
         onClick={open}
         className={cn(
-          'focus-visible:ring-ring flex w-full items-start text-left transition-colors focus-visible:ring-2 focus-visible:outline-none',
+          'focus-visible:ring-ring flex w-full items-start text-start transition-colors focus-visible:ring-2 focus-visible:outline-none',
           compact
             ? cn(
                 'gap-2.5 rounded-lg px-2.5 py-2',
@@ -194,7 +194,7 @@ export function NotificationItem({
             : cn(
                 'gap-3 rounded-xl border p-4',
                 isUnread
-                  ? 'border-primary/40 border-l-primary bg-primary-soft hover:bg-primary-soft-2 border-l-4'
+                  ? 'border-primary/40 border-s-primary bg-primary-soft hover:bg-primary-soft-2 border-s-4'
                   : 'border-border bg-card hover:bg-accent'
               )
         )}
@@ -239,7 +239,7 @@ export function NotificationItem({
             {isUnread && (
               <span
                 aria-label={t('unread')}
-                className="bg-primary ml-auto h-2 w-2 flex-shrink-0 rounded-full"
+                className="bg-primary ms-auto h-2 w-2 flex-shrink-0 rounded-full"
               />
             )}
           </div>

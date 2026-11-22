@@ -185,7 +185,7 @@ export function MemoryPanel({
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 basis-48">
           <Search
-            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
             aria-hidden
           />
           <Input
@@ -195,7 +195,7 @@ export function MemoryPanel({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('searchPlaceholder')}
             aria-label={t('searchLabel')}
-            className="pl-8"
+            className="ps-8"
           />
         </div>
         {query && (
@@ -382,7 +382,7 @@ export function MemoryPanel({
 function Importance({ value, label }: { value: number; label: string }) {
   return (
     <span
-      className="ml-auto inline-flex items-center gap-0.5"
+      className="ms-auto inline-flex items-center gap-0.5"
       role="img"
       aria-label={label}
       title={label}

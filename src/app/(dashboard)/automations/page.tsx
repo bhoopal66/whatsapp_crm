@@ -232,7 +232,7 @@ export default function AutomationsPage() {
                 <button
                   key={slug}
                   onClick={() => startFromTemplate(slug)}
-                  className="group flex flex-col items-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-card/80"
+                  className="group flex flex-col items-start rounded-xl border border-border bg-card p-4 text-start transition-colors hover:border-primary/50 hover:bg-card/80"
                 >
                   <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/15">
                     <Icon className="h-5 w-5" />
@@ -338,7 +338,7 @@ function AutomationCard({
         <button
           type="button"
           onClick={onEdit}
-          className="min-w-0 flex-1 text-left"
+          className="min-w-0 flex-1 text-start"
         >
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-foreground">
@@ -362,7 +362,7 @@ function AutomationCard({
               )}
               title={meta.description}
             >
-              {PillIcon && <PillIcon className="mr-1 h-3 w-3" aria-hidden />}
+              {PillIcon && <PillIcon className="me-1 h-3 w-3" aria-hidden />}
               {meaning === null
                 ? meta.label
                 : meaning

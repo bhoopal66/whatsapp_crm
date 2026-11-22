@@ -273,7 +273,7 @@ function MessageContent({
         return (
           <div className="flex flex-col gap-0.5">
             <span className="text-wa-meta inline-flex items-center gap-1 text-xs font-medium tracking-wide uppercase">
-              <CornerDownLeft className="h-3 w-3" />
+              <CornerDownLeft className="h-3 w-3 rtl:rotate-180" />
               {t('buttonReply')}
             </span>
             <p className={BODY_TEXT}>
@@ -475,10 +475,12 @@ function BubbleTail({ side }: { side: 'in' | 'out' }) {
       height="13"
       aria-hidden="true"
       className={cn(
-        'absolute top-0',
+        // The artwork points left for 'in'; in RTL the bubble sits on
+        // the other side (logical start/end), so the drawing mirrors too.
+        'absolute top-0 rtl:-scale-x-100',
         side === 'in'
-          ? 'text-wa-bubble-in -left-2'
-          : 'text-wa-bubble-out -right-2'
+          ? 'text-wa-bubble-in -start-2'
+          : 'text-wa-bubble-out -end-2'
       )}
     >
       {side === 'in' ? (
@@ -566,14 +568,14 @@ export function MessageBubble({
         className={cn(
           'text-wa-text relative max-w-full rounded-lg px-2.5 pt-1.5 pb-2 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]',
           isAgent ? 'bg-wa-bubble-out' : 'bg-wa-bubble-in',
-          tail && (isAgent ? 'rounded-tr-none' : 'rounded-tl-none')
+          tail && (isAgent ? 'rounded-se-none' : 'rounded-ss-none')
         )}
       >
         {tail && <BubbleTail side={isAgent ? 'out' : 'in'} />}
         {sender && <SenderLine sender={sender} />}
         {message.is_forwarded && (
           <div className="text-wa-meta mb-0.5 flex items-center gap-1 text-[12px] italic">
-            <Forward className="h-3 w-3" />
+            <Forward className="h-3 w-3 rtl:rotate-180" />
             {t('forwarded')}
           </div>
         )}
@@ -592,7 +594,7 @@ export function MessageBubble({
               // the time, onto a line of its own.
               <span
                 aria-hidden="true"
-                className="invisible ml-2 inline-flex items-center gap-1 align-bottom text-xs leading-[15px] select-none"
+                className="invisible ms-2 inline-flex items-center gap-1 align-bottom text-xs leading-[15px] select-none"
               >
                 {meta}
               </span>
@@ -602,7 +604,7 @@ export function MessageBubble({
         <div
           className={cn(
             'text-wa-meta flex items-center gap-1 text-xs leading-[15px]',
-            metaOverlay ? 'absolute right-2 bottom-1' : 'mt-1 justify-end'
+            metaOverlay ? 'absolute end-2 bottom-1' : 'mt-1 justify-end'
           )}
         >
           {meta}

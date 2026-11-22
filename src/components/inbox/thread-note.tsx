@@ -110,7 +110,7 @@ export function ThreadNote({
               <DropdownMenuTrigger
                 aria-label={t('actions')}
                 disabled={busy}
-                className="text-muted-foreground hover:bg-warning-soft -mt-1 -mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                className="text-muted-foreground hover:bg-warning-soft -mt-1 -me-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

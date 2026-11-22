@@ -188,7 +188,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
   return (
     <aside
       aria-label={t('title')}
-      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-l"
+      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-s"
     >
       <header className="border-b px-4 pt-3">
         <div className="flex items-start gap-2">
@@ -197,7 +197,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
             type="button"
             onClick={onClose}
             aria-label={t('close')}
-            className="hover:bg-muted -mr-1 rounded p-1"
+            className="hover:bg-muted -me-1 rounded p-1"
           >
             <X className="size-4" />
           </button>
@@ -256,7 +256,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
                   onClick={() => jump(f)}
                   aria-label={t('jump')}
                   title={t('jump')}
-                  className="bg-card/90 absolute right-1 bottom-1 flex size-6 items-center justify-center rounded border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  className="bg-card/90 absolute end-1 bottom-1 flex size-6 items-center justify-center rounded border opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                 >
                   <CornerDownRight className="size-3.5" aria-hidden />
                 </button>

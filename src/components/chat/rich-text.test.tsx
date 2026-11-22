@@ -49,9 +49,9 @@ describe('RichText', () => {
     expect(out).toContain('&lt;b&gt;y&lt;/b&gt;');
   });
 
-  it('quotes have a left border', () => {
+  it('quotes have a start-side border (left in LTR, right in RTL)', () => {
     expect(html('> hi')).toMatch(
-      /<blockquote dir="auto" class="[^"]*border-l-4[^"]*">hi<\/blockquote>/
+      /<blockquote dir="auto" class="[^"]*border-s-4[^"]*">hi<\/blockquote>/
     );
   });
 

@@ -58,7 +58,7 @@ export function MobileTabBar({ onOpenMenu }: { onOpenMenu: () => void }) {
             <span className="relative">
               <Icon className="size-5" aria-hidden />
               {count > 0 && (
-                <span className="bg-primary text-primary-foreground absolute -top-1.5 -right-3 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold">
+                <span className="bg-primary text-primary-foreground absolute -top-1.5 -end-3 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold">
                   {count > 99 ? '99+' : count}
                 </span>
               )}

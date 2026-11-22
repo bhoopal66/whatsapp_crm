@@ -70,7 +70,7 @@ function EmptyRoomCard({
               : t('aloneBodyWaiting')}
         </p>
         {action === 'link' && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pr-1 pl-3">
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/[0.08] py-1 pe-1 ps-3">
             <span className="min-w-0 flex-1 truncate text-xs text-white/80">
               {link}
             </span>
@@ -105,7 +105,7 @@ function SharingBanner({ onStop }: { onStop: () => void }) {
       <div
         role="status"
         className={cn(
-          'pointer-events-auto flex min-w-0 items-center gap-2 rounded-xl py-1 pr-1 pl-3 text-xs',
+          'pointer-events-auto flex min-w-0 items-center gap-2 rounded-xl py-1 pe-1 ps-3 text-xs',
           GLASS
         )}
       >
@@ -250,7 +250,7 @@ export function RoomStage({
                 onClick={() => onPage(arrangement.page - 1)}
                 aria-label={t('prevPage')}
               >
-                <ChevronLeft />
+                <ChevronLeft className="rtl:rotate-180" />
               </Button>
               <span>
                 {t('page', {
@@ -267,7 +267,7 @@ export function RoomStage({
                 onClick={() => onPage(arrangement.page + 1)}
                 aria-label={t('nextPage')}
               >
-                <ChevronRight />
+                <ChevronRight className="rtl:rotate-180" />
               </Button>
             </div>
           </div>
@@ -282,7 +282,7 @@ export function RoomStage({
             })}
           </div>
           <div
-            className="absolute right-6 bottom-4 z-20 flex rounded-xl shadow-lg ring-1 shadow-black/40 ring-white/10"
+            className="absolute end-6 bottom-4 z-20 flex rounded-xl shadow-lg ring-1 shadow-black/40 ring-white/10"
             style={metrics.selfBox}
           >
             {renderTile(arrangement.self, {

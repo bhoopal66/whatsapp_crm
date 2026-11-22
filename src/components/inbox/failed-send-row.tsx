@@ -64,7 +64,7 @@ export function FailedSendRow({
         {/* The toast with the reason is gone in seconds, so the reason
             stays here too. */}
         <p
-          className="line-clamp-2 max-w-full text-right text-xs break-words"
+          className="line-clamp-2 max-w-full text-end text-xs break-words"
           title={failed.reason}
         >
           <span className="text-destructive font-medium">{t('notSent')}</span>

@@ -414,7 +414,7 @@ export function ReminderDialog({
             {t('cancel')}
           </Button>
           <Button disabled={!title || saving} onClick={() => void save()}>
-            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            {saving && <Loader2 className="me-1 h-4 w-4 animate-spin" />}
             {t('save')}
           </Button>
         </DialogFooter>

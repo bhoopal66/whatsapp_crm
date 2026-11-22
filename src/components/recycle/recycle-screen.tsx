@@ -218,9 +218,9 @@ export function RecycleScreen() {
         <label className="text-muted-foreground flex flex-1 flex-col gap-1 text-xs">
           {t('searchLabel')}
           <span className="relative">
-            <Search className="pointer-events-none absolute top-2.5 left-2.5 size-4" />
+            <Search className="pointer-events-none absolute top-2.5 start-2.5 size-4" />
             <Input
-              className="pl-8"
+              className="ps-8"
               value={search}
               placeholder={t('searchPlaceholder')}
               onChange={(e) => setSearch(e.target.value)}

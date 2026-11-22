@@ -1384,7 +1384,7 @@ export function InboxPageInner({
               <div
                 aria-busy={!fullRowFailed}
                 className={cn(
-                  'border-wa-divider bg-wa-panel h-full border-l',
+                  'border-wa-divider bg-wa-panel h-full border-s',
                   hrView ? 'w-96' : 'w-70'
                 )}
               >

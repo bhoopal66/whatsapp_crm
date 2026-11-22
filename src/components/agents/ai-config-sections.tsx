@@ -224,7 +224,7 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
                 <button
                   type="button"
                   onClick={() => setShowKey((s) => !s)}
-                  className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
+                  className="text-muted-foreground hover:text-foreground absolute top-1/2 end-2 -translate-y-1/2"
                   tabIndex={-1}
                 >
                   {showKey ? (
@@ -240,9 +240,9 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
                 disabled={disabled || form.testing}
               >
                 {form.testing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  <CheckCircle2 className="me-2 h-4 w-4" />
                 )}
                 {t('testKey')}
               </Button>
@@ -322,9 +322,9 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
             className="text-destructive hover:text-destructive"
           >
             {form.removing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="me-2 h-4 w-4" />
             )}
             {t('remove')}
           </Button>

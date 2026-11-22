@@ -75,7 +75,7 @@ export function QuickReplyPicker({
         {items.length > 0 && (
           <div className="relative">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 h-4 w-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -84,7 +84,7 @@ export function QuickReplyPicker({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={tMenu('searchQuickReplies')}
               aria-label={tMenu('searchQuickReplies')}
-              className="pl-8"
+              className="ps-8"
             />
           </div>
         )}
@@ -110,7 +110,7 @@ export function QuickReplyPicker({
                   <button
                     type="button"
                     onClick={() => onPick(qr)}
-                    className="border-border bg-muted/40 hover:border-primary/50 hover:bg-muted flex w-full items-start gap-2 rounded-md border p-2.5 text-left"
+                    className="border-border bg-muted/40 hover:border-primary/50 hover:bg-muted flex w-full items-start gap-2 rounded-md border p-2.5 text-start"
                   >
                     {qr.kind === 'interactive' ? (
                       <Zap className="text-primary mt-0.5 h-4 w-4 shrink-0" />

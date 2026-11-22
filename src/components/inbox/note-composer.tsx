@@ -212,7 +212,7 @@ export function NoteComposer({
             {saving ? (
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
             ) : (
-              <SendHorizontal className="h-5 w-5" aria-hidden />
+              <SendHorizontal className="h-5 w-5 rtl:rotate-180" aria-hidden />
             )}
           </button>
         </div>

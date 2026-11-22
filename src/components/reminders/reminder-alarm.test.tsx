@@ -157,7 +157,7 @@ describe('ReminderAlarmStack', () => {
   it('counts the cards behind the stack', () => {
     const html = render([alarm(), meetingAlarm(), eventAlarm()], 2);
     expect(html).toContain('+2 more');
-    expect(html).toContain('top-[68px] right-4 z-[56]');
+    expect(html).toContain('top-[68px] end-4 z-[56]');
     expect(html).toContain('max-sm:bottom-3');
   });
 

@@ -254,7 +254,7 @@ function TagOption({
       aria-pressed={selected}
       onClick={onSelect}
       className={cn(
-        'hover:bg-muted flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 text-left text-sm',
+        'hover:bg-muted flex min-h-9 w-full items-center gap-2.5 rounded-md px-2 text-start text-sm',
         selected && 'bg-muted font-medium'
       )}
     >

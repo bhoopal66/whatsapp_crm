@@ -203,10 +203,10 @@ export function DealRoomView({
           <div className="flex items-center gap-2">
             <Link
               href="/chat/rooms"
-              className="hover:bg-muted -ml-1 rounded p-1 lg:hidden"
+              className="hover:bg-muted -ms-1 rounded p-1 lg:hidden"
               aria-label={t('channel.back')}
             >
-              <ArrowLeft className="size-4" />
+              <ArrowLeft className="size-4 rtl:rotate-180" />
             </Link>
             <h2 className="min-w-0 flex-1 truncate text-base font-bold">
               {roomTitle(room)}

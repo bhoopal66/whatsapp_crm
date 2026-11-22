@@ -628,7 +628,7 @@ export function WhatsAppConfig({
                       <li key={hook.url} className="break-all">
                         {hook.url}
                         {!hook.ours && (
-                          <span className="border-warning/30 bg-warning-soft text-warning ml-2 inline-flex items-center gap-1 rounded border px-1.5 py-px font-sans text-xs font-medium">
+                          <span className="border-warning/30 bg-warning-soft text-warning ms-2 inline-flex items-center gap-1 rounded border px-1.5 py-px font-sans text-xs font-medium">
                             <AlertTriangle className="size-3 shrink-0" />
                             {t('webhookForeign')}
                           </span>

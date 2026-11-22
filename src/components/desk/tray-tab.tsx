@@ -206,7 +206,7 @@ function TrayCard({
           </span>
           {item.contactPhone && (
             <span className="text-muted-foreground font-mono text-xs">
-              {item.contactPhone}
+              <span dir="ltr">{item.contactPhone}</span>
             </span>
           )}
           <span className="text-muted-foreground text-xs">

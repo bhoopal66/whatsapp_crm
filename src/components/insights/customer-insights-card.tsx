@@ -327,7 +327,7 @@ function CardBody({
               {actions.map((a) => {
                 const sw = swatchOf(a.tone);
                 return (
-                  <li key={a.code} className={cn('border-l-2 pl-2', sw.stripe)}>
+                  <li key={a.code} className={cn('border-s-2 ps-2', sw.stripe)}>
                     <p className={cn('text-sm font-medium', sw.text)}>
                       {t(`actions.codes.${a.code}`)}
                     </p>
@@ -352,7 +352,7 @@ function CardBody({
               })}
             </p>
           )}
-          <InsightLegend className="-mr-1.5" />
+          <InsightLegend className="-me-1.5" />
         </div>
       </div>
     </div>

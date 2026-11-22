@@ -164,7 +164,7 @@ export function DeskView() {
                 <TabsTrigger key={id} value={id} className="flex-none">
                   {t(`tabs.${id}`)}
                   {badge && (
-                    <span className="bg-warning-soft text-warning ml-1.5 rounded-full px-1.5 text-xs font-semibold">
+                    <span className="bg-warning-soft text-warning ms-1.5 rounded-full px-1.5 text-xs font-semibold">
                       {badge}
                       <span className="sr-only">
                         {' '}

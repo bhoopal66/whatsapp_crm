@@ -6,17 +6,20 @@ import { useTheme } from "@/hooks/use-theme";
 import { MODES, THEMES, type Mode, type ThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { LanguagePicker } from "./language-picker";
 import { SettingsPanelHead } from "./settings-panel-head";
 
 /**
- * Appearance panel — light/dark mode + accent-color picker.
+ * Appearance panel — light/dark mode, interface language and the
+ * accent-color picker.
  *
  * Two independent controls: a mode toggle (light / dark) and the
  * accent grid. Either applies + persists immediately. No save button:
  * each change is a single attribute swap on <html>, there's nothing
  * to roll back.
  *
- * Persistence: localStorage only (device-scoped). The boot script in
+ * Persistence: mode and accent are localStorage only (device-scoped);
+ * the language is saved to the profile (LanguagePicker). The boot script in
  * layout.tsx replays both choices before first paint on subsequent
  * loads.
  */
@@ -52,6 +55,8 @@ export function AppearancePanel() {
           ))}
         </div>
       </div>
+
+      <LanguagePicker />
 
       <div className="mt-8 space-y-4">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -97,7 +102,7 @@ function ModeCard({
       aria-checked={isActive}
       aria-label={t("useMode", { mode })}
       className={cn(
-        "flex items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
+        "flex items-center gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
           ? "border-primary/60 ring-2 ring-primary/40"
           : "border-border hover:border-primary/40 hover:bg-accent",
@@ -145,7 +150,7 @@ function ThemeCard({
       aria-pressed={isActive}
       aria-label={t("useTheme", { name })}
       className={cn(
-        "flex flex-col gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
+        "flex flex-col gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
           ? "border-primary/60 ring-2 ring-primary/40"
           : "border-border hover:border-primary/40 hover:bg-accent",

@@ -188,7 +188,7 @@ export function MediaImageBubble({
       )}
       {/* Hover-only: on touch there is no hover, but tapping the image opens
           the viewer, which carries a full-size Download button. */}
-      <div className="absolute right-2 bottom-2 opacity-0 transition-opacity group-focus-within/media:opacity-100 group-hover/media:opacity-100">
+      <div className="absolute end-2 bottom-2 opacity-0 transition-opacity group-focus-within/media:opacity-100 group-hover/media:opacity-100">
         <MediaActionButton
           icon={Download}
           label={t('download')}
@@ -224,7 +224,7 @@ export function MediaVideoBubble({
       {/* Top-right, clear of the native controls — and always visible, since
           expanding is the only way to watch a clip capped at 15rem wide and
           a touch device gets no hover. */}
-      <div className="absolute top-2 right-2 flex gap-1">
+      <div className="absolute top-2 end-2 flex gap-1">
         {onOpen && (
           <MediaActionButton
             icon={Maximize2}

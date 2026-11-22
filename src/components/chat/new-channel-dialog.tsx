@@ -357,7 +357,7 @@ export function NewChannelDialog({
   if (isBankGuest) return null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-auto bottom-0 left-0 max-h-[92dvh] w-full max-w-full translate-x-0 translate-y-0 overflow-y-auto rounded-b-none sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:max-h-[90dvh] sm:max-w-[1000px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:gap-5 sm:rounded-xl sm:p-6">
+      <DialogContent className="top-auto bottom-0 start-0 max-h-[92dvh] w-full max-w-full translate-x-0 translate-y-0 overflow-y-auto rounded-b-none sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:max-h-[90dvh] sm:max-w-[1000px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:gap-5 sm:rounded-xl sm:p-6">
         {open && (
           <NewChannelBody
             onDone={() => onOpenChange(false)}

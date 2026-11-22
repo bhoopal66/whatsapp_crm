@@ -354,7 +354,7 @@ function ResizeHandle({
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onKeyDown={onKeyDown}
-      className="hover:bg-primary/40 focus-visible:bg-primary/60 absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize touch-none outline-none"
+      className="hover:bg-primary/40 focus-visible:bg-primary/60 absolute inset-y-0 start-0 z-10 w-1.5 cursor-col-resize touch-none outline-none"
     />
   );
 }

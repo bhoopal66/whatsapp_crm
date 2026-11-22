@@ -216,12 +216,12 @@ export function ForwardDialog({
         )}
 
         <div className="relative">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 h-4 w-4 -translate-y-1/2" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="pl-8"
+            className="ps-8"
             autoFocus
           />
         </div>
@@ -259,7 +259,7 @@ export function ForwardDialog({
                         <span className="block truncate text-sm">{c.name}</span>
                         {c.phone && c.phone !== c.name && (
                           <span className="text-muted-foreground block truncate text-xs">
-                            {c.phone}
+                            <span dir="ltr">{c.phone}</span>
                           </span>
                         )}
                       </span>
@@ -272,7 +272,7 @@ export function ForwardDialog({
         </div>
 
         <DialogFooter>
-          <span className="text-muted-foreground mr-auto self-center text-xs">
+          <span className="text-muted-foreground me-auto self-center text-xs">
             {t('selectedCount', {
               count: selected.length,
               max: MAX_FORWARD_TARGETS,
@@ -289,7 +289,7 @@ export function ForwardDialog({
             onClick={handleSend}
             disabled={selected.length === 0 || sending}
           >
-            {sending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {sending && <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />}
             {t('send')}
           </Button>
         </DialogFooter>

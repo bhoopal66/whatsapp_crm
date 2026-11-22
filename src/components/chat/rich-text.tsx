@@ -80,7 +80,7 @@ function block(b: Block, key: number, u: string, trailing: ReactNode) {
         <blockquote
           key={key}
           dir="auto"
-          className="text-muted-foreground border-border border-l-4 ps-3 whitespace-pre-wrap"
+          className="text-muted-foreground border-border border-s-4 ps-3 whitespace-pre-wrap"
         >
           {inline(b.content, u)}
         </blockquote>

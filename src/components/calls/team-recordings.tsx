@@ -345,7 +345,7 @@ export function TeamRecordings() {
             {tStats(`periods.${p}`)}
           </button>
         ))}
-        <div className="flex items-center gap-1 sm:ml-auto">
+        <div className="flex items-center gap-1 sm:ms-auto">
           <button
             type="button"
             className={dayButton}
@@ -354,7 +354,7 @@ export function TeamRecordings() {
             disabled={!today}
             onClick={() => today && goToDay(shiftDay(picked ?? today, -1))}
           >
-            <ChevronLeft className="size-4" aria-hidden />
+            <ChevronLeft className="size-4 rtl:rotate-180" aria-hidden />
           </button>
           <label className="sr-only" htmlFor="team-recordings-day">
             {t('filters.day')}
@@ -379,7 +379,7 @@ export function TeamRecordings() {
             disabled={!picked || !today || picked >= today}
             onClick={() => picked && goToDay(shiftDay(picked, 1))}
           >
-            <ChevronRight className="size-4" aria-hidden />
+            <ChevronRight className="size-4 rtl:rotate-180" aria-hidden />
           </button>
         </div>
       </div>
@@ -519,7 +519,7 @@ export function TeamRecordings() {
           <button
             type="button"
             onClick={() => setParams({ user: null })}
-            className="border-primary/40 bg-primary-soft text-primary inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium sm:ml-auto"
+            className="border-primary/40 bg-primary-soft text-primary inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium sm:ms-auto"
             aria-label={t('clearPerson')}
           >
             {t('showing', { name: personName(params.user) })}
@@ -569,7 +569,7 @@ export function TeamRecordings() {
                     }
                     className={cn(
                       'px-3 py-2 font-medium',
-                      c.numeric ? 'text-right' : 'text-left'
+                      c.numeric ? 'text-end' : 'text-start'
                     )}
                   >
                     <button
@@ -602,10 +602,10 @@ export function TeamRecordings() {
                       selected ? 'bg-primary-soft' : 'hover:bg-card-2'
                     )}
                   >
-                    <td className="px-3 py-2 text-left">
+                    <td className="px-3 py-2 text-start">
                       <button
                         type="button"
-                        className="text-left font-medium hover:underline"
+                        className="text-start font-medium hover:underline"
                         aria-pressed={selected}
                       >
                         {r.name ?? t('unnamed')}
@@ -616,21 +616,21 @@ export function TeamRecordings() {
                         </p>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">{r.calls}</td>
-                    <td className="px-3 py-2 text-right">{r.answered}</td>
-                    <td className="px-3 py-2 text-right font-medium">
+                    <td className="px-3 py-2 text-end">{r.calls}</td>
+                    <td className="px-3 py-2 text-end">{r.answered}</td>
+                    <td className="px-3 py-2 text-end font-medium">
                       {r.recorded}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-end">
                       {r.recorded ? formatDuration(r.recordedSeconds) : '—'}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-end">
                       {formatDuration(r.avgSeconds)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-end">
                       {r.recorded ? formatDuration(r.longestSeconds) : '—'}
                     </td>
-                    <td className="text-muted-foreground px-3 py-2 text-left">
+                    <td className="text-muted-foreground px-3 py-2 text-start">
                       {r.lastRecordedAt ? at(r.lastRecordedAt) : '—'}
                     </td>
                   </tr>

@@ -184,7 +184,7 @@ export default function JourneysPage() {
         ) : (
           <div className="bg-card overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
-              <thead className="text-muted-foreground text-left text-xs">
+              <thead className="text-muted-foreground text-start text-xs">
                 <tr className="border-b">
                   <th className="px-3 py-2 font-medium">
                     {t('page.columns.customer')}

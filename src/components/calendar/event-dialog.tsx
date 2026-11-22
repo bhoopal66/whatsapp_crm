@@ -413,7 +413,7 @@ export function EventDialog({
               return (
                 <li
                   key={id}
-                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pr-1 pl-0.5 text-xs"
+                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pe-1 ps-0.5 text-xs"
                 >
                   <PersonAvatar
                     size="sm"
@@ -721,7 +721,7 @@ function AttendeeSearch({
                 <li key={p.user_id}>
                   <button
                     type="button"
-                    className="hover:bg-muted flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm"
+                    className="hover:bg-muted flex w-full items-center gap-2 px-2 py-1.5 text-start text-sm"
                     onClick={() => onAdd(p.user_id)}
                   >
                     <PersonAvatar

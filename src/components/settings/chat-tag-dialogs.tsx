@@ -439,7 +439,7 @@ export function SubTagDialog({
                 {moving ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
-                  <ArrowLeft />
+                  <ArrowLeft className="rtl:rotate-180" />
                 )}
                 {t('moveEarlier')}
               </Button>
@@ -453,7 +453,7 @@ export function SubTagDialog({
                 }
               >
                 {t('moveLater')}
-                <ArrowRight />
+                <ArrowRight className="rtl:rotate-180" />
               </Button>
             </div>
           ) : null}

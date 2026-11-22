@@ -87,9 +87,9 @@ const CHIP =
 /** A tag that is set: a tint of its colour (the style sets the text). */
 const CHIP_TINTED = 'hover:brightness-95';
 /** The main tag with its sub-tag joined on: the pill's left half. */
-const CHIP_LEFT = 'rounded-r-none border-r-0';
+const CHIP_LEFT = 'rounded-e-none border-e-0';
 /** The sub-tag joined on to its main tag: the pill's right half. */
-const CHIP_RIGHT = 'rounded-l-none';
+const CHIP_RIGHT = 'rounded-s-none';
 /** Nothing set yet: an invitation, not a value. */
 const CHIP_DASHED =
   'border-wa-divider text-wa-text-secondary hover:bg-wa-row-hover border-dashed';
@@ -98,7 +98,7 @@ const CHIP_BUSY = 'cursor-wait opacity-60';
 const MENU_HEADING = 'text-muted-foreground px-2 py-1.5 text-xs';
 /** Jev's suggestion: the info tone, so it reads as advice, not a tag. */
 const SUGGESTION_CHIP =
-  'border-info/30 bg-info-soft text-info inline-flex h-7 max-w-full min-w-0 items-center gap-1 rounded-full border pr-1 pl-2.5 text-xs font-medium';
+  'border-info/30 bg-info-soft text-info inline-flex h-7 max-w-full min-w-0 items-center gap-1 rounded-full border pe-1 ps-2.5 text-xs font-medium';
 const SUGGESTION_BUTTON =
   'hover:bg-info/15 inline-flex h-5 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60';
 /** The suggestion columns a successful Apply or Dismiss leaves empty. */
@@ -572,7 +572,7 @@ export function ThreadTagBar({
                 className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
               />
               <span className="flex-1">{t('noTag')}</span>
-              {!main && <Check className="ml-2 h-3 w-3" />}
+              {!main && <Check className="ms-2 h-3 w-3" />}
             </DropdownMenuItem>
             {tree.mains.map((tag) => (
               <DropdownMenuItem
@@ -583,12 +583,12 @@ export function ThreadTagBar({
                 <Dot color={tag.color} />
                 <span className="min-w-0 flex-1 truncate">{tag.name}</span>
                 {tag.subs.length > 0 && (
-                  <span className="text-muted-foreground ml-2 shrink-0 text-xs">
+                  <span className="text-muted-foreground ms-2 shrink-0 text-xs">
                     {tag.sub_tag_title?.trim() ||
                       t('subCount', { count: tag.subs.length })}
                   </span>
                 )}
-                {tag.id === main?.id && <Check className="ml-2 h-3 w-3" />}
+                {tag.id === main?.id && <Check className="ms-2 h-3 w-3" />}
               </DropdownMenuItem>
             ))}
             {isAdmin && (
@@ -657,7 +657,7 @@ export function ThreadTagBar({
                   className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
                 />
                 <span className="flex-1">{t('subNone')}</span>
-                {!sub && <Check className="ml-2 h-3 w-3" />}
+                {!sub && <Check className="ms-2 h-3 w-3" />}
               </DropdownMenuItem>
               {main.subs.map((tag) => (
                 <DropdownMenuItem
@@ -667,7 +667,7 @@ export function ThreadTagBar({
                 >
                   <Dot color={tag.color} />
                   <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                  {tag.id === sub?.id && <Check className="ml-2 h-3 w-3" />}
+                  {tag.id === sub?.id && <Check className="ms-2 h-3 w-3" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

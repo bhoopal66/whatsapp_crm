@@ -104,10 +104,10 @@ export function ChannelHeader({
       <div className="flex items-center gap-2">
         <Link
           href="/chat"
-          className="hover:bg-muted -ml-1 rounded p-1 lg:hidden"
+          className="hover:bg-muted -ms-1 rounded p-1 lg:hidden"
           aria-label={t('back')}
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft className="size-4 rtl:rotate-180" />
         </Link>
         <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
         <h2 className="min-w-0 truncate text-base font-bold">{name}</h2>
@@ -144,7 +144,7 @@ export function ChannelHeader({
             <span className="sr-only">{tMute('label')}</span>
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <DmCallButton kind={kind} dmMemberIds={channel.dmMemberIds} />
           <ChannelSettingsMenu channel={channel} name={name} />
         </div>

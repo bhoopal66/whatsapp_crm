@@ -124,7 +124,7 @@ function HolderLeave({
           </Button>
         </span>
       ))}
-      <span className="ml-auto flex flex-wrap items-center gap-1">
+      <span className="ms-auto flex flex-wrap items-center gap-1">
         <Input
           type="date"
           className="w-36"

@@ -326,7 +326,7 @@ export function RecordingPlayer({
         <p className="text-muted-foreground text-xs">
           {!held && t('noticePlayed')}
           {hold && (
-            <span className="bg-warning-soft text-warning ml-2 rounded-md px-1.5 py-0.5 font-medium">
+            <span className="bg-warning-soft text-warning ms-2 rounded-md px-1.5 py-0.5 font-medium">
               {t('legalHold')}
             </span>
           )}

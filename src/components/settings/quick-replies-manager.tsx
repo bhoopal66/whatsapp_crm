@@ -132,7 +132,7 @@ export function QuickRepliesManager() {
         description={t("description")}
         action={
           <Button onClick={openCreate}>
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="me-1 h-4 w-4" />
             {t("newQuickReply")}
           </Button>
         }
@@ -238,7 +238,7 @@ export function QuickRepliesManager() {
               {t("cancel")}
             </Button>
             <Button onClick={save} disabled={saving}>
-              {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              {saving && <Loader2 className="me-1 h-4 w-4 animate-spin" />}
               {t("save")}
             </Button>
           </DialogFooter>

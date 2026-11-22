@@ -183,7 +183,7 @@ export function PermissionsCard({
                   <tr className="bg-card-2 border-border border-b">
                     <th
                       scope="col"
-                      className="bg-card-2 text-muted-foreground sticky left-0 z-10 px-3 py-2 text-left text-xs font-medium"
+                      className="bg-card-2 text-muted-foreground sticky start-0 z-10 px-3 py-2 text-start text-xs font-medium"
                     >
                       {t('capabilityColumn')}
                     </th>
@@ -206,7 +206,7 @@ export function PermissionsCard({
                     >
                       <th
                         scope="row"
-                        className="bg-card sticky left-0 z-10 max-w-[14rem] px-3 py-2 text-left align-top font-normal"
+                        className="bg-card sticky start-0 z-10 max-w-[14rem] px-3 py-2 text-start align-top font-normal"
                       >
                         <span className="text-foreground block text-sm font-medium">
                           {t(`capabilities.${cap}.label`)}

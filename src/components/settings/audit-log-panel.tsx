@@ -221,7 +221,7 @@ export function AuditLogPanel() {
                     </span>
                   </>
                 )}
-                <span className="bg-muted text-muted-foreground ml-auto rounded px-1.5 py-0.5 text-xs">
+                <span className="bg-muted text-muted-foreground ms-auto rounded px-1.5 py-0.5 text-xs">
                   {t(`sources.${r.source}`)}
                 </span>
               </div>
@@ -247,7 +247,7 @@ export function AuditLogPanel() {
           disabled={page <= 1}
           onClick={() => setPage((p) => p - 1)}
         >
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="size-4 rtl:rotate-180" />
           {t('newer')}
         </Button>
         <span className="text-muted-foreground text-sm">
@@ -260,7 +260,7 @@ export function AuditLogPanel() {
           onClick={() => setPage((p) => p + 1)}
         >
           {t('older')}
-          <ChevronRight className="size-4" />
+          <ChevronRight className="size-4 rtl:rotate-180" />
         </Button>
       </div>
     </section>

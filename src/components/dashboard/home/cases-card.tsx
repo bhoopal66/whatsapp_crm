@@ -209,7 +209,7 @@ function StageBars({
                 style={{ width: `${Math.max(4, s.share * 100)}%` }}
               />
             </span>
-            <span className="text-foreground w-8 shrink-0 text-right text-xs font-semibold tabular-nums">
+            <span className="text-foreground w-8 shrink-0 text-end text-xs font-semibold tabular-nums">
               {s.count}
             </span>
           </li>

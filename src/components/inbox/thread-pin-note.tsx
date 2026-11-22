@@ -61,7 +61,7 @@ export function ThreadPinNote({
         <Icon className="h-3 w-3 shrink-0" />
         <span>
           {text}
-          <span className="ml-1 opacity-70">· {time}</span>
+          <span className="ms-1 opacity-70">· {time}</span>
         </span>
       </span>
     </div>

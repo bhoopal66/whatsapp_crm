@@ -335,7 +335,7 @@ export function HrListHeaderView({
               return (
                 <li
                   key={chip.key}
-                  className="bg-card-2 text-foreground inline-flex h-6 items-center gap-1 rounded-full border pr-1 pl-2"
+                  className="bg-card-2 text-foreground inline-flex h-6 items-center gap-1 rounded-full border pe-1 ps-2"
                 >
                   {label}
                   <button
@@ -357,7 +357,7 @@ export function HrListHeaderView({
           size="xs"
           variant={filters.closed ? 'secondary' : 'ghost'}
           aria-pressed={filters.closed}
-          className={cn('ml-auto', filters.closed && 'ring-ring/50 ring-1')}
+          className={cn('ms-auto', filters.closed && 'ring-ring/50 ring-1')}
           onClick={() => set({ closed: !filters.closed })}
         >
           {t('list.showClosed')}

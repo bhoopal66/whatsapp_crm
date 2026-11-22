@@ -201,7 +201,7 @@ export function AutomsgHistoryList({
                 <TableCell className="text-sm tabular-nums">
                   {row.attempts}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   {view.canCancel && cancelButton(row.id)}
                 </TableCell>
               </TableRow>

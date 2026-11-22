@@ -163,7 +163,7 @@ export function PersonSheet({
               <div
                 ref={headingRef}
                 tabIndex={-1}
-                className="flex flex-wrap items-center gap-2 pr-8 outline-none"
+                className="flex flex-wrap items-center gap-2 pe-8 outline-none"
               >
                 <SheetTitle className="text-lg font-semibold">
                   {name}

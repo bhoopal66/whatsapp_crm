@@ -590,7 +590,7 @@ function FilterBar({
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 basis-64">
           <Search
-            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
             aria-hidden
           />
           <Input
@@ -599,7 +599,7 @@ function FilterBar({
             maxLength={SEARCH_MAX_LENGTH}
             aria-label={t('search.label')}
             placeholder={t('search.placeholder')}
-            className="pl-8"
+            className="ps-8"
             value={qDraft}
             onChange={(e) => setQDraft(e.target.value)}
             onBlur={commitQ}

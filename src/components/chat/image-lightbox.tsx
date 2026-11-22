@@ -186,9 +186,9 @@ export function ImageLightbox({
                         stepIndex(index ?? 0, images.length, -1) === null
                       }
                       aria-label={t('previous')}
-                      className={`${NAV} absolute top-1/2 left-3 -translate-y-1/2`}
+                      className={`${NAV} absolute top-1/2 start-3 -translate-y-1/2`}
                     >
-                      <ChevronLeft className="size-5" aria-hidden />
+                      <ChevronLeft className="size-5 rtl:rotate-180" aria-hidden />
                     </button>
                     <button
                       type="button"
@@ -197,9 +197,9 @@ export function ImageLightbox({
                         stepIndex(index ?? 0, images.length, 1) === null
                       }
                       aria-label={t('next')}
-                      className={`${NAV} absolute top-1/2 right-3 -translate-y-1/2`}
+                      className={`${NAV} absolute top-1/2 end-3 -translate-y-1/2`}
                     >
-                      <ChevronRight className="size-5" aria-hidden />
+                      <ChevronRight className="size-5 rtl:rotate-180" aria-hidden />
                     </button>
                   </>
                 )}

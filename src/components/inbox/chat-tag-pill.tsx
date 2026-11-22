@@ -88,7 +88,7 @@ export function ChatTagPill({
           // A sub-tag is a short detail ("ADCB"): it keeps its room
           // and a long main tag truncates instead.
           className={cn(
-            'flex max-w-[50%] min-w-0 shrink-0 items-center border-l',
+            'flex max-w-[50%] min-w-0 shrink-0 items-center border-s',
             PILL_HALF[size]
           )}
           style={chatTagSubStyle(main.color, sub.color)}

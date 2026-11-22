@@ -81,7 +81,7 @@ function FloatingContent({
           render={
             <Button
               variant="ghost"
-              className="absolute top-2 right-2"
+              className="absolute top-2 end-2"
               size="icon-sm"
             />
           }
@@ -376,6 +376,7 @@ export function ContactForm({
             <Input
               id="cf-email"
               type="email"
+              dir="ltr"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={t('emailPlaceholder')}

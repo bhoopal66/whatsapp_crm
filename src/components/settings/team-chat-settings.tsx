@@ -559,7 +559,7 @@ function PrivateReadCard({
                       aria-pressed={c.id === selectedId}
                       onClick={() => setSelectedId(c.id)}
                       className={cn(
-                        'hover:bg-muted/60 flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm',
+                        'hover:bg-muted/60 flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm',
                         c.id === selectedId && 'bg-primary/10'
                       )}
                     >
@@ -670,11 +670,11 @@ function Transcript({
     return <p className="text-muted-foreground text-sm">{t('empty')}</p>;
 
   return (
-    <ol className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+    <ol className="max-h-[60vh] space-y-3 overflow-y-auto pe-1">
       {messages.map((m) => (
         <li
           key={m.id}
-          className={cn(m.threadRootId && 'border-border ml-3 border-l-2 pl-3')}
+          className={cn(m.threadRootId && 'border-border ms-3 border-s-2 ps-3')}
         >
           <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
             <span className="text-foreground font-semibold">

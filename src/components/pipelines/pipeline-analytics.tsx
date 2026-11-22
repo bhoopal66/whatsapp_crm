@@ -169,13 +169,13 @@ function Metric({
               <button
                 type="button"
                 aria-label={t("howCalculated", { label })}
-                className="ml-auto rounded-sm text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ms-auto rounded-sm text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             }
           >
             <Info className="h-3 w-3" />
           </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs text-left">
+          <TooltipContent side="top" className="max-w-xs text-start">
             {tooltip}
           </TooltipContent>
         </Tooltip>

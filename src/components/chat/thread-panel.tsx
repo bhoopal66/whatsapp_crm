@@ -228,7 +228,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   return (
     <aside
       aria-label={t('thread.title')}
-      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[400px] lg:shrink-0 lg:border-l"
+      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[400px] lg:shrink-0 lg:border-s"
     >
       <header className="flex items-start gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -241,7 +241,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
           type="button"
           onClick={onClose}
           aria-label={t('thread.close')}
-          className="hover:bg-muted -mr-1 rounded p-1"
+          className="hover:bg-muted -me-1 rounded p-1"
         >
           <X className="size-4" />
         </button>

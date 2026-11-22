@@ -488,7 +488,7 @@ export function Step4ScheduleSend({
           disabled={isProcessing}
           className="border-border text-muted-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t('back')}
         </Button>
 

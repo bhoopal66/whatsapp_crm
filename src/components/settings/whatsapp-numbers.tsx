@@ -606,7 +606,7 @@ export function WhatsAppNumbers() {
 
                     <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                       {shownPhone ? (
-                        <span className="font-mono">{shownPhone}</span>
+                        <span className="font-mono" dir="ltr">{shownPhone}</span>
                       ) : null}
                       <Badge variant="outline">
                         {row.provider === 'meta'
@@ -891,12 +891,12 @@ export function WhatsAppNumbers() {
                     <span className="min-w-0 flex-1 truncate">
                       {m.full_name || m.email}
                       {viaTeams ? (
-                        <span className="text-muted-foreground ml-1.5 text-xs">
+                        <span className="text-muted-foreground ms-1.5 text-xs">
                           {t('viaTeam', { names: viaTeams.join(', ') })}
                         </span>
                       ) : null}
                       {others.length > 0 ? (
-                        <span className="text-muted-foreground ml-1.5 text-xs">
+                        <span className="text-muted-foreground ms-1.5 text-xs">
                           {t('alsoOn', {
                             names: others.map(channelDisplayName).join(', '),
                           })}

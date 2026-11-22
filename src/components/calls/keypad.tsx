@@ -141,7 +141,7 @@ export function Keypad() {
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 truncate text-left tabular-nums hover:underline"
+                  className="min-w-0 flex-1 truncate text-start tabular-nums hover:underline"
                   onClick={() => setValue(n)}
                 >
                   {n}

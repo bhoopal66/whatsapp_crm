@@ -109,7 +109,7 @@ export function MeetingPopout({
           height={stageHeight}
         />
       </div>
-      <div className="flex shrink-0 items-center pl-2.5">
+      <div className="flex shrink-0 items-center ps-2.5">
         <FloatButton label={t('return')} onClick={() => backToApp(openRoom)}>
           <Maximize2 className="size-4" />
         </FloatButton>

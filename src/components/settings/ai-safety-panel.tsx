@@ -433,7 +433,7 @@ export function AiSafetyPanel({
               size="sm"
               onClick={() => void loadSettings()}
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
             </Button>
           </CardContent>
         </Card>
@@ -486,7 +486,7 @@ export function AiSafetyPanel({
             </DialogTitle>
             <DialogDescription>{t('confirmLive.body')}</DialogDescription>
           </DialogHeader>
-          <ul className="text-foreground list-disc space-y-1.5 pl-5 text-sm">
+          <ul className="text-foreground list-disc space-y-1.5 ps-5 text-sm">
             <li>{t('confirmLive.handoff')}</li>
             <li>{t('confirmLive.replies')}</li>
             <li>{t('confirmLive.optOuts')}</li>
@@ -1126,7 +1126,7 @@ function ActivityCard({
           >
             <RefreshCw
               className={cn(
-                'mr-1.5 h-4 w-4',
+                'me-1.5 h-4 w-4',
                 state === 'loading' && 'animate-spin'
               )}
             />
@@ -1150,7 +1150,7 @@ function ActivityCard({
             <XCircle className="text-destructive h-6 w-6" />
             <p className="text-foreground">{error}</p>
             <Button variant="outline" size="sm" onClick={() => void load()}>
-              <RefreshCw className="mr-2 h-4 w-4" /> {t('retry')}
+              <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
             </Button>
           </div>
         ) : noActivity ? (
@@ -1248,7 +1248,7 @@ function ActivityCard({
                       <TableHead>{t('activity.columns.reasons')}</TableHead>
                       <TableHead>{t('activity.columns.contact')}</TableHead>
                       <TableHead>{t('activity.columns.language')}</TableHead>
-                      <TableHead className="text-right">
+                      <TableHead className="text-end">
                         {t('activity.columns.latency')}
                       </TableHead>
                     </TableRow>
@@ -1275,7 +1275,7 @@ function ActivityCard({
                     disabled={loadingMore || state !== 'ready'}
                   >
                     {loadingMore ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="me-2 h-4 w-4 animate-spin" />
                     ) : null}
                     {t('activity.loadMore')}
                   </Button>
@@ -1339,7 +1339,7 @@ function Legend() {
     'unavailable',
   ];
   return (
-    <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+    <div className="flex flex-wrap items-center gap-1.5 sm:ms-auto">
       {kinds.map((kind) => (
         <OutcomeChip key={kind} kind={kind} title={t(`hint.${kind}`)}>
           {t(`legend.${kind}`)}
@@ -1430,7 +1430,7 @@ function ActivityRow({
       <TableCell className="text-muted-foreground text-xs">
         {d.language ? label(d.language) : '—'}
       </TableCell>
-      <TableCell className="text-muted-foreground text-right text-xs tabular-nums">
+      <TableCell className="text-muted-foreground text-end text-xs tabular-nums">
         {formatLatency(item.latencyMs) ?? '—'}
       </TableCell>
     </TableRow>

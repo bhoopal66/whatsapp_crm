@@ -88,7 +88,7 @@ export function HrAgentDraftList({
     return <p className="text-muted-foreground text-xs">{t('agents.empty')}</p>;
   }
   return (
-    <ul className="marker:text-muted-foreground list-disc space-y-3 pl-5">
+    <ul className="marker:text-muted-foreground list-disc space-y-3 ps-5">
       {drafts.map((d) => {
         const a = draftActions(d, canAct);
         const reason = reasons[d.id] ?? '';
@@ -105,7 +105,7 @@ export function HrAgentDraftList({
               <span className={`${PILL} ${STATUS_PILL[d.status]}`}>
                 {t(draftStatusKey(d.status))}
               </span>
-              <span className="text-muted-foreground ml-auto text-xs">
+              <span className="text-muted-foreground ms-auto text-xs">
                 {formatDistanceToNow(new Date(d.created_at), {
                   addSuffix: true,
                 })}

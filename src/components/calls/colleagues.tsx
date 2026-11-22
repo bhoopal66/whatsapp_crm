@@ -129,7 +129,7 @@ export function Colleagues() {
                   <p className="truncate font-semibold">
                     {r.name ?? r.extension}
                     {r.mine && (
-                      <span className="text-muted-foreground ml-2 text-xs font-normal">
+                      <span className="text-muted-foreground ms-2 text-xs font-normal">
                         {t('you')}
                       </span>
                     )}

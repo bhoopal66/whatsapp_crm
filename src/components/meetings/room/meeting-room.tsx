@@ -539,7 +539,7 @@ export function LiveRoom({
           />
         </div>
         {/* On a phone the panel is a sheet in a portal: nothing lands here. */}
-        <div className="col-start-2 row-span-2 row-start-1 ml-2 flex min-h-0 empty:hidden">
+        <div className="col-start-2 row-span-2 row-start-1 ms-2 flex min-h-0 empty:hidden">
           {sidePanel}
         </div>
         <div className="col-start-1 row-start-2 min-w-0">

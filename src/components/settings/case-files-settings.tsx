@@ -636,7 +636,7 @@ export function FileSpecEditor({
             <div className="border-border overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[56rem] text-sm">
                 <thead className="bg-card-2 text-muted-foreground text-xs">
-                  <tr className="text-left">
+                  <tr className="text-start">
                     <th className="px-3 py-2 font-medium">{t('document')}</th>
                     <th className="px-2 py-2 font-medium">{t('position')}</th>
                     <th className="px-2 py-2 font-medium">{t('required')}</th>
@@ -753,7 +753,7 @@ export function FileSpecEditor({
             <p className="text-muted-foreground text-xs">
               {t('placeholders')}{' '}
               {NAME_PLACEHOLDERS.map((p) => (
-                <code key={p} className="bg-card-2 mr-1 rounded px-1 font-mono">
+                <code key={p} className="bg-card-2 me-1 rounded px-1 font-mono">
                   {p}
                 </code>
               ))}

@@ -407,7 +407,7 @@ export function SettingsOverview({
                         </span>
                         <ChevronRight
                           aria-hidden
-                          className="text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5"
+                          className="text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5"
                         />
                       </a>
                     </li>

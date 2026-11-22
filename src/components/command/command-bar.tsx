@@ -388,7 +388,7 @@ export function CommandBar() {
                       </span>
                       {isActive ? (
                         <CornerDownLeft
-                          className="text-muted-foreground h-4 w-4 shrink-0"
+                          className="text-muted-foreground h-4 w-4 shrink-0 rtl:rotate-180"
                           aria-hidden="true"
                         />
                       ) : null}

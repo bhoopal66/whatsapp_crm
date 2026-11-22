@@ -80,7 +80,7 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
                   {c.product}
                 </span>
               )}
-              <span className="text-muted-foreground ml-auto text-xs">
+              <span className="text-muted-foreground ms-auto text-xs">
                 {c.closed
                   ? t('banks.closed')
                   : t('banks.stage', { stage: c.stage })}
@@ -248,7 +248,7 @@ function FileRow({
       <Badge variant="outline">{file.status}</Badge>
       {file.shared && <Badge variant="secondary">{t('banks.shared')}</Badge>}
       {targets.length > 0 && (
-        <span className="ml-auto flex flex-wrap items-center gap-2">
+        <span className="ms-auto flex flex-wrap items-center gap-2">
           <DeskSelect
             className="w-56"
             value={target}
@@ -306,7 +306,7 @@ function Checklist({ list }: { list: ApplicationChecklist }) {
         {t('banks.checklistIntro')}
       </p>
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="bg-card-2">
             <tr>
               <th className="px-3 py-2 font-medium">{t('banks.document')}</th>
