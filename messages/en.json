@@ -1,4 +1,12 @@
 {
+  "InboxRows": {
+    "assign": "Assign",
+    "assignAria": "Assign the chat with {name}",
+    "assignTo": "Assign to",
+    "me": " (me)",
+    "unknownAgent": "Unknown agent",
+    "assignFailed": "Couldn't assign this chat. Try again."
+  },
   "LoginPage": {
     "titleAccept": "Sign in to accept",
     "titleWelcome": "Welcome back",
