@@ -34,8 +34,11 @@ import { fetchMentionCandidates } from './use-conversation-notes';
 export function NoteComposer({
   conversationId,
   onSave,
+  active = true,
 }: {
   conversationId: string;
+  /** False while hidden behind Reply mode: no candidate read, no focus. */
+  active?: boolean;
   /** Saves the note; false when it was refused or failed. */
   onSave: (body: string, mentionIds: string[]) => Promise<boolean>;
 }) {
@@ -54,6 +57,7 @@ export function NoteComposer({
   } | null>(null);
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     void fetchMentionCandidates(conversationId).then((list) => {
       if (!cancelled) setCandidates({ conversationId, list });
@@ -61,11 +65,11 @@ export function NoteComposer({
     return () => {
       cancelled = true;
     };
-  }, [conversationId]);
+  }, [conversationId, active]);
 
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+    if (active) textareaRef.current?.focus();
+  }, [active]);
 
   // Grow with the text, up to the box's max height.
   useEffect(() => {

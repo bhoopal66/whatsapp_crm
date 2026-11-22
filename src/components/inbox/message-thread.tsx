@@ -2455,12 +2455,20 @@ export function MessageThread({
             />
           </div>
         )}
-        {noteMode && (
-          <div className="bg-wa-panel-header shrink-0 px-2 pb-2 sm:px-4">
+        {/* Kept mounted (hidden) in Reply mode, like the composer, so a
+            half-written note survives a switch; keyed per chat. */}
+        {mayWriteNotes && (
+          <div
+            className={cn(
+              'bg-wa-panel-header shrink-0 px-2 pb-2 sm:px-4',
+              !noteMode && 'hidden'
+            )}
+          >
             <NoteComposer
               key={conversation.id}
               conversationId={conversation.id}
               onSave={teamNotes.add}
+              active={noteMode}
             />
           </div>
         )}
