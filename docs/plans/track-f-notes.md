@@ -48,7 +48,9 @@ the build.
 - **Chat tag report (255, `docs/chat-tag-report.md`).** Counts only:
   never a chat's text, a customer's name or phone. `chat_tag_report` is
   DEFINER and answers the owner or a live grantee in `report_access`
-  (owner-written only, `report_access_set`), workspace-wide whatever the
+  (owner-written only, `report_access_set`; deleted by a `profiles`
+  trigger when the holder is deactivated, turned guest or leaves),
+  workspace-wide whatever the
   grantee can see. `chat_tag_history` is append-only, written by the
   `chat_tag_history_log` trigger, which must never fail the
   conversations write (errors become WARNINGs); movement counts from
@@ -95,12 +97,12 @@ the build.
   logic `/api/team-activity` used inline; the route calls it.
 - `src/lib/reports/http.ts` and `src/lib/reports/funnel-server.ts` each
   resolve the period like team activity; they could share one helper.
-- Known limits, unchanged: by-number names fall back to `waba_id`
-  (the company's own phone for Whapi/OpenWA, the WABA id for Meta);
-  `funnel_chat_reached_tag` runs once per cohort chat (fine at today's
-  sizes); a sub-tag-only change counts as an arrival at its main tag; a
-  deactivated grantee's row comes back on reactivation until the owner
-  next saves the list.
+- Limits found in review and fixed: the funnel reads the Interested
+  tag log once per report (not once per chat); the bank filter no longer
+  changes Interested; deactivated people leave the agent filter; a
+  sub-tag-only move is not a tag arrival; a grant is deleted when its
+  holder is deactivated, turned guest or leaves; an unlabelled Meta
+  number is shown unnamed rather than by its WABA id.
 - Not checked in a browser (no Supabase project here): the 375px layout
   of `/reports/*` and the new buttons.
 

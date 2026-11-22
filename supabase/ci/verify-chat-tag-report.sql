@@ -20,6 +20,7 @@ DECLARE
   tag_int  UUID;
   tag_adcb UUID;
   tag_no   UUID;
+  tag_hsbc UUID;
   c1 UUID; c2 UUID; c3 UUID;
   cv1 UUID; cv2 UUID; cv3 UUID;
   r        TEXT;
@@ -73,6 +74,7 @@ BEGIN
 
   INSERT INTO chat_tags (account_id, name, sub_tag_title) VALUES (a_acct, 'TR Interested', 'Bank') RETURNING id INTO tag_int;
   INSERT INTO chat_tags (account_id, parent_id, name) VALUES (a_acct, tag_int, 'TR ADCB') RETURNING id INTO tag_adcb;
+  INSERT INTO chat_tags (account_id, parent_id, name) VALUES (a_acct, tag_int, 'TR HSBC') RETURNING id INTO tag_hsbc;
   INSERT INTO chat_tags (account_id, name) VALUES (a_acct, 'TR Not interested') RETURNING id INTO tag_no;
 
   INSERT INTO contacts (account_id, user_id, phone, name, lead_source) VALUES (a_acct, u_owner, '971500255001', 'TR one', 'ad') RETURNING id INTO c1;
@@ -135,6 +137,10 @@ BEGIN
     failed := array_append(failed, 'a failing log write failed the tag change: ' || SQLERRM);
   END;
 
+  -- A sub-tag-only move (ADCB -> HSBC under the same main tag) is logged
+  -- but is not a second arrival at the main tag.
+  UPDATE conversations SET chat_sub_tag_id = tag_hsbc WHERE id = cv1;
+
   -- Access: owner yes; admin and agent no until granted.
   n := n + 1;
   r := pg_temp.tr_try(u_owner, format('SELECT chat_tag_report(%L, %L, %L)::text', v_from, v_to, 'Asia/Dubai'));
@@ -186,8 +192,17 @@ BEGIN
     END IF;
     n := n + 1;
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'current') e
-                    WHERE (e->>'tag_id')::uuid = tag_int AND (e->>'sub_tag_id')::uuid = tag_adcb AND (e->>'chats')::int = 1) THEN
-      failed := array_append(failed, 'the Interested · ADCB count is not 1');
+                    WHERE (e->>'tag_id')::uuid = tag_int AND (e->>'sub_tag_id')::uuid = tag_hsbc AND (e->>'chats')::int = 1) THEN
+      failed := array_append(failed, 'the Interested · HSBC count is not 1');
+    END IF;
+    n := n + 1;
+    IF (SELECT sum((e->>'chats')::int) FROM jsonb_array_elements(j->'arrivals') e WHERE (e->>'tag_id')::uuid = tag_int) <> 2 THEN
+      failed := array_append(failed, 'a sub-tag-only move counted as an arrival: ' || (j->'arrivals')::text);
+    END IF;
+    n := n + 1;
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'arrivals') e
+                    WHERE (e->>'tag_id')::uuid = tag_int AND (e->>'sub_tag_id')::uuid = tag_hsbc AND (e->>'chats')::int = 1) THEN
+      failed := array_append(failed, 'an arrival is not under the chat''s last sub-tag: ' || (j->'arrivals')::text);
     END IF;
     n := n + 1;
     IF (SELECT sum((e->>'chats')::int) FROM jsonb_array_elements(j->'arrivals') e WHERE (e->>'tag_id')::uuid = tag_no) <> 2 THEN
@@ -206,6 +221,15 @@ BEGIN
     failed := array_append(failed, 'a deactivated grantee still opened the tag report');
   END IF;
   UPDATE profiles SET deactivated_at = NULL WHERE user_id = u_agent;
+  -- Deactivation ended the grant: reactivating restores nothing.
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM report_access WHERE user_id = u_agent) THEN
+    failed := array_append(failed, 'a deactivated grantee kept their report_access row');
+  END IF;
+  n := n + 1;
+  IF pg_temp.tr_try(u_agent, format('SELECT chat_tag_report(%L, %L)::text', v_from, v_to)) NOT LIKE 'ERROR:%' THEN
+    failed := array_append(failed, 'a reactivated grantee got the tag report back');
+  END IF;
   n := n + 1;
   r := pg_temp.tr_try(u_other, format('SELECT chat_tag_report(%L, %L)::text', v_from, v_to));
   IF r LIKE 'ERROR:%' OR r ~ 'TR Interested' THEN

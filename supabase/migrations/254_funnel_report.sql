@@ -65,6 +65,7 @@ DECLARE
   v_tz         text := coalesce(nullif(p_tz, ''), 'UTC');
   v_interested uuid;
   v_history    boolean := to_regclass('public.chat_tag_history') IS NOT NULL;
+  v_reached    uuid[] := '{}';
   v_result     jsonb;
 BEGIN
   IF v_account IS NULL OR public.current_role_rank() < 4 THEN
@@ -95,6 +96,16 @@ BEGIN
      AND lower(t.name) = 'interested'
    ORDER BY t.position, t.created_at
    LIMIT 1;
+
+  -- Chats that ever arrived at the Interested tag since the period
+  -- began, read once from 255's log behind a to_regclass guard
+  -- (dynamic SQL), so 254 applies before 255 and works without it.
+  IF v_history AND v_interested IS NOT NULL THEN
+    EXECUTE 'SELECT coalesce(array_agg(DISTINCT h.conversation_id), ''{}'')
+               FROM public.chat_tag_history h
+              WHERE h.account_id = $1 AND h.to_tag_id = $2 AND h.changed_at >= $3'
+       INTO v_reached USING v_account, v_interested, p_from;
+  END IF;
 
   WITH base AS (
     SELECT c.id AS conversation_id,
@@ -151,10 +162,8 @@ BEGIN
   ),
   staged AS (
     SELECT p.*,
-           (p.tagged_now OR p.has_any_case OR (
-              v_history AND v_interested IS NOT NULL
-              AND public.funnel_chat_reached_tag(p.conversation_id, v_interested)
-           )) AS is_interested
+           (p.tagged_now OR p.has_any_case
+            OR p.conversation_id = ANY (v_reached)) AS is_interested
       FROM per_chat p
   )
   SELECT jsonb_build_object(
@@ -209,7 +218,8 @@ BEGIN
                'submitted', s.s, 'approved', s.a, 'declined', s.d,
                'withdrawn', s.w) ORDER BY s.n DESC, s.name NULLS LAST)
         FROM (SELECT st.channel_id AS channel,
-                     (SELECT coalesce(nullif(w.label, ''), w.waba_id)
+                     (SELECT coalesce(nullif(w.label, ''),
+                                      CASE WHEN w.provider <> 'meta' THEN w.waba_id END)
                         FROM public.whatsapp_config w
                        WHERE w.id = st.channel_id
                          AND w.account_id = v_account) AS name,
@@ -254,7 +264,9 @@ BEGIN
            AND pr.account_role IN ('owner', 'admin', 'team_leader', 'agent')), '[]'::jsonb),
       'numbers', coalesce((
         SELECT jsonb_agg(jsonb_build_object('id', w.id,
-                 'name', coalesce(nullif(w.label, ''), w.waba_id)) ORDER BY w.created_at)
+                 'name', coalesce(nullif(w.label, ''),
+                                  CASE WHEN w.provider <> 'meta' THEN w.waba_id END))
+               ORDER BY w.created_at)
           FROM public.whatsapp_config w
          WHERE w.account_id = v_account
            AND NOT coalesce(w.is_personal, false)), '[]'::jsonb),
@@ -269,32 +281,10 @@ BEGIN
 END;
 $$;
 
--- Did this chat ever arrive at the tag? Reads 255's log behind a
--- to_regclass guard (dynamic SQL), so 254 applies before 255 and keeps
--- working if 255 is never applied.
-CREATE OR REPLACE FUNCTION public.funnel_chat_reached_tag(p_conversation uuid, p_tag uuid)
-RETURNS boolean
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_hit boolean := false;
-BEGIN
-  IF to_regclass('public.chat_tag_history') IS NULL THEN
-    RETURN false;
-  END IF;
-  EXECUTE 'SELECT EXISTS (SELECT 1 FROM public.chat_tag_history h
-                           WHERE h.conversation_id = $1 AND h.to_tag_id = $2)'
-     INTO v_hit USING p_conversation, p_tag;
-  RETURN coalesce(v_hit, false);
-END;
-$$;
+-- An earlier draft had a per-chat helper; the lookup is one read now.
+DROP FUNCTION IF EXISTS public.funnel_chat_reached_tag(uuid, uuid);
 
 REVOKE ALL ON FUNCTION public.funnel_report(timestamptz, timestamptz, text, text, uuid, text, uuid)
   FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.funnel_report(timestamptz, timestamptz, text, text, uuid, text, uuid)
   TO authenticated;
-REVOKE ALL ON FUNCTION public.funnel_chat_reached_tag(uuid, uuid)
-  FROM PUBLIC, anon, authenticated;

@@ -91,6 +91,9 @@ BEGIN
   -- that went on to a submitted stage, then Approved (Closed);
   -- c5 (outside the period) has a case; c6 a withdrawn lead.
   UPDATE conversations SET chat_tag_id = tag_int WHERE contact_id = c1;
+  -- c4 passed through Interested and left it: 255's log still counts it.
+  UPDATE conversations SET chat_tag_id = tag_int WHERE contact_id = c4;
+  UPDATE conversations SET chat_tag_id = NULL WHERE contact_id = c4;
   INSERT INTO cases (account_id, agent_id, contact_id, bank_code, stage)
   VALUES (a_acct, u_agent, c2, 'FR254A', 'Interested');
   INSERT INTO cases (account_id, agent_id, contact_id, bank_code, stage, outcome, closed_at)
@@ -120,7 +123,7 @@ BEGIN
     n := n + 1;
     IF (j->'totals'->>'new_chats')::int <> 5 THEN failed := array_append(failed, 'new_chats is not 5: ' || (j->'totals')::text); END IF;
     n := n + 1;
-    IF (j->'totals'->>'interested')::int <> 4 THEN failed := array_append(failed, 'interested is not 4: ' || (j->'totals')::text); END IF;
+    IF (j->'totals'->>'interested')::int <> 5 THEN failed := array_append(failed, 'interested is not 5 (tag log counted): ' || (j->'totals')::text); END IF;
     n := n + 1;
     IF (j->'totals'->>'case_opened')::int <> 3 THEN failed := array_append(failed, 'case_opened is not 3: ' || (j->'totals')::text); END IF;
     n := n + 1;
@@ -150,7 +153,7 @@ BEGIN
   IF r <> '1' THEN failed := array_append(failed, 'bank filter did not give 1 case: ' || r); END IF;
   r := pg_temp.fr_try(u_owner, format('SELECT (funnel_report(%L, %L, %L, NULL, NULL, %L)->''totals''->>''interested'')', v_from, v_to, 'UTC', 'FR254B'));
   n := n + 1;
-  IF r <> '4' THEN failed := array_append(failed, 'the bank filter changed Interested: ' || r); END IF;
+  IF r <> '5' THEN failed := array_append(failed, 'the bank filter changed Interested: ' || r); END IF;
   r := pg_temp.fr_try(u_owner, format('SELECT funnel_report(%L, %L, %L, %L)::text', v_from, v_to, 'UTC', 'bogus'));
   n := n + 1;
   IF r NOT LIKE 'ERROR:%' THEN failed := array_append(failed, 'an unknown lead source was accepted'); END IF;

@@ -16,7 +16,11 @@
 --    report_access_set; report_access_list lists it for the owner;
 --    report_my_access answers the caller's keys. Report keys:
 --    'chat_tags'. A grant counts only while the person is live staff
---    (not a guest, not deactivated) of the workspace.
+--    (not a guest, not deactivated) of the workspace, and is deleted
+--    when they are deactivated, turned guest or leave
+--    (report_access_drop_on_profile), so reactivating restores nothing.
+--  * Arrivals are changes of main tag in the period, a chat once per
+--    tag, under its last sub-tag there; a sub-tag-only move is none.
 --  * chat_tag_report(p_from, p_to, p_tz): owners always, or a person
 --    with a live 'chat_tags' grant, in the caller's ACTIVE account.
 --    SECURITY DEFINER: a grantee sees the workspace-wide counts even of
@@ -179,6 +183,44 @@ REVOKE ALL ON public.report_access FROM PUBLIC, anon, authenticated, service_rol
 
 COMMENT ON TABLE public.report_access IS
   'Who may open a report beyond its role rule (migration 255). Written only by report_access_set (owner). A grant counts only while the person is live staff of the workspace.';
+
+-- A grant ends when the person is deactivated, becomes a bank guest
+-- or leaves the workspace, so reactivating them does not restore it.
+-- Never fails the profiles write.
+CREATE OR REPLACE FUNCTION public.report_access_drop_on_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  BEGIN
+    IF tg_op = 'DELETE' THEN
+      DELETE FROM public.report_access
+       WHERE account_id = old.account_id AND user_id = old.user_id;
+      RETURN NULL;
+    END IF;
+    IF new.account_id IS DISTINCT FROM old.account_id
+       OR new.user_id IS DISTINCT FROM old.user_id
+       OR (new.deactivated_at IS NOT NULL AND old.deactivated_at IS NULL)
+       OR (new.account_role = 'bank_guest' AND old.account_role IS DISTINCT FROM 'bank_guest') THEN
+      DELETE FROM public.report_access
+       WHERE account_id = old.account_id AND user_id = old.user_id;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'report_access_drop_on_profile: % (%)', SQLERRM, SQLSTATE;
+  END;
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.report_access_drop_on_profile() FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS report_access_drop_on_profile ON public.profiles;
+CREATE TRIGGER report_access_drop_on_profile
+  AFTER UPDATE OF account_id, user_id, deactivated_at, account_role OR DELETE
+  ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.report_access_drop_on_profile();
 
 -- Is the caller an owner of their active account?
 CREATE OR REPLACE FUNCTION public.report_caller_is_owner()
@@ -356,7 +398,8 @@ BEGIN
          AND c.chat_tag_id IS NOT NULL
     ),
     moves AS (
-      SELECT h.conversation_id, h.to_tag_id, h.to_sub_tag_id, h.changed_at
+      SELECT h.id, h.conversation_id, h.from_tag_id, h.to_tag_id,
+             h.to_sub_tag_id, h.changed_at
         FROM public.chat_tag_history h
         JOIN public.conversations c ON c.id = h.conversation_id
        WHERE h.account_id = v_account
@@ -365,6 +408,21 @@ BEGIN
          AND h.changed_at >= p_from
          AND h.changed_at <  p_to
          AND h.to_tag_id IS NOT NULL
+    ),
+    -- An arrival is a change of MAIN tag (a sub-tag-only move within the
+    -- same main tag is not one). Each chat counts once per main tag,
+    -- under the sub-tag it held at its last change at that tag in the
+    -- period, so the sub-tag rows of a tag add up to its arrivals.
+    arrived AS (
+      SELECT DISTINCT ON (m.conversation_id, m.to_tag_id)
+             m.conversation_id, m.to_tag_id,
+             (SELECT m2.to_sub_tag_id FROM moves m2
+               WHERE m2.conversation_id = m.conversation_id
+                 AND m2.to_tag_id = m.to_tag_id
+               ORDER BY m2.changed_at DESC, m2.id DESC LIMIT 1) AS to_sub_tag_id
+        FROM moves m
+       WHERE m.from_tag_id IS DISTINCT FROM m.to_tag_id
+       ORDER BY m.conversation_id, m.to_tag_id
     )
     SELECT jsonb_build_object(
       'history_since', v_since,
@@ -394,7 +452,10 @@ BEGIN
         SELECT jsonb_agg(jsonb_build_object('tag_id', s.chat_tag_id,
                  'key', s.channel, 'name', s.name, 'chats', s.n) ORDER BY s.n DESC)
           FROM (SELECT ch.chat_tag_id, ch.channel_id AS channel,
-                       (SELECT coalesce(nullif(w.label, ''), w.waba_id)
+                       -- The label, else the company's own phone on a linked
+                       -- device; Meta's waba_id is an account id, not a name.
+                       (SELECT coalesce(nullif(w.label, ''),
+                                        CASE WHEN w.provider <> 'meta' THEN w.waba_id END)
                           FROM public.whatsapp_config w
                          WHERE w.id = ch.channel_id AND w.account_id = v_account) AS name,
                        count(*) n
@@ -405,18 +466,20 @@ BEGIN
           FROM (SELECT chat_tag_id, lead_source, count(*) n
                   FROM chats GROUP BY 1, 2) s), '[]'::jsonb),
       'arrivals', coalesce((
-        -- Chats that arrived at each tag (and sub-tag) in the period:
-        -- one per chat per (tag, sub-tag), however often it came back.
+        -- Chats that arrived at each main tag in the period, once per
+        -- chat however often it came back (see `arrived`).
         SELECT jsonb_agg(jsonb_build_object('tag_id', s.to_tag_id,
                  'sub_tag_id', s.to_sub_tag_id, 'chats', s.n) ORDER BY s.n DESC)
-          FROM (SELECT to_tag_id, to_sub_tag_id, count(DISTINCT conversation_id) n
-                  FROM moves GROUP BY 1, 2) s), '[]'::jsonb),
+          FROM (SELECT to_tag_id, to_sub_tag_id, count(*) n
+                  FROM arrived GROUP BY 1, 2) s), '[]'::jsonb),
       'arrivals_daily', coalesce((
         SELECT jsonb_agg(jsonb_build_object('day', s.day, 'tag_id', s.to_tag_id,
                  'chats', s.n) ORDER BY s.day)
           FROM (SELECT to_char((changed_at AT TIME ZONE v_tz)::date, 'YYYY-MM-DD') AS day,
                        to_tag_id, count(DISTINCT conversation_id) n
-                  FROM moves GROUP BY 1, 2) s), '[]'::jsonb)
+                  FROM moves
+                 WHERE from_tag_id IS DISTINCT FROM to_tag_id
+                 GROUP BY 1, 2) s), '[]'::jsonb)
     )
   );
 END;

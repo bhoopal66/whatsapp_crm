@@ -21,10 +21,9 @@ person may open.
   see a chat's contents, a customer's name or a customer's number.
 - **A grant counts only while the person is live staff** of the
   workspace. Deactivating them, removing them from the workspace or
-  their becoming a bank guest ends their access at once. The grant row
-  itself stays until the owner next saves the list: an inactive person
-  is not listed, so a save drops their grant, and reactivating someone
-  before any save brings their access back.
+  their becoming a bank guest ends their access at once and deletes
+  the grant (a trigger on `profiles`), so reactivating them restores
+  nothing: the owner ticks them again if they should have it.
 - Grants belong to one workspace. The check uses the caller's active
   workspace, like every other screen.
 - The page, its API and the SQL all refuse anyone else
@@ -44,9 +43,15 @@ person may open.
   report runs. A main tag's total is the sum over its sub-tags, chats with
   no sub-tag included.
 - **Movement in the period** counts the chats that arrived at each main
-  tag (and sub-tag) inside the period: one per chat per tag and sub-tag,
-  however often it moved away and back. The daily chart counts the same,
-  per day.
+  tag inside the period: a change of main tag, once per chat however
+  often it moved away and back. Each arrival is shown under the sub-tag
+  the chat held at its last change at that tag, so the sub-tag rows add
+  up to the tag's arrivals. Moving only the sub-tag (Interested · ADCB to
+  Interested · HSBC) is not an arrival. The daily chart counts main-tag
+  arrivals per day.
+- **Number names** are the label an admin gave the number, else the
+  company's own phone number for a linked-device (Whapi, OpenWA) number;
+  an unlabelled Meta number shows as unnamed.
 - **Days are in the account's time zone** (the one saved in Team activity
   settings, else the viewer's, else UTC), so "Today" and the daily chart
   agree with the rest of the app. Periods: today, yesterday, the last 7,
