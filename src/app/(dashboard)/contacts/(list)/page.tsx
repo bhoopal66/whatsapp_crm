@@ -120,6 +120,11 @@ import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
 import { SourceFilter } from '@/components/contacts/source-filter';
+import {
+  fromViewFilters,
+  toViewFilters,
+  type ContactsViewFilters,
+} from '@/lib/contacts/view-filters';
 import { LeadSourceBadge } from '@/components/contacts/lead-source-badge';
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
@@ -197,7 +202,18 @@ interface ContactListPage {
  */
 export function ContactsPageInner({
   teamView = false,
-}: { teamView?: boolean } = {}) {
+  toolbarExtras,
+}: {
+  teamView?: boolean;
+  /**
+   * Slot beside the search box (saved views mount here). Receives the
+   * current filter state and `applyView`, which restores a saved one.
+   */
+  toolbarExtras?: (ctx: {
+    filters: ContactsViewFilters;
+    applyView: (filters: ContactsViewFilters) => void;
+  }) => ReactNode;
+} = {}) {
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const tSearch = useTranslations('ContactSearch');
@@ -884,6 +900,48 @@ export function ContactsPageInner({
     setPage(0);
   }
 
+  // The state a saved view captures, and how one is put back. Scope
+  // (personal / team) is role-derived and never changed by a view.
+  const currentViewFilters = toViewFilters({
+    search: debouncedSearch,
+    chatTagIds: chatTagFilterIds,
+    sources,
+    sort,
+    hiddenColumns: columnPrefs.hidden,
+    personalOnly: personalOnlyUserId !== null,
+  });
+
+  function applyView(raw: ContactsViewFilters) {
+    const v = fromViewFilters(raw);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setSearch(v.search);
+    setDebouncedSearch(v.search);
+    setSelectedChatTagIds(v.chatTagIds);
+    const nextSort = parseContactSort(v.sort, v.dir);
+    setSort(nextSort);
+    const nextSources = LEAD_SOURCE_COLUMN_AVAILABLE ? v.sources : [];
+    setSources(nextSources);
+    if (v.hiddenColumns) {
+      changeColumnPrefs({ ...columnPrefs, hidden: v.hiddenColumns });
+    }
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        sort: null,
+        dir: null,
+        source: nextSources.length > 0 ? nextSources.join(',') : null,
+        ...sortToParams(nextSort),
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience only.
+    }
+  }
+
   function changeSources(next: LeadSource[]) {
     setSources(next);
     setPage(0);
@@ -1037,6 +1095,8 @@ export function ContactsPageInner({
               )}
             </PopoverContent>
           </Popover>
+          {/* SAVED-VIEWS SLOT: <SavedViewsMenu> mounts here. */}
+          {toolbarExtras?.({ filters: currentViewFilters, applyView })}
           {LEAD_SOURCE_COLUMN_AVAILABLE && (
             <SourceFilter selected={sources} onChange={changeSources} />
           )}
