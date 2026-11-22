@@ -55,6 +55,7 @@ import type {
 import { CompaniesTab } from './companies-tab';
 import { CoverCard } from './cover-card';
 import { DigestSettings } from './digest-settings';
+import { FilePreview, PreviewBeside } from './file-preview';
 import { RoutingSettings } from './routing-settings';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
@@ -494,14 +495,27 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
               {i.note && <Field label={t('fields.note')} value={i.note} />}
             </dl>
             {openId === i.itemId ? (
-              <SortPanel
-                item={i}
-                banks={banks}
-                onDone={() => {
-                  setOpenId(null);
-                  void load();
-                }}
-              />
+              <PreviewBeside
+                preview={
+                  i.hasFile && (
+                    <FilePreview
+                      target={{ type: 'intake', id: i.itemId }}
+                      mime={i.mime}
+                      name={i.originalName}
+                      autoLoad
+                    />
+                  )
+                }
+              >
+                <SortPanel
+                  item={i}
+                  banks={banks}
+                  onDone={() => {
+                    setOpenId(null);
+                    void load();
+                  }}
+                />
+              </PreviewBeside>
             ) : (
               <Button
                 size="sm"

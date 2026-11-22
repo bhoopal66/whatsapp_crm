@@ -25,6 +25,7 @@ import {
 } from '@/lib/desk/tray';
 
 import { deskApi } from './desk-api';
+import { FilePreview } from './file-preview';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
   const t = useTranslations('Desk');
@@ -228,6 +229,11 @@ function TrayCard({
             </span>
           )}
         </div>
+        <FilePreview
+          target={{ type: 'tray', id: item.trayId }}
+          mime={item.mime}
+          name={item.originalName}
+        />
         <fieldset className="space-y-2">
           <legend className="text-foreground mb-1 font-medium">
             {t('tray.candidates')}

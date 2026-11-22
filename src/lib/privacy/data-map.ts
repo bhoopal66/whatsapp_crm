@@ -572,6 +572,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: CONSENT,
     exported: true,
   },
+  // 248: who previewed which upload / tray document (ids and a time only)
+  desk_file_previews: {
+    link: 'case',
+    class: 'identifier',
+    erase: 'retain',
+    reason: AUDIT,
+    exported: false,
+  },
   desk_tray: {
     link: 'contact',
     class: 'content',

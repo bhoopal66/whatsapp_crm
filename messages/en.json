@@ -12198,6 +12198,29 @@
       "open": "Open the case desk"
     }
   },
+  "DeskPreview": {
+    "title": "File: {name}",
+    "unnamed": "Unnamed file",
+    "show": "Show file",
+    "reload": "Load again",
+    "loading": "Loading the file…",
+    "openNewTab": "Open in new tab",
+    "imageAlt": "The uploaded file {name}",
+    "frameTitle": "Preview of {name}",
+    "expired": "The link to this file has expired. Load it again to keep viewing.",
+    "errorWord": "Not shown.",
+    "errors": {
+      "notFound": "This file is no longer available to you.",
+      "notAllowed": "You can't view this file.",
+      "notConfigured": "File previews aren't set up on this install.",
+      "generic": "The file couldn't be loaded. Try again.",
+      "broken": "The file couldn't be shown here. Open it in a new tab instead."
+    },
+    "other": {
+      "title": "This kind of file can't be shown here",
+      "hint": "Open it in a new tab to see it."
+    }
+  },
   "Privacy": {
     "loading": "Loading...",
     "save": "Save",

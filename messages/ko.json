@@ -12198,6 +12198,29 @@
       "open": "케이스 데스크 열기"
     }
   },
+  "DeskPreview": {
+    "title": "파일: {name}",
+    "unnamed": "이름 없는 파일",
+    "show": "파일 보기",
+    "reload": "다시 불러오기",
+    "loading": "파일을 불러오는 중…",
+    "openNewTab": "새 탭에서 열기",
+    "imageAlt": "업로드된 파일 {name}",
+    "frameTitle": "{name} 미리 보기",
+    "expired": "이 파일 링크가 만료되었습니다. 계속 보려면 다시 불러오세요.",
+    "errorWord": "표시되지 않음.",
+    "errors": {
+      "notFound": "이 파일은 더 이상 볼 수 없습니다.",
+      "notAllowed": "이 파일을 볼 권한이 없습니다.",
+      "notConfigured": "이 설치에서는 파일 미리 보기가 설정되지 않았습니다.",
+      "generic": "파일을 불러오지 못했습니다. 다시 시도하세요.",
+      "broken": "여기에 파일을 표시할 수 없습니다. 새 탭에서 여세요."
+    },
+    "other": {
+      "title": "이 형식의 파일은 여기에 표시할 수 없습니다",
+      "hint": "새 탭에서 열어 확인하세요."
+    }
+  },
   "Privacy": {
     "loading": "불러오는 중...",
     "save": "저장",
