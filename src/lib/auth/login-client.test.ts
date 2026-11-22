@@ -11,9 +11,9 @@ describe('loginDestination', () => {
     );
   });
 
-  it('goes to a same-origin next path, else the dashboard', () => {
+  it('goes to a same-origin next path, else the landing redirect', () => {
     expect(loginDestination(params('next=/inbox?c=1#m'))).toBe('/inbox?c=1#m');
-    expect(loginDestination(params(''))).toBe('/dashboard');
+    expect(loginDestination(params(''))).toBe('/');
   });
 
   it('never leaves the origin', () => {
@@ -25,7 +25,7 @@ describe('loginDestination', () => {
       'inbox',
     ]) {
       expect(loginDestination(params(`next=${encodeURIComponent(next)}`))).toBe(
-        '/dashboard'
+        '/'
       );
     }
   });

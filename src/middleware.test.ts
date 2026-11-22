@@ -62,9 +62,9 @@ describe('middleware — refreshed auth cookies survive redirects', () => {
 
     const res = await middleware(new NextRequest('https://app.test/login'));
 
-    // Redirect to /dashboard…
+    // Redirect to the landing redirect at `/` (it picks the role's page)…
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/dashboard');
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/');
     // …and the rotated cookie MUST ride along, otherwise the browser keeps
     // replaying the now-consumed refresh token and the session wedges until
     // the user manually clears cookies.
@@ -94,6 +94,36 @@ describe('middleware — refreshed auth cookies survive redirects', () => {
 
     expect(res.headers.get('location')).toContain('/join/abc123');
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+
+  it('sends a signed-in user on /login?next= to that same-origin path', async () => {
+    mockUser = { id: 'user-1' };
+    const res = await middleware(
+      new NextRequest('https://app.test/login?next=%2Fcases%3Fstage%3Dx')
+    );
+    const loc = new URL(res.headers.get('location')!);
+    expect(loc.origin).toBe('https://app.test');
+    expect(loc.pathname + loc.search).toBe('/cases?stage=x');
+  });
+
+  it('ignores an off-origin next on /login', async () => {
+    mockUser = { id: 'user-1' };
+    const res = await middleware(
+      new NextRequest('https://app.test/login?next=%2F%2Fevil.example%2Fx')
+    );
+    const loc = new URL(res.headers.get('location')!);
+    expect(loc.origin).toBe('https://app.test');
+    expect(loc.pathname).toBe('/');
+  });
+
+  it('keeps the deep link in next when sending a logged-out visitor to /login', async () => {
+    mockUser = null;
+    const res = await middleware(
+      new NextRequest('https://app.test/cases/abc?tab=files')
+    );
+    const loc = new URL(res.headers.get('location')!);
+    expect(loc.pathname).toBe('/login');
+    expect(loc.searchParams.get('next')).toBe('/cases/abc?tab=files');
   });
 
   it('passes through (no redirect) for a signed-in user on a protected page', async () => {
