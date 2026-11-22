@@ -174,4 +174,18 @@ and themselves. Presence uses the 75 s rule of `lib/presence.ts`.
 
 ## Gate results
 
-(filled in at the final push)
+Final run on the merged branch (`npm ci`, CI dummy env from ci.yml):
+
+- `npm run lint`: 0 errors, 31 warnings (all pre-existing).
+- `npm run typecheck`: clean.
+- `npm test`: 1,092 files, 15,651 tests passed.
+- `npm run build`: compiled successfully.
+- Migration replay as migrations.yml does it (Supabase CLI 2.113.0
+  Postgres, `db reset`, classic-grants.sql, every migration 001–238 in
+  order through psql with ON_ERROR_STOP, then every verify file listed in
+  the workflow): all migrations applied; 128 verify files, 0 failed
+  (new: verify-assignment-rotation 38 checks, verify-response-targets 43,
+  verify-live-view 31). 236–238 each applied twice without error.
+- Not done: the new screens were not opened in a browser (no live
+  Supabase auth here), so 375px and dark mode are checked only by code
+  review, not by eye.
