@@ -188,6 +188,8 @@ interface MessageComposerProps {
   /** The open chat's customer, named in the "wasn't sent" notice. */
   contactName?: string | null;
   textControl?: Ref<ComposerDraftHandle>;
+  /** Meta's 24-hour window has closed: only templates may be sent. */
+  freeTextBlocked?: boolean;
 }
 
 /** The send a check holds back until it answers. */
@@ -241,6 +243,7 @@ export function MessageComposer({
   onRestoreReply,
   contactName,
   textControl,
+  freeTextBlocked = false,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
   const tCheck = useTranslations('ComposeCheck');
@@ -597,9 +600,10 @@ export function MessageComposer({
   // every capability — so the disabled branch is a no-op there.
   const canSend = useCan('send-messages');
   const readOnly = !canSend;
-  // Whapi has no 24-hour send window (that was a Meta rule), so the
-  // only thing that disables the inputs now is a viewer-role user.
-  const inputsDisabled = readOnly;
+  // A viewer-role user, or a Meta (Cloud API) chat whose 24-hour window
+  // has closed (`freeTextBlocked`, decided by the thread): templates
+  // stay usable. Whapi and OpenWA have no window.
+  const inputsDisabled = readOnly || freeTextBlocked;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -1403,7 +1407,7 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={drafting}
+              disabled={drafting || freeTextBlocked}
               title={
                 readOnly
                   ? undefined
@@ -1463,7 +1467,7 @@ export function MessageComposer({
             placeholder={
               readOnly ? t('readOnlyPlaceholder') : t('typeMessagePlaceholder')
             }
-            disabled={readOnly}
+            disabled={inputsDisabled}
             readOnly={checking}
             rows={1}
             // Arabic (a translation, or typed) right-aligns and reads
@@ -1475,7 +1479,7 @@ export function MessageComposer({
             title={readOnly ? t('readOnlyTitle') : undefined}
             className={cn(
               'bg-wa-input text-wa-text placeholder:text-wa-text-secondary min-h-10 flex-1 resize-none rounded-lg border-0 px-3 py-2.5 text-base leading-5 outline-none sm:text-[15px]',
-              readOnly && 'cursor-not-allowed opacity-50'
+              inputsDisabled && 'cursor-not-allowed opacity-50'
             )}
           />
 
@@ -1483,7 +1487,7 @@ export function MessageComposer({
             size="sm"
             canAct={!readOnly}
             gateReason="send messages"
-            disabled={!text.trim() || checking}
+            disabled={!text.trim() || checking || freeTextBlocked}
             onClick={handleSend}
             className={SEND_BUTTON}
             aria-busy={checking || undefined}

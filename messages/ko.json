@@ -19,6 +19,16 @@
     "unavailable": "일시적으로 로그인할 수 없습니다. 잠시 후 다시 시도하세요.",
     "genericError": "로그인에 실패했습니다. 다시 시도하세요."
   },
+  "ServiceWindow": {
+    "closedHours": "고객이 {count}시간 전에 마지막으로 메시지를 보냈습니다. 이제 WhatsApp에서는 템플릿만 보낼 수 있습니다.",
+    "closedDays": "고객이 {count}일 전에 마지막으로 메시지를 보냈습니다. 이제 WhatsApp에서는 템플릿만 보낼 수 있습니다.",
+    "closedNever": "고객이 아직 메시지를 보내지 않았습니다. 이제 WhatsApp에서는 템플릿만 보낼 수 있습니다.",
+    "sendTemplate": "템플릿 보내기",
+    "timeHoursMinutes": "{hours}시간 {minutes}분",
+    "timeMinutes": "{minutes}분",
+    "countdown": "답장 가능 시간 {time} 남음",
+    "tooltip": "WhatsApp Business(Cloud API) 번호에서는 고객의 마지막 메시지 후 24시간 동안만 자유 텍스트를 보낼 수 있습니다. 그 후에는 고객이 다시 메시지를 보낼 때까지 승인된 템플릿만 보낼 수 있습니다."
+  },
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "대시보드",
