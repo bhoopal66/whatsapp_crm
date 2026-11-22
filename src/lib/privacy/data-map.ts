@@ -967,6 +967,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'whatsapp_groups',
             'whatsapp_group_invites',
             'whatsapp_group_tombstones',
+            'web_lead_forms',
           ],
         ],
         [
