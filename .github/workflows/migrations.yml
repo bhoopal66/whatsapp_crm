@@ -1316,3 +1316,11 @@ jobs:
       # read workspace-wide counts, aggregates only; nobody else.
       - name: Verify chat tag report
         run: supabase db query --local --file supabase/ci/verify-chat-tag-report.sql
+
+      # Migration 256: review fixes for 236-255. Broadcast drafts are
+      # owners/admins only and in PDPL; a note mention never rings
+      # through a personal-number arm; the recycle helper, web form,
+      # Compass assign, report grants, tag report, escalation sweep and
+      # 237's helper grants each keep their fixed rule.
+      - name: Verify review fixes
+        run: supabase db query --local --file supabase/ci/verify-review-fixes.sql

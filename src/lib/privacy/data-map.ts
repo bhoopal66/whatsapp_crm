@@ -232,6 +232,15 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'anonymise',
     exported: true,
   },
+  // An unsent draft's wizard state may hold a CSV audience (phones,
+  // names): 256's privacy_extensions hooks export the matching rows and
+  // delete the draft state.
+  broadcast_drafts: {
+    link: 'phone',
+    class: 'identifier',
+    erase: 'delete',
+    exported: true,
+  },
   flow_runs: {
     link: 'contact',
     class: 'content',
