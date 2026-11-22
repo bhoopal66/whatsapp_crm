@@ -146,6 +146,12 @@ const FILTER_MATCHES_TTL_MS = 30_000;
 const SEARCH_RPC_LIMIT = 500;
 const NO_CHAT_TAGS: readonly string[] = [];
 
+/** Opaque, so scrolled cells never show through; follows the row hover. */
+const STICKY_CHECK_CELL =
+  'bg-card group-hover/row:bg-accent sticky left-0 z-[5] w-10 min-w-10';
+const STICKY_NAME_CELL =
+  'bg-card group-hover/row:bg-accent sticky left-10 z-[5] min-w-32';
+
 type ContactRow = ContactListRow;
 
 /** One view of the list as the session cache keeps it. */
@@ -930,11 +936,14 @@ export function ContactsPageInner({
       )}
 
       {/* Table */}
-      <div className="bg-card border-border overflow-hidden rounded-lg border">
+      {/* The table's own container scrolls both ways, with a bounded height,
+          so the header sticks (<main> scrolls the page, not the table) and
+          the checkbox + name columns stay put on a narrow screen. */}
+      <div className="bg-card border-border overflow-hidden rounded-lg border [&_[data-slot=table-container]]:max-h-[calc(100dvh-14rem)] [&_[data-slot=table-container]]:min-h-48 [&_[data-slot=table-container]]:overflow-y-auto">
         <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 border-border hover:bg-muted/50">
-              <TableHead className="w-10">
+          <TableHeader className="[&_th]:bg-card-2 [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
+            <TableRow className="border-border hover:bg-card-2">
+              <TableHead className="sticky left-0 z-20 w-10 min-w-10">
                 <Checkbox
                   checked={allOnPageSelected}
                   indeterminate={!allOnPageSelected && someOnPageSelected}
@@ -948,6 +957,7 @@ export function ContactsPageInner({
                 current={sort}
                 onSort={changeSort}
                 disabled={rankedBySearch}
+                className="sticky left-10 z-20"
               >
                 {t('tableColumns.name')}
               </SortHeader>
@@ -1039,14 +1049,19 @@ export function ContactsPageInner({
                     onEdit={() => openEditForm(contact)}
                     onDelete={() => confirmDelete(contact)}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableCell
+                      onClick={(e) => e.stopPropagation()}
+                      className={STICKY_CHECK_CELL}
+                    >
                       <Checkbox
                         checked={selected.has(contact.id)}
                         onCheckedChange={() => toggleSelect(contact.id)}
                         aria-label={`Select ${contact.name || contact.phone}`}
                       />
                     </TableCell>
-                    <TableCell className="text-foreground max-w-56 font-medium whitespace-normal">
+                    <TableCell
+                      className={`text-foreground max-w-56 font-medium whitespace-normal ${STICKY_NAME_CELL}`}
+                    >
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <Link
                           href={customerPath(contact.id, teamView)}
@@ -1417,7 +1432,7 @@ function ContactRow({
   return (
     <TableRow
       ref={rowRef}
-      className="border-border hover:bg-accent cursor-pointer"
+      className="group/row border-border hover:bg-accent cursor-pointer"
       onClick={onOpen}
     >
       {children}
