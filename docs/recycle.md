@@ -14,6 +14,11 @@ chat tag an admin marked as "declined-type", at least N days ago
 - contacts the caller cannot see (contacts RLS decides; a team leader sees
   their team's customers)
 
+The "open case" and "came back" checks run in `recycle_excluded_among`
+(SECURITY DEFINER). It answers team leaders and up only, and "came back"
+counts messages in company chats only, never a personal-number chat
+(migration 256).
+
 ## Settings (owner / admin, card at the top of the screen)
 
 Days, the case outcomes that count, and which main chat tags mean

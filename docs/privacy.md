@@ -27,6 +27,11 @@ dry run rolls them back too). Only the migration owner writes that
 registry. The same test checks the registered functions name every
 table the map says they cover.
 
+Unsent broadcast drafts (`broadcast_drafts`, migration 256) may hold an
+uploaded CSV audience: the export lists the CSV rows with the customer's
+number, and the erase deletes those drafts' saved state (the draft
+itself stays, and can no longer be reopened).
+
 ## A customer's request
 
 Settings → Privacy → A customer's request. Pick the customer, then:

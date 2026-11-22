@@ -65,8 +65,11 @@ Settings → Integrations → Web form (owners and admins).
 1. The phone is checked like every typed number (with its country code;
    a local number such as `050…` is refused with "does not look right").
 2. The contact is found by number, or created and owned by the workspace
-   owner. An existing contact keeps its name, email and owner: only empty
-   fields are filled (a name that is just the number counts as empty).
+   owner, with the submitted name and email. An existing contact keeps its
+   name, email and owner, even an empty one (migration 256: a public form
+   never renames a customer); the submitted name and email go in the
+   task below instead (its note, and `submitted_name` / `submitted_email`
+   in its details).
 3. `lead_source` becomes `web_form` if it was empty.
 4. A **New web lead** follow-up task is opened, unassigned and linked to
    the contact, with the visitor's message as its note. Admins see it, and
@@ -96,8 +99,12 @@ submission that fills it is answered as a success and stored nowhere.
 `OPTIONS` answers the CORS preflight for an allowed website only;
 `Access-Control-Allow-Origin` is only ever that website.
 
-**Rate limits** (`lib/edge`, scopes `webform.ip` and `webform.token`):
-10 submissions a minute per client IP and 200 an hour per form. Both
+**Rate limits** (`lib/edge`, scopes `webform.ip`, `webform.ip_token` and
+`webform.token`): 10 requests a minute per client IP (the `OPTIONS`
+preflight counts too, and is limited before the form is looked up), 5 an
+hour per client IP per form, and 200 an hour per form, so a handful of
+addresses cannot use up a form's hourly allowance (skipped when no client
+IP is known). All three
 **fail closed**: if the rate store is down, the form refuses. The client
 IP comes from `EDGE_CLIENT_IP_HEADER` (see `docs/security.md`); unset, all
 visitors share one bucket of 10 a minute, so set it in production.

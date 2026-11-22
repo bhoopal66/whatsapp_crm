@@ -12,6 +12,42 @@ and polish.
 
 ## [Unreleased]
 
+### Review fixes
+
+**Migration required:** apply `256_review_fixes.sql` (as a superuser or
+BYPASSRLS role) after 255 and before the build. It restates
+`conversation_note_user_can_see` (241), `recycle_excluded_among` (251),
+`web_form_submit` (249), `assignment_compass_assign` (236),
+`chat_tag_report` (255) and `response_escalation_sweep` (237): apply in
+order, once (re-running one of those files afterwards undoes its fix).
+
+- **Broadcast drafts are owners and admins only.** A saved draft's
+  wizard state, which can include an uploaded CSV audience (phones and
+  names), moved from `broadcasts.draft_state` (readable by every member,
+  viewers included) to the new admin-only `broadcast_drafts` table.
+  Existing drafts are copied across. The state is in PDPL export and
+  erase.
+- **Note @mentions** never ring a personal number's owner about a
+  company chat on that number. `docs/chat-notes.md`.
+- **Declined recycling:** the exclusion check answers team leaders and
+  up only, and ignores personal-number chats. `docs/recycle.md`.
+- **Web form:** never renames an existing contact or fills their email;
+  the submitted name and email go in the "New web lead" task. The
+  preflight is rate-limited per IP, and a new per-IP-per-form limit (5
+  an hour) stops a few addresses using up a form's hourly allowance.
+  `docs/web-form.md`.
+- **Compass assignment** leaves a chat someone is working
+  (`human_engaged_at`), reason `engaged`.
+- **Chat tag report:** a grant is deleted when the person is
+  deactivated or leaves the workspace, so it does not come back on
+  re-add; an unlabelled number shows "Unnamed number ending NN", never
+  its phone number. `docs/chat-tag-report.md`.
+- **Response-time escalations:** chats already rung at their level, or
+  still under target in business hours, no longer crowd out newer waits.
+- 237's helper functions are no longer executable by anonymous callers.
+- The broadcast recipient CSV download goes through the shared CSV
+  builder (formula starts neutralised).
+
 ### Reports: sales funnel, chat tag report and CSV downloads
 
 **Migration required:** apply `254_funnel_report.sql`, then

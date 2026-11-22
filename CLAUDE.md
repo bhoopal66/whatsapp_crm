@@ -2151,7 +2151,8 @@ one exists.
   (`recycle_excluded_among`, DEFINER). Nothing sends. `verify-recycle.sql`.
 - **Audiences and drafts (252).** Audiences resolve in the browser
   (`lib/broadcasts/audience-narrow.ts`); the server replays frozen
-  recipients. `broadcasts.draft_state` holds the wizard, CSV rows included;
+  recipients. `broadcast_drafts.state` (256, admin-only RLS; it left
+  `broadcasts`, which viewers read) holds the wizard, CSV rows included;
   a real send deletes it. Contacts sort only by name and created
   (PostgREST cannot order by the conversations embed).
   `verify-broadcast-drafts.sql`.

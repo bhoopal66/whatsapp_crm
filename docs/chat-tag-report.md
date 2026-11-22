@@ -21,10 +21,10 @@ person may open.
   see a chat's contents, a customer's name or a customer's number.
 - **A grant counts only while the person is live staff** of the
   workspace. Deactivating them, removing them from the workspace or
-  their becoming a bank guest ends their access at once. The grant row
-  itself stays until the owner next saves the list: an inactive person
-  is not listed, so a save drops their grant, and reactivating someone
-  before any save brings their access back.
+  their becoming a bank guest ends their access at once. Since migration
+  256 deactivating or removing someone also deletes their grant rows in
+  that workspace, so reactivating or re-adding them never brings access
+  back: the owner grants it again.
 - Grants belong to one workspace. The check uses the caller's active
   workspace, like every other screen.
 - The page, its API and the SQL all refuse anyone else
@@ -37,7 +37,8 @@ person may open.
 
 - **Counts only.** Tag names and colours, agent names and the workspace's
   own number labels; never message text, customer names or customer
-  phone numbers.
+  phone numbers. A number with no label is shown as "Unnamed number
+  ending NN" (its last two digits), never its phone number (256).
 - **Company chats only.** Personal-number chats (migration 191) are left
   out.
 - **Now** is every company chat that carries a main tag at the moment the

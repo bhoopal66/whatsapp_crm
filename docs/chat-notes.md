@@ -27,7 +27,11 @@ people** a note. Each person named rings one **"mentioned you in a
 note"** bell, which opens the chat.
 
 - Someone who cannot see the chat is never rung, even if their id is
-  sent: the database keeps only people who may be rung.
+  sent: the database keeps only people who may be rung. For a company
+  chat that is owners and admins, the chat's owner and assignee, and
+  their team leaders (`conversation_note_company_chat_visible`, 256): a
+  personal number's owner is never rung about a company chat that
+  happens to sit on their number.
 - Editing a note never rings again. It updates the text quoted in the
   bells already rung (and in push notifications still waiting to go
   out). Deleting a note removes its bells and their push notifications.
