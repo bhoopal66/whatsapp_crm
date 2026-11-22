@@ -133,6 +133,30 @@ Off by default (`response_settings`, `response_settings_set`).
   → `/dashboard`; bank guests → `/chat`; a `next` deep link wins.
 - Automation time-based trigger with no schedule saves `0 9 * * *`; a new
   time window is 09:00-18:00.
+- Chat assignment people pickers offer live agents and team leaders (the
+  SQL would accept owners/admins). The Assign menu's load is cached 15 s
+  per account and user and refreshed when the menu opens.
+- Worklist "Customers waiting": wall-clock wait ("Waiting 25 min") with the
+  business-hours part underneath; reloads every 60 s; agents see their own
+  and unassigned chats, "My team" = assignee in the team. Rows show the
+  customer's name (else phone) — unlike 029c's ranked titles, which carry
+  no names; the viewer already sees that chat under RLS. Dropping it is a
+  one-line change in `waiting-customers.tsx`.
+- Live view refreshes every 30 s while visible, plus on focus. "Replies
+  today" = the person's non-failed agent messages on company chats since
+  local midnight in the response-times zone (default Asia/Dubai).
+
+### CLAUDE.md paragraph: Live view and waiting customers (migration 238)
+
+`worklist_waiting_chats(p_limit)` (SECURITY INVOKER, so the conversations
+policies decide) lists the active account's waiting chats by 237's
+definition, oldest first, through `conversations_customer_waiting_idx`
+(the query repeats the index's predicate: keep them equal).
+`live_team_view()` (SECURITY DEFINER, team leader and up, 42501 below)
+returns one jsonb for `/live`: owners/admins every live staff member plus
+the unassigned waiting count, a leader the members of teams they lead
+and themselves. Presence uses the 75 s rule of `lib/presence.ts`.
+`/live` is guarded by `TeamLeaderOnlyLayout`. `verify-live-view.sql`.
 
 ## Merge needs
 
