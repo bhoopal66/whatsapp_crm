@@ -3,6 +3,7 @@ import type { AccountRole } from '@/lib/auth/roles';
 import type { Department } from '@/lib/auth/departments';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 import type { AiDispatchOutcome, AiPausedReason } from '@/lib/ai/outcomes';
+import type { LeadSource } from '@/lib/leads/lead-source';
 
 export type {
   InteractiveMessagePayload,
@@ -141,6 +142,10 @@ export interface Contact {
   do_not_contact_at?: string | null;
   do_not_contact_reason?: string | null;
   marketing_opt_in_at?: string | null;
+  /** Where the contact came from (migration 249); NULL = unknown. */
+  lead_source?: LeadSource | null;
+  /** Which ad, page or file (migration 249); `{}` when nothing is known. */
+  lead_source_detail?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

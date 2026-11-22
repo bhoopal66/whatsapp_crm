@@ -30,6 +30,12 @@ export interface ApiContact {
   tags: { id: string; name: string; color: string }[];
   /** When the customer asked not to be messaged; broadcasts skip them. */
   opted_out_at: string | null;
+  /**
+   * Where the contact came from (migration 249): ad, web_form,
+   * broadcast, manual, import, compass, other; null when unknown.
+   * Read-only on this API.
+   */
+  lead_source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +61,7 @@ export function serializeContact(row: Record<string, unknown>): ApiContact {
     avatar_url: (row.avatar_url as string | null) ?? null,
     tags: [],
     opted_out_at: (row.opted_out_at as string | null) ?? null,
+    lead_source: (row.lead_source as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };

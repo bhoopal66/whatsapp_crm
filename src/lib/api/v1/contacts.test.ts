@@ -20,6 +20,8 @@ describe('serializeContact', () => {
       company: 'Acme',
       avatar_url: null,
       opted_out_at: '2026-09-01T00:00:00Z',
+      lead_source: 'web_form',
+      lead_source_detail: { page_url: 'https://x.example' },
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     };
@@ -32,6 +34,7 @@ describe('serializeContact', () => {
       avatar_url: null,
       tags: [],
       opted_out_at: '2026-09-01T00:00:00Z',
+      lead_source: 'web_form',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     });
@@ -46,6 +49,7 @@ describe('serializeContact', () => {
     };
     const out = serializeContact(row);
     expect(out.opted_out_at).toBeNull();
+    expect(out.lead_source).toBeNull();
     expect(out.name).toBeNull();
     expect(out.tags).toEqual([]);
   });

@@ -33,6 +33,9 @@ describe('contactListQuestion', () => {
       { ...base, chatTagIds: ['tag-a'] },
       { ...base, chatTagIds: ['tag-a', 'tag-b'] },
       { ...base, page: 1 },
+      { ...base, sources: ['ad'] },
+      { ...base, sort: { sort: 'name', dir: 'asc' } },
+      { ...base, sort: { sort: 'name', dir: 'desc' } },
     ];
     const questions = variants.map(contactListQuestion);
     expect(new Set(questions).size).toBe(variants.length);
@@ -76,6 +79,7 @@ function recorder() {
     order: (...a: unknown[]) => (calls.push(['order', ...a]), q),
     range: (...a: unknown[]) => (calls.push(['range', ...a]), q),
     eq: (...a: unknown[]) => (calls.push(['eq', ...a]), q),
+    in: (...a: unknown[]) => (calls.push(['in', ...a]), q),
     or: (...a: unknown[]) => (calls.push(['or', ...a]), q),
   };
   return { q, calls };
@@ -102,6 +106,39 @@ describe('buildContactListQuery', () => {
     expect(CONTACT_LIST_SELECT).toBe(
       '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)'
     );
+  });
+
+  it('orders by name (blank last), then newest first', () => {
+    const { q, calls } = recorder();
+    buildContactListQuery(
+      q,
+      {
+        personalOnlyUserId: null,
+        search: '',
+        page: 0,
+        sort: { sort: 'name', dir: 'asc' },
+      },
+      25
+    );
+    expect(calls.slice(1, 3)).toEqual([
+      ['order', 'name', { ascending: true, nullsFirst: false }],
+      ['order', 'created_at', { ascending: false }],
+    ]);
+  });
+
+  it('narrows to any of the picked lead sources', () => {
+    const { q, calls } = recorder();
+    buildContactListQuery(
+      q,
+      {
+        personalOnlyUserId: null,
+        search: '',
+        page: 0,
+        sources: ['web_form', 'ad', 'ghost'],
+      },
+      25
+    );
+    expect(calls.at(-1)).toEqual(['in', 'lead_source', ['ad', 'web_form']]);
   });
 
   it('keeps the owner narrowing and the search', () => {

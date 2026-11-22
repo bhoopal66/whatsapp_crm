@@ -910,6 +910,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'journey_settings',
             'message_templates',
             'meta_protection_settings',
+            'recycle_settings',
             'pbx_bank_numbers',
             'pbx_connections',
             'pbx_did_routes',
@@ -918,6 +919,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'pipelines',
             'quick_replies',
             'response_settings',
+            'saved_views',
             'tags',
             'team_activity_new_chat_notice',
             'team_activity_settings',
@@ -1005,6 +1007,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // placeholders, never a customer's details): migration 242.
             'voice_note_subjects',
             'voice_note_entries',
+            'web_lead_forms',
           ],
         ],
         [

@@ -43,6 +43,15 @@ import {
   uniqueIds,
   type AudienceCount,
 } from '@/lib/broadcasts/audience-sets';
+import {
+  bankSubTagIds,
+  contactIdsForTags,
+  intersectIdSets,
+  normalizeNarrowing,
+  type BankSource,
+  type ChatTagMatch,
+  type TaggedChat,
+} from '@/lib/broadcasts/audience-narrow';
 
 export type { CsvContactRow, VariableMapping };
 
@@ -61,6 +70,22 @@ export interface AudienceConfig {
    * main tag or sub-tag is one of them, as in the inbox filter.
    */
   chatTagIds?: string[];
+  /**
+   * Track D U14: 'any' (default, and when absent) = the chat carries any
+   * picked tag; 'all' = it carries every one (a main tag and its
+   * sub-tag). Applies to `chatTagIds` only, not the exclude list.
+   */
+  chatTagMatch?: ChatTagMatch;
+  /**
+   * Track D U14, "Narrow this audience" (all / chat_tags / custom_field
+   * only): keep contacts with a case at one of these banks
+   * (`bankSource: 'case'`, any stage) or whose chat sub-tag is named for
+   * one (`'chat_tag'`). Values are `case_banks.code`.
+   */
+  bankCodes?: string[];
+  bankSource?: BankSource;
+  /** Track D U14: keep contacts whose `lead_source` is any of these. */
+  leadSources?: string[];
   customField?: CustomFieldFilter;
   csvContacts?: CsvContactRow[];
   /**
@@ -433,22 +458,83 @@ const ID_CHUNK = 200;
  */
 async function fetchChatTaggedContactIds(
   supabase: Supabase,
-  chatTagIds: readonly string[] | undefined
+  chatTagIds: readonly string[] | undefined,
+  mode: ChatTagMatch = 'any'
 ): Promise<string[]> {
   const group = chatTagFilterOrGroup(chatTagIds ?? []);
   if (!group) return [];
-  const rows = await fetchAllPages<{ contact_id: string | null }>(
+  // The OR group narrows in SQL for both modes ('all' implies 'any');
+  // 'all' is then settled on the two tag columns by `contactIdsForTags`.
+  const rows = await fetchAllPages<TaggedChat>(
     (from, to) =>
       supabase
         .from('conversations')
-        .select('contact_id')
+        .select('contact_id, chat_tag_id, chat_sub_tag_id')
         .or(group)
         .is('personal_owner_id', null)
         .order('id')
         .range(from, to),
     'chat-tagged conversations'
   );
-  return uniqueIds(rows.map((r) => r.contact_id));
+  return contactIdsForTags(rows, chatTagIds ?? [], mode);
+}
+
+/**
+ * The "Narrow this audience" filters as one id set, or null when none is
+ * set (track D U14). Bank from a case: contacts with any case at one of
+ * the banks (`cases.contact_id`, every stage); from a chat tag: contacts
+ * whose chat sub-tag is named for one. Lead source: `contacts.lead_source`
+ * (migration 249). Read under the caller's RLS, like everything else.
+ */
+async function fetchNarrowingIds(
+  supabase: Supabase,
+  audience: AudienceConfig
+): Promise<Set<string> | null> {
+  const n = normalizeNarrowing(audience);
+  let bankIds: Set<string> | null = null;
+  if (n.bankCodes.length > 0) {
+    if (n.bankSource === 'case') {
+      const rows = await fetchAllPages<{ contact_id: string | null }>(
+        (from, to) =>
+          supabase
+            .from('cases')
+            .select('contact_id')
+            .in('bank_code', n.bankCodes)
+            .not('contact_id', 'is', null)
+            .order('id')
+            .range(from, to),
+        'cases for the bank filter'
+      );
+      bankIds = new Set(uniqueIds(rows.map((r) => r.contact_id)));
+    } else {
+      const [tags, banks] = await Promise.all([
+        supabase.from('chat_tags').select('id, parent_id, name'),
+        supabase
+          .from('case_banks')
+          .select('code, name')
+          .in('code', n.bankCodes),
+      ]);
+      if (tags.error) throw new Error(tags.error.message);
+      if (banks.error) throw new Error(banks.error.message);
+      const subIds = bankSubTagIds(tags.data ?? [], banks.data ?? []);
+      bankIds = new Set(await fetchChatTaggedContactIds(supabase, subIds));
+    }
+  }
+  let sourceIds: Set<string> | null = null;
+  if (n.leadSources.length > 0) {
+    const rows = await fetchAllPages<{ id: string }>(
+      (from, to) =>
+        supabase
+          .from('contacts')
+          .select('id')
+          .in('lead_source', n.leadSources)
+          .order('id')
+          .range(from, to),
+      'contacts for the lead-source filter'
+    );
+    sourceIds = new Set(rows.map((r) => r.id));
+  }
+  return intersectIdSets([bankIds, sourceIds]);
 }
 
 /** Full contact rows for ids, a chunk per request. */
@@ -525,13 +611,26 @@ export async function estimateAudience(
     return null;
   }
 
-  const [excludedIds, optedOutIds] = await Promise.all([
+  const [excludedIds, optedOutIds, narrow] = await Promise.all([
     fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds),
     fetchOptedOutContactIds(supabase),
+    audience.type === 'csv' ? null : fetchNarrowingIds(supabase, audience),
   ]);
   const excluded = new Set(excludedIds);
   const optedOut = new Set(optedOutIds);
+  const inNarrow = (id: string) => !narrow || narrow.has(id);
 
+  if (audience.type === 'all' && narrow) {
+    // A narrowed whole list is counted through the contact rows, as the
+    // send reads them.
+    const visible = (await fetchContactsByIds(supabase, [...narrow])).map(
+      (c) => c.id
+    );
+    return {
+      ...countIdAudience(visible, excluded, optedOut),
+      approximate: false,
+    };
+  }
   if (audience.type === 'all') {
     const { count, error } = await supabase
       .from('contacts')
@@ -544,7 +643,13 @@ export async function estimateAudience(
   }
   if (audience.type === 'chat_tags') {
     // Through the contact rows, as the send reads them.
-    const ids = await fetchChatTaggedContactIds(supabase, audience.chatTagIds);
+    const ids = (
+      await fetchChatTaggedContactIds(
+        supabase,
+        audience.chatTagIds,
+        normalizeNarrowing(audience).chatTagMatch
+      )
+    ).filter(inNarrow);
     const visible = (await fetchContactsByIds(supabase, ids)).map((c) => c.id);
     return {
       ...countIdAudience(visible, excluded, optedOut),
@@ -559,7 +664,7 @@ export async function estimateAudience(
     );
     return {
       ...countIdAudience(
-        rows.map((r) => r.id),
+        rows.map((r) => r.id).filter(inNarrow),
         excluded,
         optedOut
       ),
@@ -671,7 +776,15 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     let contacts: Contact[] = [];
     let csvRows: CsvContactRow[] = [];
 
-    if (audience.type === 'all') {
+    // Track D U14 filters; not offered for CSV / Compass lists.
+    const narrow =
+      audience.type === 'csv' || audience.type === 'compass'
+        ? null
+        : await fetchNarrowingIds(supabase, audience);
+
+    if (audience.type === 'all' && narrow) {
+      contacts = await fetchContactsByIds(supabase, [...narrow]);
+    } else if (audience.type === 'all') {
       contacts = await fetchAllPages<Contact>(
         (from, to) =>
           supabase.from('contacts').select('*').order('id').range(from, to),
@@ -680,7 +793,11 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     } else if (audience.type === 'chat_tags' && audience.chatTagIds?.length) {
       contacts = await fetchContactsByIds(
         supabase,
-        await fetchChatTaggedContactIds(supabase, audience.chatTagIds)
+        await fetchChatTaggedContactIds(
+          supabase,
+          audience.chatTagIds,
+          normalizeNarrowing(audience).chatTagMatch
+        )
       );
     } else if (audience.type === 'custom_field' && audience.customField) {
       contacts = await resolveCustomFieldAudience(
@@ -714,6 +831,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       await fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds)
     );
     contacts = finalAudience(contacts, excluded);
+    if (narrow) contacts = contacts.filter((c) => narrow.has(c.id));
 
     // Frequency cap: anyone already sent a campaign in the window is
     // dropped, whatever list they came from (CSV included — a phone
@@ -936,6 +1054,19 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           audience_filter: {
             type: payload.audience.type,
             chatTagIds: payload.audience.chatTagIds,
+            // Track D U14: only written when set, so an old reader (and
+            // an unchanged campaign) sees today's shape.
+            chatTagMatch:
+              payload.audience.chatTagMatch === 'all' ? 'all' : undefined,
+            bankCodes: payload.audience.bankCodes?.length
+              ? payload.audience.bankCodes
+              : undefined,
+            bankSource: payload.audience.bankCodes?.length
+              ? (payload.audience.bankSource ?? 'case')
+              : undefined,
+            leadSources: payload.audience.leadSources?.length
+              ? payload.audience.leadSources
+              : undefined,
             customField: payload.audience.customField,
             excludeChatTagIds: payload.audience.excludeChatTagIds,
             skipRecentDays: payload.audience.skipRecentDays || undefined,

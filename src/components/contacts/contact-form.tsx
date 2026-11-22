@@ -223,6 +223,8 @@ export function ContactForm({
             phone: phoneToSave,
             email: email.trim() || null,
             company: company.trim() || null,
+            // Typed in by a person (migration 249).
+            lead_source: 'manual',
           })
           .select('id')
           .maybeSingle();

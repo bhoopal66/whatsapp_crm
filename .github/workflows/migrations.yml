@@ -1265,3 +1265,32 @@ jobs:
       # edited, and the language and built-in subject lists hold.
       - name: Verify voice-note library
         run: supabase db query --local --file supabase/ci/verify-voice-note-library.sql
+
+      # Migration 250: saved views. A personal view is its owner's alone
+      # (not even an admin reads it); a shared view is read by the whole
+      # workspace and saved by a team leader or above, edited by its
+      # owner or an admin; nothing crosses accounts.
+      - name: Verify saved views
+        run: supabase db query --local --file supabase/ci/verify-saved-views.sql
+
+      # Migration 252: broadcasts.draft_state (a draft reopens whole in
+      # the wizard); the admin-only write policies stay.
+      - name: Verify broadcast drafts
+        run: supabase db query --local --file supabase/ci/verify-broadcast-drafts.sql
+
+      # Migration 251: declined recycling. The list is a SECURITY INVOKER
+      # function over contacts RLS; opted-out, do-not-contact, open-case
+      # and came-back customers never appear, a newer decline hides an
+      # older one, the workspace settings (days, chat tags) are respected,
+      # and filing follow-up tasks twice adds nothing.
+      - name: Verify recycle
+        run: supabase db query --local --file supabase/ci/verify-recycle.sql
+
+      # Migration 249: lead source and the public web form. lead_source
+      # takes the seven sources or NULL and automatic writers fill it only
+      # while empty; the form's settings are owner/admin RPCs (no client
+      # reads the token); an unknown and a disabled token answer alike; a
+      # submission finds or creates the contact, fills only empty fields,
+      # opens one follow_up task per 10 minutes and never writes consent.
+      - name: Verify web lead form
+        run: supabase db query --local --file supabase/ci/verify-web-lead-form.sql

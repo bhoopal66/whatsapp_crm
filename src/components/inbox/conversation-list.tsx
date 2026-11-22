@@ -41,6 +41,12 @@ import {
   type AssigneeFilter,
   type ConversationListItem,
 } from '@/lib/inbox/conversations';
+import { SavedViewsMenu } from '@/components/saved-views/saved-views-menu';
+import {
+  isEmptyInboxView,
+  parseInboxView,
+  type InboxViewFilters,
+} from '@/lib/saved-views/inbox-view';
 import {
   CAMPAIGN_INBOX_FILTER,
   INBOX_FILTER,
@@ -1715,6 +1721,42 @@ export function ConversationList({
     setSelectedCampaignId(null);
   }, []);
 
+  // Saved views (migration 250): what the list is narrowed to, as the
+  // plain object a view stores, and the way back from one.
+  const currentView = useMemo<InboxViewFilters>(
+    () => ({
+      unread: filter === 'unread',
+      important: importantOnly,
+      pinned: pinnedOnly,
+      assignee: assigneeFilter,
+      campaignId: selectedCampaignId,
+      chatTagIds: selectedChatTagIds,
+      insights: selectedInsightFilters,
+      company: selectedCompany,
+    }),
+    [
+      filter,
+      importantOnly,
+      pinnedOnly,
+      assigneeFilter,
+      selectedCampaignId,
+      selectedChatTagIds,
+      selectedInsightFilters,
+      selectedCompany,
+    ]
+  );
+  const applyView = useCallback((raw: Record<string, unknown>) => {
+    const v = parseInboxView(raw);
+    setFilter(v.unread ? 'unread' : 'all');
+    setImportantOnly(v.important);
+    setPinnedOnly(v.pinned);
+    setSelectedAssignee(v.assignee);
+    setSelectedCampaignId(v.campaignId);
+    setSelectedChatTagIds(v.chatTagIds);
+    setSelectedInsightFilters(v.insights);
+    setSelectedCompany(v.company);
+  }, []);
+
   const hasContactFilters =
     chatTagFilterIds.length > 0 ||
     selectedCompany !== null ||
@@ -1827,6 +1869,15 @@ export function ConversationList({
               '[mask-image:linear-gradient(to_right,black_calc(100%_-_2.5rem),transparent)]'
           )}
         >
+          {!hrHeaderOn && (
+            <SavedViewsMenu
+              screen="inbox"
+              current={currentView as unknown as Record<string, unknown>}
+              hasFilters={!isEmptyInboxView(currentView)}
+              onApply={applyView}
+              triggerClassName="h-7 rounded-full px-2.5 text-[12.5px]"
+            />
+          )}
           {!hrHeaderOn && (
             <div
               role="radiogroup"

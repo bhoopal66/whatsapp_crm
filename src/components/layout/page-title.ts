@@ -34,6 +34,7 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/submission-groups/*', 'submissionGroup'],
   ['/cases', 'cases'],
   ['/desk', 'desk'],
+  ['/recycle', 'recycle'],
   ['/banks', 'banks'],
   ['/brain', 'brain'],
   ['/digest', 'digest'],

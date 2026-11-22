@@ -41,6 +41,7 @@ import { useChatTags } from '@/hooks/use-chat-tags';
 import type { ChatTagTree } from '@/lib/chat-tags/tree';
 import { liveChatTagIds } from '@/lib/broadcasts/chat-tag-audience';
 import { chatTagColor } from '@/lib/chat-tags/style';
+import { AudienceNarrowSection } from '@/components/broadcasts/audience-narrow-section';
 import { CHAT_TAGS_SETTINGS_HREF } from '@/components/inbox/thread-tag-bar';
 import type { CustomField } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -355,6 +356,10 @@ export function Step2SelectAudience({
         await estimateAudience(createClient(), accountId, {
           type: audience.type,
           chatTagIds,
+          chatTagMatch: audience.chatTagMatch,
+          bankCodes: audience.bankCodes,
+          bankSource: audience.bankSource,
+          leadSources: audience.leadSources,
           customField: audience.customField,
           csvContacts: audience.csvContacts,
           excludeChatTagIds,
@@ -368,6 +373,10 @@ export function Step2SelectAudience({
     accountId,
     audience.type,
     chatTagIds,
+    audience.chatTagMatch,
+    audience.bankCodes,
+    audience.bankSource,
+    audience.leadSources,
     audience.customField,
     audience.csvContacts,
     excludeChatTagIds,
@@ -608,6 +617,20 @@ export function Step2SelectAudience({
                       option.type === 'chat_tags'
                         ? audience.chatTagIds
                         : undefined,
+                    // Track D U14: the narrowing filters do not apply to a
+                    // CSV or Compass list; match-all is a chat-tag setting.
+                    chatTagMatch:
+                      option.type === 'chat_tags'
+                        ? audience.chatTagMatch
+                        : undefined,
+                    bankCodes:
+                      option.type === 'csv' || option.type === 'compass'
+                        ? undefined
+                        : audience.bankCodes,
+                    leadSources:
+                      option.type === 'csv' || option.type === 'compass'
+                        ? undefined
+                        : audience.leadSources,
                     customField:
                       option.type === 'custom_field'
                         ? audience.customField
@@ -686,6 +709,39 @@ export function Step2SelectAudience({
               onToggle={(id) => toggleChatTag('chatTagIds', id)}
               tone="include"
             />
+          )}
+          {!chatTagsLoading && !noChatTags && (
+            <div className="mt-4">
+              <div className="flex flex-wrap gap-2" role="group">
+                {(['any', 'all'] as const).map((mode) => {
+                  const on = (audience.chatTagMatch ?? 'any') === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        onUpdate({ ...audience, chatTagMatch: mode })
+                      }
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        on
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {t(
+                        mode === 'any'
+                          ? 'selectAudience.matchAny'
+                          : 'selectAudience.matchAll'
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-muted-foreground mt-2 text-xs">
+                {t('selectAudience.matchHelp')}
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -923,6 +979,11 @@ export function Step2SelectAudience({
             </p>
           )}
         </div>
+      )}
+
+      {/* Track D U14: bank and lead-source filters (not for CSV/Compass) */}
+      {audience.type !== 'csv' && audience.type !== 'compass' && (
+        <AudienceNarrowSection audience={audience} onUpdate={onUpdate} />
       )}
 
       {/* Exclude list — applies regardless of audience type */}

@@ -197,6 +197,8 @@ export function ImportModal({
           name: row.name || null,
           email: row.email || null,
           company: row.company || null,
+          // Came from a file (migration 249).
+          lead_source: 'import' as const,
         }));
 
         const { data, error } = await supabase
