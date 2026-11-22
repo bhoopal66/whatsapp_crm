@@ -6329,7 +6329,7 @@
     "ownerSuffix": "(대표)",
     "ownerRm": "담당 RM: {name}",
     "call": "전화",
-    "whatsappButton": "WhatsApp",
+    "whatsappButton": "Open chat",
     "filters": {
       "all": "전체",
       "calls": "통화",

@@ -6329,7 +6329,7 @@
     "ownerSuffix": "(owner)",
     "ownerRm": "Owner RM: {name}",
     "call": "Call",
-    "whatsappButton": "WhatsApp",
+    "whatsappButton": "Open chat",
     "filters": {
       "all": "All",
       "calls": "Calls",
