@@ -11188,6 +11188,21 @@
       "unknown": "Something went wrong. Try again."
     }
   },
+  "ComposerMenu": {
+    "more": "More",
+    "moreLabel": "More actions",
+    "templates": "Templates",
+    "quickReplies": "Quick replies",
+    "interactiveMessage": "Interactive message",
+    "translateToArabic": "Translate to Arabic",
+    "slashTitle": "Quick replies",
+    "slashKeys": "↑↓ to choose · Enter to insert · Esc to close",
+    "slashLoading": "Loading quick replies…",
+    "slashNoMatch": "No quick replies match \"{query}\"",
+    "slashNone": "No quick replies yet. Add some in Settings → Quick replies.",
+    "searchQuickReplies": "Search quick replies",
+    "searchNoMatch": "No quick replies match your search."
+  },
   "ContactSearch": {
     "similar": "Similar",
     "closeMatches": "Close matches",
