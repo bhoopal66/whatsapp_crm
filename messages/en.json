@@ -180,7 +180,8 @@
     "recycle": "Recycle declined",
     "liveView": "Live view",
     "reports": "Reports",
-    "chatTagReport": "Chat tag report"
+    "chatTagReport": "Chat tag report",
+    "funnelReport": "Sales funnel"
   },
   "Notifications": {
     "title": "Notifications",

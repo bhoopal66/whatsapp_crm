@@ -180,7 +180,8 @@
     "recycle": "Recycle declined",
     "liveView": "Live view",
     "reports": "보고서",
-    "chatTagReport": "채팅 태그 보고서"
+    "chatTagReport": "채팅 태그 보고서",
+    "funnelReport": "판매 퍼널"
   },
   "Notifications": {
     "title": "알림",

@@ -73,9 +73,9 @@ All filters default to "All". Each narrows the cohort:
 - **Number**: the company WhatsApp number the chat is on.
 - **Bank**: applies to the **case stages only** (case opened,
   submitted, approved, declined, withdrawn): a chat has no bank. With a
-  bank chosen, New chats is unchanged, and a chat counts as interested
-  through a case only if that case is with the chosen bank (the tag
-  still counts on its own).
+  bank chosen, New chats and Interested are unchanged (a case at any
+  bank still counts as interest); only the case stages narrow to that
+  bank.
 
 ## Breakdowns
 

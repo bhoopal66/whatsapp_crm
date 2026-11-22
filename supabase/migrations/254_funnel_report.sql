@@ -15,7 +15,8 @@
 --               "Interested" tag (a main tag named Interested, any
 --               case), or that ever arrived at it (chat_tag_history,
 --               migration 255, when present), or whose contact has a
---               case (a case opens at Interested, so it implies it).
+--               case (a case opens at Interested, so it implies it),
+--               at any bank whatever the bank filter.
 --   case_opened of those, contacts with a case (a lead, migration 130,
 --               or a submitted case) opened at or after the chat began.
 --   submitted   of those, a case that left the pre-submission stages:
@@ -140,12 +141,17 @@ BEGIN
            EXISTS (SELECT 1 FROM kase k WHERE k.conversation_id = b.conversation_id AND k.outcome = 'Approved') AS is_approved,
            EXISTS (SELECT 1 FROM kase k WHERE k.conversation_id = b.conversation_id AND k.outcome = 'Declined') AS is_declined,
            EXISTS (SELECT 1 FROM kase k WHERE k.conversation_id = b.conversation_id AND k.outcome = 'Withdrawn') AS is_withdrawn,
-           (v_interested IS NOT NULL AND b.chat_tag_id = v_interested) AS tagged_now
+           (v_interested IS NOT NULL AND b.chat_tag_id = v_interested) AS tagged_now,
+           -- Interest ignores the bank filter: a case at any bank implies it.
+           EXISTS (SELECT 1 FROM public.cases k2
+                    WHERE k2.account_id = v_account
+                      AND k2.contact_id = b.contact_id
+                      AND k2.opened_at >= b.created_at) AS has_any_case
       FROM base b
   ),
   staged AS (
     SELECT p.*,
-           (p.tagged_now OR p.has_case OR (
+           (p.tagged_now OR p.has_any_case OR (
               v_history AND v_interested IS NOT NULL
               AND public.funnel_chat_reached_tag(p.conversation_id, v_interested)
            )) AS is_interested
@@ -244,6 +250,7 @@ BEGIN
                          ORDER BY pr.full_name)
           FROM public.profiles pr
          WHERE pr.account_id = v_account
+           AND pr.deactivated_at IS NULL
            AND pr.account_role IN ('owner', 'admin', 'team_leader', 'agent')), '[]'::jsonb),
       'numbers', coalesce((
         SELECT jsonb_agg(jsonb_build_object('id', w.id,
