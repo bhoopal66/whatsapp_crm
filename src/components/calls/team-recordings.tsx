@@ -293,7 +293,6 @@ export function TeamRecordings() {
       <BackLink fallbackHref="/calls" fallbackLabel={tStats('back')} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
         <button

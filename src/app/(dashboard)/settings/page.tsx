@@ -572,9 +572,6 @@ function SettingsPageInner() {
   return (
     <div ref={topRef} className="scroll-mt-6">
       <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          {t('pageTitle')}
-        </h1>
         {/* It points at the menu, which a bank guest does not get. */}
         {showMenu ? (
           <p className="text-muted-foreground mt-1 text-sm">{t('pageDesc')}</p>

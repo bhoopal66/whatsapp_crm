@@ -137,7 +137,6 @@ export function BrainSearch({ caseId }: { caseId: string | null }) {
 
   const header = (
     <div className="space-y-1">
-      <h1 className="text-xl font-semibold">{t('title')}</h1>
       <p className="text-muted-foreground text-sm">{t('notice')}</p>
     </div>
   );

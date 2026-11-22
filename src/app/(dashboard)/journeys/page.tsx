@@ -95,7 +95,6 @@ export default function JourneysPage() {
     <div className="h-full overflow-y-auto">
       <div className="space-y-5">
         <div>
-          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
 

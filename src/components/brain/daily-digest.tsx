@@ -70,7 +70,6 @@ export function DailyDigest() {
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="space-y-1">
-        <h1 className="text-xl font-semibold">{t('title')}</h1>
         <p className="text-muted-foreground text-sm" role="note">
           {t('banner')}
         </p>

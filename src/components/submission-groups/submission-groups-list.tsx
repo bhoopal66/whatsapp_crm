@@ -218,8 +218,7 @@ export function SubmissionGroupsList({
   return (
     <div className="bg-card flex h-full min-h-0 w-full flex-col">
       <div className="border-border shrink-0 space-y-2 border-b px-3 pt-3 pb-2.5">
-        <div className="flex items-baseline justify-between gap-2">
-          <h1 className="truncate text-base font-semibold">{t('title')}</h1>
+        <div className="flex items-baseline justify-end gap-2">
           {rows && (
             <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
               {loaded?.next && !mineOnly

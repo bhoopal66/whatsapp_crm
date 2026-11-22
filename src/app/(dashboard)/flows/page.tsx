@@ -214,7 +214,6 @@ export default function FlowsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
             <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-warning">
               {t("beta")}
             </span>

@@ -196,7 +196,6 @@ export default function MyActivityPage() {
     <div className="min-w-0 space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 max-w-[65ch] text-sm">
             {t('description')}
           </p>

@@ -257,7 +257,6 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
     <div className="mx-auto w-full max-w-6xl space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
           <p className="text-muted-foreground min-h-5 text-sm">
             {clock !== null &&
               new Intl.DateTimeFormat(locale, {

@@ -325,11 +325,8 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     <div className="flex h-full min-h-0 w-full flex-col">
       <header className="bg-wa-panel-header flex h-14 shrink-0 items-center gap-2 px-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-wa-text truncate text-base leading-5 font-semibold">
-            {t('title')}
-          </h1>
           {all && !loaded?.failed && (
-            <p className="text-wa-text-secondary text-xs">
+            <p className="text-wa-text-secondary text-sm">
               {t('listCount', { count: all.length })}
             </p>
           )}

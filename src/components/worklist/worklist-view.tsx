@@ -127,7 +127,6 @@ export function WorklistView({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('help')}</p>
         </div>
         {mode === 'all' && (
