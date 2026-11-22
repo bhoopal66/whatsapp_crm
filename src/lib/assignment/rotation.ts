@@ -40,6 +40,7 @@ const COMPASS_REASONS: ReadonlySet<string> = new Set<CompassAssignReason>([
   'assigned',
   'agent_not_eligible',
   'already_assigned',
+  'engaged',
   'personal',
   'not_found',
 ]);

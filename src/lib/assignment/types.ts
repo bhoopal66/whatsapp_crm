@@ -25,6 +25,8 @@ export type CompassAssignReason =
   | 'assigned'
   | 'agent_not_eligible'
   | 'already_assigned'
+  /** A person is working the chat (human_engaged_at set), as rotation. */
+  | 'engaged'
   | 'personal'
   | 'not_found'
   | 'error';

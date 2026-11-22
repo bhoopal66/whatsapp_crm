@@ -156,6 +156,24 @@ describe('compassAssign', () => {
     expect(out.enabled).toBe(false);
   });
 
+  it('reads engaged (a person is working the chat) as a known reason', async () => {
+    const { db } = rpcClient({
+      data: {
+        enabled: true,
+        assigned_to: null,
+        reason: 'engaged',
+        shared_with: 'coord',
+        share_created: false,
+        share_reason: 'already_shared',
+      },
+      error: null,
+    });
+    const out = await compassAssign(db, input);
+    expect(out.reason).toBe('engaged');
+    expect(out.assignedTo).toBeNull();
+    expect(out.error).toBeUndefined();
+  });
+
   it('never throws', async () => {
     const { db } = rpcClient(() => {
       throw new Error('down');
