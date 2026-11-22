@@ -19,6 +19,7 @@ export function SortHeader({
   current,
   onSort,
   disabled = false,
+  title,
   className,
   children,
 }: {
@@ -27,6 +28,8 @@ export function SortHeader({
   onSort: (key: ContactSortKey) => void;
   /** Sorting does not apply (e.g. results are ranked by best match). */
   disabled?: boolean;
+  /** Why the header is disabled, as a tooltip. */
+  title?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -40,6 +43,8 @@ export function SortHeader({
   return (
     <TableHead
       aria-sort={state}
+      // On the cell, not the button: a disabled button gets no hover.
+      title={title}
       className={cn('text-muted-foreground font-semibold', className)}
     >
       <button

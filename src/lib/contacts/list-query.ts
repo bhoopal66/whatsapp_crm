@@ -7,7 +7,11 @@ import {
 import { phoneSearchDigits } from '@/lib/contacts/phone-search';
 import { escapeIlike, sanitizeContactSearch } from '@/lib/contacts/search';
 import type { SearchHit } from '@/lib/contacts/fuzzy-search';
-import { DEFAULT_CONTACT_SORT, type ContactSort } from '@/lib/contacts/sort';
+import {
+  DEFAULT_CONTACT_SORT,
+  effectiveContactSort,
+  type ContactSort,
+} from '@/lib/contacts/sort';
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
   parseLeadSources,
@@ -29,9 +33,11 @@ import {
  * did.
  * Accepted trade-off: an error on the embed now fails the whole read,
  * where the separate request only left those two columns blank.
+ * `personal_owner_id` and `last_message_at` feed Assigned to and Last
+ * activity, which read company chats only, as migration 257's sort does.
  */
 export const CONTACT_LIST_SELECT =
-  '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)';
+  '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id, personal_owner_id, last_message_at)';
 
 /** Oldest conversation first: `chatTagsByContact` prefers it. */
 export const CONTACT_LIST_CONVERSATION_ORDER = {
@@ -42,9 +48,13 @@ export const CONTACT_LIST_CONVERSATION_ORDER = {
 /** The default sort (newest first); named in the key. */
 export const CONTACT_LIST_SORT = 'created_at.desc';
 
-/** The sort as the cache key names it: `created_at.desc`, `name.asc`. */
+/**
+ * The sort as the cache key names it: `created_at.desc`, `name.asc`,
+ * `owner.asc`, `assignee.desc`, `activity.desc`.
+ */
 export function contactSortLabel(sort: ContactSort): string {
-  return `${sort.sort === 'name' ? 'name' : 'created_at'}.${sort.dir}`;
+  const column = sort.sort === 'created' ? 'created_at' : sort.sort;
+  return `${column}.${sort.dir}`;
 }
 
 export interface ContactListView {
@@ -90,8 +100,10 @@ export interface ContactListRow extends Contact {
    *  loading the tag DEFINITIONS (names/colours) does not re-run the
    *  contact query — they are resolved against the tree at render. */
   chatTags: ChatTagIds | null;
-  /** Auth user id the contact's chat is assigned to, if any. */
+  /** Auth user id the contact's company chat is assigned to, if any. */
   assignedTo: string | null;
+  /** The newest message in the contact's company chat (ISO), if any. */
+  lastActivityAt: string | null;
   /** Set by a close-match search: not an exact match for the term. */
   closeMatch?: boolean;
 }
@@ -99,6 +111,9 @@ export interface ContactListRow extends Contact {
 export type EmbeddedConversation = ChatTagIds & {
   contact_id: string;
   assigned_agent_id: string | null;
+  /** Set on a personal chat (migration 191); absent on older reads. */
+  personal_owner_id?: string | null;
+  last_message_at?: string | null;
 };
 
 export type ContactWithConversations = Contact & {
@@ -106,16 +121,38 @@ export type ContactWithConversations = Contact & {
 };
 
 /**
+ * contact id → the newest `last_message_at` over the given chats, for
+ * the "Last activity" column. A contact with no message is absent.
+ */
+export function lastActivityByContact(
+  rows: readonly { contact_id: string; last_message_at?: string | null }[]
+): Map<string, string> {
+  const byContact = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.last_message_at) continue;
+    const current = byContact.get(row.contact_id);
+    if (!current || Date.parse(row.last_message_at) > Date.parse(current)) {
+      byContact.set(row.contact_id, row.last_message_at);
+    }
+  }
+  return byContact;
+}
+
+/**
  * Rows as the list renders them, from contacts read with
  * `CONTACT_LIST_SELECT`. The embed is stripped, so a row handed to the
- * edit form carries only contact columns.
+ * edit form carries only contact columns. Assigned to and Last activity
+ * read company chats only (personal chats, migration 191, are someone's
+ * own line), the same rule migration 257 sorts by.
  */
 export function toContactListRows(
   rows: readonly ContactWithConversations[]
 ): ContactListRow[] {
   const convs = rows.flatMap((r) => r.conversations ?? []);
+  const company = convs.filter((c) => !c.personal_owner_id);
   const tags = chatTagsByContact(convs);
-  const assignees = assigneesByContact(convs);
+  const assignees = assigneesByContact(company);
+  const activity = lastActivityByContact(company);
   return rows.map((row) => {
     const { conversations: _embedded, ...contact } = row;
     void _embedded;
@@ -123,8 +160,21 @@ export function toContactListRows(
       ...(contact as Contact),
       chatTags: tags.get(row.id) ?? null,
       assignedTo: assignees.get(row.id) ?? null,
+      lastActivityAt: activity.get(row.id) ?? null,
     };
   });
+}
+
+/**
+ * `rows` in the order of `ids` (a page the server ordered), dropping
+ * ids with no row (a contact deleted between the two reads).
+ */
+export function inIdOrder<T extends { id: string }>(
+  rows: readonly T[],
+  ids: readonly string[]
+): T[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is T => !!r);
 }
 
 /** The PostgREST builder calls the plain (no tag filter) list makes. */
@@ -152,17 +202,30 @@ export interface ContactListQuery<Q> {
  * for no search. The term is stripped of `or=(…)` syntax first.
  */
 export function contactSearchFilter(term: string): string | null {
-  const t = sanitizeContactSearch(term);
-  if (!t) return null;
-  const like = `%${escapeIlike(t)}%`;
+  const terms = contactSearchTerms(term);
+  if (!terms) return null;
+  const { like, digits } = terms;
   const parts = [
     `name.ilike.${like}`,
     `phone.ilike.${like}`,
     `email.ilike.${like}`,
   ];
-  const digits = phoneSearchDigits(t);
   if (digits) parts.push(`phone_normalized.like.%${digits}%`);
   return parts.join(',');
+}
+
+/**
+ * The plain search as its two parts: the escaped `%term%` ILIKE pattern
+ * (name, phone, email) and the phone digits, or null for no search.
+ * `contactSearchFilter` and migration 257's RPC arguments both come from
+ * here, so the sorted list matches exactly what the plain one matches.
+ */
+export function contactSearchTerms(
+  term: string
+): { like: string; digits: string | null } | null {
+  const t = sanitizeContactSearch(term);
+  if (!t) return null;
+  return { like: `%${escapeIlike(t)}%`, digits: phoneSearchDigits(t) };
 }
 
 /**
@@ -178,7 +241,9 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   pageSize: number
 ): Q {
   const from = view.page * pageSize;
-  const sort = view.sort ?? DEFAULT_CONTACT_SORT;
+  // Owner / assignee / activity are the RPC's (migration 257); reaching
+  // this query with one means the RPC is missing: the default order.
+  const sort = effectiveContactSort(view.sort ?? DEFAULT_CONTACT_SORT, false);
   const ascending = sort.dir === 'asc';
   let ordered: Q = table.select(CONTACT_LIST_SELECT, { count: 'exact' });
   // Names first (blank last), then newest first, then id: stable pages.

@@ -1,19 +1,41 @@
 /**
- * Contacts list sorting. Only keys the database can order a PAGE by are
- * offered: `name` and `created` are columns of `contacts`, so the order
- * is applied in the query (or over the whole filtered match set) and
- * pagination stays correct.
+ * Contacts list sorting. Every key orders the WHOLE filtered match set,
+ * never just the loaded page, so pagination stays correct:
  *
- * Owner, Assigned to and Last activity are deliberately NOT sortable:
- * owner/assignee are uuids (ordering them is not ordering by name) and
- * the assignee and last message live on `conversations`, a to-many
- * embed PostgREST cannot order the parent rows by. Sorting only the 25
- * loaded rows would look like a sort and be wrong, so it is not offered.
+ * - `name` and `created` are columns of `contacts`: the order is applied
+ *   in the PostgREST query (or over the chat-tag filter's match set,
+ *   `compareContactRows`).
+ * - `owner`, `assignee` and `activity` are not: the owner's and the
+ *   assigned person's names live on profiles, and the assignee and the
+ *   last message on the contact's company chat, a to-many embed
+ *   PostgREST cannot order contacts by. Those keys are ordered by the
+ *   `contacts_sorted_page` RPC (migration 257, SECURITY INVOKER, so RLS
+ *   decides), which returns one page of ids (`SERVER_SORT_KEYS`).
+ *   Without that RPC the list falls back to the default order
+ *   (`effectiveContactSort`).
+ *
+ * Names sort case-insensitively, blanks and missing values go last in
+ * both directions, and ties fall back to created_at newest first, then
+ * id, in SQL and here alike.
  */
 
-export const CONTACT_SORT_KEYS = ['name', 'created'] as const;
+export const CONTACT_SORT_KEYS = [
+  'name',
+  'created',
+  'owner',
+  'assignee',
+  'activity',
+] as const;
 export type ContactSortKey = (typeof CONTACT_SORT_KEYS)[number];
 export type SortDir = 'asc' | 'desc';
+
+/** Keys only migration 257's `contacts_sorted_page` can order by. */
+export const SERVER_SORT_KEYS = ['owner', 'assignee', 'activity'] as const;
+export type ServerSortKey = (typeof SERVER_SORT_KEYS)[number];
+
+export function isServerSortKey(key: string): key is ServerSortKey {
+  return (SERVER_SORT_KEYS as readonly string[]).includes(key);
+}
 
 export interface ContactSort {
   sort: ContactSortKey;
@@ -26,9 +48,22 @@ export const DEFAULT_CONTACT_SORT: ContactSort = {
   dir: 'desc',
 };
 
-/** Direction a key starts in when first picked. */
+/** Direction a key starts in when first picked: dates newest first. */
 export function defaultDir(key: ContactSortKey): SortDir {
-  return key === 'created' ? 'desc' : 'asc';
+  return key === 'created' || key === 'activity' ? 'desc' : 'asc';
+}
+
+/**
+ * The order the list can actually apply: a server-only key falls back
+ * to the default while the RPC is missing (migration 257 not applied).
+ */
+export function effectiveContactSort(
+  s: ContactSort,
+  serverSortAvailable: boolean
+): ContactSort {
+  return isServerSortKey(s.sort) && !serverSortAvailable
+    ? DEFAULT_CONTACT_SORT
+    : s;
 }
 
 /** Unknown / old values fall back to the default, never throw. */
@@ -80,8 +115,12 @@ type RowKeys = { id: string; created_at: string; name?: string | null };
  * Order matched rows (the chat-tag filter reads every match) the way
  * the plain query orders: sort key, then created_at newest first, then
  * id, so pages never overlap. Empty names go last in both directions.
+ * A server-only key (owner, assignee, activity) is never ordered here:
+ * the RPC orders it, and its fallback is the default order, which is
+ * what this applies for one.
  */
-export function compareContactRows(s: ContactSort) {
+export function compareContactRows(sort: ContactSort) {
+  const s = isServerSortKey(sort.sort) ? DEFAULT_CONTACT_SORT : sort;
   const sign = s.dir === 'asc' ? 1 : -1;
   return (a: RowKeys, b: RowKeys): number => {
     if (s.sort === 'name') {

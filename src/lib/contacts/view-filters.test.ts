@@ -59,7 +59,7 @@ describe('fromViewFilters', () => {
         search: 5,
         chatTagIds: 'a',
         sources: ['ad', 7, 'nope'],
-        sort: 'owner',
+        sort: 'owner_name',
         dir: 'up',
         hiddenColumns: ['email', 'phone', 3],
         personalOnly: 'yes',
@@ -70,6 +70,24 @@ describe('fromViewFilters', () => {
       sources: ['ad'],
       hiddenColumns: ['email'],
     });
+  });
+  it('keeps the owner, assignee and last-activity sorts (migration 257)', () => {
+    for (const sort of ['owner', 'assignee', 'activity'] as const) {
+      const v = toViewFilters({
+        search: '',
+        chatTagIds: [],
+        sources: [],
+        sort: { sort, dir: 'desc' },
+        hiddenColumns: ['lastActivity'],
+      });
+      const back = fromViewFilters(JSON.parse(JSON.stringify(v)));
+      expect(back.sort).toBe(sort);
+      expect(back.dir).toBe('desc');
+      expect(back.hiddenColumns).toEqual(['lastActivity']);
+      expect(sameViewFilters(v, back)).toBe(true);
+    }
+    // A bad direction takes the key's own default.
+    expect(fromViewFilters({ sort: 'activity', dir: 'up' }).dir).toBe('desc');
   });
   it('bounds the search and drops non-string tag ids', () => {
     const v = fromViewFilters({
