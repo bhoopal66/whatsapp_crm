@@ -6,7 +6,9 @@
 -- Viewers read but never write. An @mention rings exactly one
 -- chat_note_mention bell for a live staff person who can see the chat,
 -- and nothing for someone who cannot, a bank guest or the author. The
--- mention list offers exactly those people. A note is never a message.
+-- mention list offers exactly those people, at most 20 a note. Editing
+-- a note rewrites its bells' quote (and their queued pushes); deleting
+-- it removes them. A note is never a message.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -148,6 +150,20 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cn_check('the mention list answered someone who cannot see the chat', 'authenticated', u_other,
     format('SELECT count(*)::text FROM conversation_note_mention_candidates(%L)', c1), '0');
 
+  n := n + 1; failed := failed || pg_temp.cn_check('more than 20 mentions were accepted', 'authenticated', u_agent,
+    format('INSERT INTO conversation_notes (conversation_id, body, mention_ids) VALUES (%L, ''many'', %L::uuid[])',
+           c1, (SELECT array_agg(gen_random_uuid()) FROM generate_series(1, 21))), 'ERROR 22023%');
+  n := n + 1; failed := failed || pg_temp.cn_check('the stored mention list has no cap', NULL, NULL,
+    'SELECT count(*)::text FROM pg_constraint WHERE conname = ''conversation_notes_mentions_check''', '1');
+
+  -- A queued push of the admin's bell (109 queues one only for a person
+  -- with a device; the fixture has none, so it is added by hand).
+  r := pg_temp.cn_try(NULL, NULL, format(
+    'INSERT INTO push_outbox (user_id, account_id, kind, title, body, url, tag)'
+    || ' SELECT user_id, account_id, type, title, body, ''/notifications'', ''bell:'' || id FROM notifications'
+    || ' WHERE type = ''chat_note_mention'' AND meta->>''note_id'' = %L', note1));
+  n := n + 1; failed := failed || CASE WHEN r LIKE 'ERROR%' THEN 'push fixture (' || r || ')' END;
+
   -- ---------- 4. editing and deleting ----------
   n := n + 1; failed := failed || pg_temp.cn_check('another agent edited the note', 'authenticated', u_other,
     format('WITH x AS (UPDATE conversation_notes SET body = ''hijack'' WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1),
@@ -167,6 +183,13 @@ BEGIN
     format('UPDATE conversation_notes SET conversation_id = %L WHERE id::text = %L', c2, note1), 'ERROR 42501%');
   n := n + 1; failed := failed || pg_temp.cn_check('an edit rang again', NULL, NULL,
     format('SELECT count(*)::text FROM notifications WHERE type = ''chat_note_mention'' AND conversation_id = %L', c1), '1');
+  n := n + 1; failed := failed || pg_temp.cn_check('an edit left the old text in the bell', NULL, NULL,
+    format('SELECT body FROM notifications WHERE type = ''chat_note_mention'' AND meta->>''note_id'' = %L', note1),
+    'called, no answer');
+  n := n + 1; failed := failed || pg_temp.cn_check('an edit left the old text in the queued push', NULL, NULL,
+    format('SELECT string_agg(o.body, ''|'') FROM push_outbox o JOIN notifications b ON o.tag = ''bell:'' || b.id'
+           || ' WHERE b.meta->>''note_id'' = %L', note1),
+    'called, no answer');
 
   -- ---------- 5. never a message ----------
   n := n + 1; failed := failed || pg_temp.cn_check('a note reached messages', NULL, NULL,
@@ -177,6 +200,10 @@ BEGIN
 
   n := n + 1; failed := failed || pg_temp.cn_check('the author could not delete the note', 'authenticated', u_agent,
     format('WITH x AS (DELETE FROM conversation_notes WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1), '1');
+  n := n + 1; failed := failed || pg_temp.cn_check('a deleted note kept its bell', NULL, NULL,
+    format('SELECT count(*)::text FROM notifications WHERE type = ''chat_note_mention'' AND meta->>''note_id'' = %L', note1), '0');
+  n := n + 1; failed := failed || pg_temp.cn_check('a deleted note kept its queued push', NULL, NULL,
+    format('SELECT count(*)::text FROM push_outbox WHERE account_id = %L AND kind = ''chat_note_mention''', a_acct), '0');
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT241', MESSAGE = 'verify-conversation-notes rollback';

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -9,6 +12,7 @@ import {
   mentionedIds,
   mergeNote,
   NOTE_MAX_LENGTH,
+  NOTE_MAX_MENTIONS,
   splitNoteMentions,
 } from './notes';
 
@@ -96,6 +100,21 @@ describe('mentionedIds', () => {
   it('does not read @Samir as @Sam, nor an email as a mention', () => {
     expect(mentionedIds('@Samir Ali', [sam, samir])).toEqual(['u-samir']);
     expect(mentionedIds('x@Sam', [sam])).toEqual([]);
+  });
+
+  it('keeps at most NOTE_MAX_MENTIONS, which 241 pins', () => {
+    const people = Array.from({ length: 25 }, (_, i) => ({
+      user_id: `u-${i}`,
+      full_name: `Person ${String.fromCharCode(65 + i)}`,
+    }));
+    const body = people.map((p) => `@${p.full_name}`).join(' ');
+    expect(mentionedIds(body, people)).toHaveLength(NOTE_MAX_MENTIONS);
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/241_conversation_notes.sql'),
+      'utf8'
+    );
+    expect(sql).toContain(`cardinality(mention_ids) <= ${NOTE_MAX_MENTIONS}`);
+    expect(sql).toContain(`'{}'::uuid[])) > ${NOTE_MAX_MENTIONS}`);
   });
 });
 
