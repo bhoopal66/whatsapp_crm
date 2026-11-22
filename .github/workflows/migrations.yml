@@ -1226,3 +1226,11 @@ jobs:
       # the wizard); the admin-only write policies stay.
       - name: Verify broadcast drafts
         run: supabase db query --local --file supabase/ci/verify-broadcast-drafts.sql
+
+      # Migration 251: declined recycling. The list is a SECURITY INVOKER
+      # function over contacts RLS; opted-out, do-not-contact, open-case
+      # and came-back customers never appear, a newer decline hides an
+      # older one, the workspace settings (days, chat tags) are respected,
+      # and filing follow-up tasks twice adds nothing.
+      - name: Verify recycle
+        run: supabase db query --local --file supabase/ci/verify-recycle.sql

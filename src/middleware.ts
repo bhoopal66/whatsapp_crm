@@ -110,6 +110,7 @@ export async function middleware(request: NextRequest) {
     '/submission-groups',
     '/cases',
     '/desk',
+    '/recycle',
     '/banks',
     '/brain',
     '/digest',

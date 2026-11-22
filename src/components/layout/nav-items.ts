@@ -17,6 +17,7 @@ import {
   MessagesSquare,
   Phone,
   Radio,
+  Recycle,
   Route,
   Settings,
   Users,
@@ -274,6 +275,15 @@ export const NAV_GROUPS: NavGroup[] = [
         labelKey: 'desk',
         icon: FileInput,
         minRole: 'agent',
+        guarded: true,
+      },
+      // Declined recycling (migration 251): team leader and up (the
+      // route's TeamLeaderOnlyLayout); contacts RLS decides the rows.
+      {
+        href: '/recycle',
+        labelKey: 'recycle',
+        icon: Recycle,
+        minRole: 'team_leader',
         guarded: true,
       },
       // Submission groups (module 018a): one WhatsApp group per submitted

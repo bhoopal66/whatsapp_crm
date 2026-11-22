@@ -879,6 +879,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'journey_settings',
             'message_templates',
             'meta_protection_settings',
+            'recycle_settings',
             'pbx_bank_numbers',
             'pbx_connections',
             'pbx_did_routes',
