@@ -97,7 +97,7 @@ export function CompaniesTab() {
                     type="button"
                     onClick={() => setPicked(c)}
                     aria-pressed={picked?.customerId === c.customerId}
-                    className={`hover:bg-muted/60 flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-left text-sm ${
+                    className={`hover:bg-muted/60 flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-start text-sm ${
                       picked?.customerId === c.customerId ? 'bg-muted' : ''
                     }`}
                   >
@@ -112,7 +112,7 @@ export function CompaniesTab() {
                         {c.appNumber}
                       </span>
                     )}
-                    <span className="text-muted-foreground ml-auto text-xs">
+                    <span className="text-muted-foreground ms-auto text-xs">
                       {t('companies.contactsCount', { count: c.contacts })}
                     </span>
                   </button>
@@ -227,13 +227,13 @@ function CompanyPeople({
                 </span>
                 {p.phone && (
                   <span className="text-muted-foreground font-mono text-xs">
-                    {p.phone}
+                    <span dir="ltr">{p.phone}</span>
                   </span>
                 )}
                 {p.automatic && (
                   <Badge variant="outline">{t('companies.automatic')}</Badge>
                 )}
-                <span className="ml-auto flex flex-wrap items-center gap-2">
+                <span className="ms-auto flex flex-wrap items-center gap-2">
                   {company.canManage ? (
                     <>
                       <DeskSelect

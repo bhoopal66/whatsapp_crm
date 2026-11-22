@@ -372,12 +372,12 @@ function TemplatesCard({
             <div className="-mx-1 overflow-x-auto px-1">
               <table className="w-full min-w-[36rem] text-sm">
                 <thead>
-                  <tr className="text-muted-foreground text-left text-xs">
-                    <th className="py-1.5 pr-3 font-normal">{t('name')}</th>
-                    <th className="py-1.5 pr-3 font-normal">{t('category')}</th>
-                    <th className="py-1.5 pr-3 font-normal">{t('buttons')}</th>
+                  <tr className="text-muted-foreground text-start text-xs">
+                    <th className="py-1.5 pe-3 font-normal">{t('name')}</th>
+                    <th className="py-1.5 pe-3 font-normal">{t('category')}</th>
+                    <th className="py-1.5 pe-3 font-normal">{t('buttons')}</th>
                     {hasMeta && (
-                      <th className="py-1.5 pr-3 font-normal">{t('meta')}</th>
+                      <th className="py-1.5 pe-3 font-normal">{t('meta')}</th>
                     )}
                     {linkedColumn && (
                       <th className="py-1.5 font-normal">{t(linkedColumn)}</th>
@@ -390,10 +390,10 @@ function TemplatesCard({
                       key={i.name}
                       className="border-border border-t align-top"
                     >
-                      <td className="text-foreground py-2 pr-3 font-mono text-xs break-all">
+                      <td className="text-foreground py-2 pe-3 font-mono text-xs break-all">
                         {i.name}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2 pe-3">
                         <span
                           className={cn(
                             'rounded-full px-2 py-0.5 text-xs font-medium',
@@ -405,14 +405,14 @@ function TemplatesCard({
                           {t(`categories.${i.category}`)}
                         </span>
                       </td>
-                      <td className="text-muted-foreground py-2 pr-3 text-xs">
+                      <td className="text-muted-foreground py-2 pe-3 text-xs">
                         {[
                           ...i.buttons.map((id) => titles[id] ?? id),
                           ...(i.phoneButton ? [t('callButton')] : []),
                         ].join(' · ') || '—'}
                       </td>
                       {hasMeta && (
-                        <td className="py-2 pr-3 text-xs">{metaState(i)}</td>
+                        <td className="py-2 pe-3 text-xs">{metaState(i)}</td>
                       )}
                       {hasWhapi && (
                         <td className="py-2 text-xs">
@@ -556,8 +556,8 @@ function CopyEditor({
               {m.buttons.length > 0 && (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-muted-foreground text-left text-xs">
-                      <th className="w-36 py-1 pr-2 font-normal">
+                    <tr className="text-muted-foreground text-start text-xs">
+                      <th className="w-36 py-1 pe-2 font-normal">
                         {t('payload')}
                       </th>
                       <th className="py-1 font-normal" colSpan={3}>
@@ -570,7 +570,7 @@ function CopyEditor({
                       const value = form.titles[id] ?? '';
                       return (
                         <tr key={id}>
-                          <td className="text-muted-foreground py-1 pr-2 font-mono text-xs break-all">
+                          <td className="text-muted-foreground py-1 pe-2 font-mono text-xs break-all">
                             {id}
                           </td>
                           <td className="py-1">
@@ -582,7 +582,7 @@ function CopyEditor({
                               onChange={(e) => setTitle(id, e.target.value)}
                             />
                           </td>
-                          <td className="w-14 py-1 pl-2">
+                          <td className="w-14 py-1 ps-2">
                             <Counter
                               length={
                                 textLength(value) ||
@@ -591,7 +591,7 @@ function CopyEditor({
                               max={limits[id]}
                             />
                           </td>
-                          <td className="w-9 py-1 pl-1">
+                          <td className="w-9 py-1 ps-1">
                             <Button
                               variant="ghost"
                               size="icon-sm"

@@ -157,7 +157,7 @@ function PickerBody({
     <>
       <div className="relative">
         <Search
-          className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2"
+          className="text-muted-foreground pointer-events-none absolute top-1/2 start-2 size-4 -translate-y-1/2"
           aria-hidden
         />
         <input
@@ -181,7 +181,7 @@ function PickerBody({
               pick(list[0]);
             }
           }}
-          className="border-input bg-card dark:bg-input/30 placeholder:text-muted-foreground focus-visible:ring-ring/40 h-8 w-full rounded-md border pr-2 pl-8 text-sm outline-none focus-visible:ring-2"
+          className="border-input bg-card dark:bg-input/30 placeholder:text-muted-foreground focus-visible:ring-ring/40 h-8 w-full rounded-md border pe-2 ps-8 text-sm outline-none focus-visible:ring-2"
         />
       </div>
       {!searching && (

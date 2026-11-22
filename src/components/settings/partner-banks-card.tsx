@@ -218,7 +218,7 @@ export function PartnerBanksCard({
               disabled={saving || !name.trim()}
               onClick={add}
             >
-              <Plus className="mr-1 size-4" /> {t('add')}
+              <Plus className="me-1 size-4" /> {t('add')}
             </Button>
           </div>
           {addError ? (
@@ -259,7 +259,7 @@ export function PartnerBanksCard({
             </span>
           ) : null}
           <Button disabled={!dirty || saving} onClick={() => onSave(draft)}>
-            {saving ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}
+            {saving ? <Loader2 className="me-1 size-4 animate-spin" /> : null}
             {t('save')}
           </Button>
         </div>

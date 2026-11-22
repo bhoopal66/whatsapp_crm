@@ -296,7 +296,7 @@ function LogContactDialog({
               maxLength={TEXT_MAX}
               onChange={(e) => setSummary(e.target.value)}
             />
-            <p className="text-muted-foreground text-right text-xs tabular-nums">
+            <p className="text-muted-foreground text-end text-xs tabular-nums">
               {t('notes.count', { count: summary.length, max: TEXT_MAX })}
             </p>
           </div>

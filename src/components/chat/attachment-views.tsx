@@ -160,7 +160,7 @@ export function ChatFileChip({ a }: { a: ChatAttachment }) {
       type="button"
       onClick={() => void openOrDownload(sb, a).catch(() => {})}
       title={opensInTab(kind) ? t('open') : t('download')}
-      className="hover:bg-muted flex max-w-64 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-sm"
+      className="hover:bg-muted flex max-w-64 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-start text-sm"
     >
       <Icon className={cn('size-5 shrink-0', tint)} aria-hidden />
       <span className="min-w-0 flex-1">

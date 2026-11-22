@@ -92,7 +92,7 @@ export function ComposeCheckDialog({
             {t('edit')}
           </Button>
           <Button onClick={onSendAnyway}>
-            <Send className="mr-1 size-4" />
+            <Send className="me-1 size-4" />
             {t('sendAnyway')}
           </Button>
         </DialogFooter>

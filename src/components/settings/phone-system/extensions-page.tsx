@@ -850,14 +850,14 @@ function SearchBox({
 }) {
   return (
     <div className="relative min-w-0 flex-1 sm:max-w-sm">
-      <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+      <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2" />
       <Input
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="pl-8"
+        className="ps-8"
       />
     </div>
   );
@@ -1033,7 +1033,7 @@ function SearchPicker({
                 type="button"
                 role="option"
                 aria-selected={false}
-                className="text-muted-foreground hover:bg-muted focus-visible:bg-muted w-full rounded-md px-2 py-1.5 text-left text-sm outline-none"
+                className="text-muted-foreground hover:bg-muted focus-visible:bg-muted w-full rounded-md px-2 py-1.5 text-start text-sm outline-none"
                 onClick={() => pick(first.onPick)}
               >
                 {first.label}
@@ -1049,7 +1049,7 @@ function SearchPicker({
                 disabled={i.disabled}
                 title={i.title}
                 className={cn(
-                  'hover:bg-muted focus-visible:bg-muted flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none disabled:pointer-events-none disabled:opacity-50',
+                  'hover:bg-muted focus-visible:bg-muted flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none disabled:pointer-events-none disabled:opacity-50',
                   i.selected && 'bg-muted font-medium'
                 )}
                 onClick={() => pick(i.onPick)}

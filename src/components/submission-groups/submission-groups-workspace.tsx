@@ -44,7 +44,7 @@ export function SubmissionGroupsWorkspace({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              'border-border h-full min-w-0 flex-1 border-r lg:w-[22rem] lg:flex-none',
+              'border-border h-full min-w-0 flex-1 border-e lg:w-[22rem] lg:flex-none',
               selectedId ? 'hidden lg:flex' : 'flex'
             )}
           >

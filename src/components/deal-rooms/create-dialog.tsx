@@ -221,7 +221,7 @@ function CreateBody({
                   type="button"
                   onClick={() => void pick(c)}
                   className={cn(
-                    'hover:bg-muted w-full px-2 py-1.5 text-left text-sm',
+                    'hover:bg-muted w-full px-2 py-1.5 text-start text-sm',
                     contact?.id === c.id && 'bg-muted font-medium'
                   )}
                 >
@@ -268,7 +268,7 @@ function CreateBody({
               setSubject(clip(e.target.value, GROUP_NAME_MAX));
             }}
           />
-          <p className="text-muted-foreground text-right text-xs">
+          <p className="text-muted-foreground text-end text-xs">
             {Array.from(name).length} / {GROUP_NAME_MAX}
           </p>
         </div>
@@ -405,7 +405,7 @@ function CreateBody({
 
       <div className="border-warning/40 bg-warning-soft text-foreground rounded-md border p-3 text-xs">
         <p className="font-semibold">{t('before.title')}</p>
-        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <ul className="mt-1 list-disc space-y-0.5 ps-4">
           <li>{t('before.phones')}</li>
           <li>{t('before.max', { workspace })}</li>
           <li>{t('before.cost')}</li>
@@ -435,7 +435,7 @@ function CreateBody({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-muted-foreground mr-auto text-xs">{t('footer')}</p>
+        <p className="text-muted-foreground me-auto text-xs">{t('footer')}</p>
         <Button variant="outline" onClick={onDone}>
           {t('cancel')}
         </Button>

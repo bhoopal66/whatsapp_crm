@@ -310,11 +310,11 @@ export function GroupPage({ groupId }: { groupId: string }) {
           </div>
           <div className="flex-1 space-y-3 p-4">
             <div className="bg-muted h-10 w-2/5 animate-pulse rounded-lg" />
-            <div className="bg-muted ml-auto h-10 w-1/3 animate-pulse rounded-lg" />
+            <div className="bg-muted ms-auto h-10 w-1/3 animate-pulse rounded-lg" />
             <div className="bg-muted h-10 w-1/2 animate-pulse rounded-lg" />
           </div>
         </div>
-        <div className="bg-wa-panel border-wa-divider hidden w-[22rem] shrink-0 flex-col items-center gap-3 border-l p-6 min-[1440px]:flex">
+        <div className="bg-wa-panel border-wa-divider hidden w-[22rem] shrink-0 flex-col items-center gap-3 border-s p-6 min-[1440px]:flex">
           <div className="bg-muted size-20 animate-pulse rounded-full" />
           <div className="bg-muted h-4 w-40 animate-pulse rounded" />
           <div className="bg-muted h-3 w-24 animate-pulse rounded" />
@@ -409,7 +409,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
             type="button"
             onClick={() => setPanelOpen(!panelOpen)}
             aria-label={t('info')}
-            className="focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-3"
+            className="focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-3 rounded-md text-start outline-none focus-visible:ring-3"
           >
             <GroupAvatar
               key={iconVersion}
@@ -511,7 +511,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
       {docked && dockOpen && (
         <aside
           aria-label={t('info')}
-          className="border-wa-divider flex w-[22rem] shrink-0 flex-col border-l"
+          className="border-wa-divider flex w-[22rem] shrink-0 flex-col border-s"
         >
           {panel(
             <h2 className="text-wa-text text-sm font-semibold">{t('info')}</h2>

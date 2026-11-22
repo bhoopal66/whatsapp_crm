@@ -197,7 +197,7 @@ export function MentionTextarea(p: MentionTextareaProps) {
           id={listId}
           role="listbox"
           aria-label={t('composer.mentionList')}
-          className="bg-popover text-popover-foreground absolute bottom-full left-0 z-20 mb-2 max-h-64 w-72 max-w-full overflow-y-auto rounded-lg border p-1 shadow-md"
+          className="bg-popover text-popover-foreground absolute bottom-full start-0 z-20 mb-2 max-h-64 w-72 max-w-full overflow-y-auto rounded-lg border p-1 shadow-md"
         >
           {count === 0 && (
             <p className="text-muted-foreground px-2 py-1.5 text-sm">

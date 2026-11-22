@@ -286,7 +286,7 @@ function TaskRow({
         <p className="text-foreground truncate text-sm">
           {task.title}
           {repeat !== null && (
-            <span className="text-warning ml-1.5 text-xs font-semibold tabular-nums">
+            <span className="text-warning ms-1.5 text-xs font-semibold tabular-nums">
               {t('repeat', { count: repeat })}
             </span>
           )}

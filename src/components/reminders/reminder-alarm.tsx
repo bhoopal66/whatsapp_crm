@@ -309,7 +309,7 @@ export function ReminderAlarmCard({
           type="button"
           onClick={actions.dismiss}
           aria-label={t('dismiss')}
-          className="text-muted-foreground hover:bg-card/60 hover:text-foreground ml-auto inline-flex size-7 items-center justify-center rounded-full"
+          className="text-muted-foreground hover:bg-card/60 hover:text-foreground ms-auto inline-flex size-7 items-center justify-center rounded-full"
         >
           <X className="size-4" />
         </button>
@@ -424,7 +424,7 @@ export function ReminderAlarmStack({
   return (
     <div
       data-reminder-alarms
-      className="fixed top-[68px] right-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:top-auto max-sm:right-3 max-sm:bottom-3 max-sm:left-3 max-sm:w-auto max-sm:max-w-none"
+      className="fixed top-[68px] end-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:top-auto max-sm:end-3 max-sm:bottom-3 max-sm:start-3 max-sm:w-auto max-sm:max-w-none"
     >
       {shown.map((alarm) => (
         <div key={alarm.id}>{renderCard(alarm)}</div>

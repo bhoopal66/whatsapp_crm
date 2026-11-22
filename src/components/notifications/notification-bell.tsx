@@ -56,7 +56,7 @@ export function NotificationBell() {
         {badge && (
           <span
             aria-hidden
-            className="bg-primary text-primary-foreground ring-card absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-xs leading-none font-semibold ring-2"
+            className="bg-primary text-primary-foreground ring-card absolute top-1 end-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-xs leading-none font-semibold ring-2"
           >
             {badge}
           </span>

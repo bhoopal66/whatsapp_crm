@@ -46,7 +46,7 @@ export function CallRecordingToggle({
 
 export function CallRecordingPanel({ call }: { call: TimelineCall }) {
   return (
-    <div id={recordingPanelId(call.id)} className="min-w-0 sm:ml-12">
+    <div id={recordingPanelId(call.id)} className="min-w-0 sm:ms-12">
       <RecordingPlayer call={call} dealId={null} autoStart />
     </div>
   );

@@ -127,8 +127,8 @@ export function MediaLightbox({
       }}
     >
       <DialogContent className="flex w-auto max-w-[95vw] flex-col gap-3 p-3 sm:max-w-[min(95vw,72rem)]">
-        {/* pr-9 keeps the toolbar clear of the dialog's own close button. */}
-        <DialogHeader className="flex-row items-start gap-3 pr-9">
+        {/* pe-9 keeps the toolbar clear of the dialog's own close button. */}
+        <DialogHeader className="flex-row items-start gap-3 pe-9">
           <div className="min-w-0 flex-1">
             <DialogTitle className="truncate">{authorLabel}</DialogTitle>
             <DialogDescription className="truncate text-xs">
@@ -137,7 +137,7 @@ export function MediaLightbox({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {items.length > 1 && (
-              <span className="text-muted-foreground mr-1 text-xs tabular-nums">
+              <span className="text-muted-foreground me-1 text-xs tabular-nums">
                 {t('counter', { index: index + 1, total: items.length })}
               </span>
             )}
@@ -325,7 +325,7 @@ function NavButton({
       title={label}
       className={cn(
         'border-border/60 bg-background/85 text-foreground hover:bg-background absolute top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border shadow-md backdrop-blur-sm transition-colors disabled:pointer-events-none disabled:opacity-0',
-        side === 'left' ? 'left-1' : 'right-1'
+        side === 'left' ? 'start-1' : 'end-1'
       )}
     >
       <Icon className="h-5 w-5" />

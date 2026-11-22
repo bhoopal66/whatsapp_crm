@@ -75,7 +75,7 @@ function RateCell({
   const pct = percent(value, total);
   return (
     <div className="flex items-center gap-2">
-      <span className="text-muted-foreground w-10 text-right text-xs tabular-nums">
+      <span className="text-muted-foreground w-10 text-end text-xs tabular-nums">
         {pct}%
       </span>
       <div className="bg-muted h-1.5 w-20 overflow-hidden rounded-full">
@@ -269,7 +269,7 @@ export default function BroadcastsPage() {
                 <TableHead className="text-muted-foreground hidden md:table-cell">
                   {t('table.template')}
                 </TableHead>
-                <TableHead className="text-muted-foreground hidden text-right sm:table-cell">
+                <TableHead className="text-muted-foreground hidden text-end sm:table-cell">
                   {t('table.recipients')}
                 </TableHead>
                 <TableHead className="text-muted-foreground hidden lg:table-cell">
@@ -284,7 +284,7 @@ export default function BroadcastsPage() {
                 <TableHead className="text-muted-foreground hidden sm:table-cell">
                   {t('table.date')}
                 </TableHead>
-                <TableHead className="text-muted-foreground text-right">
+                <TableHead className="text-muted-foreground text-end">
                   <span className="sr-only">{t('table.actions')}</span>
                 </TableHead>
               </TableRow>
@@ -310,7 +310,7 @@ export default function BroadcastsPage() {
                     <TableCell className="text-muted-foreground hidden md:table-cell">
                       {broadcast.template_name}
                     </TableCell>
-                    <TableCell className="text-muted-foreground hidden text-right tabular-nums sm:table-cell">
+                    <TableCell className="text-muted-foreground hidden text-end tabular-nums sm:table-cell">
                       {broadcast.total_recipients}
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
@@ -343,7 +343,7 @@ export default function BroadcastsPage() {
                     <TableCell className="text-muted-foreground hidden sm:table-cell">
                       {new Date(broadcast.created_at).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       {broadcast.status === 'draft' && (
                         <div
                           className="flex justify-end gap-1"

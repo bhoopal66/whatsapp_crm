@@ -298,7 +298,7 @@ export function ChatSidebar({
   ) =>
     (list.length > 0 || add) && (
       <div>
-        <div className="flex items-center pr-2">
+        <div className="flex items-center pe-2">
           <p className={cn(SECTION_LABEL, 'min-w-0 flex-1')}>{label}</p>
           {add && (
             <button
@@ -319,7 +319,7 @@ export function ChatSidebar({
   return (
     <aside
       className={cn(
-        'bg-card text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-r',
+        'bg-card text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-e',
         className
       )}
     >
@@ -444,13 +444,13 @@ export function ChatSidebar({
               )}
               className={cn(
                 SECTION_LABEL,
-                'hover:text-foreground flex w-full items-center gap-1 text-left'
+                'hover:text-foreground flex w-full items-center gap-1 text-start'
               )}
             >
               {archivedOpen ? (
                 <ChevronDown className="size-3" aria-hidden />
               ) : (
-                <ChevronRight className="size-3" aria-hidden />
+                <ChevronRight className="size-3 rtl:rotate-180" aria-hidden />
               )}
               <Archive className="size-3" aria-hidden />
               {t('sections.archived', { count: sections.archived.length })}

@@ -251,7 +251,7 @@ export default function HrHireFastPage() {
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto"
+              className="ms-auto"
               disabled={loading}
               onClick={() => void load()}
             >
@@ -279,7 +279,7 @@ export default function HrHireFastPage() {
                           {i + 1}
                         </span>
                         {candidate(v)}
-                        <span className="ml-auto text-sm font-semibold tabular-nums">
+                        <span className="ms-auto text-sm font-semibold tabular-nums">
                           {v.score}
                         </span>
                       </div>
@@ -300,7 +300,7 @@ export default function HrHireFastPage() {
                       <TableHead>{t('stage')}</TableHead>
                       <TableHead>{t('status')}</TableHead>
                       <TableHead>{t('waiting')}</TableHead>
-                      <TableHead className="text-right">{t('score')}</TableHead>
+                      <TableHead className="text-end">{t('score')}</TableHead>
                       <TableHead>{t('why')}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -316,7 +316,7 @@ export default function HrHireFastPage() {
                         <TableCell className="text-muted-foreground">
                           {waiting(v)}
                         </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">
+                        <TableCell className="text-end font-semibold tabular-nums">
                           {v.score}
                         </TableCell>
                         <TableCell>{reasons(v)}</TableCell>

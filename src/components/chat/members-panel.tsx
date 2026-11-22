@@ -315,7 +315,7 @@ export function MembersPanel({
           <PresenceDot
             state={dot}
             label={tp(PERSON_PRESENCE_KEY[dot])}
-            className="border-muted-foreground/60 ring-background absolute -right-0.5 -bottom-0.5 ring-2"
+            className="border-muted-foreground/60 ring-background absolute -end-0.5 -bottom-0.5 ring-2"
           />
         </span>
         <div className="min-w-0 flex-1">
@@ -402,7 +402,7 @@ export function MembersPanel({
                   disabled={leaveWhy !== null}
                   onClick={() => setLeaving(true)}
                 >
-                  <LogOut aria-hidden />
+                  <LogOut className="rtl:rotate-180" aria-hidden />
                   <span>
                     {t('members.leave')}
                     {leaveWhy && (
@@ -423,7 +423,7 @@ export function MembersPanel({
   return (
     <aside
       aria-label={t('members.title')}
-      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-l"
+      className="bg-background fixed inset-0 z-40 flex min-h-0 flex-col lg:static lg:z-auto lg:w-[360px] lg:shrink-0 lg:border-s"
     >
       <header className="flex items-start gap-2 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -438,7 +438,7 @@ export function MembersPanel({
           type="button"
           onClick={onClose}
           aria-label={t('members.close')}
-          className="hover:bg-muted -mr-1 rounded p-1"
+          className="hover:bg-muted -me-1 rounded p-1"
         >
           <X className="size-4" />
         </button>
@@ -576,7 +576,7 @@ function AddPeople({
           aria-label={t('members.back')}
           className={ICON_BUTTON}
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft className="size-4 rtl:rotate-180" />
         </button>
         <p className="text-sm font-semibold">{t('members.add')}</p>
       </div>
@@ -602,7 +602,7 @@ function AddPeople({
                 aria-label={t('members.pick', { name })}
                 disabled={!!block}
                 onClick={() => setPicked((p) => togglePick(p, person.userId))}
-                className="hover:bg-muted/50 flex w-full items-center gap-3 px-4 py-2 text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                className="hover:bg-muted/50 flex w-full items-center gap-3 px-4 py-2 text-start disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
                 <Avatar person={person} userId={person.userId} />
                 <span className="min-w-0 flex-1">

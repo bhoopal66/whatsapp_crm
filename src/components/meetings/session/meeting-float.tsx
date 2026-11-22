@@ -47,16 +47,16 @@ const CHROME_HEIGHT = 36 + 48;
 // a radius: the very corner, where people aim, would otherwise be dead.
 // Corners sit above the edges and take the keyboard.
 const CORNERS: Partial<Record<FloatCorner, string>> = {
-  nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
-  ne: '-top-1.5 -right-1.5 cursor-nesw-resize',
-  sw: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
-  se: '-right-1.5 -bottom-1.5 cursor-nwse-resize',
+  nw: '-top-1.5 -start-1.5 cursor-nwse-resize',
+  ne: '-top-1.5 -end-1.5 cursor-nesw-resize',
+  sw: '-bottom-1.5 -start-1.5 cursor-nesw-resize',
+  se: '-end-1.5 -bottom-1.5 cursor-nwse-resize',
 };
 const EDGES: Partial<Record<FloatCorner, string>> = {
   n: 'inset-x-4 -top-1 h-2 cursor-ns-resize',
   s: 'inset-x-4 -bottom-1 h-2 cursor-ns-resize',
-  w: 'inset-y-4 -left-1 w-2 cursor-ew-resize',
-  e: 'inset-y-4 -right-1 w-2 cursor-ew-resize',
+  w: 'inset-y-4 -start-1 w-2 cursor-ew-resize',
+  e: 'inset-y-4 -end-1 w-2 cursor-ew-resize',
 };
 
 const callWindowRect = (): Rect | null => {
@@ -337,7 +337,7 @@ function FloatWindow({ active }: { active: ActiveCall }) {
         <>
           <div
             {...handleProps}
-            className="flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3 text-sm"
+            className="flex h-9 shrink-0 items-center gap-2 pe-1.5 ps-3 text-sm"
           >
             {liveDot}
             <span className="min-w-0 flex-1 truncate font-medium">{title}</span>

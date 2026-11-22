@@ -338,7 +338,7 @@ export function CustomerHeader({
                 className="hover:text-primary inline-flex cursor-pointer items-center gap-1 transition-colors"
               >
                 <Phone className="size-3.5" />
-                {contact.phone}
+                <span dir="ltr">{contact.phone}</span>
                 {copied ? (
                   <Check className="text-primary size-3" />
                 ) : (

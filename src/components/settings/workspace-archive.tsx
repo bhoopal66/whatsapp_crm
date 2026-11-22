@@ -126,7 +126,7 @@ export function ArchiveWorkspaceCard({ name }: { name: string }) {
           <div className="space-y-4 text-sm">
             <div className="space-y-1.5">
               <p className="font-medium">{t('happensTitle')}</p>
-              <ul className="text-muted-foreground list-disc space-y-1 pl-5">
+              <ul className="text-muted-foreground list-disc space-y-1 ps-5">
                 {HAPPENS.map((key) => (
                   <li key={key}>{t(`happens.${key}`)}</li>
                 ))}
@@ -134,7 +134,7 @@ export function ArchiveWorkspaceCard({ name }: { name: string }) {
             </div>
             <div className="space-y-1.5">
               <p className="font-medium">{t('firstTitle')}</p>
-              <ul className="text-muted-foreground list-disc space-y-1 pl-5">
+              <ul className="text-muted-foreground list-disc space-y-1 ps-5">
                 {FIRST.map((key) => (
                   <li key={key}>{t(`first.${key}`)}</li>
                 ))}

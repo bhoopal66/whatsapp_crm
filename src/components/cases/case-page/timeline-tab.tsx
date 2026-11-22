@@ -180,7 +180,7 @@ export function TimelineTab({ caseId }: CaseTabProps) {
             <h2 className="text-muted-foreground text-xs font-semibold">
               {dayLabel(d.day)}
             </h2>
-            <ol className="ml-2.5 space-y-3 border-l pl-5">
+            <ol className="ms-2.5 space-y-3 border-s ps-5">
               {d.entries.map((e, i) => {
                 const Icon = ICONS[timelineIcon(e.kind)];
                 const summary = summaryOf(e);
@@ -189,7 +189,7 @@ export function TimelineTab({ caseId }: CaseTabProps) {
                     key={`${e.kind}-${e.refId}-${i}`}
                     className="relative flex min-w-0 flex-col gap-0.5 text-sm"
                   >
-                    <span className="bg-background text-muted-foreground absolute top-0 -left-[1.95rem] flex size-5 items-center justify-center rounded-full border">
+                    <span className="bg-background text-muted-foreground absolute top-0 -start-[1.95rem] flex size-5 items-center justify-center rounded-full border">
                       <Icon className="size-3" aria-hidden />
                     </span>
                     <span className="flex flex-wrap items-baseline gap-x-2">

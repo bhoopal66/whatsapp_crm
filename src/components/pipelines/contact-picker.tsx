@@ -151,10 +151,10 @@ export function ContactPicker({
         aria-expanded={focused && results.length > 0}
         aria-controls={listId}
         aria-autocomplete="list"
-        className="border-border bg-card dark:bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 pr-8 text-sm outline-none focus:ring-1"
+        className="border-border bg-card dark:bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 pe-8 text-sm outline-none focus:ring-1"
       />
       {loading && focused ? (
-        <Loader2 className="text-muted-foreground absolute top-1/2 right-2.5 h-3.5 w-3.5 -translate-y-1/2 animate-spin" />
+        <Loader2 className="text-muted-foreground absolute top-1/2 end-2.5 h-3.5 w-3.5 -translate-y-1/2 animate-spin" />
       ) : (
         selected &&
         !focused && (
@@ -162,7 +162,7 @@ export function ContactPicker({
             type="button"
             aria-label={placeholder}
             onClick={() => onChange(null)}
-            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 end-2 -translate-y-1/2 rounded p-0.5"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -205,7 +205,7 @@ export function ContactPicker({
               </span>
               {c.name && (
                 <span className="text-muted-foreground shrink-0 text-xs">
-                  {c.phone}
+                  <span dir="ltr">{c.phone}</span>
                 </span>
               )}
             </li>

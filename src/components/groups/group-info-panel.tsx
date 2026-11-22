@@ -199,7 +199,7 @@ export function GroupInfoPanel({
               {group.description}
             </p>
           )}
-          <dl className="mt-3 grid w-full grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
+          <dl className="mt-3 grid w-full grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-start text-xs">
             {facts.map(([label, value]) => (
               <div key={label} className="contents">
                 <dt className="text-wa-meta">{label}</dt>
@@ -253,7 +253,7 @@ export function GroupInfoPanel({
               className="w-full justify-start"
               onClick={onLeave}
             >
-              <LogOut className="size-4" />
+              <LogOut className="size-4 rtl:rotate-180" />
               {t('leave')}
             </Button>
             <p className="text-wa-text-secondary text-xs">{t('leaveHint')}</p>

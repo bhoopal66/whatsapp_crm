@@ -97,7 +97,7 @@ const OFF =
 const ON =
   'bg-primary text-primary-foreground hover:bg-primary-hover hover:text-primary-foreground aria-expanded:bg-primary aria-expanded:text-primary-foreground dark:hover:bg-primary-hover';
 /** The left half of a split button; its caret is the right half. */
-const SPLIT = 'rounded-r-none';
+const SPLIT = 'rounded-e-none';
 
 /** Whether something is fullscreen, and whether this page can be. */
 export function useFullscreen() {
@@ -633,7 +633,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
             {badge && (
               <span
                 aria-hidden
-                className="bg-destructive absolute -top-1 -right-1 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold text-white"
+                className="bg-destructive absolute -top-1 -end-1 min-w-5 rounded-full px-1 text-center text-xs leading-5 font-semibold text-white"
               >
                 {badge}
               </span>
@@ -692,7 +692,7 @@ export function Dock({ mode, ...p }: ControlBarProps & { mode: DockMode }) {
                       aria-label={t('leaveOptions')}
                       title={t('leaveOptions')}
                       className={cn(
-                        'h-11 w-6 rounded-l-none rounded-r-xl border-y-0 border-r-0 border-l border-white/20 px-0',
+                        'h-11 w-6 rounded-s-none rounded-e-xl border-y-0 border-e-0 border-s border-white/20 px-0',
                         OFF,
                         MOTION
                       )}

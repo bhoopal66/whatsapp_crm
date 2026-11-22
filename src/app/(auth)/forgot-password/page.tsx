@@ -100,6 +100,7 @@ export default function ForgotPasswordPage() {
               <Input
                 id="email"
                 type="email"
+                dir="ltr"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -121,7 +122,7 @@ export default function ForgotPasswordPage() {
             href="/login"
             className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
             Back to sign in
           </Link>
         </CardContent>

@@ -160,7 +160,7 @@ export function ContactSidebar({
     return (
       <div
         className={cn(
-          'border-wa-divider bg-wa-panel flex h-full items-center justify-center border-l',
+          'border-wa-divider bg-wa-panel flex h-full items-center justify-center border-s',
           widthClass
         )}
       >
@@ -178,7 +178,7 @@ export function ContactSidebar({
   return (
     <div
       className={cn(
-        'border-wa-divider bg-wa-section-gap flex h-full flex-col border-l',
+        'border-wa-divider bg-wa-section-gap flex h-full flex-col border-s',
         widthClass
       )}
     >
@@ -225,8 +225,8 @@ export function ContactSidebar({
                 className="text-wa-text hover:bg-wa-row-hover flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
               >
                 <Phone className="text-wa-icon h-4 w-4 shrink-0" />
-                <span className="flex-1 truncate text-left">
-                  {contact.phone}
+                <span className="flex-1 truncate text-start">
+                  <span dir="ltr">{contact.phone}</span>
                 </span>
                 {copied ? (
                   <Check className="text-wa-green h-3.5 w-3.5" />

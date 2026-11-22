@@ -711,7 +711,7 @@ export function MessageActions({
         aria-label={t('actions.toolbar')}
         onFocus={refreshNow}
         className={cn(
-          'bg-popover absolute -top-3 right-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 opacity-0 shadow-sm group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:top-1 pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:opacity-100 pointer-coarse:shadow-none',
+          'bg-popover absolute -top-3 end-4 z-10 flex items-center gap-0.5 rounded-lg border p-0.5 opacity-0 shadow-sm group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 pointer-coarse:top-1 pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:opacity-100 pointer-coarse:shadow-none',
           picking && 'opacity-100'
         )}
       >
@@ -762,7 +762,7 @@ export function MessageActions({
             onClick={quote}
             className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
           >
-            <Reply className="size-4" aria-hidden />
+            <Reply className="size-4 rtl:rotate-180" aria-hidden />
           </button>
         )}
         {can.thread && (
@@ -816,7 +816,7 @@ export function MessageActions({
             )}
             {quotes && (
               <DropdownMenuItem onClick={quote}>
-                <Reply aria-hidden />
+                <Reply className="rtl:rotate-180" aria-hidden />
                 {t('actions.quoteReply')}
               </DropdownMenuItem>
             )}
@@ -860,7 +860,7 @@ export function MessageActions({
             )}
             {can.forward && (
               <DropdownMenuItem onClick={() => setForwarding(true)}>
-                <Forward aria-hidden />
+                <Forward className="rtl:rotate-180" aria-hidden />
                 {t('actions.forward')}
               </DropdownMenuItem>
             )}

@@ -185,9 +185,9 @@ const NO_CHAT_TAGS: readonly string[] = [];
 
 /** Opaque, so scrolled cells never show through; follows the row hover. */
 const STICKY_CHECK_CELL =
-  'bg-card group-hover/row:bg-accent sticky left-0 z-[5] w-10 min-w-10';
+  'bg-card group-hover/row:bg-accent sticky start-0 z-[5] w-10 min-w-10';
 const STICKY_NAME_CELL =
-  'bg-card group-hover/row:bg-accent sticky left-10 z-[5] min-w-32';
+  'bg-card group-hover/row:bg-accent sticky start-10 z-[5] min-w-32';
 
 type ContactRow = ContactListRow;
 
@@ -1024,7 +1024,7 @@ export function ContactsPageInner({
       <div className="space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative w-full max-w-sm">
-            <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground absolute top-1/2 start-2.5 size-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={(e) => {
@@ -1041,7 +1041,7 @@ export function ContactsPageInner({
                 }, SEARCH_DEBOUNCE_MS);
               }}
               placeholder={t('searchPlaceholder')}
-              className="bg-card border-border text-foreground placeholder:text-muted-foreground pl-8"
+              className="bg-card border-border text-foreground placeholder:text-muted-foreground ps-8"
             />
           </div>
 
@@ -1057,7 +1057,7 @@ export function ContactsPageInner({
               <Filter className="size-4" />
               {t('filterByChatTag')}
               {chatTagFilterIds.length > 0 && (
-                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
+                <span className="bg-primary text-primary-foreground ms-1 inline-flex items-center justify-center rounded-full px-1.5 text-xs font-semibold">
                   {chatTagFilterIds.length}
                 </span>
               )}
@@ -1193,7 +1193,7 @@ export function ContactsPageInner({
         <Table>
           <TableHeader className="[&_th]:bg-card-2 [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
             <TableRow className="border-border hover:bg-card-2">
-              <TableHead className="sticky left-0 z-20 w-10 min-w-10">
+              <TableHead className="sticky start-0 z-20 w-10 min-w-10">
                 <Checkbox
                   checked={allOnPageSelected}
                   indeterminate={!allOnPageSelected && someOnPageSelected}
@@ -1207,7 +1207,7 @@ export function ContactsPageInner({
                 current={sort}
                 onSort={changeSort}
                 disabled={rankedBySearch}
-                className="sticky left-10 z-20"
+                className="sticky start-10 z-20"
               >
                 {t('tableColumns.name')}
               </SortHeader>
@@ -1499,7 +1499,7 @@ export function ContactsPageInner({
               onClick={() => setPage((p) => p - 1)}
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className="size-4 rtl:rotate-180" />
             </Button>
             <span className="text-muted-foreground px-2 text-xs">
               {t('pageCount', { page: page + 1, total: totalPages })}
@@ -1511,7 +1511,7 @@ export function ContactsPageInner({
               onClick={() => setPage((p) => p + 1)}
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
-              <ChevronRight className="size-4" />
+              <ChevronRight className="size-4 rtl:rotate-180" />
             </Button>
           </div>
         </div>
@@ -1627,8 +1627,8 @@ function ChatTagFilterOption({
 }) {
   return (
     <label
-      className={`hover:bg-muted/50 flex cursor-pointer items-center gap-2.5 py-1.5 pr-3 ${
-        indent ? 'pl-8' : 'pl-3'
+      className={`hover:bg-muted/50 flex cursor-pointer items-center gap-2.5 py-1.5 pe-3 ${
+        indent ? 'ps-8' : 'ps-3'
       }`}
     >
       <Checkbox checked={checked} onCheckedChange={onToggle} />

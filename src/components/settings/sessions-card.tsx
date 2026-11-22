@@ -59,7 +59,7 @@ export function SessionsCard() {
       <Card>
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2">
-            <LogOut className="text-primary size-4" />
+            <LogOut className="text-primary size-4 rtl:rotate-180" />
             {t('sessionsTitle')}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -68,7 +68,7 @@ export function SessionsCard() {
         </CardHeader>
         <CardContent>
           <Button type="button" variant="outline" onClick={() => setOpen(true)}>
-            <LogOut className="size-4" />
+            <LogOut className="size-4 rtl:rotate-180" />
             {t('signOutAll')}
           </Button>
         </CardContent>

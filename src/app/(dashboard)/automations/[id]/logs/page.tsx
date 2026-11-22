@@ -118,12 +118,12 @@ export default function AutomationLogsPage({
                 <button
                   type="button"
                   onClick={() => setOpenLogId(isOpen ? null : log.id)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-start"
                 >
                   {isOpen ? (
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    <ChevronRight className="h-4 w-4 text-muted-foreground rtl:rotate-180" />
                   )}
                   <StatusBadge status={log.status} t={t} />
                   <div className="min-w-0 flex-1">

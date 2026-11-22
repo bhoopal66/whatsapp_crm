@@ -215,7 +215,7 @@ export function AiKnowledgeCard({
       <CardContent className="space-y-4">
         {loading ? (
           <div className="text-muted-foreground flex items-center py-4 text-sm">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loading')}
+            <Loader2 className="me-2 h-4 w-4 animate-spin" /> {t('loading')}
           </div>
         ) : (
           <>
@@ -293,7 +293,7 @@ export function AiKnowledgeCard({
                   </Button>
                   <Button onClick={save} disabled={saving}>
                     {saving && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="me-2 h-4 w-4 animate-spin" />
                     )}
                     {t('saveDoc')}
                   </Button>
@@ -304,7 +304,7 @@ export function AiKnowledgeCard({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={openNew}>
-                      <Plus className="mr-2 h-4 w-4" /> {t('addDoc')}
+                      <Plus className="me-2 h-4 w-4" /> {t('addDoc')}
                     </Button>
                     <input
                       ref={fileInputRef}
@@ -324,9 +324,9 @@ export function AiKnowledgeCard({
                       title={t('uploadTooltip')}
                     >
                       {uploading ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="me-2 h-4 w-4 animate-spin" />
                       ) : (
-                        <Upload className="mr-2 h-4 w-4" />
+                        <Upload className="me-2 h-4 w-4" />
                       )}
                       {t('uploadFile')}
                     </Button>
@@ -340,9 +340,9 @@ export function AiKnowledgeCard({
                       title={t('reindexTooltip')}
                     >
                       {reindexing ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="me-2 h-4 w-4 animate-spin" />
                       ) : (
-                        <RefreshCw className="mr-2 h-4 w-4" />
+                        <RefreshCw className="me-2 h-4 w-4" />
                       )}
                       {t('reindex')}
                     </Button>

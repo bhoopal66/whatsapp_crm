@@ -230,7 +230,7 @@ export function SubmissionGroupsList({
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -239,7 +239,7 @@ export function SubmissionGroupsList({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={tl('search')}
               aria-label={tl('search')}
-              className="h-8 pl-8 text-sm"
+              className="h-8 ps-8 text-sm"
             />
           </div>
           {((banks && banks.length > 0) || bank !== null) && (
@@ -536,7 +536,7 @@ function Row({
               </span>
             )}
             {when && (
-              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-xs whitespace-nowrap">
+              <span className="text-muted-foreground ms-auto shrink-0 ps-1 text-xs whitespace-nowrap">
                 {ended ? t('endedAt', { when }) : when}
               </span>
             )}

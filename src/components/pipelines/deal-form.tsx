@@ -307,13 +307,13 @@ export function DealForm({
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">{t('value')}</Label>
                 <div className="relative">
-                  <DollarSign className="text-muted-foreground absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+                  <DollarSign className="text-muted-foreground absolute top-1/2 start-2 h-3.5 w-3.5 -translate-y-1/2" />
                   <Input
                     type="number"
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
                     placeholder="0"
-                    className="border-border text-foreground pl-7"
+                    className="border-border text-foreground ps-7"
                   />
                 </div>
               </div>
@@ -437,7 +437,7 @@ export function DealForm({
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <Check className="mr-1 h-4 w-4" />
+                        <Check className="me-1 h-4 w-4" />
                         {t('markAsWon')}
                       </>
                     )}
@@ -454,7 +454,7 @@ export function DealForm({
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <X className="mr-1 h-4 w-4" />
+                        <X className="me-1 h-4 w-4" />
                         {t('markAsLost')}
                       </>
                     )}

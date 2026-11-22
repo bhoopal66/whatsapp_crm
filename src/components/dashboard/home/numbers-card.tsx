@@ -94,7 +94,7 @@ export function NumbersCard({
                 )}
                 <span
                   className={cn(
-                    'ml-auto shrink-0 text-xs font-medium',
+                    'ms-auto shrink-0 text-xs font-medium',
                     STATE_TEXT[state]
                   )}
                 >

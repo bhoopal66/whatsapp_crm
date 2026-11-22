@@ -183,10 +183,10 @@ export function LiveView({
                 <TableRow>
                   <TableHead>{t('person')}</TableHead>
                   <TableHead>{t('status')}</TableHead>
-                  <TableHead className="text-right">{t('openChats')}</TableHead>
-                  <TableHead className="text-right">{t('waiting')}</TableHead>
+                  <TableHead className="text-end">{t('openChats')}</TableHead>
+                  <TableHead className="text-end">{t('waiting')}</TableHead>
                   <TableHead>{t('oldestWait')}</TableHead>
-                  <TableHead className="text-right">
+                  <TableHead className="text-end">
                     {t('repliesToday')}
                   </TableHead>
                 </TableRow>
@@ -204,12 +204,12 @@ export function LiveView({
                     <TableCell>
                       <PresenceBadge presence={p.presence} />
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-end tabular-nums">
                       {p.openChats}
                     </TableCell>
                     <TableCell
                       className={cn(
-                        'text-right tabular-nums',
+                        'text-end tabular-nums',
                         p.waitingChats > 0 && 'text-destructive font-medium'
                       )}
                     >
@@ -218,7 +218,7 @@ export function LiveView({
                     <TableCell>
                       <OldestWait person={p} now={now} />
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-end tabular-nums">
                       {p.repliesToday}
                     </TableCell>
                   </TableRow>

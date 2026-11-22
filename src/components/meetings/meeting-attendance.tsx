@@ -144,17 +144,17 @@ export function MeetingSummaryCard({
           <>
             <table className="hidden w-full text-sm sm:table">
               <thead>
-                <tr className="text-muted-foreground border-b text-left text-xs">
-                  <th className="py-2 pr-3 font-medium">{td('colName')}</th>
-                  <th className="py-2 pr-3 font-medium">{td('colJoined')}</th>
-                  <th className="py-2 pr-3 font-medium">{td('colLeft')}</th>
+                <tr className="text-muted-foreground border-b text-start text-xs">
+                  <th className="py-2 pe-3 font-medium">{td('colName')}</th>
+                  <th className="py-2 pe-3 font-medium">{td('colJoined')}</th>
+                  <th className="py-2 pe-3 font-medium">{td('colLeft')}</th>
                   <th className="py-2 font-medium">{td('colTime')}</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.userId} className="border-b last:border-0">
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pe-3">
                       <div className="flex min-w-0 items-center gap-2">
                         <PersonAvatar person={personOf(e.userId)} size="sm" />
                         <div className="min-w-0">
@@ -163,10 +163,10 @@ export function MeetingSummaryCard({
                         </div>
                       </div>
                     </td>
-                    <td className="py-2 pr-3 whitespace-nowrap tabular-nums">
+                    <td className="py-2 pe-3 whitespace-nowrap tabular-nums">
                       {timeOf(e.firstJoinedAt)}
                     </td>
-                    <td className="py-2 pr-3 whitespace-nowrap tabular-nums">
+                    <td className="py-2 pe-3 whitespace-nowrap tabular-nums">
                       {left(e)}
                     </td>
                     <td className="py-2 whitespace-nowrap tabular-nums">

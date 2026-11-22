@@ -58,7 +58,7 @@ describe('palette families and keys', () => {
 
   it('gives the colours the design names', () => {
     expect(paletteFor('lead', 'ready').chip).toContain('bg-emerald-50');
-    expect(paletteFor('lead', 'hot').stripe).toContain('border-l-orange-500');
+    expect(paletteFor('lead', 'hot').stripe).toContain('border-s-orange-500');
     expect(paletteFor('attention', 'ai_handoff').dot).toContain('bg-rose-');
     expect(paletteFor('attention', 'wants_person').text).toContain('violet');
     expect(paletteFor('attention', 'callback').chip).toContain('bg-sky-50');
@@ -77,7 +77,7 @@ describe('palette families and keys', () => {
     const prefix: Record<(typeof PART)[number], RegExp> = {
       chip: /^bg-/,
       dot: /^bg-/,
-      stripe: /^border-l-/,
+      stripe: /^border-s-/,
       text: /^text-/,
     };
     for (const [family, key, swatch] of everySwatch()) {

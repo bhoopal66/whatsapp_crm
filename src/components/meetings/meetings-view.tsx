@@ -313,7 +313,7 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
           <JoinByLink />
           <div className="relative w-full sm:w-56">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -322,7 +322,7 @@ export function MeetingsView({ tab }: { tab: MeetingHubTab }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('search')}
               aria-label={t('search')}
-              className="pl-8"
+              className="ps-8"
             />
           </div>
         </div>

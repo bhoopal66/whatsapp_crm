@@ -131,7 +131,7 @@ function CampaignLine({ row, now }: { row: CampaignRow; now: Date }) {
             {t('failed', { count: row.failed_count })}
           </span>
         )}
-        <span className="ml-auto shrink-0">
+        <span className="ms-auto shrink-0">
           {sending ? (
             <span className="bg-info-soft text-info rounded px-1.5 py-0.5 text-xs font-medium">
               {t('sending')}

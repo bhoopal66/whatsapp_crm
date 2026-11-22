@@ -618,7 +618,7 @@ export function SubmissionGroupPage({
           {docked ? (
             <aside
               aria-label={tDetails('title')}
-              className="bg-background w-80 shrink-0 space-y-3 overflow-y-auto border-l p-3"
+              className="bg-background w-80 shrink-0 space-y-3 overflow-y-auto border-s p-3"
             >
               {side}
             </aside>

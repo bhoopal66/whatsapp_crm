@@ -301,7 +301,7 @@ function DocRow({
                 (open ? (
                   <ChevronDown className="size-3.5" />
                 ) : (
-                  <ChevronRight className="size-3.5" />
+                  <ChevronRight className="size-3.5 rtl:rotate-180" />
                 ))}
               {t('versions', { count: versions })}
             </button>
@@ -753,7 +753,7 @@ function AttachDialog({
                   aria-checked={picked === d.id}
                   onClick={() => setPicked(d.id)}
                   className={cn(
-                    'bg-card-2 hover:bg-muted w-full rounded-md border px-3 py-2 text-left',
+                    'bg-card-2 hover:bg-muted w-full rounded-md border px-3 py-2 text-start',
                     picked === d.id && 'border-primary ring-primary/30 ring-2'
                   )}
                 >

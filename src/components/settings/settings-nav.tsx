@@ -149,7 +149,7 @@ export function SettingsNav({
         <div className="relative">
           <Search
             aria-hidden
-            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
           />
           <Input
             type="search"
@@ -176,7 +176,7 @@ export function SettingsNav({
             }}
             placeholder={t('nav.search')}
             aria-label={t('nav.search')}
-            className="bg-card h-9 pl-8"
+            className="bg-card h-9 ps-8"
           />
         </div>
       </div>
@@ -330,7 +330,7 @@ export function SettingsMenuButton({
           <button
             type="button"
             className={cn(
-              'border-border bg-card hover:bg-card-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left shadow-xs transition-colors',
+              'border-border bg-card hover:bg-card-2 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-start shadow-xs transition-colors',
               'focus-visible:ring-ring/50 outline-none focus-visible:ring-3',
               className
             )}

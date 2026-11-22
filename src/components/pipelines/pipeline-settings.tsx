@@ -359,7 +359,7 @@ export function PipelineSettings({
                     disabled={!newStageName.trim()}
                     className="border-border text-muted-foreground hover:bg-muted shrink-0 bg-transparent"
                   >
-                    <Plus className="mr-1 h-3 w-3" />
+                    <Plus className="me-1 h-3 w-3" />
                     {t('add')}
                   </Button>
                 </div>
@@ -370,7 +370,7 @@ export function PipelineSettings({
                 onClick={onCreateNewPipeline}
                 className="border-border text-muted-foreground hover:bg-muted w-full bg-transparent"
               >
-                <Plus className="mr-1 h-3 w-3" />
+                <Plus className="me-1 h-3 w-3" />
                 {t('createNewPipeline')}
               </Button>
             </div>
@@ -378,7 +378,7 @@ export function PipelineSettings({
             <DialogFooter className="border-border bg-popover/50">
               <Button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="mr-auto bg-red-600 text-white hover:bg-red-700"
+                className="me-auto bg-red-600 text-white hover:bg-red-700"
               >
                 {t('deletePipeline')}
               </Button>
@@ -477,7 +477,7 @@ function SortableStageRow({
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
-      <div className="mt-2 grid gap-1 pl-6">
+      <div className="mt-2 grid gap-1 ps-6">
         <Label className="text-muted-foreground text-xs">
           {t('autoTagLabel')}
         </Label>
@@ -535,7 +535,7 @@ function ColorSwatch({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="border-border bg-popover absolute top-6 left-0 z-20 flex w-36 flex-wrap gap-1 rounded-lg border p-2 shadow-lg">
+          <div className="border-border bg-popover absolute top-6 start-0 z-20 flex w-36 flex-wrap gap-1 rounded-lg border p-2 shadow-lg">
             {colors.map((c) => (
               <button
                 key={c}

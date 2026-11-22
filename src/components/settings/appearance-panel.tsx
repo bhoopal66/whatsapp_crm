@@ -102,7 +102,7 @@ function ModeCard({
       aria-checked={isActive}
       aria-label={t("useMode", { mode })}
       className={cn(
-        "flex items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
+        "flex items-center gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
           ? "border-primary/60 ring-2 ring-primary/40"
           : "border-border hover:border-primary/40 hover:bg-accent",
@@ -150,7 +150,7 @@ function ThemeCard({
       aria-pressed={isActive}
       aria-label={t("useTheme", { name })}
       className={cn(
-        "flex flex-col gap-3 rounded-lg border bg-card p-4 text-left transition-colors",
+        "flex flex-col gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
           ? "border-primary/60 ring-2 ring-primary/40"
           : "border-border hover:border-primary/40 hover:bg-accent",

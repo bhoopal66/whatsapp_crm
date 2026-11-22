@@ -408,7 +408,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         ref={asideRef}
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-row border-r',
+          'border-sidebar-border bg-sidebar fixed inset-y-0 start-0 z-40 flex h-full w-64 flex-row border-e',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
@@ -480,7 +480,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                           aria-controls={listId}
                           disabled={locked}
                           title={locked ? t('groupHasCurrentPage') : undefined}
-                          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-xs font-semibold tracking-[0.09em] uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:opacity-100"
+                          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-3 text-start text-xs font-semibold tracking-[0.09em] uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:opacity-100"
                         >
                           <span>{t(group.labelKey)}</span>
                           <ChevronDown
@@ -543,7 +543,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                       const Icon = meta.icon;
                       return (
                         <span
-                          className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium tracking-wider uppercase ${meta.className}`}
+                          className={`ms-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium tracking-wider uppercase ${meta.className}`}
                         >
                           <Icon className="size-3" />
                           {t(meta.labelKey as string)}
@@ -557,7 +557,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               <DropdownMenu>
                 <DropdownMenuTrigger
                   aria-label={t('switchWorkspace')}
-                  className="border-border text-sidebar-foreground hover:bg-muted/60 data-popup-open:bg-muted/60 focus-visible:ring-ring mb-2 flex min-h-9 w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                  className="border-border text-sidebar-foreground hover:bg-muted/60 data-popup-open:bg-muted/60 focus-visible:ring-ring mb-2 flex min-h-9 w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-start text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <ArrowLeftRight className="size-4 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">
@@ -607,7 +607,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               </DropdownMenu>
             ) : null}
             <DropdownMenu>
-              <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">
+              <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-start transition-colors focus:outline-none">
                 <Avatar className="size-8 shrink-0">
                   {profile?.avatar_url ? (
                     <AvatarImage
@@ -687,7 +687,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                   onClick={signOut}
                   className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                 >
-                  <LogOut className="size-4" />
+                  <LogOut className="size-4 rtl:rotate-180" />
                   {t('menuSignOut')}
                 </DropdownMenuItem>
               </DropdownMenuContent>

@@ -257,7 +257,7 @@ export function OverviewTab({ caseId, detail }: CaseTabProps) {
                 className="text-info inline-flex min-h-8 items-center gap-1 text-sm font-medium hover:underline"
               >
                 {t('overview.openChat')}
-                <ArrowRight className="size-3.5" aria-hidden />
+                <ArrowRight className="size-3.5 rtl:rotate-180" aria-hidden />
               </Link>
             </>
           )}
@@ -279,7 +279,7 @@ function TabLink({ tab, label }: { tab: string; label: string }) {
       className="text-info inline-flex min-h-8 items-center gap-1 text-sm font-medium hover:underline"
     >
       {label}
-      <ArrowRight className="size-3.5" aria-hidden />
+      <ArrowRight className="size-3.5 rtl:rotate-180" aria-hidden />
     </Link>
   );
 }
@@ -314,7 +314,7 @@ function Section({
   return (
     <section className="bg-card rounded-lg border p-3">
       <h2 className="mb-2 text-sm font-semibold">{title}</h2>
-      <ol className="space-y-2 border-l pl-3 text-sm">{children}</ol>
+      <ol className="space-y-2 border-s ps-3 text-sm">{children}</ol>
     </section>
   );
 }

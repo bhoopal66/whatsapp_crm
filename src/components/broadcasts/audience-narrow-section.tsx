@@ -91,12 +91,12 @@ export function AudienceNarrowSection({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 text-left"
+        className="flex w-full items-center gap-2 text-start"
       >
         {open ? (
           <ChevronDown className="h-4 w-4" aria-hidden />
         ) : (
-          <ChevronRight className="h-4 w-4" aria-hidden />
+          <ChevronRight className="h-4 w-4 rtl:rotate-180" aria-hidden />
         )}
         <span className="text-foreground text-sm font-medium">
           {t('title')}

@@ -63,7 +63,7 @@ export function ContactDocumentsRow({ contactId }: { contactId: string }) {
       <span className="bg-wa-search min-w-0 truncate rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold">
         {summary.folder.ref}
       </span>
-      <span className="text-wa-text-secondary ml-auto shrink-0 text-xs">
+      <span className="text-wa-text-secondary ms-auto shrink-0 text-xs">
         {t('sidebarCount', { count: summary.count })}
       </span>
     </Link>

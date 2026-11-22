@@ -235,7 +235,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
 
   const people = listedPeople(detail.participants);
   return (
-    <aside className="bg-background flex w-full shrink-0 flex-col overflow-y-auto border-l p-4 text-sm lg:w-[320px]">
+    <aside className="bg-background flex w-full shrink-0 flex-col overflow-y-auto border-s p-4 text-sm lg:w-[320px]">
       <div className="flex items-baseline justify-between">
         <h3 className="font-semibold">{t('members.title')}</h3>
         <span className="text-muted-foreground text-xs">

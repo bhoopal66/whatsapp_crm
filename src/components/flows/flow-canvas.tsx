@@ -172,7 +172,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
         } as React.CSSProperties
       }
       className={cn(
-        'bg-card relative max-w-[260px] min-w-[220px] rounded-xl border px-3.5 py-3 text-left shadow-[0_2px_6px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color]',
+        'bg-card relative max-w-[260px] min-w-[220px] rounded-xl border px-3.5 py-3 text-start shadow-[0_2px_6px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color]',
         selected
           ? 'border-[var(--nc)]'
           : 'border-border hover:border-[var(--nc-ring)]',
@@ -204,7 +204,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           {t(`nodes.${node.node_type}.label`)}
         </span>
         {isEntry && (
-          <span className="border-border text-muted-foreground ml-auto rounded border px-1.5 py-0.5 text-[8.5px] font-bold tracking-[0.1em] uppercase">
+          <span className="border-border text-muted-foreground ms-auto rounded border px-1.5 py-0.5 text-[8.5px] font-bold tracking-[0.1em] uppercase">
             {t('badgeEntry')}
           </span>
         )}
@@ -241,7 +241,7 @@ function FlowNodeCard({ data, selected }: NodeProps) {
                 // sits flush with the right edge of the card instead
                 // of floating at vertical center. The negative offset
                 // matches the card's px-3 + the handle's own radius.
-                className="!bg-card !relative !top-auto !right-auto !h-2.5 !w-2.5 !translate-x-[14px] !transform-none !border-2"
+                className="!bg-card !relative !top-auto !end-auto !h-2.5 !w-2.5 !translate-x-[14px] !transform-none !border-2"
               />
             </div>
           ))}
@@ -577,7 +577,7 @@ function FlowCanvasInner() {
             maskColor="color-mix(in oklch, var(--background) 70%, transparent)"
             className="!border-border !bg-card !rounded-xl !border !shadow-[0_6px_20px_-8px_rgba(0,0,0,0.5)]"
           />
-          <Panel position="top-left" className="!top-4 !left-4">
+          <Panel position="top-left" className="!top-4 !start-4">
             <CanvasAddNodeButton t={t} />
           </Panel>
         </ReactFlow>
@@ -639,7 +639,7 @@ function NodeEditSheet({
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="right"
-        className="border-border bg-popover flex w-full flex-col gap-0 border-l p-0 sm:max-w-md"
+        className="border-border bg-popover flex w-full flex-col gap-0 border-s p-0 sm:max-w-md"
       >
         <SheetHeader className="border-border flex-row items-center gap-3 space-y-0 border-b px-5 py-4">
           <NodeIconChip type={node.node_type} size={36} iconSize={18} />

@@ -260,7 +260,7 @@ export function CreateWorkspaceDialog({
         className={cn(
           'border-border bg-popover text-popover-foreground',
           // Mobile: a full-screen sheet. sm+: a wide centred dialog.
-          'top-0 left-0 h-dvh max-w-full translate-x-0 translate-y-0 content-start gap-5 overflow-y-auto rounded-none p-4',
+          'top-0 start-0 h-dvh max-w-full translate-x-0 translate-y-0 content-start gap-5 overflow-y-auto rounded-none p-4',
           'sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-[960px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:p-6'
         )}
       >
@@ -295,11 +295,11 @@ export function CreateWorkspaceDialog({
                       </span>
                     </div>
                     {o.ok ? (
-                      <p className="text-muted-foreground pl-7 text-xs">
+                      <p className="text-muted-foreground ps-7 text-xs">
                         {o.loginCreated ? t('loginCreated') : t('inviteAdded')}
                       </p>
                     ) : needsLogin ? (
-                      <div className="bg-muted/50 space-y-3 rounded-lg p-3 sm:ml-7">
+                      <div className="bg-muted/50 space-y-3 rounded-lg p-3 sm:ms-7">
                         <p className="text-muted-foreground text-xs">
                           {t('noLoginHint')}
                         </p>
@@ -378,7 +378,7 @@ export function CreateWorkspaceDialog({
                         </Button>
                       </div>
                     ) : (
-                      <p className="text-destructive pl-7 text-xs">
+                      <p className="text-destructive ps-7 text-xs">
                         {o.error || t('inviteFailed')}
                       </p>
                     )}
@@ -400,7 +400,7 @@ export function CreateWorkspaceDialog({
           </>
         ) : (
           <>
-            <DialogHeader className="pr-8">
+            <DialogHeader className="pe-8">
               <DialogTitle className="text-popover-foreground text-lg">
                 {t('title')}
               </DialogTitle>
@@ -503,6 +503,7 @@ export function CreateWorkspaceDialog({
                       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                         <Input
                           type="email"
+                          dir="ltr"
                           value={row.email}
                           placeholder={t('emailPlaceholder')}
                           aria-label={t('emailLabel')}

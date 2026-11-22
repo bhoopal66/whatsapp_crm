@@ -548,7 +548,7 @@ function BreakdownTable({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead>
-              <tr className="border-border text-muted-foreground border-b text-left text-xs">
+              <tr className="border-border text-muted-foreground border-b text-start text-xs">
                 <th scope="col" className="px-4 py-2 font-medium">
                   {t('breakdown.item')}
                 </th>
@@ -556,7 +556,7 @@ function BreakdownTable({
                   <th
                     key={m}
                     scope="col"
-                    className="px-3 py-2 text-right font-medium whitespace-nowrap"
+                    className="px-3 py-2 text-end font-medium whitespace-nowrap"
                   >
                     {t(`stages.${m}`)}
                   </th>
@@ -571,14 +571,14 @@ function BreakdownTable({
                 >
                   <th
                     scope="row"
-                    className="text-foreground max-w-56 truncate px-4 py-2 text-left font-medium"
+                    className="text-foreground max-w-56 truncate px-4 py-2 text-start font-medium"
                   >
                     {nameOf(r)}
                   </th>
                   {ROW_METRICS.map((m) => (
                     <td
                       key={m}
-                      className="text-foreground px-3 py-2 text-right tabular-nums"
+                      className="text-foreground px-3 py-2 text-end tabular-nums"
                     >
                       {nf.format(r.counts[m])}
                     </td>
@@ -605,7 +605,7 @@ function BankTable({ rows }: { rows: FunnelBankRow[] }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-sm">
             <thead>
-              <tr className="border-border text-muted-foreground border-b text-left text-xs">
+              <tr className="border-border text-muted-foreground border-b text-start text-xs">
                 <th scope="col" className="px-4 py-2 font-medium">
                   {t('breakdown.item')}
                 </th>
@@ -613,7 +613,7 @@ function BankTable({ rows }: { rows: FunnelBankRow[] }) {
                   <th
                     key={m}
                     scope="col"
-                    className="px-3 py-2 text-right font-medium whitespace-nowrap"
+                    className="px-3 py-2 text-end font-medium whitespace-nowrap"
                   >
                     {t(`stages.${m}`)}
                   </th>
@@ -628,14 +628,14 @@ function BankTable({ rows }: { rows: FunnelBankRow[] }) {
                 >
                   <th
                     scope="row"
-                    className="text-foreground max-w-56 truncate px-4 py-2 text-left font-medium"
+                    className="text-foreground max-w-56 truncate px-4 py-2 text-start font-medium"
                   >
                     {r.name ?? r.key ?? t('breakdown.noBank')}
                   </th>
                   {FUNNEL_BANK_METRICS.map((m) => (
                     <td
                       key={m}
-                      className="text-foreground px-3 py-2 text-right tabular-nums"
+                      className="text-foreground px-3 py-2 text-end tabular-nums"
                     >
                       {nf.format(r.counts[m])}
                     </td>

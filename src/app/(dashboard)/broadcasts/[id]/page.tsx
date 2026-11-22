@@ -118,7 +118,7 @@ function FunnelChart({ steps }: { steps: FunnelStep[] }) {
                 />
                 <span className="text-foreground absolute inset-0 flex items-center px-3 text-xs font-medium">
                   {step.value.toLocaleString()}
-                  <span className="text-muted-foreground/80 ml-2">
+                  <span className="text-muted-foreground/80 ms-2">
                     ({pctOfSent}%)
                   </span>
                 </span>
@@ -900,7 +900,7 @@ export default function BroadcastDetailPage() {
                         </span>
                         {rClass && (
                           <span
-                            className={`ml-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${REPLY_CLASS_TONE[rClass].chip}`}
+                            className={`ms-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${REPLY_CLASS_TONE[rClass].chip}`}
                           >
                             {tReply(REPLY_CLASS_LABEL_KEY[rClass])}
                           </span>
@@ -949,7 +949,7 @@ export default function BroadcastDetailPage() {
                 onClick={() => setPage((p) => p - 1)}
                 className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
               >
-                <ChevronLeft className="size-4" />
+                <ChevronLeft className="size-4 rtl:rotate-180" />
               </Button>
               <span className="text-muted-foreground px-2 text-xs">
                 {tPager('pageCount', { page: page + 1, total: totalPages })}
@@ -961,7 +961,7 @@ export default function BroadcastDetailPage() {
                 onClick={() => setPage((p) => p + 1)}
                 className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
               >
-                <ChevronRight className="size-4" />
+                <ChevronRight className="size-4 rtl:rotate-180" />
               </Button>
             </div>
           </div>

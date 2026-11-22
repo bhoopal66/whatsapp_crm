@@ -365,7 +365,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         <div className="shrink-0 space-y-2 px-3 pt-3 pb-2">
           <div className="relative">
             <Search
-              className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2"
+              className="text-wa-icon pointer-events-none absolute top-1/2 start-3.5 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -374,7 +374,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t('search')}
               aria-label={t('search')}
-              className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 pl-11 text-sm shadow-none focus-visible:ring-2"
+              className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 ps-11 text-sm shadow-none focus-visible:ring-2"
             />
           </div>
           <div className="flex items-center gap-1">
@@ -411,7 +411,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
                 aria-label={t('filters.number')}
                 title={t('filters.number')}
                 className={cn(
-                  'bg-wa-search focus-visible:ring-wa-teal/40 ml-auto h-7 max-w-[9rem] min-w-0 truncate rounded-full border-0 px-2.5 text-[12.5px] outline-none focus-visible:ring-2',
+                  'bg-wa-search focus-visible:ring-wa-teal/40 ms-auto h-7 max-w-[9rem] min-w-0 truncate rounded-full border-0 px-2.5 text-[12.5px] outline-none focus-visible:ring-2',
                   activeChannelId
                     ? 'text-wa-teal font-medium'
                     : 'text-wa-text-secondary'
@@ -591,7 +591,7 @@ function GroupRow({
         href={groupHref(g)}
         aria-current={selected ? 'page' : undefined}
         className={cn(
-          'flex w-full items-center gap-3 pl-3 text-left transition-colors',
+          'flex w-full items-center gap-3 ps-3 text-start transition-colors',
           selected ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover'
         )}
       >
@@ -621,7 +621,7 @@ function GroupRow({
         {/* The divider runs under the text only, past the avatar. */}
         <span
           className={cn(
-            'border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3',
+            'border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pe-3',
             left && 'opacity-60'
           )}
         >

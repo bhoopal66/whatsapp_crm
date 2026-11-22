@@ -149,12 +149,12 @@ function ContactsList({ accountId }: { accountId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative w-full max-w-sm">
-          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+          <Search className="text-muted-foreground absolute top-1/2 start-3 h-4 w-4 -translate-y-1/2" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('searchPlaceholder')}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         {total !== null && (
@@ -211,7 +211,7 @@ function ContactsList({ accountId }: { accountId: string }) {
                         {expanded ? (
                           <ChevronDown className="h-4 w-4" />
                         ) : (
-                          <ChevronRight className="h-4 w-4" />
+                          <ChevronRight className="h-4 w-4 rtl:rotate-180" />
                         )}
                       </TableCell>
                       <TableCell>
@@ -227,7 +227,7 @@ function ContactsList({ accountId }: { accountId: string }) {
                       <TableCell className="font-mono text-xs">
                         {phoneOf(row)}
                         {row.additional_phones.length > 0 && (
-                          <span className="text-muted-foreground ml-1 font-sans">
+                          <span className="text-muted-foreground ms-1 font-sans">
                             {t('morePhones', {
                               count: row.additional_phones.length,
                             })}

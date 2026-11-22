@@ -337,7 +337,7 @@ export function ChatTagsPanel() {
                           </div>
                         </div>
 
-                        <div className="mt-2.5 flex flex-wrap gap-1.5 pl-6">
+                        <div className="mt-2.5 flex flex-wrap gap-1.5 ps-6">
                           {main.subs.map((sub) => (
                             <button
                               key={sub.id}

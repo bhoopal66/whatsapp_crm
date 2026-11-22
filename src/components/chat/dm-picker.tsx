@@ -73,7 +73,7 @@ export function PeoplePicker({
                   type="button"
                   onClick={() => onChange(togglePick(picked, id))}
                   aria-label={t('remove', { name })}
-                  className="bg-primary-soft text-primary hover:bg-primary-soft-2 flex items-center gap-1 rounded-full py-0.5 pr-1.5 pl-2.5 text-xs font-semibold"
+                  className="bg-primary-soft text-primary hover:bg-primary-soft-2 flex items-center gap-1 rounded-full py-0.5 pe-1.5 ps-2.5 text-xs font-semibold"
                 >
                   {name}
                   <X className="size-3" aria-hidden />

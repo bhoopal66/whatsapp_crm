@@ -138,7 +138,7 @@ function TileAvatar({
           )}
         </div>
         {loading && (
-          <span className="absolute -right-1 -bottom-1 flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+          <span className="absolute -end-1 -bottom-1 flex size-6 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
             <Loader2
               className="size-3.5 animate-spin motion-reduce:animate-none"
               aria-label={loadingLabel}
@@ -279,8 +279,8 @@ export function RoomTile(p: RoomTileProps) {
           className={cn(
             'absolute z-20 flex items-center gap-1 rounded-md bg-amber-400 font-semibold text-black tabular-nums shadow-sm',
             compact
-              ? 'top-1 left-1 px-1 py-0.5 text-xs'
-              : 'top-2 left-2 px-1.5 py-1 text-xs'
+              ? 'top-1 start-1 px-1 py-0.5 text-xs'
+              : 'top-2 start-2 px-1.5 py-1 text-xs'
           )}
           aria-label={
             p.handRank ? t('handRank', { rank: p.handRank }) : t('handRaised')
@@ -295,7 +295,7 @@ export function RoomTile(p: RoomTileProps) {
       <div
         className={cn(
           'absolute z-20 flex gap-0.5 rounded-lg bg-black/55 p-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-out group-focus-within/tile:opacity-100 group-hover/tile:opacity-100 motion-reduce:transition-none',
-          compact ? 'top-1 right-1' : 'top-2 right-2'
+          compact ? 'top-1 end-1' : 'top-2 end-2'
         )}
       >
         <Button
@@ -351,8 +351,8 @@ export function RoomTile(p: RoomTileProps) {
         className={cn(
           'absolute z-20 flex items-center gap-1.5 rounded-md bg-black/55 text-white backdrop-blur-sm',
           compact
-            ? 'bottom-1 left-1 max-w-[calc(100%-0.5rem)] px-1.5 py-0.5 text-xs'
-            : 'bottom-2 left-2 max-w-[calc(100%-1rem)] px-2 py-1 text-xs'
+            ? 'bottom-1 start-1 max-w-[calc(100%-0.5rem)] px-1.5 py-0.5 text-xs'
+            : 'bottom-2 start-2 max-w-[calc(100%-1rem)] px-2 py-1 text-xs'
         )}
       >
         {p.kind === 'screen' ? (

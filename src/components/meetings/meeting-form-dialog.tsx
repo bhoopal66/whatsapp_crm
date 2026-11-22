@@ -308,7 +308,7 @@ export function MeetingFormDialog({
                   return (
                     <li
                       key={id}
-                      className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pr-1 pl-0.5 text-xs"
+                      className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pe-1 ps-0.5 text-xs"
                     >
                       <PersonAvatar
                         person={{ userId: id, name, avatarUrl: avatarOf(id) }}
@@ -360,7 +360,7 @@ export function MeetingFormDialog({
                         <span className="min-w-0 flex-1 truncate">
                           {p.full_name || p.email}
                           {p.full_name && p.email && (
-                            <span className="text-muted-foreground ml-1.5 text-xs">
+                            <span className="text-muted-foreground ms-1.5 text-xs">
                               {p.email}
                             </span>
                           )}

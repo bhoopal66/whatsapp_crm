@@ -207,7 +207,7 @@ function EditorBody({
           side="right"
           className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
         >
-          <SheetHeader className="border-border border-b px-5 py-4 pr-12">
+          <SheetHeader className="border-border border-b px-5 py-4 pe-12">
             <SheetTitle className="truncate text-base font-semibold">
               {t('editTitle', { name: team.name })}
             </SheetTitle>
@@ -295,13 +295,13 @@ function EditorBody({
                 </span>
               </div>
               <div className="relative">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2" />
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t('searchMembers')}
                   aria-label={t('searchMembers')}
-                  className="pl-8"
+                  className="ps-8"
                 />
               </div>
               <ul className="divide-border border-border max-h-80 divide-y overflow-y-auto rounded-lg border">
@@ -414,7 +414,7 @@ function EditorBody({
                 onClick={openNumbersAccess}
               >
                 {t('changeInNumbers')}
-                <ArrowRight className="size-3.5" />
+                <ArrowRight className="size-3.5 rtl:rotate-180" />
               </Button>
             </section>
           </div>

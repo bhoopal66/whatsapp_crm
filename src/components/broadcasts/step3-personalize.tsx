@@ -721,7 +721,7 @@ export function Step3Personalize({
           )}
         </div>
         <div className="rounded-lg bg-[var(--wa-chat)] p-3">
-          <div className="bg-wa-bubble-out ml-auto max-w-[85%] rounded-lg px-3 py-2 shadow-sm">
+          <div className="bg-wa-bubble-out ms-auto max-w-[85%] rounded-lg px-3 py-2 shadow-sm">
             <p className="text-wa-text text-sm whitespace-pre-wrap">
               {previewText}
             </p>
@@ -760,7 +760,7 @@ export function Step3Personalize({
           onClick={onBack}
           className="border-border text-muted-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
           {t('back')}
         </Button>
         <Button
@@ -769,7 +769,7 @@ export function Step3Personalize({
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {t('next')}
-          <ArrowRight className="h-4 w-4" />
+          <ArrowRight className="h-4 w-4 rtl:rotate-180" />
         </Button>
       </div>
     </div>

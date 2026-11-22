@@ -102,7 +102,7 @@ export function VoiceRecordingBar({
         current: formatClock(seconds),
         max: formatClock(maxSeconds),
       })}
-      className="bg-wa-input flex h-[52px] items-center gap-2 rounded-lg pr-1.5 pl-1"
+      className="bg-wa-input flex h-[52px] items-center gap-2 rounded-lg pe-1.5 ps-1"
     >
       <button
         type="button"

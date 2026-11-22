@@ -48,7 +48,7 @@ export function SeenBy({ message, kind, members, peopleById }: SeenByProps) {
   });
   if (label === 'none') return null;
 
-  const line = 'text-muted-foreground pr-4 pl-16 text-xs leading-5';
+  const line = 'text-muted-foreground pe-4 ps-16 text-xs leading-5';
   if (label === 'seen' || (label === 'sent' && unseen.length <= 1))
     return <p className={line}>{t(label)}</p>;
 

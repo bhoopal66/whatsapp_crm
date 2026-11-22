@@ -286,6 +286,7 @@ export function ProfileForm() {
             <Input
               id="profile-email"
               type="email"
+              dir="ltr"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={saving}

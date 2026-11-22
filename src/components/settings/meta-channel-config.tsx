@@ -217,7 +217,7 @@ export function MetaChannelConfig() {
           <div className="border-border rounded-md border px-3 py-2 text-sm">
             <p className="text-foreground">
               {state.verified_name || t('unverifiedName')} ·{' '}
-              {state.display_phone_number}
+              <span dir="ltr">{state.display_phone_number}</span>
             </p>
             {state.quality_rating && (
               <p className="text-muted-foreground text-xs">
@@ -335,7 +335,7 @@ export function MetaChannelConfig() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {saving && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
             {t('save')}
           </Button>
           {state?.connected && (
@@ -346,7 +346,7 @@ export function MetaChannelConfig() {
               onClick={openNumbersAccess}
             >
               {t('removeInNumbers')}
-              <ArrowRight className="h-3.5 w-3.5" />
+              <ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" />
             </Button>
           )}
           <a

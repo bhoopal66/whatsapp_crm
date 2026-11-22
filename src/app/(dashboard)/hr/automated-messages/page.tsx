@@ -337,7 +337,7 @@ export default function HrAutomatedMessagesPage() {
             {showRcsNotice(rows) && (
               <p
                 role="status"
-                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-l-4 px-3 py-2 text-xs"
+                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-s-4 px-3 py-2 text-xs"
               >
                 {t('rcs.notice')}
               </p>
@@ -345,7 +345,7 @@ export default function HrAutomatedMessagesPage() {
             {showSmsNotice(rows) && (
               <p
                 role="status"
-                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-l-4 px-3 py-2 text-xs"
+                className="border-warning bg-warning-soft text-warning mx-4 mb-2 rounded-md border-s-4 px-3 py-2 text-xs"
               >
                 {t('sms.notice')}
               </p>
@@ -569,8 +569,8 @@ function Banner({
     <div
       className={
         off
-          ? 'border-warning bg-warning-soft space-y-1.5 rounded-lg border-l-4 px-4 py-3'
-          : 'border-success bg-success-soft space-y-1.5 rounded-lg border-l-4 px-4 py-3'
+          ? 'border-warning bg-warning-soft space-y-1.5 rounded-lg border-s-4 px-4 py-3'
+          : 'border-success bg-success-soft space-y-1.5 rounded-lg border-s-4 px-4 py-3'
       }
     >
       <div className="flex flex-wrap items-center gap-3">

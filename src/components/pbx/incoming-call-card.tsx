@@ -263,7 +263,7 @@ export function IncomingCallCard() {
         // Placed by useFloatingWindow (left/top); below `sm` it is
         // pinned under the header, full width.
         ref={attach}
-        className="fixed z-[60] w-[380px] max-w-[calc(100vw-24px)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] max-sm:top-[68px] max-sm:right-3 max-sm:left-3 max-sm:w-auto max-sm:max-w-none dark:ring-1 dark:ring-white/10"
+        className="fixed z-[60] w-[380px] max-w-[calc(100vw-24px)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] max-sm:top-[68px] max-sm:end-3 max-sm:start-3 max-sm:w-auto max-sm:max-w-none dark:ring-1 dark:ring-white/10"
       >
         {/* The drag handle: the status row and the title, not the buttons. */}
         <div
@@ -286,7 +286,7 @@ export function IncomingCallCard() {
             {!mobile && (
               <GripHorizontal
                 aria-hidden
-                className="ml-auto size-4 shrink-0 text-white/45"
+                className="ms-auto size-4 shrink-0 text-white/45"
               />
             )}
           </p>

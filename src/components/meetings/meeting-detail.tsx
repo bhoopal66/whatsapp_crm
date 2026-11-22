@@ -379,7 +379,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
                   {m.present.map((p) => (
                     <li
                       key={p.userId}
-                      className="bg-card-2 flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-sm"
+                      className="bg-card-2 flex items-center gap-2 rounded-full py-1 pe-3 ps-1 text-sm"
                     >
                       <PersonAvatar person={personOf(p.userId)} size="sm" />
                       {nameFor(p.userId)}

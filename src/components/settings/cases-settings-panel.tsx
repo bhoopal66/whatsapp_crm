@@ -419,7 +419,7 @@ export function CasesSettingsPanel() {
                         type="button"
                         onClick={() => setSelected(b.code)}
                         aria-pressed={b.code === selected}
-                        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left"
+                        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-start"
                       >
                         <span className="text-foreground truncate text-sm font-medium">
                           {b.name}
@@ -759,7 +759,7 @@ function StagesEditor({
         <ol className="space-y-2">
           {draft.map((stage, i) => (
             <li key={i} className="flex items-center gap-1.5">
-              <span className="text-muted-foreground w-6 shrink-0 text-right text-xs tabular-nums">
+              <span className="text-muted-foreground w-6 shrink-0 text-end text-xs tabular-nums">
                 {i + 1}
               </span>
               <Input
@@ -1469,14 +1469,14 @@ function SlaTab({ code }: { code: string }) {
           <table className="w-full min-w-[36rem] text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-xs">
               <tr>
-                <th scope="col" className="px-3 py-2 text-left font-medium">
+                <th scope="col" className="px-3 py-2 text-start font-medium">
                   {t('stage')}
                 </th>
                 {SLA_TIMERS.map((timer) => (
                   <th
                     key={timer}
                     scope="col"
-                    className="px-3 py-2 text-left font-medium"
+                    className="px-3 py-2 text-start font-medium"
                   >
                     {t(`timers.${timer}`)}
                   </th>
@@ -1488,7 +1488,7 @@ function SlaTab({ code }: { code: string }) {
                 <tr key={stage}>
                   <th
                     scope="row"
-                    className="text-foreground px-3 py-2 text-left font-medium"
+                    className="text-foreground px-3 py-2 text-start font-medium"
                   >
                     {stage}
                   </th>
@@ -1504,7 +1504,7 @@ function SlaTab({ code }: { code: string }) {
                             timer: t(`timers.${timer}`),
                           })}
                           className={cn(
-                            'hover:bg-muted w-full rounded-md px-2 py-1.5 text-left',
+                            'hover:bg-muted w-full rounded-md px-2 py-1.5 text-start',
                             row ? 'text-foreground' : 'text-muted-foreground'
                           )}
                         >
@@ -1593,7 +1593,7 @@ function SlaDialog({
           <Button
             type="button"
             variant="ghost"
-            className="text-destructive sm:mr-auto"
+            className="text-destructive sm:me-auto"
             onClick={() => void clear()}
             disabled={busy}
           >

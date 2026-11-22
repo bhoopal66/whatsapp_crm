@@ -60,7 +60,7 @@ export function PipelineCard({ refreshKey, className }: PipelineCardProps) {
                   <span className="text-muted-foreground tabular-nums">
                     {t('dealCount', { count: s.dealCount })}
                   </span>
-                  <span className="text-muted-foreground w-20 text-right tabular-nums">
+                  <span className="text-muted-foreground w-20 text-end tabular-nums">
                     {formatCurrencyShort(s.totalValue, defaultCurrency)}
                   </span>
                 </li>

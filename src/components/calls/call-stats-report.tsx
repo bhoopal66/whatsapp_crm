@@ -549,7 +549,7 @@ export function CallStatsReport() {
           </button>
         ))}
         {leader && (
-          <label className="text-muted-foreground flex items-center gap-2 text-sm sm:ml-auto">
+          <label className="text-muted-foreground flex items-center gap-2 text-sm sm:ms-auto">
             {t('showing')}
             <select
               value={params.user ?? ''}
@@ -624,7 +624,7 @@ export function CallStatsReport() {
           : d.pct === null
             ? t('newFigure')
             : formatPercent(Math.abs(d.pct))}
-        <span className="text-muted-foreground ml-1 font-normal">{label}</span>
+        <span className="text-muted-foreground ms-1 font-normal">{label}</span>
       </p>
     );
   };
@@ -813,7 +813,7 @@ export function CallStatsReport() {
         t('charts.heatDescription'),
         <div className="overflow-x-auto">
           <div className="min-w-[36rem]">
-            <div className="text-muted-foreground ml-9 grid grid-cols-24 gap-0.5 text-xs">
+            <div className="text-muted-foreground ms-9 grid grid-cols-24 gap-0.5 text-xs">
               {Array.from({ length: 24 }, (_, h) => (
                 <span key={h} className="text-center">
                   {h % 3 === 0 ? h : ''}
@@ -913,7 +913,7 @@ export function CallStatsReport() {
         }
         className={cn(
           'px-3 py-2 font-semibold whitespace-nowrap',
-          k === 'name' || k === 'extension' ? 'text-left' : 'text-right'
+          k === 'name' || k === 'extension' ? 'text-start' : 'text-end'
         )}
       >
         <button
@@ -972,7 +972,7 @@ export function CallStatsReport() {
                     <button
                       type="button"
                       onClick={() => setParams({ user: p.userId })}
-                      className="text-left font-medium hover:underline"
+                      className="text-start font-medium hover:underline"
                     >
                       {personName(p)}
                     </button>
@@ -986,7 +986,7 @@ export function CallStatsReport() {
                   {p.extension ?? '—'}
                 </td>
                 {figures.map((k) => (
-                  <td key={k} className="px-3 py-2 text-right tabular-nums">
+                  <td key={k} className="px-3 py-2 text-end tabular-nums">
                     {kpiText(k, kpiValue(p, k))}
                   </td>
                 ))}
@@ -997,7 +997,7 @@ export function CallStatsReport() {
                 {t('people.total')}
               </td>
               {figures.map((k) => (
-                <td key={k} className="px-3 py-2 text-right tabular-nums">
+                <td key={k} className="px-3 py-2 text-end tabular-nums">
                   {kpiText(k, kpiValue(stats.summary, k))}
                 </td>
               ))}
@@ -1042,7 +1042,7 @@ export function CallStatsReport() {
               <span className="min-w-0 truncate">
                 {who(n)}
                 {n.contactName && n.remoteNumber && (
-                  <span className="text-muted-foreground ml-1 text-xs tabular-nums">
+                  <span className="text-muted-foreground ms-1 text-xs tabular-nums">
                     {n.remoteNumber}
                   </span>
                 )}
@@ -1074,7 +1074,7 @@ export function CallStatsReport() {
             >
               <span className="min-w-0 truncate">
                 {who(c)}
-                <span className="text-muted-foreground ml-1 text-xs">
+                <span className="text-muted-foreground ms-1 text-xs">
                   {[timeFmt(c.startedAt), stats.scope !== 'self' && c.userName]
                     .filter(Boolean)
                     .join(' · ')}

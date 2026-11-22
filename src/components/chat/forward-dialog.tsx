@@ -225,7 +225,7 @@ export function ForwardDialog({
                   disabled={sending || (!on && full)}
                   onClick={() => setPicked((p) => toggleForwardTarget(p, c.id))}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm disabled:opacity-50',
+                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm disabled:opacity-50',
                     on
                       ? 'bg-primary/10 text-primary font-semibold'
                       : 'hover:bg-muted'
@@ -259,7 +259,7 @@ export function ForwardDialog({
           )}
         </div>
         <DialogFooter className="items-center">
-          <span className="text-muted-foreground mr-auto text-xs">
+          <span className="text-muted-foreground me-auto text-xs">
             {t('forward.selected', {
               count: picked.length,
               max: FORWARD_MAX_TARGETS,

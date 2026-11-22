@@ -571,7 +571,7 @@ function TeamActivityPageInner() {
             {tt('unlocks')}
             {waiting > 0 && (
               <span
-                className="bg-destructive ml-1 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold text-white"
+                className="bg-destructive ms-1 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold text-white"
                 aria-label={tt('pendingBadge', { count: waiting })}
               >
                 {waiting}
@@ -667,7 +667,7 @@ function TeamActivityPageInner() {
                     {th('title')}
                   </AccordionTrigger>
                   <AccordionContent>
-                    <ul className="text-muted-foreground list-disc space-y-1.5 pl-5 text-sm">
+                    <ul className="text-muted-foreground list-disc space-y-1.5 ps-5 text-sm">
                       <li>{th('newChat')}</li>
                       <li>{th('replied')}</li>
                       <li>

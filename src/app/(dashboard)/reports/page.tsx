@@ -69,7 +69,7 @@ export default async function ReportsPage() {
                       {t(`entries.${entry.key}.description`)}
                     </span>
                   </span>
-                  <ChevronRight className="text-muted-foreground mt-1 h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  <ChevronRight className="text-muted-foreground mt-1 h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
                 </Link>
               </li>
             );

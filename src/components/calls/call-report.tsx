@@ -87,18 +87,18 @@ export function CallReport() {
     const outcomes = outcomeCounts(f);
     return (
       <>
-        <td className="px-3 py-2 text-right tabular-nums">
+        <td className="px-3 py-2 text-end tabular-nums">
           {f.inboundAnswered}
         </td>
-        <td className="px-3 py-2 text-right tabular-nums">{f.outbound}</td>
-        <td className="px-3 py-2 text-right tabular-nums">{f.missed}</td>
-        <td className="px-3 py-2 text-right tabular-nums">
+        <td className="px-3 py-2 text-end tabular-nums">{f.outbound}</td>
+        <td className="px-3 py-2 text-end tabular-nums">{f.missed}</td>
+        <td className="px-3 py-2 text-end tabular-nums">
           {formatDuration(f.talkSeconds)}
         </td>
-        <td className="px-3 py-2 text-right tabular-nums">
+        <td className="px-3 py-2 text-end tabular-nums">
           {formatDuration(averageSeconds(f.talkSeconds, f.talkCalls))}
         </td>
-        <td className="px-3 py-2 text-right tabular-nums">
+        <td className="px-3 py-2 text-end tabular-nums">
           {formatDuration(averageSeconds(f.ringSeconds, f.ringCalls))}
         </td>
         <td className="text-muted-foreground px-3 py-2">
@@ -187,7 +187,7 @@ export function CallReport() {
           <table className="w-full min-w-[48rem] text-sm">
             <thead className="text-muted-foreground border-border border-b text-xs">
               <tr>
-                <th className="px-3 py-2 text-left font-semibold">
+                <th className="px-3 py-2 text-start font-semibold">
                   {t('columns.person')}
                 </th>
                 {(
@@ -200,11 +200,11 @@ export function CallReport() {
                     'ringAverage',
                   ] as const
                 ).map((c) => (
-                  <th key={c} className="px-3 py-2 text-right font-semibold">
+                  <th key={c} className="px-3 py-2 text-end font-semibold">
                     {t(`columns.${c}`)}
                   </th>
                 ))}
-                <th className="px-3 py-2 text-left font-semibold">
+                <th className="px-3 py-2 text-start font-semibold">
                   {t('columns.outcomes')}
                 </th>
               </tr>

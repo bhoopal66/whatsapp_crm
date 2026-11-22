@@ -240,13 +240,13 @@ export function RoomChatPanel({
             aria-label={t('panels.chat.send')}
             title={t('panels.chat.send')}
           >
-            <SendHorizontal />
+            <SendHorizontal className="rtl:rotate-180" />
           </Button>
         </div>
         {counter.show && (
           <p
             className={cn(
-              'mt-1 text-right text-xs tabular-nums',
+              'mt-1 text-end text-xs tabular-nums',
               counter.over ? 'text-destructive' : 'text-muted-foreground'
             )}
             aria-live="polite"

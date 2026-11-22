@@ -343,17 +343,17 @@ export function ImportModal({
                   <table className="w-full min-w-[32rem] text-xs">
                     <thead>
                       <tr className="border-b border-border bg-background/60">
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
                           {t('columns.phone')}
                         </th>
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
                           {t('columns.name')}
                         </th>
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
                           {t('columns.email')}
                         </th>
                         {previewHasCompany && (
-                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                          <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
                             {t('columns.company')}
                           </th>
                         )}

@@ -28,7 +28,7 @@ export function GroupsWorkspace({ children }: { children: ReactNode }) {
       {/* `min-w-0`: a long name must truncate, not widen the pane. */}
       <aside
         className={cn(
-          'border-wa-divider bg-wa-panel h-full min-w-0 flex-1 flex-col lg:w-[22rem] lg:flex-none lg:border-r',
+          'border-wa-divider bg-wa-panel h-full min-w-0 flex-1 flex-col lg:w-[22rem] lg:flex-none lg:border-e',
           selectedId ? 'hidden lg:flex' : 'flex'
         )}
       >

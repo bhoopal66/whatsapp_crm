@@ -178,7 +178,7 @@ export function BankDashboardTab({ bankWsId }: { bankWsId: string }) {
             value={count(approval.declined)}
           />
           <Tile
-            icon={<Undo2 className="text-muted-foreground size-4" />}
+            icon={<Undo2 className="text-muted-foreground size-4 rtl:rotate-180" />}
             label={t('tiles.withdrawn')}
             value={count(approval.withdrawn)}
           />
@@ -294,13 +294,13 @@ function Tile({
                 <button
                   type="button"
                   aria-label={t('howCalculated', { label })}
-                  className="text-muted-foreground hover:text-foreground ml-auto focus:outline-none"
+                  className="text-muted-foreground hover:text-foreground ms-auto focus:outline-none"
                 />
               }
             >
               <Info className="size-3" />
             </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs text-left">
+            <TooltipContent side="top" className="max-w-xs text-start">
               {tooltip}
             </TooltipContent>
           </Tooltip>

@@ -127,7 +127,7 @@ export function BlockedSendCard({
       </div>
 
       {state.phase === 'blocked' && restriction.unlockable && (
-        <div className="mt-2 pl-5">
+        <div className="mt-2 ps-5">
           <Button
             type="button"
             variant="outline"
@@ -140,7 +140,7 @@ export function BlockedSendCard({
       )}
 
       {(state.phase === 'asking' || state.phase === 'submitting') && (
-        <div className="bg-card-2 mt-2 ml-5 space-y-2 rounded-md p-2">
+        <div className="bg-card-2 mt-2 ms-5 space-y-2 rounded-md p-2">
           <label htmlFor={reasonId} className="block font-medium">
             {t('reasonLabel')}
           </label>
@@ -181,18 +181,18 @@ export function BlockedSendCard({
       )}
 
       {state.phase === 'waiting' && (
-        <p className="text-muted-foreground mt-2 pl-5">{t('waiting')}</p>
+        <p className="text-muted-foreground mt-2 ps-5">{t('waiting')}</p>
       )}
       {state.phase === 'approved' && (
-        <p className="text-success mt-2 pl-5 font-medium">{t('approved')}</p>
+        <p className="text-success mt-2 ps-5 font-medium">{t('approved')}</p>
       )}
       {state.phase === 'denied' && (
-        <p className="text-destructive mt-2 pl-5">
+        <p className="text-destructive mt-2 ps-5">
           {state.note ? t('deniedNote', { note: state.note }) : t('denied')}
         </p>
       )}
       {state.phase === 'expired' && (
-        <p className="text-muted-foreground mt-2 pl-5">{t('expired')}</p>
+        <p className="text-muted-foreground mt-2 ps-5">{t('expired')}</p>
       )}
     </div>
   );

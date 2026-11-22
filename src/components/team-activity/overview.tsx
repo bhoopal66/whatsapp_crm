@@ -48,10 +48,10 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
               <li
                 key={f.id}
                 className={cn(
-                  'bg-card flex gap-3 rounded-xl border border-l-4 p-4',
+                  'bg-card flex gap-3 rounded-xl border border-s-4 p-4',
                   act
-                    ? 'border-destructive/30 border-l-destructive'
-                    : 'border-warning/30 border-l-warning'
+                    ? 'border-destructive/30 border-s-destructive'
+                    : 'border-warning/30 border-s-warning'
                 )}
               >
                 <LevelIcon level={f.level} className="mt-0.5" />

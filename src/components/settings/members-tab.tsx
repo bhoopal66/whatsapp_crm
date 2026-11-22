@@ -572,7 +572,7 @@ export function MembersTab() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="relative w-full sm:max-w-xs">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -585,14 +585,14 @@ export function MembersTab() {
               }}
               placeholder={t('searchPlaceholder')}
               aria-label={t('searchLabel')}
-              className="pr-8 pl-8"
+              className="pe-8 ps-8"
             />
             {memberQuery && (
               <button
                 type="button"
                 onClick={() => setMemberQuery('')}
                 aria-label={t('searchClear')}
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5"
+                className="text-muted-foreground hover:text-foreground absolute top-1/2 end-2 -translate-y-1/2 rounded p-0.5"
               >
                 <X className="size-3.5" aria-hidden />
               </button>
@@ -724,7 +724,7 @@ export function MembersTab() {
 
                   {/* Joined date stays desktop-only. The mobile row's
                       vertical density makes the joined date noise. */}
-                  <div className="text-muted-foreground hidden text-right text-xs sm:block">
+                  <div className="text-muted-foreground hidden text-end text-xs sm:block">
                     {member.deactivated_at
                       ? t('deactivatedOn', {
                           date: fmtDate(member.deactivated_at),

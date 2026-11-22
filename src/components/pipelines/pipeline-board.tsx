@@ -309,7 +309,7 @@ function StageColumn({
           onClick={() => onAddDeal(stage.id)}
           className="border-border text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground mt-3 w-full justify-start border border-dashed bg-transparent"
         >
-          <Plus className="mr-1 h-3 w-3" />
+          <Plus className="me-1 h-3 w-3" />
           {t('addDeal')}
         </Button>
       )}

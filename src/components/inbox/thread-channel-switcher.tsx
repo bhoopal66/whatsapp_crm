@@ -299,7 +299,7 @@ export function ThreadChannelSwitcher({
                 : t('autoHint')}
             </span>
           </span>
-          {!pin && <Check className="ml-2 h-3 w-3" />}
+          {!pin && <Check className="ms-2 h-3 w-3" />}
         </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-border" />
         {options.length === 0 ? (
@@ -323,7 +323,7 @@ export function ThreadChannelSwitcher({
                       : t('whapiHint')}
                 </span>
               </span>
-              {pin === n.id && <Check className="ml-2 h-3 w-3" />}
+              {pin === n.id && <Check className="ms-2 h-3 w-3" />}
             </DropdownMenuItem>
           ))
         )}
@@ -332,7 +332,7 @@ export function ThreadChannelSwitcher({
         {pinned && !options.some((o) => o.id === pinned.id) && (
           <DropdownMenuItem disabled className="text-sm">
             <span className="flex-1">{channelNameWithPhone(pinned)}</span>
-            <Check className="ml-2 h-3 w-3" />
+            <Check className="ms-2 h-3 w-3" />
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
@@ -364,7 +364,7 @@ export function ThreadChannelNote({
           {event.to_channel_id || event.to_label
             ? t('noteTo', { who, name: event.to_label ?? '' })
             : t('noteAuto', { who })}
-          <span className="ml-1 opacity-70">· {time}</span>
+          <span className="ms-1 opacity-70">· {time}</span>
         </span>
       </span>
     </div>

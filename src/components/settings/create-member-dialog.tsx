@@ -161,6 +161,7 @@ export function CreateMemberDialog({
             <Label className="text-muted-foreground">{t('emailLabel')}</Label>
             <Input
               type="email"
+              dir="ltr"
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);

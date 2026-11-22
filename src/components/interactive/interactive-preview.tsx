@@ -55,7 +55,7 @@ export function InteractivePreview({
               disabled
               className="flex items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary first:border-t-0"
             >
-              <Reply className="h-3.5 w-3.5" />
+              <Reply className="h-3.5 w-3.5 rtl:rotate-180" />
               <span className="truncate">{b.title || "Button"}</span>
             </button>
           ))}

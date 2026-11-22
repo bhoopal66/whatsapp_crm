@@ -468,7 +468,7 @@ function MappedItem({
           <span className="text-foreground font-medium">
             {mappedLabel(row)}
           </span>
-          <ArrowRight className="text-muted-foreground size-4" />
+          <ArrowRight className="text-muted-foreground size-4 rtl:rotate-180" />
           <span className="text-foreground">{row.stage}</span>
           {row.source === 'suggestion' ? (
             <Badge

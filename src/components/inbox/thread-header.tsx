@@ -213,7 +213,7 @@ export function ThreadHeader({
         {/* The number, unless it is already the name. */}
         {contact.name && (
           <p className="text-wa-text-secondary truncate text-xs leading-4">
-            {contact.phone}
+            <span dir="ltr">{contact.phone}</span>
           </p>
         )}
         {personalLabel && (
@@ -249,7 +249,7 @@ export function ThreadHeader({
               aria-label={t('backToConversations')}
               className={cn(HEADER_ICON_BUTTON, 'lg:hidden')}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
             </button>
           )}
           {/* The customer. On lg+ it opens and closes the contact panel,
@@ -269,7 +269,7 @@ export function ThreadHeader({
                 onClick={onToggleContactPanel}
                 title={t('contactInfo')}
                 aria-pressed={contactPanelOpen}
-                className="hover:bg-wa-icon-hover -mx-1 hidden min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left transition-colors lg:flex @3xl/thread:gap-3"
+                className="hover:bg-wa-icon-hover -mx-1 hidden min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-start transition-colors lg:flex @3xl/thread:gap-3"
               >
                 {identity}
               </button>
@@ -382,7 +382,7 @@ export function ThreadHeader({
                       >
                         <MemberPresenceDot
                           userId={p.user_id}
-                          className="mr-2"
+                          className="me-2"
                         />
                         <span className="min-w-0 flex-1 truncate">
                           {p.full_name}
@@ -392,7 +392,7 @@ export function ThreadHeader({
                           <span
                             title={loadTitle ?? undefined}
                             className={cn(
-                              'ml-2 shrink-0 text-xs tabular-nums',
+                              'ms-2 shrink-0 text-xs tabular-nums',
                               atLimit
                                 ? 'text-destructive'
                                 : 'text-muted-foreground'
@@ -402,7 +402,7 @@ export function ThreadHeader({
                             <span className="sr-only">{loadTitle}</span>
                           </span>
                         ) : null}
-                        {isSelected && <Check className="ml-2 h-3 w-3" />}
+                        {isSelected && <Check className="ms-2 h-3 w-3" />}
                       </DropdownMenuItem>
                     );
                   })
@@ -490,7 +490,7 @@ export function ThreadHeader({
             className={cn(
               'items-center gap-1 @3xl/thread:static @3xl/thread:flex @3xl/thread:gap-1.5 @3xl/thread:border-0 @3xl/thread:bg-transparent @3xl/thread:p-0 @3xl/thread:shadow-none',
               actionsOpen
-                ? 'bg-wa-panel-header border-wa-divider absolute top-full right-2 z-20 flex rounded-lg border p-1.5 shadow-md'
+                ? 'bg-wa-panel-header border-wa-divider absolute top-full end-2 z-20 flex rounded-lg border p-1.5 shadow-md'
                 : 'hidden'
             )}
           >

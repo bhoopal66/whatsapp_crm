@@ -61,7 +61,7 @@ export function MeetingInviteCardView({
       role="alertdialog"
       aria-label={t('title')}
       data-meeting-invite
-      className="animate-in fade-in slide-in-from-top-2 fixed top-[68px] left-1/2 z-[55] w-[380px] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] duration-200 motion-reduce:animate-none max-sm:right-3 max-sm:left-3 max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 dark:ring-1 dark:ring-white/10"
+      className="animate-in fade-in slide-in-from-top-2 fixed top-[68px] left-1/2 z-[55] w-[380px] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] duration-200 motion-reduce:animate-none max-sm:end-3 max-sm:start-3 max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 dark:ring-1 dark:ring-white/10"
     >
       <p className="flex items-center gap-2 text-xs text-white/70">
         <span className="size-2 animate-pulse rounded-full bg-emerald-400 motion-reduce:animate-none" />

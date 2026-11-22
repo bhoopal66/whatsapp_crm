@@ -1555,7 +1555,7 @@ export function MessageComposer({
               // The placeholder text also surfaces the read-only state.
               title={readOnly ? t('readOnlyTitle') : undefined}
               className={cn(
-                'text-wa-text placeholder:text-wa-text-secondary min-h-10 min-w-0 flex-1 resize-none rounded-lg border-0 bg-transparent py-2.5 pr-1 pl-3 text-base leading-5 outline-none sm:text-[15px]',
+                'text-wa-text placeholder:text-wa-text-secondary min-h-10 min-w-0 flex-1 resize-none rounded-lg border-0 bg-transparent py-2.5 pe-1 ps-3 text-base leading-5 outline-none sm:text-[15px]',
                 readOnly && 'cursor-not-allowed'
               )}
             />
@@ -1589,19 +1589,19 @@ export function MessageComposer({
                 <DropdownMenuItem
                   onClick={() => imageInputRef.current?.click()}
                 >
-                  <ImageIcon className="mr-2 h-4 w-4" />
+                  <ImageIcon className="me-2 h-4 w-4" />
                   {t('photo')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => videoInputRef.current?.click()}
                 >
-                  <Video className="mr-2 h-4 w-4" />
+                  <Video className="me-2 h-4 w-4" />
                   {t('video')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => documentInputRef.current?.click()}
                 >
-                  <FileText className="mr-2 h-4 w-4" />
+                  <FileText className="me-2 h-4 w-4" />
                   {t('document')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -1738,14 +1738,14 @@ export function MessageComposer({
               onClick={saveAsQuickReply}
             >
               {savingQuickReply ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                <Loader2 className="me-1 h-4 w-4 animate-spin" />
               ) : (
-                <Zap className="mr-1 h-4 w-4" />
+                <Zap className="me-1 h-4 w-4" />
               )}
               {t('saveAsQuickReply')}
             </Button>
             <Button onClick={sendInteractive}>
-              <Send className="mr-1 h-4 w-4" />
+              <Send className="me-1 h-4 w-4" />
               {t('send')}
             </Button>
           </DialogFooter>
@@ -1808,7 +1808,7 @@ function MediaDraftPreview({
   // discard, the player (to listen back before sending), send.
   if (draft.kind === 'audio') {
     return (
-      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pr-1.5 pl-1">
+      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pe-1.5 ps-1">
         <button
           type="button"
           onClick={onDiscard}

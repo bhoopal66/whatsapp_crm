@@ -21,7 +21,7 @@ function nameOf(people: People, authorId: string): string | null {
   return people.find((p) => p.userId.toLowerCase() === id)?.fullName ?? null;
 }
 
-const BOX = 'mb-1 block w-full max-w-md rounded-r-md border-l-2 px-2 py-1';
+const BOX = 'mb-1 block w-full max-w-md rounded-e-md border-s-2 px-2 py-1';
 
 /**
  * The quoted message above a reply (156's reply_to_id). `target`
@@ -84,7 +84,7 @@ export function QuoteBlock({
     case 'voice':
       line = (
         <>
-          <Mic className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />
+          <Mic className="me-1 inline size-3.5 align-[-2px]" aria-hidden />
           {label('voice', { length: preview.text })}
         </>
       );
@@ -92,7 +92,7 @@ export function QuoteBlock({
     case 'file':
       line = (
         <>
-          <FileText className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />
+          <FileText className="me-1 inline size-3.5 align-[-2px]" aria-hidden />
           {preview.text}
         </>
       );
@@ -117,7 +117,7 @@ export function QuoteBlock({
       type="button"
       onClick={onJump}
       title={label('jumpLabel', { name })}
-      className={cn(box, 'hover:bg-muted text-left')}
+      className={cn(box, 'hover:bg-muted text-start')}
     >
       {content}
     </button>
@@ -134,7 +134,7 @@ export function QuoteBlock({
 export function ForwardedLine({ text }: { text: string }) {
   return (
     <p className="text-muted-foreground mb-0.5 flex items-center gap-1 text-xs">
-      <Forward className="size-3.5 shrink-0" aria-hidden />
+      <Forward className="size-3.5 shrink-0 rtl:rotate-180" aria-hidden />
       <span className="truncate">{text}</span>
     </p>
   );

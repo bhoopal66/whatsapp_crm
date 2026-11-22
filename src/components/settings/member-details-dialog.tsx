@@ -218,6 +218,7 @@ export function MemberDetailsDialog({
             <Input
               id="member-details-email"
               type="email"
+              dir="ltr"
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
