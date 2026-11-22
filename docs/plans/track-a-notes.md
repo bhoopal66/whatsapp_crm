@@ -39,6 +39,26 @@ paragraphs, the defaults chosen, the merge needs and the gate results.
   quick reply: filter by name or text, ↑/↓ and Enter or Tab to insert,
   Esc to close. The quick-reply picker has a search box.
 
+- **In-chat notes and @mentions.** In a chat, agents and up can switch
+  the composer from Reply to Note and leave a note only the team sees
+  ("Note · only your team sees this"). Notes appear in the thread by time
+  with their author; authors can edit or delete their own. Typing "@"
+  mentions a teammate who can see the chat and rings them a bell that
+  opens the chat. Notes are never sent to the customer and never reach
+  the AI, unread counts, webhooks or the public API.
+- **Voice-note library.** Composer → More → "Voice notes": ready voice
+  notes per subject (Welcome / introduction, Documents required, Missing
+  documents reminder, Status updates, plus subjects staff add) and
+  language (English, Hindi, Arabic, Urdu). Record one in the browser or
+  have AI speak a script (OpenAI text-to-speech on the workspace's OpenAI
+  key), fixed or personalised with {name} and {company} (spoken fresh for
+  each send). New entries reach the whole workspace at once; the author
+  or an admin deletes. Sends go through the normal send path as a voice
+  message.
+- **Migration required:** apply `supabase/migrations/241_conversation_notes.sql`
+  (after 229) and `supabase/migrations/242_voice_note_library.sql`, in
+  order, before the build.
+
 ## CLAUDE.md paragraphs
 
 <!-- TRACK_A_CLAUDEMD -->
@@ -91,6 +111,52 @@ preselects the bank the chat's sub-tag names (`bankFromSubTag`: code or
 name, trimmed, case-insensitive, unique match only, among banks someone
 coordinates).
 
+### In-chat notes (`lib/inbox/notes.ts`, migration 241)
+
+Team notes inside a customer chat, in their own table
+`conversation_notes` (061's reason: `messages` feed AI context, unread
+counts, aggregates, webhooks and the public API; `notes-isolation.test.ts`
+reads those paths' source to pin that none reads notes). Clients read and
+write the table directly: SELECT is 061's `conversation_events_select`
+shape (visible exactly when the chat is), INSERT needs agent and up who
+see the chat, and a BEFORE trigger stamps `author_id`/`account_id`; only
+the author updates (body only, column grant; a trigger freezes the rest
+and stamps `edited_at`) or deletes. `mention_ids` is filtered on insert by
+`conversation_note_user_can_see` (190's `can_view_conversation_for_user`
++ 191's personal rule; no coordinator shares) and rung once as
+`chat_note_mention` (title + first 140 chars, like 087's bells), never on
+edit; `conversation_note_mention_candidates` lists who may be mentioned.
+The Reply/Note switch and `NoteComposer` render above the composer in
+`message-thread.tsx`; the reply composer stays mounted (its draft
+survives). The bell type lives in `notifications_type_check` (extended
+from the live constraint), `hrefFor`, `PUSH_KINDS`, `kindGroup` and the
+bell's icon map; `push_bell_url` does not list it yet. Realtime: INSERT
+and UPDATE only (DELETE is not RLS-filtered). PDPL export/erase through
+`privacy_extensions`. `verify-conversation-notes.sql`.
+
+### Voice-note library (`lib/voice-library/*`, migration 242)
+
+Staff voice notes per subject and language, sent from the composer's
+More menu ("Voice notes", `components/inbox/voice-library-picker.tsx`)
+through `onSendMedia`, i.e. the ordinary `/api/whatsapp/send` path, so
+team-activity limits, opt-out and the Meta window apply. Built-in
+subjects and the four languages (`en`, `hi`, `ar`, `ur`) are CHECKs in
+242 and `constants.ts` (`constants.test.ts` reads the migration); staff
+subjects are `voice_note_subjects` rows. RLS: members read (guests
+nothing), agents and up insert as themselves, the author or an admin
+deletes (`canDeleteAnyVoiceNote`), no UPDATE grant. Fixed audio lives at
+`chat-media/account-<id>/voice-library/<entry id>.ogg` (CHECK-pinned;
+outside 155's staged sweep) and is sent with an empty upload path so a
+failed send never deletes it. A personalised entry stores only its
+script; `POST /api/voice-library/entries/[id]/render` fills
+{name}/{company} from the contact visible to the caller (`fillScript`),
+speaks it and stores it under `staged/`. AI speech is OpenAI
+`gpt-4o-mini-tts` with `opus` output (Ogg/Opus, no transcode) on the
+assistant's OpenAI key, else its embeddings key (`resolveTtsKey`); every
+call passes `assertAiTransfer` (purpose `voice_note_tts`). No
+`ai_usage_log` row (TTS is not token-billed).
+`verify-voice-note-library.sql`.
+
 ## Defaults chosen
 
 <!-- TRACK_A_DEFAULTS -->
@@ -122,6 +188,23 @@ coordinates).
   dashed; re-reads `/api/quick-replies` each time it opens; ranking:
   shortcut prefix, title word, title anywhere, body.
 
+- Notes: every chat opens on Reply; Note mode is per chat; only agent
+  and up see the switch; max 4000 characters; text only; mention list
+  shows 6 matches (start of name or of any word); Enter saves,
+  Shift+Enter new line; `chat_note_mention` is a push preference under
+  "Messages", on by default (it is a bell for a person, not an automatic
+  behaviour).
+- Voice library: AI speech uses the workspace's OpenAI assistant key,
+  else its OpenAI embeddings key, and needs the assistant's master switch
+  on; otherwise the AI option is disabled with the reason shown. Voice
+  `coral`; 20 speech calls/min per person, 60 per account; subject 60
+  characters, title 80, script 1,500, audio 16 MB, recording 5 minutes. A
+  fixed script may not contain {name}/{company}; a personalised one must
+  use one. Missing name is left out ("Hello {name}, …" → "Hello, …"),
+  missing company becomes "your company" in the note's language. The
+  menu item is disabled while the Meta window is closed. Personalised
+  audio is stored under `staged/` (swept if never sent).
+
 ## Merge needs
 
 <!-- TRACK_A_MERGE_NEEDS -->
@@ -140,6 +223,49 @@ coordinates).
   `TeamActivity`); `Coordinators.share.action` text changed to "Share
   with bank" and gained `buttonTitle`, `fromSubTag`.
 
+- **`push_bell_url`** (owned by 109/133/173) needs `chat_note_mention`
+  added to the WHEN list that returns the chat URL (`/inbox?c=…`). Until
+  then a *push* for this bell opens `/notifications`; the in-app bell
+  already opens the chat through `hrefFor`.
+- `src/lib/push/rules.test.ts` asserted no `chat_*` type is a push
+  preference; `chat_note_mention` is exempted (a customer-chat bell, not
+  a team-chat type).
+- `messages/*.json` also gained `ChatNotes` (before `InboxRows`),
+  `VoiceLibrary` (before `Workspaces`) and
+  `PushNotifications.kinds.chat_note_mention`.
+- `.github/workflows/migrations.yml`: two steps at the end (241's then
+  242's verify). Other tracks appending there will conflict trivially.
+
 ## Gate results
 
 <!-- TRACK_A_GATES -->
+Final state `a71222d` (all eight items), run 2026-11-22 ~09:15 UTC:
+
+- `npm run lint`: 0 errors, 31 warnings (pre-existing count was ~32).
+- `npm run typecheck`: clean.
+- `npm test`: 1095 files, 15,628 tests passed.
+- `npm run build` with the CI dummy env (`NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY` from `ci.yml`):
+  success.
+- Migration replay as `migrations.yml` does it: clean
+  `supabase/postgres:17.6.1.054` (storage schema migrated by
+  `storage-api`, as the CLI does), `classic-grants.sql`, every migration
+  001–242 in order through `psql -v ON_ERROR_STOP=1`, then all 127 verify
+  files in workflow order: 0 failures. 241 and 242 re-applied a second
+  time cleanly and their verify files passed again.
+
+Not done / known limits:
+- Nothing was tried in a real browser or at 375px on a device; layouts
+  were checked in code and unit tests only. No real OpenAI speech call was
+  made.
+- Notes: another person's delete disappears for others only on the next
+  open of the chat; a coordinator who sees a chat only through a share can
+  read and write notes but is not offered in, or rung by, @mentions.
+- Voice library: no `ai_usage_log` row for speech (its `mode` CHECK, the
+  TS type and the usage route would have to change together); spend is
+  visible in `ai_transfer_log` under purpose `voice_note_tts`.
+- Meta window: a staged attachment parked earlier and restored into a
+  Meta chat after the window closed can still be sent from its preview
+  (Meta refuses it).
+- Inbox rows: the `ChatTagPill` `sm` size and the "Similar"/pin/Handled
+  chips still use 10–11px text (pre-existing, out of scope).
