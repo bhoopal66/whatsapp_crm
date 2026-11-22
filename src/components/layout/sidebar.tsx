@@ -17,6 +17,7 @@ import { useGroupsUnread } from '@/hooks/use-groups-unread';
 import { useSubmissionGroupsUnread } from '@/hooks/use-submission-groups-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
+import { useReportNav } from '@/hooks/use-report-nav';
 import { useBrainNav } from '@/hooks/use-brain-nav';
 import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
 import { useHrCounts } from '@/hooks/use-hr-counts';
@@ -146,6 +147,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const callsNav = useCallsNav();
   const brainOn = useBrainNav();
   const hrRoles = useHrTeamNav();
+  // Per-person reports the owner granted (migration 255).
+  const reportKeys = useReportNav();
   // The HR group's open counts; polled only for someone with an HR role
   // (an owner/admin's hr_my_roles() says admin).
   const hrCounts = useHrCounts(!!hrRoles && hasHrAccess(hrRoles));
@@ -155,6 +158,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     salesRestricted,
     callReviewer: reviewsAllCalls,
     hrRoles,
+    reportKeys,
   });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();

@@ -30,16 +30,19 @@ import {
   Zap,
   type LucideIcon,
   AudioLines,
-  IdCard,
-  ListTodo,
-  MessageSquareText,
-  Rocket,
-  SlidersHorizontal,
   UserCheck,
   UserSearch,
+  Filter,
+  Tags,
 } from 'lucide-react';
 
-import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
+import {
+  canManageReportAccess,
+  hasMinRole,
+  isBankGuest,
+  type AccountRole,
+} from '@/lib/auth/roles';
+import type { ReportKey } from '@/lib/reports/access';
 import { hasHrAccess } from '@/lib/hr/access';
 import { hrInboxLinks } from '@/lib/hr/topic-ui';
 import type { HrRoles } from '@/lib/hr/types';
@@ -73,6 +76,13 @@ export interface NavItem {
    * because a hidden link is not access control.
    */
   minRole?: AccountRole;
+  /**
+   * A per-person report (migration 255): shown to the roles that hold it
+   * without a grant (the owner, `canManageReportAccess`) and to anyone the
+   * owner granted it (`ctx.reportKeys`, from `report_my_access()`).
+   * `minRole` is not read. The page keeps its own server-side guard.
+   */
+  report?: ReportKey;
   /**
    * Shown to a bank guest (migrations 082/083) as well. Every other row
    * is the account's own people's only: a guest sees nothing of the
@@ -136,6 +146,8 @@ export interface NavContext {
   callReviewer?: boolean;
   /** The person's HR roles (migration 200); null/absent: none known. */
   hrRoles?: HrRoles | null;
+  /** Reports the owner granted this person (migration 255). */
+  reportKeys?: readonly ReportKey[];
 }
 
 /**
@@ -365,7 +377,22 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'reports',
     labelKey: 'groups.reports',
-    items: [],
+    items: [
+      {
+        href: '/reports/funnel',
+        labelKey: 'funnelReport',
+        icon: Filter,
+        minRole: 'admin',
+        guarded: true,
+      },
+      {
+        href: '/reports/tags',
+        labelKey: 'chatTagReport',
+        icon: Tags,
+        report: 'chat_tags',
+        guarded: true,
+      },
+    ],
   },
   {
     id: 'team',
@@ -569,6 +596,12 @@ export function isNavItemVisible(
   if (item.needsPbx && !(role && ctx.pbx)) return false;
   if (item.needsBrain && !(role && ctx.brain)) return false;
   if (item.callReviewerVisible && role && ctx.callReviewer) return true;
+  if (item.report)
+    return (
+      !!role &&
+      (canManageReportAccess(role) ||
+        (ctx.reportKeys ?? []).includes(item.report))
+    );
   if (item.hr)
     return (
       !!role &&

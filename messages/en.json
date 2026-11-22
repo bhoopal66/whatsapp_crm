@@ -103,6 +103,8 @@
       "hr": "HR",
       "reports": "Reports"
     },
+    "funnelReport": "Sales funnel",
+    "chatTagReport": "Chat tag report",
     "roleBankGuest": "Bank guest",
     "switchWorkspace": "Switch workspace",
     "workspaceDeactivated": "Deactivated",

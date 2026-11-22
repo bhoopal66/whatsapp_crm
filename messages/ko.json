@@ -103,6 +103,8 @@
       "hr": "HR",
       "reports": "보고서"
     },
+    "funnelReport": "Sales funnel",
+    "chatTagReport": "Chat tag report",
     "roleBankGuest": "은행 게스트",
     "switchWorkspace": "워크스페이스 전환",
     "workspaceDeactivated": "비활성화됨",

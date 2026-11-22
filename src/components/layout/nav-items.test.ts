@@ -106,13 +106,31 @@ describe('visibleNavGroups', () => {
     expect(hrefs.filter((h) => h.startsWith('/hr'))).toEqual(['/hr']);
   });
 
-  it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
+  it.each([
+    ['admin', ['/reports/funnel']],
+    ['owner', ['/reports/funnel', '/reports/tags']],
+  ] as const)('shows %s every group', (role, reports) => {
     expect(layout(visibleNavGroups(role))).toEqual({
       ...LEADER,
+      // The chat tag report is the owner's, or a grant's (migration 255).
+      reports,
       team: [...TEAM, ...HR_ROW],
       automation: ['/broadcasts', '/automations', '/flows'],
       integrations: ['/compass', '/opendesk'],
     });
+  });
+
+  it('shows the chat tag report to someone the owner granted it, and no one else', () => {
+    const tags = (role: AccountRole, reportKeys: readonly 'chat_tags'[] = []) =>
+      visibleNavGroups(role, { reportKeys })
+        .flatMap((g) => g.items.map((i) => i.href))
+        .includes('/reports/tags');
+    expect(tags('agent', ['chat_tags'])).toBe(true);
+    expect(tags('admin', ['chat_tags'])).toBe(true);
+    expect(tags('agent')).toBe(false);
+    expect(tags('admin')).toBe(false);
+    expect(tags('owner')).toBe(true);
+    expect(tags('bank_guest', ['chat_tags'])).toBe(false);
   });
 
   it("orders the groups by area, the higher roles' views last", () => {
@@ -122,6 +140,7 @@ describe('visibleNavGroups', () => {
       'conversations',
       'customers',
       'submissions',
+      'reports',
       'team',
       'automation',
       'integrations',
@@ -364,11 +383,20 @@ describe('visibleNavGroups', () => {
   describe('the Reports slot', () => {
     const slot = NAV_GROUPS.find((g) => g.id === 'reports');
 
-    it('exists, is headed, and renders nothing while it has no items', () => {
+    it('exists, is headed, and renders nothing for a role that may open none of it', () => {
       expect(slot).toBeDefined();
       expect(slot!.labelKey).toBe('groups.reports');
-      expect(slot!.items).toEqual([]);
-      for (const role of [null, ...ACCOUNT_ROLES])
+      expect(slot!.items.map((i) => i.href)).toEqual([
+        '/reports/funnel',
+        '/reports/tags',
+      ]);
+      for (const role of [
+        null,
+        'bank_guest',
+        'viewer',
+        'agent',
+        'team_leader',
+      ] as const)
         expect(
           visibleNavGroups(role).map((g) => g.id),
           String(role)
@@ -491,7 +519,7 @@ describe('nav model', () => {
       const source = routeLayout(appDir, item.href);
       const guarded =
         /\b(Admin|TeamLeader|Agent|Staff)OnlyLayout\b/.test(source) ||
-        /\b(CallReviewer|HrAccess)Layout\b/.test(source);
+        /\b(CallReviewer|HrAccess|ReportAccess)Layout\b/.test(source);
       expect(!!item.guarded, item.href).toBe(guarded);
     }
   });
@@ -529,6 +557,8 @@ describe('navPrefetch', () => {
         '/compass',
         '/desk',
         '/recycle',
+        '/reports/funnel',
+        '/reports/tags',
         '/flows',
         '/groups',
         '/hr',
