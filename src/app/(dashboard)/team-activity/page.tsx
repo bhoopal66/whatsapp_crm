@@ -38,6 +38,7 @@ import {
   PeopleGrid,
 } from '@/components/team-activity/people-grid';
 import { PersonSheet } from '@/components/team-activity/person-sheet';
+import { DownloadCsvButton } from '@/components/reports/download-csv-button';
 import { useSenderName } from '@/components/team-activity/shared';
 import {
   Accordion,
@@ -119,6 +120,7 @@ function TeamActivityPageInner() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
   const th = useTranslations('TeamActivity.how');
+  const tx = useTranslations('ReportExports');
   // The limits and the Safety Meter stay admin-only (their routes
   // refuse anyone else); a team leader reads the page.
   const admin = useCan('edit-settings');
@@ -138,6 +140,17 @@ function TeamActivityPageInner() {
   const [openPerson, setOpenPerson] = useState<PersonAssessment | null>(null);
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [limitsKey, setLimitsKey] = useState(0);
+
+  // The owner's CSV of the range and number on screen (owner only).
+  const exportUrl = (table: 'people' | 'numbers') => {
+    const params = new URLSearchParams({
+      range: preset,
+      tz: viewerZone(),
+      table,
+    });
+    if (channel !== ALL) params.set('channel', channel);
+    return `/api/team-activity/export?${params}`;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -502,6 +515,13 @@ function TeamActivityPageInner() {
               <RefreshCw className="h-4 w-4" />
             )}
           </Button>
+          <DownloadCsvButton
+            disabled={!report}
+            options={(['people', 'numbers'] as const).map((table) => ({
+              label: tx(table),
+              url: exportUrl(table),
+            }))}
+          />
           {admin && (
             <Button
               type="button"

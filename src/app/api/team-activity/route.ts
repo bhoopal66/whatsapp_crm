@@ -2,13 +2,10 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
-  NOT_MIGRATED_MESSAGE,
-  isMissingFunction,
-  viewOffHint,
-} from '@/lib/team-activity/db-errors';
-import { isValidTimeZone, limitsFromRow } from '@/lib/team-activity/limits';
-import { isRangePreset, rangeFor } from '@/lib/team-activity/range';
-import { parseTeamActivityReport } from '@/lib/team-activity/report';
+  loadTeamActivityReport,
+  parseReportQuery,
+  reportFailureResponse,
+} from '@/lib/team-activity/load-report';
 
 /**
  * Team activity (migration 068): who starts WhatsApp chats, how many get
@@ -19,93 +16,30 @@ import { parseTeamActivityReport } from '@/lib/team-activity/report';
  * that becomes a 403 `code`.
  */
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const notMigrated = () =>
-  NextResponse.json({ error: NOT_MIGRATED_MESSAGE }, { status: 503 });
-
 /**
  * GET /api/team-activity?range=7d&channel=<number id>&tz=<IANA zone>
  *   → { report: TeamActivityReport, range: { preset, from, to } }
  *
- * The range is computed here, in the account's zone once an admin has
- * saved one (else the viewer's), so "today" on this page is the same
- * day the limits, the alerts and the block count.
+ * The range is computed in the account's zone once an admin has saved
+ * one (else the viewer's), so "today" on this page is the same day the
+ * limits, the alerts and the block count (`loadTeamActivityReport`).
  */
 export async function GET(request: Request) {
   try {
     const { supabase, accountId } = await requireRole('agent');
-    const params = new URL(request.url).searchParams;
-
-    const preset = params.get('range') ?? '7d';
-    if (!isRangePreset(preset)) {
-      return NextResponse.json({ error: 'Unknown range' }, { status: 400 });
+    const parsed = parseReportQuery(new URL(request.url).searchParams);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
-    const channel = params.get('channel') || null;
-    if (channel && !UUID_RE.test(channel)) {
-      return NextResponse.json({ error: 'Unknown number' }, { status: 400 });
-    }
-    const viewerZone = params.get('tz');
 
-    const { data: limitRows, error: limitsError } = await supabase.rpc(
-      'team_activity_limits',
-      { p_account: accountId }
+    const result = await loadTeamActivityReport(
+      supabase,
+      accountId,
+      parsed.query
     );
-    if (limitsError) {
-      if (isMissingFunction(limitsError)) return notMigrated();
-      console.error('[team-activity] limits failed:', limitsError.message);
-      return NextResponse.json(
-        { error: 'Failed to load team activity' },
-        { status: 500 }
-      );
-    }
-    const saved = limitsFromRow(
-      Array.isArray(limitRows)
-        ? (limitRows[0] as Record<string, unknown>)
-        : null
-    );
-    const tz =
-      saved.timezone ??
-      (viewerZone && isValidTimeZone(viewerZone) ? viewerZone : 'UTC');
+    if (result.kind !== 'ok') return reportFailureResponse(result);
 
-    const now = new Date();
-    const range = rangeFor(preset, now, tz);
-    // A request landing on the very millisecond of midnight.
-    if (range.to.getTime() <= range.from.getTime()) {
-      range.to = new Date(range.from.getTime() + 1000);
-    }
-
-    const { data, error } = await supabase.rpc('team_activity_report', {
-      p_from: range.from.toISOString(),
-      p_to: range.to.toISOString(),
-      p_tz: tz,
-      p_channel_id: channel,
-    });
-    if (error) {
-      if (isMissingFunction(error)) return notMigrated();
-      const off = viewOffHint(error);
-      if (off) {
-        return NextResponse.json(
-          { error: 'This view is switched off', code: off },
-          { status: 403 }
-        );
-      }
-      console.error('[team-activity] report failed:', error.message);
-      return NextResponse.json(
-        { error: 'Failed to load team activity' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      report: parseTeamActivityReport(data),
-      range: {
-        preset,
-        from: range.from.toISOString(),
-        to: range.to.toISOString(),
-      },
-    });
+    return NextResponse.json({ report: result.report, range: result.range });
   } catch (err) {
     return toErrorResponse(err);
   }

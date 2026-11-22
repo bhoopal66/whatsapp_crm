@@ -7348,6 +7348,13 @@
       "failed": "Couldn't update the reminder"
     }
   },
+  "ReportExports": {
+    "download": "Download CSV",
+    "downloading": "Preparing CSV…",
+    "failed": "The CSV could not be downloaded. Try again.",
+    "people": "People",
+    "numbers": "Numbers"
+  },
   "MeetingRoom": {
     "recording": {
       "record": "Record this meeting",

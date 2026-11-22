@@ -328,6 +328,15 @@ export function canTransferOwnership(role: AccountRole): boolean {
 }
 
 /**
+ * Owner only: download the report CSVs (Team activity, the dashboard's
+ * figures). The owner's decision; the export routes call
+ * `requireRole('owner')`, so this only hides the button.
+ */
+export function canExportReports(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
+/**
  * Owner only: archive a workspace or restore it (`archive_workspace`,
  * migration 105). Judged on the person's row in THAT workspace, which
  * need not be the active one: an archived workspace is restored from

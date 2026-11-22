@@ -7348,6 +7348,13 @@
       "failed": "알림을 업데이트하지 못했습니다"
     }
   },
+  "ReportExports": {
+    "download": "CSV 다운로드",
+    "downloading": "CSV 준비 중…",
+    "failed": "CSV를 다운로드하지 못했습니다. 다시 시도하세요.",
+    "people": "사람별",
+    "numbers": "번호별"
+  },
   "MeetingRoom": {
     "recording": {
       "record": "이 회의 녹화",

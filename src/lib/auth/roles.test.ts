@@ -19,6 +19,7 @@ import {
   canUseMeetings,
   canCreateMeetings,
   canArchiveWorkspace,
+  canExportReports,
   canChangePasswordOf,
   canEditDetailsOf,
   canViewOnly,
@@ -158,6 +159,19 @@ describe('capability predicates', () => {
     expect(canTransferOwnership('admin')).toBe(false);
     expect(canTransferOwnership('agent')).toBe(false);
     expect(canTransferOwnership('viewer')).toBe(false);
+  });
+
+  it('canExportReports: owner only', () => {
+    expect(canExportReports('owner')).toBe(true);
+    for (const role of [
+      'admin',
+      'team_leader',
+      'agent',
+      'viewer',
+      'bank_guest',
+    ] as const) {
+      expect(canExportReports(role)).toBe(false);
+    }
   });
 
   it('canArchiveWorkspace: owner only', () => {
