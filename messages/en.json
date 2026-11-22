@@ -1245,6 +1245,7 @@
         "subtitle": "Select an approved message template for your broadcast.",
         "noTemplates": "No templates available.",
         "createFirst": "Create a template in Settings first.",
+        "createTemplate": "Create template",
         "errorLoad": "Failed to load templates"
       },
       "selectAudience": {
@@ -1892,6 +1893,7 @@
   "Settings": {
     "pageTitle": "Settings",
     "pageDesc": "Your account and your workspace, in one place. Pick a section from the menu, or search for a setting.",
+    "backToBroadcast": "Back to your new broadcast",
     "leaveGuard": {
       "title": "Leave without saving?",
       "body": "You have unsaved changes in AI Agents. They will be lost.",

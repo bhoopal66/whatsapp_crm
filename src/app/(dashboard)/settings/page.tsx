@@ -1,7 +1,11 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { safeBroadcastReturnPath } from '@/lib/broadcasts/return-path';
 import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
 
@@ -358,6 +362,9 @@ function SettingsPageInner() {
     salesRestricted
   );
   const groups = visibleCategories(role, salesRestricted);
+  // The broadcast wizard sends people here to create a template and
+  // leaves `?from=` so they can walk back (only a /broadcasts path counts).
+  const backTo = safeBroadcastReturnPath(searchParams.get('from'));
   // A bank guest has one section (Workspaces): no menu to show. Nor
   // while the role loads: with no role yet, every personal section
   // looks openable, so a guest would see a menu and Overview flash by
@@ -570,6 +577,18 @@ function SettingsPageInner() {
               onPreload={preloadSection}
               className="mb-5 xl:hidden"
             />
+          ) : null}
+          {section === 'templates' && backTo ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mb-4"
+              nativeButton={false}
+              render={<Link href={backTo} />}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {t('backToBroadcast')}
+            </Button>
           ) : null}
           {profileLoading ? <PanelLoading /> : panel[section]}
         </div>

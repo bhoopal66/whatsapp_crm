@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { Loader2, FileText, ArrowRight, Plus } from 'lucide-react';
+import { templatesSettingsHref } from '@/lib/broadcasts/return-path';
 import { useTranslations } from 'next-intl';
 
 const categoryColors: Record<string, string> = {
@@ -80,7 +82,17 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-border bg-card/50">
           <FileText className="mb-2 h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">{t('chooseTemplate.noTemplates')}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t('chooseTemplate.createFirst')}</p>
+          <p className="mt-1 px-4 text-center text-sm text-muted-foreground">
+            {t('chooseTemplate.createFirst')}
+          </p>
+          <Button
+            className="mt-3"
+            nativeButton={false}
+            render={<Link href={templatesSettingsHref()} />}
+          >
+            <Plus className="h-4 w-4" />
+            {t('chooseTemplate.createTemplate')}
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

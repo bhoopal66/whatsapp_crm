@@ -1245,6 +1245,7 @@
         "subtitle": "브로드캐스트에 사용할 승인된 메시지 템플릿을 선택하세요.",
         "noTemplates": "사용 가능한 템플릿이 없습니다.",
         "createFirst": "먼저 설정에서 템플릿을 만드세요.",
+        "createTemplate": "Create template",
         "errorLoad": "템플릿을 불러오지 못했습니다"
       },
       "selectAudience": {
@@ -1892,6 +1893,7 @@
   "Settings": {
     "pageTitle": "설정",
     "pageDesc": "계정과 워크스페이스에 관한 모든 것을 한곳에서 관리하세요. 메뉴에서 섹션을 고르거나 설정을 검색하세요.",
+    "backToBroadcast": "Back to your new broadcast",
     "leaveGuard": {
       "title": "저장하지 않고 나가시겠습니까?",
       "body": "AI 에이전트에 저장하지 않은 변경 사항이 있습니다. 나가면 변경 사항이 사라집니다.",
