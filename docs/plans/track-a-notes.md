@@ -273,7 +273,7 @@ the reply composer has a recording or staged attachment
 
 <!-- TRACK_A_GATES -->
 Final state `ba2365c` + this notes commit (all eight items plus review
-fixes), run 2026-11-22 ~09:30 UTC:
+fixes), run 2026-11-22 ~08:50 UTC:
 
 - `npm run lint`: 0 errors, 31 warnings (pre-existing count was ~32).
 - `npm run typecheck`: clean.
