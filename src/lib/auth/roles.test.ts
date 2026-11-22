@@ -9,6 +9,7 @@ import {
   canLeadTeam,
   canManageTeams,
   canEditSettings,
+  canManageReportAccess,
   canGrantRole,
   canInviteMembers,
   canManageMembers,
@@ -123,6 +124,13 @@ describe('capability predicates', () => {
     expect(canEditSettings('admin')).toBe(true);
     expect(canEditSettings('agent')).toBe(false);
     expect(canEditSettings('viewer')).toBe(false);
+  });
+
+  it('canManageReportAccess: owner only', () => {
+    expect(canManageReportAccess('owner')).toBe(true);
+    expect(canManageReportAccess('admin')).toBe(false);
+    expect(canManageReportAccess('team_leader')).toBe(false);
+    expect(canManageReportAccess('bank_guest')).toBe(false);
   });
 
   it('canSendMessages: agent+ only', () => {

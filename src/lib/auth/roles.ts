@@ -323,6 +323,14 @@ export function isOwner(role: AccountRole): boolean {
   return role === 'owner';
 }
 
+/**
+ * Owner only: decide who may open a per-person report (the chat tag
+ * report, `report_access_set`, migration 255). The owner always opens it.
+ */
+export function canManageReportAccess(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === 'owner';
 }

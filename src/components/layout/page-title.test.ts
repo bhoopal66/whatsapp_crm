@@ -44,6 +44,8 @@ describe('pageTitleKey', () => {
     ['/compass', 'compass'],
     ['/opendesk', 'opendesk'],
     ['/team-activity', 'teamActivity'],
+    ['/reports', 'reports'],
+    ['/reports/tags', 'chatTagReport'],
     ['/settings', 'settings'],
     ['/agents', 'settings'],
   ])('%s → %s', (path, key) => {

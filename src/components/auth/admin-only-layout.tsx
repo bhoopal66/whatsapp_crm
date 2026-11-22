@@ -6,9 +6,11 @@ import { GUEST_HOME_PATH } from '@/lib/auth/my-workspaces';
 import {
   canEditSettings,
   canLeadTeam,
+  canManageReportAccess,
   canSendMessages,
   isBankGuest,
 } from '@/lib/auth/roles';
+import { parseReportKeys, type ReportKey } from '@/lib/reports/access';
 
 /**
  * Server-side gate for the workspace-configuration screens —
@@ -221,6 +223,86 @@ export async function HrAccessLayout({ children }: { children: ReactNode }) {
       const roles = data as { recruiter?: unknown; dept?: unknown } | null;
       allowed =
         !error && !!roles && (roles.recruiter != null || roles.dept != null);
+    } catch {
+      // A failed check is a refusal, never a sign-out.
+    }
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}
+
+/**
+ * Server-side gate for a per-person report (migration 255; today the
+ * chat tag report, `report="chat_tags"`): the owner, plus anyone the
+ * owner granted it, which `report_my_access()` answers as the caller (a
+ * grant counts only while the person is live staff). Admins have no
+ * standing access. A failed check is a refusal (fail closed), and a
+ * bank guest is never asked. Same shape as {@link AdminOnlyLayout},
+ * redirects outside the try.
+ */
+export async function ReportAccessLayout({
+  report,
+  children,
+}: {
+  report: ReportKey;
+  children: ReactNode;
+}) {
+  let signedIn = true;
+  let allowed = false;
+
+  let ctx: Awaited<ReturnType<typeof getCurrentAccount>> | null = null;
+  try {
+    ctx = await getCurrentAccount();
+    allowed = canManageReportAccess(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+  if (ctx && !allowed && !isBankGuest(ctx.role)) {
+    try {
+      const { data, error } = await ctx.supabase.rpc('report_my_access');
+      allowed = !error && parseReportKeys(data).includes(report);
+    } catch {
+      // A failed check is a refusal, never a sign-out.
+    }
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}
+
+/**
+ * Server-side gate for the Reports landing and everything under
+ * /reports: admin and up (the funnel is theirs), or anyone holding a
+ * report key (`report_my_access()`). Each report adds its own guard in
+ * its folder (the funnel {@link AdminOnlyLayout}, the chat tag report
+ * {@link ReportAccessLayout}). Fails closed; a bank guest is never
+ * asked. Same shape as {@link AdminOnlyLayout}, redirects outside the
+ * try.
+ */
+export async function ReportsLandingLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  let signedIn = true;
+  let allowed = false;
+
+  let ctx: Awaited<ReturnType<typeof getCurrentAccount>> | null = null;
+  try {
+    ctx = await getCurrentAccount();
+    allowed = canEditSettings(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+  if (ctx && !allowed && !isBankGuest(ctx.role)) {
+    try {
+      const { data, error } = await ctx.supabase.rpc('report_my_access');
+      allowed = !error && parseReportKeys(data).length > 0;
     } catch {
       // A failed check is a refusal, never a sign-out.
     }
