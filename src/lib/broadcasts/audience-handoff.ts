@@ -157,3 +157,29 @@ export function readAudienceHandoff(
     return null;
   }
 }
+
+/**
+ * The wizard's starting audience when it was opened from Contacts' "Add to
+ * campaign" (`?audience=handoff`), else null. Read without consuming (a dev
+ * double-render would lose it); the next handoff overwrites it and it
+ * expires after AUDIENCE_HANDOFF_MAX_AGE_MS.
+ */
+export function readContactsAudience(): {
+  type: 'csv';
+  csvContacts: AudienceHandoff['rows'];
+  csvColumns: string[];
+} | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!window.location.search.includes('audience=handoff')) return null;
+    const h = readAudienceHandoff(window.sessionStorage, { consume: false });
+    if (!h || h.rows.length === 0) return null;
+    return {
+      type: 'csv',
+      csvContacts: h.rows,
+      csvColumns: ['name', 'phone', 'email', 'company'],
+    };
+  } catch {
+    return null;
+  }
+}

@@ -81,6 +81,7 @@ import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
+import { SavedViewsMenu } from '@/components/saved-views/saved-views-menu';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
@@ -121,6 +122,7 @@ import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
 import { SourceFilter } from '@/components/contacts/source-filter';
 import {
+  EMPTY_VIEW_FILTERS,
   fromViewFilters,
   toViewFilters,
   type ContactsViewFilters,
@@ -1095,7 +1097,18 @@ export function ContactsPageInner({
               )}
             </PopoverContent>
           </Popover>
-          {/* SAVED-VIEWS SLOT: <SavedViewsMenu> mounts here. */}
+          <SavedViewsMenu
+            screen="contacts"
+            current={currentViewFilters as unknown as Record<string, unknown>}
+            hasFilters={
+              currentViewFilters.search !== '' ||
+              currentViewFilters.chatTagIds.length > 0 ||
+              currentViewFilters.sources.length > 0 ||
+              currentViewFilters.sort !== EMPTY_VIEW_FILTERS.sort ||
+              currentViewFilters.dir !== EMPTY_VIEW_FILTERS.dir
+            }
+            onApply={(raw) => applyView(fromViewFilters(raw))}
+          />
           {toolbarExtras?.({ filters: currentViewFilters, applyView })}
           {LEAD_SOURCE_COLUMN_AVAILABLE && (
             <SourceFilter selected={sources} onChange={changeSources} />
