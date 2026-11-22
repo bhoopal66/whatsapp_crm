@@ -18,6 +18,7 @@ import {
 } from '@/lib/desk/escalate'
 import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
+import { runResponseEscalationSweep } from '@/lib/response-times/sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
@@ -128,6 +129,34 @@ function scheduleTeamActivitySweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the team activity sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Response-time escalation (migration 237): customers waiting past the
+ * workspace's response target ring the assignee, past twice it their
+ * team leader (else owners and admins), and an unassigned chat rings
+ * owners and admins. Off until a workspace switches it on. At most once
+ * per 5 minutes per process, inside after(); the SQL rings each level
+ * once per waiting episode, so an overlapping run changes nothing.
+ * runResponseEscalationSweep never throws; a failure is only logged.
+ */
+const responseSweepDue = everyInterval(5 * 60_000)
+
+function scheduleResponseEscalation() {
+  try {
+    if (!responseSweepDue()) return
+    after(async () => {
+      const summary = await runResponseEscalationSweep(supabaseAdmin())
+      if (summary && (summary.notifications > 0 || summary.failed > 0)) {
+        console.log('[automations-cron] response escalation:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the response escalation:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -927,6 +956,7 @@ export async function GET(request: Request) {
     scheduleChannelHealthCheck()
     scheduleMeetingLapseSweep()
     scheduleTeamActivitySweep()
+    scheduleResponseEscalation()
     scheduleEdgePurge()
     scheduleChatFileSweep()
     scheduleStagedMediaSweep()

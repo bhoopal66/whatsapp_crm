@@ -18,6 +18,9 @@ describe('notificationTarget', () => {
     'ai_handoff',
     'conversation_shared',
     'insight_attention',
+    'response_target_missed',
+    'response_escalated',
+    'response_unassigned',
   ])('%s opens the chat', (type) => {
     expect(
       notificationTarget(

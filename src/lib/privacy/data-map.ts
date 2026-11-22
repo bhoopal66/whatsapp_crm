@@ -886,6 +886,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'pipeline_stages',
             'pipelines',
             'quick_replies',
+            'response_settings',
             'tags',
             'team_activity_new_chat_notice',
             'team_activity_settings',
@@ -992,6 +993,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'workspace_audit',
             'privacy_requests',
             'privacy_retention_settings',
+            // 237: which level rang whom per waiting episode (ids and
+            // times only); goes with its chat (ON DELETE CASCADE).
+            'response_escalations',
             'case_review_queue',
             'ai_transfer_basis',
             'ai_transfer_log',
