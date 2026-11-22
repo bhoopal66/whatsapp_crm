@@ -19,7 +19,7 @@
 // A change also clears Jev's tag suggestion (migration 147): a person
 // just decided, so a suggestion made before that is stale, and an
 // applied suggestion must not linger as a chip. The columns are service
-// role only (the 147 guard), hence `supabaseAdmin()`, scoped to the
+// role only (the 147 guard), hence `clearTagSuggestion`, scoped to the
 // account the write was authorised in. `tag_suggestion_dismissed_id`
 // stays: a dismissal still means "not this tag" for the chat.
 // Best-effort: the tags are saved either way.
@@ -27,9 +27,9 @@
 
 import { NextResponse, after } from 'next/server';
 
-import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { clearTagSuggestion } from '@/lib/chat-tags/clear-suggestion';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 
 // Automations dispatched in after() may send messages.
@@ -127,37 +127,5 @@ export async function PUT(
     });
   } catch (err) {
     return toErrorResponse(err);
-  }
-}
-
-/**
- * Clears a stored tag suggestion and stamps suggestion_basis_at with now:
- * a Jev judgment of an older message still in flight then finds its basis
- * outdated and cannot store a suggestion over the person's choice. Always
- * written (not only when a suggestion is stored) for that reason. Logs and
- * carries on on failure.
- */
-async function clearTagSuggestion(
-  accountId: string,
-  conversationId: string
-): Promise<void> {
-  try {
-    const { error } = await supabaseAdmin()
-      .from('conversations')
-      .update({
-        suggested_chat_tag_id: null,
-        suggested_chat_sub_tag_id: null,
-        suggested_tag_p: null,
-        suggested_tag_at: null,
-        suggestion_basis_at: new Date().toISOString(),
-      })
-      .eq('id', conversationId)
-      .eq('account_id', accountId);
-    if (error) throw new Error(error.message);
-  } catch (err) {
-    console.error(
-      '[conversations/chat-tags] clearing the tag suggestion failed:',
-      err instanceof Error ? err.message : String(err)
-    );
   }
 }

@@ -116,6 +116,47 @@ import {
   type SearchHit,
 } from '@/lib/contacts/fuzzy-search';
 import { pruneSelection } from '@/lib/contacts/selection';
+import { SortHeader } from '@/components/contacts/sort-header';
+import { PhoneCell } from '@/components/contacts/phone-cell';
+import { ColumnsMenu } from '@/components/contacts/columns-menu';
+import { SourceFilter } from '@/components/contacts/source-filter';
+import {
+  fromViewFilters,
+  toViewFilters,
+  type ContactsViewFilters,
+} from '@/lib/contacts/view-filters';
+import { LeadSourceBadge } from '@/components/contacts/lead-source-badge';
+import {
+  LEAD_SOURCE_COLUMN_AVAILABLE,
+  leadSourceOf,
+  parseLeadSources,
+  type LeadSource,
+} from '@/lib/contacts/lead-source';
+import {
+  columnPrefsKey,
+  OPTIONAL_COLUMNS,
+  DEFAULT_COLUMN_PREFS,
+  parseColumnPrefs,
+  serializeColumnPrefs,
+  visibleColumns,
+  type ColumnPresence,
+  type ColumnPrefs,
+  type OptionalColumn,
+} from '@/lib/contacts/columns';
+import { BulkBar, type ChatTagChoice } from '@/components/contacts/bulk-bar';
+import {
+  writeAudienceHandoff,
+  AUDIENCE_HANDOFF_URL,
+} from '@/lib/broadcasts/audience-handoff';
+import {
+  DEFAULT_CONTACT_SORT,
+  nextContactSort,
+  parseContactSort,
+  sortToParams,
+  type ContactSort,
+  type ContactSortKey,
+} from '@/lib/contacts/sort';
+import { withParams } from '@/lib/contacts/url-state';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
 
@@ -136,6 +177,12 @@ const FILTER_MATCHES_TTL_MS = 30_000;
 const SEARCH_RPC_LIMIT = 500;
 const NO_CHAT_TAGS: readonly string[] = [];
 
+/** Opaque, so scrolled cells never show through; follows the row hover. */
+const STICKY_CHECK_CELL =
+  'bg-card group-hover/row:bg-accent sticky left-0 z-[5] w-10 min-w-10';
+const STICKY_NAME_CELL =
+  'bg-card group-hover/row:bg-accent sticky left-10 z-[5] min-w-32';
+
 type ContactRow = ContactListRow;
 
 /** One view of the list as the session cache keeps it. */
@@ -155,10 +202,22 @@ interface ContactListPage {
  */
 export function ContactsPageInner({
   teamView = false,
-}: { teamView?: boolean } = {}) {
+  toolbarExtras,
+}: {
+  teamView?: boolean;
+  /**
+   * Slot beside the search box (saved views mount here). Receives the
+   * current filter state and `applyView`, which restores a saved one.
+   */
+  toolbarExtras?: (ctx: {
+    filters: ContactsViewFilters;
+    applyView: (filters: ContactsViewFilters) => void;
+  }) => ReactNode;
+} = {}) {
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const tSearch = useTranslations('ContactSearch');
+  const tTable = useTranslations('ContactsTable');
   const locale = useLocale();
   const { user, accountId, accountRole, profileLoading } = useAuth();
 
@@ -178,6 +237,16 @@ export function ContactsPageInner({
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [page, setPage] = useState(0);
+  // Sort lives in the URL (?sort=name&dir=asc). The list waits for it to
+  // be read (`urlReady`) so a reload does not fetch the default first.
+  const [sort, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
+  const [urlReady, setUrlReady] = useState(false);
+  // Lead-source filter (any of), also in the URL: ?source=ad,web_form.
+  const [sources, setSources] = useState<LeadSource[]>([]);
+  // Optional columns shown (per user, localStorage; try/catch: it can be
+  // blocked or empty in a private window).
+  const [columnPrefs, setColumnPrefs] =
+    useState<ColumnPrefs>(DEFAULT_COLUMN_PREFS);
   // Chat-tag filter — contacts shown have a conversation carrying ANY
   // of these main or sub tags (OR), as in the inbox.
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
@@ -243,19 +312,22 @@ export function ContactsPageInner({
   // lands; asking before then asked the wrong question for a team
   // leader — the unnarrowed, account-wide list, which is precisely
   // what /team-contacts is for.
-  const listKey = profileLoading
-    ? null
-    : sessionKey(
-        accountId,
-        user?.id,
-        contactListQuestion({
-          teamView,
-          personalOnlyUserId,
-          search: debouncedSearch,
-          chatTagIds: chatTagFilterIds,
-          page,
-        })
-      );
+  const listKey =
+    profileLoading || !urlReady
+      ? null
+      : sessionKey(
+          accountId,
+          user?.id,
+          contactListQuestion({
+            teamView,
+            personalOnlyUserId,
+            search: debouncedSearch,
+            chatTagIds: chatTagFilterIds,
+            sort,
+            sources,
+            page,
+          })
+        );
 
   const fetchList = useCallback(async (): Promise<ContactListPage> => {
     const from = page * PAGE_SIZE;
@@ -263,6 +335,7 @@ export function ContactsPageInner({
     const searchFilter = contactSearchFilter(term);
 
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
+    const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
 
     // Close-match search: the RPC ranks (as the caller, so RLS applies),
     // then the page's own filters narrow its hits. A missing RPC
@@ -273,6 +346,7 @@ export function ContactsPageInner({
         term,
         chatTagFilterKey,
         personalOnlyUserId,
+        sources,
       ]);
       const cachedSearch = searchMatches.current;
       let ranked =
@@ -291,6 +365,7 @@ export function ContactsPageInner({
           const ids = hits.map((h) => h.contactId);
           let owned: Set<string> | null = null;
           let tagged: Set<string> | null = null;
+          let sourced: Set<string> | null = null;
           // Chunked: 500 UUIDs in one `in.(…)` is ~18 KB of URL, over
           // Cloudflare's ~16 KB limit in front of the tunnelled install.
           if (ids.length > 0 && personalOnlyUserId) {
@@ -330,7 +405,24 @@ export function ContactsPageInner({
               )
             );
           }
-          ranked = narrowHits(hits, [owned, tagged]);
+          if (ids.length > 0 && sourceList.length > 0) {
+            const results = await mapWithConcurrency(
+              chunkIds(ids),
+              FILTER_CHUNK_CONCURRENCY,
+              (chunk) =>
+                supabase
+                  .from('contacts')
+                  .select('id')
+                  .in('id', chunk)
+                  .in('lead_source', sourceList)
+            );
+            const failed = results.find((r) => r.error)?.error;
+            if (failed) throw failed;
+            sourced = new Set(
+              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
+            );
+          }
+          ranked = narrowHits(hits, [owned, tagged, sourced]);
           searchMatches.current = {
             key: searchKey,
             at: Date.now(),
@@ -368,7 +460,7 @@ export function ContactsPageInner({
       // for the Chat tag and Assigned to columns.
       const { data, count, error } = await buildContactListQuery(
         supabase.from('contacts'),
-        { personalOnlyUserId, search: term, page },
+        { personalOnlyUserId, search: term, page, sort, sources },
         PAGE_SIZE
       );
       if (error) throw error;
@@ -390,6 +482,7 @@ export function ContactsPageInner({
       term,
       chatTagFilterKey,
       personalOnlyUserId,
+      sources,
     ]);
     const cached = filterMatches.current;
     let matchedRows =
@@ -421,18 +514,25 @@ export function ContactsPageInner({
         (ids) => {
           let query = supabase
             .from('contacts')
-            .select('id, created_at')
+            .select('id, created_at, name')
             .in('id', ids);
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
           if (searchFilter) query = query.or(searchFilter);
+          if (sourceList.length > 0)
+            query = query.in('lead_source', sourceList);
           return query;
         }
       );
       const chunkError = results.find((r) => r.error)?.error;
       if (chunkError) throw chunkError;
       matchedRows = results.flatMap(
-        (r) => (r.data ?? []) as { id: string; created_at: string }[]
+        (r) =>
+          (r.data ?? []) as {
+            id: string;
+            created_at: string;
+            name: string | null;
+          }[]
       );
       filterMatches.current = {
         key: filterKey,
@@ -443,7 +543,8 @@ export function ContactsPageInner({
     const { ids: pageIds, total } = pageOfContactIds(
       matchedRows,
       from,
-      PAGE_SIZE
+      PAGE_SIZE,
+      sort
     );
     if (pageIds.length === 0) return { rows: [], total };
 
@@ -477,12 +578,38 @@ export function ContactsPageInner({
     chatTagFilterIds,
     chatTagFilterKey,
     personalOnlyUserId,
+    sort,
+    sources,
   ]);
 
   const list = useSessionQuery(listKey, fetchList);
   const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
   const totalCount = list.data?.total ?? 0;
   const closeDividerId = firstCloseMatchId(contacts);
+  const shownColumns = useMemo(
+    () =>
+      visibleColumns(
+        columnPrefs,
+        contacts.map((c): ColumnPresence => ({
+          email: !!c.email,
+          company: !!c.company,
+          chatTag: !!c.chatTags?.chat_tag_id,
+          source: leadSourceOf(c) !== null,
+          owner: !!c.user_id && !!nameOf(c.user_id),
+          assignedTo: !!c.assignedTo && !!nameOf(c.assignedTo),
+          createdAt: true,
+        }))
+      ),
+    [columnPrefs, contacts, nameOf]
+  );
+  // The Source column exists only once migration 249 is applied.
+  const optionalColumns = OPTIONAL_COLUMNS.filter(
+    (c) => c !== 'source' || LEAD_SOURCE_COLUMN_AVAILABLE
+  );
+  const show = (column: OptionalColumn) =>
+    shownColumns.has(column) && optionalColumns.includes(column);
+  // checkbox + name + phone + options, plus the optional ones shown.
+  const colCount = 4 + optionalColumns.filter(show).length;
   // A spinner only while nothing is cached for this view: a revisit
   // shows the last answer while the fresh one loads.
   const loading = list.loading;
@@ -559,6 +686,58 @@ export function ContactsPageInner({
     router.push(customerPath(contactId, teamView));
   }
 
+  const columnsKey = columnPrefsKey(user?.id);
+  useEffect(() => {
+    try {
+      setColumnPrefs(parseColumnPrefs(window.localStorage.getItem(columnsKey)));
+    } catch {
+      setColumnPrefs(DEFAULT_COLUMN_PREFS);
+    }
+  }, [columnsKey]);
+
+  function changeColumnPrefs(next: ColumnPrefs) {
+    setColumnPrefs(next);
+    try {
+      window.localStorage.setItem(columnsKey, serializeColumnPrefs(next));
+    } catch {
+      // Not saved; the choice still applies until the tab closes.
+    }
+  }
+
+  // Restore the sort from the URL once, on mount.
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      setSort(parseContactSort(q.get('sort'), q.get('dir')));
+      if (LEAD_SOURCE_COLUMN_AVAILABLE) {
+        setSources(parseLeadSources(q.get('source')));
+      }
+    } catch {
+      // No window or malformed URL: keep the default.
+    }
+    setUrlReady(true);
+  }, []);
+
+  function changeSort(key: ContactSortKey) {
+    const next = nextContactSort(sort, key);
+    setSort(next);
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        sort: null,
+        dir: null,
+        ...sortToParams(next),
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience; the in-memory sort still applies.
+    }
+  }
+
   // `?c=<id>` deep link — used by "view contact" on a saved contact card
   // in the inbox. Read from the location rather than useSearchParams so
   // this client page needs no Suspense boundary; it runs once on mount.
@@ -627,6 +806,61 @@ export function ContactsPageInner({
     });
   }
 
+  // Same server path as the inbox header's tag control, per contact's
+  // company chat (compare-and-set, chat_tag_set dispatched once each).
+  async function applyBulkTag(choice: ChatTagChoice) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    try {
+      const res = await fetch('/api/contacts/bulk/chat-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactIds: ids,
+          chatTagId: choice.chatTagId,
+          ...(choice.subTagId !== undefined && { subTagId: choice.subTagId }),
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        updated?: number;
+        unchanged?: number;
+        skipped?: number;
+        failed?: number;
+        error?: string;
+      } | null;
+      if (!res.ok || !body || body.updated === undefined) {
+        toast.error(body?.error ?? tTable('toastTagFailed'));
+        return;
+      }
+      const summary = tTable('toastTagResult', {
+        updated: body.updated,
+        unchanged: body.unchanged ?? 0,
+        skipped: body.skipped ?? 0,
+        failed: body.failed ?? 0,
+      });
+      if ((body.failed ?? 0) > 0) toast.error(summary);
+      else toast.success(summary);
+      await refreshContacts();
+    } catch {
+      toast.error(tTable('toastTagFailed'));
+    }
+  }
+
+  function addSelectedToCampaign() {
+    const chosen = contacts.filter((c) => selected.has(c.id));
+    let storage: Storage | null = null;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = null;
+    }
+    if (!writeAudienceHandoff(storage, chosen, 'contacts')) {
+      toast.error(tTable('toastCampaignNone'));
+      return;
+    }
+    router.push(AUDIENCE_HANDOFF_URL);
+  }
+
   async function handleBulkDelete() {
     const ids = [...selected];
     if (ids.length === 0) return;
@@ -650,8 +884,12 @@ export function ContactsPageInner({
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
+  // A close-match search is ranked by relevance; sorting does not apply.
+  const rankedBySearch = searchRpcTerm(debouncedSearch.trim()) !== null;
   const hasActiveFilters =
-    debouncedSearch.trim().length > 0 || chatTagFilterIds.length > 0;
+    debouncedSearch.trim().length > 0 ||
+    chatTagFilterIds.length > 0 ||
+    sources.length > 0;
 
   // Every filter change resets to page 0 — the result set shrinks or
   // grows, so page N may no longer be valid (mirrors the search box).
@@ -660,6 +898,65 @@ export function ContactsPageInner({
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
     setPage(0);
+  }
+
+  // The state a saved view captures, and how one is put back. Scope
+  // (personal / team) is role-derived and never changed by a view.
+  const currentViewFilters = toViewFilters({
+    search: debouncedSearch,
+    chatTagIds: chatTagFilterIds,
+    sources,
+    sort,
+    hiddenColumns: columnPrefs.hidden,
+    personalOnly: personalOnlyUserId !== null,
+  });
+
+  function applyView(raw: ContactsViewFilters) {
+    const v = fromViewFilters(raw);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setSearch(v.search);
+    setDebouncedSearch(v.search);
+    setSelectedChatTagIds(v.chatTagIds);
+    const nextSort = parseContactSort(v.sort, v.dir);
+    setSort(nextSort);
+    const nextSources = LEAD_SOURCE_COLUMN_AVAILABLE ? v.sources : [];
+    setSources(nextSources);
+    if (v.hiddenColumns) {
+      changeColumnPrefs({ ...columnPrefs, hidden: v.hiddenColumns });
+    }
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        sort: null,
+        dir: null,
+        source: nextSources.length > 0 ? nextSources.join(',') : null,
+        ...sortToParams(nextSort),
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience only.
+    }
+  }
+
+  function changeSources(next: LeadSource[]) {
+    setSources(next);
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        source: next.length > 0 ? next.join(',') : null,
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience only.
+    }
   }
 
   function clearChatTagFilters() {
@@ -798,6 +1095,16 @@ export function ContactsPageInner({
               )}
             </PopoverContent>
           </Popover>
+          {/* SAVED-VIEWS SLOT: <SavedViewsMenu> mounts here. */}
+          {toolbarExtras?.({ filters: currentViewFilters, applyView })}
+          {LEAD_SOURCE_COLUMN_AVAILABLE && (
+            <SourceFilter selected={sources} onChange={changeSources} />
+          )}
+          <ColumnsMenu
+            prefs={columnPrefs}
+            onChange={changeColumnPrefs}
+            columns={optionalColumns}
+          />
         </div>
 
         {/* Active chat-tag filter chips */}
@@ -837,41 +1144,34 @@ export function ContactsPageInner({
         )}
       </div>
 
+      {rankedBySearch && (
+        <p className="text-muted-foreground text-xs">
+          {tTable('sortedByRelevance')}
+        </p>
+      )}
+
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
-          <p className="text-foreground text-sm">
-            {t('selectedCount', { count: selected.size })}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelected(new Set())}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {t('clearSelection')}
-            </Button>
-            <GatedButton
-              variant="destructive"
-              size="sm"
-              canAct={canEdit}
-              gateReason="delete contacts"
-              onClick={() => setBulkDeleteOpen(true)}
-            >
-              <Trash2 className="size-4" />
-              {t('deleteSelected')}
-            </GatedButton>
-          </div>
-        </div>
+        <BulkBar
+          count={selected.size}
+          canAct={canEdit}
+          tree={chatTagTree}
+          onClear={() => setSelected(new Set())}
+          onDelete={() => setBulkDeleteOpen(true)}
+          onApplyTag={applyBulkTag}
+          onAddToCampaign={addSelectedToCampaign}
+        />
       )}
 
       {/* Table */}
-      <div className="bg-card border-border overflow-hidden rounded-lg border">
+      {/* The table's own container scrolls both ways, with a bounded height,
+          so the header sticks (<main> scrolls the page, not the table) and
+          the checkbox + name columns stay put on a narrow screen. */}
+      <div className="bg-card border-border overflow-hidden rounded-lg border [&_[data-slot=table-container]]:max-h-[calc(100dvh-14rem)] [&_[data-slot=table-container]]:min-h-48 [&_[data-slot=table-container]]:overflow-y-auto">
         <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 border-border hover:bg-muted/50">
-              <TableHead className="w-10">
+          <TableHeader className="[&_th]:bg-card-2 [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
+            <TableRow className="border-border hover:bg-card-2">
+              <TableHead className="sticky left-0 z-20 w-10 min-w-10">
                 <Checkbox
                   checked={allOnPageSelected}
                   indeterminate={!allOnPageSelected && someOnPageSelected}
@@ -880,37 +1180,66 @@ export function ContactsPageInner({
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground font-semibold">
+              <SortHeader
+                sortKey="name"
+                current={sort}
+                onSort={changeSort}
+                disabled={rankedBySearch}
+                className="sticky left-10 z-20"
+              >
                 {t('tableColumns.name')}
-              </TableHead>
+              </SortHeader>
               <TableHead className="text-muted-foreground font-semibold">
                 {t('tableColumns.phone')}
               </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
-                {t('tableColumns.email')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">
-                {t('tableColumns.company')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
-                {t('tableColumns.chatTag')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
-                {t('tableColumns.createdBy')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
-                {t('tableColumns.assignedTo')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
-                {t('tableColumns.createdAt')}
-              </TableHead>
+              {show('email') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {t('tableColumns.email')}
+                </TableHead>
+              )}
+              {show('company') && (
+                <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">
+                  {t('tableColumns.company')}
+                </TableHead>
+              )}
+              {show('chatTag') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {t('tableColumns.chatTag')}
+                </TableHead>
+              )}
+              {show('source') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {tTable('column.source')}
+                </TableHead>
+              )}
+              {show('owner') && (
+                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                  {t('tableColumns.createdBy')}
+                </TableHead>
+              )}
+              {show('assignedTo') && (
+                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                  {t('tableColumns.assignedTo')}
+                </TableHead>
+              )}
+              {show('createdAt') && (
+                <SortHeader
+                  sortKey="created"
+                  current={sort}
+                  onSort={changeSort}
+                  disabled={rankedBySearch}
+                  className="hidden lg:table-cell"
+                >
+                  {t('tableColumns.createdAt')}
+                </SortHeader>
+              )}
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={10} className="py-12 text-center">
+                <TableCell colSpan={colCount} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="text-primary size-6 animate-spin" />
                     <p className="text-muted-foreground text-sm">
@@ -921,7 +1250,7 @@ export function ContactsPageInner({
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={10} className="py-12 text-center">
+                <TableCell colSpan={colCount} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="text-muted-foreground size-8" />
                     <p className="text-muted-foreground text-sm">
@@ -951,7 +1280,7 @@ export function ContactsPageInner({
                   {contact.id === closeDividerId && (
                     <TableRow className="border-border hover:bg-transparent">
                       <TableCell
-                        colSpan={10}
+                        colSpan={colCount}
                         className="bg-card-2 text-muted-foreground py-1.5 text-xs font-medium"
                       >
                         {tSearch('closeMatches')}
@@ -965,14 +1294,19 @@ export function ContactsPageInner({
                     onEdit={() => openEditForm(contact)}
                     onDelete={() => confirmDelete(contact)}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableCell
+                      onClick={(e) => e.stopPropagation()}
+                      className={STICKY_CHECK_CELL}
+                    >
                       <Checkbox
                         checked={selected.has(contact.id)}
                         onCheckedChange={() => toggleSelect(contact.id)}
                         aria-label={`Select ${contact.name || contact.phone}`}
                       />
                     </TableCell>
-                    <TableCell className="text-foreground max-w-56 font-medium whitespace-normal">
+                    <TableCell
+                      className={`text-foreground max-w-56 font-medium whitespace-normal ${STICKY_NAME_CELL}`}
+                    >
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <Link
                           href={customerPath(contact.id, teamView)}
@@ -1009,44 +1343,67 @@ export function ContactsPageInner({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
-                      {contact.phone}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
-                      {contact.email || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
-                      {contact.company || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <ChatTagChip
-                        chip={contactChatTagChip(contact.chatTags, chatTagTree)}
+                    <TableCell className="text-muted-foreground">
+                      <PhoneCell
+                        phone={contact.phone}
+                        label={contact.name || contact.phone}
                       />
                     </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                      {(contact.user_id && nameOf(contact.user_id)) || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                      {(contact.assignedTo && nameOf(contact.assignedTo)) || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
-                      {new Date(contact.created_at).toLocaleDateString(
-                        'en-US',
-                        {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        }
-                      )}
-                    </TableCell>
+                    {show('email') && (
+                      <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
+                        {contact.email || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('company') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
+                        {contact.company || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('chatTag') && (
+                      <TableCell className="hidden md:table-cell">
+                        <ChatTagChip
+                          chip={contactChatTagChip(
+                            contact.chatTags,
+                            chatTagTree
+                          )}
+                        />
+                      </TableCell>
+                    )}
+                    {show('source') && (
+                      <TableCell className="hidden md:table-cell">
+                        <LeadSourceBadge source={leadSourceOf(contact)} />
+                      </TableCell>
+                    )}
+                    {show('owner') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                        {(contact.user_id && nameOf(contact.user_id)) || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('assignedTo') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                        {(contact.assignedTo && nameOf(contact.assignedTo)) || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('createdAt') && (
+                      <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
+                        {new Date(contact.created_at).toLocaleDateString(
+                          'en-US',
+                          {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          }
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger
@@ -1343,7 +1700,7 @@ function ContactRow({
   return (
     <TableRow
       ref={rowRef}
-      className="border-border hover:bg-accent cursor-pointer"
+      className="group/row border-border hover:bg-accent cursor-pointer"
       onClick={onOpen}
     >
       {children}

@@ -1034,6 +1034,48 @@
       "toastDeleted": "Deleted \"{name}\"."
     }
   },
+  "ContactsTable": {
+    "sortedByRelevance": "While you search, results are ordered by best match.",
+    "copyNumber": "Copy the phone number of {name}",
+    "copyNumberShort": "Copy number",
+    "addToCampaign": "Add to campaign",
+    "applyTag": "Apply",
+    "bulkBar": "Actions for the selected contacts",
+    "keepSubTag": "Keep the current sub-tag",
+    "optional": "(optional)",
+    "removeTag": "Remove the chat tag",
+    "setChatTag": "Set chat tag",
+    "subTag": "Sub-tag",
+    "tagDialogDesc": "Applies to each contact's chat. Chats you can't change are skipped.",
+    "tagDialogTitle": "Set chat tag for {count} contacts",
+    "toastCampaignNone": "None of the selected contacts has a phone number",
+    "toastTagFailed": "Couldn't set the chat tag",
+    "toastTagResult": "{updated} updated, {unchanged} already had it, {skipped} skipped, {failed} failed",
+    "alwaysShown": "Name and phone are always shown.",
+    "column": {
+      "assignedTo": "Assigned to",
+      "chatTag": "Chat tag",
+      "company": "Company",
+      "createdAt": "Created",
+      "email": "Email",
+      "owner": "Owner",
+      "source": "Source"
+    },
+    "columns": "Columns",
+    "hideEmpty": "Hide empty columns",
+    "clearSources": "Clear",
+    "filterBySource": "Source",
+    "source": {
+      "ad": "Ad",
+      "broadcast": "Broadcast",
+      "compass": "Compass",
+      "import": "Import",
+      "manual": "Added by hand",
+      "other": "Other",
+      "unknown": "Unknown",
+      "web_form": "Web form"
+    }
+  },
   "Pipelines": {
     "page": {
       "unknownStage": "New stage",
