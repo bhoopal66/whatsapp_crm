@@ -1302,3 +1302,17 @@ jobs:
       # functions are closed to every API role.
       - name: Verify merge follow-ups
         run: supabase db query --local --file supabase/ci/verify-merge-followups.sql
+
+      # Migration 254: the funnel report. Owners and admins only, in
+      # their active account; the stages are a cohort of company chats
+      # started in the period, followed to now; the lead source, agent,
+      # bank and number filters narrow it; nothing crosses accounts.
+      - name: Verify funnel report
+        run: supabase db query --local --file supabase/ci/verify-funnel-report.sql
+
+      # Migration 255: the chat tag report. The tag-change log is
+      # append-only and its trigger never fails the conversations write;
+      # only the owner grants report access; the owner and a live grantee
+      # read workspace-wide counts, aggregates only; nobody else.
+      - name: Verify chat tag report
+        run: supabase db query --local --file supabase/ci/verify-chat-tag-report.sql

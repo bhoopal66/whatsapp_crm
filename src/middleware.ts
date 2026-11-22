@@ -124,6 +124,8 @@ export async function middleware(request: NextRequest) {
     '/banks',
     '/brain',
     '/digest',
+    // Reports (migrations 254-255): /reports, /reports/tags, /reports/funnel.
+    '/reports',
   ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()

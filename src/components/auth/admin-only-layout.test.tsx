@@ -15,12 +15,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
-vi.mock('@/lib/auth/account', () => ({ getCurrentAccount: mocks.getCurrentAccount }));
+vi.mock('@/lib/auth/account', () => ({
+  getCurrentAccount: mocks.getCurrentAccount,
+}));
 
 import {
   AdminOnlyLayout,
   CallReviewerLayout,
   HrAccessLayout,
+  ReportAccessLayout,
+  ReportsLandingLayout,
   SalesOnlyLayout,
   StaffOnlyLayout,
 } from './admin-only-layout';
@@ -37,14 +41,22 @@ describe('SalesOnlyLayout', () => {
 
   it('renders the page for someone whose department is not restricted', async () => {
     await expect(
-      renderSales({ role: 'agent', department: 'sales', salesRestricted: false })
+      renderSales({
+        role: 'agent',
+        department: 'sales',
+        salesRestricted: false,
+      })
     ).resolves.toBeDefined();
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
   it('sends a restricted department to their own inbox', async () => {
     await expect(
-      renderSales({ role: 'team_leader', department: 'hr', salesRestricted: true })
+      renderSales({
+        role: 'team_leader',
+        department: 'hr',
+        salesRestricted: true,
+      })
     ).rejects.toThrow('REDIRECT:/inbox');
   });
 
@@ -57,7 +69,11 @@ async function render(role: string | null) {
   if (role === null) {
     mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
   } else {
-    mocks.getCurrentAccount.mockResolvedValue({ role, accountId: 'a1', userId: 'u1' });
+    mocks.getCurrentAccount.mockResolvedValue({
+      role,
+      accountId: 'a1',
+      userId: 'u1',
+    });
   }
   return AdminOnlyLayout({ children: 'PAGE' });
 }
@@ -92,7 +108,9 @@ describe('AdminOnlyLayout', () => {
     // try/catch that wraps getCurrentAccount would catch the redirect
     // and fall through to rendering the page for an agent.
     mocks.getCurrentAccount.mockResolvedValue({ role: 'agent' });
-    await expect(AdminOnlyLayout({ children: 'PAGE' })).rejects.toThrow(/REDIRECT/);
+    await expect(AdminOnlyLayout({ children: 'PAGE' })).rejects.toThrow(
+      /REDIRECT/
+    );
   });
 });
 
@@ -233,11 +251,14 @@ describe('HrAccessLayout', () => {
     return { page: HrAccessLayout({ children: 'PAGE' }), rpcMock };
   };
 
-  it.each(['admin', 'owner'])('renders the page for an %s without asking', async (role) => {
-    const { page, rpcMock } = await renderHr(role);
-    await expect(page).resolves.toBeDefined();
-    expect(rpcMock).not.toHaveBeenCalled();
-  });
+  it.each(['admin', 'owner'])(
+    'renders the page for an %s without asking',
+    async (role) => {
+      const { page, rpcMock } = await renderHr(role);
+      await expect(page).resolves.toBeDefined();
+      expect(rpcMock).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     { recruiter: 'member', dept: null },
@@ -273,6 +294,142 @@ describe('HrAccessLayout', () => {
 
   it('sends a signed-out caller to login', async () => {
     const { page } = await renderHr(null);
+    await expect(page).rejects.toThrow('REDIRECT:/login');
+  });
+});
+
+// `rpc` answers report_my_access() (migration 255) as the caller.
+async function renderReport(
+  which: 'report' | 'landing',
+  role: string | null,
+  rpc: () => Promise<{ data: unknown; error: unknown }> = async () => ({
+    data: [],
+    error: null,
+  })
+) {
+  const rpcMock = vi.fn(rpc);
+  if (role === null)
+    mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
+  else
+    mocks.getCurrentAccount.mockResolvedValue({
+      role,
+      accountId: 'a1',
+      userId: 'u1',
+      supabase: { rpc: rpcMock },
+    });
+  const page =
+    which === 'report'
+      ? ReportAccessLayout({ report: 'chat_tags', children: 'PAGE' })
+      : ReportsLandingLayout({ children: 'PAGE' });
+  return { page, rpcMock };
+}
+
+const granted = async () => ({ data: ['chat_tags'], error: null });
+
+describe('ReportAccessLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('renders the page for the owner without asking', async () => {
+    const { page, rpcMock } = await renderReport('report', 'owner');
+    await expect(page).resolves.toBeDefined();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'team_leader', 'agent', 'viewer'])(
+    'renders the page for a granted %s',
+    async (role) => {
+      const { page, rpcMock } = await renderReport('report', role, granted);
+      await expect(page).resolves.toBeDefined();
+      expect(rpcMock).toHaveBeenCalledWith('report_my_access');
+    }
+  );
+
+  it('redirects an admin with no grant: the report is per person', async () => {
+    const { page } = await renderReport('report', 'admin');
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('fails closed when the check errors (e.g. 255 not applied)', async () => {
+    const { page } = await renderReport('report', 'agent', async () => ({
+      data: null,
+      error: { code: 'PGRST202', message: 'not found' },
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('treats a check that throws as a refusal, not a sign-out', async () => {
+    const { page } = await renderReport('report', 'agent', async () => {
+      throw new Error('network');
+    });
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('never asks for a bank guest', async () => {
+    const { page, rpcMock } = await renderReport(
+      'report',
+      'bank_guest',
+      granted
+    );
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    const { page } = await renderReport('report', null);
+    await expect(page).rejects.toThrow('REDIRECT:/login');
+  });
+});
+
+describe('ReportsLandingLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each(['owner', 'admin'])(
+    'renders the landing for an %s without asking',
+    async (role) => {
+      const { page, rpcMock } = await renderReport('landing', role);
+      await expect(page).resolves.toBeDefined();
+      expect(rpcMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('renders the landing for anyone holding a report key', async () => {
+    const { page } = await renderReport('landing', 'agent', granted);
+    await expect(page).resolves.toBeDefined();
+  });
+
+  it('redirects staff with no key', async () => {
+    const { page } = await renderReport('landing', 'team_leader');
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('ignores keys it does not know', async () => {
+    const { page } = await renderReport('landing', 'agent', async () => ({
+      data: ['something_else'],
+      error: null,
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('fails closed when the check errors', async () => {
+    const { page } = await renderReport('landing', 'viewer', async () => ({
+      data: null,
+      error: { code: '42883', message: 'missing' },
+    }));
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('never asks for a bank guest', async () => {
+    const { page, rpcMock } = await renderReport(
+      'landing',
+      'bank_guest',
+      granted
+    );
+    await expect(page).rejects.toThrow('REDIRECT:/dashboard');
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    const { page } = await renderReport('landing', null);
     await expect(page).rejects.toThrow('REDIRECT:/login');
   });
 });

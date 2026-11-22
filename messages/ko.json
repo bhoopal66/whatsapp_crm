@@ -192,7 +192,10 @@
     "hr": "HR",
     "desk": "케이스 데스크",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "reports": "보고서",
+    "chatTagReport": "채팅 태그 보고서",
+    "funnelReport": "판매 퍼널"
   },
   "Notifications": {
     "title": "알림",
@@ -2043,6 +2046,77 @@
       "chatTagClear": "채팅 태그 지우기",
       "chatTagNone": "채팅 태그 지정 (선택된 태그 없음)",
       "contactTagRetired": "연락처 태그 (폐지됨) — 채팅 태그를 선택하세요"
+    }
+  },
+  "FunnelReport": {
+    "period": "기간",
+    "periods": {
+      "today": "오늘",
+      "yesterday": "어제",
+      "7d": "최근 7일",
+      "30d": "최근 30일",
+      "90d": "최근 90일"
+    },
+    "filters": {
+      "leadSource": "리드 출처",
+      "agent": "상담원",
+      "bank": "은행",
+      "number": "번호",
+      "allSources": "모든 출처",
+      "allAgents": "모든 상담원",
+      "allBanks": "모든 은행",
+      "allNumbers": "모든 번호",
+      "noSource": "출처 기록 없음",
+      "unnamed": "이름 없음"
+    },
+    "refresh": "새로 고침",
+    "download": "CSV 다운로드",
+    "loadFailed": "퍼널 보고서를 불러오지 못했습니다.",
+    "notMigrated": "퍼널 보고서를 사용하려면 데이터베이스 마이그레이션 254가 필요합니다.",
+    "retry": "다시 시도",
+    "cohortNote": "퍼널은 선택한 기간에 시작된 회사 채팅을 현재 도달한 단계까지 추적합니다. 고객은 케이스 수와 관계없이 각 단계에서 한 번만 집계됩니다.",
+    "noInterestedTag": "\"Interested\"라는 이름의 기본 채팅 태그가 없으므로 케이스가 있는 채팅만 관심 단계로 집계됩니다.",
+    "bankNote": "은행 필터는 케이스 단계에만 적용됩니다. 채팅에는 은행이 없습니다.",
+    "funnelTitle": "퍼널",
+    "ofPrevious": "이전 단계의 {pct}%",
+    "ofNewChats": "새 채팅의 {pct}%",
+    "noRate": "비율 없음",
+    "stages": {
+      "new_chats": "새 채팅",
+      "interested": "관심",
+      "case_opened": "케이스 개설",
+      "submitted": "제출됨",
+      "approved": "승인됨",
+      "declined": "거절됨",
+      "withdrawn": "철회됨"
+    },
+    "sideTitle": "퍼널 외 결과",
+    "sideHint": "승인 없이 종료된 케이스입니다.",
+    "dailyTitle": "일별 새 채팅",
+    "dailyDescription": "계정 시간대 기준으로 매일 시작된 회사 채팅입니다.",
+    "breakdown": {
+      "bySource": "리드 출처별",
+      "byAgent": "상담원별",
+      "byNumber": "번호별",
+      "byBank": "은행별",
+      "item": "이름",
+      "unassigned": "미배정",
+      "noNumber": "번호 없음",
+      "noBank": "은행 없음",
+      "bankHint": "케이스 단계만 해당합니다.",
+      "empty": "이 기간에는 항목이 없습니다."
+    },
+    "empty": {
+      "title": "이 기간에 새 채팅이 없습니다",
+      "hint": "더 긴 기간을 선택하거나 필터를 해제하세요."
+    },
+    "csv": {
+      "breakdown": "구분",
+      "item": "항목",
+      "total": "합계",
+      "all": "전체",
+      "ofPrevious": "이전 단계 대비 %",
+      "ofNewChats": "새 채팅 대비 %"
     }
   },
   "Settings": {
@@ -7367,6 +7441,28 @@
       "failed": "알림을 업데이트하지 못했습니다"
     }
   },
+  "ReportExports": {
+    "download": "CSV 다운로드",
+    "downloading": "CSV 준비 중…",
+    "failed": "CSV를 다운로드하지 못했습니다. 다시 시도하세요.",
+    "people": "사람별",
+    "numbers": "번호별"
+  },
+  "Reports": {
+    "intro": "열 수 있는 보고서입니다. 모두 채팅과 케이스의 수만 세며, 채팅 내용은 보여주지 않습니다.",
+    "emptyTitle": "아직 열 수 있는 보고서가 없습니다",
+    "emptyHint": "각 보고서를 누가 열 수 있는지는 워크스페이스 소유자가 정합니다.",
+    "entries": {
+      "funnel": {
+        "name": "영업 퍼널",
+        "description": "새 채팅이 관심, 케이스, 제출, 승인까지 어떻게 이어지는지 봅니다."
+      },
+      "chat_tags": {
+        "name": "채팅 태그",
+        "description": "지금 각 태그에 있는 채팅 수와, 기간 동안 어느 태그로 옮겨졌는지 봅니다."
+      }
+    }
+  },
   "MeetingRoom": {
     "recording": {
       "record": "이 회의 녹화",
@@ -11241,6 +11337,85 @@
         "steady": "변화 없음",
         "cooling": "관심 하락"
       }
+    }
+  },
+  "TagReport": {
+    "period": "기간",
+    "periods": {
+      "today": "오늘",
+      "yesterday": "어제",
+      "7d": "최근 7일",
+      "30d": "최근 30일",
+      "90d": "최근 90일"
+    },
+    "refresh": "새로고침",
+    "downloadCsv": "CSV 다운로드",
+    "loadFailed": "채팅 태그 보고서를 불러오지 못했습니다.",
+    "deniedTitle": "이 보고서를 열 수 없습니다",
+    "deniedHint": "채팅 태그 보고서를 볼 수 있는 사람은 워크스페이스 소유자가 정합니다.",
+    "historySince": "이동은 태그 기록이 시작된 {date}부터 집계됩니다.",
+    "historyUnknown": "이동은 태그 기록이 시작된 날부터 집계됩니다.",
+    "countsOnly": "워크스페이스의 모든 회사 채팅을 집계하며, 채팅 내용, 이름, 번호는 표시하지 않습니다.",
+    "tag": "태그",
+    "chats": "채팅",
+    "unknownTag": "알 수 없는 태그",
+    "noSubTag": "하위 태그 없음",
+    "unassigned": "미배정",
+    "noNumber": "번호 없음",
+    "unknownName": "더 이상 워크스페이스에 없음",
+    "current": {
+      "title": "지금 각 태그의 채팅",
+      "description": "{count, plural, =0 {태그된 채팅 없음} other {태그된 채팅 #개}}, 기본 태그와 하위 태그별.",
+      "empty": "태그가 붙은 채팅이 없습니다",
+      "emptyHint": "받은편지함에서 채팅에 태그를 붙이면 여기에 표시됩니다."
+    },
+    "split": {
+      "title": "세부 분류",
+      "description": "지금 각 기본 태그에 있는 채팅을 나누어 봅니다.",
+      "choose": "분류 기준"
+    },
+    "splits": {
+      "agent": "상담원별",
+      "number": "번호별",
+      "source": "리드 출처별"
+    },
+    "sources": {
+      "ad": "광고",
+      "web_form": "웹 양식",
+      "broadcast": "브로드캐스트",
+      "manual": "직접 추가",
+      "import": "가져오기",
+      "compass": "Compass",
+      "other": "기타",
+      "none": "알 수 없음"
+    },
+    "movement": {
+      "title": "기간 내 이동",
+      "description": "기간 동안 각 태그에 도착한 채팅입니다. 여러 번 돌아와도 태그마다 채팅당 한 번만 셉니다.",
+      "perDay": "일별 도착",
+      "perTag": "태그별 도착",
+      "empty": "이 기간에 태그로 이동한 채팅이 없습니다",
+      "emptyHint": "더 긴 기간을 선택해 보세요."
+    },
+    "access": {
+      "title": "이 보고서를 볼 수 있는 사람",
+      "explain": "선택한 사람은 열 수 없는 채팅까지 포함한 워크스페이스 전체 집계를 보지만, 채팅 내용, 고객 이름, 번호는 절대 보지 못합니다.",
+      "nobody": "권한을 줄 다른 사람이 워크스페이스에 없습니다.",
+      "unnamed": "이름 없음",
+      "count": "{count, plural, =0 {나만} other {나와 #명}}",
+      "save": "저장",
+      "saved": "보고서 접근 권한을 저장했습니다",
+      "saveFailed": "보고서 접근 권한을 저장하지 못했습니다",
+      "loadFailed": "사람 목록을 불러오지 못했습니다.",
+      "retry": "다시 시도"
+    },
+    "roles": {
+      "owner": "소유자",
+      "admin": "관리자",
+      "team_leader": "팀 리더",
+      "agent": "상담원",
+      "viewer": "조회자",
+      "bank_guest": "은행 게스트"
     }
   },
   "TagSuggest": {

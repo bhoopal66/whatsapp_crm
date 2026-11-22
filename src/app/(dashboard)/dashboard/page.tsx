@@ -23,6 +23,7 @@ import { ResponseTimeCard } from '@/components/dashboard/home/response-time-card
 import { TasksPanel } from '@/components/dashboard/home/tasks-panel';
 import { TeamCard } from '@/components/dashboard/home/team-card';
 import { useWidgetData } from '@/components/dashboard/home/use-widget-data';
+import { DownloadCsvButton } from '@/components/reports/download-csv-button';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
@@ -170,7 +171,7 @@ export default function DashboardPage() {
               : date}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-muted-foreground text-xs tabular-nums">
             {t('updated', { time })}
           </span>
@@ -178,6 +179,11 @@ export default function DashboardPage() {
             <RotateCw className="h-3.5 w-3.5" aria-hidden />
             {t('refresh')}
           </Button>
+          {/* The owner's CSV of these figures (owner only, server-checked). */}
+          <DownloadCsvButton
+            size="sm"
+            options={[{ label: '', url: dashboardExportUrl() }]}
+          />
         </div>
       </header>
 
@@ -260,6 +266,17 @@ export default function DashboardPage() {
       )}
     </div>
   );
+}
+
+/** The owner's CSV, its windows computed in the browser's zone. */
+function dashboardExportUrl(): string {
+  let tz = 'UTC';
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    // keep UTC
+  }
+  return `/api/dashboard/export?${new URLSearchParams({ tz })}`;
 }
 
 /** A titled band of panels: three columns on a wide screen, one on a phone. */

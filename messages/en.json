@@ -192,7 +192,10 @@
     "hr": "HR",
     "desk": "Case desk",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "reports": "Reports",
+    "chatTagReport": "Chat tag report",
+    "funnelReport": "Sales funnel"
   },
   "Notifications": {
     "title": "Notifications",
@@ -2043,6 +2046,77 @@
       "chatTagClear": "Clear chat tag",
       "chatTagNone": "Set chat tag (none picked)",
       "contactTagRetired": "Contact tag (retired) — pick a chat tag"
+    }
+  },
+  "FunnelReport": {
+    "period": "Period",
+    "periods": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days"
+    },
+    "filters": {
+      "leadSource": "Lead source",
+      "agent": "Agent",
+      "bank": "Bank",
+      "number": "Number",
+      "allSources": "All sources",
+      "allAgents": "All agents",
+      "allBanks": "All banks",
+      "allNumbers": "All numbers",
+      "noSource": "No source recorded",
+      "unnamed": "Unnamed"
+    },
+    "refresh": "Refresh",
+    "download": "Download CSV",
+    "loadFailed": "Couldn't load the funnel report.",
+    "notMigrated": "The funnel report needs database migration 254.",
+    "retry": "Try again",
+    "cohortNote": "The funnel follows the company chats that started in the chosen period, to wherever they have got by now. A customer counts once at each stage, however many cases they have.",
+    "noInterestedTag": "There is no main chat tag named \"Interested\", so only chats with a case count as interested.",
+    "bankNote": "The bank filter applies to the case stages only: a chat has no bank.",
+    "funnelTitle": "Funnel",
+    "ofPrevious": "{pct}% of previous stage",
+    "ofNewChats": "{pct}% of new chats",
+    "noRate": "No rate",
+    "stages": {
+      "new_chats": "New chats",
+      "interested": "Interested",
+      "case_opened": "Case opened",
+      "submitted": "Submitted",
+      "approved": "Approved",
+      "declined": "Declined",
+      "withdrawn": "Withdrawn"
+    },
+    "sideTitle": "Beside the funnel",
+    "sideHint": "Cases that ended without approval.",
+    "dailyTitle": "New chats per day",
+    "dailyDescription": "Company chats started each day, in the account's time zone.",
+    "breakdown": {
+      "bySource": "By lead source",
+      "byAgent": "By agent",
+      "byNumber": "By number",
+      "byBank": "By bank",
+      "item": "Name",
+      "unassigned": "Unassigned",
+      "noNumber": "No number",
+      "noBank": "No bank",
+      "bankHint": "Case stages only.",
+      "empty": "Nothing in this period."
+    },
+    "empty": {
+      "title": "No new chats in this period",
+      "hint": "Pick a longer period or clear a filter."
+    },
+    "csv": {
+      "breakdown": "Breakdown",
+      "item": "Item",
+      "total": "Total",
+      "all": "All",
+      "ofPrevious": "% of previous stage",
+      "ofNewChats": "% of new chats"
     }
   },
   "Settings": {
@@ -7367,6 +7441,28 @@
       "failed": "Couldn't update the reminder"
     }
   },
+  "ReportExports": {
+    "download": "Download CSV",
+    "downloading": "Preparing CSV…",
+    "failed": "The CSV could not be downloaded. Try again.",
+    "people": "People",
+    "numbers": "Numbers"
+  },
+  "Reports": {
+    "intro": "The reports you can open. Each counts chats and cases; none shows a chat's contents.",
+    "emptyTitle": "No reports for you yet",
+    "emptyHint": "The workspace owner decides who can open each report.",
+    "entries": {
+      "funnel": {
+        "name": "Sales funnel",
+        "description": "New chats followed through interest, cases, submission and approval."
+      },
+      "chat_tags": {
+        "name": "Chat tags",
+        "description": "How many chats sit on each tag now, and which tags they moved to in a period."
+      }
+    }
+  },
   "MeetingRoom": {
     "recording": {
       "record": "Record this meeting",
@@ -11241,6 +11337,85 @@
         "steady": "Steady",
         "cooling": "Cooling off"
       }
+    }
+  },
+  "TagReport": {
+    "period": "Period",
+    "periods": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days"
+    },
+    "refresh": "Refresh",
+    "downloadCsv": "Download CSV",
+    "loadFailed": "Could not load the chat tag report.",
+    "deniedTitle": "You cannot open this report",
+    "deniedHint": "The workspace owner decides who can see the chat tag report.",
+    "historySince": "Movement is counted from {date}, when the tag log began.",
+    "historyUnknown": "Movement is counted from the day the tag log began.",
+    "countsOnly": "Counts cover every company chat in the workspace; no chat contents, names or numbers are shown.",
+    "tag": "Tag",
+    "chats": "Chats",
+    "unknownTag": "Unknown tag",
+    "noSubTag": "no sub-tag",
+    "unassigned": "Unassigned",
+    "noNumber": "No number",
+    "unknownName": "No longer in the workspace",
+    "current": {
+      "title": "Chats on each tag now",
+      "description": "{count, plural, =0 {No tagged chats} one {# tagged chat} other {# tagged chats}}, by main tag and sub-tag.",
+      "empty": "No chat carries a tag",
+      "emptyHint": "Tag chats from the inbox and they appear here."
+    },
+    "split": {
+      "title": "Breakdown",
+      "description": "The chats on each main tag now, split.",
+      "choose": "Split by"
+    },
+    "splits": {
+      "agent": "By agent",
+      "number": "By number",
+      "source": "By lead source"
+    },
+    "sources": {
+      "ad": "Ad",
+      "web_form": "Web form",
+      "broadcast": "Broadcast",
+      "manual": "Added by hand",
+      "import": "Import",
+      "compass": "Compass",
+      "other": "Other",
+      "none": "Unknown"
+    },
+    "movement": {
+      "title": "Movement in the period",
+      "description": "Chats that arrived at each tag in the period, each chat counted once per tag however often it came back.",
+      "perDay": "Arrivals per day",
+      "perTag": "Arrivals per tag",
+      "empty": "No chat moved to a tag in this period",
+      "emptyHint": "Try a longer period."
+    },
+    "access": {
+      "title": "Who can see this report",
+      "explain": "People you tick see these workspace-wide counts, even of chats they cannot open, but never a chat's contents, a customer's name or a number.",
+      "nobody": "There is nobody else in the workspace to give it to.",
+      "unnamed": "Unnamed",
+      "count": "{count, plural, =0 {Only you} one {You and # person} other {You and # people}}",
+      "save": "Save",
+      "saved": "Report access saved",
+      "saveFailed": "Could not save report access",
+      "loadFailed": "Could not load the people.",
+      "retry": "Try again"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "team_leader": "Team leader",
+      "agent": "Agent",
+      "viewer": "Viewer",
+      "bank_guest": "Bank guest"
     }
   },
   "TagSuggest": {

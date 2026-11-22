@@ -52,6 +52,10 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/live', 'liveView'],
   ['/team-activity', 'teamActivity'],
   ['/my-activity', 'myActivity'],
+  // Reports (migrations 254-255): the landing and each report.
+  ['/reports', 'reports'],
+  ['/reports/tags', 'chatTagReport'],
+  ['/reports/funnel', 'funnelReport'],
   ['/broadcasts', 'broadcasts'],
   ['/automations', 'automations'],
   ['/flows', 'flows'],

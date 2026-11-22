@@ -9,6 +9,7 @@ import {
   canLeadTeam,
   canManageTeams,
   canEditSettings,
+  canManageReportAccess,
   canGrantRole,
   canInviteMembers,
   canManageMembers,
@@ -19,6 +20,7 @@ import {
   canUseMeetings,
   canCreateMeetings,
   canArchiveWorkspace,
+  canExportReports,
   canChangePasswordOf,
   canEditDetailsOf,
   canViewOnly,
@@ -124,6 +126,13 @@ describe('capability predicates', () => {
     expect(canEditSettings('viewer')).toBe(false);
   });
 
+  it('canManageReportAccess: owner only', () => {
+    expect(canManageReportAccess('owner')).toBe(true);
+    expect(canManageReportAccess('admin')).toBe(false);
+    expect(canManageReportAccess('team_leader')).toBe(false);
+    expect(canManageReportAccess('bank_guest')).toBe(false);
+  });
+
   it('canSendMessages: agent+ only', () => {
     expect(canSendMessages('owner')).toBe(true);
     expect(canSendMessages('admin')).toBe(true);
@@ -158,6 +167,19 @@ describe('capability predicates', () => {
     expect(canTransferOwnership('admin')).toBe(false);
     expect(canTransferOwnership('agent')).toBe(false);
     expect(canTransferOwnership('viewer')).toBe(false);
+  });
+
+  it('canExportReports: owner only', () => {
+    expect(canExportReports('owner')).toBe(true);
+    for (const role of [
+      'admin',
+      'team_leader',
+      'agent',
+      'viewer',
+      'bank_guest',
+    ] as const) {
+      expect(canExportReports(role)).toBe(false);
+    }
   });
 
   it('canArchiveWorkspace: owner only', () => {

@@ -323,7 +323,24 @@ export function isOwner(role: AccountRole): boolean {
   return role === 'owner';
 }
 
+/**
+ * Owner only: decide who may open a per-person report (the chat tag
+ * report, `report_access_set`, migration 255). The owner always opens it.
+ */
+export function canManageReportAccess(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
 export function canTransferOwnership(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
+/**
+ * Owner only: download the report CSVs (Team activity, the dashboard's
+ * figures). The owner's decision; the export routes call
+ * `requireRole('owner')`, so this only hides the button.
+ */
+export function canExportReports(role: AccountRole): boolean {
   return role === 'owner';
 }
 

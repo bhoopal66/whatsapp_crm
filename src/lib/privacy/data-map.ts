@@ -959,6 +959,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'profiles',
             'push_preferences',
             'push_subscriptions',
+            // 255: which staff member may open which report.
+            'report_access',
             'team_members',
             'teams',
             'vault_roles',
@@ -1039,6 +1041,11 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'case_review_queue',
             'ai_transfer_basis',
             'ai_transfer_log',
+            // 255: the chat tag change log holds ids and a time only
+            // (no text, no customer) and goes with its chat (ON DELETE
+            // CASCADE); the meta row is the day the log began.
+            'chat_tag_history',
+            'chat_tag_history_meta',
           ],
         ],
       ] as const
