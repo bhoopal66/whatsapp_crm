@@ -118,6 +118,17 @@ import {
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
+import { ColumnsMenu } from '@/components/contacts/columns-menu';
+import {
+  columnPrefsKey,
+  DEFAULT_COLUMN_PREFS,
+  parseColumnPrefs,
+  serializeColumnPrefs,
+  visibleColumns,
+  type ColumnPresence,
+  type ColumnPrefs,
+  type OptionalColumn,
+} from '@/lib/contacts/columns';
 import { BulkBar, type ChatTagChoice } from '@/components/contacts/bulk-bar';
 import {
   writeAudienceHandoff,
@@ -205,6 +216,10 @@ export function ContactsPageInner({
   // be read (`urlReady`) so a reload does not fetch the default first.
   const [sort, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
   const [urlReady, setUrlReady] = useState(false);
+  // Optional columns shown (per user, localStorage; try/catch: it can be
+  // blocked or empty in a private window).
+  const [columnPrefs, setColumnPrefs] =
+    useState<ColumnPrefs>(DEFAULT_COLUMN_PREFS);
   // Chat-tag filter — contacts shown have a conversation carrying ANY
   // of these main or sub tags (OR), as in the inbox.
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
@@ -519,6 +534,24 @@ export function ContactsPageInner({
   const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
   const totalCount = list.data?.total ?? 0;
   const closeDividerId = firstCloseMatchId(contacts);
+  const shownColumns = useMemo(
+    () =>
+      visibleColumns(
+        columnPrefs,
+        contacts.map((c): ColumnPresence => ({
+          email: !!c.email,
+          company: !!c.company,
+          chatTag: !!c.chatTags?.chat_tag_id,
+          owner: !!c.user_id && !!nameOf(c.user_id),
+          assignedTo: !!c.assignedTo && !!nameOf(c.assignedTo),
+          createdAt: true,
+        }))
+      ),
+    [columnPrefs, contacts, nameOf]
+  );
+  const show = (column: OptionalColumn) => shownColumns.has(column);
+  // checkbox + name + phone + options, plus the optional ones shown.
+  const colCount = 4 + shownColumns.size;
   // A spinner only while nothing is cached for this view: a revisit
   // shows the last answer while the fresh one loads.
   const loading = list.loading;
@@ -593,6 +626,24 @@ export function ContactsPageInner({
 
   function openDetail(contactId: string) {
     router.push(customerPath(contactId, teamView));
+  }
+
+  const columnsKey = columnPrefsKey(user?.id);
+  useEffect(() => {
+    try {
+      setColumnPrefs(parseColumnPrefs(window.localStorage.getItem(columnsKey)));
+    } catch {
+      setColumnPrefs(DEFAULT_COLUMN_PREFS);
+    }
+  }, [columnsKey]);
+
+  function changeColumnPrefs(next: ColumnPrefs) {
+    setColumnPrefs(next);
+    try {
+      window.localStorage.setItem(columnsKey, serializeColumnPrefs(next));
+    } catch {
+      // Not saved; the choice still applies until the tab closes.
+    }
   }
 
   // Restore the sort from the URL once, on mount.
@@ -922,6 +973,7 @@ export function ContactsPageInner({
               )}
             </PopoverContent>
           </Popover>
+          <ColumnsMenu prefs={columnPrefs} onChange={changeColumnPrefs} />
         </div>
 
         {/* Active chat-tag filter chips */}
@@ -1009,37 +1061,49 @@ export function ContactsPageInner({
               <TableHead className="text-muted-foreground font-semibold">
                 {t('tableColumns.phone')}
               </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
-                {t('tableColumns.email')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">
-                {t('tableColumns.company')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
-                {t('tableColumns.chatTag')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
-                {t('tableColumns.createdBy')}
-              </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
-                {t('tableColumns.assignedTo')}
-              </TableHead>
-              <SortHeader
-                sortKey="created"
-                current={sort}
-                onSort={changeSort}
-                disabled={rankedBySearch}
-                className="hidden lg:table-cell"
-              >
-                {t('tableColumns.createdAt')}
-              </SortHeader>
+              {show('email') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {t('tableColumns.email')}
+                </TableHead>
+              )}
+              {show('company') && (
+                <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">
+                  {t('tableColumns.company')}
+                </TableHead>
+              )}
+              {show('chatTag') && (
+                <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                  {t('tableColumns.chatTag')}
+                </TableHead>
+              )}
+              {show('owner') && (
+                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                  {t('tableColumns.createdBy')}
+                </TableHead>
+              )}
+              {show('assignedTo') && (
+                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                  {t('tableColumns.assignedTo')}
+                </TableHead>
+              )}
+              {show('createdAt') && (
+                <SortHeader
+                  sortKey="created"
+                  current={sort}
+                  onSort={changeSort}
+                  disabled={rankedBySearch}
+                  className="hidden lg:table-cell"
+                >
+                  {t('tableColumns.createdAt')}
+                </SortHeader>
+              )}
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={10} className="py-12 text-center">
+                <TableCell colSpan={colCount} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="text-primary size-6 animate-spin" />
                     <p className="text-muted-foreground text-sm">
@@ -1050,7 +1114,7 @@ export function ContactsPageInner({
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={10} className="py-12 text-center">
+                <TableCell colSpan={colCount} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="text-muted-foreground size-8" />
                     <p className="text-muted-foreground text-sm">
@@ -1080,7 +1144,7 @@ export function ContactsPageInner({
                   {contact.id === closeDividerId && (
                     <TableRow className="border-border hover:bg-transparent">
                       <TableCell
-                        colSpan={10}
+                        colSpan={colCount}
                         className="bg-card-2 text-muted-foreground py-1.5 text-xs font-medium"
                       >
                         {tSearch('closeMatches')}
@@ -1149,41 +1213,56 @@ export function ContactsPageInner({
                         label={contact.name || contact.phone}
                       />
                     </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
-                      {contact.email || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
-                      {contact.company || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <ChatTagChip
-                        chip={contactChatTagChip(contact.chatTags, chatTagTree)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                      {(contact.user_id && nameOf(contact.user_id)) || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
-                      {(contact.assignedTo && nameOf(contact.assignedTo)) || (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
-                      {new Date(contact.created_at).toLocaleDateString(
-                        'en-US',
-                        {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        }
-                      )}
-                    </TableCell>
+                    {show('email') && (
+                      <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
+                        {contact.email || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('company') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
+                        {contact.company || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('chatTag') && (
+                      <TableCell className="hidden md:table-cell">
+                        <ChatTagChip
+                          chip={contactChatTagChip(
+                            contact.chatTags,
+                            chatTagTree
+                          )}
+                        />
+                      </TableCell>
+                    )}
+                    {show('owner') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                        {(contact.user_id && nameOf(contact.user_id)) || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('assignedTo') && (
+                      <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                        {(contact.assignedTo && nameOf(contact.assignedTo)) || (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
+                    {show('createdAt') && (
+                      <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
+                        {new Date(contact.created_at).toLocaleDateString(
+                          'en-US',
+                          {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          }
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger

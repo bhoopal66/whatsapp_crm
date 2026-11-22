@@ -1027,7 +1027,18 @@
     "tagDialogTitle": "Set chat tag for {count} contacts",
     "toastCampaignNone": "None of the selected contacts has a phone number",
     "toastTagFailed": "Couldn't set the chat tag",
-    "toastTagResult": "{updated} updated, {unchanged} already had it, {skipped} skipped, {failed} failed"
+    "toastTagResult": "{updated} updated, {unchanged} already had it, {skipped} skipped, {failed} failed",
+    "alwaysShown": "Name and phone are always shown.",
+    "column": {
+      "assignedTo": "Assigned to",
+      "chatTag": "Chat tag",
+      "company": "Company",
+      "createdAt": "Created",
+      "email": "Email",
+      "owner": "Owner"
+    },
+    "columns": "Columns",
+    "hideEmpty": "Hide empty columns"
   },
   "Pipelines": {
     "page": {
