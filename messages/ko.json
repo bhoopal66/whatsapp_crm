@@ -91,7 +91,8 @@
       "team": "팀",
       "automation": "캠페인 및 자동화",
       "integrations": "연동",
-      "hr": "HR"
+      "hr": "HR",
+      "reports": "보고서"
     },
     "roleBankGuest": "은행 게스트",
     "switchWorkspace": "워크스페이스 전환",
@@ -124,7 +125,11 @@
     "openHrChats": "{count, plural, other {열린 채팅 #개}}",
     "desk": "케이스 데스크",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "hr": "HR",
+    "groupHasCurrentPage": "현재 보고 있는 페이지가 이 그룹에 있습니다",
+    "workspaceSwitching": "전환 중…",
+    "workspaceCurrent": "현재 워크스페이스"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -11651,6 +11656,17 @@
       }
     }
   },
+  "TeamViewSwitch": {
+    "mine": "내 것",
+    "team": "팀",
+    "unread": "{count, plural, other {읽지 않은 팀 대화 #개}}",
+    "inbox": {
+      "label": "받은편지함 보기"
+    },
+    "contacts": {
+      "label": "연락처 보기"
+    }
+  },
   "CustomerDocuments": {
     "title": "문서",
     "copy": "참조 번호 복사",
@@ -12418,6 +12434,18 @@
         "note": "동의는 채널별로 관리되며, 한 채널에서 다른 채널로 대체되지 않습니다."
       }
     }
+  },
+  "HrTabs": {
+    "label": "HR 섹션",
+    "opening": "HR을 여는 중…",
+    "openChats": "{count, plural, other {열린 대화 #개}}",
+    "recruiter": "채용 HR",
+    "department": "HR 부서",
+    "unsorted": "미분류",
+    "tasks": "작업",
+    "rules": "규칙",
+    "hireFast": "빠른 채용",
+    "automatedMessages": "자동 메시지"
   },
   "MyActivity": {
     "findings": {
