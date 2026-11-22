@@ -1229,3 +1229,10 @@ jobs:
       # escalation level rings once per waiting episode.
       - name: Verify response targets
         run: supabase db query --local --file supabase/ci/verify-response-targets.sql
+
+      # Migration 238: the Live view and the worklist's waiting customers.
+      # A leader sees only their teams, an admin everyone, an agent
+      # nothing; the waiting list follows RLS and never lists closed or
+      # personal chats.
+      - name: Verify live view
+        run: supabase db query --local --file supabase/ci/verify-live-view.sql
