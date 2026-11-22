@@ -7,6 +7,7 @@ import {
   BriefcaseBusiness,
   Building2,
   CircleDollarSign,
+  ClipboardList,
   Coins,
   FileText,
   Handshake,
@@ -88,6 +89,7 @@ export const SETTINGS_SECTIONS = [
   'journey-bot',
   // Cases & collaboration: bank cases and working together on them.
   'cases',
+  'case-desk',
   'deal-rooms',
   'team-chat',
   // Privacy & compliance: sensitive data, consent, the audit trail.
@@ -288,6 +290,15 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   cases: {
     id: 'cases',
     icon: BriefcaseBusiness,
+    category: 'collaboration',
+    minRole: 'admin',
+  },
+  // The case desk's admin settings (migrations 220, 230, 232, 234): the
+  // desk codes, WhatsApp routing, the reminder digest and each bank's
+  // coordinators. The daily-work tabs stay on /desk.
+  'case-desk': {
+    id: 'case-desk',
+    icon: ClipboardList,
     category: 'collaboration',
     minRole: 'admin',
   },

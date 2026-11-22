@@ -3,7 +3,9 @@
 /**
  * The case desk screen (migration 220, package 035c): Upload, My
  * uploads, the Sorting queue (bank holders, team leaders and up), the
- * Overview (team leaders and up) and Desk codes (owners / admins).
+ * Tray, Companies and the Overview (team leaders and up). The admin
+ * settings (desk codes, routing, digest, bank roles) are in Settings ->
+ * Case desk.
  *
  * Misfiling guards from the package's UI rules: no case is pre-selected
  * when sorting; the case's number, bank and company are on screen before
@@ -12,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -35,13 +38,20 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
-import { canLeadTeam, canManageMembers } from '@/lib/auth/roles';
+import { canLeadTeam } from '@/lib/auth/roles';
 import {
   formatAge,
   newIdemKey,
   queueReasonKey,
   sameCompany,
 } from '@/lib/desk/intake-form';
+import {
+  DEFAULT_DESK_TAB,
+  badgeText,
+  deskTabsFor,
+  legacyDeskRedirect,
+  resolveDeskTab,
+} from '@/lib/desk/tabs';
 import type {
   CaseLookup,
   DeskBank,
@@ -54,8 +64,6 @@ import type {
 
 import { CompaniesTab } from './companies-tab';
 import { CoverCard } from './cover-card';
-import { DigestSettings } from './digest-settings';
-import { RoutingSettings } from './routing-settings';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
 import {
@@ -66,9 +74,6 @@ import {
   type TagDraft,
 } from './tag-fields';
 
-type Tab =
-  'upload' | 'mine' | 'queue' | 'tray' | 'companies' | 'overview' | 'codes';
-
 const STATE_CLASS: Record<ItemState, string> = {
   filed: 'bg-success-soft text-success',
   untagged: 'bg-warning-soft text-warning',
@@ -78,8 +83,10 @@ const STATE_CLASS: Record<ItemState, string> = {
 
 export function DeskView() {
   const t = useTranslations('Desk');
+  const tTabs = useTranslations('DeskTabs');
   const { accountRole, accountId } = useAuth();
-  const [tab, setTab] = useState<Tab>('upload');
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [banks, setBanks] = useState<DeskBank[]>([]);
 
   const loadBanks = useCallback(
@@ -94,25 +101,65 @@ export function DeskView() {
   }, [loadBanks, accountId]);
 
   const isLead = accountRole ? canLeadTeam(accountRole) : false;
-  const isAdmin = accountRole ? canManageMembers(accountRole) : false;
-  const tabs: Tab[] = ['upload', 'mine', 'queue', 'tray', 'companies'];
-  if (isLead) tabs.push('overview');
-  if (isAdmin) tabs.push('codes');
+  const tabs = deskTabsFor(isLead);
+  // The open tab lives in the link (`?tab=`), so a reload, a shared link
+  // and the worklist card land on the same tab. Unknown values fall back.
+  const rawTab = searchParams.get('tab');
+  const tab = resolveDeskTab(rawTab, isLead);
+  const legacy = legacyDeskRedirect(rawTab);
+  useEffect(() => {
+    if (legacy) router.replace(legacy);
+  }, [legacy, router]);
+  const changeTab = (next: unknown) => {
+    const to = resolveDeskTab(String(next), isLead);
+    const url = new URL(window.location.href);
+    if (to === DEFAULT_DESK_TAB) url.searchParams.delete('tab');
+    else url.searchParams.set('tab', to);
+    router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  };
+
+  // Counts for the Sorting queue and Tray badges: the desk worklist is one
+  // cheap call, re-read when the tab changes (a sort or filing just moved
+  // them). A person with no queue simply has a count of 0.
+  const [counts, setCounts] = useState<{ queue: number; tray: number } | null>(
+    null
+  );
+  useEffect(() => {
+    let live = true;
+    void deskApi.worklist().then((r) => {
+      if (live && r.ok)
+        setCounts({ queue: r.data.queue.count, tray: r.data.tray.count });
+    });
+    return () => {
+      live = false;
+    };
+  }, [tab, accountId]);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-foreground text-xl font-semibold">{t('title')}</h1>
-        <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
-      </div>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+      <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
+      <Tabs value={tab} onValueChange={changeTab}>
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
           <TabsList aria-label={t('title')}>
-            {tabs.map((id) => (
-              <TabsTrigger key={id} value={id} className="flex-none">
-                {t(`tabs.${id}`)}
-              </TabsTrigger>
-            ))}
+            {tabs.map((id) => {
+              const count =
+                id === 'queue' || id === 'tray' ? (counts?.[id] ?? 0) : 0;
+              const badge = badgeText(count);
+              return (
+                <TabsTrigger key={id} value={id} className="flex-none">
+                  {t(`tabs.${id}`)}
+                  {badge && (
+                    <span className="bg-warning-soft text-warning ml-1.5 rounded-full px-1.5 text-xs font-semibold">
+                      {badge}
+                      <span className="sr-only">
+                        {' '}
+                        {tTabs('waiting', { count })}
+                      </span>
+                    </span>
+                  )}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
         </div>
       </Tabs>
@@ -125,14 +172,7 @@ export function DeskView() {
       {tab === 'overview' && (
         <div className="space-y-4">
           <OverviewTab />
-          <CoverCard key={accountId ?? ''} isAdmin={isAdmin} />
-        </div>
-      )}
-      {tab === 'codes' && (
-        <div className="space-y-4">
-          <CodesTab banks={banks} onSaved={loadBanks} />
-          <RoutingSettings key={accountId ?? ''} />
-          <DigestSettings key={`digest-${accountId ?? ''}`} />
+          <CoverCard key={accountId ?? ''} />
         </div>
       )}
     </div>
@@ -845,64 +885,6 @@ function OverviewTab() {
             ))}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------- Desk codes ----------
-
-function CodesTab({
-  banks,
-  onSaved,
-}: {
-  banks: readonly DeskBank[];
-  onSaved: () => Promise<void>;
-}) {
-  const t = useTranslations('Desk');
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const save = async (b: DeskBank) => {
-    const v = (values[b.bankCode] ?? b.shortCode ?? '').trim().toUpperCase();
-    setBusy(b.bankCode);
-    const r = await deskApi.setBankCode(b.bankCode, v);
-    setBusy(null);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
-    }
-    toast.success(t('codes.saved', { bank: b.bankName }));
-    await onSaved();
-  };
-  return (
-    <Card>
-      <CardContent className="space-y-3">
-        <p className="text-muted-foreground text-sm">{t('codes.hint')}</p>
-        {banks.length === 0 && (
-          <p className="text-muted-foreground text-sm">{t('codes.noBanks')}</p>
-        )}
-        {banks.map((b) => (
-          <div key={b.bankCode} className="flex flex-wrap items-center gap-2">
-            <span className="min-w-40 text-sm">{b.bankName}</span>
-            <Input
-              className="w-24 font-mono uppercase"
-              maxLength={3}
-              value={values[b.bankCode] ?? b.shortCode ?? ''}
-              aria-label={t('codes.label', { bank: b.bankName })}
-              onChange={(e) =>
-                setValues({ ...values, [b.bankCode]: e.target.value })
-              }
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy === b.bankCode}
-              onClick={() => save(b)}
-            >
-              {t('codes.save')}
-            </Button>
-          </div>
-        ))}
       </CardContent>
     </Card>
   );

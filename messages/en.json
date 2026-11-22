@@ -2684,6 +2684,7 @@
       "audit-log": "Audit log",
       "deal-rooms": "Deal rooms",
       "cases": "Cases",
+      "case-desk": "Case desk",
       "vault": "Vault",
       "privacy": "Privacy (PDPL)"
     },
@@ -2733,6 +2734,7 @@
       "journey-bot": "The Welcome to Close bot: its templates and messages.",
       "insights": "Jev reads chats to rate leads, suggest tags, sort campaign replies and check messages.",
       "cases": "Banks, stages, task templates, documents and SLA timers.",
+      "case-desk": "Desk codes, bank coordinators, WhatsApp routing and the customer reminder digest.",
       "deal-rooms": "The template that invites people to a deal room.",
       "team-chat": "Turn team chat on or off, who may message whom, audited reads and erasure.",
       "vault": "Sensitive customer numbers and who may reveal them.",
@@ -2767,6 +2769,7 @@
       "journey-bot": "journey bot welcome to close workflow automation",
       "insights": "jev typesafe insights signals lead hot urgent upset intent tag suggestions auto tag campaign replies message check meaning triggers",
       "cases": "bank banks stages sla documents tasks submissions applications coordinators",
+      "case-desk": "case desk desk codes bank code tray routing digest reminder coordinators cover upload sorting",
       "deal-rooms": "deal room group invite whatsapp group bank officers",
       "team-chat": "internal chat channels messages erase audit private direct messages dm who can message rules agents team leader",
       "vault": "sensitive data emirates id card iban encryption reveal secure",
@@ -12164,6 +12167,16 @@
       "oldest": "oldest {age}",
       "open": "Open the case desk"
     }
+  },
+  "CaseDeskSettings": {
+    "intro": "Set up the case desk here. Uploading, sorting and the tray stay on the Case desk page.",
+    "codes": "Desk codes",
+    "cover": "Coordinators per bank",
+    "rolesIntro": "Name each bank's primary and second coordinator from the people who hold that bank. They get the sorting queue first; if both are away, the desk lead covers.",
+    "noHolders": "Nobody holds this bank yet. Give someone the bank in Settings, Cases, then pick them here."
+  },
+  "DeskTabs": {
+    "waiting": "{count, plural, one {# item waiting} other {# items waiting}}"
   },
   "Privacy": {
     "loading": "Loading...",
