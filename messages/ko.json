@@ -1,4 +1,28 @@
 {
+  "ChatNotes": {
+    "reply": "답장",
+    "note": "메모",
+    "modeLabel": "고객에게 답장하거나 팀 메모 작성",
+    "label": "메모 · 팀에게만 보입니다",
+    "placeholder": "팀을 위한 메모를 작성하세요. @를 입력해 사람을 언급하세요",
+    "save": "메모 저장",
+    "saveFailed": "메모를 저장하지 못했습니다",
+    "tooLong": "메모는 최대 {max}자까지 쓸 수 있습니다",
+    "mentionListLabel": "이 채팅을 볼 수 있는 사람",
+    "you": "나",
+    "someone": "팀원",
+    "edited": "수정됨",
+    "actions": "메모 작업",
+    "edit": "수정",
+    "delete": "삭제",
+    "cancel": "취소",
+    "saveEdit": "저장",
+    "editFailed": "변경 사항을 저장하지 못했습니다",
+    "deleteFailed": "메모를 삭제하지 못했습니다",
+    "deleteTitle": "이 메모를 삭제할까요?",
+    "deleteBody": "팀에서 더 이상 볼 수 없습니다. 되돌릴 수 없습니다.",
+    "deleteConfirm": "메모 삭제"
+  },
   "InboxRows": {
     "assign": "Assign",
     "assignAria": "Assign the chat with {name}",

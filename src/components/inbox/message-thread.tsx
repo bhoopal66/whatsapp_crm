@@ -92,6 +92,10 @@ import {
 } from './thread-channel-switcher';
 import { ThreadAutoTagNote } from './thread-auto-tag-note';
 import { ThreadPinNote } from './thread-pin-note';
+import { ThreadNote } from './thread-note';
+import { NoteComposer } from './note-composer';
+import { ComposerModeSwitch, type ComposerMode } from './composer-mode-switch';
+import { useConversationNotes } from './use-conversation-notes';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
@@ -127,7 +131,11 @@ import {
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
 import { ForwardDialog } from './forward-dialog';
-import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
+import {
+  canSendMessages,
+  canWriteChatNotes,
+  isBankGuest,
+} from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
@@ -1948,6 +1956,20 @@ export function MessageThread({
   const { events: threadEvents, reload: reloadThreadEvents } =
     useConversationEvents(conversationId ?? null);
 
+  // The team's notes in this chat (migration 241), placed by time too,
+  // and whether this person may write them (Reply / Note switch).
+  const teamNotes = useConversationNotes(conversationId ?? null);
+  const mayWriteNotes = !!accountRole && canWriteChatNotes(accountRole);
+  const [composerMode, setComposerMode] = useState<{
+    conversationId: string | null;
+    mode: ComposerMode;
+  }>({ conversationId: null, mode: 'reply' });
+  // Every chat opens on Reply.
+  const noteMode =
+    mayWriteNotes &&
+    composerMode.conversationId === (conversationId ?? null) &&
+    composerMode.mode === 'note';
+
   // Grouping walks and date-formats every message; only redo it when the
   // messages or notes change, not on every header/dropdown re-render.
   const visibleMessages = useMemo(
@@ -1958,8 +1980,14 @@ export function MessageThread({
     [messages, hiddenTempIds]
   );
   const timelineGroups = useMemo(
-    () => buildTimelineGroups(visibleMessages, threadEvents, hasOlder),
-    [visibleMessages, threadEvents, hasOlder]
+    () =>
+      buildTimelineGroups(
+        visibleMessages,
+        threadEvents,
+        hasOlder,
+        teamNotes.notes
+      ),
+    [visibleMessages, threadEvents, hasOlder, teamNotes.notes]
   );
   const failedHere = useMemo(
     () => failedSends.filter((f) => f.conversationId === conversationId),
@@ -2198,6 +2226,19 @@ export function MessageThread({
                     </span>
                   </div>
                   {group.items.map((item, index) => {
+                    if (item.kind === 'note')
+                      return (
+                        <ThreadNote
+                          key={`note-${item.note.id}`}
+                          note={item.note}
+                          authorName={profileName(item.note.author_id)}
+                          isMine={!!user?.id && item.note.author_id === user.id}
+                          canManage={mayWriteNotes}
+                          nameOf={profileName}
+                          onEdit={teamNotes.edit}
+                          onDelete={teamNotes.remove}
+                        />
+                      );
                     if (item.kind === 'event') {
                       if (item.event.kind === 'chat_tag_auto')
                         return (
@@ -2396,20 +2437,44 @@ export function MessageThread({
             />
           )}
 
+        {/* Reply / Note (migration 241). The reply composer stays
+            mounted (hidden) in Note mode so its draft survives. */}
+        {mayWriteNotes && (
+          <div className="bg-wa-panel-header border-wa-divider border-t px-2 pt-1.5 sm:px-4">
+            <ComposerModeSwitch
+              mode={noteMode ? 'note' : 'reply'}
+              onChange={(mode) =>
+                setComposerMode({ conversationId: conversation.id, mode })
+              }
+            />
+          </div>
+        )}
+        {noteMode && (
+          <div className="bg-wa-panel-header shrink-0 px-2 pb-2 sm:px-4">
+            <NoteComposer
+              key={conversation.id}
+              conversationId={conversation.id}
+              onSave={teamNotes.add}
+            />
+          </div>
+        )}
+
         {/* Composer */}
-        <MessageComposer
-          conversationId={conversation.id}
-          onSend={handleSend}
-          onSendMedia={handleSendMedia}
-          onSendInteractive={handleSendInteractive}
-          onOpenTemplates={handleOpenTemplates}
-          replyTo={replyTo}
-          onClearReply={() => setReplyTo(null)}
-          onRestoreReply={setReplyTo}
-          contactName={contact.name || contact.phone || null}
-          textControl={composerDraftRef}
-          freeTextBlocked={freeTextBlocked}
-        />
+        <div className={cn('contents', noteMode && 'hidden')}>
+          <MessageComposer
+            conversationId={conversation.id}
+            onSend={handleSend}
+            onSendMedia={handleSendMedia}
+            onSendInteractive={handleSendInteractive}
+            onOpenTemplates={handleOpenTemplates}
+            replyTo={replyTo}
+            onClearReply={() => setReplyTo(null)}
+            onRestoreReply={setReplyTo}
+            contactName={contact.name || contact.phone || null}
+            textControl={composerDraftRef}
+            freeTextBlocked={freeTextBlocked}
+          />
+        </div>
 
         <ForwardDialog
           message={

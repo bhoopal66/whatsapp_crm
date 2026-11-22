@@ -1,4 +1,28 @@
 {
+  "ChatNotes": {
+    "reply": "Reply",
+    "note": "Note",
+    "modeLabel": "Reply to the customer or write a team note",
+    "label": "Note · only your team sees this",
+    "placeholder": "Write a note for your team. Type @ to mention someone",
+    "save": "Save note",
+    "saveFailed": "Couldn't save the note",
+    "tooLong": "Notes can be up to {max} characters",
+    "mentionListLabel": "People who can see this chat",
+    "you": "You",
+    "someone": "A teammate",
+    "edited": "edited",
+    "actions": "Note actions",
+    "edit": "Edit",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "saveEdit": "Save",
+    "editFailed": "Couldn't save your change",
+    "deleteFailed": "Couldn't delete the note",
+    "deleteTitle": "Delete this note?",
+    "deleteBody": "Your team will no longer see it. This can't be undone.",
+    "deleteConfirm": "Delete note"
+  },
   "InboxRows": {
     "assign": "Assign",
     "assignAria": "Assign the chat with {name}",

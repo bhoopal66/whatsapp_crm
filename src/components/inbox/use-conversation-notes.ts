@@ -8,7 +8,7 @@
 // writes, edits and deletes; the trigger stamps the author and rings
 // the mentions.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -19,6 +19,9 @@ import {
 
 const COLUMNS =
   'id, account_id, conversation_id, author_id, body, mention_ids, created_at, edited_at';
+
+// One empty list, so a chat with no notes yet keeps a stable reference.
+const NO_NOTES: ConversationNote[] = [];
 
 async function fetchNotes(conversationId: string): Promise<ConversationNote[]> {
   const { data } = await createClient()
@@ -87,10 +90,8 @@ export function useConversationNotes(conversationId: string | null) {
     };
   }, [conversationId, apply]);
 
-  const notes = useMemo(
-    () => (state.conversationId === conversationId ? state.notes : []),
-    [state, conversationId]
-  );
+  const notes =
+    state.conversationId === conversationId ? state.notes : NO_NOTES;
 
   const add = useCallback(
     async (body: string, mentionIds: string[]): Promise<boolean> => {
