@@ -2028,6 +2028,77 @@
       "contactTagRetired": "Contact tag (retired) — pick a chat tag"
     }
   },
+  "FunnelReport": {
+    "period": "Period",
+    "periods": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days"
+    },
+    "filters": {
+      "leadSource": "Lead source",
+      "agent": "Agent",
+      "bank": "Bank",
+      "number": "Number",
+      "allSources": "All sources",
+      "allAgents": "All agents",
+      "allBanks": "All banks",
+      "allNumbers": "All numbers",
+      "noSource": "No source recorded",
+      "unnamed": "Unnamed"
+    },
+    "refresh": "Refresh",
+    "download": "Download CSV",
+    "loadFailed": "Couldn't load the funnel report.",
+    "notMigrated": "The funnel report needs database migration 254.",
+    "retry": "Try again",
+    "cohortNote": "The funnel follows the company chats that started in the chosen period, to wherever they have got by now. A customer counts once at each stage, however many cases they have.",
+    "noInterestedTag": "There is no main chat tag named \"Interested\", so only chats with a case count as interested.",
+    "bankNote": "The bank filter applies to the case stages only: a chat has no bank.",
+    "funnelTitle": "Funnel",
+    "ofPrevious": "{pct}% of previous stage",
+    "ofNewChats": "{pct}% of new chats",
+    "noRate": "No rate",
+    "stages": {
+      "new_chats": "New chats",
+      "interested": "Interested",
+      "case_opened": "Case opened",
+      "submitted": "Submitted",
+      "approved": "Approved",
+      "declined": "Declined",
+      "withdrawn": "Withdrawn"
+    },
+    "sideTitle": "Beside the funnel",
+    "sideHint": "Cases that ended without approval.",
+    "dailyTitle": "New chats per day",
+    "dailyDescription": "Company chats started each day, in the account's time zone.",
+    "breakdown": {
+      "bySource": "By lead source",
+      "byAgent": "By agent",
+      "byNumber": "By number",
+      "byBank": "By bank",
+      "item": "Name",
+      "unassigned": "Unassigned",
+      "noNumber": "No number",
+      "noBank": "No bank",
+      "bankHint": "Case stages only.",
+      "empty": "Nothing in this period."
+    },
+    "empty": {
+      "title": "No new chats in this period",
+      "hint": "Pick a longer period or clear a filter."
+    },
+    "csv": {
+      "breakdown": "Breakdown",
+      "item": "Item",
+      "total": "Total",
+      "all": "All",
+      "ofPrevious": "% of previous stage",
+      "ofNewChats": "% of new chats"
+    }
+  },
   "Settings": {
     "pageTitle": "Settings",
     "pageDesc": "Your account and your workspace, in one place. Pick a section from the menu, or search for a setting.",
