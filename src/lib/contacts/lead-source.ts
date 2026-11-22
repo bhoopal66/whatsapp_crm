@@ -4,16 +4,10 @@
  * dependency-free so client and server share it and tests need nothing.
  */
 
-export const LEAD_SOURCES = [
-  'ad',
-  'web_form',
-  'broadcast',
-  'manual',
-  'import',
-  'compass',
-  'other',
-] as const;
-export type LeadSource = (typeof LEAD_SOURCES)[number];
+import { LEAD_SOURCES, type LeadSource } from '@/lib/leads/lead-source';
+
+// One list for the whole app: 249's CHECK is pinned to it in leads/.
+export { LEAD_SOURCES, type LeadSource };
 
 /**
  * False until migration 249 (contacts.lead_source) is applied: with it
