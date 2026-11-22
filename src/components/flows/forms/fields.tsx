@@ -18,6 +18,7 @@
  * (introduced in this PR) mount the exact same form components.
  */
 
+import { useStepNamer } from "../step-name";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -105,13 +106,18 @@ export function NodeKeySelect({
 }) {
   const t = useTranslations("Flows.builder.form");
   const options = nodes.filter((n) => n.node_key !== excludeKey);
+  const stepName = useStepNamer(nodes);
   return (
     <Select
       value={value ?? "__none__"}
       onValueChange={(v) => onChange(v === "__none__" ? null : v)}
     >
       <SelectTrigger className={cn(className)}>
-        <SelectValue placeholder={placeholder ?? "—"} />
+        <SelectValue placeholder={placeholder ?? "—"}>
+          {(v: string | null) =>
+            !v || v === "__none__" ? t("none") : stepName(v) || v
+          }
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="__none__">{t("none")}</SelectItem>
@@ -123,7 +129,7 @@ export function NodeKeySelect({
                 <Icon
                   className={cn("h-3 w-3", NODE_META[n.node_type].color)}
                 />
-                {n.node_key}
+                {stepName(n.node_key)}
               </span>
             </SelectItem>
           );

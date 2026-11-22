@@ -97,6 +97,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { stepOrdinal } from './step-name';
 import { useFlowEditor } from './flow-editor-state';
 import { NodeConfigForm } from './forms/node-config-form';
 
@@ -138,6 +139,8 @@ function slotColor(nodeType: NodeType, slotId: string, fallback: string) {
 function FlowNodeCard({ data, selected }: NodeProps) {
   const t = useTranslations('Flows.builder');
   const { node, isEntry, isFlashed } = data as NodeData;
+  const { state: editorState } = useFlowEditor();
+  const ord = stepOrdinal(editorState.nodes, node.node_key);
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
   const tSummary = useTranslations('Flows.summary');
@@ -206,9 +209,11 @@ function FlowNodeCard({ data, selected }: NodeProps) {
           </span>
         )}
       </div>
-      <div className="text-muted-foreground mt-2 truncate font-mono text-xs">
-        {node.node_key}
-      </div>
+      {ord && ord.total > 1 && (
+        <div className="text-muted-foreground mt-2 truncate text-xs">
+          #{ord.n}
+        </div>
+      )}
       {summary && (
         <div className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-relaxed">
           {summary}
@@ -629,6 +634,7 @@ function NodeEditSheet({
   }
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
+  const sheetOrd = stepOrdinal(allNodes, node.node_key);
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent
@@ -650,9 +656,11 @@ function NodeEditSheet({
               {t(`nodes.${node.node_type}.blurb`)}
             </SheetDescription>
           </div>
-          <code className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 font-mono text-xs">
-            {node.node_key}
-          </code>
+          {sheetOrd && sheetOrd.total > 1 && (
+            <span className="bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-xs">
+              #{sheetOrd.n}
+            </span>
+          )}
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">

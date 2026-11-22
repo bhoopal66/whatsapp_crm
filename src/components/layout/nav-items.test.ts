@@ -3,15 +3,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { ACCOUNT_ROLES, type AccountRole } from '@/lib/auth/roles';
-import { HR_TABS, hrLandingPath, visibleHrTabs } from '@/lib/hr/tabs';
 import {
   BOTTOM_NAV_ITEMS,
   NAV_GROUPS,
-  TEAM_VIEW_ITEMS,
-  canUseTeamView,
   isNavItemActive,
   isNavItemVisible,
-  isNavRowActive,
   navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
@@ -37,8 +33,6 @@ const VIEWER = {
 /** An agent and up: Journeys (module 016) and Bank submissions are agent+. */
 const AGENT = {
   ...VIEWER,
-  // My activity sits right after My worklist.
-  main: ['/dashboard', '/worklist', '/my-activity'],
   customers: [...VIEWER.customers, '/journeys'],
   submissions: ['/cases', '/desk', '/submission-groups', '/banks'],
 };
@@ -49,14 +43,27 @@ const LEADER = {
   submissions: ['/cases', '/desk', '/recycle', '/submission-groups', '/banks'],
 };
 
-/** Team leader and up: the team group (the Mine / Team views are no rows). */
-const TEAM = ['/live', '/team-activity'];
+const TEAM = [
+  '/team-inbox',
+  '/team-contacts',
+  '/live',
+  '/team-activity',
+  '/my-activity',
+];
 
-/** The HR area is one row; its screens are tabs (lib/hr/tabs.ts). */
-const HR_ROW = ['/hr'];
+/** An agent's own figures: the one team-group row below team leader. */
+const SELF = ['/my-activity'];
 
-/** Every HR tab, as an owner or admin sees the bar. */
-const HR_ALL = HR_TABS.map((tab) => tab.href);
+/** The HR group (migration 200), as an owner or admin sees it. */
+const HR_ALL = [
+  '/hr/recruiter',
+  '/hr/department',
+  '/hr/unsorted',
+  '/hr/tasks',
+  '/hr/rules',
+  '/hr/hire-fast',
+  '/hr/automated-messages',
+];
 
 /**
  * The source of the nearest layout on `href`'s path, '' for none: the
@@ -72,17 +79,13 @@ function routeLayout(appDir: string, href: string): string {
   return file ? readFileSync(file, 'utf8') : '';
 }
 
-const ALL_ITEMS = [
-  ...NAV_GROUPS.flatMap((g) => g.items),
-  ...Object.values(TEAM_VIEW_ITEMS),
-  ...BOTTOM_NAV_ITEMS,
-];
+const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
 describe('visibleNavGroups', () => {
   it.each([
     [null, VIEWER],
     ['viewer', VIEWER],
-    ['agent', AGENT],
+    ['agent', { ...AGENT, team: SELF }],
   ] as const)(
     'gives %s its groups, with no team-wide or admin views',
     (role, groups) => {
@@ -97,19 +100,11 @@ describe('visibleNavGroups', () => {
     });
   });
 
-  it('keeps the unread-badge rows single: no Team inbox / Team contacts rows', () => {
-    const hrefs = visibleNavGroups('owner').flatMap((g) =>
-      g.items.map((i) => i.href)
-    );
-    expect(hrefs).not.toContain('/team-inbox');
-    expect(hrefs).not.toContain('/team-contacts');
-    expect(hrefs.filter((h) => h.startsWith('/hr'))).toEqual(['/hr']);
-  });
-
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
       ...LEADER,
-      team: [...TEAM, ...HR_ROW],
+      team: TEAM,
+      hr: HR_ALL,
       automation: ['/broadcasts', '/automations', '/flows'],
       integrations: ['/compass', '/opendesk'],
     });
@@ -123,6 +118,7 @@ describe('visibleNavGroups', () => {
       'customers',
       'submissions',
       'team',
+      'hr',
       'automation',
       'integrations',
     ]);
@@ -242,32 +238,26 @@ describe('visibleNavGroups', () => {
     );
   });
 
-  describe('the HR area (200): one row, tabs inside', () => {
-    const hrRow = (
+  describe('the HR group (200)', () => {
+    const hrRows = (
       role: AccountRole | null,
       ctx: Parameters<typeof visibleNavGroups>[1]
     ) =>
       visibleNavGroups(role, ctx)
-        .flatMap((g) => g.items)
-        .filter((i) => i.href.startsWith('/hr'))
-        .map((i) => i.href);
+        .find((g) => g.id === 'hr')
+        ?.items.map((i) => i.href) ?? [];
     const roles = (
       recruiter: 'lead' | 'member' | null,
       dept: 'lead' | 'member' | null
     ) => ({ admin: false, recruiter, dept });
-    const adminRoles = { admin: true, recruiter: null, dept: null };
-    const tabs = (r: Parameters<typeof visibleHrTabs>[0]) =>
-      visibleHrTabs(r).map((t) => t.href);
 
-    it('shows an admin the one HR row, roles known or not, and every tab', () => {
-      expect(hrRow('admin', {})).toEqual(['/hr']);
-      expect(hrRow('owner', { hrRoles: null })).toEqual(['/hr']);
-      expect(tabs(adminRoles)).toEqual(HR_ALL);
+    it('shows an admin every HR screen, roles known or not', () => {
+      expect(hrRows('admin', {})).toEqual(HR_ALL);
+      expect(hrRows('owner', { hrRoles: null })).toEqual(HR_ALL);
     });
 
-    it('shows a recruiter lead the recruitment tabs, not HR department', () => {
-      expect(hrRow('agent', { hrRoles: roles('lead', null) })).toEqual(['/hr']);
-      expect(tabs(roles('lead', null))).toEqual([
+    it('shows a recruiter lead the recruitment screens, not HR department', () => {
+      expect(hrRows('agent', { hrRoles: roles('lead', null) })).toEqual([
         '/hr/recruiter',
         '/hr/unsorted',
         '/hr/tasks',
@@ -278,7 +268,7 @@ describe('visibleNavGroups', () => {
     });
 
     it('shows a recruiter member Hire fast but not Automated messages', () => {
-      expect(tabs(roles('member', null))).toEqual([
+      expect(hrRows('agent', { hrRoles: roles('member', null) })).toEqual([
         '/hr/recruiter',
         '/hr/unsorted',
         '/hr/tasks',
@@ -288,117 +278,40 @@ describe('visibleNavGroups', () => {
     });
 
     it('shows a dept member no Recruiter HR and no Hire fast', () => {
-      expect(tabs(roles(null, 'member'))).toEqual([
+      expect(hrRows('agent', { hrRoles: roles(null, 'member') })).toEqual([
         '/hr/department',
         '/hr/unsorted',
         '/hr/tasks',
         '/hr/rules',
       ]);
       // A dept lead leads no recruitment: still no Automated messages.
-      expect(tabs(roles(null, 'lead'))).not.toContain('/hr/automated-messages');
+      expect(hrRows('agent', { hrRoles: roles(null, 'lead') })).not.toContain(
+        '/hr/automated-messages'
+      );
     });
 
-    it('lands /hr on the first tab the person may open', () => {
-      expect(hrLandingPath(adminRoles)).toBe('/hr/recruiter');
-      expect(hrLandingPath(roles(null, 'member'))).toBe('/hr/department');
-      expect(hrLandingPath(roles(null, null))).toBeNull();
-      expect(hrLandingPath(null)).toBeNull();
-    });
-
-    it('keeps the HR row for a restricted department (HR people are one)', () => {
+    it('keeps the HR rows for a restricted department (HR people are one)', () => {
       expect(
-        hrRow('agent', {
+        hrRows('agent', {
           hrRoles: roles(null, 'member'),
           salesRestricted: true,
         })
-      ).toEqual(['/hr']);
+      ).toContain('/hr/department');
     });
 
-    it('hides the row from staff with no HR role, a guest and a loading role', () => {
-      expect(hrRow('agent', {})).toEqual([]);
-      expect(hrRow('team_leader', { hrRoles: roles(null, null) })).toEqual([]);
+    it('hides the group from staff with no HR role, a guest and a loading role', () => {
+      expect(hrRows('agent', {})).toEqual([]);
+      expect(hrRows('team_leader', { hrRoles: roles(null, null) })).toEqual([]);
       for (const role of [null, 'bank_guest'] as const)
         expect(
-          hrRow(role, { hrRoles: roles('lead', 'lead') }),
+          hrRows(role, { hrRoles: roles('lead', 'lead') }),
           String(role)
         ).toEqual([]);
     });
 
-    it('opens nothing else for an HR-only agent', () => {
+    it('opens nothing outside the HR group', () => {
       const all = visibleNavGroups('agent', { hrRoles: roles('lead', 'lead') });
-      expect(layout(all)).toEqual({ ...AGENT, team: HR_ROW });
-    });
-  });
-
-  describe('the Mine / Team switch', () => {
-    it('is offered to exactly those who had the Team rows', () => {
-      for (const screen of ['inbox', 'contacts'] as const) {
-        for (const role of [null, 'viewer', 'agent', 'bank_guest'] as const)
-          expect(canUseTeamView(screen, role), `${screen} ${role}`).toBe(false);
-        for (const role of ['team_leader', 'admin', 'owner'] as const)
-          expect(canUseTeamView(screen, role), `${screen} ${role}`).toBe(true);
-      }
-    });
-
-    it('hides Team contacts, not Team inbox, from a restricted department', () => {
-      expect(
-        canUseTeamView('contacts', 'team_leader', { salesRestricted: true })
-      ).toBe(false);
-      expect(
-        canUseTeamView('inbox', 'team_leader', { salesRestricted: true })
-      ).toBe(true);
-    });
-
-    it('keeps the team routes as links and lights the parent row on them', () => {
-      expect(TEAM_VIEW_ITEMS.inbox.href).toBe('/team-inbox');
-      expect(TEAM_VIEW_ITEMS.contacts.href).toBe('/team-contacts');
-      const inbox = NAV_GROUPS.flatMap((g) => g.items).find(
-        (i) => i.href === '/inbox'
-      )!;
-      expect(isNavRowActive(inbox, '/inbox')).toBe(true);
-      expect(isNavRowActive(inbox, '/team-inbox')).toBe(true);
-      expect(isNavRowActive(inbox, '/contacts')).toBe(false);
-    });
-  });
-
-  describe('the Reports slot', () => {
-    const slot = NAV_GROUPS.find((g) => g.id === 'reports');
-
-    it('exists, is headed, and renders nothing while it has no items', () => {
-      expect(slot).toBeDefined();
-      expect(slot!.labelKey).toBe('groups.reports');
-      expect(slot!.items).toEqual([]);
-      for (const role of [null, ...ACCOUNT_ROLES])
-        expect(
-          visibleNavGroups(role).map((g) => g.id),
-          String(role)
-        ).not.toContain('reports');
-    });
-
-    it('shows up, between submissions and team, once a track registers an item', () => {
-      const withItem = NAV_GROUPS.map((g) =>
-        g.id === 'reports'
-          ? {
-              ...g,
-              items: [
-                {
-                  href: '/reports/x',
-                  labelKey: 'dashboard',
-                  icon: ALL_ITEMS[0].icon,
-                  minRole: 'team_leader' as const,
-                },
-              ],
-            }
-          : g
-      );
-      const ids = (role: AccountRole | null) =>
-        visibleNavGroups(role, {}, withItem).map((g) => g.id);
-      expect(ids('owner')).toContain('reports');
-      expect(ids('owner').indexOf('reports')).toBe(
-        ids('owner').indexOf('team') - 1
-      );
-      // Role guards still apply to a registered item.
-      expect(ids('agent')).not.toContain('reports');
+      expect(layout(all)).toEqual({ ...AGENT, team: SELF, hr: HR_ALL });
     });
   });
 
@@ -531,7 +444,7 @@ describe('navPrefetch', () => {
         '/recycle',
         '/flows',
         '/groups',
-        '/hr',
+        ...HR_ALL,
         '/journeys',
         '/live',
         '/meetings',
@@ -623,14 +536,9 @@ describe('visibleNavItems / sales-restricted departments', () => {
     expect(hrefs(false)).toContain('/pipelines');
     expect(hrefs(true)).not.toContain('/pipelines');
     expect(hrefs(true)).toContain('/contacts');
+    expect(hrefs(true)).not.toContain('/team-contacts');
     expect(hrefs(true)).toContain('/inbox');
-    // The team views are the Mine / Team switch now; a restricted (HR)
-    // team leader still gets the inbox one, never the contacts one.
-    expect(
-      canUseTeamView('inbox', 'team_leader', { salesRestricted: true })
-    ).toBe(true);
-    expect(
-      canUseTeamView('contacts', 'team_leader', { salesRestricted: true })
-    ).toBe(false);
+    // A restricted (HR) team leader still follows her team.
+    expect(hrefs(true)).toContain('/team-inbox');
   });
 });

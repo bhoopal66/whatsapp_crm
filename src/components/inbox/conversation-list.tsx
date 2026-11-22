@@ -123,7 +123,6 @@ import { ImportantBadge } from './important-badge';
 import { InsightChips } from './insight-badge';
 import { showsSalesInsights } from '@/lib/hr/sales-only';
 import { HrRowTags, HrStaffRing } from '@/components/hr/hr-row';
-import { TeamViewSwitch } from '@/components/layout/team-view-switch';
 import {
   applyHrQueryOps,
   HR_EMBED,
@@ -1841,7 +1840,6 @@ export function ConversationList({
     <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-r lg:w-80 2xl:w-96">
       {/* Search + Filter */}
       <div className="space-y-2 px-3 pt-3 pb-2">
-        {!hrHeaderOn && <TeamViewSwitch screen="inbox" teamView={teamView} />}
         {hrHeader?.title}
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">

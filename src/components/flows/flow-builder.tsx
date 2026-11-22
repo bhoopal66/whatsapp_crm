@@ -69,6 +69,7 @@ import {
 } from './shared';
 import { NodeConfigForm } from './forms/node-config-form';
 import { NodeKeySelect } from './forms/fields';
+import { stepOrdinal } from './step-name';
 import { IssueLine } from './validation-panel';
 import { MeaningTriggerFields } from '@/components/insights/meaning-trigger-fields';
 import { useFlowEditor, type BuilderState } from './flow-editor-state';
@@ -559,6 +560,7 @@ function NodeCard({
   onSetEntry: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const ord = stepOrdinal(allNodes, node.node_key);
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
   const hasError = issues.some((i) => i.severity === 'error');
@@ -597,9 +599,11 @@ function NodeCard({
             >
               {t(`nodes.${node.node_type}.label`)}
             </span>
-            <code className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
-              {node.node_key}
-            </code>
+            {ord && ord.total > 1 && (
+              <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
+                #{ord.n}
+              </span>
+            )}
             {isEntry && (
               <Badge
                 variant="outline"
