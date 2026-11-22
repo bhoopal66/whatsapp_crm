@@ -8,11 +8,14 @@
 
 import { format } from 'date-fns';
 
+import type { ConversationNote } from '@/lib/inbox/notes';
 import type { ConversationEvent, Message } from '@/types';
 
 export type TimelineItem =
   | { kind: 'message'; message: Message }
-  | { kind: 'event'; event: ConversationEvent };
+  | { kind: 'event'; event: ConversationEvent }
+  // A team note (migration 241), placed by time like an event.
+  | { kind: 'note'; note: ConversationNote };
 
 export interface TimelineGroup {
   /** ISO timestamp of the group's first item — drives the separator label. */
@@ -46,7 +49,11 @@ export function startsMessageRun(
 
 function itemTime(item: TimelineItem): number {
   return new Date(
-    item.kind === 'message' ? item.message.created_at : item.event.created_at
+    item.kind === 'message'
+      ? item.message.created_at
+      : item.kind === 'event'
+        ? item.event.created_at
+        : item.note.created_at
   ).getTime();
 }
 
@@ -65,31 +72,32 @@ function itemTime(item: TimelineItem): number {
 export function buildTimelineGroups(
   messages: Message[],
   events: ConversationEvent[],
-  hasOlder: boolean
+  hasOlder: boolean,
+  teamNotes: readonly ConversationNote[] = []
 ): TimelineGroup[] {
   const oldestLoaded =
     hasOlder && messages.length > 0
       ? new Date(messages[0].created_at).getTime()
       : -Infinity;
 
-  const notes = events
-    .filter((e) => new Date(e.created_at).getTime() >= oldestLoaded)
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
+  const notes: TimelineItem[] = [
+    ...events.map((event): TimelineItem => ({ kind: 'event', event })),
+    ...teamNotes.map((note): TimelineItem => ({ kind: 'note', note })),
+  ]
+    .filter((item) => itemTime(item) >= oldestLoaded)
+    // Stable: at one timestamp, events stay ahead of team notes.
+    .sort((a, b) => itemTime(a) - itemTime(b));
 
   const items: TimelineItem[] = [];
   let n = 0;
   for (const message of messages) {
     const t = new Date(message.created_at).getTime();
-    while (n < notes.length && new Date(notes[n].created_at).getTime() < t) {
-      items.push({ kind: 'event', event: notes[n++] });
+    while (n < notes.length && itemTime(notes[n]) < t) {
+      items.push(notes[n++]);
     }
     items.push({ kind: 'message', message });
   }
-  while (n < notes.length) items.push({ kind: 'event', event: notes[n++] });
+  while (n < notes.length) items.push(notes[n++]);
 
   const groups: TimelineGroup[] = [];
   let currentDay = '';

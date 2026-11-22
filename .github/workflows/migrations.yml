@@ -1215,6 +1215,13 @@ jobs:
       - name: Verify case review
         run: supabase db query --local --file supabase/ci/verify-case-review.sql
 
+      # Migration 241: in-chat notes. A note is read exactly where its chat
+      # is, written by agent-and-up staff who see the chat, edited and
+      # deleted by its author only; an @mention rings one bell for staff
+      # who can see the chat and nothing for anyone else; never a message.
+      - name: Verify conversation notes
+        run: supabase db query --local --file supabase/ci/verify-conversation-notes.sql
+
       # Migration 242: the voice-note library. Every member reads the
       # workspace's library, agents and up add, the author or an admin
       # deletes, another workspace sees nothing, entries are never

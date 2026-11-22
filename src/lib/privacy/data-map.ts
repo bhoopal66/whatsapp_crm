@@ -128,6 +128,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'delete',
     exported: true,
   },
+  // Team notes inside the chat (241): erased and exported through
+  // privacy_extensions.
+  conversation_notes: {
+    link: 'conversation',
+    class: 'content',
+    erase: 'delete',
+    exported: true,
+  },
   conversation_insight_events: {
     link: 'conversation',
     class: 'content',

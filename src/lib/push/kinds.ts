@@ -5,7 +5,9 @@
  * whatsapp_message and chat_message come from the inbound pipeline and
  * the team-chat trigger; the rest are the bell types (notifications.type,
  * 106's CHECK) that push. The four chat_* bell types are left out: their
- * message already pushes once as chat_message. meeting_reminder and
+ * message already pushes once as chat_message (chat_note_mention, a
+ * note in a customer chat (241), is not one of them: its bell pushes).
+ * meeting_reminder and
  * event_reminder are the calendar's reminders. 'test' (POST
  * /api/push/test) is not a preference: it cannot be switched off.
  */
@@ -15,6 +17,7 @@ export const PUSH_KINDS = [
   'conversation_assigned',
   'conversation_shared',
   'insight_attention',
+  'chat_note_mention',
   'ai_handoff',
   'task_assigned',
   'task_due',
