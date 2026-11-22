@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   Coins,
   FileText,
+  Globe,
   Handshake,
   Inbox,
   KeyRound,
@@ -99,6 +100,7 @@ export const SETTINGS_SECTIONS = [
   'phone-system',
   'phone-extensions',
   'api',
+  'web-form',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -362,6 +364,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   api: {
     id: 'api',
     icon: KeyRound,
+    category: 'integrations',
+    minRole: 'admin',
+  },
+  // The public lead form (migration 249): admin+, like web_form_get /
+  // web_form_set behind it.
+  'web-form': {
+    id: 'web-form',
+    icon: Globe,
     category: 'integrations',
     minRole: 'admin',
   },

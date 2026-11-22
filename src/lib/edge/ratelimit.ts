@@ -19,6 +19,12 @@ export const DEFAULT_SCOPES = {
   'admin.ip': { limit: 10, windowMs: 1000, failOpen: false },
   'admin.user': { limit: 30, windowMs: 1000, failOpen: false },
   'brain.search': { limit: 60, windowMs: 60_000, failOpen: true },
+  // The public web form (migration 249): 10 a minute per client IP and
+  // 200 an hour per form. Fail closed: the form writes contacts and
+  // tasks for anyone on the internet, and when the rate store is down
+  // the database the submission needs is too.
+  'webform.ip': { limit: 10, windowMs: 60_000, failOpen: false },
+  'webform.token': { limit: 200, windowMs: 3_600_000, failOpen: false },
 } as const satisfies Record<string, ScopeConfig>;
 
 export type RateDecision = {
