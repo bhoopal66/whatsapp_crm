@@ -24,7 +24,6 @@ import {
   Loader2,
   Sparkles,
   Languages,
-  Plus,
   MessageSquareDashed,
   Zap,
 } from 'lucide-react';
@@ -109,12 +108,13 @@ import {
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
 import type { InteractiveMessagePayload, QuickReply } from '@/types';
 import { QuickReplyPicker } from './quick-reply-picker';
+import { ComposerMoreMenu, type ComposerMenuItem } from './composer-more-menu';
 import {
   MAX_RECORDING_SECONDS,
   OPUS_ENCODER_PATH,
   PICKER_ACCEPT,
+  PILL_BUTTON,
   SEND_BUTTON,
-  TOOL_BUTTON,
 } from '@/lib/inbox/composer-ui';
 import { ComposeCheckDialog } from './compose-check-dialog';
 
@@ -244,6 +244,7 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
   const tCheck = useTranslations('ComposeCheck');
+  const tMenu = useTranslations('ComposerMenu');
 
   // The box's text, and whether it began as the missed-call draft
   // (ComposerBox): a send of that text carries its origin.
@@ -1212,6 +1213,45 @@ export function MessageComposer({
     setDraft((d) => (d ? { ...d, caption } : d));
   }, []);
 
+  // ---- More menu items ----------------------------------------------
+  // Everything that is not attach, AI draft or mic/send. One entry per
+  // action, icon + word; a new action is a new entry here (keep the
+  // order: sending, then writing, then anything added later).
+  const moreMenuItems: ComposerMenuItem[] = [
+    {
+      id: 'templates',
+      icon: LayoutTemplate,
+      label: tMenu('templates'),
+      onSelect: onOpenTemplates,
+    },
+    {
+      id: 'quick-replies',
+      icon: Zap,
+      label: tMenu('quickReplies'),
+      onSelect: () => setQuickReplyOpen(true),
+    },
+    {
+      id: 'interactive',
+      icon: MessageSquareDashed,
+      label: tMenu('interactiveMessage'),
+      onSelect: () => openInteractiveBuilder(),
+    },
+    {
+      // Also an icon beside the box on wider screens; on a phone this
+      // is the only way to it. Shown once there is text to translate.
+      id: 'translate',
+      icon: Languages,
+      label: translating
+        ? t('translatingToArabic')
+        : tMenu('translateToArabic'),
+      onSelect: () => void handleTranslate(),
+      disabled: translating || checking,
+      busy: translating,
+      hidden: !showTranslate,
+    },
+    // ---- Add new More menu items above this line ----
+  ];
+
   // ---- Render --------------------------------------------------------
 
   return (
@@ -1305,99 +1345,98 @@ export function MessageComposer({
           stopClassName={SEND_BUTTON}
         />
       ) : (
+        // WhatsApp-like row: More (+) | the text box with attach and AI
+        // inside it | mic, which turns into Send once there is text. On
+        // a 375px phone that leaves the box most of the width; every
+        // other action lives in the More menu (`moreMenuItems`).
         <div className="flex items-end gap-1">
-          {/* Attach menu — photo / video / document / voice. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              disabled={inputsDisabled || busy}
-              title={
-                readOnly
-                  ? t('readOnlyTitle')
-                  : inputsDisabled
-                    ? undefined
-                    : t('attachMedia')
-              }
-              className={TOOL_BUTTON}
-            >
-              {busy ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Paperclip className="h-5 w-5" />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
-                <ImageIcon className="mr-2 h-4 w-4" />
-                {t('photo')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => videoInputRef.current?.click()}>
-                <Video className="mr-2 h-4 w-4" />
-                {t('video')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => documentInputRef.current?.click()}
-              >
-                <FileText className="mr-2 h-4 w-4" />
-                {t('document')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void startRecording()}>
-                <Mic className="mr-2 h-4 w-4" />
-                {t('voiceNote')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ComposerMoreMenu
+            items={moreMenuItems}
+            disabled={inputsDisabled}
+            title={readOnly ? t('readOnlyTitle') : undefined}
+          />
 
-          {/* + menu — interactive messages + quick replies. Gated on the
-              24h window like free-form text (interactive requires it). */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              disabled={inputsDisabled}
-              title={
-                readOnly
-                  ? t('readOnlyTitle')
-                  : inputsDisabled
-                    ? undefined
-                    : t('moreActions')
-              }
-              className={TOOL_BUTTON}
-            >
-              <Plus className="h-5 w-5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem onClick={() => openInteractiveBuilder()}>
-                <MessageSquareDashed className="mr-2 h-4 w-4" />
-                {t('interactiveMessage')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
-                <Zap className="mr-2 h-4 w-4" />
-                {t('quickReplies')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            title={readOnly ? undefined : t('sendTemplate')}
-            className={cn(TOOL_BUTTON, showTranslate && 'max-sm:hidden')}
-            onClick={onOpenTemplates}
+          <div
+            className={cn(
+              'bg-wa-input flex min-w-0 flex-1 items-end rounded-lg',
+              readOnly && 'cursor-not-allowed opacity-50'
+            )}
           >
-            <LayoutTemplate className="h-5 w-5" />
-          </GatedButton>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                readOnly
+                  ? t('readOnlyPlaceholder')
+                  : t('typeMessagePlaceholder')
+              }
+              disabled={readOnly}
+              readOnly={checking}
+              rows={1}
+              // Arabic (a translation, or typed) right-aligns and reads
+              // right to left; English stays as it was.
+              dir="auto"
+              // Textarea keeps its own inline title — the GatedButton
+              // wrapping pattern doesn't apply to non-button inputs.
+              // The placeholder text also surfaces the read-only state.
+              title={readOnly ? t('readOnlyTitle') : undefined}
+              className={cn(
+                'text-wa-text placeholder:text-wa-text-secondary min-h-10 min-w-0 flex-1 resize-none rounded-lg border-0 bg-transparent py-2.5 pr-1 pl-3 text-base leading-5 outline-none sm:text-[15px]',
+                readOnly && 'cursor-not-allowed'
+              )}
+            />
 
-          {/* The draft button stays on a phone while there is text: it
-              writes the reply from that text. Templates make way for
-              Translate instead (a template does not use the typed text),
-              so the box keeps its width. */}
-          <span className="contents">
+            {/* Attach menu — photo / video / document. A voice note is
+                the mic button. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={inputsDisabled || busy}
+                title={
+                  readOnly
+                    ? t('readOnlyTitle')
+                    : inputsDisabled
+                      ? undefined
+                      : t('attachMedia')
+                }
+                aria-label={t('attachMedia')}
+                className={PILL_BUTTON}
+              >
+                {busy ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Paperclip className="h-5 w-5" />
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="top"
+                className="border-border bg-popover w-auto min-w-40"
+              >
+                <DropdownMenuItem
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <ImageIcon className="mr-2 h-4 w-4" />
+                  {t('photo')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => videoInputRef.current?.click()}
+                >
+                  <Video className="mr-2 h-4 w-4" />
+                  {t('video')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => documentInputRef.current?.click()}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  {t('document')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* The draft button stays while there is text: it writes the
+                reply from that text. */}
             <GatedButton
               variant="ghost"
               size="sm"
@@ -1411,7 +1450,8 @@ export function MessageComposer({
                     ? t('draftFromTyped')
                     : t('draftWithAI')
               }
-              className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
+              aria-label={text.trim() ? t('draftFromTyped') : t('draftWithAI')}
+              className={cn(PILL_BUTTON, 'hover:text-wa-teal')}
               onClick={handleDraft}
             >
               {drafting ? (
@@ -1420,83 +1460,81 @@ export function MessageComposer({
                 <Sparkles className="h-5 w-5" />
               )}
             </GatedButton>
-          </span>
 
-          {/* Translate to Arabic: shown once there is something to
-              translate, and kept while a request is in flight so it
-              doesn't vanish under the agent's cursor. Never shown on an
-              empty box, so it costs the phone layout no width then. */}
-          {showTranslate && (
+            {/* Translate to Arabic: an icon on wider screens once there
+                is something to translate, kept while a request is in
+                flight so it doesn't vanish under the agent's cursor. On
+                a phone it is a More menu item, so the box keeps its
+                width. */}
+            {showTranslate && (
+              <GatedButton
+                variant="ghost"
+                size="sm"
+                canAct={!readOnly}
+                gateReason="send messages"
+                disabled={translating || checking}
+                title={
+                  readOnly
+                    ? undefined
+                    : translating
+                      ? t('translatingToArabic')
+                      : t('translateToArabic')
+                }
+                aria-label={
+                  translating
+                    ? t('translatingToArabic')
+                    : t('translateToArabic')
+                }
+                aria-busy={translating || undefined}
+                className={cn(PILL_BUTTON, 'hover:text-wa-teal max-sm:hidden')}
+                onClick={handleTranslate}
+              >
+                {translating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Languages className="h-5 w-5" />
+                )}
+              </GatedButton>
+            )}
+          </div>
+
+          {/* Mic with an empty box, Send once there is text (or a check
+              is running for the text just sent). An attachment has its
+              own Send in the preview that replaces this row. */}
+          {text.trim() || checking ? (
             <GatedButton
-              variant="ghost"
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={translating || checking}
-              title={
-                readOnly
-                  ? undefined
-                  : translating
-                    ? t('translatingToArabic')
-                    : t('translateToArabic')
-              }
-              aria-label={
-                translating ? t('translatingToArabic') : t('translateToArabic')
-              }
-              aria-busy={translating || undefined}
-              className={cn(TOOL_BUTTON, 'hover:text-wa-teal')}
-              onClick={handleTranslate}
+              disabled={!text.trim() || checking}
+              onClick={handleSend}
+              className={SEND_BUTTON}
+              aria-label={t('send')}
+              aria-busy={checking || undefined}
             >
-              {translating ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
+              {checking ? (
+                <Loader2
+                  className="h-[18px] w-[18px] animate-spin"
+                  aria-label={tCheck('checking')}
+                />
               ) : (
-                <Languages className="h-5 w-5" />
+                <Send className="h-[18px] w-[18px]" />
               )}
             </GatedButton>
+          ) : (
+            <GatedButton
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              disabled={inputsDisabled || busy}
+              onClick={() => void startRecording()}
+              title={readOnly ? undefined : t('voiceNote')}
+              aria-label={t('voiceNote')}
+              className={SEND_BUTTON}
+            >
+              <Mic className="h-[18px] w-[18px]" />
+            </GatedButton>
           )}
-
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              readOnly ? t('readOnlyPlaceholder') : t('typeMessagePlaceholder')
-            }
-            disabled={readOnly}
-            readOnly={checking}
-            rows={1}
-            // Arabic (a translation, or typed) right-aligns and reads
-            // right to left; English stays as it was.
-            dir="auto"
-            // Textarea keeps its own inline title — the GatedButton
-            // wrapping pattern doesn't apply to non-button inputs.
-            // The placeholder text also surfaces the read-only state.
-            title={readOnly ? t('readOnlyTitle') : undefined}
-            className={cn(
-              'bg-wa-input text-wa-text placeholder:text-wa-text-secondary min-h-10 flex-1 resize-none rounded-lg border-0 px-3 py-2.5 text-base leading-5 outline-none sm:text-[15px]',
-              readOnly && 'cursor-not-allowed opacity-50'
-            )}
-          />
-
-          <GatedButton
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={!text.trim() || checking}
-            onClick={handleSend}
-            className={SEND_BUTTON}
-            aria-busy={checking || undefined}
-          >
-            {checking ? (
-              <Loader2
-                className="h-[18px] w-[18px] animate-spin"
-                aria-label={tCheck('checking')}
-              />
-            ) : (
-              <Send className="h-[18px] w-[18px]" />
-            )}
-          </GatedButton>
         </div>
       )}
 

@@ -11180,6 +11180,14 @@
       "unknown": "Something went wrong. Try again."
     }
   },
+  "ComposerMenu": {
+    "more": "More",
+    "moreLabel": "More actions",
+    "templates": "Templates",
+    "quickReplies": "Quick replies",
+    "interactiveMessage": "Interactive message",
+    "translateToArabic": "Translate to Arabic"
+  },
   "ContactSearch": {
     "similar": "Similar",
     "closeMatches": "Close matches",
