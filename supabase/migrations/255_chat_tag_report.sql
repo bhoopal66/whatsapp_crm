@@ -86,6 +86,9 @@ CREATE TRIGGER chat_tag_history_append_only
   BEFORE UPDATE OR DELETE ON public.chat_tag_history
   FOR EACH ROW EXECUTE FUNCTION public.chat_tag_history_append_only();
 
+-- Trigger functions run as the table's writer; nobody calls them.
+REVOKE ALL ON FUNCTION public.chat_tag_history_append_only() FROM PUBLIC, anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.chat_tag_history_log()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -144,7 +147,9 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$ SELECT started_at FROM public.chat_tag_history_meta WHERE id $$;
 
-REVOKE ALL ON FUNCTION public.chat_tag_history_since() FROM PUBLIC, anon;
+-- Not the service role: verify-internal-chat-admin.sql pins which
+-- chat_* functions it may execute.
+REVOKE ALL ON FUNCTION public.chat_tag_history_since() FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.chat_tag_history_since() TO authenticated;
 
 -- ---------- 2. report_access ----------
@@ -423,7 +428,7 @@ REVOKE ALL ON FUNCTION public.report_caller_is_owner(), public.report_can_open(t
   public.report_my_access(), public.report_access_list(text),
   public.report_access_set(text, uuid[]),
   public.chat_tag_report(timestamptz, timestamptz, text)
-  FROM PUBLIC, anon;
+  FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.report_caller_is_owner(), public.report_can_open(text),
   public.report_my_access(), public.report_access_list(text),
   public.report_access_set(text, uuid[]),
