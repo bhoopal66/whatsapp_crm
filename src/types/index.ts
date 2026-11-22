@@ -904,6 +904,15 @@ export interface PostTeamChatStepConfig {
 export interface AssignConversationStepConfig {
   mode: 'specific' | 'round_robin';
   agent_id?: string;
+  /**
+   * round_robin only: the people to rotate through, in order (auth user
+   * ids). Empty or absent = every live agent and team leader. The
+   * rotation engine (migration 236) skips anyone offline, deactivated or
+   * at their chat limit.
+   */
+  people?: string[];
+  /** Absent = on, so automations saved before the switch keep running. */
+  enabled?: boolean;
 }
 
 export interface UpdateContactFieldStepConfig {

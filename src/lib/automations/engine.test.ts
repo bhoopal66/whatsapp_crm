@@ -23,6 +23,13 @@ const h = vi.hoisted(() => ({
     chatPostRpc: { data: "msg-1", error: null } as { data: unknown; error: unknown },
     // chat_channels_with_guests' answer: the channels that have a bank guest.
     chatGuestRpc: { data: [], error: null } as { data: unknown; error: unknown },
+    // assignment_rotate_assign's answer (migration 236).
+    rotateRpc: { data: { assigned_to: "agent-2", reason: "assigned" }, error: null } as {
+      data: unknown;
+      error: unknown;
+    },
+    // Filters of every conversations SELECT.
+    convSelects: [] as [string, string, unknown][][],
     // conversations lookup: rows keyed by id, each with its owner.
     chatHeld: false,
     conversations: [] as {
@@ -116,6 +123,7 @@ vi.mock("./admin-client", () => {
       };
     }
     if (table === "conversations" && type === "select") {
+      state.convSelects.push(ops.filters);
       // Honour every eq() filter, like PostgREST would.
       const row = state.conversations.find((c) =>
         ops.filters.every(
@@ -172,6 +180,9 @@ vi.mock("./admin-client", () => {
         }
         if (fn === "chat_channels_with_guests") {
           return Promise.resolve(state.chatGuestRpc);
+        }
+        if (fn === "assignment_rotate_assign") {
+          return Promise.resolve(state.rotateRpc);
         }
         return Promise.resolve({ error: null });
       },
@@ -235,6 +246,8 @@ beforeEach(() => {
   h.state.chatChannels = [];
   h.state.chatPostRpc = { data: "msg-1", error: null };
   h.state.chatGuestRpc = { data: [], error: null };
+  h.state.rotateRpc = { data: { assigned_to: "agent-2", reason: "assigned" }, error: null };
+  h.state.convSelects = [];
 });
 
 describe("resolveConversationId — context.conversation_id is not trusted", () => {
@@ -467,20 +480,85 @@ describe("company chat only", () => {
   });
 
   it("assign_conversation skips personal chats", async () => {
-    const writes = await run("assign_conversation", { mode: "round_robin" });
-    expect(writes[0].filters).toContainEqual(["is", "personal_owner_id", null]);
+    h.state.conversations = [{ id: "conv-1", account_id: ACCOUNT, contact_id: "c1" }];
+    await run("assign_conversation", { mode: "round_robin" });
+    expect(h.state.convSelects.at(-1)).toContainEqual(["is", "personal_owner_id", null]);
+    const writes = await run("assign_conversation", { mode: "specific", agent_id: "a" });
+    expect(writes.at(-1)?.filters).toContainEqual(["is", "personal_owner_id", null]);
   });
 });
 
-describe("assign_conversation — a held chat keeps its person", () => {
+describe("assign_conversation — the rotation engine decides (migration 236)", () => {
   const run = async (step_config: Record<string, unknown>) => {
     h.state.owned = { id: "c1" };
     h.state.automations = [automationWithUpdateStep()];
     h.state.steps = [
       { ...updateStep(), step_type: "assign_conversation", step_config },
     ];
-    h.state.profiles = [
-      { id: "p1", user_id: "owner-1", account_id: ACCOUNT },
+    h.state.conversations = [{ id: "conv-1", account_id: ACCOUNT, contact_id: "c1" }];
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+    return {
+      rotations: h.state.rpcCalls.filter((c) => c.fn === "assignment_rotate_assign"),
+      writes: h.state.updateCalls.filter((c) => c.table === "conversations"),
+      log: JSON.stringify(h.state.logUpdates),
+    };
+  };
+
+  it("round_robin rotates the company chat through the step's own pool", async () => {
+    const { rotations, writes, log } = await run({
+      mode: "round_robin",
+      people: ["agent-1", "", "agent-2"],
+    });
+    expect(rotations).toEqual([
+      {
+        fn: "assignment_rotate_assign",
+        params: {
+          p_account_id: ACCOUNT,
+          p_conversation_id: "conv-1",
+          p_pool_key: "automation:a1:s1",
+          p_candidates: ["agent-1", "agent-2"],
+        },
+      },
+    ]);
+    // The engine writes; the step never updates the chat itself.
+    expect(writes).toEqual([]);
+    expect(log).toContain("assigned to agent-2");
+  });
+
+  it("no people = the default pool (every live agent and team leader)", async () => {
+    const { rotations } = await run({ mode: "round_robin" });
+    expect(rotations[0].params).toMatchObject({ p_candidates: null });
+  });
+
+  it("a held or engaged chat keeps its person", async () => {
+    h.state.rotateRpc = { data: { assigned_to: null, reason: "engaged" }, error: null };
+    const { log } = await run({ mode: "round_robin" });
+    expect(log).toContain("no chat to assign");
+    expect(log).not.toContain("assigned to");
+  });
+
+  it("nobody available is logged, not an error", async () => {
+    h.state.rotateRpc = { data: { assigned_to: null, reason: "nobody_eligible" }, error: null };
+    const { log } = await run({ mode: "round_robin" });
+    expect(log).toContain("nobody available to assign");
+  });
+
+  it("a failed rotation fails the step", async () => {
+    h.state.rotateRpc = { data: null, error: { message: "db down" } };
+    const { log } = await run({ mode: "round_robin" });
+    expect(log).toContain("rotation failed: db down");
+  });
+
+  it("no company chat means nothing to rotate", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      { ...updateStep(), step_type: "assign_conversation", step_config: { mode: "round_robin" } },
     ];
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
@@ -488,31 +566,24 @@ describe("assign_conversation — a held chat keeps its person", () => {
       contactId: "c1",
       context: {},
     });
-    const writes = h.state.updateCalls.filter(
-      (c) => c.table === "conversations"
-    );
-    expect(writes).toHaveLength(1);
-    return writes[0].filters;
-  };
-
-  it("round_robin only takes a chat nobody holds", async () => {
-    expect(await run({ mode: "round_robin" })).toContainEqual([
-      "is",
-      "assigned_agent_id",
-      null,
-    ]);
+    expect(h.state.rpcCalls.some((c) => c.fn === "assignment_rotate_assign")).toBe(false);
+    expect(JSON.stringify(h.state.logUpdates)).toContain("no chat to assign");
   });
 
-  it("logs no assignment when the chat was already held", async () => {
-    h.state.chatHeld = true;
-    await run({ mode: "round_robin" });
-    expect(JSON.stringify(h.state.logUpdates)).toContain("no chat to assign");
-    expect(JSON.stringify(h.state.logUpdates)).not.toContain("assigned to");
+  it("a step switched off does nothing; absent = on", async () => {
+    const off = await run({ mode: "round_robin", enabled: false });
+    expect(off.rotations).toEqual([]);
+    expect(off.log).toContain("assignment step turned off");
+    h.state.rpcCalls = [];
+    const on = await run({ mode: "round_robin", enabled: true });
+    expect(on.rotations).toHaveLength(1);
   });
 
   it("a named person still takes the chat", async () => {
-    const filters = await run({ mode: "specific", agent_id: "agent-1" });
-    expect(filters).not.toContainEqual(["is", "assigned_agent_id", null]);
+    const { writes, rotations } = await run({ mode: "specific", agent_id: "agent-1" });
+    expect(rotations).toEqual([]);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].filters).not.toContainEqual(["is", "assigned_agent_id", null]);
   });
 });
 
