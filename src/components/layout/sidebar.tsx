@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { trapTabTarget } from '@/lib/layout/focus-trap';
 import { LiveDot } from '@/components/meetings/meeting-status-badge';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
 import { isInCall } from '@/lib/meetings/session/session';
@@ -221,19 +222,48 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Lock body scroll and allow Escape to close while the drawer is open on
-  // mobile. No-ops on desktop because the sidebar isn't positioned there.
+  // The open drawer behaves as a dialog: focus moves in, Tab wraps
+  // inside it, Escape closes it, and focus goes back to whatever opened
+  // it (the top bar's menu button or the bottom bar's More). Body scroll
+  // is locked. No-ops on desktop because the sidebar isn't a drawer there.
+  const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!open) return;
+    const aside = asideRef.current;
+    const opener = document.activeElement as HTMLElement | null;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const focusables = () =>
+      Array.from(
+        aside?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((el) => el.offsetParent !== null);
+    // Only on a phone, where the aside is the drawer.
+    const isDrawer = !window.matchMedia('(min-width: 1024px)').matches;
+    if (isDrawer) focusables()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'Escape') {
+        onClose?.();
+        return;
+      }
+      if (e.key !== 'Tab' || !isDrawer) return;
+      const els = focusables();
+      const target = trapTabTarget(
+        els.length,
+        els.indexOf(document.activeElement as HTMLElement),
+        e.shiftKey
+      );
+      if (target !== null) {
+        e.preventDefault();
+        els[target]?.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
+      if (isDrawer && opener?.isConnected) opener.focus();
     };
   }, [open, onClose]);
 
@@ -371,6 +401,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       />
 
       <aside
+        ref={asideRef}
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
           'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-row border-r',

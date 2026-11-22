@@ -209,6 +209,10 @@
     "unread": "Unread",
     "viewAll": "View all"
   },
+  "MobileNav": {
+    "label": "Main navigation",
+    "more": "More"
+  },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
   },
@@ -521,6 +525,7 @@
       "hideContact": "Hide contact",
       "showContact": "Show contact",
       "refresh": "Refresh",
+      "chatActions": "Chat actions",
       "refreshConversation": "Refresh conversation",
       "assign": "Assign",
       "assigned": "Assigned",

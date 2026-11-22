@@ -22,6 +22,7 @@ import { NotificationsProvider } from "@/components/notifications/notifications-
 import { BackNavTracker } from "@/components/layout/back-nav-tracker";
 import { UnreadChatsProvider } from "@/components/layout/unread-chats-provider";
 import { TabTitle } from "@/components/layout/tab-title";
+import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { CommandBar } from "@/components/command/command-bar";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
@@ -123,6 +124,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           )}
           {children}
         </main>
+        <MobileTabBar onOpenMenu={() => setSidebarOpen(true)} />
       </div>
       <IncomingCallCard />
       <MeetingInviteCard />

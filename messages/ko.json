@@ -209,6 +209,10 @@
     "unread": "읽지 않음",
     "viewAll": "모두 보기"
   },
+  "MobileNav": {
+    "label": "주 메뉴",
+    "more": "더보기"
+  },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
   },
@@ -521,6 +525,7 @@
       "hideContact": "연락처 숨기기",
       "showContact": "연락처 표시",
       "refresh": "새로고침",
+      "chatActions": "채팅 작업",
       "refreshConversation": "대화 새로고침",
       "assign": "담당자 지정",
       "assigned": "담당자 지정됨",
