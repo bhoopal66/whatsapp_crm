@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -449,55 +452,45 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           taller than the screen and scrolling moved the whole page. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         {!loaded || hasWhapi === null ? (
-          <ul aria-hidden>
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <li key={i} className="flex items-center gap-3 pl-3">
-                <span className="bg-wa-search size-12 shrink-0 animate-pulse rounded-full" />
-                <span className="border-wa-divider flex-1 space-y-2 border-b py-4 pr-3">
-                  <span className="bg-wa-search block h-3.5 w-2/5 animate-pulse rounded" />
-                  <span className="bg-wa-search block h-3 w-3/5 animate-pulse rounded" />
-                </span>
-              </li>
-            ))}
-          </ul>
+          <LoadingState />
         ) : loaded.failed ? (
-          <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-            <p className="text-destructive text-sm">{t('loadFailed')}</p>
-            <Button variant="outline" size="sm" onClick={retry}>
-              <RefreshCw aria-hidden />
-              {t('page.retry')}
-            </Button>
-          </div>
+          <ErrorState
+            message={t('loadFailed')}
+            onRetry={retry}
+            className="m-3"
+          />
         ) : loaded.groups.length === 0 ? (
           !hasWhapi ? (
             <EmptyState
+              icon={UsersRound}
               title={t('noWhapiTitle')}
-              body={isAdmin ? t('noWhapiAdmin') : t('noWhapiOther')}
-              action={
-                isAdmin ? (
-                  <Link
-                    href="/settings?tab=whatsapp"
-                    className={buttonVariants({ variant: 'outline' })}
-                  >
-                    <Settings className="size-4" aria-hidden />
-                    {t('openSettings')}
-                  </Link>
-                ) : null
-              }
-            />
+              hint={isAdmin ? t('noWhapiAdmin') : t('noWhapiOther')}
+              className="m-3"
+            >
+              {isAdmin ? (
+                <Link
+                  href="/settings?tab=whatsapp"
+                  className={buttonVariants({ variant: 'outline' })}
+                >
+                  <Settings className="size-4" aria-hidden />
+                  {t('openSettings')}
+                </Link>
+              ) : null}
+            </EmptyState>
           ) : (
             <EmptyState
+              icon={UsersRound}
               title={t('emptyTitle')}
-              body={canCreate ? t('emptyBody') : t('emptyViewer')}
-              action={
-                canCreate ? (
-                  <Button variant="outline" onClick={openNew}>
-                    <Plus className="size-4" aria-hidden />
-                    {t('newGroup')}
-                  </Button>
-                ) : null
-              }
-            />
+              hint={canCreate ? t('emptyBody') : t('emptyViewer')}
+              className="m-3"
+            >
+              {canCreate ? (
+                <Button variant="outline" onClick={openNew}>
+                  <Plus className="size-4" aria-hidden />
+                  {t('newGroup')}
+                </Button>
+              ) : null}
+            </EmptyState>
           )
         ) : shown.length === 0 ? (
           <p className="text-wa-text-secondary px-6 py-12 text-center text-sm">
@@ -539,27 +532,6 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           destructive
         />
       )}
-    </div>
-  );
-}
-
-function EmptyState({
-  title,
-  body,
-  action,
-}: {
-  title: string;
-  body: string;
-  action: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
-      <span className="bg-wa-search text-wa-icon flex size-12 items-center justify-center rounded-full">
-        <UsersRound className="size-5" aria-hidden />
-      </span>
-      <p className="text-wa-text font-semibold">{title}</p>
-      <p className="text-wa-text-secondary text-sm">{body}</p>
-      {action}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import {
   useCallback,
   useEffect,
@@ -22,7 +25,6 @@ import {
   useContextMenuItems,
   type ContextMenuEntry,
 } from '@/components/context-menu/registry';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -134,31 +136,16 @@ export function BanksList() {
       </div>
 
       {!loaded ? (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <li
-              key={i}
-              className="border-border bg-card h-20 animate-pulse rounded-xl border"
-            />
-          ))}
-        </ul>
+        <LoadingState />
       ) : loaded.error ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-destructive text-sm">{t('loadFailed')}</p>
-          <Button variant="outline" size="sm" onClick={() => void load()}>
-            {t('retry')}
-          </Button>
-        </div>
+        <ErrorState message={t('loadFailed')} onRetry={() => void load()} />
       ) : loaded.workspaces.length === 0 ? (
-        <div className="border-border flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
-          <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
-            <Landmark className="size-5" aria-hidden />
-          </span>
-          <p className="font-semibold">{t('emptyTitle')}</p>
-          <p className="text-muted-foreground max-w-md text-sm">
-            {t('emptyBody')}
-          </p>
-        </div>
+        <EmptyState
+          icon={Landmark}
+          title={t('emptyTitle')}
+          hint={t('emptyBody')}
+          className="rounded-xl py-12"
+        />
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {loaded.workspaces.map((w) => (

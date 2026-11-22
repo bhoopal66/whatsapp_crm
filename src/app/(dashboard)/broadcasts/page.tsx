@@ -13,7 +13,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Radio, Plus, Loader2, PenLine, Trash2 } from 'lucide-react';
+import { Radio, Plus, PenLine, Trash2 } from 'lucide-react';
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { toast } from 'sonner';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
@@ -168,21 +171,12 @@ export default function BroadcastsPage() {
   }, [anySending]);
 
   if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="text-primary h-6 w-6 animate-spin" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-2">
-        <p className="text-destructive text-sm">{error}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          {t('retry')}
-        </Button>
-      </div>
+      <ErrorState message={error} onRetry={() => window.location.reload()} />
     );
   }
 
@@ -235,24 +229,22 @@ export default function BroadcastsPage() {
       </div>
 
       {broadcasts.length === 0 ? (
-        <div className="border-border bg-card flex h-64 flex-col items-center justify-center rounded-xl border">
-          <Radio className="text-muted-foreground mb-3 h-10 w-10" />
-          <p className="text-foreground text-sm font-medium">
-            {t('noBroadcastsYet')}
-          </p>
-          <p className="text-muted-foreground mt-1 text-xs">
-            {t('createFirst')}
-          </p>
+        <EmptyState
+          icon={Radio}
+          title={t('noBroadcastsYet')}
+          hint={t('createFirst')}
+          className="bg-card h-64 rounded-xl"
+        >
           <GatedButton
             canAct={canCreate}
             gateReason="create broadcasts"
             onClick={() => router.push('/broadcasts/new')}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 mt-4"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 mt-2"
           >
             <Plus className="h-4 w-4" />
             {t('newBroadcast')}
           </GatedButton>
-        </div>
+        </EmptyState>
       ) : (
         <div className="border-border bg-card overflow-x-auto rounded-xl border">
           <Table>

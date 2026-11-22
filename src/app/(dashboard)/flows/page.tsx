@@ -20,6 +20,10 @@ import {
 
 import { useTranslations } from "next-intl";
 import { useCan } from "@/hooks/use-can";
+import { EmptyState } from "@/components/dashboard/empty-state";
+import { ErrorState } from "@/components/dashboard/error-state";
+import { LoadingState } from "@/components/dashboard/loading-state";
+import { FlowVsAutomationHelp } from "@/components/dashboard/flow-vs-automation-help";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
 import {
@@ -89,6 +93,8 @@ export default function FlowsPage() {
   const t = useTranslations("Flows.list");
   const [flows, setFlows] = useState<FlowRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -96,6 +102,8 @@ export default function FlowsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoadFailed(false);
+    setLoading(true);
     (async () => {
       try {
         const [flowsRes, tmplRes] = await Promise.all([
@@ -119,6 +127,7 @@ export default function FlowsPage() {
         if (!cancelled) {
           console.error(err);
           toast.error(t("loadError"));
+          setLoadFailed(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -127,7 +136,7 @@ export default function FlowsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -193,11 +202,11 @@ export default function FlowsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <LoadingState />;
+  }
+
+  if (loadFailed) {
+    return <ErrorState onRetry={() => setReloadKey((k) => k + 1)} />;
   }
 
   return (
@@ -224,12 +233,25 @@ export default function FlowsPage() {
         </GatedButton>
       </header>
 
+      <FlowVsAutomationHelp />
+
       {flows.length === 0 ? (
         <EmptyState
-          onCreate={() => setCreateOpen(true)}
-          canCreate={canCreate}
-          t={t}
-        />
+          icon={Workflow}
+          title={t("emptyTitle")}
+          hint={t("emptyDesc")}
+          className="px-6 py-16"
+        >
+          <GatedButton
+            canAct={canCreate}
+            gateReason="create flows"
+            onClick={() => setCreateOpen(true)}
+            className="mt-3"
+          >
+            <Plus className="h-4 w-4" />
+            {t("createFirst")}
+          </GatedButton>
+        </EmptyState>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {flows.map((flow) => (
@@ -319,39 +341,6 @@ export default function FlowsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function EmptyState({
-  onCreate,
-  canCreate,
-  t,
-}: {
-  onCreate: () => void;
-  canCreate: boolean;
-  t: ReturnType<typeof useTranslations>;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/50 px-6 py-16 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-        <Workflow className="h-6 w-6 text-muted-foreground" />
-      </div>
-      <h2 className="mt-4 text-base font-medium text-foreground">
-        {t("emptyTitle")}
-      </h2>
-      <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        {t("emptyDesc")}
-      </p>
-      <GatedButton
-        canAct={canCreate}
-        gateReason="create flows"
-        onClick={onCreate}
-        className="mt-5"
-      >
-        <Plus className="h-4 w-4" />
-        {t("createFirst")}
-      </GatedButton>
     </div>
   );
 }

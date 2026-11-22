@@ -1,5 +1,8 @@
 'use client';
 
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { isUuid } from '@/lib/chat/mentions';
 import { customerPath } from '@/lib/contacts/customer-links';
 import {
@@ -1259,25 +1262,30 @@ export function ContactsPageInner({
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={colCount} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="text-primary size-6 animate-spin" />
-                    <p className="text-muted-foreground text-sm">
-                      {t('loading')}
-                    </p>
-                  </div>
+                <TableCell colSpan={colCount} className="p-0">
+                  <LoadingState label={t('loading')} />
+                </TableCell>
+              </TableRow>
+            ) : list.error && contacts.length === 0 ? (
+              <TableRow className="border-border">
+                <TableCell colSpan={colCount} className="p-3">
+                  <ErrorState
+                    message={t('toastFailedLoad')}
+                    onRetry={() => void refreshList()}
+                  />
                 </TableCell>
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={colCount} className="py-12 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <Users className="text-muted-foreground size-8" />
-                    <p className="text-muted-foreground text-sm">
-                      {hasActiveFilters
+                <TableCell colSpan={colCount} className="p-3">
+                  <EmptyState
+                    icon={Users}
+                    title={
+                      hasActiveFilters
                         ? t('noContactsMatch')
-                        : t('noContactsYet')}
-                    </p>
+                        : t('noContactsYet')
+                    }
+                  >
                     {!hasActiveFilters && (
                       <GatedButton
                         canAct={canEdit}
@@ -1291,7 +1299,7 @@ export function ContactsPageInner({
                         {t('addFirstContact')}
                       </GatedButton>
                     )}
-                  </div>
+                  </EmptyState>
                 </TableCell>
               </TableRow>
             ) : (

@@ -3,6 +3,9 @@
 import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { Bell, CheckCheck, Loader2 } from 'lucide-react';
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 
 import { Button } from '@/components/ui/button';
 import { useNotifications } from '@/components/notifications/notifications-provider';
@@ -21,7 +24,6 @@ export default function NotificationsPage() {
     notifications,
     unread,
     error,
-    loading,
     markingAll,
     load,
     markAllRead,
@@ -32,26 +34,11 @@ export default function NotificationsPage() {
   }, [load]);
 
   if (error && notifications === null) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-2">
-        <p className="text-destructive text-sm">{error}</p>
-        <Button
-          variant="outline"
-          disabled={loading}
-          onClick={() => void load()}
-        >
-          {t('retry')}
-        </Button>
-      </div>
-    );
+    return <ErrorState message={error} onRetry={() => void load()} />;
   }
 
   if (notifications === null) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="text-primary h-6 w-6 animate-spin" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
@@ -79,15 +66,12 @@ export default function NotificationsPage() {
       </div>
 
       {notifications.length === 0 ? (
-        <div className="border-border bg-muted/40 flex h-48 flex-col items-center justify-center rounded-xl border border-dashed">
-          <div className="bg-primary/10 flex h-12 w-12 items-center justify-center rounded-xl">
-            <Bell className="text-primary h-6 w-6" />
-          </div>
-          <p className="text-foreground mt-3 text-sm font-medium">
-            {t('emptyTitle')}
-          </p>
-          <p className="text-muted-foreground mt-1 text-xs">{t('emptyBody')}</p>
-        </div>
+        <EmptyState
+          icon={Bell}
+          title={t('emptyTitle')}
+          hint={t('emptyBody')}
+          className="h-48"
+        />
       ) : (
         <ul className="space-y-2">
           {notifications.map((n) => (

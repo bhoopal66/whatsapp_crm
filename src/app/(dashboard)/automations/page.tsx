@@ -24,6 +24,10 @@ import { createClient } from "@/lib/supabase/client"
 import { useCan } from "@/hooks/use-can"
 import { useTranslations } from "next-intl"
 import type { Automation } from "@/types"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { ErrorState } from "@/components/dashboard/error-state"
+import { LoadingState } from "@/components/dashboard/loading-state"
+import { FlowVsAutomationHelp } from "@/components/dashboard/flow-vs-automation-help"
 import { Button } from "@/components/ui/button"
 import { GatedButton } from "@/components/ui/gated-button"
 import { Switch } from "@/components/ui/switch"
@@ -144,21 +148,12 @@ export default function AutomationsPage() {
 
   if (error) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-2">
-        <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          {t("retry")}
-        </Button>
-      </div>
+      <ErrorState message={error} onRetry={() => window.location.reload()} />
     )
   }
 
   if (automations === null) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    )
+    return <LoadingState />
   }
 
   const showTemplates = automations.length < 3
@@ -225,6 +220,8 @@ export default function AutomationsPage() {
         )}
       </div>
 
+      <FlowVsAutomationHelp />
+
       {showTemplates && (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{t("templatesTitle")}</h2>
@@ -251,15 +248,12 @@ export default function AutomationsPage() {
       )}
 
       {automations.length === 0 ? (
-        <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Zap className="h-6 w-6 text-primary" />
-          </div>
-          <p className="mt-3 text-sm font-medium text-foreground">{t("emptyTitle")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("emptyDesc")}
-          </p>
-        </div>
+        <EmptyState
+          icon={Zap}
+          title={t("emptyTitle")}
+          hint={t("emptyDesc")}
+          className="h-48 rounded-xl"
+        />
       ) : (
         <ul className="space-y-3">
           {automations.map((a) => (

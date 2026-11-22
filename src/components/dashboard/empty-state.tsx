@@ -1,5 +1,5 @@
 import { BarChart3 } from 'lucide-react';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 import { useTranslations } from 'next-intl';
@@ -15,11 +15,13 @@ export function EmptyState({
   hint,
   icon: Icon = BarChart3,
   className,
+  children,
 }: {
   title?: string;
   hint?: string;
   icon?: ComponentType<{ className?: string }>;
   className?: string;
+  children?: ReactNode;
 }) {
   const t = useTranslations('Dashboard.emptyState');
   const defaultTitle = t('title');
@@ -38,6 +40,7 @@ export function EmptyState({
         {title || defaultTitle}
       </p>
       {hint && <p className="text-muted-foreground max-w-xs text-xs">{hint}</p>}
+      {children}
     </div>
   );
 }

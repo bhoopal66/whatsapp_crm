@@ -14,7 +14,9 @@ import { LoadingState } from './loading-state';
 
 function render(node: ReactElement) {
   return renderToStaticMarkup(
-    createElement(NextIntlClientProvider, { locale: 'en', messages: en }, node)
+    <NextIntlClientProvider locale="en" messages={en}>
+      {node}
+    </NextIntlClientProvider>
   );
 }
 

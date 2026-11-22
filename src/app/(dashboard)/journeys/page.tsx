@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { Route } from 'lucide-react';
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { LoadingState } from '@/components/dashboard/loading-state';
 import { format } from 'date-fns';
 import { useTranslations } from 'next-intl';
 
@@ -54,6 +58,7 @@ export default function JourneysPage() {
   const [all, setAll] = useState<JourneyRow[] | null>(null);
   const [rows, setRows] = useState<JourneyRow[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState('');
   const [product, setProduct] = useState('');
   const [openOnly, setOpenOnly] = useState(true);
@@ -63,7 +68,7 @@ export default function JourneysPage() {
       setAll(j);
       setFailed(j === null);
     });
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     if (!state && !product) return;
@@ -163,11 +168,20 @@ export default function JourneysPage() {
         </div>
 
         {failed ? (
-          <p className="text-destructive text-sm">{t('page.loadError')}</p>
+          <ErrorState
+            message={t('page.loadError')}
+            onRetry={() => {
+              setFailed(false);
+              setAll(null);
+              setReloadKey((k) => k + 1);
+            }}
+          />
         ) : shown.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            {all === null ? '…' : t('page.empty')}
-          </p>
+          all === null ? (
+            <LoadingState />
+          ) : (
+            <EmptyState icon={Route} title={t('page.empty')} />
+          )
         ) : (
           <div className="bg-card overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
