@@ -217,7 +217,7 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
 
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6">
+      <CardContent className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="desk-file">{t('fields.file')}</Label>
           <input
@@ -817,7 +817,7 @@ function OverviewTab() {
   };
   return (
     <Card>
-      <CardContent className="overflow-x-auto pt-6">
+      <CardContent className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -876,7 +876,7 @@ function CodesTab({
   };
   return (
     <Card>
-      <CardContent className="space-y-3 pt-6">
+      <CardContent className="space-y-3">
         <p className="text-muted-foreground text-sm">{t('codes.hint')}</p>
         {banks.length === 0 && (
           <p className="text-muted-foreground text-sm">{t('codes.noBanks')}</p>

@@ -57,7 +57,7 @@ export function CompaniesTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="space-y-3 pt-6">
+        <CardContent className="space-y-3">
           <p className="text-muted-foreground text-sm">
             {t('companies.intro')}
           </p>
@@ -203,7 +203,7 @@ function CompanyPeople({
 
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6">
+      <CardContent className="space-y-4">
         <h2 className="text-foreground text-base font-semibold">
           {t('companies.people', { company: company.legalName })}
         </h2>

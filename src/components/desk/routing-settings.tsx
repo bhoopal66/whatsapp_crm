@@ -61,7 +61,7 @@ export function RoutingSettings() {
   if (!loaded) return null;
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6 text-sm">
+      <CardContent className="space-y-4 text-sm">
         <div>
           <h2 className="text-foreground text-base font-semibold">
             {t('routing.title')}

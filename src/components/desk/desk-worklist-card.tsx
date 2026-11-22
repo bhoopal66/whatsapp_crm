@@ -40,7 +40,7 @@ export function DeskWorklistCard() {
   if (rows.length === 0) return null;
   return (
     <Card className="mx-auto mb-4 w-full max-w-5xl">
-      <CardContent className="space-y-2 pt-6 text-sm">
+      <CardContent className="space-y-2 text-sm">
         <h2 className="text-foreground text-base font-semibold">
           {t('worklist.title')}
         </h2>

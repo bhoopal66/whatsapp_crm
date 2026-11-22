@@ -56,7 +56,7 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
 
   return (
     <Card>
-      <CardContent className="space-y-4 pt-6 text-sm">
+      <CardContent className="space-y-4 text-sm">
         <div>
           <h2 className="text-foreground text-base font-semibold">
             {t('banks.title')}

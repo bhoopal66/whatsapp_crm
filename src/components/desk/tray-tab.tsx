@@ -67,7 +67,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardContent className="space-y-3 pt-6">
+        <CardContent className="space-y-3">
           <p className="text-muted-foreground text-sm">{t('tray.intro')}</p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             {items !== null && (
@@ -183,7 +183,7 @@ function TrayCard({
 
   return (
     <Card>
-      <CardContent className="space-y-3 pt-6 text-sm">
+      <CardContent className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-foreground font-medium break-words">
             {item.contactName ?? t('tray.unknownSender')}
