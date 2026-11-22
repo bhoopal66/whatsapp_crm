@@ -12,6 +12,49 @@ and polish.
 
 ## [Unreleased]
 
+### Reports: sales funnel, chat tag report and CSV downloads
+
+**Migration required:** apply `254_funnel_report.sql`, then
+`255_chat_tag_report.sql` (as a superuser or BYPASSRLS role), after 253
+and before the build.
+- **Sales funnel** (`/reports/funnel`, owners and admins): new chats →
+  Interested → case opened → submitted → approved, with declined and
+  withdrawn beside, for a chosen period, as counts and conversion between
+  stages. Filters: lead source, agent, bank, WhatsApp number. Days follow
+  the account's time zone. CSV download. `docs/funnel-report.md`.
+- **Chat tag report** (`/reports/tags`): chats per main tag and sub-tag
+  (e.g. Interested · ADCB), split by agent, number and lead source, and
+  the chats that arrived at each tag in the period. Counts only, never
+  chat contents, names or phone numbers. The owner always sees it and
+  ticks who else may; a grantee sees workspace-wide counts and gets the
+  menu link. Movement counts from the day 255 is applied.
+  `docs/chat-tag-report.md`.
+- **Reports** (`/reports`) lists the reports the person may open.
+- **Owner-only CSV downloads** on Team activity (per person and per
+  number for the chosen range) and on the dashboard's figures. Every CSV
+  quotes each field and neutralises cells starting with `=`, `+`, `-` or
+  `@`.
+
+### Page shell, menu, command bar and phone layout
+
+No migration.
+- One title per page: the top bar's title is the only heading; screens
+  keep their description as an intro line.
+- No text below 12px anywhere.
+- Shared loading, empty and error states on the main list screens. The
+  Flows builder shows step names ("Send message 2") instead of node keys,
+  and both Flows and Automations explain "Flow or Automation?".
+- Menu: groups fold (remembered per person on this device), HR is one item
+  with tabs, Team inbox / Team contacts became a Mine / Team switch on the
+  screens, My activity sits under My worklist, a Reports group, and a
+  workspace switcher for people with several workspaces.
+- **Ctrl/Cmd+K** command bar: jump to a screen, find a customer or chat,
+  run common actions; shortcuts `g i`, `g w`, `g c`, `g k`, and `?` for the
+  list.
+- Phone: a bottom bar (Inbox, Worklist, Contacts, Team chat, More), a menu
+  drawer with proper focus handling, one "Chat actions" menu in the chat
+  header, and the timeline first on the customer page.
+
 ### Merge follow-ups: phone-push links and lead source privacy
 
 **Migration required:** apply `253_merge_followups.sql` as a superuser or
