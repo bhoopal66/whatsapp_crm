@@ -232,7 +232,8 @@ Broadcasts skip a contact that has it (see
 
 `lead_source` is where the contact came from: `ad`, `web_form`,
 `broadcast`, `manual`, `import`, `compass` or `other`, or `null` when
-unknown. It is read-only here: `POST /api/v1/contacts` does not set it.
+unknown. It can be set when a contact is created
+(`POST /api/v1/contacts`) and is not editable here afterwards.
 
 **Contact tags are retired.** Conversations carry a chat tag instead
 (see [`GET /api/v1/conversations`](#get-apiv1conversations)). Until a
@@ -258,7 +259,11 @@ code (`+971 050…`, `+44 (0)7700…`, `+966 05…`) is removed, except where
 numbers really start with 0 (`+39 06…`). A number saved without its country code would take the
 customer's inbound messages while replies went nowhere. The stored
 number is the digits only;
-`name`, `email` and `company` are optional. A `tags` field is accepted
+`name`, `email` and `company` are optional. `lead_source` is optional too:
+one of `ad`, `web_form`, `broadcast`, `manual`, `import`, `compass` or
+`other` (anything else is `400 bad_request`); left out, it stays `null`,
+and it is stored only when this call creates the contact (an existing
+contact is returned unchanged). The response carries `lead_source`. A `tags` field is accepted
 and ignored (contact tags are retired). **Find-or-create by phone:** an existing
 match returns `200` with the existing contact; a new contact returns
 `201`. The response body is the serialized contact (same shape as the

@@ -62,12 +62,16 @@ export function registerWriteTools(server: McpServer, client: TaamulClient): voi
     {
       title: 'Create contact',
       description:
-        'Create a contact by phone number (E.164, required). Find-or-create: if a contact with that phone already exists it is returned unchanged. Optional: name, email, company.',
+        'Create a contact by phone number (E.164, required). Find-or-create: if a contact with that phone already exists it is returned unchanged. Optional: name, email, company, lead_source.',
       inputSchema: {
         phone: z.string().describe('Phone number in E.164 format, e.g. +14155550123.'),
         name: z.string().optional(),
         email: z.string().email().optional(),
         company: z.string().optional(),
+        lead_source: z
+          .enum(['ad', 'web_form', 'broadcast', 'manual', 'import', 'compass', 'other'])
+          .optional()
+          .describe('Where the contact came from. Stored only when the contact is created.'),
       },
       annotations: { title: 'Create contact', readOnlyHint: false, openWorldHint: true },
     },

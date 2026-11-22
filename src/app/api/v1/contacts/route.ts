@@ -28,6 +28,7 @@ import {
   resolveAuditUserId,
   ContactError,
 } from '@/lib/api/v1/contacts';
+import { isLeadSource, LEAD_SOURCES } from '@/lib/leads/lead-source';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 
 // PostgREST filter values are comma/paren-delimited; strip anything
@@ -108,6 +109,19 @@ export async function POST(request: Request) {
       return fail('bad_request', checked.error, 400);
     }
 
+    // Optional; absent or null leaves it unknown (NULL), never defaulted.
+    let leadSource: (typeof LEAD_SOURCES)[number] | null = null;
+    if (body.lead_source !== undefined && body.lead_source !== null) {
+      if (!isLeadSource(body.lead_source)) {
+        return fail(
+          'bad_request',
+          `'lead_source' must be one of: ${LEAD_SOURCES.join(', ')}`,
+          400
+        );
+      }
+      leadSource = body.lead_source;
+    }
+
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
     const { id, created } = await findOrCreateContact(
@@ -119,6 +133,7 @@ export async function POST(request: Request) {
         name: typeof body.name === 'string' ? body.name : undefined,
         email: typeof body.email === 'string' ? body.email : undefined,
         company: typeof body.company === 'string' ? body.company : undefined,
+        lead_source: leadSource,
       }
     );
 

@@ -14,6 +14,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import type { LeadSource } from '@/lib/leads/lead-source';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
 /** Row select for serialization. */
@@ -33,7 +34,7 @@ export interface ApiContact {
   /**
    * Where the contact came from (migration 249): ad, web_form,
    * broadcast, manual, import, compass, other; null when unknown.
-   * Read-only on this API.
+   * Set at creation only (`POST` `lead_source`).
    */
   lead_source: string | null;
   created_at: string;
@@ -111,6 +112,8 @@ export interface ContactInput {
   name?: string | null;
   email?: string | null;
   company?: string | null;
+  /** Stored only when this call creates the contact (migration 249). */
+  lead_source?: LeadSource | null;
 }
 
 /**
@@ -145,6 +148,7 @@ export async function findOrCreateContact(
       name: input.name ?? sanitized,
       email: input.email ?? null,
       company: input.company ?? null,
+      lead_source: input.lead_source ?? null,
     })
     .select('id')
     .single();

@@ -48,6 +48,7 @@ import {
   type ConversationNumbers,
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
+import { setLeadSourceIfEmpty } from '@/lib/leads/lead-source';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import {
@@ -937,6 +938,16 @@ export async function sendCompassNotification(
         .update({ contact_id: resolved.contactId })
         .eq('account_id', accountId)
         .eq('compass_id', req.compassId);
+    }
+
+    // Migration 249: a CRM contact this notification created came from
+    // Compass. Fills an empty source only; never throws.
+    if (resolved.contactCreated) {
+      await setLeadSourceIfEmpty(db, {
+        accountId,
+        contactId: resolved.contactId,
+        capture: { source: 'compass', detail: {} },
+      });
     }
 
     // Migration 236: with the account's Compass assignment switch on, a

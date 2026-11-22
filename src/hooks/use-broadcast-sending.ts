@@ -32,6 +32,7 @@ import {
   type CompassOrder,
   type CompassSelection,
 } from '@/lib/broadcasts/compass-audience';
+import { buildCsvContactInsert } from '@/lib/broadcasts/csv-contact-insert';
 import { partitionRowsByPhone } from '@/lib/contacts/phone-validation';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import {
@@ -932,13 +933,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     // has a default payload cap — 200 keeps individual requests small).
     const missing = keys
       .filter((k) => !byPhone.has(k))
-      .map((k) => ({
-        user_id: user.id,
-        account_id: accountId,
-        phone: uniqueByPhone.get(k)!.phone,
-        name: uniqueByPhone.get(k)?.name ?? null,
-        company: uniqueByPhone.get(k)?.company ?? null,
-      }));
+      .map((k) =>
+        buildCsvContactInsert(user.id, accountId, uniqueByPhone.get(k)!)
+      );
 
     const INSERT_CHUNK = 200;
     for (let i = 0; i < missing.length; i += INSERT_CHUNK) {
