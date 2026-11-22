@@ -1214,3 +1214,10 @@ jobs:
       # one supersedes the pending one, writers decide once.
       - name: Verify case review
         run: supabase db query --local --file supabase/ci/verify-case-review.sql
+
+      # Migration 242: the voice-note library. Every member reads the
+      # workspace's library, agents and up add, the author or an admin
+      # deletes, another workspace sees nothing, entries are never
+      # edited, and the language and built-in subject lists hold.
+      - name: Verify voice-note library
+        run: supabase db query --local --file supabase/ci/verify-voice-note-library.sql
