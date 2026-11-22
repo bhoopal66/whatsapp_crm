@@ -21,7 +21,8 @@
     "deleteFailed": "메모를 삭제하지 못했습니다",
     "deleteTitle": "이 메모를 삭제할까요?",
     "deleteBody": "팀에서 더 이상 볼 수 없습니다. 되돌릴 수 없습니다.",
-    "deleteConfirm": "메모 삭제"
+    "deleteConfirm": "메모 삭제",
+    "finishReplyFirst": "Send or discard the voice note or attachment first"
   },
   "InboxRows": {
     "assign": "Assign",
@@ -6114,7 +6115,8 @@
     "save": "Save",
     "saving": "Saving…",
     "generating": "Making the voice note…",
-    "saved": "Voice note added. Everyone in the workspace can use it now."
+    "saved": "Voice note added. Everyone in the workspace can use it now.",
+    "saveFailed": "Couldn't save the voice note. Try again."
   },
   "Workspaces": {
     "list": {

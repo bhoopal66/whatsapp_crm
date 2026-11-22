@@ -1871,6 +1871,9 @@ export function MessageThread({
         authorLabel: authorLabelFor(msg),
         preview: buildReplyPreview(msg, tQuote),
       });
+      // The quote lives on the reply composer, hidden in Note mode:
+      // show it rather than attach a forgotten quote to a later send.
+      setComposerMode((m) => (m.mode === 'note' ? { ...m, mode: 'reply' } : m));
     },
     [authorLabelFor, tQuote]
   );
@@ -1964,6 +1967,8 @@ export function MessageThread({
     conversationId: string | null;
     mode: ComposerMode;
   }>({ conversationId: null, mode: 'reply' });
+  // A recording or staged attachment in the reply composer: Note waits.
+  const [composerBusy, setComposerBusy] = useState(false);
   // Every chat opens on Reply.
   const noteMode =
     mayWriteNotes &&
@@ -2446,6 +2451,7 @@ export function MessageThread({
               onChange={(mode) =>
                 setComposerMode({ conversationId: conversation.id, mode })
               }
+              noteDisabled={composerBusy}
             />
           </div>
         )}
@@ -2473,6 +2479,7 @@ export function MessageThread({
             contactName={contact.name || contact.phone || null}
             textControl={composerDraftRef}
             freeTextBlocked={freeTextBlocked}
+            onBusyChange={setComposerBusy}
           />
         </div>
 

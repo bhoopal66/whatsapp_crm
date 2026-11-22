@@ -21,7 +21,8 @@
     "deleteFailed": "Couldn't delete the note",
     "deleteTitle": "Delete this note?",
     "deleteBody": "Your team will no longer see it. This can't be undone.",
-    "deleteConfirm": "Delete note"
+    "deleteConfirm": "Delete note",
+    "finishReplyFirst": "Send or discard the voice note or attachment first"
   },
   "InboxRows": {
     "assign": "Assign",
@@ -6114,7 +6115,8 @@
     "save": "Save",
     "saving": "Saving…",
     "generating": "Making the voice note…",
-    "saved": "Voice note added. Everyone in the workspace can use it now."
+    "saved": "Voice note added. Everyone in the workspace can use it now.",
+    "saveFailed": "Couldn't save the voice note. Try again."
   },
   "Workspaces": {
     "list": {

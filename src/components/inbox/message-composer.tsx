@@ -203,6 +203,9 @@ interface MessageComposerProps {
   textControl?: Ref<ComposerDraftHandle>;
   /** Meta's 24-hour window has closed: only templates may be sent. */
   freeTextBlocked?: boolean;
+  /** Told when a recording or staged attachment opens or closes, so
+   *  the thread can keep Note mode from hiding a live mic. */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /** The send a check holds back until it answers. */
@@ -257,6 +260,7 @@ export function MessageComposer({
   contactName,
   textControl,
   freeTextBlocked = false,
+  onBusyChange,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
   const tCheck = useTranslations('ComposeCheck');
@@ -604,6 +608,10 @@ export function MessageComposer({
   // Voice recording state. The recorder encodes Ogg/Opus in-browser
   // (opus-recorder) so there's no server-side transcode.
   const [recording, setRecording] = useState(false);
+  const composerBusy = recording || !!draft;
+  useEffect(() => {
+    onBusyChange?.(composerBusy);
+  }, [composerBusy, onBusyChange]);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<import('opus-recorder').default | null>(null);
   const cancelledRef = useRef(false);
@@ -665,6 +673,9 @@ export function MessageComposer({
   );
 
   const handleSend = useCallback(() => {
+    // Enter reaches here too, not only the (disabled) Send button: with
+    // Meta's window closed nothing free-form may go out.
+    if (freeTextBlocked) return;
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -700,6 +711,7 @@ export function MessageComposer({
     });
   }, [
     text,
+    freeTextBlocked,
     box.origin,
     onSend,
     replyTo,
@@ -946,7 +958,8 @@ export function MessageComposer({
   const slashToken = detectSlashToken(text, caret);
   const [slashDismissed, setSlashDismissed] = useState(false);
   if (!slashToken && slashDismissed) setSlashDismissed(false);
-  const slashOpen = !!slashToken && !slashDismissed && !readOnly && !checking;
+  const slashOpen =
+    !!slashToken && !slashDismissed && !inputsDisabled && !checking;
   const [slashItems, setSlashItems] = useState<QuickReply[] | null>(null);
   const slashQuery = slashToken?.query ?? '';
   const slashMatches = useMemo(
@@ -991,25 +1004,27 @@ export function MessageComposer({
       setSlashDismissed(true);
       const interactive = qr.kind === 'interactive' && !!qr.interactive_payload;
       const body = interactive ? '' : (qr.content_text ?? '');
-      setText((prev) => {
-        const token = detectSlashToken(prev, null);
-        return token ? applySlashInsert(prev, token, body).text : prev;
-      });
+      // The caret goes after the inserted reply, not to body.length:
+      // text after the token would otherwise put it mid-sentence.
+      const token = detectSlashToken(text, null);
+      const applied = token ? applySlashInsert(text, token, body) : null;
+      const nextCaret = applied ? applied.caret : body.length;
+      if (applied) setText(applied.text);
       if (interactive && qr.interactive_payload) {
         openInteractiveBuilder(qr.interactive_payload);
         return;
       }
-      setCaret(body.length);
+      setCaret(nextCaret);
       requestAnimationFrame(() => {
         adjustHeight();
         const el = textareaRef.current;
         if (el) {
           el.focus();
-          el.setSelectionRange(body.length, body.length);
+          el.setSelectionRange(nextCaret, nextCaret);
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight, setText]
+    [openInteractiveBuilder, adjustHeight, setText, text]
   );
 
   const handleKeyDown = useCallback(
@@ -1259,7 +1274,9 @@ export function MessageComposer({
   );
 
   const sendDraft = useCallback(() => {
-    if (!draft || busy) return;
+    // A parked attachment restored, or a recording finalised, after
+    // Meta's window closed: refuse rather than let Meta reject it.
+    if (!draft || busy || freeTextBlocked) return;
     const staged = draft;
     if (dropIfExpired(staged)) return;
     const replyToId = replyTo?.id;
@@ -1306,6 +1323,7 @@ export function MessageComposer({
     });
   }, [
     draft,
+    freeTextBlocked,
     busy,
     dropIfExpired,
     onSendMedia,
@@ -1465,7 +1483,7 @@ export function MessageComposer({
         <MediaDraftPreview
           draft={draft}
           busy={busy}
-          readOnly={readOnly}
+          readOnly={inputsDisabled}
           checking={checking}
           captionRef={captionRef}
           onCaptionChange={setCaption}
@@ -1526,7 +1544,7 @@ export function MessageComposer({
                   ? t('readOnlyPlaceholder')
                   : t('typeMessagePlaceholder')
               }
-              disabled={readOnly}
+              disabled={inputsDisabled}
               readOnly={checking}
               rows={1}
               // Arabic (a translation, or typed) right-aligns and reads
