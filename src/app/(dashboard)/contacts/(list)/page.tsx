@@ -117,6 +117,7 @@ import {
 } from '@/lib/contacts/fuzzy-search';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
+import { PhoneCell } from '@/components/contacts/phone-cell';
 import {
   DEFAULT_CONTACT_SORT,
   nextContactSort,
@@ -1098,8 +1099,11 @@ export function ContactsPageInner({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
-                      {contact.phone}
+                    <TableCell className="text-muted-foreground">
+                      <PhoneCell
+                        phone={contact.phone}
+                        label={contact.name || contact.phone}
+                      />
                     </TableCell>
                     <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
                       {contact.email || (

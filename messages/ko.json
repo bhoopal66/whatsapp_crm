@@ -1012,7 +1012,9 @@
     }
   },
   "ContactsTable": {
-    "sortedByRelevance": "While you search, results are ordered by best match."
+    "sortedByRelevance": "While you search, results are ordered by best match.",
+    "copyNumber": "Copy the phone number of {name}",
+    "copyNumberShort": "Copy number"
   },
   "Pipelines": {
     "page": {
