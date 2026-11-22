@@ -7,17 +7,21 @@
 /**
  * After sign-in: `/join/<token>` for an invitation (the middleware's
  * rule for a signed-in visitor to `/login?invite=`), else a same-origin
- * `next` path, else the dashboard. `next` never leaves the origin.
+ * `next` path (an explicit deep link wins), else `/`, whose redirect
+ * picks the role's landing page (`landingPathForRole`: My worklist for
+ * agents and team leaders, the dashboard for the rest). `next` never
+ * leaves the origin.
  */
 export function loginDestination(params: {
   get(name: string): string | null;
 }): string {
   const invite = params.get('invite');
   if (invite) return `/join/${encodeURIComponent(invite)}`;
-  return safeNextPath(params.get('next')) ?? '/dashboard';
+  return safeNextPath(params.get('next')) ?? '/';
 }
 
-function safeNextPath(next: string | null): string | null {
+/** A same-origin path from a `next` parameter, else null. */
+export function safeNextPath(next: string | null): string | null {
   // "//host" and "/\host" are protocol-relative to a browser.
   if (!next || !next.startsWith('/') || /^\/[/\\]/.test(next)) return null;
   try {

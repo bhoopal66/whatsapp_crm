@@ -317,8 +317,8 @@
         "action": "Team activity",
         "newChats": "New chats",
         "replyRate": "Reply rate",
-        "replyValue": "{outOfTen} in 10",
-        "replyAim": "Aim: {aim} in 10",
+        "replyValue": "{percent}% ({replied} of {total})",
+        "replyAim": "Aim: at least {aim}%",
         "replyTooFew": "Too few chats yet",
         "waiting": "Customers waiting",
         "waitingHint": "{count, plural, =0 {All assigned} other {# unassigned}}",
@@ -4467,8 +4467,8 @@
       "newChats": "New chats today",
       "newChatsHint": "Safe up to {perPerson} per person and {perNumber} per phone number",
       "replied": "Replied ({period})",
-      "repliedValue": "{n} in 10",
-      "repliedHint": "Aim for at least {aim} in 10 ({replied} of {total} people wrote back)",
+      "repliedValue": "{percent}% ({replied} of {total})",
+      "repliedHint": "Aim for at least {aim}% of people to write back",
       "notEnough": "Too early to tell",
       "notEnoughHint": "We need at least 5 new chats older than a day.",
       "waiting": "Customers waiting for us now",
@@ -8521,6 +8521,11 @@
       "due_soon": "Due soon",
       "overdue": "Overdue"
     },
+    "team": {
+      "myTeam": "My team",
+      "noTeam": "You don't lead a team yet, so My team shows only your own cases.",
+      "truncated": "Showing each person's first 200 cases. Narrow the filters to see the rest."
+    },
     "columns": {
       "customer": "Customer",
       "bank": "Bank",
@@ -11940,10 +11945,18 @@
     "unknownPerson": "Unknown person",
     "assignedTo": "Assigned to",
     "anyone": "Anyone",
+    "myTeam": "My team",
+    "noTeam": "You don't lead a team yet, so My team shows only your own items.",
     "rank": "#",
     "item": "Item",
-    "score": "Score",
+    "when": "When",
     "reasons": "Why",
+    "timing": {
+      "overdue": "Overdue by {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "waiting": "Waiting {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "due_in": "Due in {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "none": "Nothing due"
+    },
     "kind": {
       "hr_conversation": "HR conversation {ref}",
       "case": "Case {ref}",

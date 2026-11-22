@@ -44,6 +44,7 @@ const kase = (over: Partial<WorklistCase> = {}): WorklistCase => ({
   openTaskOverdueCount: 0,
   agentId: 'u-agent',
   coordinatorId: 'u-coord',
+  dueAt: null,
   ...over,
 });
 const draft = (over: Partial<WorklistDraft> = {}): WorklistDraft => ({
@@ -310,6 +311,33 @@ describe('worklist ordering and scoping', () => {
     ).toEqual(['c-a', 'k-1', 'd-1']);
   });
 
+  it('"My team" narrows a lead to the items of the people listed', () => {
+    expect(
+      rankWorklist(mixed, NOW, {
+        userId: 'u-lead',
+        role: 'team_leader',
+        team: ['u-lead', 'u-agent'],
+        // The team wins over a single person.
+        assignedTo: 'u-other',
+      }).map((i) => i.id)
+    ).toEqual(['c-b', 'k-1']);
+    expect(
+      rankWorklist(mixed, NOW, {
+        userId: 'u-lead',
+        role: 'team_leader',
+        team: ['u-lead'],
+      })
+    ).toEqual([]);
+    // A member's own view ignores it.
+    expect(
+      rankWorklist(mixed, NOW, {
+        userId: 'u-other',
+        role: 'agent',
+        team: ['u-agent'],
+      }).map((i) => i.id)
+    ).toEqual(['c-a', 'k-1', 'd-1']);
+  });
+
   it('items carry kind, id, ref, href to an existing screen, score and reasons; no bodies or names', () => {
     const items = rankWorklist(mixed, NOW, ADMIN);
     expect(items[0]).toMatchObject({
@@ -344,6 +372,7 @@ describe('worklist ordering and scoping', () => {
         'reasons',
         'ref',
         'score',
+        'timing',
       ]);
     expect(worklistReasonLabel('sla_overdue')).toBe(
       'Worklist.reason.sla_overdue'
@@ -358,5 +387,72 @@ describe('worklist ordering and scoping', () => {
       WORKLIST_OWN_REASONS.map((c) => `Worklist.reason.${c}`)
     );
     expect(worklistKindKey('agent_draft')).toBe('Worklist.kind.agent_draft');
+  });
+});
+
+describe('worklist timing (the clock behind the score)', () => {
+  const H = 3_600_000;
+  it('an HR chat waiting on us: waiting since the last inbound message', () => {
+    expect(
+      one(
+        inputs({
+          hrConversations: [
+            conv({ reply_state: 'reply_due', last_inbound_at: ago(5) }),
+          ],
+        })
+      ).timing
+    ).toEqual({ state: 'waiting', at: NOW - 5 * H });
+  });
+
+  it('an overdue HR task: overdue since its earliest due time', () => {
+    expect(
+      one(
+        inputs({
+          hrConversations: [
+            conv({ reply_state: 'reply_due', last_inbound_at: ago(5) }),
+          ],
+          hrTasks: [task({ due_at: ago(2) }), task({ due_at: ago(3) })],
+        })
+      ).timing
+    ).toEqual({ state: 'overdue', at: NOW - 3 * H });
+  });
+
+  it('a stalled recruiter chat: overdue since the no-activity deadline', () => {
+    expect(
+      one(
+        inputs({
+          hrConversations: [
+            conv({ last_outbound_at: ago(30), created_at: ago(40) }),
+          ],
+          hrRules: [
+            { key: 'no_activity_recruiter', enabled: true, after_hours: 24 },
+          ],
+        })
+      ).timing
+    ).toEqual({ state: 'overdue', at: NOW - 6 * H });
+  });
+
+  it('a chat waiting on the candidate has no clock', () => {
+    expect(one(inputs({ hrConversations: [conv()] })).timing).toBeNull();
+  });
+
+  it('a case: SLA overdue since, or due soon at, its due time', () => {
+    expect(
+      one(inputs({ cases: [kase({ slaState: 'overdue', dueAt: ago(2) })] }))
+        .timing
+    ).toEqual({ state: 'overdue', at: NOW - 2 * H });
+    expect(
+      one(inputs({ cases: [kase({ slaState: 'due_soon', dueAt: ago(-1) })] }))
+        .timing
+    ).toEqual({ state: 'due_in', at: NOW + H });
+    expect(
+      one(inputs({ cases: [kase({ documentsMissing: 1 })] })).timing
+    ).toBeNull();
+  });
+
+  it('a draft: waiting since it was written', () => {
+    expect(
+      one(inputs({ drafts: [draft({ created_at: ago(25) })] })).timing
+    ).toEqual({ state: 'waiting', at: NOW - 25 * H });
   });
 });

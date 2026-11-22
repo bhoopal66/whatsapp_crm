@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { glanceOf, numberBar } from './glance';
+import { glanceOf, numberBar, replyPercent } from './glance';
 import { parseTeamActivityReport } from './report';
 
 const person = (o: Record<string, unknown>) => ({
@@ -29,8 +29,8 @@ describe('glanceOf', () => {
     expect(g.reply).toMatchObject({
       replied: 3,
       total: 10,
-      outOfTen: 3,
-      aimOutOfTen: 3,
+      percent: 30,
+      aimPercent: 30,
       tone: 'warn',
     });
   });
@@ -41,8 +41,8 @@ describe('glanceOf', () => {
         senders: [person({ mature_started: 27, mature_no_reply: 19 })],
       })
     );
-    // 29.6%: below 30, reads 2 in 10 and is "bad".
-    expect(g.reply?.outOfTen).toBe(2);
+    // 29.6%: below 30, reads 29% and is "bad".
+    expect(g.reply?.percent).toBe(29);
     expect(g.reply?.tone).toBe('bad');
   });
 
@@ -86,5 +86,18 @@ describe('numberBar', () => {
 
   it('has no bar for an official number', () => {
     expect(numberBar(report.numbers[1], 'account', 40)).toBeNull();
+  });
+});
+
+describe('replyPercent', () => {
+  it('reads as a floored percentage of the people who wrote back', () => {
+    expect(replyPercent(8, 8)).toBe(100);
+    expect(replyPercent(29, 100)).toBe(29);
+    expect(replyPercent(2, 3)).toBe(66);
+    expect(replyPercent(0, 5)).toBe(0);
+  });
+
+  it('has no figure for 0 of 0', () => {
+    expect(replyPercent(0, 0)).toBeNull();
   });
 });

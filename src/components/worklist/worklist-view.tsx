@@ -7,12 +7,23 @@
  * Read only: every row links to its existing screen and nothing here
  * acts. Titles are generated from the kind and a short reference, never
  * a name or a message body (the package's privacy rule). Members see
- * their own items; team leaders and up get the "Assigned to" filter.
+ * their own items; team leaders and up get the "Assigned to" filter,
+ * with "My team" (the people in the teams they lead, and themselves).
+ * The "When" column says the clock behind the ranking in words
+ * ("Overdue by 2 h"); the score itself only orders the list.
  */
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { AlarmClock, Clock, Hourglass } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -27,6 +38,29 @@ import {
   type WorklistItem,
   type WorklistMode,
 } from '@/lib/worklist/rank';
+import {
+  timingKey,
+  timingLabel,
+  type WorklistTimingState,
+} from '@/lib/worklist/timing';
+import { cn } from '@/lib/utils';
+
+/** The filter value for anyone (a Select item value cannot be empty). */
+const ANYONE = '__anyone__';
+/** The "My team" filter value of `assignedTo`. */
+export const WORKLIST_MY_TEAM = '__team__';
+
+const TIMING_ICON = {
+  overdue: AlarmClock,
+  due_in: Clock,
+  waiting: Hourglass,
+} as const satisfies Record<WorklistTimingState, unknown>;
+
+const TIMING_TONE: Record<WorklistTimingState, string> = {
+  overdue: 'text-destructive',
+  due_in: 'text-warning',
+  waiting: 'text-foreground',
+};
 
 export interface WorklistMemberOption {
   /** Auth user id. */
@@ -41,10 +75,19 @@ export interface WorklistViewProps {
   mode: WorklistMode | null;
   /** Display name for an auth user id; null when unknown. */
   nameOf: (userId: string) => string | null;
-  /** All mode only: the auth user id filtered to, '' for anyone. */
+  /**
+   * All mode only: the auth user id filtered to, `WORKLIST_MY_TEAM` for
+   * "My team", '' for anyone.
+   */
   assignedTo: string;
   onAssignedTo: (userId: string) => void;
   members: readonly WorklistMemberOption[];
+  /** Offer "My team" (team leader and up). */
+  teamOption?: boolean;
+  /** "My team" is chosen and the viewer leads nobody: say so. */
+  noTeam?: boolean;
+  /** The clock the items were ranked against (epoch ms). */
+  now: number;
 }
 
 export function WorklistView({
@@ -54,11 +97,21 @@ export function WorklistView({
   assignedTo,
   onAssignedTo,
   members,
+  teamOption = false,
+  noTeam = false,
+  now,
 }: WorklistViewProps) {
   const t = useTranslations('Worklist');
   const tAll = useTranslations();
   // A bank guest has nothing to rank; an unknown role is still loading.
   const shown = mode === null ? null : mode === 'none' ? [] : items;
+  const filterLabel =
+    assignedTo === WORKLIST_MY_TEAM
+      ? t('myTeam')
+      : assignedTo
+        ? (members.find((m) => m.userId === assignedTo)?.name ??
+          t('unknownPerson'))
+        : t('anyone');
 
   return (
     <div
@@ -72,24 +125,53 @@ export function WorklistView({
           <p className="text-muted-foreground text-sm">{t('help')}</p>
         </div>
         {mode === 'all' && (
-          <label className="inline-flex items-center gap-2 text-sm">
-            {t('assignedTo')}
-            <select
-              data-testid="worklist-assigned-to"
-              value={assignedTo}
-              onChange={(e) => onAssignedTo(e.target.value)}
-              className="border-input bg-card dark:bg-input/30 h-8 rounded-md border px-2 text-sm"
+          <div
+            className="flex w-full items-center gap-2 text-sm sm:w-auto"
+            data-testid="worklist-assigned-to"
+            data-value={assignedTo}
+          >
+            <span id="worklist-assigned-to-label" className="shrink-0">
+              {t('assignedTo')}
+            </span>
+            <Select
+              value={assignedTo || ANYONE}
+              onValueChange={(v) => {
+                if (typeof v !== 'string') return;
+                onAssignedTo(v === ANYONE ? '' : v);
+              }}
             >
-              <option value="">{t('anyone')}</option>
-              {members.map((m) => (
-                <option key={m.userId} value={m.userId}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger
+                aria-labelledby="worklist-assigned-to-label"
+                className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+              >
+                <SelectValue>{filterLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANYONE}>{t('anyone')}</SelectItem>
+                {teamOption && (
+                  <SelectItem value={WORKLIST_MY_TEAM}>
+                    {t('myTeam')}
+                  </SelectItem>
+                )}
+                {members.map((m) => (
+                  <SelectItem key={m.userId} value={m.userId}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
       </div>
+
+      {mode === 'all' && assignedTo === WORKLIST_MY_TEAM && noTeam && (
+        <p
+          data-testid="worklist-no-team"
+          className="text-muted-foreground text-sm"
+        >
+          {t('noTeam')}
+        </p>
+      )}
 
       <div className="bg-card rounded-lg border">
         {shown === null ? (
@@ -113,7 +195,7 @@ export function WorklistView({
                 <TableHead className="w-12">{t('rank')}</TableHead>
                 <TableHead>{t('item')}</TableHead>
                 <TableHead>{t('assignedTo')}</TableHead>
-                <TableHead className="text-right">{t('score')}</TableHead>
+                <TableHead>{t('when')}</TableHead>
                 <TableHead>{t('reasons')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -141,8 +223,8 @@ export function WorklistView({
                       .map((u) => nameOf(u) ?? t('unknownPerson'))
                       .join(', ')}
                   </TableCell>
-                  <TableCell className="text-right font-semibold tabular-nums">
-                    {it.score}
+                  <TableCell data-testid="worklist-when">
+                    <TimingText item={it} now={now} />
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -166,5 +248,31 @@ export function WorklistView({
         )}
       </div>
     </div>
+  );
+}
+
+function TimingText({ item, now }: { item: WorklistItem; now: number }) {
+  const t = useTranslations('Worklist');
+  const label = timingLabel(item.timing, now);
+  if (!label) {
+    return (
+      <span className="text-muted-foreground" aria-label={t('timing.none')}>
+        —
+      </span>
+    );
+  }
+  const Icon = TIMING_ICON[label.state];
+  return (
+    <span
+      data-timing={label.state}
+      className={cn(
+        'inline-flex items-center gap-1 text-sm whitespace-nowrap',
+        TIMING_TONE[label.state],
+        label.state === 'overdue' && 'font-medium'
+      )}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {t(timingKey(label.state), { unit: label.unit, n: label.n })}
+    </span>
   );
 }

@@ -57,7 +57,13 @@ import {
   type ContextMenuEntry,
 } from '@/components/context-menu/registry';
 import { useAuth } from '@/hooks/use-auth';
+import { useLedTeam } from '@/hooks/use-led-team';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
+import {
+  CASES_TEAM_PARAM,
+  mergeTeamPages,
+  teamInboxUrls,
+} from '@/lib/cases/team-view';
 import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
   activeFilterCount,
@@ -89,11 +95,15 @@ import { cn } from '@/lib/utils';
 
 /** The Select's value for "no filter" (an item value cannot be empty). */
 const ALL = '__all__';
+/** The agent filter's "My team" value (`?team=1`, never sent to the API). */
+const MY_TEAM = '__team__';
 
 interface Loaded {
   rows: InboxRow[];
   next: string | null;
   error: null | 'invalid' | 'failed';
+  /** "My team": a person had more cases than one page holds. */
+  truncated?: boolean;
 }
 
 const SLA_CHIP: Record<InboxSlaState, string> = {
@@ -152,10 +162,26 @@ export function CasesInbox() {
     () => filtersFromSearch((k) => search.get(k)),
     [search]
   );
-  const setFilters = (next: Partial<InboxFilters>) => {
-    const qs = filtersToSearch({ ...filters, ...next });
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  // "My team" (team leader and up): the cases of the people in the teams
+  // they lead, and their own. A filter over what the inbox already
+  // returns them; kept in the URL beside the API filters, never sent.
+  const team = useLedTeam();
+  const teamView = team.canLead && search.get(CASES_TEAM_PARAM) === '1';
+  const teamIds = teamView ? team.ids : null;
+  const replaceUrl = (next: InboxFilters, withTeam: boolean) => {
+    const qs = new URLSearchParams(filtersToSearch(next));
+    if (withTeam) qs.set(CASES_TEAM_PARAM, '1');
+    const str = qs.toString();
+    router.replace(str ? `${pathname}?${str}` : pathname, { scroll: false });
   };
+  // A change that names the agent (clearing the filters, applying a saved
+  // view) leaves "My team"; any other filter change keeps it.
+  const setFilters = (next: Partial<InboxFilters>) =>
+    replaceUrl({ ...filters, ...next }, teamView && !('agent' in next));
+  const setAgent = (value: string | null) =>
+    value === MY_TEAM
+      ? replaceUrl({ ...filters, agent: null }, true)
+      : replaceUrl({ ...filters, agent: value }, false);
 
   const banks = useCaseBanks();
   const { members, nameOf } = useWorkspaceMembers();
@@ -194,9 +220,54 @@ export function CasesInbox() {
     }
   }, []);
 
+  // One page per person, merged (`lib/cases/team-view.ts`).
+  const teamKey = teamIds ? teamInboxUrls(filters, teamIds).join('\n') : null;
+  const loadTeam = useCallback(
+    async (urls: string[]) => {
+      const mine = ++seq.current;
+      setLoaded(null);
+      try {
+        const answers = await Promise.all(
+          urls.map((url) => fetch(url, { cache: 'no-store' }))
+        );
+        if (answers.some((res) => res.status === 422)) {
+          if (mine === seq.current)
+            setLoaded({ rows: [], next: null, error: 'invalid' });
+          return;
+        }
+        if (answers.some((res) => !res.ok)) throw new Error('team');
+        const pages = await Promise.all(
+          answers.map(async (res) => parseInboxPage(await res.json()))
+        );
+        const merged = mergeTeamPages(pages, filters.sort, new Date());
+        if (mine === seq.current)
+          setLoaded({
+            rows: merged.rows,
+            next: null,
+            error: null,
+            truncated: merged.truncated,
+          });
+      } catch {
+        if (mine === seq.current)
+          setLoaded({ rows: [], next: null, error: 'failed' });
+      }
+    },
+    [filters.sort]
+  );
+
   useEffect(() => {
+    if (teamView) {
+      // Wait for the roster rather than flash everyone's cases.
+      if (teamKey === null) {
+        seq.current++;
+        setLoaded(null);
+      } else void loadTeam(teamKey.split('\n'));
+      return;
+    }
     void load(apiUrl);
-  }, [load, apiUrl]);
+  }, [load, apiUrl, teamView, teamKey, loadTeam]);
+  const reload = () =>
+    teamKey !== null ? void loadTeam(teamKey.split('\n')) : void load(apiUrl);
 
   const loadMore = async () => {
     if (!loaded?.next) return;
@@ -225,7 +296,7 @@ export function CasesInbox() {
     }
   };
 
-  const narrowed = activeFilterCount(filters);
+  const narrowed = activeFilterCount(filters) + (teamView ? 1 : 0);
   const now = new Date();
 
   return (
@@ -261,9 +332,18 @@ export function CasesInbox() {
         setFilters={setFilters}
         banks={banks ?? []}
         agents={agents}
+        agentValue={teamView ? MY_TEAM : filters.agent}
+        teamOption={team.canLead}
+        onAgent={setAgent}
         narrowed={narrowed}
         rows={loaded?.rows ?? []}
       />
+
+      {teamView && team.ids !== null && team.ids.length <= 1 && (
+        <p className="text-muted-foreground text-sm" role="note">
+          {t('team.noTeam')}
+        </p>
+      )}
 
       {!loaded ? (
         <ul className="space-y-2" aria-hidden>
@@ -291,11 +371,7 @@ export function CasesInbox() {
               {t('clearFilters')}
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void load(apiUrl)}
-            >
+            <Button variant="outline" size="sm" onClick={reload}>
               {t('retry')}
             </Button>
           )}
@@ -329,6 +405,11 @@ export function CasesInbox() {
               <CaseCard key={r.caseId} row={r} now={now} nameOf={nameOf} />
             ))}
           </ul>
+          {loaded.truncated && (
+            <p className="text-muted-foreground text-center text-sm">
+              {t('team.truncated')}
+            </p>
+          )}
           {loaded.next && (
             <div className="flex justify-center">
               <Button
@@ -436,6 +517,9 @@ function FilterBar({
   setFilters,
   banks,
   agents,
+  agentValue,
+  teamOption,
+  onAgent,
   narrowed,
   rows,
 }: {
@@ -444,6 +528,11 @@ function FilterBar({
   setFilters: (next: Partial<InboxFilters>) => void;
   banks: CaseBankOption[];
   agents: Array<{ id: string; name: string }>;
+  /** The agent filter's value: an agent id, "My team" or null for all. */
+  agentValue: string | null;
+  /** Offer "My team" (team leader and up). */
+  teamOption: boolean;
+  onAgent: (value: string | null) => void;
   narrowed: number;
   rows: readonly { stage: string }[];
 }) {
@@ -491,9 +580,14 @@ function FilterBar({
         <FilterSelect
           label={t('filters.agent')}
           allLabel={t('filters.allAgents')}
-          value={f.agent}
-          options={agents.map((a) => ({ value: a.id, label: a.name }))}
-          onChange={(agent) => setFilters({ agent })}
+          value={agentValue}
+          options={[
+            ...(teamOption
+              ? [{ value: MY_TEAM, label: t('team.myTeam') }]
+              : []),
+            ...agents.map((a) => ({ value: a.id, label: a.name })),
+          ]}
+          onChange={onAgent}
         />
         <FilterSelect
           label={t('filters.priority')}

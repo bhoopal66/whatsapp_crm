@@ -23,7 +23,10 @@ import {
   type HireFastSource,
 } from '@/lib/hr/hirefast';
 import { HR_INBOX_PATHS } from '@/lib/hr/routes';
+import { HR_TASK_REF_PREFIX } from '@/lib/hr/tasks-view';
 import type { HrInbox, HrRule } from '@/lib/hr/types';
+
+import type { WorklistTiming } from './timing';
 
 /** Hire fast's weights plus the 029c case and agent-draft components. */
 export const WORKLIST_WEIGHTS = {
@@ -81,6 +84,7 @@ export type WorklistCase = Pick<
   | 'openTaskOverdueCount'
   | 'agentId'
   | 'coordinatorId'
+  | 'dueAt'
 >;
 
 export type WorklistRule = Pick<HrRule, 'key' | 'enabled' | 'after_hours'>;
@@ -100,10 +104,13 @@ export interface WorklistItem {
   ref: string;
   /** The existing screen the row opens. */
   href: string;
+  /** Orders the list only; the page shows `timing` in words instead. */
   score: number;
   reasons: WorklistReason[];
   /** Auth user ids the item is assigned to; empty: unassigned. */
   assignees: string[];
+  /** The clock behind the score ("overdue by 2 h"); null: nothing due. */
+  timing: WorklistTiming | null;
 }
 
 /**
@@ -119,6 +126,12 @@ export interface WorklistScope {
   role: AccountRole | null;
   /** All mode only: show the items assigned to this auth user id. */
   assignedTo?: string | null;
+  /**
+   * All mode only, "My team": show the items assigned to any of these
+   * auth user ids (the viewer and the people in the teams they lead).
+   * Wins over `assignedTo`. A filter over what RLS already returned.
+   */
+  team?: readonly string[] | null;
 }
 
 export function worklistMode(role: AccountRole | null): WorklistMode {
@@ -127,6 +140,11 @@ export function worklistMode(role: AccountRole | null): WorklistMode {
 }
 
 const HOUR = 3_600_000;
+const ms = (iso: string | null | undefined): number | null => {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+};
 const refOf = (id: string) => id.slice(0, 8);
 
 /** The HR screen that opens one chat of an inbox. */
@@ -138,19 +156,66 @@ export function caseHref(caseId: string): string {
   return `/cases/${encodeURIComponent(caseId)}`;
 }
 
+/**
+ * When each chat's oldest overdue HR task fell due (the same tasks as
+ * hire fast's `overdueConversationIds`).
+ */
+export function overdueSinceByConversation(
+  tasks: readonly WorklistHrTask[],
+  now: number
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const t of tasks) {
+    if (t.status !== 'open' || !t.source_ref?.startsWith(HR_TASK_REF_PREFIX))
+      continue;
+    const due = ms(t.due_at);
+    if (due === null || due >= now) continue;
+    const id = t.source_ref.slice(HR_TASK_REF_PREFIX.length).split(':')[0];
+    if (!id) continue;
+    const prev = out.get(id);
+    if (prev === undefined || due < prev) out.set(id, due);
+  }
+  return out;
+}
+
+/**
+ * An HR chat's clock: the most overdue of its overdue task and the
+ * no-activity rule's deadline; else how long the person has waited on
+ * us; else none (we wait on them).
+ */
+function conversationTiming(
+  c: WorklistHrConversation,
+  reasons: readonly WorklistReason[],
+  taskDue: number | undefined,
+  stalledAfter: number | null
+): WorklistTiming | null {
+  const overdue: number[] = [];
+  if (taskDue !== undefined) overdue.push(taskDue);
+  if (reasons.includes('stalled') && stalledAfter !== null) {
+    const times = [c.last_inbound_at, c.last_outbound_at, c.created_at]
+      .map(ms)
+      .filter((t): t is number => t !== null);
+    if (times.length > 0)
+      overdue.push(Math.max(...times) + stalledAfter * HOUR);
+  }
+  if (overdue.length > 0) return { state: 'overdue', at: Math.min(...overdue) };
+  if (reasons.includes('reply_due')) {
+    const since = ms(c.last_inbound_at) ?? ms(c.created_at);
+    if (since !== null) return { state: 'waiting', at: since };
+  }
+  return null;
+}
+
 function scoreConversation(
   c: WorklistHrConversation,
   now: number,
   overdue: ReadonlySet<string>,
+  overdueSince: ReadonlyMap<string, number>,
   stalledAfter: number | null
 ): WorklistItem {
   // The no-activity rule is the recruiter inbox's; a dept chat never stalls.
-  const item = scoreCandidate(
-    c,
-    now,
-    overdue,
-    c.inbox === 'recruiter' ? stalledAfter : null
-  );
+  const stall = c.inbox === 'recruiter' ? stalledAfter : null;
+  const item = scoreCandidate(c, now, overdue, stall);
   return {
     kind: 'hr_conversation',
     id: c.conversation_id,
@@ -159,6 +224,12 @@ function scoreConversation(
     score: item.score,
     reasons: item.reasons,
     assignees: c.ownerId ? [c.ownerId] : [],
+    timing: conversationTiming(
+      c,
+      item.reasons,
+      overdueSince.get(c.conversation_id),
+      stall
+    ),
   };
 }
 
@@ -186,6 +257,16 @@ function scoreCase(r: WorklistCase): WorklistItem | null {
   const assignees = [r.agentId, r.coordinatorId].filter(
     (id, i, all): id is string => id !== null && all.indexOf(id) === i
   );
+  // The SLA timer's due time; overdue tasks carry no time in the row.
+  const due = ms(r.dueAt);
+  const timing: WorklistTiming | null =
+    due === null
+      ? null
+      : r.slaState === 'overdue'
+        ? { state: 'overdue', at: due }
+        : r.slaState === 'due_soon'
+          ? { state: 'due_in', at: due }
+          : null;
   return {
     kind: 'case',
     id: r.caseId,
@@ -194,6 +275,7 @@ function scoreCase(r: WorklistCase): WorklistItem | null {
     score,
     reasons,
     assignees,
+    timing,
   };
 }
 
@@ -205,8 +287,8 @@ function scoreDraft(
   const W = WORKLIST_WEIGHTS;
   const reasons: WorklistReason[] = ['draft_waiting'];
   let score = W.draftWaiting;
-  const created = Date.parse(d.created_at);
-  if (Number.isFinite(created) && now - created > W.draftOldHours * HOUR) {
+  const created = ms(d.created_at);
+  if (created !== null && now - created > W.draftOldHours * HOUR) {
     score += W.draftOld;
     reasons.push('draft_old');
   }
@@ -219,13 +301,15 @@ function scoreDraft(
     score,
     reasons,
     assignees: owner ? [owner] : [],
+    timing: created === null ? null : { state: 'waiting', at: created },
   };
 }
 
 /**
  * The ranked worklist: scores every input, keeps what the scope may see
- * (own: assigned to me; all: everyone, narrowed by `assignedTo` when
- * set; none: nothing), sorts by score desc, then id, then kind.
+ * (own: assigned to me; all: everyone, narrowed by `team` or
+ * `assignedTo` when set; none: nothing), sorts by score desc, then id,
+ * then kind.
  */
 export function rankWorklist(
   inputs: WorklistInputs,
@@ -235,6 +319,7 @@ export function rankWorklist(
   const mode = worklistMode(scope.role);
   if (mode === 'none') return [];
   const overdue = overdueConversationIds([...inputs.hrTasks], now);
+  const overdueSince = overdueSinceByConversation(inputs.hrTasks, now);
   const stalled = stalledAfterHours([...inputs.hrRules]);
   const convs = new Map(
     inputs.hrConversations.map((c) => [c.conversation_id, c])
@@ -242,14 +327,23 @@ export function rankWorklist(
   const items: WorklistItem[] = [
     ...inputs.hrConversations
       .filter((c) => c.closed_at === null)
-      .map((c) => scoreConversation(c, now, overdue, stalled)),
+      .map((c) => scoreConversation(c, now, overdue, overdueSince, stalled)),
     ...inputs.cases.map(scoreCase).filter((x): x is WorklistItem => x !== null),
     ...inputs.drafts
       .filter((d) => d.status === 'pending')
       .map((d) => scoreDraft(d, now, convs.get(d.conversation_id))),
   ];
-  const who = mode === 'own' ? scope.userId : scope.assignedTo || null;
-  const seen = who ? items.filter((i) => i.assignees.includes(who)) : items;
+  const who: ReadonlySet<string> | null =
+    mode === 'own'
+      ? new Set([scope.userId])
+      : scope.team
+        ? new Set(scope.team)
+        : scope.assignedTo
+          ? new Set([scope.assignedTo])
+          : null;
+  const seen = who
+    ? items.filter((i) => i.assignees.some((a) => who.has(a)))
+    : items;
   const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   return seen.sort(
     (a, b) => b.score - a.score || cmp(a.id, b.id) || cmp(a.kind, b.kind)

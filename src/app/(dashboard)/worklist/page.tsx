@@ -10,8 +10,12 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { DeskWorklistCard } from '@/components/desk/desk-worklist-card';
-import { WorklistView } from '@/components/worklist/worklist-view';
+import {
+  WORKLIST_MY_TEAM,
+  WorklistView,
+} from '@/components/worklist/worklist-view';
 import { useAuth } from '@/hooks/use-auth';
+import { useLedTeam } from '@/hooks/use-led-team';
 import { createClient } from '@/lib/supabase/client';
 import { loadWorklistInputs } from '@/lib/worklist/load';
 import {
@@ -23,6 +27,7 @@ import {
 export default function WorklistPage() {
   const { user, accountId, accountRole, salesRestricted } = useAuth();
   const { members, nameOf } = useWorkspaceMembers();
+  const team = useLedTeam();
   // Both are tagged with the workspace they belong to, so a workspace
   // switch shows loading and Anyone again without resetting state in an
   // effect. Ranked against the moment the reads were made.
@@ -33,6 +38,7 @@ export default function WorklistPage() {
   } | null>(null);
   const [filter, setFilter] = useState({ accountId, userId: '' });
   const assignedTo = filter.accountId === accountId ? filter.userId : '';
+  const teamView = assignedTo === WORKLIST_MY_TEAM && team.canLead;
   // null while the profile loads: not the same as a guest's empty list.
   const mode = accountRole === null ? null : worklistMode(accountRole);
 
@@ -52,14 +58,22 @@ export default function WorklistPage() {
 
   const items = useMemo(
     () =>
-      loaded === null || loaded.accountId !== accountId || !user
+      loaded === null ||
+      loaded.accountId !== accountId ||
+      !user ||
+      // "My team" waits for the roster rather than flash everyone's.
+      (teamView && team.ids === null)
         ? null
         : rankWorklist(loaded.inputs, loaded.now, {
             userId: user.id,
             role: accountRole,
-            ...(assignedTo ? { assignedTo } : {}),
+            ...(teamView
+              ? { team: team.ids }
+              : assignedTo && assignedTo !== WORKLIST_MY_TEAM
+                ? { assignedTo }
+                : {}),
           }),
-    [loaded, accountId, user, accountRole, assignedTo]
+    [loaded, accountId, user, accountRole, assignedTo, teamView, team.ids]
   );
 
   const options = useMemo(
@@ -81,6 +95,9 @@ export default function WorklistPage() {
         assignedTo={assignedTo}
         onAssignedTo={(userId) => setFilter({ accountId, userId })}
         members={options}
+        teamOption={team.canLead}
+        noTeam={teamView && team.ids !== null && team.ids.length <= 1}
+        now={loaded?.now ?? 0}
       />
     </>
   );
