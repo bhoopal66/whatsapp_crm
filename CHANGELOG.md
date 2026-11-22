@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Note mentions reach everyone who can open the chat
+
+**Migration required:** apply `260_note_mentions_match_chat.sql` after
+256. No build needed.
+- 256 had narrowed who a note can @mention on a company chat, leaving
+  out the owner of a personal number (and their team leader) on older
+  company chats that sit on that number. Those people can still open
+  the chat, so they were silently left out of the mention list and
+  never rung. 260 restores the original rule (241): a note can mention,
+  and rings, exactly the people who can open the chat. 256 now carries
+  the same rule, so re-running 241, 256 or 260 in any order changes
+  nothing. `docs/chat-notes.md`.
+
 - Docs: CLAUDE.md split into a short index plus docs/agents/*
 
 ### Small follow-ups (checked on the local demo)
@@ -115,8 +128,8 @@ order, once (re-running one of those files afterwards undoes its fix).
   viewers included) to the new admin-only `broadcast_drafts` table.
   Existing drafts are copied across. The state is in PDPL export and
   erase.
-- **Note @mentions** never ring a personal number's owner about a
-  company chat on that number. `docs/chat-notes.md`.
+- **Note @mentions:** this change was wrong and is undone by 260 (see
+  "Note mentions reach everyone who can open the chat").
 - **Declined recycling:** the exclusion check answers team leaders and
   up only, and ignores personal-number chats. `docs/recycle.md`.
 - **Web form:** never renames an existing contact or fills their email;

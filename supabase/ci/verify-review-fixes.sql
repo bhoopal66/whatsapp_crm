@@ -2,7 +2,8 @@
 -- 236-255):
 --   1. broadcast drafts live in broadcast_drafts, owners/admins only,
 --      deleted with their broadcast, in PDPL export and erase;
---   2. a note @mention never rings through a personal-number arm;
+--   2. a note @mention reaches exactly who can open the chat (260),
+--      the personal-number arm included;
 --   3. recycle_excluded_among: team leaders and up, company chats only;
 --   4. the web form never renames an existing contact;
 --   6. Compass assign refuses an engaged chat;
@@ -179,7 +180,7 @@ BEGIN
     '1: the draft state outlived its broadcast');
 
   -- ======================================================================
-  -- 2. Note mentions: no personal-number arm
+  -- 2. Note mentions: exactly who can open the chat (260)
   -- ======================================================================
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, is_personal)
     VALUES (u_agent, a_acct, 'openwa', 'rf256-sess-p', 't', true) RETURNING id INTO w_pn;
@@ -197,20 +198,36 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.rf_ok(
     can_view_conversation_for_user(u_agent, a_acct, u_agent2, NULL, w_pn),
     '2: fixture: 190''s rule no longer shows the number''s owner the chat (test is moot)');
+  -- The mention check agrees with the chat itself (217's
+  -- conversations_select): the number's owner opens the chat, so they
+  -- are offered and rung; someone who cannot open it is not.
+  r := pg_temp.rf_try('authenticated', u_agent, format(
+    'SELECT count(*) FROM conversations WHERE id = %L', cv));
+  n := n + 1; failed := failed || pg_temp.rf_ok(r = '1',
+    '2: fixture: RLS no longer shows the number''s owner the chat (' || r || ')');
   n := n + 1; failed := failed || pg_temp.rf_ok(
-    NOT conversation_note_user_can_see(u_agent, cv),
-    '2: the personal number''s owner can see the company chat for notes');
+    conversation_note_user_can_see(u_agent, cv),
+    '2: the personal number''s owner can open the chat but not be mentioned');
   n := n + 1; failed := failed || pg_temp.rf_ok(
     conversation_note_user_can_see(u_agent2, cv) AND conversation_note_user_can_see(u_admin, cv),
     '2: the chat''s owner or an admin cannot see it for notes');
+  r := pg_temp.rf_try('authenticated', u_viewer, format(
+    'SELECT count(*) FROM conversations WHERE id = %L', cv));
+  n := n + 1; failed := failed || pg_temp.rf_ok(
+    r = '0' AND NOT conversation_note_user_can_see(u_viewer, cv),
+    '2: someone who cannot open the chat passes the mention check (' || r || ')');
+  n := n + 1; failed := failed || pg_temp.rf_ok(
+    to_regprocedure('public.conversation_note_company_chat_visible(uuid, uuid, uuid, uuid)') IS NULL,
+    '2: 256''s first-version helper is still installed');
   r := pg_temp.rf_try('authenticated', u_agent2, format(
     'INSERT INTO conversation_notes (conversation_id, body, mention_ids) VALUES (%L, ''@them'', %L::uuid[])',
-    cv, ARRAY[u_agent, u_admin]));
+    cv, ARRAY[u_agent, u_admin, u_viewer]));
   n := n + 1; failed := failed || pg_temp.rf_ok(r = 'ok', '2: the chat''s owner could not add a note (' || r || ')');
   n := n + 1; failed := failed || pg_temp.rf_ok(
-    (SELECT count(*) FROM notifications WHERE user_id = u_agent AND type = 'chat_note_mention' AND conversation_id = cv) = 0
-      AND (SELECT count(*) FROM notifications WHERE user_id = u_admin AND type = 'chat_note_mention' AND conversation_id = cv) = 1,
-    '2: the mention rang the personal number''s owner, or not the admin');
+    (SELECT count(*) FROM notifications WHERE user_id = u_agent AND type = 'chat_note_mention' AND conversation_id = cv) = 1
+      AND (SELECT count(*) FROM notifications WHERE user_id = u_admin AND type = 'chat_note_mention' AND conversation_id = cv) = 1
+      AND (SELECT count(*) FROM notifications WHERE user_id = u_viewer AND type = 'chat_note_mention' AND conversation_id = cv) = 0,
+    '2: the mention did not ring exactly the number''s owner and the admin');
 
   -- ======================================================================
   -- 3. recycle_excluded_among

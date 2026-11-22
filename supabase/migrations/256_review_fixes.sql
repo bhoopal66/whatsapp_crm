@@ -14,16 +14,12 @@
 --     personal; privacy_broadcast_drafts_erase (registered in 229's
 --     privacy_extensions) deletes a draft whose CSV names the erased
 --     customer's number. Not exported: an unsent draft.
---  2. Note @mentions (241). conversation_note_user_can_see asked 190's
---     can_view_conversation_for_user, whose personal-number arm shows a
---     personal number's owner (and their leader) any chat on that
---     number. A note now uses its own rule for company chats with no
---     number arm: admins, the owner, the assignee and their team
---     leaders (conversation_note_company_chat_visible). 191's guard
---     keeps company chats off personal numbers, so the arm only
---     mattered for a row that slipped past it; a note never rings
---     through it now. RESTATES 241's conversation_note_user_can_see:
---     apply in order, once.
+--  2. Note @mentions (241): unchanged in the end. The first version of
+--     this file dropped the personal-number arm from the mention check;
+--     260 found that 217's conversations_select keeps that arm, so the
+--     check was stricter than the chat. This section now restates 241's
+--     body (equal to 260's), so re-running 241, 256 or 260 changes
+--     nothing.
 --  3. recycle_excluded_among (251) had no role check and counted
 --     personal chats: it now answers team leaders and up only (empty
 --     otherwise) and reads company chats only. RESTATES 251's body:
@@ -204,54 +200,16 @@ REVOKE ALL ON FUNCTION public.privacy_broadcast_drafts_export(uuid, uuid),
   public.privacy_broadcast_drafts_erase(uuid, uuid)
 FROM PUBLIC, anon, authenticated, service_role;
 
--- ---------- 2. Note mentions: their own visibility rule ----------
+-- ---------- 2. Note mentions: the chat's own visibility rule ----------
 
--- 190's can_view_conversation_for_user without the personal-number arm,
--- for a company chat: admins and owners, the owner, the assignee, and a
--- team leader of either. Private.
-CREATE OR REPLACE FUNCTION public.conversation_note_company_chat_visible(
-  p_user_id     uuid,
-  p_account_id  uuid,
-  p_owner_id    uuid,
-  p_assigned_id uuid
-)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
-  WITH me AS (
-    SELECT CASE p.account_role
-             WHEN 'owner'       THEN 5
-             WHEN 'admin'       THEN 4
-             WHEN 'team_leader' THEN 3
-             WHEN 'agent'       THEN 2
-             WHEN 'viewer'      THEN 1
-           END AS rank
-      FROM public.profiles p
-     WHERE p.user_id = p_user_id
-       AND p.account_id = p_account_id
-       AND p.deactivated_at IS NULL
-       AND p.account_role <> 'bank_guest'
-  )
-  SELECT CASE
-    WHEN p_user_id IS NULL THEN FALSE
-    WHEN coalesce((SELECT rank FROM me), 0) >= 4 THEN TRUE
-    WHEN NOT EXISTS (SELECT 1 FROM me) THEN FALSE
-    WHEN coalesce(p_owner_id = p_user_id, FALSE)
-      OR coalesce(p_assigned_id = p_user_id, FALSE) THEN TRUE
-    WHEN coalesce((SELECT rank FROM me), 0) >= 3
-      AND EXISTS (
-        SELECT 1
-          FROM public.teams t
-          JOIN public.team_members tm ON tm.team_id = t.id
-         WHERE t.account_id = p_account_id
-           AND t.leader_user_id = p_user_id
-           AND tm.user_id IN (p_owner_id, p_assigned_id)
-      ) THEN TRUE
-    ELSE FALSE
-  END
-$$;
-
-REVOKE ALL ON FUNCTION public.conversation_note_company_chat_visible(uuid, uuid, uuid, uuid)
-  FROM PUBLIC, anon, authenticated, service_role;
-
+-- Corrected by 260 (originally this section dropped 190's personal-number
+-- arm). 217's conversations_select still shows a company chat on a
+-- personal number to that number's owner and their team leader
+-- (channel_id IN personal_number_visible_ids()), so a mention check
+-- without the arm was stricter than the chat itself: those people could
+-- open the chat but were never offered or rung for a mention. The body
+-- here is 241's, word for word, and equals 260's, so 241, 256 and 260
+-- re-applied in any order land on the same rule.
 CREATE OR REPLACE FUNCTION public.conversation_note_user_can_see(p_user uuid, p_conversation uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -270,8 +228,8 @@ AS $$
      WHERE c.id = p_conversation
        AND CASE
              WHEN c.personal_owner_id IS NULL THEN
-               public.conversation_note_company_chat_visible(
-                 p_user, c.account_id, c.user_id, c.assigned_agent_id)
+               public.can_view_conversation_for_user(
+                 p_user, c.account_id, c.user_id, c.assigned_agent_id, c.channel_id)
              -- 191's can_view_personal_chat, for an explicit person.
              ELSE p.account_role IN ('owner', 'admin')
                OR c.personal_owner_id = p_user
@@ -285,8 +243,13 @@ AS $$
   )
 $$;
 
+REVOKE ALL ON FUNCTION public.conversation_note_user_can_see(uuid, uuid) FROM PUBLIC, anon, authenticated;
+
 COMMENT ON FUNCTION public.conversation_note_user_can_see(uuid, uuid) IS
-  'Can this live staff person see this chat? Company chats: conversation_note_company_chat_visible (256: 190''s rule without the personal-number arm); personal chats: 191''s rule. No coordinator shares. Private: the note triggers and the mention list use it. Migrations 241, 256.';
+  'Can this live staff person see this chat? 190''s can_view_conversation_for_user (the same people 217''s conversations_select shows, personal-number arm included) plus 191''s personal-chat rule; no coordinator shares. Private: the note triggers and the mention list use it. Migrations 241, 260.';
+
+-- The first version of this section added a helper without the arm.
+DROP FUNCTION IF EXISTS public.conversation_note_company_chat_visible(uuid, uuid, uuid, uuid);
 
 -- ---------- 3. recycle_excluded_among: team leaders and up, company chats ----------
 
