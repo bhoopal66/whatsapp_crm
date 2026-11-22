@@ -15,10 +15,27 @@ import {
 const mocks = vi.hoisted(() => ({
   signIn: vi.fn(),
   guards: null as unknown as AdminCtx,
+  profiles: [] as Record<string, unknown>[],
+  profileFilter: vi.fn(),
+  cookieSet: vi.fn(),
+  cookieDelete: vi.fn(),
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { signInWithPassword: mocks.signIn } }),
+  createClient: async () => ({
+    auth: { signInWithPassword: mocks.signIn },
+    from: () => ({
+      select: () => ({
+        eq: async (column: string, value: string) => {
+          mocks.profileFilter(column, value);
+          return { data: mocks.profiles, error: null };
+        },
+      }),
+    }),
+  }),
+}));
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ set: mocks.cookieSet, delete: mocks.cookieDelete }),
 }));
 vi.mock('@/lib/auth/edge-guards', () => ({
   edgeAuthGuards: () => mocks.guards,
@@ -86,6 +103,10 @@ beforeEach(() => {
   vi.stubEnv('EDGE_CLIENT_IP_HEADER', 'cf-connecting-ip');
   vi.spyOn(console, 'error').mockImplementation(() => {});
   mocks.signIn.mockReset();
+  mocks.profiles = [];
+  mocks.cookieSet.mockClear();
+  mocks.cookieDelete.mockClear();
+  mocks.profileFilter.mockClear();
   answer();
   const memory = new MemoryLockoutStore();
   vi.spyOn(memory, 'fail');
@@ -296,5 +317,43 @@ describe('POST /api/auth/login', () => {
     }
     expect(state).not.toHaveBeenCalled();
     expect(mocks.signIn).not.toHaveBeenCalled();
+  });
+
+  describe('the saved interface language (migration 259)', () => {
+    it('writes the active row\'s language into NEXT_LOCALE', async () => {
+      mocks.profiles = [
+        { is_active: false, preferred_language: 'ko' },
+        { is_active: true, preferred_language: 'ar' },
+      ];
+      const res = await login('alice@example.com', PASSWORD);
+      expect(res.status).toBe(200);
+      expect(mocks.profileFilter).toHaveBeenCalledWith('user_id', 'u1');
+      expect(mocks.cookieSet).toHaveBeenCalledWith(
+        'NEXT_LOCALE',
+        'ar',
+        expect.objectContaining({ path: '/' })
+      );
+    });
+
+    it('clears a cookie a previous login left when nothing is saved', async () => {
+      mocks.profiles = [{ is_active: true, preferred_language: null }];
+      await login('alice@example.com', PASSWORD);
+      expect(mocks.cookieDelete).toHaveBeenCalledWith('NEXT_LOCALE');
+      expect(mocks.cookieSet).not.toHaveBeenCalled();
+    });
+
+    it('leaves the cookie alone before 259 (no column)', async () => {
+      mocks.profiles = [{ is_active: true }];
+      await login('alice@example.com', PASSWORD);
+      expect(mocks.cookieSet).not.toHaveBeenCalled();
+      expect(mocks.cookieDelete).not.toHaveBeenCalled();
+    });
+
+    it('touches no cookie on a failed sign-in', async () => {
+      mocks.profiles = [{ is_active: true, preferred_language: 'ar' }];
+      const res = await login('alice@example.com', 'wrong');
+      expect(res.status).toBe(401);
+      expect(mocks.cookieSet).not.toHaveBeenCalled();
+    });
   });
 });

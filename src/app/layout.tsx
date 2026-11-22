@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
-import { Inter } from "next/font/google";
+import { Inter, Noto_Sans_Arabic } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { localeDir } from "@/i18n/locales";
 import { ThemedToaster } from "@/components/themed-toaster";
 import {
   DEFAULT_MODE,
@@ -20,6 +21,15 @@ import {
 const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
+});
+
+// Arabic glyphs, after Inter in the font-sans stack (globals.css). Not
+// preloaded: its @font-face carries the Arabic unicode-range, so a
+// browser fetches it only for a page that shows Arabic text.
+const notoArabic = Noto_Sans_Arabic({
+  variable: "--font-arabic",
+  subsets: ["arabic"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -112,9 +122,12 @@ export default async function RootLayout({
   return (
     <html
       lang={locale}
+      // Arabic reads right to left; the layout uses logical (start/end)
+      // classes, so it mirrors from this one attribute.
+      dir={localeDir(locale)}
       data-theme={DEFAULT_THEME}
       data-mode={DEFAULT_MODE}
-      className={`${inter.variable} h-full antialiased`}
+      className={`${inter.variable} ${notoArabic.variable} h-full antialiased`}
       // The `theme-boot` script below rewrites `data-theme` and
       // `data-mode` on <html> from localStorage before React hydrates,
       // so for any non-default choice the client DOM intentionally

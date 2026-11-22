@@ -1324,3 +1324,11 @@ jobs:
       # 237's helper grants each keep their fixed rule.
       - name: Verify review fixes
         run: supabase db query --local --file supabase/ci/verify-review-fixes.sql
+
+      # Migration 259: a per-person interface language. set_my_language
+      # writes every workspace row of the caller and nobody else's,
+      # refuses an unsupported language and an anonymous caller; a direct
+      # client UPDATE of the column is refused; a new workspace row
+      # inherits the choice; only `authenticated` may execute the RPC.
+      - name: Verify preferred language
+        run: supabase db query --local --file supabase/ci/verify-preferred-language.sql

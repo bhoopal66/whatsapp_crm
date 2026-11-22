@@ -13,6 +13,7 @@ vi.mock('@/lib/auth/account', () => ({
 }));
 
 vi.mock('next-intl/server', () => ({
+  getLocale: vi.fn(async () => 'en'),
   getTranslations: vi.fn(
     async ({ namespace }: { namespace: string }) =>
       (key: string) =>

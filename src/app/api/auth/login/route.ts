@@ -12,6 +12,10 @@
 //   3. The outcome through the lockout (`settleAdmin`): a failure counts
 //      toward 5 per (IP, email) / 20 per IP in 10 minutes → 15-minute
 //      lock; a success clears the pair.
+//   4. On success, the person's saved interface language
+//      (`profiles.preferred_language`, migration 259) into the NEXT_LOCALE
+//      cookie, so the first page renders in it on any device; no saved
+//      language clears a cookie a previous login on this browser left.
 //
 // Every credential failure is one 401 with one message, so the answer
 // never says whether the email exists. A banned (deactivated) member
@@ -26,10 +30,13 @@
 // email. Set the header (docs/security.md).
 // ============================================================
 
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { edgeAuthGuards } from '@/lib/auth/edge-guards';
 import { admitAdmin, clientIp, settleAdmin } from '@/lib/edge';
+import { isLocale, LOCALE_COOKIE, LOCALE_COOKIE_OPTIONS } from '@/i18n/locales';
+import { pickActiveProfile } from '@/lib/auth/active-profile';
 import { createClient } from '@/lib/supabase/server';
 
 const MESSAGES = {
@@ -67,7 +74,7 @@ export async function POST(request: Request) {
   // Go's simple case mapping, JavaScript with the full one, so a raw
   // `admİn@…` reached the user `admin@…` under a lockout key of its own
   // and every such variant bought another set of guesses.
-  const outcome = await signIn(user, password);
+  const { outcome, supabase, userId } = await signIn(user, password);
   if (outcome === 'throttled') return json(429, MESSAGES.throttled, 1000);
   if (outcome === 'unavailable') return json(503, MESSAGES.unavailable);
 
@@ -85,7 +92,42 @@ export async function POST(request: Request) {
 
   if (outcome === 'banned') return json(403, MESSAGES.deactivated);
   if (!authOk) return json(401, MESSAGES.invalid);
+  if (supabase && userId) await applySavedLanguage(supabase, userId);
   return NextResponse.json({ ok: true });
+}
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Step 4. Best-effort: a failed read (or a database before 259, where
+ * the column is missing) leaves the cookie as it is and never fails the
+ * sign-in. The browser-side sync in use-auth repairs it on the next load.
+ */
+async function applySavedLanguage(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<void> {
+  try {
+    // `*`, not the column: before 259 it is missing, and naming it
+    // would fail the read. Colleagues' rows are visible too: own only.
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', userId);
+    if (error) return;
+    const row = pickActiveProfile(
+      (data ?? []) as { is_active?: boolean | null; preferred_language?: unknown }[]
+    );
+    if (!row || !('preferred_language' in row)) return;
+    const store = await cookies();
+    if (isLocale(row.preferred_language)) {
+      store.set(LOCALE_COOKIE, row.preferred_language, LOCALE_COOKIE_OPTIONS);
+    } else {
+      store.delete(LOCALE_COOKIE);
+    }
+  } catch (err) {
+    console.error('[POST /api/auth/login] reading the language failed:', err);
+  }
 }
 
 async function readCredentials(
@@ -107,17 +149,28 @@ async function readCredentials(
   return { email, password };
 }
 
-async function signIn(email: string, password: string): Promise<SignInOutcome> {
+async function signIn(
+  email: string,
+  password: string
+): Promise<{
+  outcome: SignInOutcome;
+  supabase: SupabaseClient | null;
+  userId: string | null;
+}> {
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    return error ? classifySignInError(error) : 'ok';
+    return {
+      outcome: error ? classifySignInError(error) : 'ok',
+      supabase,
+      userId: data?.user?.id ?? null,
+    };
   } catch (err) {
     console.error('[POST /api/auth/login] sign-in failed:', err);
-    return 'unavailable';
+    return { outcome: 'unavailable', supabase: null, userId: null };
   }
 }
 
