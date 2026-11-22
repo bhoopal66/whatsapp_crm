@@ -173,7 +173,7 @@ module gets its own file and one line here; don't grow this file.
 - **Video meetings** (`lib/meetings/*`, 106, 111–112, 176) → `meetings.md`. The session owns the call; background effects fail closed; keep the pre-176 fallback.
 - **Calendar and web push** (`lib/calendar/*`, `lib/push/*`, 108–110, 117, 197) → `calendar-push.md`. Only the organiser edits; push routes 503 without VAPID keys.
 - **Smart insights** (`lib/insights/*`, 147–153, 197) → `smart-insights.md`. Off until switched on; ordinal keys and redacted text only; a person always wins.
-- **Release 2026-11-22** (236–253: assignment, response times, worklist, notes, voice library, CSAT, web form, saved views, recycle, drafts) → `release-2026-11-22.md`. `assignment_rotate_assign` is the only automatic assigner; notes never enter `messages`.
+- **Release 2026-11-22** (236–253, 257: assignment, response times, worklist, notes, voice library, CSAT, web form, saved views, recycle, drafts, contact sort) → `release-2026-11-22.md`. `assignment_rotate_assign` is the only automatic assigner; notes never enter `messages`.
 - **Shell and reports** (`nav-items.ts`, 254–255, `lib/csv/build.ts`) → `shell-and-reports.md`. A new screen is added in `nav-items.ts` once; CSV always through `build.ts`.
 - **Flows vs Automations, crons** (`lib/flows/*`, `lib/automations/*`) → `flows-automations.md`. Seven `x-cron-secret` endpoints; a new background job joins the automations cron.
 - **AI** (`lib/ai/*`, 030, 052, 054, 077–079, 081, 154) → `ai.md`. Every dispatch records one outcome; `ai_usage_log.mode` ↔ `LogAiUsageArgs` ↔ `byMode`.
@@ -262,12 +262,21 @@ or document "apply in order, once" (157-160).
 
 ### i18n
 
-`next-intl` with a **build-time** locale (`NEXT_PUBLIC_APP_LOCALE`), configured
-in `src/i18n/request.ts`; catalogues in `messages/*.json` (`en`, `ko`). Fallback
-is whole-file, not per-key, so `messages.test.ts` enforces key parity with
-`en.json`. Strings containing literal `{{1}}` placeholders or raw HTML are not
-valid ICU — read them with `t.raw()` / `t.rich()`, and `icu-safety.test.ts`
-fails if one is wired to plain `t()`.
+`next-intl`; catalogues in `messages/*.json` (`en`, `ar`, `ko`). The locale is
+per request (`src/i18n/locales.ts`): the `NEXT_LOCALE` cookie (written at
+sign-in and by Settings → Appearance from `profiles.preferred_language`, 259,
+set only through `set_my_language`), else the build-time
+`NEXT_PUBLIC_APP_LOCALE`, else `en`; `LOCALES` ↔ 259's CHECK. Fallback is
+whole-file, not per-key, so `messages.test.ts` enforces key parity with
+`en.json`, and `ar-catalogue.test.ts` that every `ar` string keeps its en
+string's ICU shape. Strings containing literal `{{1}}` placeholders or raw HTML
+are not valid ICU — read them with `t.raw()` / `t.rich()`, and
+`icu-safety.test.ts` fails if one is wired to plain `t()`. The root layout sets
+`<html dir>` (`rtl` for `ar`), so use logical classes (`ms-`, `ps-`, `start-`,
+`text-start`, `rounded-s`, `border-s`) and run `node scripts/rtl-sweep.mjs`
+after a merge; a back/forward icon needs `rtl:rotate-180` by hand. Don't add
+`rtl:space-x-reverse`: Tailwind 4's `space-x`/`divide-x` already mirror.
+`docs/languages.md`.
 
 ## Conventions
 

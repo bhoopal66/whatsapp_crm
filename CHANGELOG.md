@@ -14,6 +14,47 @@ and polish.
 
 - Docs: CLAUDE.md split into a short index plus docs/agents/*
 
+### Your own language, including Arabic
+
+**Migration required:** apply `259_preferred_language.sql` (adds
+`profiles.preferred_language`, `set_my_language()` and two profiles
+triggers). Without it the app still runs: nobody can save a language, and
+everyone sees the workspace default.
+
+- **Added:** each person picks English, Arabic or Korean in Settings →
+  Appearance → Language. The choice is saved on their profile, so it follows
+  them to every device; people who have not picked one see the workspace
+  default (`NEXT_PUBLIC_APP_LOCALE`, still build time). Arabic is shown right
+  to left, with Noto Sans Arabic for its letters. The Arabic text is
+  machine-translated and still needs a native reader (`docs/languages.md`).
+- **Changed:** the layout uses logical (start/end) Tailwind classes, so every
+  screen mirrors in Arabic. Direction icons flip; charts, phone numbers and
+  email fields stay left to right. `scripts/rtl-sweep.mjs` converts physical
+  classes and is safe to run again. The funnel CSV export and the global
+  error page follow the person's language instead of the build-time one.
+
+### Contacts sort, lead sources, embeddable web form
+
+**Migration required:** apply `257_contact_sort.sql` (adds
+`contacts_sorted_page`, SECURITY INVOKER) before deploying; re-runnable.
+Without it the three new sort headers are disabled and the list stays newest
+first.
+
+- **Added:** Contacts and Team contacts sort by Owner, Assigned to and a new
+  Last activity column (company chats only), kept in the URL
+  (`?sort=owner|assignee|activity&dir=`) and in saved views.
+- **Added:** `lead_source` is filled for contacts created from a broadcast
+  CSV (`broadcast`) and contacts Compass creates on a first message
+  (`compass`, only if empty). `POST /api/v1/contacts` and the MCP
+  `create_contact` tool accept an optional `lead_source`.
+- **Added:** the hosted web form `/f/<token>` can be embedded in an iframe by
+  the websites on that form's allowed list (Settings → Web form shows the
+  snippet). An empty list, an unknown or disabled token, or a failed lookup
+  still means no framing. Every other route is unchanged.
+- **Changed:** the "Assigned to" column reads company chats only (it used to
+  take the assignee of any chat, personal ones included), so it matches its
+  sort.
+
 ### Tooling: apply a range of migrations
 
 `scripts/apply-migrations.sh FROM TO` applies `supabase/migrations` files in
