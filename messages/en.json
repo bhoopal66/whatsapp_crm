@@ -100,7 +100,8 @@
       "team": "Team",
       "automation": "Campaigns & automation",
       "integrations": "Integrations",
-      "hr": "HR"
+      "hr": "HR",
+      "reports": "Reports"
     },
     "roleBankGuest": "Bank guest",
     "switchWorkspace": "Switch workspace",
@@ -133,7 +134,11 @@
     "openHrChats": "{count, plural, one {# open chat} other {# open chats}}",
     "desk": "Case desk",
     "recycle": "Recycle declined",
-    "liveView": "Live view"
+    "liveView": "Live view",
+    "hr": "HR",
+    "groupHasCurrentPage": "This group holds the page you are on",
+    "workspaceSwitching": "Switching…",
+    "workspaceCurrent": "Current workspace"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -11660,6 +11665,17 @@
       }
     }
   },
+  "TeamViewSwitch": {
+    "mine": "Mine",
+    "team": "Team",
+    "unread": "{count} unread team {count, plural, =1 {conversation} other {conversations}}",
+    "inbox": {
+      "label": "Inbox view"
+    },
+    "contacts": {
+      "label": "Contacts view"
+    }
+  },
   "CustomerDocuments": {
     "title": "Documents",
     "copy": "Copy reference number",
@@ -12427,6 +12443,18 @@
         "note": "Consent is kept per channel; there is no fallback from one channel to another."
       }
     }
+  },
+  "HrTabs": {
+    "label": "HR sections",
+    "opening": "Opening HR…",
+    "openChats": "{count, plural, one {# open chat} other {# open chats}}",
+    "recruiter": "Recruiter HR",
+    "department": "HR department",
+    "unsorted": "Not sorted",
+    "tasks": "Tasks",
+    "rules": "Rules",
+    "hireFast": "Hire fast",
+    "automatedMessages": "Automated messages"
   },
   "MyActivity": {
     "findings": {

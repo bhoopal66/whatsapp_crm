@@ -164,6 +164,7 @@ import {
 import { withParams } from '@/lib/contacts/url-state';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
+import { TeamViewSwitch } from '@/components/layout/team-view-switch';
 
 const PAGE_SIZE = 25;
 /** Typing pause before the search box re-queries. Every keystroke used
@@ -971,6 +972,12 @@ export function ContactsPageInner({
 
   return (
     <div className="space-y-6">
+      {/* Mine / Team: only for people who have a team view. */}
+      <TeamViewSwitch
+        screen="contacts"
+        teamView={teamView}
+        className="sm:w-60"
+      />
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
