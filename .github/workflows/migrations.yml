@@ -1157,3 +1157,8 @@ jobs:
       # one supersedes the pending one, writers decide once.
       - name: Verify case review
         run: supabase db query --local --file supabase/ci/verify-case-review.sql
+
+      # Migration 252: broadcasts.draft_state (a draft reopens whole in
+      # the wizard); the admin-only write policies stay.
+      - name: Verify broadcast drafts
+        run: supabase db query --local --file supabase/ci/verify-broadcast-drafts.sql

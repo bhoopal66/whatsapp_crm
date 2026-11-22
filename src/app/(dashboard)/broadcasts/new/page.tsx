@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -17,6 +17,12 @@ import {
 } from '@/hooks/use-broadcast-sending';
 import { pickTemplateVariables } from '@/lib/broadcasts/variables';
 import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
+import {
+  deserializeDraft,
+  draftResumeStep,
+  reopenedScheduledAt,
+  serializeDraft,
+} from '@/lib/broadcasts/draft-state';
 import { Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -28,7 +34,18 @@ const steps = [
 ] as const;
 
 export default function NewBroadcastPage() {
+  // useSearchParams (the ?draft= id) needs a Suspense boundary.
+  return (
+    <Suspense fallback={null}>
+      <NewBroadcastWizard />
+    </Suspense>
+  );
+}
+
+function NewBroadcastWizard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const draftParam = searchParams.get('draft');
   const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();
   const { createAndSendBroadcast, isProcessing, progress } =
@@ -45,6 +62,61 @@ export default function NewBroadcastPage() {
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
   const [quietHours, setQuietHours] = useState<QuietHours | null>(null);
   const [followUpFlowId, setFollowUpFlowId] = useState<string | null>(null);
+  // Track D U14: the draft row this wizard continues, so "Save draft"
+  // updates it and a send removes it.
+  const [draftId, setDraftId] = useState<string | null>(draftParam);
+
+  // Reopen a saved draft: restore the whole wizard state and land on the
+  // furthest step whose input exists.
+  useEffect(() => {
+    if (!draftParam) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from('broadcasts')
+        .select('id, name, status, draft_state')
+        .eq('id', draftParam)
+        .maybeSingle();
+      if (cancelled) return;
+      const state =
+        data && data.status === 'draft'
+          ? deserializeDraft(data.draft_state)
+          : null;
+      if (error || !state) {
+        setDraftId(null);
+        toast.error(t('toastDraftCannotOpen'));
+        return;
+      }
+      let found: MessageTemplate | null = null;
+      if (state.template) {
+        const { data: tpl } = await supabase
+          .from('message_templates')
+          .select('*')
+          .eq('name', state.template.name)
+          .eq('language', state.template.language)
+          .limit(1)
+          .maybeSingle();
+        found = (tpl as MessageTemplate | null) ?? null;
+        if (!found) toast.error(t('toastDraftTemplateGone'));
+      }
+      if (cancelled) return;
+      setTemplate(found);
+      setAudience(state.audience);
+      setVariables(state.variables);
+      setHeaderMediaUrl(state.headerMediaUrl);
+      setName(state.name || data?.name || '');
+      setScheduledAt(reopenedScheduledAt(state.scheduledAt));
+      setQuietHours(state.quietHours);
+      setFollowUpFlowId(state.followUpFlowId);
+      if (state.csvDropped) toast.message(t('toastDraftCsvDropped'));
+      setCurrentStep(draftResumeStep(state, found !== null));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftParam]);
 
   async function handleSend() {
     if (!template) return;
@@ -64,6 +136,10 @@ export default function NewBroadcastPage() {
           compass: audience.compass,
           excludeChatTagIds: audience.excludeChatTagIds,
           skipRecentDays: audience.skipRecentDays,
+          chatTagMatch: audience.chatTagMatch,
+          bankCodes: audience.bankCodes,
+          bankSource: audience.bankSource,
+          leadSources: audience.leadSources,
         },
         // Only this template's variables: mappings made for another
         // template earlier in the wizard would shift the values.
@@ -73,6 +149,15 @@ export default function NewBroadcastPage() {
         quietHours,
         followUpFlowId,
       });
+      // The real campaign exists now: the draft it came from is spent
+      // (deleted, so the list never shows both). Best-effort.
+      if (draftId) {
+        await createClient()
+          .from('broadcasts')
+          .delete()
+          .eq('id', draftId)
+          .eq('status', 'draft');
+      }
       if (scheduledFor) {
         toast.success(
           t('toastScheduled', { when: scheduledFor.toLocaleString() })
@@ -89,13 +174,10 @@ export default function NewBroadcastPage() {
   }
 
   /**
-   * Writes a draft broadcast row — no recipients, no sending. The user
-   * can revisit it via the list page to finish the flow later. We
-   * don't persist the in-progress audience/variable config here
-   * because the current schema doesn't carry it past `audience_filter`
-   * and `template_variables`; those are enough for the user to
-   * recognize the draft but not to exactly round-trip into the wizard.
-   * A full resume-draft UX is a future polish.
+   * Writes (or, when this wizard was opened from a draft, updates) a
+   * draft broadcast row — no recipients, no sending. The whole wizard
+   * state goes into `draft_state` (migration 252) so "Open draft" on the
+   * list brings the person back to exactly here.
    */
   async function handleSaveDraft() {
     if (!template || !name.trim()) {
@@ -116,9 +198,17 @@ export default function NewBroadcastPage() {
       return;
     }
 
-    const { error } = await supabase.from('broadcasts').insert({
-      user_id: user.id,
-      account_id: accountId,
+    const draftState = serializeDraft({
+      template,
+      audience,
+      variables: pickTemplateVariables(variables, template.body_text),
+      headerMediaUrl,
+      name: name.trim(),
+      scheduledAt,
+      quietHours,
+      followUpFlowId,
+    });
+    const fields = {
       name: name.trim(),
       template_name: template.name,
       template_language: template.language ?? 'en_US',
@@ -126,18 +216,36 @@ export default function NewBroadcastPage() {
       audience_filter: {
         type: audience.type,
         chatTagIds: audience.chatTagIds,
+        chatTagMatch: audience.chatTagMatch,
         excludeChatTagIds: audience.excludeChatTagIds,
+        bankCodes: audience.bankCodes,
+        bankSource: audience.bankSource,
+        leadSources: audience.leadSources,
         compass: audience.type === 'compass' ? audience.compass : undefined,
       },
+      header_media_url: headerMediaUrl.trim() || null,
+      quiet_hours: quietHours,
       follow_up_flow_id: followUpFlowId,
-      status: 'draft',
-      total_recipients: 0,
-      sent_count: 0,
-      delivered_count: 0,
-      read_count: 0,
-      replied_count: 0,
-      failed_count: 0,
-    });
+      draft_state: draftState,
+    };
+    const { error } = draftId
+      ? await supabase
+          .from('broadcasts')
+          .update(fields)
+          .eq('id', draftId)
+          .eq('status', 'draft')
+      : await supabase.from('broadcasts').insert({
+          ...fields,
+          user_id: user.id,
+          account_id: accountId,
+          status: 'draft',
+          total_recipients: 0,
+          sent_count: 0,
+          delivered_count: 0,
+          read_count: 0,
+          replied_count: 0,
+          failed_count: 0,
+        });
 
     if (error) {
       toast.error(t('toastFailedDraft', { error: error.message }));
