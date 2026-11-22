@@ -33,6 +33,8 @@ describe('contactListQuestion', () => {
       { ...base, chatTagIds: ['tag-a'] },
       { ...base, chatTagIds: ['tag-a', 'tag-b'] },
       { ...base, page: 1 },
+      { ...base, sort: { sort: 'name', dir: 'asc' } },
+      { ...base, sort: { sort: 'name', dir: 'desc' } },
     ];
     const questions = variants.map(contactListQuestion);
     expect(new Set(questions).size).toBe(variants.length);
@@ -102,6 +104,24 @@ describe('buildContactListQuery', () => {
     expect(CONTACT_LIST_SELECT).toBe(
       '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)'
     );
+  });
+
+  it('orders by name (blank last), then newest first', () => {
+    const { q, calls } = recorder();
+    buildContactListQuery(
+      q,
+      {
+        personalOnlyUserId: null,
+        search: '',
+        page: 0,
+        sort: { sort: 'name', dir: 'asc' },
+      },
+      25
+    );
+    expect(calls.slice(1, 3)).toEqual([
+      ['order', 'name', { ascending: true, nullsFirst: false }],
+      ['order', 'created_at', { ascending: false }],
+    ]);
   });
 
   it('keeps the owner narrowing and the search', () => {

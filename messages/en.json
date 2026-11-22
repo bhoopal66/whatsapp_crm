@@ -1011,6 +1011,9 @@
       "toastDeleted": "Deleted \"{name}\"."
     }
   },
+  "ContactsTable": {
+    "sortedByRelevance": "While you search, results are ordered by best match."
+  },
   "Pipelines": {
     "page": {
       "unknownStage": "New stage",

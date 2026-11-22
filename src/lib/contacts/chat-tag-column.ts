@@ -1,5 +1,10 @@
 import type { Conversation } from '@/types';
 import {
+  compareContactRows,
+  DEFAULT_CONTACT_SORT,
+  type ContactSort,
+} from '@/lib/contacts/sort';
+import {
   chatTagLabel,
   resolveConversationChatTags,
   type ChatTagTree,
@@ -178,16 +183,12 @@ export function chatTagFilterChip(
  * the pages never overlap.
  */
 export function pageOfContactIds(
-  rows: readonly { id: string; created_at: string }[],
+  rows: readonly { id: string; created_at: string; name?: string | null }[],
   from: number,
-  size: number
+  size: number,
+  sort: ContactSort = DEFAULT_CONTACT_SORT
 ): { ids: string[]; total: number } {
-  const sorted = [...rows].sort((a, b) => {
-    if (a.created_at !== b.created_at) {
-      return a.created_at < b.created_at ? 1 : -1;
-    }
-    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
-  });
+  const sorted = [...rows].sort(compareContactRows(sort));
   return {
     ids: sorted.slice(from, from + size).map((r) => r.id),
     total: sorted.length,

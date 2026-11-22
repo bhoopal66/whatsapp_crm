@@ -1011,6 +1011,9 @@
       "toastDeleted": "\"{name}\"을(를) 삭제했습니다."
     }
   },
+  "ContactsTable": {
+    "sortedByRelevance": "While you search, results are ordered by best match."
+  },
   "Pipelines": {
     "page": {
       "unknownStage": "새 단계",

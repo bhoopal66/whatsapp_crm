@@ -7,6 +7,7 @@ import {
 import { phoneSearchDigits } from '@/lib/contacts/phone-search';
 import { escapeIlike, sanitizeContactSearch } from '@/lib/contacts/search';
 import type { SearchHit } from '@/lib/contacts/fuzzy-search';
+import { DEFAULT_CONTACT_SORT, type ContactSort } from '@/lib/contacts/sort';
 
 /**
  * The Contacts list (/contacts and /team-contacts) as one round trip and
@@ -34,8 +35,13 @@ export const CONTACT_LIST_CONVERSATION_ORDER = {
   options: { ascending: true, referencedTable: 'conversations' },
 } as const;
 
-/** The only sort the list has (newest first); named in the key. */
+/** The default sort (newest first); named in the key. */
 export const CONTACT_LIST_SORT = 'created_at.desc';
+
+/** The sort as the cache key names it: `created_at.desc`, `name.asc`. */
+export function contactSortLabel(sort: ContactSort): string {
+  return `${sort.sort === 'name' ? 'name' : 'created_at'}.${sort.dir}`;
+}
 
 export interface ContactListView {
   teamView: boolean;
@@ -45,6 +51,8 @@ export interface ContactListView {
   search: string;
   /** The chat-tag filter's ids, in any order. */
   chatTagIds: readonly string[];
+  /** Defaults to newest first. */
+  sort?: ContactSort;
   page: number;
 }
 
@@ -60,7 +68,7 @@ export function contactListQuestion(view: ContactListView): string {
       own: view.personalOnlyUserId,
       q: view.search.trim(),
       tags: [...view.chatTagIds].sort(),
-      sort: CONTACT_LIST_SORT,
+      sort: contactSortLabel(view.sort ?? DEFAULT_CONTACT_SORT),
       page: view.page,
     })
   );
@@ -119,7 +127,11 @@ export interface ContactListQueryBuilder<Q> {
 export interface ContactListQuery<Q> {
   order(
     column: string,
-    options: { ascending: boolean; referencedTable?: string }
+    options: {
+      ascending: boolean;
+      nullsFirst?: boolean;
+      referencedTable?: string;
+    }
   ): Q;
   range(from: number, to: number): Q;
   eq(column: string, value: string): Q;
@@ -151,13 +163,23 @@ export function contactSearchFilter(term: string): string | null {
  */
 export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   table: ContactListQueryBuilder<Q>,
-  view: Pick<ContactListView, 'personalOnlyUserId' | 'search' | 'page'>,
+  view: Pick<ContactListView, 'personalOnlyUserId' | 'search' | 'page'> & {
+    sort?: ContactSort;
+  },
   pageSize: number
 ): Q {
   const from = view.page * pageSize;
-  let query = table
-    .select(CONTACT_LIST_SELECT, { count: 'exact' })
-    .order('created_at', { ascending: false })
+  const sort = view.sort ?? DEFAULT_CONTACT_SORT;
+  const ascending = sort.dir === 'asc';
+  let ordered: Q = table.select(CONTACT_LIST_SELECT, { count: 'exact' });
+  // Names first (blank last), then newest first, then id: stable pages.
+  if (sort.sort === 'name') {
+    ordered = ordered.order('name', { ascending, nullsFirst: false });
+    ordered = ordered.order('created_at', { ascending: false });
+  } else {
+    ordered = ordered.order('created_at', { ascending });
+  }
+  let query = ordered
     .order(
       CONTACT_LIST_CONVERSATION_ORDER.column,
       CONTACT_LIST_CONVERSATION_ORDER.options

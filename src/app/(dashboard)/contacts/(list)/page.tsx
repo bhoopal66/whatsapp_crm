@@ -116,6 +116,16 @@ import {
   type SearchHit,
 } from '@/lib/contacts/fuzzy-search';
 import { pruneSelection } from '@/lib/contacts/selection';
+import { SortHeader } from '@/components/contacts/sort-header';
+import {
+  DEFAULT_CONTACT_SORT,
+  nextContactSort,
+  parseContactSort,
+  sortToParams,
+  type ContactSort,
+  type ContactSortKey,
+} from '@/lib/contacts/sort';
+import { withParams } from '@/lib/contacts/url-state';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
 
@@ -159,6 +169,7 @@ export function ContactsPageInner({
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const tSearch = useTranslations('ContactSearch');
+  const tTable = useTranslations('ContactsTable');
   const locale = useLocale();
   const { user, accountId, accountRole, profileLoading } = useAuth();
 
@@ -178,6 +189,10 @@ export function ContactsPageInner({
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [page, setPage] = useState(0);
+  // Sort lives in the URL (?sort=name&dir=asc). The list waits for it to
+  // be read (`urlReady`) so a reload does not fetch the default first.
+  const [sort, setSort] = useState<ContactSort>(DEFAULT_CONTACT_SORT);
+  const [urlReady, setUrlReady] = useState(false);
   // Chat-tag filter — contacts shown have a conversation carrying ANY
   // of these main or sub tags (OR), as in the inbox.
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
@@ -243,19 +258,21 @@ export function ContactsPageInner({
   // lands; asking before then asked the wrong question for a team
   // leader — the unnarrowed, account-wide list, which is precisely
   // what /team-contacts is for.
-  const listKey = profileLoading
-    ? null
-    : sessionKey(
-        accountId,
-        user?.id,
-        contactListQuestion({
-          teamView,
-          personalOnlyUserId,
-          search: debouncedSearch,
-          chatTagIds: chatTagFilterIds,
-          page,
-        })
-      );
+  const listKey =
+    profileLoading || !urlReady
+      ? null
+      : sessionKey(
+          accountId,
+          user?.id,
+          contactListQuestion({
+            teamView,
+            personalOnlyUserId,
+            search: debouncedSearch,
+            chatTagIds: chatTagFilterIds,
+            sort,
+            page,
+          })
+        );
 
   const fetchList = useCallback(async (): Promise<ContactListPage> => {
     const from = page * PAGE_SIZE;
@@ -368,7 +385,7 @@ export function ContactsPageInner({
       // for the Chat tag and Assigned to columns.
       const { data, count, error } = await buildContactListQuery(
         supabase.from('contacts'),
-        { personalOnlyUserId, search: term, page },
+        { personalOnlyUserId, search: term, page, sort },
         PAGE_SIZE
       );
       if (error) throw error;
@@ -421,7 +438,7 @@ export function ContactsPageInner({
         (ids) => {
           let query = supabase
             .from('contacts')
-            .select('id, created_at')
+            .select('id, created_at, name')
             .in('id', ids);
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
@@ -432,7 +449,12 @@ export function ContactsPageInner({
       const chunkError = results.find((r) => r.error)?.error;
       if (chunkError) throw chunkError;
       matchedRows = results.flatMap(
-        (r) => (r.data ?? []) as { id: string; created_at: string }[]
+        (r) =>
+          (r.data ?? []) as {
+            id: string;
+            created_at: string;
+            name: string | null;
+          }[]
       );
       filterMatches.current = {
         key: filterKey,
@@ -443,7 +465,8 @@ export function ContactsPageInner({
     const { ids: pageIds, total } = pageOfContactIds(
       matchedRows,
       from,
-      PAGE_SIZE
+      PAGE_SIZE,
+      sort
     );
     if (pageIds.length === 0) return { rows: [], total };
 
@@ -477,6 +500,7 @@ export function ContactsPageInner({
     chatTagFilterIds,
     chatTagFilterKey,
     personalOnlyUserId,
+    sort,
   ]);
 
   const list = useSessionQuery(listKey, fetchList);
@@ -557,6 +581,37 @@ export function ContactsPageInner({
 
   function openDetail(contactId: string) {
     router.push(customerPath(contactId, teamView));
+  }
+
+  // Restore the sort from the URL once, on mount.
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      setSort(parseContactSort(q.get('sort'), q.get('dir')));
+    } catch {
+      // No window or malformed URL: keep the default.
+    }
+    setUrlReady(true);
+  }, []);
+
+  function changeSort(key: ContactSortKey) {
+    const next = nextContactSort(sort, key);
+    setSort(next);
+    setPage(0);
+    try {
+      const qs = withParams(window.location.search, {
+        sort: null,
+        dir: null,
+        ...sortToParams(next),
+      });
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${qs}`
+      );
+    } catch {
+      // The URL is a convenience; the in-memory sort still applies.
+    }
   }
 
   // `?c=<id>` deep link — used by "view contact" on a saved contact card
@@ -650,6 +705,8 @@ export function ContactsPageInner({
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
+  // A close-match search is ranked by relevance; sorting does not apply.
+  const rankedBySearch = searchRpcTerm(debouncedSearch.trim()) !== null;
   const hasActiveFilters =
     debouncedSearch.trim().length > 0 || chatTagFilterIds.length > 0;
 
@@ -837,6 +894,12 @@ export function ContactsPageInner({
         )}
       </div>
 
+      {rankedBySearch && (
+        <p className="text-muted-foreground text-xs">
+          {tTable('sortedByRelevance')}
+        </p>
+      )}
+
       {/* Bulk action bar */}
       {selected.size > 0 && (
         <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
@@ -880,9 +943,14 @@ export function ContactsPageInner({
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground font-semibold">
+              <SortHeader
+                sortKey="name"
+                current={sort}
+                onSort={changeSort}
+                disabled={rankedBySearch}
+              >
                 {t('tableColumns.name')}
-              </TableHead>
+              </SortHeader>
               <TableHead className="text-muted-foreground font-semibold">
                 {t('tableColumns.phone')}
               </TableHead>
@@ -901,9 +969,15 @@ export function ContactsPageInner({
               <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
                 {t('tableColumns.assignedTo')}
               </TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+              <SortHeader
+                sortKey="created"
+                current={sort}
+                onSort={changeSort}
+                disabled={rankedBySearch}
+                className="hidden lg:table-cell"
+              >
                 {t('tableColumns.createdAt')}
-              </TableHead>
+              </SortHeader>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
