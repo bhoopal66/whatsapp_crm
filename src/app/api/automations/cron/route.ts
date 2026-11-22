@@ -11,6 +11,8 @@ import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
 import { runDeskDigests } from '@/lib/desk/digest'
 import { sendDeskDigest } from '@/lib/desk/digest-send'
+import { runCaseCsat } from '@/lib/cases/csat'
+import { sendCaseCsat } from '@/lib/cases/csat-send'
 import {
   runDeskDocTasks,
   runDeskQueueAlerts,
@@ -806,6 +808,32 @@ function scheduleDeskDigests() {
   }
 }
 
+/**
+ * Case CSAT rating requests (migration 246): queued by a trigger on stage
+ * history; claim what may go now (send hours, opt-out, one per person a
+ * day are SQL's) and send each once. Off until a workspace switches it
+ * on. Every 5 minutes per process, inside after(); runCaseCsat never
+ * throws.
+ */
+const caseCsatDue = everyInterval(5 * 60_000)
+
+function scheduleCaseCsat() {
+  try {
+    if (!caseCsatDue()) return
+    after(async () => {
+      const summary = await runCaseCsat(supabaseAdmin(), sendCaseCsat)
+      if (summary && summary.claimed > 0) {
+        console.log('[automations-cron] case csat:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule case csat:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
 function scheduleDeskTrayEscalation() {
   try {
     if (!deskTrayDue()) return
@@ -948,6 +976,7 @@ export async function GET(request: Request) {
     scheduleHrSweep()
     scheduleDeskTrayEscalation()
     scheduleDeskDigests()
+    scheduleCaseCsat()
     scheduleHrAutomsgDrain()
   }
 }

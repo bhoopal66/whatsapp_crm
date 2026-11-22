@@ -6,6 +6,7 @@ import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members
 import type { CaseTabProps } from '@/lib/cases/case-page';
 import { formatAed } from '@/lib/cases/ui';
 
+import { CsatScore } from './csat-score';
 import { SlaChip } from './sla-chip';
 
 const DETAIL_FIELDS = ['bank_code', 'product', 'amount', 'priority', 'due_at'];
@@ -30,6 +31,7 @@ export function OverviewTab({ detail }: CaseTabProps) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <CsatScore caseId={detail.case.id} />
       <Section title={t('overview.timers')} empty={t('overview.noTimers')}>
         {detail.timers.map((tm, i) => (
           <li key={`${tm.timer}-${i}`} className="flex flex-col gap-0.5">

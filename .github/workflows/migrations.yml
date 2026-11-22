@@ -1157,6 +1157,13 @@ jobs:
       - name: Verify desk worklist and suggestion input
         run: supabase db query --local --file supabase/ci/verify-desk-worklist-suggest.sql
 
+      # Migration 246: case CSAT. Off by default; one request per case at
+      # submission and at approval (never opted out, never without a
+      # company chat); the claim keeps send hours and one a day per
+      # person; held is retried; a 1-5 reply within the window counts once.
+      - name: Verify case CSAT
+        run: supabase db query --local --file supabase/ci/verify-case-csat.sql
+
       # Migration 208: WhatsApp groups on company OpenWA numbers.
       # whatsapp_group_can_create and the group channel guard accept a
       # Whapi or company OpenWA number and refuse a personal OpenWA

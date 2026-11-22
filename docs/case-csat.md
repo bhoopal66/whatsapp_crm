@@ -1,0 +1,159 @@
+# Customer ratings (CSAT) for cases
+
+Migration 246. A customer is asked to rate our service from 1 to 5 twice
+per case: when the case is **submitted** to the bank and when it is
+**approved**. The reply is stored against the case and shown on the case
+page and, as averages per agent and per bank, on the Cases screen.
+
+**Off by default.** Nothing is queued, sent or captured until an owner or
+admin switches it on (Settings, the "Customer ratings (CSAT)" card;
+`GET`/`PUT /api/cases/csat-settings`).
+
+## When a request is queued
+
+A trigger on case stage history (`case_stage_history_csat`, beside 124's
+SLA trigger) decides:
+
+- **submitted**: the stage write takes the case out of the
+  pre-submission stages (Interested, Data collection, Review) to a stage
+  that is not final. With the default stage list that is `Submitted`; a
+  bank with its own list uses its first stage after the pre-submission
+  ones. A case opened straight from a submission counts too.
+- **approved**: the stage write goes to `Approved`, or carries outcome
+  `Approved`.
+
+Each case is asked **at most once per moment** (`UNIQUE (case_id,
+trigger)`): a case moved back and forward is not asked again. Only while
+CSAT is on and that moment is switched on; switching off later does not
+reach back. A lead never reaches either moment (it has no submission).
+
+The trigger never fails the stage write: any error becomes a database
+WARNING and the case moves as usual.
+
+The request goes to the **case's contact**, in their newest **company
+chat** (never a personal-number chat). When there is no contact, no
+company chat, or the contact has opted out or is marked do-not-contact,
+the request is recorded as `skipped` with that reason and never sent.
+
+## Sending
+
+The automations cron (`GET /api/automations/cron`, every 5 minutes per
+process) claims what may go now and sends each request once. The claim
+re-checks everything:
+
+- CSAT and the moment still switched on (else `cancelled` /
+  `switched_off`);
+- the workspace's **send hours**, Dubai time (default 09:00 to 20:00;
+  never before 08:00 or from 21:00). Outside them the request waits;
+- opt-out and do-not-contact (else `cancelled` / `opted_out`), and the
+  chat still a company chat of the contact (else `no_chat`);
+- **at most one rating request per person per 24 hours** (a second case
+  of the same person waits a day). An advisory lock per person keeps two
+  cron processes from both sending;
+- a request not sent within **3 days** of its moment is `cancelled` /
+  `expired`.
+
+A claim that gets no result within 10 minutes may have reached WhatsApp
+and is marked `unconfirmed`: it is **never resent**.
+
+The message goes from the chat's **own number** (its pinned number, else
+the number the chat is on), never a personal number:
+
+| Number        | Inside the customer's 24-hour window | Outside it                            |
+| ------------- | ------------------------------------ | ------------------------------------- |
+| Whapi, OpenWA | the wording below as plain text      | the same                              |
+| Meta          | the wording below as plain text      | the approved template for that moment |
+
+On Meta outside the window the request needs an **approved utility**
+template in the workspace's message templates whose body has `{{1}}`
+(the customer's first name) and `{{2}}` (bank and product). Without it the
+request is **held** (`awaiting_template`): nothing is sent, it is not a
+failure, and it is retried hourly until it expires after 3 days.
+
+Template names default to `case_csat_submitted` and
+`case_csat_approved` and can be changed in the settings card.
+
+The default wording (English; Arabic when the language setting is
+Arabic):
+
+- Submitted: "Hi {{1}}, your {{2}} application has been submitted to the
+  bank. How happy are you with our service so far? Reply with a number
+  from 1 (not happy) to 5 (very happy)."
+- Approved: "Hi {{1}}, good news: your {{2}} account has been approved!
+  How would you rate our service? Reply with a number from 1 (not happy)
+  to 5 (very happy)."
+
+`{{1}}` is the first word of the contact's name when it is a name, else
+"there". `{{2}}` is the bank's name and the product in lower case
+("Emirates NBD business account"); for the approved wording a product
+ending in "account" drops that word, so the sentence does not read
+"account account".
+
+The sent request is recorded in the chat as a bot message. Team
+activity's send checks are not applied (as with the desk reminder
+digest). CSAT requests do not count toward, and are not counted by, the
+daily cap shared by HR automated messages and desk digests.
+
+## Capturing the reply
+
+Every inbound message on a company number is checked, after the message
+is stored and after Flows:
+
+- The text must **start with a single digit 1 to 5** (Arabic-Indic digits
+  accepted), optionally followed by `/5`, `out of 5`, `stars`, `نجوم`,
+  `من 5` or star emoji; anything after a space or punctuation is the
+  **comment** (up to 1000 characters). A row of 1 to 5 star emoji alone
+  also counts. `10`, `5.5`, `1st`, a phone number or text that does not
+  start with the digit is not a rating.
+- Text that is not a rating costs nothing. A rating costs one database
+  call, which stores it only when CSAT is on and the person has a request
+  **sent within the reply window** (default 7 days) and not yet
+  answered; the newest such request takes it. Each request is answered
+  **at most once**.
+- **A Flow wins.** When a running Flow consumed the message (its menus
+  take typed numbers too), nothing is captured. A captured rating is
+  treated like a Flow's message: no journey bot, no content automations
+  (`new_message_received`, `keyword_match`, `intent_match`) and no AI
+  reply. Relationship triggers and the `message.received` webhook still
+  fire. A sender over the webhook rate limit is not captured.
+- No thank-you message is sent.
+
+A message that starts with a digit 1 to 5 while a request is open (for
+example "2 more documents tomorrow") is stored as a rating with a
+comment. The 7-day window and the once-per-request rule keep that rare.
+
+## Showing it
+
+- **Case page**, Overview tab: one line per request with the stars and
+  "N out of 5", the comment, or what the request is waiting on. Shown to
+  anyone who can read the case (`case_can_read`; `GET
+/api/cases/[id]/csat`, which checks the case belongs to the active
+  workspace first). Nothing is shown while CSAT is off.
+- **Cases screen**: "Customer ratings" with the 90-day average and, when
+  opened, the average and count per agent and per bank. Only ratings of
+  cases the viewer can read count (`GET /api/cases/csat?days=90`).
+
+The agent and bank of a rating are those of the case when it was asked.
+
+## The Compass lock
+
+`case_managed_externally` (134) is not consulted: it stops people
+changing a case Compass manages. CSAT changes nothing on the case, so a
+case Compass moves to Submitted or Approved is asked like any other.
+
+## Privacy
+
+`case_csat_requests` and `case_csat_responses` are personal data: the
+privacy export includes them (`case_csat`, registered in
+`privacy_extensions`) and the erase deletes them. `case_csat_settings`
+is configuration.
+
+## Database
+
+Tables force row-level security with no policy and no grants; every
+access is a SECURITY DEFINER function granted to the service role only.
+Apply 246 as a superuser or BYPASSRLS role, after 234. It is re-runnable.
+`supabase/ci/verify-case-csat.sql` asserts the behaviour.
+
+Statuses: `queued`, `held`, `sending`, `sent`, `failed`, `cancelled`,
+`unconfirmed`, `skipped`.

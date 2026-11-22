@@ -49,6 +49,8 @@ const h = vi.hoisted(() => ({
   order: [] as string[],
   // customer_documents_record (migration 178): the reply, or a throw.
   docRpc: vi.fn(),
+  // case_csat_capture (migration 246): true when the reply was stored.
+  csatRpc: vi.fn(),
 }));
 
 function respond(call: Call): Result {
@@ -91,6 +93,7 @@ function fakeDb() {
       h.rpcs.push(fn);
       h.rpcArgs.push(args);
       if (fn === 'customer_documents_record') return h.docRpc(args);
+      if (fn === 'case_csat_capture') return h.csatRpc(args);
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -275,6 +278,7 @@ beforeEach(() => {
   h.classify.mockReset().mockResolvedValue(null);
   h.tagInterested.mockReset().mockResolvedValue('not_interested');
   h.docRpc.mockReset().mockResolvedValue({ data: 'TC-000123', error: null });
+  h.csatRpc.mockReset().mockResolvedValue({ data: false, error: null });
 });
 
 describe('processMessage — desk reminder STOP (migration 234)', () => {
@@ -621,6 +625,58 @@ describe('processMessage — journey bot', () => {
     ]);
     expect(h.ai).toHaveBeenCalledTimes(1);
     expect(h.webhook).toHaveBeenCalled();
+  });
+});
+
+// A 1-5 reply to a case rating request (migration 246) is captured after
+// Flows: a Flow that consumed it wins; a captured rating is consumed.
+describe('processMessage — case CSAT reply', () => {
+  const triggers = () =>
+    h.automations.mock.calls.map(
+      (c) => (c[0] as { triggerType: string }).triggerType
+    );
+  const rating = { ...message, id: 'wamid.csat', text: '5 great' };
+
+  it('asks nothing of the database for a message that is not a rating', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).not.toContain('case_csat_capture');
+  });
+
+  it('a captured rating stands the journey, content automations and AI down', async () => {
+    h.csatRpc.mockResolvedValue({ data: true, error: null });
+    await processMessage(rating, 'acct-1', 'owner-1', channel);
+    const i = h.rpcs.indexOf('case_csat_capture');
+    expect(h.rpcArgs[i]).toEqual({
+      p_account: 'acct-1',
+      p_contact: 'contact-1',
+      p_message: 'row-1',
+      p_score: 5,
+      p_comment: 'great',
+    });
+    expect(h.journey).not.toHaveBeenCalled();
+    expect(triggers()).toEqual([]);
+    expect(h.ai).not.toHaveBeenCalled();
+  });
+
+  it('a rating no request was open for fans out as usual', async () => {
+    await processMessage(rating, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).toContain('case_csat_capture');
+    expect(h.journey).toHaveBeenCalledTimes(1);
+    expect(h.ai).toHaveBeenCalledTimes(1);
+  });
+
+  it('a Flow that consumed the reply wins: nothing is captured', async () => {
+    h.flows.mockResolvedValue({ consumed: true });
+    h.csatRpc.mockResolvedValue({ data: true, error: null });
+    await processMessage(rating, 'acct-1', 'owner-1', channel);
+    expect(h.rpcs).not.toContain('case_csat_capture');
+  });
+
+  it('never runs over the rate limit (fanOut: false)', async () => {
+    await processMessage(rating, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    expect(h.rpcs).not.toContain('case_csat_capture');
   });
 });
 
