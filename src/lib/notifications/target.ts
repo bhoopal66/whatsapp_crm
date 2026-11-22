@@ -6,7 +6,10 @@
  * - `conversation_assigned` (027 trigger), `ai_handoff`
  *   (`lib/ai/auto-reply.ts`) and `conversation_shared` (133's
  *   `share_conversation_with_coordinator`) and `insight_attention`
- *   (153, `notifyInsightAttention`): `conversation_id` → the chat.
+ *   (153, `notifyInsightAttention`) and the response-time bells
+ *   `response_target_missed` / `response_escalated` /
+ *   `response_unassigned` (237's `response_escalation_sweep`):
+ *   `conversation_id` → the chat.
  * - `task_assigned` (085 trigger): the task's `contact_id` /
  *   `conversation_id` columns, no meta. The customer page lists a
  *   contact's tasks; tasks have no screen of their own, so one without
@@ -87,6 +90,11 @@ function hrefFor(
     case 'ai_handoff':
     case 'conversation_shared':
     case 'insight_attention':
+    // Response times (237's escalation sweep): a customer waiting past
+    // the target / twice it / unassigned. The row carries the chat.
+    case 'response_target_missed':
+    case 'response_escalated':
+    case 'response_unassigned':
       return chat(n.conversation_id);
     case 'task_assigned':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';

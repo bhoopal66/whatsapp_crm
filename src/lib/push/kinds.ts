@@ -15,6 +15,10 @@ export const PUSH_KINDS = [
   'conversation_assigned',
   'conversation_shared',
   'insight_attention',
+  // Response times (237): waiting past the target / twice it / unassigned.
+  'response_target_missed',
+  'response_escalated',
+  'response_unassigned',
   'ai_handoff',
   'task_assigned',
   'task_due',

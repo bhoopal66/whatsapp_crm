@@ -11,7 +11,14 @@ import { describe, expect, it } from 'vitest';
 import en from '../../../messages/en.json';
 import type { WorklistItem, WorklistMode } from '@/lib/worklist/rank';
 
-import { WorklistView, type WorklistViewProps } from './worklist-view';
+import {
+  WORKLIST_MY_TEAM,
+  WorklistView,
+  type WorklistViewProps,
+} from './worklist-view';
+
+const NOW = Date.parse('2026-11-22T12:00:00Z');
+const H = 3_600_000;
 
 const ITEMS: WorklistItem[] = [
   {
@@ -22,6 +29,7 @@ const ITEMS: WorklistItem[] = [
     score: 300,
     reasons: ['sla_overdue', 'docs_missing'],
     assignees: ['u-omar'],
+    timing: { state: 'overdue', at: NOW - 2 * H },
   },
   {
     kind: 'hr_conversation',
@@ -31,6 +39,7 @@ const ITEMS: WorklistItem[] = [
     score: 150,
     reasons: ['reply_due'],
     assignees: ['u-omar', 'u-layla'],
+    timing: { state: 'waiting', at: NOW - 30 * 60_000 },
   },
   {
     kind: 'agent_draft',
@@ -40,6 +49,7 @@ const ITEMS: WorklistItem[] = [
     score: 40,
     reasons: ['draft_old'],
     assignees: [],
+    timing: null,
   },
 ];
 
@@ -57,6 +67,7 @@ function render(
       { userId: 'u-omar', name: 'Omar' },
       { userId: 'u-layla', name: 'Layla' },
     ],
+    now: NOW,
     ...over,
   };
   return renderToStaticMarkup(
@@ -88,10 +99,14 @@ describe('WorklistView', () => {
     expect(html).toContain('aria-label="Items needing action"');
   });
 
-  it('shows rank, assignee names, score and reason labels', () => {
+  it('shows rank, assignee names, the timing in words and reason labels', () => {
     const html = render({ mode: 'all' });
     expect(html).toContain('Omar, Layla');
-    expect(html).toContain('>300<');
+    // The score orders the list; it is never shown as a number.
+    expect(html).not.toContain('>300<');
+    expect(html).toContain('Overdue by 2 h');
+    expect(html).toContain('Waiting 30 min');
+    expect(html).toContain('aria-label="Nothing due"');
     // 029c's own reasons and hire fast's reused labels.
     expect(html).toContain('>SLA overdue<');
     expect(html).toContain('>Documents missing<');
@@ -106,20 +121,34 @@ describe('WorklistView', () => {
     expect(rowsOf(html)).toHaveLength(3);
   });
 
-  it('all mode: the assigned-to select lists Anyone and each member', () => {
+  it('all mode: the assigned-to filter shows the chosen member', () => {
     const html = render({ mode: 'all', assignedTo: 'u-layla' });
     expect(html).toContain('data-testid="worklist-assigned-to"');
-    expect(html).toContain('<option value="">Anyone</option>');
-    expect(html).toContain(
-      '<option value="u-layla" selected="">Layla</option>'
-    );
+    expect(html).toContain('data-value="u-layla"');
+    expect(html).toContain('>Layla<');
+    expect(html).not.toContain('<select');
   });
 
-  it('is read only: no buttons and no forms', () => {
+  it('all mode: "My team" reads as chosen, with a note when the viewer leads nobody', () => {
+    const html = render({
+      mode: 'all',
+      assignedTo: WORKLIST_MY_TEAM,
+      teamOption: true,
+      noTeam: true,
+    });
+    expect(html).toContain('>My team<');
+    expect(html).toContain('data-testid="worklist-no-team"');
+    expect(
+      render({ mode: 'all', assignedTo: WORKLIST_MY_TEAM, teamOption: true })
+    ).not.toContain('data-testid="worklist-no-team"');
+  });
+
+  it('is read only: no forms, and no buttons beyond the filter', () => {
     for (const mode of ['own', 'all'] as const) {
       const html = render({ mode });
-      expect(html).not.toContain('<button');
       expect(html).not.toContain('<form');
+      const buttons = html.match(/<button/g)?.length ?? 0;
+      expect(buttons).toBe(mode === 'all' ? 1 : 0);
     }
   });
 

@@ -51,6 +51,8 @@ import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
+import { useMemberLoads } from '@/hooks/use-member-loads';
+import { formatMemberLoad, isAtLimit } from '@/lib/assignment/ui';
 import { isShareOnlyViewer } from '@/lib/coordinators/ui';
 import { ChatReminderButton } from './chat-reminder-button';
 import { CoordinatorShareButton } from './coordinator-share-button';
@@ -129,6 +131,11 @@ export function ThreadHeader({
 }: ThreadHeaderProps) {
   const t = useTranslations('Inbox.messageThread');
   const tShare = useTranslations('Coordinators.share');
+  const tLoad = useTranslations('ChatAssignment.load');
+  // Each person's open chats and limit (migration 236), asked when the
+  // Assign menu opens.
+  const [assignMenuOpen, setAssignMenuOpen] = useState(false);
+  const memberLoads = useMemberLoads(assignMenuOpen);
   const { accountRole } = useAuth();
   const shareOnly = isShareOnlyViewer(
     accountRole,
@@ -285,7 +292,7 @@ export function ThreadHeader({
             made the header read as "nobody has this chat" when
             somebody plainly did. Green once formally assigned. */}
           {(!personalOwnerId || isPersonalOwner) && (
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={setAssignMenuOpen}>
               <DropdownMenuTrigger
                 title={handlerTitle}
                 aria-label={`${t('assign')}: ${handlerTitle}`}
@@ -308,7 +315,7 @@ export function ThreadHeader({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="border-border bg-popover w-56"
+                className="border-border bg-popover w-64 max-w-[calc(100vw-2rem)]"
               >
                 <div className={MENU_HEADING}>{t('assignTo')}</div>
                 {pillProfiles.length === 0 ? (
@@ -321,6 +328,17 @@ export function ThreadHeader({
                 ) : (
                   pillProfiles.map((p) => {
                     const isSelected = p.user_id === assignedAgentId;
+                    const load = memberLoads.get(p.user_id);
+                    const loadLabel = formatMemberLoad(load);
+                    const atLimit = isAtLimit(load);
+                    const loadTitle = !load
+                      ? null
+                      : load.chatLimit === null
+                        ? tLoad('open', { count: load.openCount })
+                        : tLoad(atLimit ? 'full' : 'openOf', {
+                            count: load.openCount,
+                            limit: load.chatLimit,
+                          });
                     return (
                       <DropdownMenuItem
                         key={p.id}
@@ -344,10 +362,24 @@ export function ThreadHeader({
                           userId={p.user_id}
                           className="mr-2"
                         />
-                        <span className="flex-1">
+                        <span className="min-w-0 flex-1 truncate">
                           {p.full_name}
                           {p.user_id === currentUserId ? t('me') : ''}
                         </span>
+                        {loadLabel ? (
+                          <span
+                            title={loadTitle ?? undefined}
+                            className={cn(
+                              'ml-2 shrink-0 text-xs tabular-nums',
+                              atLimit
+                                ? 'text-destructive'
+                                : 'text-muted-foreground'
+                            )}
+                          >
+                            <span aria-hidden="true">· {loadLabel}</span>
+                            <span className="sr-only">{loadTitle}</span>
+                          </span>
+                        ) : null}
                         {isSelected && <Check className="ml-2 h-3 w-3" />}
                       </DropdownMenuItem>
                     );

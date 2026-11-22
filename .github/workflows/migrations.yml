@@ -1214,3 +1214,25 @@ jobs:
       # one supersedes the pending one, writers decide once.
       - name: Verify case review
         run: supabase db query --local --file supabase/ci/verify-case-review.sql
+
+      # Migration 236: the assignment rotation engine. A real round robin
+      # with a stored position that skips offline, deactivated, guest,
+      # viewer and at-limit people; a held or engaged chat is left alone;
+      # nobody eligible assigns nobody; the Compass assign respects its
+      # switch and opens the coordinator share.
+      - name: Verify assignment rotation
+        run: supabase db query --local --file supabase/ci/verify-assignment-rotation.sql
+
+      # Migration 237: business hours, response target and escalation.
+      # Waiting starts on a customer message and ends on a reply, company
+      # chats only; business minutes skip nights and closed days; each
+      # escalation level rings once per waiting episode.
+      - name: Verify response targets
+        run: supabase db query --local --file supabase/ci/verify-response-targets.sql
+
+      # Migration 238: the Live view and the worklist's waiting customers.
+      # A leader sees only their teams, an admin everyone, an agent
+      # nothing; the waiting list follows RLS and never lists closed or
+      # personal chats.
+      - name: Verify live view
+        run: supabase db query --local --file supabase/ci/verify-live-view.sql

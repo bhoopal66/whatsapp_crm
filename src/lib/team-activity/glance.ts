@@ -1,12 +1,11 @@
 // ============================================================
 // The plain-language figures the Team activity page leads with:
-// today's new chats, how many people write back ("4 in 10"), and the
+// today's new chats, how many people write back ("40% (4 of 10)"), and the
 // customers waiting now; plus each phone number's limit bar. Pure.
 // ============================================================
 
 import { replyRateBand } from './risk';
 import {
-  exactReplyRate,
   totalsOf,
   type NumberActivity,
   type TeamActivityReport,
@@ -18,10 +17,10 @@ export type Tone = 'good' | 'warn' | 'bad';
 export interface ReplyFigure {
   replied: number;
   total: number;
-  /** Out of ten, floored, so it never reads better than the threshold. */
-  outOfTen: number;
-  /** The minimum, out of ten (30% → 3, 35% → 3.5). */
-  aimOutOfTen: number;
+  /** Percent, floored, so it never reads better than the threshold. */
+  percent: number;
+  /** The minimum, in percent (rounded). */
+  aimPercent: number;
   tone: Tone;
 }
 
@@ -35,6 +34,16 @@ export interface Glance {
   waitingUnassignedRecent: number;
 }
 
+/**
+ * "100% (8 of 8)": the share of people who wrote back, floored so it
+ * never reads better than it is; null for 0 of 0 (shown as a dash).
+ */
+export function replyPercent(replied: number, total: number): number | null {
+  if (!(total > 0)) return null;
+  // Integer arithmetic: (29 / 100) * 100 is 28.999… in floating point.
+  return Math.floor((Math.max(0, Math.min(replied, total)) * 100) / total);
+}
+
 export function glanceOf(report: TeamActivityReport): Glance {
   const totals = totalsOf(report);
   const { matureStarted: total, matureNoReply } = totals;
@@ -45,8 +54,8 @@ export function glanceOf(report: TeamActivityReport): Glance {
     reply = {
       replied: total - matureNoReply,
       total,
-      outOfTen: Math.floor((exactReplyRate(total, matureNoReply) ?? 0) / 10),
-      aimOutOfTen: Math.round(min) / 10,
+      percent: replyPercent(total - matureNoReply, total) ?? 0,
+      aimPercent: Math.round(min),
       tone: band === 'low' ? 'bad' : band === 'close' ? 'warn' : 'good',
     };
   }

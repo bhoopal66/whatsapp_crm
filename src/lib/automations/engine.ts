@@ -26,7 +26,7 @@ import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
-import { isBankGuest, type AccountRole } from '@/lib/auth/roles'
+import { automationPoolKey, rotateAssign } from '@/lib/assignment/rotation'
 import {
   clipTeamChatBody,
   describeTeamChatPostError,
@@ -568,37 +568,56 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
     case 'assign_conversation': {
       const cfg = step.step_config as AssignConversationStepConfig
       if (!args.contactId) throw new Error('assign_conversation needs a contact')
-      let agentId = cfg.agent_id
+      // Absent = on, so automations saved before the switch keep running.
+      if (cfg.enabled === false) return 'assignment step turned off'
       if (cfg.mode === 'round_robin') {
-        // Pick any member of the account. The existing implementation
-        // only ever returned the automation's author; preserving that
-        // shape until a real round-robin algorithm replaces it.
-        // Staff only: a guest is never an assignee. Filtered here, not in
-        // the query: a database without migration 082 rejects the
-        // `bank_guest` literal, and a LIMIT 1 ahead of the filter could
-        // hand back nothing but a guest.
-        const { data: profiles } = await db
-          .from('profiles')
-          .select('user_id, account_role')
+        // The rotation engine (migration 236) decides: the next eligible
+        // person of this step's own pool (live, present, under their chat
+        // limit), on the contact's company chat. It leaves alone a chat
+        // someone holds (inbound gives it to the customer's last caller)
+        // or is already working (human_engaged_at). Never throws.
+        const { data: chat } = await db
+          .from('conversations')
+          .select('id')
           .eq('account_id', args.automation.account_id)
-          .is('deactivated_at', null)
-        agentId = (profiles ?? []).find(
-          (p: { account_role?: string | null }) =>
-            !isBankGuest(p.account_role as AccountRole | undefined)
-        )?.user_id
+          .eq('contact_id', args.contactId)
+          .is('personal_owner_id', null)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        const conversationId = (chat as { id?: string } | null)?.id
+        if (!conversationId) return 'no chat to assign'
+        const result = await rotateAssign(db, {
+          accountId: args.automation.account_id,
+          conversationId,
+          poolKey: automationPoolKey(args.automation.id, step.id),
+          candidates: (cfg.people ?? []).filter(
+            (p): p is string => typeof p === 'string' && p.length > 0
+          ),
+        })
+        switch (result.reason) {
+          case 'assigned':
+            return `assigned to ${result.assignedTo}`
+          case 'nobody_eligible':
+            return 'nobody available to assign'
+          case 'error':
+            throw new Error(
+              `assign_conversation rotation failed: ${result.error ?? 'unknown'}`
+            )
+          default:
+            // already_assigned, engaged, personal, not_found
+            return 'no chat to assign'
+        }
       }
+      const agentId = cfg.agent_id
       if (!agentId) return 'no agent resolved'
-      let write = db
+      const { data: assigned } = await db
         .from('conversations')
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
         .is('personal_owner_id', null)
-      // round_robin means "someone should have this", and its pick is
-      // only the first member, usually the owner: a chat already held
-      // (inbound gives it to the customer's last caller) keeps its person.
-      if (cfg.mode === 'round_robin') write = write.is('assigned_agent_id', null)
-      const { data: assigned } = await write.select('id')
+        .select('id')
       return assigned?.length ? `assigned to ${agentId}` : 'no chat to assign'
     }
 

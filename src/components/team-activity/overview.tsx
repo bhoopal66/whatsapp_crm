@@ -158,16 +158,20 @@ export function GlanceTiles({
           icon={MessagesSquare}
           label={t('replied', { period: periodLabel })}
           value={
-            reply ? t('repliedValue', { n: reply.outOfTen }) : t('notEnough')
+            reply
+              ? reply.total > 0
+                ? t('repliedValue', {
+                    percent: reply.percent,
+                    replied: reply.replied,
+                    total: reply.total,
+                  })
+                : '—'
+              : t('notEnough')
           }
           tone={reply ? TONE_TEXT[reply.tone] : 'text-muted-foreground text-xl'}
           hint={
             reply
-              ? t('repliedHint', {
-                  aim: reply.aimOutOfTen,
-                  replied: reply.replied,
-                  total: reply.total,
-                })
+              ? t('repliedHint', { aim: reply.aimPercent })
               : t('notEnoughHint')
           }
         />

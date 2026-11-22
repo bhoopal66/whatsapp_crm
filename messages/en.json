@@ -91,7 +91,8 @@
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
     "openHrChats": "{count, plural, one {# open chat} other {# open chats}}",
-    "desk": "Case desk"
+    "desk": "Case desk",
+    "liveView": "Live view"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -143,7 +144,8 @@
     "hrHireFast": "Hire fast",
     "hrAutomatedMessages": "Automated messages",
     "hr": "HR",
-    "desk": "Case desk"
+    "desk": "Case desk",
+    "liveView": "Live view"
   },
   "Notifications": {
     "title": "Notifications",
@@ -317,8 +319,8 @@
         "action": "Team activity",
         "newChats": "New chats",
         "replyRate": "Reply rate",
-        "replyValue": "{outOfTen} in 10",
-        "replyAim": "Aim: {aim} in 10",
+        "replyValue": "{percent}% ({replied} of {total})",
+        "replyAim": "Aim: at least {aim}%",
         "replyTooFew": "Too few chats yet",
         "waiting": "Customers waiting",
         "waitingHint": "{count, plural, =0 {All assigned} other {# unassigned}}",
@@ -1426,6 +1428,8 @@
       "title": "Automations",
       "subtitle": "Build workflows that react to WhatsApp® events automatically.",
       "create": "Create Automation",
+      "createBlank": "Start from scratch",
+      "createFromTemplate": "Start from template",
       "retry": "Retry",
       "templatesTitle": "Quick-start templates",
       "emptyTitle": "No automations yet",
@@ -1532,7 +1536,17 @@
       "replyIdsHint": "yes, no, more_info",
       "replyIdsHelp": "Comma-separated button/list-row ids to match, exact. Use the same ids you set on a Send Buttons / Send List step.",
       "schedule": "Schedule",
-      "scheduleHint": "Cron expression (e.g. 0 9 * * 1-5)",
+      "scheduleHint": "Five fields: minute, hour, day of month, month, weekday. For example 0 9 * * 1-5 runs at 09:00 on weekdays.",
+      "scheduleModes": {
+        "daily": "Every day at…",
+        "weekdays": "Weekdays (Monday to Friday) at…",
+        "hourly": "Every hour, on the hour",
+        "custom": "Custom (cron expression)"
+      },
+      "scheduleAt": "At",
+      "scheduleCustomLabel": "Cron expression",
+      "timeHour": "Hour",
+      "timeMinute": "Minute",
       "active": "Active",
       "activeAria": "Active",
       "save": "Save",
@@ -1613,15 +1627,22 @@
           "hours": "Hours",
           "days": "Days"
         },
-        "subjectLabel": "Subject",
+        "subjectLabel": "Take the Yes path when…",
         "subjects": {
-          "chat_tag_presence": "Has chat tag",
-          "contact_field": "Contact field",
-          "message_content": "Message content",
-          "time_of_day": "Time of day"
+          "chat_tag_presence": "the chat has this tag",
+          "contact_field": "a contact detail matches",
+          "message_content": "the message contains some text",
+          "time_of_day": "the time is within a window"
         },
-        "operandLabel": "Operand",
-        "placeholderTime": "HH:mm-HH:mm",
+        "operandLabel": "The contact's…",
+        "conditionIs": "is",
+        "conditionValuePlaceholder": "this value",
+        "conditionContains": "The message contains",
+        "conditionTextPlaceholder": "this text",
+        "timeFrom": "From",
+        "timeUntil": "Until",
+        "timeRangeHint": "Uses the server's clock. A window such as 18:00 until 09:00 runs past midnight.",
+        "timeRangeInvalid": "The saved value \"{value}\" is not a time window. Pick times to replace it.",
         "placeholderContact": "name / email / company",
         "urlLabel": "URL",
         "headersLabel": "Headers",
@@ -2675,6 +2696,8 @@
       "ai": "AI Agents",
       "api": "API keys",
       "deals": "Deals & currency",
+      "response-times": "Response times",
+      "chat-assignment": "Chat assignment",
       "team-chat": "Team chat",
       "journey-bot": "Journey bot",
       "insights": "Smart insights",
@@ -2729,6 +2752,8 @@
       "quick-replies": "Saved replies agents insert from the composer.",
       "fields": "Extra fields on every contact, such as lead source.",
       "deals": "The currency of deals and of pipeline totals.",
+      "response-times": "Business hours, the reply target and who is told when a customer waits.",
+      "chat-assignment": "Broadcast first replies, Compass chats and chat limits.",
       "ai": "The AI assistant, auto-reply, knowledge and safety checks.",
       "journey-bot": "The Welcome to Close bot: its templates and messages.",
       "insights": "Jev reads chats to rate leads, suggest tags, sort campaign replies and check messages.",
@@ -2763,6 +2788,8 @@
       "quick-replies": "canned responses snippets saved replies shortcuts macros",
       "fields": "custom fields contact properties attributes data",
       "deals": "currency aed usd pipelines money totals",
+      "response-times": "business hours opening hours sla reply target response time waiting escalation escalate overdue late",
+      "chat-assignment": "assign assignment round robin rotation auto assign take turns broadcast compass chat limit workload capacity",
       "ai": "artificial intelligence bot chatbot assistant auto reply knowledge base openai anthropic model gpt claude safety typesafe guardrail playground usage approved answers",
       "journey-bot": "journey bot welcome to close workflow automation",
       "insights": "jev typesafe insights signals lead hot urgent upset intent tag suggestions auto tag campaign replies message check meaning triggers",
@@ -4445,8 +4472,8 @@
       "newChats": "New chats today",
       "newChatsHint": "Safe up to {perPerson} per person and {perNumber} per phone number",
       "replied": "Replied ({period})",
-      "repliedValue": "{n} in 10",
-      "repliedHint": "Aim for at least {aim} in 10 ({replied} of {total} people wrote back)",
+      "repliedValue": "{percent}% ({replied} of {total})",
+      "repliedHint": "Aim for at least {aim}% of people to write back",
       "notEnough": "Too early to tell",
       "notEnoughHint": "We need at least 5 new chats older than a day.",
       "waiting": "Customers waiting for us now",
@@ -5981,6 +6008,71 @@
       }
     }
   },
+  "ChatAssignment": {
+    "title": "Chat assignment",
+    "description": "Who gets new chats without anyone pressing Assign, and how many open chats one person may hold. Everything here is off until you switch it on.",
+    "notAvailable": "Chat assignment needs a database update (migration 236). Ask whoever runs your server to apply it.",
+    "loadFailed": "Couldn't load the chat assignment settings",
+    "save": "Save",
+    "saved": "Chat assignment saved",
+    "saveFailed": "Couldn't save the chat assignment settings",
+    "limitSaved": "Chat limit saved",
+    "limitRemoved": "Chat limit removed; the default applies",
+    "limitFailed": "Couldn't save the chat limit",
+    "broadcast": {
+      "title": "Assign the first reply to a broadcast",
+      "hint": "Only chats that come from a broadcast are assigned automatically, when the customer first replies. People take turns. Offline people and people at their chat limit are skipped. A chat someone already has is left alone.",
+      "people": "Who takes turns"
+    },
+    "compass": {
+      "title": "Assign Compass chats to the case's agent",
+      "hint": "When Compass writes to a customer whose chat has nobody assigned, the chat goes to the case's agent. The case's coordinator gets the chat shared, and the agent's team leader sees it through their team."
+    },
+    "limits": {
+      "title": "Chat limits",
+      "hint": "Automatic assignment skips anyone who already holds this many open chats. People can still assign chats by hand.",
+      "default": "Default limit",
+      "openChats": "open chats",
+      "defaultHint": "Applies to everyone without a limit of their own.",
+      "ownTitle": "Limits for one person",
+      "ownHint": "A person's own limit replaces the default for them. These save as soon as you add, change or remove them.",
+      "none": "Nobody has a limit of their own.",
+      "openNow": "{count, plural, one {# open chat now} other {# open chats now}}",
+      "limitFor": "Chat limit for {name}",
+      "update": "Update",
+      "remove": "Remove the limit for {name}",
+      "person": "Person",
+      "pickPerson": "Choose a person",
+      "limit": "Limit",
+      "add": "Add",
+      "range": "A limit is a whole number from {min} to {max}."
+    },
+    "picker": {
+      "everyone": "Nobody ticked: everyone takes turns (all live agents and team leaders).",
+      "picked": "{count, plural, one {# person takes turns} other {# people take turns}}",
+      "pickEveryone": "Use everyone",
+      "nobody": "There are no agents or team leaders in this workspace yet."
+    },
+    "automation": {
+      "enabled": "Assign automatically",
+      "hint": "People take turns. Offline people and people at their chat limit are skipped. A chat someone is already working is left alone.",
+      "people": "Who takes turns"
+    },
+    "load": {
+      "open": "{count, plural, one {# open chat} other {# open chats}}",
+      "openOf": "{count} of {limit} open chats",
+      "full": "At their limit: {count} of {limit} open chats"
+    },
+    "errors": {
+      "bad_limit": "A chat limit must be a whole number from 1 to 500.",
+      "pool_member_invalid": "Everyone who takes turns must be an active agent or team leader here. Refresh and try again.",
+      "pool_too_large": "At most 500 people can take turns.",
+      "no_such_member": "That person is no longer in this workspace.",
+      "not_allowed": "Only an owner or admin can change chat assignment.",
+      "not_available": "Chat assignment needs a database update (migration 236).",
+      "invalid_body": "Something in the form was not valid. Refresh and try again."
+    }
+  },
   "Workspaces": {
     "list": {
       "title": "Workspaces",
@@ -7428,6 +7520,9 @@
       "conversation_assigned": "A chat is assigned to me",
       "conversation_shared": "A chat is shared with me",
       "insight_attention": "A chat needs my attention",
+      "response_target_missed": "A customer waits past the response target",
+      "response_escalated": "A customer waits twice the response target",
+      "response_unassigned": "An unassigned chat waits past the target",
       "ai_handoff": "The AI hands a chat to a person",
       "task_assigned": "A task is assigned to me",
       "task_due": "A task is due",
@@ -8495,6 +8590,11 @@
       "on_track": "On track",
       "due_soon": "Due soon",
       "overdue": "Overdue"
+    },
+    "team": {
+      "myTeam": "My team",
+      "noTeam": "You don't lead a team yet, so My team shows only your own cases.",
+      "truncated": "Showing each person's first 200 cases. Narrow the filters to see the rest."
     },
     "columns": {
       "customer": "Customer",
@@ -10762,6 +10862,45 @@
     "unavailable": "Jev isn't available for this workspace",
     "loadFailed": "Couldn't load the replies breakdown"
   },
+  "ResponseTimes": {
+    "title": "Response times",
+    "description": "Business hours and a response target for customer chats. When it is on, a customer left waiting past the target rings the assigned person, past twice the target their team leader (or the owners and admins), and a chat with nobody assigned rings the owners and admins.",
+    "notAvailable": "Response times need database migration 237. Ask whoever runs the server to apply it.",
+    "enabled": "Ring when customers wait too long",
+    "enabledHint": "Off by default. Only company chats count, and only time inside business hours. Each person is rung once per wait.",
+    "target": "Response target",
+    "targetHint": "Business minutes a customer may wait for a reply, 1 to 1440.",
+    "minutes": "minutes",
+    "timezone": "Time zone",
+    "hoursTitle": "Business hours",
+    "hoursHint": "Time outside these hours does not count towards the target. An end of 00:00 means midnight.",
+    "days": {
+      "mon": "Monday",
+      "tue": "Tuesday",
+      "wed": "Wednesday",
+      "thu": "Thursday",
+      "fri": "Friday",
+      "sat": "Saturday",
+      "sun": "Sunday"
+    },
+    "open": "Open",
+    "closed": "Closed",
+    "from": "{day} opens at",
+    "to": "to",
+    "until": "{day} closes at",
+    "addHours": "Add hours",
+    "removeHours": "Remove these hours",
+    "save": "Save",
+    "saved": "Response times saved",
+    "saveFailed": "Could not save response times",
+    "loadFailed": "Could not load response times",
+    "errors": {
+      "invalid_timezone": "Pick a time zone from the list.",
+      "invalid_hours": "Check the business hours: each start must be before its end, and hours in one day must not overlap.",
+      "invalid_target": "The target must be a whole number of minutes from 1 to 1440.",
+      "not_allowed": "Only owners and admins can change response times."
+    }
+  },
   "ComposeCheck": {
     "title": "Check this message before sending",
     "description": "Nothing has been sent yet.",
@@ -10947,6 +11086,44 @@
     "sortLabel": "Sort",
     "sortDefault": "Newest first",
     "sortByScore": "Sort by lead score"
+  },
+  "LiveView": {
+    "help": "Who is online and how their customers are doing. Updates every 30 seconds and when you come back to this tab.",
+    "scopeAll": "Everyone in this workspace",
+    "scopeTeam": "The teams you lead, and you",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "updated": "Updated {time}",
+    "loading": "Loading the live view...",
+    "failed": "The live view could not be loaded. It will try again in 30 seconds.",
+    "notAllowed": "Only team leaders, admins and owners can open the live view.",
+    "unassignedWaiting": "{count, plural, =0 {No unassigned customer is waiting} one {# unassigned customer is waiting} other {# unassigned customers are waiting}}",
+    "list": "People",
+    "person": "Person",
+    "status": "Status",
+    "openChats": "Open chats",
+    "waiting": "Customers waiting",
+    "oldestWait": "Oldest wait",
+    "repliesToday": "Replies today",
+    "waitTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "businessTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "outside business hours",
+    "noneWaiting": "None waiting",
+    "waitNote": "Oldest wait is clock time since the customer wrote; the business-hours part is shown underneath. Replies today count from midnight ({timezone}).",
+    "empty": "Nobody to show yet",
+    "emptyHint": "People appear here when they are in a team you lead.",
+    "presence": {
+      "online": "Online",
+      "away": "Away",
+      "offline": "Offline"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "team_leader": "Team leader",
+      "agent": "Agent",
+      "viewer": "Viewer"
+    }
   },
   "TeamRecordings": {
     "title": "Team call recordings",
@@ -11876,10 +12053,18 @@
     "unknownPerson": "Unknown person",
     "assignedTo": "Assigned to",
     "anyone": "Anyone",
+    "myTeam": "My team",
+    "noTeam": "You don't lead a team yet, so My team shows only your own items.",
     "rank": "#",
     "item": "Item",
-    "score": "Score",
+    "when": "When",
     "reasons": "Why",
+    "timing": {
+      "overdue": "Overdue by {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "waiting": "Waiting {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "due_in": "Due in {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+      "none": "Nothing due"
+    },
     "kind": {
       "hr_conversation": "HR conversation {ref}",
       "case": "Case {ref}",
@@ -11892,6 +12077,23 @@
       "draft_waiting": "Draft waiting",
       "draft_old": "Draft over 24 h old"
     }
+  },
+  "WorklistWaiting": {
+    "title": "Customers waiting for a reply",
+    "help": "Oldest first. The time is how long each customer has waited since they wrote (clock time); the business-hours part is underneath.",
+    "list": "Customers waiting for a reply",
+    "loading": "Loading waiting customers...",
+    "empty": "No customers are waiting for a reply",
+    "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
+    "emptyOthers": "Nothing else needs action right now.",
+    "count": "{count, plural, one {# waiting} other {# waiting}}",
+    "unassigned": "Unassigned",
+    "unknownPerson": "Unknown person",
+    "unknownCustomer": "Customer",
+    "wait": "Waiting {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "business": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "Outside business hours so far",
+    "capped": "Showing the {count} longest waits."
   },
   "Desk": {
     "title": "Case desk",

@@ -77,10 +77,12 @@ export function TeamCard({ refreshKey, className }: TeamCardProps) {
                 <Stat
                   label={t('replyRate')}
                   value={t('replyValue', {
-                    outOfTen: data.glance.reply.outOfTen,
+                    percent: data.glance.reply.percent,
+                    replied: data.glance.reply.replied,
+                    total: data.glance.reply.total,
                   })}
                   tone={REPLY_TONE[data.glance.reply.tone]}
-                  hint={t('replyAim', { aim: data.glance.reply.aimOutOfTen })}
+                  hint={t('replyAim', { aim: data.glance.reply.aimPercent })}
                 />
               ) : (
                 <Stat

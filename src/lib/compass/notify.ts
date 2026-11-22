@@ -26,6 +26,10 @@
 //      their own thread. The message carries no `sender_id`, so the
 //      Inbox does not name a human as its sender either, and an existing
 //      contact's name is not overwritten with the ERP's spelling.
+//      The one exception is opt-in (migration 236, off by default):
+//      with `compass_assign_enabled` on, a 1:1 chat that NOBODY holds
+//      goes to the case's agent and is shared with its coordinator
+//      (`lib/assignment/compass-case.ts`). A held chat is never moved.
 //
 //   3. At most once per `idempotency_key`. Compass will retry on a
 //      timeout; the customer must not hear "approved" twice. The key is
@@ -53,6 +57,7 @@ import {
   type CompassTemplateProblem,
 } from '@/lib/compass/meta-template';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
+import { assignFromCompassCase } from '@/lib/assignment/compass-case';
 import {
   sendMessageToConversation,
   validateSendMessageParams,
@@ -933,6 +938,16 @@ export async function sendCompassNotification(
         .eq('account_id', accountId)
         .eq('compass_id', req.compassId);
     }
+
+    // Migration 236: with the account's Compass assignment switch on, a
+    // chat nobody holds goes to the case's agent and is shared with its
+    // coordinator. Off (the default), this is one settings read and
+    // nothing else. After the send is recorded; never throws.
+    await assignFromCompassCase(db, accountId, {
+      conversationId: resolved.conversationId,
+      contactId: resolved.contactId,
+      reference: req.reference,
+    });
 
     const row = await loadNotification(db, accountId, { id: notificationId });
     return {

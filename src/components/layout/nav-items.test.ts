@@ -40,6 +40,7 @@ const AGENT = {
 const TEAM = [
   '/team-inbox',
   '/team-contacts',
+  '/live',
   '/team-activity',
   '/my-activity',
 ];
@@ -437,6 +438,7 @@ describe('navPrefetch', () => {
         '/groups',
         ...HR_ALL,
         '/journeys',
+        '/live',
         '/meetings',
         '/my-activity',
         '/opendesk',

@@ -462,6 +462,15 @@ export type NotificationType =
   // (notifyInsightAttention). The row carries conversation_id; meta =
   // {reason}.
   | 'insight_attention'
+  // Response times (237): the escalation sweep. A customer has waited
+  // past the target (to the assignee), past twice it (to the assignee's
+  // team leader, else owners and admins), or with nobody assigned (to
+  // owners and admins); each once per waiting episode. The row carries
+  // conversation_id and contact_id; meta = {level, waiting_since,
+  // business_minutes, target_minutes, assignee_id}.
+  | 'response_target_missed'
+  | 'response_escalated'
+  | 'response_unassigned'
   // Submission groups (173): a customer wrote in a group. Rung by the
   // messages trigger to the case's agent and coordinators, at most one
   // unread bell per person per group; opening the group clears it. meta =
@@ -904,6 +913,15 @@ export interface PostTeamChatStepConfig {
 export interface AssignConversationStepConfig {
   mode: 'specific' | 'round_robin';
   agent_id?: string;
+  /**
+   * round_robin only: the people to rotate through, in order (auth user
+   * ids). Empty or absent = every live agent and team leader. The
+   * rotation engine (migration 236) skips anyone offline, deactivated or
+   * at their chat limit.
+   */
+  people?: string[];
+  /** Absent = on, so automations saved before the switch keep running. */
+  enabled?: boolean;
 }
 
 export interface UpdateContactFieldStepConfig {

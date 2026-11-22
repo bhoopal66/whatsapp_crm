@@ -91,7 +91,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "openHrChats": "{count, plural, other {열린 채팅 #개}}",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "liveView": "Live view"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -143,7 +144,8 @@
     "hrHireFast": "빠른 채용",
     "hrAutomatedMessages": "자동 메시지",
     "hr": "HR",
-    "desk": "케이스 데스크"
+    "desk": "케이스 데스크",
+    "liveView": "Live view"
   },
   "Notifications": {
     "title": "알림",
@@ -317,8 +319,8 @@
         "action": "팀 활동",
         "newChats": "새 대화",
         "replyRate": "답장 비율",
-        "replyValue": "10명 중 {outOfTen}명",
-        "replyAim": "목표: 10명 중 {aim}명",
+        "replyValue": "{percent}% ({total}명 중 {replied}명)",
+        "replyAim": "목표: {aim}% 이상",
         "replyTooFew": "아직 대화가 적습니다",
         "waiting": "기다리는 고객",
         "waitingHint": "{count, plural, =0 {모두 배정됨} other {#명 미배정}}",
@@ -1426,6 +1428,8 @@
       "title": "자동화",
       "subtitle": "WhatsApp® 이벤트에 자동으로 반응하는 워크플로를 만드세요.",
       "create": "자동화 만들기",
+      "createBlank": "Start from scratch",
+      "createFromTemplate": "Start from template",
       "retry": "다시 시도",
       "templatesTitle": "빠른 시작 템플릿",
       "emptyTitle": "아직 자동화가 없습니다",
@@ -1532,7 +1536,17 @@
       "replyIdsHint": "yes, no, more_info",
       "replyIdsHelp": "정확히 일치시킬 버튼/목록 행 id를 쉼표로 구분해 입력하세요. 버튼 보내기 / 목록 보내기 단계에서 설정한 것과 같은 id를 사용하세요.",
       "schedule": "일정",
-      "scheduleHint": "Cron 표현식 (예: 0 9 * * 1-5)",
+      "scheduleHint": "Five fields: minute, hour, day of month, month, weekday. For example 0 9 * * 1-5 runs at 09:00 on weekdays.",
+      "scheduleModes": {
+        "daily": "Every day at…",
+        "weekdays": "Weekdays (Monday to Friday) at…",
+        "hourly": "Every hour, on the hour",
+        "custom": "Custom (cron expression)"
+      },
+      "scheduleAt": "At",
+      "scheduleCustomLabel": "Cron expression",
+      "timeHour": "Hour",
+      "timeMinute": "Minute",
       "active": "활성",
       "activeAria": "활성",
       "save": "저장",
@@ -1613,15 +1627,22 @@
           "hours": "시간",
           "days": "일"
         },
-        "subjectLabel": "대상",
+        "subjectLabel": "Take the Yes path when…",
         "subjects": {
-          "chat_tag_presence": "채팅 태그 있음",
-          "contact_field": "연락처 필드",
-          "message_content": "메시지 내용",
-          "time_of_day": "시간대"
+          "chat_tag_presence": "the chat has this tag",
+          "contact_field": "a contact detail matches",
+          "message_content": "the message contains some text",
+          "time_of_day": "the time is within a window"
         },
-        "operandLabel": "피연산자",
-        "placeholderTime": "HH:mm-HH:mm",
+        "operandLabel": "The contact's…",
+        "conditionIs": "is",
+        "conditionValuePlaceholder": "this value",
+        "conditionContains": "The message contains",
+        "conditionTextPlaceholder": "this text",
+        "timeFrom": "From",
+        "timeUntil": "Until",
+        "timeRangeHint": "Uses the server's clock. A window such as 18:00 until 09:00 runs past midnight.",
+        "timeRangeInvalid": "The saved value \"{value}\" is not a time window. Pick times to replace it.",
         "placeholderContact": "이름 / 이메일 / 회사",
         "urlLabel": "URL",
         "headersLabel": "헤더",
@@ -2675,6 +2696,8 @@
       "ai": "AI 에이전트",
       "api": "API 키",
       "deals": "딜 & 통화",
+      "response-times": "응답 시간",
+      "chat-assignment": "채팅 배정",
       "team-chat": "팀 채팅",
       "journey-bot": "여정 봇",
       "insights": "스마트 인사이트",
@@ -2729,6 +2752,8 @@
       "quick-replies": "상담원이 입력창에서 넣는 저장된 답장.",
       "fields": "모든 연락처에 추가되는 필드(예: 리드 출처).",
       "deals": "딜과 파이프라인 합계에 쓰는 통화.",
+      "response-times": "영업시간, 응답 목표, 고객이 기다릴 때 알릴 사람.",
+      "chat-assignment": "브로드캐스트 첫 답장, Compass 채팅, 채팅 한도.",
       "ai": "AI 어시스턴트, 자동 답장, 지식, 안전 점검.",
       "journey-bot": "Welcome to Close 봇의 템플릿과 메시지.",
       "insights": "Jev가 채팅을 읽고 리드 평가, 태그 제안, 캠페인 답장 분류, 메시지 점검을 합니다.",
@@ -2763,6 +2788,8 @@
       "quick-replies": "상용구 저장된 답장 단축 snippets canned",
       "fields": "커스텀 필드 연락처 속성 custom fields",
       "deals": "통화 AED USD 파이프라인 currency pipelines",
+      "response-times": "영업시간 sla 응답 목표 응답 시간 대기 에스컬레이션 지연 business hours response time",
+      "chat-assignment": "채팅 배정 순환 자동 배정 한도 assign round robin rotation broadcast compass chat limit",
       "ai": "인공지능 봇 챗봇 어시스턴트 자동 답장 지식 베이스 안전 ai bot assistant knowledge openai anthropic",
       "journey-bot": "여정 봇 워크플로 자동화 journey bot",
       "insights": "스마트 인사이트 jev typesafe insights 리드 긴급 태그 제안 캠페인 답장 메시지 점검",
@@ -4445,8 +4472,8 @@
       "newChats": "오늘 새 대화",
       "newChatsHint": "1인당 {perPerson}건, 전화번호당 {perNumber}건까지 안전",
       "replied": "답장 ({period})",
-      "repliedValue": "10명 중 {n}명",
-      "repliedHint": "10명 중 {aim}명 이상이 목표 ({total}명 중 {replied}명이 답장)",
+      "repliedValue": "{percent}% ({total}명 중 {replied}명)",
+      "repliedHint": "{aim}% 이상이 답장하는 것이 목표",
       "notEnough": "아직 판단하기 이릅니다",
       "notEnoughHint": "하루가 지난 새 대화가 5건 이상 있어야 합니다.",
       "waiting": "지금 답장을 기다리는 고객",
@@ -5981,6 +6008,71 @@
       }
     }
   },
+  "ChatAssignment": {
+    "title": "Chat assignment",
+    "description": "Who gets new chats without anyone pressing Assign, and how many open chats one person may hold. Everything here is off until you switch it on.",
+    "notAvailable": "Chat assignment needs a database update (migration 236). Ask whoever runs your server to apply it.",
+    "loadFailed": "Couldn't load the chat assignment settings",
+    "save": "Save",
+    "saved": "Chat assignment saved",
+    "saveFailed": "Couldn't save the chat assignment settings",
+    "limitSaved": "Chat limit saved",
+    "limitRemoved": "Chat limit removed; the default applies",
+    "limitFailed": "Couldn't save the chat limit",
+    "broadcast": {
+      "title": "Assign the first reply to a broadcast",
+      "hint": "Only chats that come from a broadcast are assigned automatically, when the customer first replies. People take turns. Offline people and people at their chat limit are skipped. A chat someone already has is left alone.",
+      "people": "Who takes turns"
+    },
+    "compass": {
+      "title": "Assign Compass chats to the case's agent",
+      "hint": "When Compass writes to a customer whose chat has nobody assigned, the chat goes to the case's agent. The case's coordinator gets the chat shared, and the agent's team leader sees it through their team."
+    },
+    "limits": {
+      "title": "Chat limits",
+      "hint": "Automatic assignment skips anyone who already holds this many open chats. People can still assign chats by hand.",
+      "default": "Default limit",
+      "openChats": "open chats",
+      "defaultHint": "Applies to everyone without a limit of their own.",
+      "ownTitle": "Limits for one person",
+      "ownHint": "A person's own limit replaces the default for them. These save as soon as you add, change or remove them.",
+      "none": "Nobody has a limit of their own.",
+      "openNow": "{count, plural, one {# open chat now} other {# open chats now}}",
+      "limitFor": "Chat limit for {name}",
+      "update": "Update",
+      "remove": "Remove the limit for {name}",
+      "person": "Person",
+      "pickPerson": "Choose a person",
+      "limit": "Limit",
+      "add": "Add",
+      "range": "A limit is a whole number from {min} to {max}."
+    },
+    "picker": {
+      "everyone": "Nobody ticked: everyone takes turns (all live agents and team leaders).",
+      "picked": "{count, plural, one {# person takes turns} other {# people take turns}}",
+      "pickEveryone": "Use everyone",
+      "nobody": "There are no agents or team leaders in this workspace yet."
+    },
+    "automation": {
+      "enabled": "Assign automatically",
+      "hint": "People take turns. Offline people and people at their chat limit are skipped. A chat someone is already working is left alone.",
+      "people": "Who takes turns"
+    },
+    "load": {
+      "open": "{count, plural, one {# open chat} other {# open chats}}",
+      "openOf": "{count} of {limit} open chats",
+      "full": "At their limit: {count} of {limit} open chats"
+    },
+    "errors": {
+      "bad_limit": "A chat limit must be a whole number from 1 to 500.",
+      "pool_member_invalid": "Everyone who takes turns must be an active agent or team leader here. Refresh and try again.",
+      "pool_too_large": "At most 500 people can take turns.",
+      "no_such_member": "That person is no longer in this workspace.",
+      "not_allowed": "Only an owner or admin can change chat assignment.",
+      "not_available": "Chat assignment needs a database update (migration 236).",
+      "invalid_body": "Something in the form was not valid. Refresh and try again."
+    }
+  },
   "Workspaces": {
     "list": {
       "title": "워크스페이스 목록",
@@ -7428,6 +7520,9 @@
       "conversation_assigned": "나에게 채팅이 배정됨",
       "conversation_shared": "나에게 채팅이 공유됨",
       "insight_attention": "채팅에 내 확인이 필요함",
+      "response_target_missed": "고객이 응답 목표를 넘겨 기다림",
+      "response_escalated": "고객이 응답 목표의 두 배를 기다림",
+      "response_unassigned": "담당자 없는 채팅이 목표를 넘겨 기다림",
       "ai_handoff": "AI가 채팅을 담당자에게 넘김",
       "task_assigned": "나에게 작업이 배정됨",
       "task_due": "작업 마감",
@@ -8495,6 +8590,11 @@
       "on_track": "정상",
       "due_soon": "마감 임박",
       "overdue": "지연"
+    },
+    "team": {
+      "myTeam": "내 팀",
+      "noTeam": "아직 이끄는 팀이 없어 내 팀에는 본인 케이스만 표시됩니다.",
+      "truncated": "사람별로 처음 200건만 표시합니다. 나머지를 보려면 필터를 좁히세요."
     },
     "columns": {
       "customer": "고객",
@@ -10762,6 +10862,45 @@
     "unavailable": "이 워크스페이스에서는 Jev를 사용할 수 없습니다",
     "loadFailed": "답장 분류 현황을 불러오지 못했습니다"
   },
+  "ResponseTimes": {
+    "title": "응답 시간",
+    "description": "고객 채팅의 영업시간과 응답 목표입니다. 켜면 목표 시간을 넘겨 기다리는 고객이 있을 때 담당자에게, 목표의 두 배를 넘기면 팀 리더(없으면 소유자와 관리자)에게, 담당자가 없는 채팅은 소유자와 관리자에게 알립니다.",
+    "notAvailable": "응답 시간 기능에는 데이터베이스 마이그레이션 237이 필요합니다. 서버 관리자에게 적용을 요청하세요.",
+    "enabled": "고객이 너무 오래 기다리면 알림",
+    "enabledHint": "기본값은 꺼짐입니다. 회사 채팅만, 영업시간 안의 시간만 셉니다. 한 번의 대기에 사람마다 한 번만 알립니다.",
+    "target": "응답 목표",
+    "targetHint": "고객이 답장을 기다릴 수 있는 영업시간 기준 분 (1~1440).",
+    "minutes": "분",
+    "timezone": "시간대",
+    "hoursTitle": "영업시간",
+    "hoursHint": "영업시간 밖의 시간은 목표에 포함되지 않습니다. 종료 00:00은 자정을 뜻합니다.",
+    "days": {
+      "mon": "월요일",
+      "tue": "화요일",
+      "wed": "수요일",
+      "thu": "목요일",
+      "fri": "금요일",
+      "sat": "토요일",
+      "sun": "일요일"
+    },
+    "open": "영업",
+    "closed": "휴무",
+    "from": "{day} 시작 시간",
+    "to": "~",
+    "until": "{day} 종료 시간",
+    "addHours": "시간 추가",
+    "removeHours": "이 시간 삭제",
+    "save": "저장",
+    "saved": "응답 시간이 저장되었습니다",
+    "saveFailed": "응답 시간을 저장하지 못했습니다",
+    "loadFailed": "응답 시간을 불러오지 못했습니다",
+    "errors": {
+      "invalid_timezone": "목록에서 시간대를 선택하세요.",
+      "invalid_hours": "영업시간을 확인하세요. 시작은 종료보다 빨라야 하고, 하루 안의 시간이 겹치면 안 됩니다.",
+      "invalid_target": "목표는 1~1440 사이의 정수(분)여야 합니다.",
+      "not_allowed": "소유자와 관리자만 응답 시간을 바꿀 수 있습니다."
+    }
+  },
   "ComposeCheck": {
     "title": "보내기 전에 이 메시지를 확인하세요",
     "description": "아직 아무것도 보내지 않았습니다.",
@@ -10947,6 +11086,44 @@
     "sortLabel": "정렬",
     "sortDefault": "최신순",
     "sortByScore": "리드 점수순 정렬"
+  },
+  "LiveView": {
+    "help": "Who is online and how their customers are doing. Updates every 30 seconds and when you come back to this tab.",
+    "scopeAll": "Everyone in this workspace",
+    "scopeTeam": "The teams you lead, and you",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "updated": "Updated {time}",
+    "loading": "Loading the live view...",
+    "failed": "The live view could not be loaded. It will try again in 30 seconds.",
+    "notAllowed": "Only team leaders, admins and owners can open the live view.",
+    "unassignedWaiting": "{count, plural, =0 {No unassigned customer is waiting} one {# unassigned customer is waiting} other {# unassigned customers are waiting}}",
+    "list": "People",
+    "person": "Person",
+    "status": "Status",
+    "openChats": "Open chats",
+    "waiting": "Customers waiting",
+    "oldestWait": "Oldest wait",
+    "repliesToday": "Replies today",
+    "waitTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "businessTime": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "outside business hours",
+    "noneWaiting": "None waiting",
+    "waitNote": "Oldest wait is clock time since the customer wrote; the business-hours part is shown underneath. Replies today count from midnight ({timezone}).",
+    "empty": "Nobody to show yet",
+    "emptyHint": "People appear here when they are in a team you lead.",
+    "presence": {
+      "online": "Online",
+      "away": "Away",
+      "offline": "Offline"
+    },
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "team_leader": "Team leader",
+      "agent": "Agent",
+      "viewer": "Viewer"
+    }
   },
   "TeamRecordings": {
     "title": "팀 통화 녹음",
@@ -11876,10 +12053,18 @@
     "unknownPerson": "알 수 없는 사용자",
     "assignedTo": "담당자",
     "anyone": "모든 담당자",
+    "myTeam": "내 팀",
+    "noTeam": "아직 이끄는 팀이 없어 내 팀에는 본인 항목만 표시됩니다.",
     "rank": "#",
     "item": "항목",
-    "score": "점수",
+    "when": "기한",
     "reasons": "이유",
+    "timing": {
+      "overdue": "{unit, select, minutes {{n}분} hours {{n}시간} other {{n}일}} 지연",
+      "waiting": "{unit, select, minutes {{n}분} hours {{n}시간} other {{n}일}} 대기 중",
+      "due_in": "{unit, select, minutes {{n}분} hours {{n}시간} other {{n}일}} 후 기한",
+      "none": "기한 없음"
+    },
     "kind": {
       "hr_conversation": "HR 대화 {ref}",
       "case": "케이스 {ref}",
@@ -11892,6 +12077,23 @@
       "draft_waiting": "초안 대기 중",
       "draft_old": "24시간 넘은 초안"
     }
+  },
+  "WorklistWaiting": {
+    "title": "Customers waiting for a reply",
+    "help": "Oldest first. The time is how long each customer has waited since they wrote (clock time); the business-hours part is underneath.",
+    "list": "Customers waiting for a reply",
+    "loading": "Loading waiting customers...",
+    "empty": "No customers are waiting for a reply",
+    "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
+    "emptyOthers": "Nothing else needs action right now.",
+    "count": "{count, plural, one {# waiting} other {# waiting}}",
+    "unassigned": "Unassigned",
+    "unknownPerson": "Unknown person",
+    "unknownCustomer": "Customer",
+    "wait": "Waiting {unit, select, minutes {{n} min} hours {{n} h} other {{n} d}}",
+    "business": "{unit, select, minutes {{n} min} hours {{n} h} other {{n} d}} in business hours",
+    "businessNone": "Outside business hours so far",
+    "capped": "Showing the {count} longest waits."
   },
   "Desk": {
     "title": "케이스 데스크",

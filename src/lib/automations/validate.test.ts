@@ -123,6 +123,27 @@ describe("validateStepsForActivation", () => {
     ]);
   });
 
+  it("checks a round_robin step's people and switch", () => {
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "assign_conversation",
+          step_config: { mode: "round_robin", people: ["u1", "u2"], enabled: false },
+        },
+      ]),
+    ).toEqual([]);
+    const bad = validateStepsForActivation([
+      {
+        step_type: "assign_conversation",
+        step_config: { mode: "round_robin", people: ["u1", ""], enabled: "yes" },
+      },
+    ]);
+    expect(bad.map((i) => i.path)).toEqual([
+      "steps[0].people",
+      "steps[0].enabled",
+    ]);
+  });
+
   it("flags create_deal when required fields are missing", () => {
     const issues = validateStepsForActivation([
       { step_type: "create_deal", step_config: {} },

@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import { safeNextPath } from '@/lib/auth/login-client'
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -66,8 +67,16 @@ export async function middleware(request: NextRequest) {
       url.pathname = `/join/${encodeURIComponent(inviteToken)}`
       url.search = ''
     } else {
-      url.pathname = '/dashboard'
-      url.search = ''
+      // A same-origin `next` (a deep link that bounced through /login)
+      // wins; otherwise `/`, whose page reads the role once and picks
+      // the landing page (My worklist for agents and team leaders,
+      // `landingPathForRole`). No role read here: this runs on every
+      // request.
+      const next = safeNextPath(request.nextUrl.searchParams.get('next'))
+      const target = new URL(next ?? '/', request.nextUrl.origin)
+      url.pathname = target.pathname
+      url.search = target.search
+      url.hash = target.hash
     }
     return withRefreshedCookies(NextResponse.redirect(url))
   }
@@ -91,6 +100,7 @@ export async function middleware(request: NextRequest) {
     '/team-contacts',
     '/team-activity',
     '/my-activity',
+    '/live',
     '/pipelines',
     '/broadcasts',
     '/automations',
@@ -117,6 +127,13 @@ export async function middleware(request: NextRequest) {
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    // Remember the deep link: after signing in, the login page sends
+    // them back to it instead of their landing page (`loginDestination`).
+    url.search = ''
+    url.searchParams.set(
+      'next',
+      request.nextUrl.pathname + request.nextUrl.search
+    )
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 

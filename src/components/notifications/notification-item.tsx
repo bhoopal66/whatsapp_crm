@@ -16,6 +16,9 @@ import {
   DoorOpen,
   ExternalLink,
   Handshake,
+  Hourglass,
+  TimerOff,
+  UserX,
   UsersRound,
   ListTodo,
   Megaphone,
@@ -51,6 +54,9 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   conversation_assigned: UserPlus,
   conversation_shared: Share2,
   insight_attention: Siren,
+  response_target_missed: Hourglass,
+  response_escalated: TimerOff,
+  response_unassigned: UserX,
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
   meta_number_alert: ShieldAlert,
@@ -86,6 +92,8 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
 // is the attention red (the inbox's Important pin), not the accent.
 const TYPE_ICON_CLASS: Partial<Record<Notification['type'], string>> = {
   insight_attention: 'text-red-600 dark:text-red-400',
+  // A customer waiting past twice the response target (237).
+  response_escalated: 'text-warning',
 };
 
 // A channel alert's body is the fix (who re-pairs which phone, where),

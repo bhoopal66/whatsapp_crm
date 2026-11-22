@@ -49,6 +49,9 @@ const h = vi.hoisted(() => ({
   order: [] as string[],
   // customer_documents_record (migration 178): the reply, or a throw.
   docRpc: vi.fn(),
+  // Broadcast first-reply rotation (migration 236).
+  loadAssignment: vi.fn(),
+  rotate: vi.fn(),
 }));
 
 function respond(call: Call): Result {
@@ -186,6 +189,11 @@ vi.mock('@/lib/pbx/assign-from-calls', () => ({
     return h.assignFromCalls(...args);
   },
 }));
+vi.mock('@/lib/assignment/rotation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/assignment/rotation')>()),
+  loadAssignmentSettings: (...args: unknown[]) => h.loadAssignment(...args),
+  rotateAssign: (...args: unknown[]) => h.rotate(...args),
+}));
 vi.mock('@/lib/whatsapp/provider', () => ({
   getMediaUrl: vi.fn(),
   downloadMedia: vi.fn(),
@@ -275,6 +283,114 @@ beforeEach(() => {
   h.classify.mockReset().mockResolvedValue(null);
   h.tagInterested.mockReset().mockResolvedValue('not_interested');
   h.docRpc.mockReset().mockResolvedValue({ data: 'TC-000123', error: null });
+  h.loadAssignment.mockReset().mockResolvedValue({
+    broadcastRotationEnabled: false,
+    broadcastPool: [],
+    compassAssignEnabled: false,
+    limitsEnabled: false,
+    defaultChatLimit: 30,
+  });
+  h.rotate
+    .mockReset()
+    .mockResolvedValue({ assignedTo: 'agent-2', reason: 'assigned' });
+});
+
+// Broadcast first-reply rotation (migration 236): only the FIRST reply
+// to a campaign, only while the switch is on, only a chat nobody holds,
+// after the call-history pick and ahead of the follow-up flow.
+describe('processMessage — broadcast first-reply rotation', () => {
+  const rotationOn = (pool: string[] = []) =>
+    h.loadAssignment.mockResolvedValue({
+      broadcastRotationEnabled: true,
+      broadcastPool: pool,
+      compassAssignEnabled: false,
+      limitsEnabled: false,
+      defaultChatLimit: 30,
+    });
+
+  beforeEach(() => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: null },
+      },
+    ];
+    h.assignFromCalls.mockImplementation(async () => {
+      h.order.push('calls');
+      return null;
+    });
+    h.rotate.mockImplementation(async () => {
+      h.order.push('rotate');
+      return { assignedTo: 'agent-2', reason: 'assigned' };
+    });
+    h.flows.mockImplementation(async () => {
+      h.order.push('flows');
+      return { consumed: false };
+    });
+  });
+
+  it('does nothing while the switch is off', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.loadAssignment).toHaveBeenCalledTimes(1);
+    expect(h.rotate).not.toHaveBeenCalled();
+  });
+
+  it('rotates the first reply through the broadcast pool', async () => {
+    rotationOn(['agent-1', 'agent-2']);
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.rotate).toHaveBeenCalledTimes(1);
+    expect(h.rotate.mock.calls[0][1]).toEqual({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      poolKey: 'broadcast',
+      candidates: ['agent-1', 'agent-2'],
+    });
+    // The customer's last caller is asked first; the flow sees the result.
+    expect(h.order).toEqual(['calls', 'rotate', 'flows']);
+  });
+
+  it('is not asked when the message answers no campaign', async () => {
+    rotationOn();
+    h.recipientRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.loadAssignment).not.toHaveBeenCalled();
+    expect(h.rotate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a held or engaged chat alone', async () => {
+    rotationOn();
+    h.assignee = 'agent-9';
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    h.assignee = null;
+    h.engagedAt = '2026-01-01T00:00:00Z';
+    await processMessage(
+      { ...message, id: 'wamid.second' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(h.rotate).not.toHaveBeenCalled();
+  });
+
+  it('a rotation that throws never stops the fan-out', async () => {
+    rotationOn();
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.rotate.mockRejectedValue(new Error('db down'));
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.flows).toHaveBeenCalledTimes(1);
+    expect(h.automations).toHaveBeenCalled();
+    quiet.mockRestore();
+  });
+
+  it('a sender over the rate limit is not rotated', async () => {
+    rotationOn();
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    expect(h.rotate).not.toHaveBeenCalled();
+  });
 });
 
 describe('processMessage — desk reminder STOP (migration 234)', () => {
