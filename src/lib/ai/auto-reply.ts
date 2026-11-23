@@ -228,6 +228,9 @@ export interface DispatchArgs {
  */
 export type AiReplyOutcome = 'replied' | 'handed_off' | 'skipped';
 
+/** Why the bot must not message a contact (`contacts.*_at` stamps). */
+type ContactBlock = 'do_not_contact' | 'opted_out';
+
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
@@ -616,6 +619,24 @@ export async function dispatchInboundToAiReply(
         ? [...earlier, ...openTurns].join('\n')
         : openText;
 
+    /** Why this contact must not be messaged; throws when unreadable. */
+    const contactBlock = async (): Promise<ContactBlock | null> => {
+      const { data, error } = await dbc
+        .from('contacts')
+        .select('do_not_contact_at, opted_out_at')
+        .eq('id', contactId)
+        .maybeSingle();
+      if (error) throw new Error(`contact lookup: ${error.message}`);
+      // No row: `engineSendText` refuses a contact that does not exist.
+      const row = data as {
+        do_not_contact_at?: string | null;
+        opted_out_at?: string | null;
+      } | null;
+      if (row?.do_not_contact_at) return 'do_not_contact';
+      if (row?.opted_out_at) return 'opted_out';
+      return null;
+    };
+
     /**
      * Why a write that requires the chat to still be the bot's found it
      * was not: re-read it. Null when it still looks like the bot's, or
@@ -652,7 +673,8 @@ export async function dispatchInboundToAiReply(
      *
      * `farewell` goes to the customer first so they aren't left with
      * silence — but only when a reply slot is free: the cap bounds
-     * every bot message, farewell included. A farewell that fails to
+     * every bot message, farewell included, and a contact who must not
+     * be messaged (`contactBlock`) gets none. A farewell that fails to
      * send must not stop the hand-off: the customer would then be
      * unanswered AND nobody told.
      *
@@ -684,6 +706,20 @@ export async function dispatchInboundToAiReply(
           { conversationId }
         );
         farewell = null;
+      }
+      // The opt-out watch (typesafe-watch.ts) reads this same message and
+      // can stamp the contact while this dispatch runs. A read that fails
+      // is no permission to send: the hand-off goes ahead without it.
+      if (farewell) {
+        try {
+          if (await contactBlock()) farewell = null;
+        } catch (err) {
+          console.error('[ai auto-reply] hand-off farewell skipped:', {
+            conversationId,
+            error: errorMessage(err),
+          });
+          farewell = null;
+        }
       }
       if (farewell) {
         const { data: claimed } = await dbc.rpc('claim_ai_reply_slot', {
@@ -779,14 +815,31 @@ export async function dispatchInboundToAiReply(
       return 'handed_off';
     };
 
+    /** Leave a contact who must not be messaged to a person, in silence. */
+    const handOffBlocked = (block: ContactBlock) =>
+      handOff(
+        'triage',
+        block === 'do_not_contact'
+          ? 'contact is marked do not contact'
+          : 'contact opted out',
+        null,
+        block === 'do_not_contact'
+          ? 'This contact is marked do not contact.'
+          : 'This contact opted out of messages.'
+      );
+
     /**
-     * Send one bot message to the customer: the pin re-check, the atomic
+     * Send one bot message to the customer: the opt-out and pin re-check, the atomic
      * reply-slot claim, the send, and a person told when the send fails.
      * Null once the message went out; otherwise the dispatch's outcome,
      * already recorded. The model's reply, the sensitive-data warning and
      * an approved answer all go out through here.
      */
     const sendReply = async (text: string): Promise<AiReplyOutcome | null> => {
+      // Again: the opt-out may have been stamped during generation.
+      const blockedNow = await contactBlock();
+      if (blockedNow) return handOffBlocked(blockedNow);
+
       const pinnedNow = await pinnedElsewhere();
       if (pinnedNow) {
         return skip(
@@ -855,6 +908,13 @@ export async function dispatchInboundToAiReply(
       }
       return null;
     };
+
+    // A contact marked do not contact (086) or opted out (076) gets no
+    // bot message, the hand-off farewell included, so this comes before
+    // every gate that can send one. A read that fails throws: an error,
+    // never "not blocked".
+    const blocked = await contactBlock();
+    if (blocked) return handOffBlocked(blocked);
 
     // Reply cap (migration 054: a handoff, not silence). The bot has
     // said everything it may on this thread; a customer who is still

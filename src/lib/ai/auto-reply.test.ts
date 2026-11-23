@@ -47,7 +47,14 @@ const h = vi.hoisted(() => ({
     convLive: null as Record<string, unknown> | null,
     convReads: 0,
     profiles: [] as Record<string, unknown>[],
-    contact: null as { name: string | null; phone: string | null } | null,
+    contact: null as {
+      name?: string | null;
+      phone?: string | null;
+      do_not_contact_at?: string | null;
+      opted_out_at?: string | null;
+    } | null,
+    /** Fail every contacts read with this message. */
+    contactError: null as string | null,
     /** Rows the auto-resume compare-and-set updates. */
     resumeRows: [] as { id: string }[],
     resumes: [] as Record<string, unknown>[],
@@ -193,14 +200,17 @@ vi.mock('./admin-client', () => ({
       }
       if (table !== 'conversations') {
         // contacts: single reads
-        const row = h.state.contact;
+        const error = h.state.contactError
+          ? { message: h.state.contactError }
+          : null;
+        const row = error ? null : h.state.contact;
         const chain = {
           select: () => chain,
           eq: () => chain,
           in: () => chain,
           order: () => chain,
           limit: () => chain,
-          maybeSingle: () => Promise.resolve({ data: row, error: null }),
+          maybeSingle: () => Promise.resolve({ data: row, error }),
         };
         return chain;
       }
@@ -386,6 +396,7 @@ beforeEach(() => {
   h.state.convReads = 0;
   h.state.profiles = [];
   h.state.contact = null;
+  h.state.contactError = null;
   h.state.resumeRows = [];
   h.state.resumes = [];
   h.state.drafts = [];
@@ -2869,5 +2880,111 @@ describe('safety of what goes out', () => {
     expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
     expect(h.engineSendText).not.toHaveBeenCalled();
     expect(h.state.updatePayload?.ai_handoff_reason).toBe('model');
+  });
+});
+
+describe('dispatchInboundToAiReply — contacts who must not be messaged', () => {
+  const STAMP = '2026-11-20T08:00:00Z';
+
+  it.each([
+    ['do_not_contact_at', 'triage: contact is marked do not contact'],
+    ['opted_out_at', 'triage: contact opted out'],
+  ])('hands a chat over in silence for %s', async (column, detail) => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ handoffMessage: 'A specialist will contact you.' })
+    );
+    h.state.contact = { [column]: STAMP };
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({
+      ai_autoreply_disabled: true,
+      ai_handoff_reason: 'triage',
+    });
+    expect(h.state.outcomes).toHaveLength(1);
+    expect(h.state.outcomes[0]).toMatchObject({
+      ai_last_outcome: 'handed_off',
+      ai_last_outcome_detail: detail,
+    });
+  });
+
+  it('comes before the cap hand-off, the keyword one and the data warning', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        handoffMessage: 'A specialist will contact you.',
+        sensitiveDataReply: 'Please do not send IDs here.',
+        escalationKeywords: ['refund'],
+      })
+    );
+    h.state.contact = { opted_out_at: STAMP };
+    for (const [count, text] of [
+      [3, 'hi'],
+      [0, 'I want a refund'],
+      [0, 'My ID is 784-1990-1234567-1'],
+    ] as const) {
+      h.state.conv = { ...h.state.conv, ai_reply_count: count };
+      h.state.convReads = 0;
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: text },
+      ]);
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'triage',
+      });
+    }
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('does not send a reply whose contact opted out while it was written', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contact = { opted_out_at: STAMP };
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.rpcCalls).toEqual([]);
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'triage',
+    });
+  });
+
+  it('drops the farewell when the contact opted out during the dispatch', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contact = { opted_out_at: STAMP };
+      return { text: 'A manager will call you.', handoff: true };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+
+  it('drops the farewell, and still hands off, when the contact cannot be read', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contactError = 'timeout';
+      return { text: 'A manager will call you.', handoff: true };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+
+  it('treats an unreadable contact as an error, not as free to message', async () => {
+    h.state.contactError = 'timeout';
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.outcomes[0]).toMatchObject({
+      ai_last_outcome: 'error',
+      ai_last_outcome_detail: 'contact lookup: timeout',
+    });
+  });
+
+  it('treats a contact that becomes unreadable before the send as an error', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contactError = 'timeout';
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.outcomes[0]).toMatchObject({ ai_last_outcome: 'error' });
   });
 });
