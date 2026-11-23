@@ -22,7 +22,9 @@ and polish.
 No migration.
 - A restart of the OpenWA gateway is no longer announced as "logged out, scan
   the QR" for every number. A number the gateway calls disconnected is
-  reported, and marked disconnected, only when it still is five minutes later.
+  reported, and marked disconnected, only when it has not come back five
+  minutes later. One that keeps retrying, disconnected and starting in turn,
+  counts as disconnected.
 - A personal number going down, or coming back, is told to the person whose
   number it is, with where to re-link it (Settings → Profile → My WhatsApp),
   and no longer to the owners and admins.

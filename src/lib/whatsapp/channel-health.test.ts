@@ -794,11 +794,10 @@ describe('OpenWA numbers', () => {
 
     describe('an OpenWA `disconnected`', () => {
       const at = (min: number) => () => new Date(NOW.getTime() + min * 60_000);
-      const says = (status: string) => async (): Promise<ChannelProbe> => ({
-        status,
-        authorized: status === 'ready',
-        phone: null,
-      });
+      const says = (status: string) => async (): Promise<ChannelProbe> => {
+        if (status === 'timeout') throw new Error('timed out');
+        return { status, authorized: status === 'ready', phone: null };
+      };
       const tick = async (
         seen: Map<string, number>,
         status: string,
@@ -826,7 +825,34 @@ describe('OpenWA numbers', () => {
         expect(await tick(seen, 'ready', 5)).toEqual(quiet);
         expect(await tick(seen, 'disconnected', 10)).toEqual(quiet);
         expect(await tick(seen, 'initializing', 15)).toEqual(quiet);
-        expect(await tick(seen, 'disconnected', 20)).toEqual(quiet);
+        expect(await tick(seen, 'ready', 20)).toEqual(quiet);
+        expect(await tick(seen, 'disconnected', 25)).toEqual(quiet);
+      });
+
+      it.each(['initializing', 'authenticating', 'timeout'])(
+        'is down when it alternates with %s',
+        async (between) => {
+          h.channels = [openwaRow('connected')];
+          const seen = new Map<string, number>();
+          expect(await tick(seen, 'disconnected', 0)).toEqual(quiet);
+          expect(await tick(seen, between, 5)).toEqual(quiet);
+          expect(await tick(seen, 'disconnected', 10)).toEqual(down);
+        }
+      );
+
+      it('a run ends with an answer that is down on its own', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map<string, number>();
+        await tick(seen, 'disconnected', 0);
+        expect(await tick(seen, 'qr_ready', 1)).toEqual(down);
+        expect(seen.size).toBe(0);
+      });
+
+      it('forgets a number that is no longer probed', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map([['gone', 0]]);
+        await tick(seen, 'disconnected', 0);
+        expect([...seen.keys()]).toEqual(['o1']);
       });
 
       it('is down once consecutive probes five minutes apart agree', async () => {
