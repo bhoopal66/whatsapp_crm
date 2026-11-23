@@ -107,6 +107,15 @@ describe('POST files/[fileId]/classify', () => {
     ]);
   });
 
+  it('passes reuse on', async () => {
+    await post({ docKey: 'passport' });
+    await post({ docKey: 'passport', reuse: true });
+    expect(m.classify.mock.calls.map(([a]) => a.reuse)).toEqual([
+      undefined,
+      true,
+    ]);
+  });
+
   it('is 401 unauthenticated', async () => {
     m.getCurrentAccount.mockRejectedValue(new UnauthorizedError());
     expect((await post({ docKey: 'passport' })).status).toBe(401);

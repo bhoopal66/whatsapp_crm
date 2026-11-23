@@ -208,6 +208,13 @@ function moveFromOf(value: unknown): { moveFrom?: string } {
   return moveFrom === null ? {} : { moveFrom };
 }
 
+/** The `reuse` key, only when true. */
+function reuseOf(value: unknown): { reuse?: true } {
+  if (value === undefined || value === null || value === false) return {};
+  if (value !== true) throw refused('VALIDATION_FAILED');
+  return { reuse: true };
+}
+
 /** POST files/attach: `{ customerDocumentId, docKey, expiresOn?, moveFrom? }`. */
 export function parseAttachBody(body: Record<string, unknown>): {
   customerDocumentId: string;
@@ -224,16 +231,18 @@ export function parseAttachBody(body: Record<string, unknown>): {
   };
 }
 
-/** POST files/[fileId]/classify: `{ docKey, expiresOn?, moveFrom? }`. */
+/** POST files/[fileId]/classify: `{ docKey, expiresOn?, moveFrom?, reuse? }`. */
 export function parseClassifyBody(body: Record<string, unknown>): {
   docKey: string;
   expiresOn: string | null;
   moveFrom?: string;
+  reuse?: true;
 } {
   return {
     docKey: docKeyOf(body.docKey, true)!,
     expiresOn: expiresOnOf(body.expiresOn),
     ...moveFromOf(body.moveFrom),
+    ...reuseOf(body.reuse),
   };
 }
 

@@ -278,6 +278,20 @@ describe('moveFrom', () => {
   });
 });
 
+describe('reuse', () => {
+  it('is there only when true, and refused when it is not a boolean', () => {
+    const base = { docKey: 'x', expiresOn: null };
+    expect(parseClassifyBody({ docKey: 'x', reuse: true })).toEqual({
+      ...base,
+      reuse: true,
+    });
+    for (const reuse of [undefined, null, false])
+      expect(parseClassifyBody({ docKey: 'x', reuse })).toStrictEqual(base);
+    const bad = () => parseClassifyBody({ docKey: 'x', reuse: 'true' });
+    expect(thrown(bad).status).toBe(422);
+  });
+});
+
 describe('requireFileId', () => {
   it('404s a non-uuid file id', () => {
     expect(requireFileId(DOC)).toBe(DOC);

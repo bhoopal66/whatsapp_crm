@@ -675,6 +675,17 @@ describe('a file already filed as another document', () => {
     }
   );
 
+  it.each(['classify', 'attach', 'upload'] as const)(
+    'already moved by somebody else is answered as it stands by %s',
+    async (how) => {
+      const { f, ...act } = await setup({ doc_key: 'visa' });
+      const out = await act[how]('visa', 'passport');
+      expect(out).toMatchObject({ status: 'passed', version: 1 });
+      expect(f.rpcNames()).not.toContain('case_document_file_classify');
+      expect(f.rpcNames()).not.toContain('case_document_file_check_result');
+    }
+  );
+
   it.each(['passed', 'pending_checks', 'superseded'])(
     'the same document is allowed when %s',
     async (status) => {
@@ -723,11 +734,140 @@ describe('a replaced file that would fail its checks', () => {
   });
 });
 
+describe('a replaced file used again without a date', () => {
+  const run = async (
+    stored: string,
+    over: { docKey?: string; expiresOn?: string | null; min?: number } = {}
+  ) => {
+    const spec = { ...specRow, min_valid_days: over.min ?? 180 };
+    const f = fakeAdmin(
+      {
+        case_document_file_register: ok(FILE),
+        case_file_spec_rows: ok([
+          spec,
+          { ...specRow, doc_key: 'visa', position: 2 },
+        ]),
+        case_document_file_classify: cls,
+        case_document_file_check_result: ok('passed'),
+      },
+      {
+        case_document_files: {
+          [FILE]: { ...fileRow, status: 'superseded', expires_on: stored },
+        },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const st = fakeStorage({
+      objects: { 'case-files/a.pdf': await pdfBytes() },
+    });
+    const outcome = await attachCustomerDocument({
+      admin: f.admin,
+      actor: ACTOR,
+      caseId: CASE,
+      customerDocumentId: DOC,
+      docKey: over.docKey ?? 'passport',
+      expiresOn: over.expiresOn ?? null,
+      deps: { storage: st.storage, clock },
+    }).catch((e: unknown) => e);
+    const posted = f.calls.find(
+      (c) => c.fn === 'case_document_file_check_result'
+    );
+    return { outcome, posted: posted?.args };
+  };
+
+  it('is checked against the date it was filed with, and refused', async () => {
+    const { outcome, posted } = await run('2026-12-01');
+    expect(outcome).toMatchObject({
+      reason: 'REUSE_WOULD_FAIL',
+      failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }],
+    });
+    expect(posted).toBeUndefined();
+  });
+
+  it('keeps that date when it passes', async () => {
+    const { posted } = await run('2031-01-01');
+    expect(posted).toMatchObject({ p_expires_on: '2031-01-01' });
+  });
+
+  it('takes the date given instead', async () => {
+    const { posted } = await run('2026-12-01', { expiresOn: '2032-01-01' });
+    expect(posted).toMatchObject({ p_expires_on: '2032-01-01' });
+  });
+
+  it('does not carry it to another document', async () => {
+    const { posted } = await run('2031-01-01', { docKey: 'visa' });
+    expect(posted).toMatchObject({ p_doc_key: 'visa', p_expires_on: null });
+  });
+});
+
+describe('"Use this one again" on a stale screen', () => {
+  const run = async (over: Record<string, unknown>, docKey = 'passport') => {
+    const f = fakeAdmin(
+      {},
+      {
+        case_document_files: {
+          [FILE]: { ...fileRow, classify_seq: 5, version: 3, ...over },
+        },
+        customer_documents: { [DOC]: docRow() },
+      }
+    );
+    const st = fakeStorage({});
+    const outcome = await classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      docKey,
+      reuse: true,
+      expiresOn: '2026-12-01',
+      today: '2026-11-10',
+      deps: { storage: st.storage, clock },
+    }).catch((e: unknown) => e);
+    return { outcome, calls: f.rpcNames(), st };
+  };
+
+  it('already used again: answered as it stands, nothing classified', async () => {
+    const { outcome, calls, st } = await run({ status: 'passed' });
+    expect(outcome).toEqual({
+      fileId: FILE,
+      status: 'passed',
+      classifySeq: 5,
+      version: 3,
+      renamedName: 'x.pdf',
+      checks: [],
+      pages: 1,
+    });
+    expect(calls).toEqual([]);
+    expect(st.downloads).toEqual([]);
+  });
+
+  it.each([
+    [{ status: 'pending_checks' }],
+    [{ status: 'failed' }],
+    [{ status: 'unclassified', doc_key: null }],
+    [{ status: 'passed', doc_key: 'visa' }],
+  ])('otherwise not a replaced file: refused (%o)', async (over) => {
+    const { outcome, calls } = await run(over);
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('a file that changed since it was read', () => {
   const run = async (
     before: Record<string, unknown>,
     after: Record<string, unknown>,
-    over: { docKey: string; moveFrom?: string; gone?: boolean }
+    over: {
+      docKey: string;
+      moveFrom?: string;
+      reuse?: boolean;
+      gone?: boolean;
+    }
   ) => {
     const files: Record<string, unknown> = {
       [FILE]: { ...fileRow, ...before },
@@ -804,6 +944,40 @@ describe('a file that changed since it was read', () => {
       reason: 'ALREADY_FILED_AS',
       filedAs: 'bank',
     });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('used again by someone else and passed: a success, not a re-check', async () => {
+    const { outcome, sent } = await run(
+      { status: 'superseded' },
+      { status: 'passed', classify_seq: 2, version: 3 },
+      { docKey: 'passport', reuse: true }
+    );
+    expect(outcome).toMatchObject({
+      status: 'passed',
+      classifySeq: 2,
+      version: 3,
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('used again by someone else, still being checked: refused', async () => {
+    const { outcome, sent } = await run(
+      { status: 'superseded' },
+      { status: 'pending_checks', classify_seq: 2, version: 3 },
+      { docKey: 'passport', reuse: true }
+    );
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('moved by someone else at the same moment: a success', async () => {
+    const { outcome, sent } = await run(
+      { doc_key: 'passport' },
+      { doc_key: 'visa', classify_seq: 2 },
+      { docKey: 'visa', moveFrom: 'passport' }
+    );
+    expect(outcome).toMatchObject({ status: 'passed', classifySeq: 2 });
     expect(sent).toHaveLength(1);
   });
 

@@ -433,9 +433,10 @@ describe('reuseBody (270)', () => {
     ...over,
   });
   it('is the file’s own type and expiry, for a replaced version only', () => {
-    expect(reuseBody(file())).toEqual({ docKey: 'passport' });
+    expect(reuseBody(file())).toEqual({ docKey: 'passport', reuse: true });
     expect(reuseBody(file({ expiresOn: '2030-01-01' }))).toEqual({
       docKey: 'passport',
+      reuse: true,
       expiresOn: '2030-01-01',
     });
     for (const status of ['passed', 'failed', 'pending_checks'] as const)

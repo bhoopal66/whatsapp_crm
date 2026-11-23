@@ -40,11 +40,13 @@ BEGIN
       RETURN coalesce(nullif(h, ''), SQLSTATE);
     END $body$
   $fn$;
+  -- As the app calls it: the status the row was read with.
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.cff_classify(p_actor uuid, p_file uuid, p_key text) RETURNS text LANGUAGE plpgsql AS $body$
     DECLARE v record; h text;
     BEGIN
-      SELECT * INTO v FROM public.case_document_file_classify(p_actor, p_file, p_key);
+      SELECT * INTO v FROM public.case_document_file_classify(p_actor, p_file, p_key,
+        p_expect_status => (SELECT f.status FROM public.case_document_files f WHERE f.id = p_file));
       RETURN v.classify_seq || ':v' || v.version;
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS h = PG_EXCEPTION_HINT;
@@ -135,6 +137,20 @@ BEGIN
     pg_temp.cff_try(format('UPDATE public.case_document_files SET status = ''pending_checks'', classified_by = %L,
       version = 9 WHERE id = %L', u_agent, f1)) = 'FILE_STATE',
     'reuse: not without a new classify_seq')); n := n + 1;
+  failed := array_append(failed, pg_temp.cff_ok(
+    pg_temp.cff_try(format('UPDATE public.case_document_files SET status = ''passed'', classified_by = %L,
+      classify_seq = classify_seq + 1, version = 9 WHERE id = %L', u_agent, f1)) = 'FILE_STATE',
+    'reuse: only to pending checks')); n := n + 1;
+  -- The previous build's call: 181's refusal, for this type and another.
+  failed := array_append(failed, pg_temp.cff_ok(
+    pg_temp.cff_try(format('SELECT * FROM public.case_document_file_classify(%L, %L, ''passport'')', u_agent, f1))
+      = 'FILE_STATE'
+    AND pg_temp.cff_try(format('SELECT * FROM public.case_document_file_classify(%L, %L, ''visa'')', u_agent, f1))
+      = 'FILE_STATE',
+    'reuse: not by the three-argument call')); n := n + 1;
+  failed := array_append(failed, pg_temp.cff_ok(
+    pg_temp.cff_try(format('SELECT * FROM public.case_document_file_classify(%L, %L, ''passport'', 1)', u_agent, f1))
+      = 'FILE_STATE', 'reuse: not by a caller that names the seq alone')); n := n + 1;
   failed := array_append(failed, pg_temp.cff_ok(pg_temp.cff_state(f1) = 'passport:v1:superseded',
     'reuse: a refusal leaves the file superseded')); n := n + 1;
 
@@ -241,7 +257,7 @@ BEGIN
   END;
 
   failed := array_remove(failed, NULL);
-  IF n < 25 THEN RAISE EXCEPTION 'verify-case-file-fixes: only % checks ran', n; END IF;
+  IF n < 28 THEN RAISE EXCEPTION 'verify-case-file-fixes: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-case-file-fixes: % of % failed: %', cardinality(failed), n, array_to_string(failed, '; ');
   END IF;

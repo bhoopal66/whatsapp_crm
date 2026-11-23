@@ -17,7 +17,9 @@
  *     A file that counts as another document is refused (ALREADY_FILED_AS)
  *     unless `moveFrom` names that document: it would go missing. A replaced
  *     file that would fail its checks is refused (REUSE_WOULD_FAIL): as the
- *     newest version it would undo the case's readiness.
+ *     newest version it would undo the case's readiness. A `reuse` or a
+ *     `moveFrom` somebody else already did is answered as it stands: the
+ *     same classify would be a re-check, and pending un-readies the case.
  *
  * TENANCY: the caller (a route) has already checked the case belongs to
  * the actor's active account. Every function takes its I/O as arguments
@@ -50,6 +52,7 @@ import {
   CaseFilesStoreError,
   type CaseFile,
   type CaseFilesDb,
+  type ClassifyResult,
 } from './store';
 
 export const CASE_FILES_BUCKET = 'case-files';
@@ -148,6 +151,20 @@ export async function readCaseFile(
   return doc ? readDocument(doc, deps) : { kind: 'unreadable' };
 }
 
+/** A passed row as the result of the classify that made it so. */
+function passedResult(file: CaseFile): CheckOutcomeResult {
+  return {
+    fileId: file.id,
+    status: 'passed',
+    classifySeq: file.classifySeq,
+    // 181: a classified row has a version and a name.
+    version: file.version!,
+    renamedName: file.renamedName!,
+    checks: file.checks ?? [],
+    pages: file.pages,
+  };
+}
+
 export async function classifyAndCheck(input: {
   admin: CaseFilesDb;
   /** NULL = the system intake (WhatsApp tap-to-classify). */
@@ -159,21 +176,35 @@ export async function classifyAndCheck(input: {
   today: string;
   /** The document it is filed as, which it may be moved from. */
   moveFrom?: string | null;
+  /** "Use this one again": only a replaced file is classified. */
+  reuse?: boolean;
   /** Already read by the caller (`readCaseFile`); else read here. */
   read?: DocumentRead;
   deps: CaseFilesDeps;
 }): Promise<CheckOutcomeResult> {
   const { admin, actor, fileId, docKey, deps } = input;
-  const expiresOn = input.expiresOn ?? null;
-  assertExpiresOn(expiresOn);
+  assertExpiresOn(input.expiresOn);
   const store = new CaseFilesStore(admin);
 
   let read = input.read;
   // Reads, decides, then classifies the row as it was read: a file that
   // changed meanwhile is read and decided on again, once.
-  const attempt = async () => {
+  const attempt = async (): Promise<
+    | { asItIs: CheckOutcomeResult }
+    | { out: CheckOutcome; cls: ClassifyResult; expiresOn: string | null }
+  > => {
     // Reads first: a failure here leaves the file as it was, not pending.
     const file = await loadFile(store, fileId);
+    const superseded = file.status === 'superseded';
+    // Already what was asked for: a classify now would be a re-check.
+    if (
+      (input.reuse || input.moveFrom) &&
+      file.status === 'passed' &&
+      file.docKey === docKey
+    )
+      return { asItIs: passedResult(file) };
+    if (input.reuse && !superseded)
+      throw new CaseFilesRefusedError('FILE_STATE');
     if (
       file.docKey !== null &&
       file.docKey !== docKey &&
@@ -192,9 +223,11 @@ export async function classifyAndCheck(input: {
       throw new CaseFilesRefusedError('STORAGE_UNAVAILABLE');
     // A replaced file comes back only with its bytes, and only to pass
     // (270): a failed newest version would undo the case's readiness.
-    const superseded = file.status === 'superseded';
     if (superseded && read.kind !== 'bytes')
       throw new CaseFilesRefusedError('FILE_STATE');
+    // Used again as what it was, it keeps the expiry date it was filed with.
+    const kept = superseded && file.docKey === docKey ? file.expiresOn : null;
+    const expiresOn = input.expiresOn ?? kept;
 
     const out: CheckOutcome =
       read.kind === 'bytes'
@@ -224,9 +257,12 @@ export async function classifyAndCheck(input: {
         out.checks.filter((c) => !c.ok)
       );
 
-    return { out, cls: await store.classify(actor, fileId, docKey, file) };
+    const cls = await store.classify(actor, fileId, docKey, file);
+    return { out, cls, expiresOn };
   };
-  const { out, cls } = await retryOnConflict(attempt, isChangedSinceRead);
+  const decided = await retryOnConflict(attempt, isChangedSinceRead);
+  if ('asItIs' in decided) return decided.asItIs;
+  const { out, cls, expiresOn } = decided;
   const { checks, pages } = out;
 
   const status = await retryOnConflict(() =>

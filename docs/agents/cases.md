@@ -110,5 +110,10 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   newest version un-readies the case. A file that counts as another document
   needs `moveFrom` to name it (`ALREADY_FILED_AS`). Classify takes the
   `classify_seq` and status the caller read (`CHECK_MISMATCH`); a retry
-  re-reads and re-decides, never re-sends. 270 restates 181's guard and
+  re-reads and re-decides, never re-sends; SQL reuses a superseded file only
+  for a caller that names that status. The body says what the click meant
+  (`reuse`, `moveFrom`): already passed under that document is answered as it
+  stands, since the same classify would be a re-check that un-readies the
+  case; a `reuse` of anything else not superseded is `FILE_STATE`. A reuse
+  under its own document keeps its expiry date. 270 restates 181's guard and
   classify: never re-apply 181 without 270 after it.

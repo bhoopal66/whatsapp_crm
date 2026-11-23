@@ -411,7 +411,11 @@ request names that document in `moveFrom`: it would go missing.
 current one once its checks pass. Its checks run first; one that would fail
 them is refused (409 `REUSE_WOULD_FAIL`, `failedChecks`) and nothing
 changes. A file changed by somebody else meanwhile is read and decided on
-again, then refused with 409 `CHECK_MISMATCH` if it changed once more.
+again, then refused with 409 `CHECK_MISMATCH` if it changed once more. The
+request says `reuse: true`: a file somebody else already used again is
+answered as it stands and not checked again, as is a move already made; a
+file that is not replaced is refused (409 `FILE_STATE`). With no expiry date
+given, the one it was filed with counts.
 
 **Checks.** Every attached version is checked automatically: type and file
 signature, size, a readable PDF and its page count, photo resolution (at

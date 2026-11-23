@@ -5,8 +5,9 @@
 --  1. A document replaced by mistake could never come back: a passed
 --     check supersedes the type's other file, a superseded file could not
 --     be classified (FILE_STATE), and registering the same bytes answers
---     that same row. Staff may now classify a superseded file again: it
---     becomes a new version (the type's highest + 1) pending checks, and
+--     that same row. Staff may now classify a superseded file again, when
+--     the caller names that status (p_expect_status = 'superseded', see 2):
+--     it becomes a new version (the type's highest + 1) pending checks, and
 --     nothing is replaced until it passes. The system actor (NULL) still
 --     cannot: it only classifies an unclassified file (NOT_ALLOWED). The
 --     guard lets a superseded row make that one move and no other.
@@ -16,8 +17,10 @@
 --     case_document_file_classify takes the classify_seq and the status
 --     the caller read and refuses (CHECK_MISMATCH) when the locked row has
 --     others. Both, because a pass of another file supersedes a row
---     without a new classify_seq. NULL is not checked: the three-argument
---     call of the previous build and of SQL works as before.
+--     without a new classify_seq. NULL is not checked, and does not reuse:
+--     the three-argument call behaves exactly as in 181, FILE_STATE on a
+--     superseded file included. The previous build, running during the
+--     deploy or after a rollback, does not run the checks first.
 --
 -- NOT enforced here: that the checks of a file used again will pass. They
 -- need the bytes, so the app runs them before it classifies
@@ -74,8 +77,8 @@ $$;
 
 -- ---------- 2. Classified as it was read ----------
 
--- 181's body without the refusal of a superseded file, which takes a
--- version of its own, and with what the caller read. Dropped and created
+-- 181's body, with what the caller read: a superseded file is refused
+-- unless the caller named that status, and then takes a version of its own. Dropped and created
 -- in one statement: one overload, or PostgREST finds a three-argument
 -- call ambiguous.
 DO $$
@@ -141,6 +144,11 @@ BEGIN
        OR f.status IS DISTINCT FROM coalesce(p_expect_status, f.status) THEN
       RAISE EXCEPTION 'file % changed since it was read', p_file
         USING ERRCODE = 'check_violation', HINT = 'CHECK_MISMATCH';
+    END IF;
+    -- 181's refusal, kept for a caller that did not read it as superseded
+    -- (after the mismatch, which tells a caller that named another status).
+    IF f.status = 'superseded' AND p_expect_status IS DISTINCT FROM 'superseded' THEN
+      RAISE EXCEPTION 'file % is superseded', p_file USING ERRCODE = 'check_violation', HINT = 'FILE_STATE';
     END IF;
     SELECT * INTO s FROM public.case_file_spec_rows(c.id) r WHERE r.doc_key = p_doc_key;
     IF NOT FOUND THEN

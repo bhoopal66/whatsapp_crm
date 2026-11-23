@@ -223,13 +223,18 @@ export function buildCaseFilesView(data: CaseFilesData): CaseFilesView {
   return { ready: data.ready, rows, unclassified };
 }
 
-/** The classify body that brings a replaced version back (270); null when it is not one. */
+/**
+ * The classify body that brings a replaced version back (270); null when it
+ * is not one. `reuse` holds the server to that: on a stale screen the same
+ * classify would re-check a file that counts by now.
+ */
 export function reuseBody(
   file: CaseFileView
-): { docKey: string; expiresOn?: string } | null {
+): { docKey: string; reuse: true; expiresOn?: string } | null {
   if (file.status !== 'superseded' || file.docKey === null) return null;
   return {
     docKey: file.docKey,
+    reuse: true,
     ...(file.expiresOn ? { expiresOn: file.expiresOn } : {}),
   };
 }
