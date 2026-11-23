@@ -69,3 +69,31 @@ export function admitPullRejoin(
   }
   return { rejoins: [...recent, now], admit: true };
 }
+
+/**
+ * What a failed SFU call says about our own Cloudflare session.
+ * - `gone` (410): Cloudflare dropped it. Every later call fails too, and
+ *   a session that never connected has no ICE failure to notice it by.
+ * - `refused`: Cloudflare (`sfuStatus`) or our own check refused the
+ *   request itself. Once may be a bad moment; in a row it is stuck.
+ * - null: an outage, a rate limit, or about the seat (403/404/409, which
+ *   the heartbeat deals with: rejoining would take back a seat the person
+ *   moved to another tab) or someone else's track.
+ */
+export function sfuRefusal(
+  status: number,
+  body: unknown
+): 'gone' | 'refused' | null {
+  if (status === 410) return 'gone';
+  if (status === 400) return 'refused';
+  const upstream =
+    body && typeof body === 'object' && 'sfuStatus' in body
+      ? (body as { sfuStatus: unknown }).sfuStatus
+      : null;
+  if (typeof upstream !== 'number') return null;
+  const refused = upstream >= 400 && upstream < 500;
+  return refused && upstream !== 408 && upstream !== 429 ? 'refused' : null;
+}
+
+/** Refusals in a row (publishes and pulls together) before a rejoin. */
+export const REFUSALS_BEFORE_REJOIN = 2;

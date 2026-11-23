@@ -7685,7 +7685,9 @@
       "videoLoading": "Video is connecting"
     },
     "devices": {
+      "rejoin": "Rejoin",
       "audio": {
+        "unreachable": "Couldn't reach the video service, so your microphone is off. Rejoin to try again.",
         "permission_denied": "Microphone access is blocked. Allow it in your browser's site settings.",
         "not_found": "No microphone was found.",
         "in_use": "Your microphone is in use by another app.",
@@ -7693,6 +7695,7 @@
         "unknown": "Your microphone couldn't be started."
       },
       "video": {
+        "unreachable": "Couldn't reach the video service, so your camera is off. Rejoin to try again.",
         "permission_denied": "Camera access is blocked. Allow it in your browser's site settings.",
         "not_found": "No camera was found.",
         "in_use": "Your camera is in use by another app.",
@@ -7700,6 +7703,7 @@
         "unknown": "Your camera couldn't be started."
       },
       "screen": {
+        "unreachable": "Couldn't reach the video service, so your screen isn't shared.",
         "permission_denied": "Screen sharing is blocked in this browser.",
         "not_found": "No screen was available to share.",
         "in_use": "Your screen couldn't be captured.",

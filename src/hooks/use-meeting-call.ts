@@ -138,6 +138,8 @@ import {
   admitPullRejoin,
   afterPullStrike,
   needsPullRollback,
+  REFUSALS_BEFORE_REJOIN,
+  sfuRefusal,
 } from '@/lib/meetings/room/recovery';
 import {
   classifyRoomFailure,
@@ -178,6 +180,27 @@ import {
 } from '@/lib/meetings/room/contract';
 import type { BulkModerationAction } from '@/lib/meetings/types';
 import { createClient } from '@/lib/supabase/client';
+
+/** Signalling cannot be put right by a retry: only a rejoin helps. */
+class NegotiationBroken extends Error {}
+
+/** An SFU call that failed, and what it says about our session. */
+class SfuCallError extends Error {
+  constructor(
+    message: string,
+    readonly refusal: ReturnType<typeof sfuRefusal>
+  ) {
+    super(message);
+  }
+}
+
+/** A local track being published. */
+interface Added {
+  track: MediaStreamTrack;
+  kind: TrackKind;
+  transceiver: RTCRtpTransceiver;
+  name: string;
+}
 
 export type CallPhase =
   | 'lobby'
@@ -288,6 +311,8 @@ export class MeetingCallEngine {
   private screenPub: { transceiver: RTCRtpTransceiver; name: string } | null =
     null;
   private screenGeneration = 0;
+  /** Transceivers whose publish failed, reused by the next try. */
+  private spares = new Map<TrackKind, RTCRtpTransceiver>();
   /** Device opens in flight, so a double click opens one camera. */
   private opening = new Set<'audio' | 'video' | 'screen'>();
   private channel: RealtimeChannel | null = null;
@@ -297,6 +322,8 @@ export class MeetingCallEngine {
   private attempts = 0;
   /** Consecutive pulls that failed after touching signalling. */
   private pullStrikes = 0;
+  /** Publishes and pulls refused in a row (recovery.ts). */
+  private refusals = 0;
   /** When pull strikes last rejoined; survives the rejoin's teardown. */
   private pullRejoins: number[] = [];
   private attached = false;
@@ -403,6 +430,7 @@ export class MeetingCallEngine {
       ...snap,
       join: this.join,
       returnToLobby: this.returnToLobby,
+      rejoin: this.rejoin,
       leave: this.leave,
       end: this.end,
       toggleMic: this.toggleMic,
@@ -1027,7 +1055,9 @@ export class MeetingCallEngine {
     this.videoSender = null;
     this.screenPub = null;
     this.screenGeneration = 0;
+    this.spares.clear();
     this.pullStrikes = 0;
+    this.refusals = 0;
     if (this.layerTimer) clearTimeout(this.layerTimer);
     this.layerTimer = null;
     this.speaker = INITIAL_SPEAKER_STATE;
@@ -1090,6 +1120,28 @@ export class MeetingCallEngine {
     // `reconnecting` until the tries run out.
     if (await this.enter(true)) void this.reconnect();
   }
+
+  /**
+   * The person's own Rejoin, offered when the video service did not take
+   * their mic or camera. As fresh as a join from the lobby, and what the
+   * failed publish released is opened again so the rejoin sends it.
+   */
+  rejoin = async () => {
+    const pc = this.pc;
+    if (!this.isLive() || this.snap.phase !== 'live') return;
+    for (const kind of ['audio', 'video'] as const) {
+      if (this.snap.devices[kind] !== 'unreachable' || this[kind]) continue;
+      if (this.opening.has(kind)) continue;
+      this.opening.add(kind);
+      this[kind] = await this.open(kind).finally(() =>
+        this.opening.delete(kind)
+      );
+    }
+    if (!pc || pc !== this.pc) return;
+    this.attempts = 0;
+    this.pullRejoins = [];
+    await this.reconnect();
+  };
 
   private connectionFailed() {
     this.session += 1;
@@ -1431,31 +1483,41 @@ export class MeetingCallEngine {
   // --- negotiation (always inside the queue) ---------------------------
 
   private publish(entries: { track: MediaStreamTrack; kind: TrackKind }[]) {
-    let pc: RTCPeerConnection | null = null;
-    let added: {
-      track: MediaStreamTrack;
-      kind: TrackKind;
-      transceiver: RTCRtpTransceiver;
-      name: string;
-    }[] = [];
-    return this.queue
-      .run(async () => {
-        pc = this.pc;
-        const me = this.participantId;
-        if (!pc || !me) return;
-        const conn = pc;
-        // A toggle can land inside a join's wait, and both publish. This
-        // queue is serial, so whichever runs second finds the sender here,
-        // and the first one's landing already put the current track on it.
-        const fresh = entries.filter(
-          (e) =>
-            !(e.kind === 'video' && this.videoSender) &&
-            !(e.kind === 'audio' && this.audioSender)
+    return this.queue.run(() => this.publishNow(entries)).catch(() => {});
+  }
+
+  private async publishNow(
+    entries: { track: MediaStreamTrack; kind: TrackKind }[]
+  ) {
+    const pc = this.pc;
+    const me = this.participantId;
+    if (!pc || !me) return;
+    const added: Added[] = [];
+    try {
+      // A toggle can land inside a join's wait, and both publish. This
+      // queue is serial, so whichever runs second finds the sender here,
+      // and the first one's landing already put the current track on it.
+      const fresh = entries.filter(
+        (e) =>
+          !(e.kind === 'video' && this.videoSender) &&
+          !(e.kind === 'audio' && this.audioSender)
+      );
+      if (!fresh.length) return;
+      for (const e of fresh) {
+        const name = trackNameFor(
+          me,
+          e.kind,
+          e.kind === 'screen' ? this.screenGeneration++ : 0
         );
-        if (!fresh.length) return;
-        added = fresh.map((e) => ({
-          ...e,
-          transceiver: conn.addTransceiver(e.track, {
+        // One transceiver per kind, however often its publish fails: with
+        // a stopped one beside it, Chrome gives the next m-line to the
+        // dead transceiver and the new one never gets a mid.
+        let transceiver = this.spares.get(e.kind);
+        if (transceiver) {
+          await transceiver.sender.replaceTrack(e.track);
+          if (pc !== this.pc) return;
+        } else {
+          transceiver = pc.addTransceiver(e.track, {
             direction: 'sendonly',
             // Three camera layers, so each puller takes what its tile
             // needs; a screen share stays one sharp layer.
@@ -1465,76 +1527,122 @@ export class MeetingCallEngine {
                 : e.kind === 'screen'
                   ? [{ maxBitrate: SCREEN_MAX_BITRATE }]
                   : undefined,
-          }),
-          name: trackNameFor(
-            me,
-            e.kind,
-            e.kind === 'screen' ? this.screenGeneration++ : 0
-          ),
-        }));
-        await this.offer(pc, async (sdp) => {
-          const res = await this.sfu('sfu/tracks', 'POST', {
-            participantId: me,
-            request: {
-              sessionDescription: { type: 'offer', sdp },
-              tracks: added.map((a) => ({
-                location: 'local',
-                mid: a.transceiver.mid,
-                trackName: a.name,
-              })),
-            },
           });
-          return res;
+          this.spares.set(e.kind, transceiver);
+        }
+        added.push({ ...e, transceiver, name });
+      }
+      const refused = new Set<string | null>();
+      await this.offer(pc, async (sdp) => {
+        const tracks = added.map((a) => {
+          const mid = a.transceiver.mid;
+          // Cloudflare refuses it, and so it does on every retry.
+          if (!mid) throw new NegotiationBroken('no_mid');
+          return { location: 'local', mid, trackName: a.name };
         });
-        for (const a of added) {
-          if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
-          if (a.kind === 'video') {
-            this.videoSender = a.transceiver.sender;
-            // The background changed while this was in flight.
-            const camera = this.sendable();
-            if (camera !== a.track)
-              void this.videoSender.replaceTrack(camera).catch(() => {});
-          }
-          if (a.kind === 'screen') {
-            this.screenPub = { transceiver: a.transceiver, name: a.name };
-          }
-        }
-      })
-      .catch(() => {
-        // A failed publish leaves the person in the room without that
-        // track. Its transceivers would stay in the connection (a dead
-        // m-line in every later offer), so stop them, and release the
-        // track itself (afterFailedPublish): the mic or camera then reads
-        // as off with a device error, and its toggle's turn-on path opens
-        // the device and publishes again; a share reads "share" again.
-        // Not on a connection already torn down: a rejoin re-publishes
-        // the tracks it still holds.
-        if (!pc || pc !== this.pc) return;
-        for (const a of added) {
-          try {
-            a.transceiver.stop();
-          } catch {
-            // Already stopped, or the connection closed meanwhile.
-          }
-        }
-        const published = new Set<TrackKind>();
-        if (this.audioSender) published.add('audio');
-        if (this.videoSender) published.add('video');
-        if (this.screenPub) published.add('screen');
-        const released = afterFailedPublish(
-          added,
-          { audio: this.audio, video: this.outgoing(), screen: this.screen },
-          published
-        );
-        const devices = { ...this.snap.devices };
-        for (const { kind, error } of released) {
-          if (kind === 'video') this.stopEffect();
-          this[kind]?.stop();
-          this[kind] = null;
-          if (error) devices[kind] = error;
-        }
-        this.emit({ devices });
+        const res = await this.sfu('sfu/tracks', 'POST', {
+          participantId: me,
+          request: { sessionDescription: { type: 'offer', sdp }, tracks },
+        });
+        for (const t of res.tracks) if (t.errorCode) refused.add(t.trackName);
+        return res;
       });
+      if (pc !== this.pc) return;
+      this.refusals = 0;
+      // A refusal is per track: the answer stands and the others are live.
+      for (const a of added) {
+        if (refused.has(a.name)) continue;
+        this.spares.delete(a.kind);
+        if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
+        if (a.kind === 'video') {
+          this.videoSender = a.transceiver.sender;
+          // The background changed while this was in flight.
+          const camera = this.sendable();
+          if (camera !== a.track)
+            void this.videoSender.replaceTrack(camera).catch(() => {});
+        }
+        if (a.kind === 'screen') {
+          this.screenPub = { transceiver: a.transceiver, name: a.name };
+        }
+      }
+      const failed = added.filter((a) => refused.has(a.name));
+      if (failed.length) {
+        added.splice(0, added.length, ...failed);
+        throw new Error('track_refused');
+      }
+    } catch (err) {
+      // Not on a connection already torn down: a rejoin re-publishes
+      // the tracks it still holds.
+      if (pc !== this.pc) return;
+      if (await this.rejoinIfBroken(pc, err)) return;
+      await this.publishFailed(pc, added);
+    }
+  }
+
+  /**
+   * A failed publish leaves the person in the room without that track.
+   * Its transceiver stays (`spares`), empty, for the next try. The track
+   * itself is released (afterFailedPublish): the mic or camera then reads
+   * as off with an error, and its toggle's turn-on path opens the device
+   * and publishes again; a share reads "share" again. Inside the queue,
+   * so a publish waiting behind it cannot have its track emptied.
+   */
+  private async publishFailed(pc: RTCPeerConnection, added: Added[]) {
+    for (const a of added) {
+      await a.transceiver.sender.replaceTrack(null).catch(() => {});
+    }
+    if (pc !== this.pc) return;
+    const published = new Set<TrackKind>();
+    if (this.audioSender) published.add('audio');
+    if (this.videoSender) published.add('video');
+    if (this.screenPub) published.add('screen');
+    const released = afterFailedPublish(
+      added,
+      { audio: this.audio, video: this.outgoing(), screen: this.screen },
+      published
+    );
+    const devices = { ...this.snap.devices };
+    for (const { kind, error } of released) {
+      if (kind === 'video') this.stopEffect();
+      this[kind]?.stop();
+      this[kind] = null;
+      if (error) devices[kind] = error;
+    }
+    this.emit({ devices });
+  }
+
+  /**
+   * Whether this failure means the connection is beyond a retry; if so a
+   * rejoin is under way (or the call has ended) and the caller does no
+   * cleanup. The person's tracks stay: the rejoin publishes them.
+   */
+  private async rejoinIfBroken(pc: RTCPeerConnection, err: unknown) {
+    if (pc !== this.pc) return true;
+    const refusal = err instanceof SfuCallError ? err.refusal : null;
+    if (refusal === 'refused') {
+      this.refusals += 1;
+      if (this.refusals < REFUSALS_BEFORE_REJOIN) return false;
+      this.refusals = 0;
+    } else if (!(err instanceof NegotiationBroken) && refusal !== 'gone') {
+      return false;
+    }
+    // Our own seat first: closed by the host, or by joining from another
+    // tab, this ends the call here instead of taking the seat back.
+    await this.heartbeat();
+    if (pc !== this.pc) return true;
+    if (this.rejoinWithinBudget()) return true;
+    // Refused requests alone never end a call that may still be playing.
+    if (refusal === 'refused') return false;
+    this.connectionFailed();
+    return true;
+  }
+
+  private rejoinWithinBudget(): boolean {
+    const budget = admitPullRejoin(this.pullRejoins, Date.now());
+    this.pullRejoins = budget.rejoins;
+    // Not awaited: this runs inside the queue, and the rejoin builds its own.
+    if (budget.admit) void this.reconnect();
+    return budget.admit;
   }
 
   private async pull(refs: RemoteTrackRef[]) {
@@ -1572,6 +1680,13 @@ export class MeetingCallEngine {
       if (res.requiresImmediateRenegotiation && res.sessionDescription) {
         before = new Set(pc.getTransceivers());
         await pc.setRemoteDescription(res.sessionDescription);
+        // The SFU may reuse an m-line a forced close left inactive.
+        const mids = new Set(res.tracks.map((t) => t.mid));
+        for (const t of pc.getTransceivers()) {
+          if (t.mid && mids.has(t.mid) && t.direction === 'inactive') {
+            t.direction = 'recvonly';
+          }
+        }
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await this.sfu('sfu/renegotiate', 'PUT', {
@@ -1605,10 +1720,18 @@ export class MeetingCallEngine {
         });
       }
       this.pullStrikes = 0;
+      this.refusals = 0;
       // A tile resized while this pull was in flight: move it now.
       if (resync) this.scheduleLayers();
-    } catch {
-      if (pc && before && pc === this.pc) await this.recoverPull(pc, before);
+    } catch (err) {
+      if (
+        pc &&
+        pc === this.pc &&
+        !(await this.rejoinIfBroken(pc, err)) &&
+        before
+      ) {
+        await this.recoverPull(pc, before);
+      }
     } finally {
       // Anything not pulled is retried on the next plan.
       for (const r of refs) this.pending.delete(r.trackName);
@@ -1638,11 +1761,7 @@ export class MeetingCallEngine {
     const next = afterPullStrike(this.pullStrikes, pc.signalingState);
     this.pullStrikes = next.strikes;
     if (!next.rejoin) return;
-    const budget = admitPullRejoin(this.pullRejoins, Date.now());
-    this.pullRejoins = budget.rejoins;
-    // Not awaited: this runs inside the queue, and the rejoin builds its own.
-    if (budget.admit) void this.reconnect();
-    else this.connectionFailed();
+    if (!this.rejoinWithinBudget()) this.connectionFailed();
   }
 
   private async closeRemote(names: string[]) {
@@ -1670,19 +1789,41 @@ export class MeetingCallEngine {
     const me = this.participantId;
     if (!pc || !me) return;
     const mids = transceivers.map((t) => t.mid).filter((m): m is string => !!m);
-    for (const t of transceivers) t.stop();
-    if (!mids.length) return;
-    await this.offer(pc, (sdp) =>
+    const close = (request: Record<string, unknown>) =>
       this.sfu('sfu/tracks/close', 'PUT', {
         participantId: me,
-        request: {
-          tracks: mids.map((mid) => ({ mid })),
-          force: false,
-          sessionDescription: { type: 'offer', sdp },
-        },
+        request: { tracks: mids.map((mid) => ({ mid })), ...request },
         ...(closedLocalTrackNames.length ? { closedLocalTrackNames } : {}),
-      })
-    );
+      });
+    try {
+      // With every m-line stopped Chrome's offer has no BUNDLE group, which
+      // max-bundle refuses, and so it refuses every later description. The
+      // last ones go inactive instead, with nothing to negotiate (force).
+      const remains = pc
+        .getTransceivers()
+        .some(
+          (t) =>
+            !transceivers.includes(t) &&
+            t.mid !== null &&
+            t.direction !== 'stopped' &&
+            t.currentDirection !== 'stopped'
+        );
+      if (!remains && mids.length) {
+        for (const t of transceivers) t.direction = 'inactive';
+        await close({ force: true });
+        return;
+      }
+      for (const t of transceivers) t.stop();
+      if (!mids.length) return;
+      await this.offer(pc, (sdp) =>
+        close({ force: false, sessionDescription: { type: 'offer', sdp } })
+      );
+    } catch (err) {
+      const gone = err instanceof SfuCallError && err.refusal === 'gone';
+      if (gone || err instanceof NegotiationBroken) {
+        await this.rejoinIfBroken(pc, err);
+      }
+    }
   }
 
   /** createOffer → setLocalDescription → send → apply the answer, rolling back on failure. */
@@ -1690,8 +1831,14 @@ export class MeetingCallEngine {
     pc: RTCPeerConnection,
     send: (sdp: string) => Promise<TracksResult>
   ) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    let offer: RTCSessionDescriptionInit;
+    try {
+      offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+    } catch {
+      // Chrome refuses every description after one it could not apply.
+      throw new NegotiationBroken('local_description');
+    }
     try {
       const res = await send(pc.localDescription?.sdp ?? offer.sdp ?? '');
       if (pc !== this.pc) return;
@@ -1701,7 +1848,9 @@ export class MeetingCallEngine {
       await pc.setRemoteDescription(res.sessionDescription);
     } catch (err) {
       if (pc.signalingState === 'have-local-offer') {
-        await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        await pc.setLocalDescription({ type: 'rollback' }).catch(() => {
+          throw new NegotiationBroken('rollback');
+        });
       }
       throw err;
     }
@@ -2157,7 +2306,10 @@ export class MeetingCallEngine {
     const res = await this.api(path, method, body);
     const parsed = parseTracksResult(res.body);
     if (!res.ok || parsed.errorCode) {
-      throw new Error(parsed.errorCode ?? `http_${res.status}`);
+      throw new SfuCallError(
+        parsed.errorCode ?? `http_${res.status}`,
+        sfuRefusal(res.status, res.body)
+      );
     }
     return parsed;
   }
@@ -2191,6 +2343,7 @@ export class MeetingCallEngine {
 export interface MeetingCall extends CallSnapshot, CallActionsV2 {
   join: () => Promise<void>;
   returnToLobby: () => Promise<void>;
+  rejoin: () => Promise<void>;
   leave: () => Promise<void>;
   end: () => Promise<boolean>;
   toggleMic: () => Promise<void>;

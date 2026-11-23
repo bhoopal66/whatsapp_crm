@@ -89,8 +89,20 @@ describe('checkTracksRequest', () => {
     expect(r).toMatchObject({ ok: false, status: 403 });
   });
 
+  it('refuses a local track whose mid is not a non-empty string', () => {
+    for (const mid of [null, undefined, '', 0]) {
+      expect(
+        checkTracksRequest(
+          { tracks: [{ location: 'local', mid, trackName: `${P}:audio` }] },
+          P,
+          present
+        )
+      ).toMatchObject({ ok: false, status: 400 });
+    }
+  });
+
   it('refuses autoDiscover, a missing location, no tracks and a bad SDP', () => {
-    const local = { location: 'local', trackName: `${P}:audio` };
+    const local = { location: 'local', mid: '0', trackName: `${P}:audio` };
     expect(
       checkTracksRequest({ autoDiscover: true, tracks: [local] }, P, present)
     ).toMatchObject({ ok: false, status: 400 });

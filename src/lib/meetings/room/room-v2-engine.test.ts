@@ -268,3 +268,15 @@ describe('room v2 helpers', () => {
     expect(dismissNotices(after, ['nope'])).toBe(after);
   });
 });
+
+describe('a camera that is off', () => {
+  it('is not asked for, and not closed when already received', () => {
+    const off = { ...prow('b', 't', ['audio', 'video']), video_off: true };
+    const plan = planSubscriptions([off], 'me', new Set());
+    expect(plan.pull.map((r) => r.trackName)).toEqual(['b:audio']);
+    const held = new Set(['b:audio', 'b:video']);
+    expect(planSubscriptions([off], 'me', held).close).toEqual([]);
+    const on = { ...off, video_off: false };
+    expect(planSubscriptions([on], 'me', new Set()).pull).toHaveLength(2);
+  });
+});

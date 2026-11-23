@@ -112,6 +112,10 @@ export function checkTracksRequest(
           error: 'A local track takes no sessionId',
         };
       }
+      // Cloudflare answers a null mid with a bare 400 decoding_error.
+      if (typeof t.mid !== 'string' || !t.mid) {
+        return { ok: false, status: 400, error: 'A local track needs a mid' };
+      }
       const kind = ownedTrackKind(participantId, t.trackName);
       if (!kind) {
         return {

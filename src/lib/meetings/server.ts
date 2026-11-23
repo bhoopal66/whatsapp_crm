@@ -92,13 +92,27 @@ export function sfuErrorResponse(err: unknown): NextResponse | null {
   if (err.status === 410) {
     return jsonError('The video session has already ended', 410);
   }
-  console.error('[meetings] sfu call failed', err.status, err.code);
+  console.error(
+    '[meetings] sfu call failed',
+    err.status,
+    err.code,
+    err.detail ?? ''
+  );
   if (err.code === 'not_configured') {
     return jsonError('meetings_not_configured', 503);
   }
   return err.isTimeout
     ? jsonError('The video service did not respond', 504)
-    : jsonError('The video service refused the request', 502);
+    : NextResponse.json(
+        {
+          error: 'The video service refused the request',
+          // The room tells a refusal of its session from an outage by it.
+          ...(err.status >= 400 && err.status < 500
+            ? { sfuStatus: err.status }
+            : {}),
+        },
+        { status: 502 }
+      );
 }
 
 export function meetingDbErrorResponse(

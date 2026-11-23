@@ -24,11 +24,15 @@ export function planSubscriptions(
   /** Participants whose camera the screen does not draw (v2 'hidden'). */
   hiddenVideo: ReadonlySet<string> = new Set()
 ): SubscriptionPlan {
+  // A camera turned off sends nothing: not pulled until its row says it
+  // is back on, but one already received stays (no close on a toggle).
+  const off = new Set<string>();
   const wanted = new Map<string, RemoteTrackRef>();
   for (const row of present) {
     if (row.id === myParticipantId) continue;
     for (const t of row.tracks) {
       if (t.kind === 'video' && hiddenVideo.has(row.id)) continue;
+      if (t.kind === 'video' && row.video_off) off.add(t.trackName);
       wanted.set(t.trackName, {
         participantId: row.id,
         sessionId: row.cf_session_id,
@@ -38,7 +42,7 @@ export function planSubscriptions(
     }
   }
   const pull = [...wanted.values()].filter(
-    (ref) => !currentlyPulled.has(ref.trackName)
+    (ref) => !currentlyPulled.has(ref.trackName) && !off.has(ref.trackName)
   );
   const close = [...currentlyPulled].filter((name) => !wanted.has(name));
   return { pull, close };
