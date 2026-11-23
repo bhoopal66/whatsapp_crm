@@ -1140,6 +1140,7 @@
       "fieldName": "New field name…",
       "loading": "Loading…",
       "empty": "No custom fields yet.",
+      "loadFailed": "The custom fields could not be loaded, so none can be added or changed yet.",
       "renameAria": "Rename {name}",
       "deleteTitle": "Delete field",
       "deleteConfirm": "Delete \"{name}\"? This also removes its stored value on every contact. This cannot be undone.",
@@ -1148,7 +1149,9 @@
       "toastCreateFailed": "Could not create field. You may not have permission.",
       "toastCreated": "Created \"{name}\".",
       "toastRenameFailed": "Could not rename field.",
+      "toastNotRenamed": "Nothing was renamed. The field may have been deleted, or you may no longer have permission.",
       "toastDeleteFailed": "Could not delete field.",
+      "toastNotDeleted": "Nothing was deleted. The field may already be gone, or you may no longer have permission.",
       "toastDeleted": "Deleted \"{name}\"."
     }
   },

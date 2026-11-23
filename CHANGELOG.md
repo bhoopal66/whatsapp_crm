@@ -26,6 +26,11 @@ and polish.
 - **My worklist** reads up to 1,000 open cases and says when there are more.
   It read the first 200 before the person and team filters, so in a large
   workspace a person's own cases could be missing.
+- **Recycle:** a page past the end goes back to the first (it showed no
+  customers), and two quick changes no longer end on the first one's answer.
+- **Custom fields:** a list that could not be read says so, with Try again;
+  it said there were none and let a second field of the same name be added.
+  A rename or delete that changed nothing says so.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -1140,6 +1140,7 @@
       "fieldName": "새 필드 이름…",
       "loading": "불러오는 중…",
       "empty": "아직 커스텀 필드가 없습니다.",
+      "loadFailed": "사용자 지정 필드를 불러오지 못해 지금은 추가하거나 변경할 수 없습니다.",
       "renameAria": "{name} 이름 변경",
       "deleteTitle": "필드 삭제",
       "deleteConfirm": "\"{name}\"을(를) 삭제하시겠습니까? 모든 연락처에 저장된 값도 함께 삭제되며, 되돌릴 수 없습니다.",
@@ -1148,7 +1149,9 @@
       "toastCreateFailed": "필드를 만들 수 없습니다. 권한이 없을 수 있습니다.",
       "toastCreated": "\"{name}\"을(를) 만들었습니다.",
       "toastRenameFailed": "필드 이름을 변경할 수 없습니다.",
+      "toastNotRenamed": "이름이 변경되지 않았습니다. 필드가 삭제되었거나 더 이상 권한이 없을 수 있습니다.",
       "toastDeleteFailed": "필드를 삭제할 수 없습니다.",
+      "toastNotDeleted": "삭제된 항목이 없습니다. 필드가 이미 삭제되었거나 더 이상 권한이 없을 수 있습니다.",
       "toastDeleted": "\"{name}\"을(를) 삭제했습니다."
     }
   },
