@@ -113,6 +113,9 @@ vi.mock('./admin-client', () => ({
       return chain;
     },
     rpc: (name: string) => {
+      if (name === 'hr_auto_open_recruiter') {
+        return Promise.resolve({ data: 'off', error: null });
+      }
       h.state.rpcCalls.push(name);
       return Promise.resolve({ data: h.state.claim, error: null });
     },

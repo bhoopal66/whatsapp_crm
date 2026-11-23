@@ -737,6 +737,22 @@ describe('processMessage — journey bot', () => {
     expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
   });
 
+  it.each([
+    ['intent_match', true],
+    ['first_inbound_message', false],
+  ])(
+    'tells the AI reply that %s acted: meaning trigger %s',
+    async (trigger, acted) => {
+      h.automations.mockImplementation(
+        async (input: { triggerType: string }) => input.triggerType === trigger
+      );
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+      expect(h.ai).toHaveBeenCalledWith(
+        expect.objectContaining({ meaningTriggerActed: acted })
+      );
+    }
+  );
+
   it('a journey that consumes suppresses content automations and the AI reply', async () => {
     h.journey.mockResolvedValue({ consumed: true });
     await processMessage(message, 'acct-1', 'owner-1', channel);

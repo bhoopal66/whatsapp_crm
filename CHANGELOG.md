@@ -59,6 +59,25 @@ No migration.
 - A voicemail the phone system does not send answers after 10 seconds
   instead of hanging, and closing the player stops the download.
 
+### AI
+
+No migration.
+- The sales bot no longer answers HR candidates and colleagues: it stands
+  down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
+  HR line while "open a Recruitment chat" is on. When that cannot be checked
+  it sends nothing.
+- The bot no longer also answers a message a meaning-trigger automation just
+  answered.
+- Questions kept for the knowledge-gap review are stored with identifiers
+  masked, and older ones are masked before they are grouped.
+- With a similarity floor or strict grounding set, a knowledge search that
+  fails hands the chat to a person. Before, it counted as "no knowledge base"
+  or let any keyword hit pass.
+- A held AI draft no longer appears on a chat a person took while it was being
+  written.
+- Re-indexing a document keeps its old index until the new one is ready, and
+  says the document is not indexed when the new one cannot be written.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`

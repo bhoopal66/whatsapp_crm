@@ -35,7 +35,11 @@ import {
 import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { containsSensitiveData } from '@/lib/kb/sensitive';
-import { echoesRedaction, redactOwnText } from './redact-input';
+import {
+  echoesRedaction,
+  redactForProvider,
+  redactOwnText,
+} from './redact-input';
 import { shortlistApprovedAnswers } from '@/lib/kb/shortlist';
 import {
   decideApprovedAnswer,
@@ -107,6 +111,8 @@ export interface RetrievalGateFailure {
   detail: string;
   /** Best similarity seen, for the knowledge-gaps log (null = lexical). */
   bestScore: number | null;
+  /** The search failed: an `error` hand-off, and no knowledge gap. */
+  errored?: boolean;
 }
 
 /**
@@ -145,6 +151,27 @@ export function retrievalGateFailure(
     };
   }
   return null;
+}
+
+/**
+ * Gate 2's other half: the search itself failed. With a floor or strict
+ * grounding set the account asked for answers from its knowledge base
+ * only, so an unsearchable one hands off (reason `error`) instead of
+ * passing for an empty one, or letting an unscored full-text hit through.
+ * Short conversational turns are exempt, as in `retrievalGateFailure`.
+ * Pure. Without either setting nothing changes.
+ */
+export function retrievalErrored(
+  retrieval: KnowledgeRetrieval,
+  config: Pick<AiConfig, 'retrievalMinScore' | 'strictGrounding'>,
+  question: string
+): boolean {
+  if (!retrieval.failed) return false;
+  if (config.retrievalMinScore === null && !config.strictGrounding) {
+    return false;
+  }
+  const words = question.trim().split(/\s+/).filter(Boolean).length;
+  return words >= RETRIEVAL_GATE_MIN_WORDS;
 }
 
 /**
@@ -211,6 +238,10 @@ export interface DispatchArgs {
   /** The inbound's text (a media caption included). The bot's context
    *  holds text rows only, so a caption reaches the gates through this. */
   inboundText?: string | null;
+  /** A meaning trigger (`intent_match`) automation ran for this message
+   *  just before the dispatch: it has answered, so the bot must not. The
+   *  pipeline says so because only Jev can tell that one matches. */
+  meaningTriggerActed?: boolean;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
 }
@@ -307,6 +338,7 @@ export async function dispatchInboundToAiReply(
     interactiveReplyId = null,
     inboundMessageId = null,
     inboundText = null,
+    meaningTriggerActed = false,
     now = Date.now,
   } = args;
   // The dispatch runs inside an `after()` that the route's maxDuration
@@ -435,11 +467,10 @@ export async function dispatchInboundToAiReply(
     // stand down before the number lookup below, which would throw
     // `personal_chat`, and before any token is spent. Recorded as
     // `skipped_number` - the message is on a number the bot does not
-    // answer. Fails open on a read error (the channel resolver still
-    // refuses a personal chat).
-    const { data: personalRow } = await dbc
+    // answer. A read error stands the bot down (below).
+    const { data: personalRow, error: personalErr } = await dbc
       .from('conversations')
-      .select('personal_owner_id')
+      .select('personal_owner_id, inbox_department')
       .eq('id', conversationId)
       .maybeSingle();
     if (personalRow?.personal_owner_id) {
@@ -448,6 +479,19 @@ export async function dispatchInboundToAiReply(
         'Personal chat: the bot never answers on a personal number.'
       );
     }
+
+    // HR, IT and accounts chats are not the sales bot's either. Before
+    // any spend, for a Flow's fallback too. A check that cannot be read
+    // throws: recorded as `error`, and nothing is sent.
+    if (personalErr) {
+      throw new Error(`department lookup: ${personalErr.message}`);
+    }
+    const notSales = await notSalesChat(dbc, {
+      conversationId,
+      inboxDepartment: personalRow?.inbox_department ?? null,
+      inboundChannelId: inboundChannelId ?? null,
+    });
+    if (notSales) return skip('skipped_number', notSales);
 
     // Which number the bot answers on (migration 079). Every send below
     // goes out on `replyChannelId` when it is set; unset, the send
@@ -545,6 +589,12 @@ export async function dispatchInboundToAiReply(
     // `new_message_received` matches every message, so an active one
     // still stands the bot down: it is an auto-responder.
     if (!flowContext) {
+      if (meaningTriggerActed) {
+        return skip(
+          'skipped_automation',
+          'A meaning-trigger automation answered this message.'
+        );
+      }
       const autoResponderTriggers = ['new_message_received', 'keyword_match'];
       if (interactiveReply || interactiveReplyId) {
         autoResponderTriggers.push('interactive_reply');
@@ -728,6 +778,8 @@ export async function dispatchInboundToAiReply(
      * guardrail's held draft waits on the chat for a person, `error`
      * when the reply itself failed to send.
      *
+     * `heldDraft` is that draft (Send / Edit / Discard in the inbox).
+     *
      * The update applies only while the chat is still the bot's
      * (unpaused, unassigned). When a person took it over since it was
      * read, nothing is overwritten, no bell rings, and the outcome is
@@ -738,7 +790,8 @@ export async function dispatchInboundToAiReply(
       detail: string | null,
       farewell: string | null,
       reasonText: string | null = null,
-      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off'
+      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off',
+      heldDraft: string | null = null
     ): Promise<AiReplyOutcome> => {
       // A pin made during generation: skip only the farewell; the
       // hand-off itself proceeds.
@@ -807,6 +860,14 @@ export async function dispatchInboundToAiReply(
         // on it — assigning the hand-off agent below is not acting.
         ai_attention_at: now,
       };
+      // In the same conditional update: a chat a person took meanwhile
+      // gets neither the hand-off nor the draft, and a draft written for
+      // an older message never replaces the one a newer hold left there
+      // (that hold paused the chat).
+      if (heldDraft) {
+        update.ai_pending_draft = heldDraft;
+        update.ai_pending_draft_at = now;
+      }
       // Only set the assignee when a target is configured AND the thread
       // isn't already owned — never stomp an existing human assignment.
       if (config.handoffAgentId && !conv.assigned_agent_id) {
@@ -1226,9 +1287,22 @@ export async function dispatchInboundToAiReply(
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
-    const gapIn = (p: PassageGateResult) =>
-      retrievalGateFailure(p.retrieval, config.retrievalMinScore, openQuestion);
+    const gapIn = (p: PassageGateResult): RetrievalGateFailure | null =>
+      retrievalErrored(p.retrieval, config, openQuestion)
+        ? {
+            detail: 'Knowledge base search failed',
+            bestScore: null,
+            errored: true,
+          }
+        : retrievalGateFailure(
+            p.retrieval,
+            config.retrievalMinScore,
+            openQuestion
+          );
     const noKnowledge = async (gap: RetrievalGateFailure) => {
+      if (gap.errored) {
+        return handOff('error', gap.detail, config.handoffMessage);
+      }
       await logKnowledgeGap(dbc, {
         accountId,
         conversationId,
@@ -1460,30 +1534,14 @@ export async function dispatchInboundToAiReply(
         return handOff('guardrail', guardDetail, config.handoffMessage);
       }
       // A held draft waits on the chat for that person (Send / Edit /
-      // Discard in the inbox banner). A failed write must not stop the
-      // hand-off: the note still quotes the draft.
-      try {
-        const { error: draftErr } = await dbc
-          .from('conversations')
-          .update({
-            ai_pending_draft: text,
-            ai_pending_draft_at: new Date().toISOString(),
-          })
-          .eq('id', conversationId)
-          .eq('account_id', accountId);
-        if (draftErr) throw new Error(draftErr.message);
-      } catch (err) {
-        console.error('[ai auto-reply] held draft not stored:', {
-          conversationId,
-          error: errorMessage(err),
-        });
-      }
+      // Discard in the inbox banner), written by the hand-off itself.
       return handOff(
         'guardrail',
         guardDetail,
         config.handoffMessage,
         null,
-        'held_for_review'
+        'held_for_review',
+        text
       );
     }
 
@@ -1538,6 +1596,51 @@ const UNANSWERED_ERROR =
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Why a chat is not the sales bot's to answer, or null: it sits in a
+ * department inbox other than sales (192), it has an `hr_conversations`
+ * row (200; a closed one too, the person is still a candidate or a
+ * colleague), or the message came in on an HR line (213).
+ *
+ * `hr_lines` is readable only through functions, and the service role has
+ * one: `hr_auto_open_recruiter`, which the inbound pipeline calls for
+ * every message anyway. Asked here first it opens the Recruitment chat a
+ * moment earlier (idempotent). It answers `off` without looking at the
+ * lines while *Open a Recruitment chat* is off: an HR line is then only
+ * recognised by its chats' HR rows. Throws when a check cannot be read.
+ */
+async function notSalesChat(
+  db: SupabaseClient,
+  args: {
+    conversationId: string;
+    inboxDepartment: string | null;
+    inboundChannelId: string | null;
+  }
+): Promise<string | null> {
+  if (args.inboxDepartment && args.inboxDepartment !== 'sales') {
+    return `This chat is in the ${args.inboxDepartment} inbox.`;
+  }
+  const { data: hrRow, error: hrErr } = await db
+    .from('hr_conversations')
+    .select('conversation_id')
+    .eq('conversation_id', args.conversationId)
+    .maybeSingle();
+  if (hrErr) throw new Error(`HR chat lookup: ${hrErr.message}`);
+  if (hrRow) return 'This is an HR chat.';
+  if (!args.inboundChannelId) return null;
+  const { data: line, error: lineErr } = await db.rpc(
+    'hr_auto_open_recruiter',
+    {
+      p_conversation_id: args.conversationId,
+      p_channel_id: args.inboundChannelId,
+    }
+  );
+  if (lineErr) throw new Error(`HR line lookup: ${lineErr.message}`);
+  return line === 'opened' || line === 'exists' || line === 'other_numbers'
+    ? 'The message came in on an HR line.'
+    : null;
 }
 
 /** Kept back from a generation's timeout for the send or hand-off. */
@@ -1940,7 +2043,8 @@ async function logKnowledgeGap(
     const { error } = await db.from('ai_knowledge_gaps').insert({
       account_id: args.accountId,
       conversation_id: args.conversationId,
-      question: args.question.slice(0, 2000),
+      // Masked: this row is read by admins and embedded later.
+      question: redactForProvider(args.question).slice(0, 2000),
       best_score: args.bestScore,
     });
     if (error)

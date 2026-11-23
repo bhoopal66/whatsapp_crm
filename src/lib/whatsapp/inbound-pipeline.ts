@@ -1400,6 +1400,8 @@ export async function processMessage(
   // A keyword_match automation that acted on this message wins: a
   // meaning trigger would otherwise answer the same text a second time.
   let keywordActed = false;
+  // And a meaning trigger that acted wins over the AI reply below.
+  let meaningActed = false;
   for (const triggerType of automationTriggers) {
     if (triggerType === 'intent_match' && keywordActed) continue;
     const acted = await runAutomationsForTrigger({
@@ -1422,6 +1424,7 @@ export async function processMessage(
       return false;
     });
     if (triggerType === 'keyword_match' && acted) keywordActed = true;
+    if (triggerType === 'intent_match' && acted) meaningActed = true;
   }
 
   // AI auto-reply. Runs for any inbound the deterministic flow runner
@@ -1463,6 +1466,7 @@ export async function processMessage(
       // A media caption is not in the bot's text context (context.ts
       // keeps text/interactive rows only); the gates still read it.
       inboundText,
+      meaningTriggerActed: meaningActed,
     });
   }
 

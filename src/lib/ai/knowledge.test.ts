@@ -12,6 +12,7 @@ import {
   retrieveKnowledgeScored,
   ingestDocument,
 } from './knowledge';
+import { ingestWarning } from './ingest-warning';
 
 interface FakeState {
   semantic: { id: string; content: string; distance?: number }[];
@@ -308,4 +309,80 @@ describe('ingestDocument', () => {
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted![0].embedding).toBeNull();
   });
+});
+
+describe('retrieveKnowledgeScored: a failed search says so', () => {
+  const ask = (
+    db: Parameters<typeof retrieveKnowledgeScored>[0],
+    embeddingsApiKey: string | null = 'sk-x'
+  ) => retrieveKnowledgeScored(db, 'acct', { embeddingsApiKey }, 'the fee?');
+
+  it('a count error is not "no knowledge base"', async () => {
+    const db = {
+      from: () => ({
+        select: () => ({
+          eq: async () => ({ count: null, error: { message: 'timeout' } }),
+        }),
+      }),
+    } as unknown as Parameters<typeof retrieveKnowledgeScored>[0];
+    expect((await ask(db)).failed).toBe(true);
+  });
+
+  it('an embeddings failure and a semantic RPC error, with a key', async () => {
+    const { db, state } = makeDb();
+    state.fts = [{ id: 'f', content: 'hit' }];
+    h.embedTexts.mockRejectedValueOnce(new Error('quota'));
+    const r = await ask(db);
+    expect(r).toMatchObject({ failed: true, excerpts: ['hit'] });
+
+    const rpc = async (name: string) =>
+      name === 'match_ai_knowledge_semantic'
+        ? { data: null, error: { message: 'boom' } }
+        : { data: [], error: null };
+    const broken = Object.assign({}, db, { rpc }) as typeof db;
+    expect((await ask(broken)).failed).toBe(true);
+  });
+
+  it('not without a key, nor when the search worked', async () => {
+    expect((await ask(makeDb().db, null)).failed).toBeUndefined();
+    expect((await ask(makeDb().db)).failed).toBeUndefined();
+  });
+});
+
+describe('ingestDocument: replacing the chunks', () => {
+  function chunksDb(fail?: 'delete' | 'insert') {
+    const steps: string[] = [];
+    h.embedTexts.mockImplementation(async (_k: string, t: string[]) => {
+      steps.push('embed');
+      return t.map(() => [0, 0]);
+    });
+    const answer = (step: 'delete' | 'insert') => {
+      steps.push(step);
+      return { error: fail === step ? { message: 'db down' } : null };
+    };
+    const db = {
+      from: () => ({
+        delete: () => ({ eq: async () => answer('delete') }),
+        insert: async () => answer('insert'),
+      }),
+    } as unknown as Parameters<typeof ingestDocument>[0];
+    return { db, steps };
+  }
+  const run = (db: Parameters<typeof ingestDocument>[0]) =>
+    ingestDocument(db, 'acct', { embeddingsApiKey: 'sk-x' }, 'doc-1', 'hello');
+
+  it('embeds before it deletes the old chunks', async () => {
+    const { db, steps } = chunksDb();
+    await run(db);
+    expect(steps).toEqual(['embed', 'delete', 'insert']);
+  });
+
+  it.each(['delete', 'insert'] as const)(
+    'a failed %s says the document is not indexed',
+    async (fail) => {
+      const err = await run(chunksDb(fail).db).catch((e: unknown) => e);
+      expect(ingestWarning('Saved', err)).toContain('is not indexed');
+      expect(ingestWarning('Saved', err)).not.toContain('still works');
+    }
+  );
 });
