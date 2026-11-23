@@ -73,6 +73,8 @@
     "settings": "Settings",
     "beta": "Beta",
     "unreadConversations": "{count} unread {count, plural, =1 {conversation} other {conversations}}",
+    "teamInboxUnread": "Team inbox: {count} unread",
+    "groupBadgeTotal": "{count} unread or due in this group",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
     "roleAgent": "Agent",

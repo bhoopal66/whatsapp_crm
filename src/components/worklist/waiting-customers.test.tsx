@@ -117,4 +117,13 @@ describe('WaitingCustomers', () => {
     expect(html).toContain('Nothing else needs action right now.');
     expect(html).not.toContain('Nothing needs action right now.');
   });
+
+  it('shows an error line, not the empty state, when the first read failed', () => {
+    const html = render(
+      <WaitingCustomers rows={null} failed nameOf={nameOf} now={NOW} />
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain('worklist-waiting-empty');
+    expect(html).not.toContain('Loading waiting customers');
+  });
 });

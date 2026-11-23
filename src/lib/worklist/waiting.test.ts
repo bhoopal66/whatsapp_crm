@@ -123,17 +123,24 @@ describe('loadWaitingChats', () => {
       7
     );
     expect(rpc).toHaveBeenCalledWith('worklist_waiting_chats', { p_limit: 7 });
-    expect(rows.map((r) => r.conversationId)).toEqual(['a']);
+    expect(rows?.map((r) => r.conversationId)).toEqual(['a']);
   });
 
-  it('never throws: an error or a throw is an empty list', async () => {
+  it('never throws: an error or a throw is null, not an empty list', async () => {
     const failing = {
       rpc: vi.fn().mockResolvedValue({ data: null, error: { code: '42883' } }),
     } as unknown as SupabaseClient;
-    expect(await loadWaitingChats(failing)).toEqual([]);
+    expect(await loadWaitingChats(failing)).toBeNull();
     const throwing = {
       rpc: vi.fn().mockRejectedValue(new Error('network')),
     } as unknown as SupabaseClient;
-    expect(await loadWaitingChats(throwing)).toEqual([]);
+    expect(await loadWaitingChats(throwing)).toBeNull();
+  });
+
+  it('a good empty read is [] (not an error)', async () => {
+    const ok = {
+      rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
+    } as unknown as SupabaseClient;
+    expect(await loadWaitingChats(ok)).toEqual([]);
   });
 });
