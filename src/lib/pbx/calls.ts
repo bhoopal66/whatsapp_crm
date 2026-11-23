@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canViewUnroutedCalls, type AccountRole } from '@/lib/auth/roles';
 import { PbxConnectionError } from './connection';
-import { contactPhoneCandidates, normalizeRemoteNumber } from './phone';
+import { normalizeRemoteNumber, storedPhoneCandidates } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
 import {
   isMissedCall,
@@ -770,7 +770,7 @@ export async function dncContactIds(
     .from('contacts')
     .select('id')
     .eq('account_id', accountId)
-    .in('phone', contactPhoneCandidates(number))
+    .in('phone_normalized', storedPhoneCandidates(number))
     .not('do_not_contact_at', 'is', null);
   if (error) throw new Error(`contacts read failed: ${error.message}`);
   const ids = new Set(((data ?? []) as { id: string }[]).map((c) => c.id));
@@ -843,7 +843,7 @@ export async function resolveCallee(input: {
     const { data, error } = await rls
       .from('contacts')
       .select(cols)
-      .in('phone', contactPhoneCandidates(number));
+      .in('phone_normalized', storedPhoneCandidates(number));
     if (error) throw new Error(`contacts read failed: ${error.message}`);
     visible = (data ?? []) as ContactRow[];
     if (

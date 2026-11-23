@@ -38,6 +38,27 @@ delete. After re-running 106 or 108, run 278 again.
 - The calendar no longer drops attendees (and your own reply) on an event with
   more than 1,000 invitees, and ended series are left out of the read.
 
+### Phone
+
+No migration.
+- Calling from the CRM: at most 20 calls a minute per person, and the same
+  number is not dialled twice by one person within 10 seconds.
+- Call-backs, before they are switched on: an unanswered one is tried again
+  after 30 minutes, then after 2 hours (it was tried again at once); a
+  customer is not rung twice within half an hour, also when they asked twice
+  or someone has just called them; when the phone system gives no clear
+  answer the call is not placed a second time; one request that cannot be
+  dialled yet no longer holds up the others; a number saved with a leading 0
+  is dialled correctly, and do-not-contact counts however it is saved.
+- Call recordings: a number search finds the call however it is typed
+  (`050 123 4567`, `00971 50…`, `+971…`, Arabic digits). Arabic digits were
+  refused, and a leading 0 found nothing.
+- A customer saved with a differently written number (spaces, a leading 0,
+  no country code) is recognised when their number is typed: they can be a
+  transfer target, and do-not-contact counts for them.
+- A voicemail the phone system does not send answers after 10 seconds
+  instead of hanging, and closing the player stops the download.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`

@@ -300,6 +300,42 @@ describe('GET /api/pbx/voicemail/[id]/audio', () => {
   });
 });
 
+describe('the audio download’s clock', () => {
+  /** A PBX that answers only when the request is aborted. */
+  const silent = (_url: unknown, init?: RequestInit) =>
+    new Promise<Response>((_ok, no) =>
+      init!.signal!.addEventListener('abort', () =>
+        no(new DOMException('aborted', 'AbortError'))
+      )
+    );
+  afterEach(() => vi.useRealTimers());
+
+  it('answers 504 when the PBX sends no headers in 10 seconds', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(silent);
+    const answer = audio(req(), params(OWN));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect((await answer).status).toBe(504);
+  });
+
+  it('never cuts a message that is already streaming, until the listener leaves', async () => {
+    vi.useFakeTimers();
+    const listener = new AbortController();
+    const res = await audio(
+      new Request('https://crm.example.com/api/pbx/voicemail/x', {
+        signal: listener.signal,
+      }),
+      params(OWN)
+    );
+    expect(res.status).toBe(200);
+    const signal = fetchMock.mock.calls.at(-1)![1].signal as AbortSignal;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signal.aborted).toBe(false);
+    listener.abort();
+    expect(signal.aborted).toBe(true);
+  });
+});
+
 describe('POST /api/pbx/voicemail/[id]/read', () => {
   it('marks the caller’s own unread message read', async () => {
     const res = await read(req('POST'), params(OWN));

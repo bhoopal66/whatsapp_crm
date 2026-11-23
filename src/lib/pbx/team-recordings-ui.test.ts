@@ -114,6 +114,9 @@ describe('numberSearch', () => {
     expect(numberSearch('  - ')).toBe('');
     expect(numberSearch('05')).toBeNull();
     expect(numberSearch('+971 50 1')).toBe('971501');
+    expect(numberSearch('٠٥٠ ۱۲۳')).toBe('050123');
+    expect(numberSearch('0')).toBe('');
+    expect(numberSearch('00')).toBe('');
     expect(numberSearch('1'.repeat(21))).toBeNull();
   });
 });

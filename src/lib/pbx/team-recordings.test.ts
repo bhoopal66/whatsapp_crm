@@ -70,6 +70,22 @@ describe('parseTeamRecordingsQuery', () => {
   });
 
   it.each([
+    ['050 123 4567', '501234567'],
+    ['00971 50 123', '97150123'],
+    ['+971 50-123', '97150123'],
+    ['٠٥٠ ١٢٣ ٤٥٦٧', '501234567'],
+    ['۰۵۰۱۲۳', '50123'],
+    ['0050', '50'],
+    ['000501', '501'],
+    ['050', '50'],
+    ['0', null],
+    ['00', null],
+    ['٠', null],
+  ])('searches a stored number for %s', (typed, q) => {
+    expect(ok(new URLSearchParams({ q: typed }).toString()).q).toBe(q);
+  });
+
+  it.each([
     ['period=year', 'Unknown period'],
     ['team=nope', 'team must be an id'],
     ['user=1', 'user must be an id'],
