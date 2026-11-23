@@ -309,6 +309,7 @@ BEGIN
        SELECT 1 FROM public.notifications n
         WHERE n.user_id = w.user_id
           AND n.created_at > now() - interval '30 minutes'
+          AND n.created_at >= g.ended_at  -- a bell of before the end answers nothing asked after it
           AND n.account_id = NEW.account_id
           AND n.type = 'submission_group_message'
           AND n.meta ->> 'group_id' = NEW.group_id::text));
@@ -320,8 +321,7 @@ END;
 $$;
 
 -- 173's trigger without its NOT post_end: the function decides.
-DROP TRIGGER IF EXISTS submission_group_messages_ring ON public.submission_group_messages;
-CREATE TRIGGER submission_group_messages_ring
+CREATE OR REPLACE TRIGGER submission_group_messages_ring
   AFTER INSERT ON public.submission_group_messages
   FOR EACH ROW
   WHEN (NEW.direction = 'in' AND NEW.sender_kind = 'customer')
@@ -351,7 +351,7 @@ AS $$
    GROUP BY g.id
   UNION ALL
   SELECT g.id, count(*)::integer
-    FROM (SELECT n.meta ->> 'group_id' AS gid, min(n.created_at) AS since
+    FROM (SELECT n.meta ->> 'group_id' AS gid, min(n.created_at) AS since, max(n.created_at) AS newest
             FROM public.notifications n
            WHERE n.user_id = auth.uid()
              AND n.read_at IS NULL
@@ -367,6 +367,13 @@ AS $$
      AND m.created_at >= b.since
    WHERE g.account_id = public.current_account_id()
      AND public.sg_is_staff(g.account_id, auth.uid())
+     -- An unread bell of before the end counts only for those on the list
+     -- at the end: someone taken off it must not learn of a later message.
+     AND (b.newest >= g.ended_at OR EXISTS (
+       SELECT 1 FROM public.submission_group_access a
+        WHERE a.group_id = g.id AND a.user_id = auth.uid()
+          AND a.added_at <= g.ended_at AND (a.removed_at IS NULL OR a.removed_at >= g.ended_at)
+          AND a.label IN ('agent', 'coordinator')))
      AND g.status = 'ENDED'
      AND g.wa_mode = 'group'
      AND g.wa_closed_at IS NULL
@@ -431,7 +438,8 @@ BEGIN
      AND (p_sent_at IS NULL OR m.created_at < p_sent_at + interval '1 second')
      AND m.prefixed_body = p_text
      AND (m.type = 'text') = (coalesce(p_type, 'text') = 'text')
-   ORDER BY m.created_at, m.id
+   -- Attachments without a caption all read the same: the same kind first.
+   ORDER BY (m.type = coalesce(p_type, 'text')) DESC, m.created_at, m.id
    LIMIT 1
    FOR UPDATE;
   IF v_id IS NULL THEN
@@ -514,7 +522,12 @@ DO $$ BEGIN
      OR pg_get_functiondef('public.submission_groups_guard()'::regprocedure) NOT LIKE '%submission_status_at%'
      OR pg_get_functiondef('public.case_timeline(uuid,uuid)'::regprocedure) NOT LIKE '%submission_status%'
      OR pg_get_functiondef('public.sg_ring_customer_message()'::regprocedure) NOT LIKE '%wa_closed_at%'
-     OR has_function_privilege('authenticated', 'public.sg_reconcile_echo(uuid,text,text,text,timestamptz)', 'EXECUTE') THEN
+     OR has_function_privilege('authenticated', 'public.sg_reconcile_echo(uuid,text,text,text,timestamptz)', 'EXECUTE')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.submission_group_messages'::regclass
+                     AND t.tgname = 'submission_group_messages_ring'
+                     AND pg_get_triggerdef(t.oid) NOT LIKE '%post_end%') THEN
     RAISE EXCEPTION '267 did not apply completely';
   END IF;
 END $$;
+
+RESET lock_timeout;

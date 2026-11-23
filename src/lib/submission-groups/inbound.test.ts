@@ -118,7 +118,6 @@ describe('recordSubmissionGroupInbound', () => {
     });
   });
 
-  const NOW = new Date('2026-10-16T10:20:00.000Z');
   const echo = (over: Partial<GroupInboundMessage> = {}) =>
     msg({
       id: 'wa-echo',

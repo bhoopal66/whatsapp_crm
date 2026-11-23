@@ -122,6 +122,17 @@ BEGIN
     AND sg_reconcile_echo(ga, 'WA-4', 'image', 'A (Agent)') AND pg_temp.sgf_state(m1) = 'sent:WA-4',
     'echo: an attachment by its caption')); n := n + 1;
 
+  -- Two attachments without a caption: the echo takes its own kind first.
+  m1 := sg_send_begin_media(ga, u_agent, 'image', '', 'A (Agent)',
+    '{"link":"https://x.example.invalid/b.jpg","path":"b.jpg"}'::jsonb);
+  PERFORM sg_settle_send(m1, 'failed', NULL);
+  m2 := sg_send_begin_media(ga, u_agent, 'document', '', 'A (Agent)',
+    '{"link":"https://x.example.invalid/c.pdf","path":"c.pdf"}'::jsonb);
+  PERFORM sg_settle_send(m2, 'failed', NULL);
+  failed := array_append(failed, pg_temp.sgf_ok(sg_reconcile_echo(ga, 'WA-4b', 'document', 'A (Agent)')
+    AND pg_temp.sgf_state(m2) = 'sent:WA-4b' AND pg_temp.sgf_state(m1) = 'failed:-',
+    'echo: its own kind of attachment first')); n := n + 1;
+
   -- A failed send and its retry; only the retry went out, and its echo
   -- comes before the gateway's answer: the answer corrects the guess.
   m1 := sg_send_begin(ga, u_agent, 'tw', 'A (Agent): tw');
@@ -167,7 +178,11 @@ BEGIN
   PERFORM sg_record_inbound(ga, 'IN-1', '971500267001', 'customer', 'text', 'q', NULL, now());
   failed := array_append(failed, pg_temp.sgf_ok((SELECT count(*) FROM notifications
     WHERE account_id = a_acct AND type = 'submission_group_message') = 3, 'bell: ACTIVE as before')); n := n + 1;
-  DELETE FROM notifications WHERE account_id = a_acct;
+  -- Two of them keep that bell into the end: the agent has read it, the
+  -- coordinator who is taken off the list has not.
+  DELETE FROM notifications WHERE account_id = a_acct AND user_id = u_coord;
+  UPDATE notifications SET created_at = now() - interval '5 minutes' WHERE account_id = a_acct;
+  UPDATE notifications SET read_at = now() WHERE account_id = a_acct AND user_id = u_agent;
 
   PERFORM sg_note_submission_status(ga, 'APPROVED');
   failed := array_append(failed, pg_temp.sgf_ok(NOT EXISTS (
@@ -178,8 +193,14 @@ BEGIN
   PERFORM case_apply_submission_status(ga, 'APPROVED');
   PERFORM sg_record_inbound(ga, 'IN-2', '971500267001', 'customer', 'text', 'q', NULL, now());
   failed := array_append(failed, pg_temp.sgf_ok((SELECT array_agg(user_id ORDER BY user_id) FROM notifications
-    WHERE account_id = a_acct AND type = 'submission_group_message') = ARRAY[u_agent, u_coord],
-    'bell: ended, those on the list at the end')); n := n + 1;
+    WHERE account_id = a_acct AND type = 'submission_group_message' AND read_at IS NULL
+      AND created_at = now()) = ARRAY[u_agent, u_coord],
+    'bell: ended, those on the list at the end, one read minutes before included')); n := n + 1;
+  failed := array_append(failed, pg_temp.sgf_ok(
+    EXISTS (SELECT 1 FROM notifications WHERE user_id = u_left AND read_at IS NULL)
+    AND pg_temp.sgf_as(u_left, 'SELECT sg_unread_count()') = '0',
+    'unread: an old bell of someone taken off the list counts nothing')); n := n + 1;
+  DELETE FROM notifications WHERE account_id = a_acct AND created_at < now();
   failed := array_append(failed, pg_temp.sgf_ok((SELECT post_end FROM submission_group_messages
     WHERE group_id = ga AND wa_message_id = 'IN-2'), 'bell: the message is still post_end')); n := n + 1;
   PERFORM sg_record_inbound(ga, 'IN-3', '971500267001', 'customer', 'text', 'q', NULL, now());
@@ -191,7 +212,9 @@ BEGIN
     AND pg_temp.sgf_as(u_agent, 'SELECT sg_unread_count()') = '2'
     AND pg_temp.sgf_as(u_left, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = 'NULL',
     'unread: the customer''s messages since the bell')); n := n + 1;
-  UPDATE notifications SET read_at = now() WHERE account_id = a_acct;
+  -- Rung after the end (which is stamped with the clock; this transaction's
+  -- now() is older).
+  UPDATE notifications SET read_at = now(), created_at = clock_timestamp() WHERE account_id = a_acct;
   failed := array_append(failed, pg_temp.sgf_ok(
     pg_temp.sgf_as(u_agent, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = 'NULL',
     'unread: gone once the bell is read')); n := n + 1;
@@ -259,7 +282,7 @@ BEGIN
   END;
 
   failed := array_remove(failed, NULL);
-  IF n < 37 THEN RAISE EXCEPTION 'verify-sg-fixes: only % checks ran', n; END IF;
+  IF n < 40 THEN RAISE EXCEPTION 'verify-sg-fixes: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-sg-fixes: % of % failed: %', cardinality(failed), n, array_to_string(failed, '; ');
   END IF;

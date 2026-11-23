@@ -8,15 +8,14 @@
  *
  * Our own sends (fromMe) are never stored: a CRM send is already
  * recorded by `sg_send_begin`, and an echo must not come back as an
- * inbound row. Whapi echoes every send, so a text echo reconciles a send
- * whose own settle never landed (the sender's 202 "sent, not recorded"):
- * when no row of the group carries the echo's id yet and exactly one
- * pending 'out' row of the group, created in the last 15 minutes and not
- * after the echo's own timestamp, has exactly that prefixed text, it is
- * settled 'sent' with the echo's id before the cron would sweep it
- * failed. Two such rows (the same sender resending the same text) are
- * ambiguous and left alone: settling the wrong one would show an unsent
- * message as sent. The sender's own settle, or the cron, decides them.
+ * inbound row. Whapi echoes every send, so an echo settles a send whose
+ * own settle never landed or said failed because the gateway's answer was
+ * lost (`sg_reconcile_echo`, 267): the oldest own row of the group from
+ * the last 15 minutes, pending or failed, with no WhatsApp id, not newer
+ * than the echo, with exactly that prefixed text or caption (its own kind
+ * of attachment first). Of two identical sends the echo may pick the
+ * wrong one; `sg_settle_send`, whose id is the gateway's own answer,
+ * corrects it. An echo without a text or caption is ignored.
  */
 import type { GroupChannel, GroupInboundMessage } from '@/lib/groups/inbound';
 import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
