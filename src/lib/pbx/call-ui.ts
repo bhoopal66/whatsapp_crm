@@ -82,13 +82,39 @@ const byUpdated = (a: CallLiveRow, b: CallLiveRow) =>
   a.updated_at.localeCompare(b.updated_at);
 
 /**
+ * What tells a live call from one whose hang-up was lost, which keeps
+ * its row until the stale sweep (2 h). Silence alone is not proof:
+ * nothing writes a row between frames, so a real long call is quiet too.
+ * Hence the softphone's word as well, and the generous limits below.
+ */
+export interface CallPulse {
+  /** How long the row has had no frame (frameQuietMs). */
+  quietMs: (r: CallLiveRow) => number;
+  /** The softphone in this tab may hold the call (hasCall). */
+  inCall: (r: CallLiveRow) => boolean;
+}
+
+/** A ringing call without a frame for this long is off the card. */
+export const RING_QUIET_MS = 3 * 60_000;
+/** An answered one lets a fresher call have the panel. */
+export const PANEL_QUIET_MS = 10 * 60_000;
+/** An answered one may be closed by hand. */
+export const CLOSABLE_QUIET_MS = 30 * 60_000;
+
+/** Quiet for `ms` and not in the softphone; never, with no pulse to go by. */
+const isQuiet = (r: CallLiveRow, ms: number, pulse?: CallPulse): boolean =>
+  pulse !== undefined && pulse.quietMs(r) >= ms && !pulse.inCall(r);
+
+/**
  * The customer call ringing this person: inbound, unanswered, and their
  * extension among the ringing ones. A team leader sees every live row
- * (RLS), so visibility alone never means "ringing for me". Oldest first.
+ * (RLS), so visibility alone never means "ringing for me". Oldest first,
+ * past any whose hang-up was lost (`pulse`): it would hide later calls.
  */
 export function myRingingCall(
   rows: CallLiveRow[],
-  userId: string | null
+  userId: string | null,
+  pulse?: CallPulse
 ): CallLiveRow | null {
   if (!userId) return null;
   return (
@@ -97,24 +123,62 @@ export function myRingingCall(
         (r) =>
           !r.answered_by &&
           (r.ringing_user_ids ?? []).includes(userId) &&
-          isInboundCall(r)
+          isInboundCall(r) &&
+          !isQuiet(r, RING_QUIET_MS, pulse)
       )
       .sort(byUpdated)[0] ?? null
   );
 }
 
-/** The customer call this person answered (either direction). */
+/**
+ * The customer call this person answered (either direction): newest
+ * first, a quiet one (`pulse`) only when there is no other, and never
+ * one closed by hand since its last frame (`dismissed`).
+ */
 export function myActiveCall(
   rows: CallLiveRow[],
-  userId: string | null
+  userId: string | null,
+  pulse?: CallPulse,
+  dismissed: Record<string, string> = {}
 ): CallLiveRow | null {
   if (!userId) return null;
+  const mine = rows
+    .filter(
+      (r) =>
+        r.answered_by === userId &&
+        isCustomerCall(r) &&
+        dismissed[liveKey(r)] !== r.updated_at
+    )
+    .sort((a, b) => byUpdated(b, a));
   return (
-    rows
-      .filter((r) => r.answered_by === userId && isCustomerCall(r))
-      .sort(byUpdated)[0] ?? null
+    mine.find((r) => !isQuiet(r, PANEL_QUIET_MS, pulse)) ?? mine[0] ?? null
   );
 }
+
+/** The answered calls whose live panel may be closed by hand. */
+export const closableKeys = (
+  rows: CallLiveRow[],
+  userId: string | null,
+  pulse: CallPulse
+): string[] =>
+  rows
+    .filter(
+      (r) => r.answered_by === userId && isQuiet(r, CLOSABLE_QUIET_MS, pulse)
+    )
+    .map(liveKey);
+
+/**
+ * How often call_live is read while a call is on screen: the net under
+ * realtime, which never tells of a row that stopped being visible.
+ */
+export const livePollMs = (subscribed: boolean): number =>
+  subscribed ? 8000 : 4000;
+
+/** A hidden tab skips the poll, unless the call's audio is in it. */
+export const livePollRuns = (
+  hidden: boolean,
+  softphoneActive: boolean
+): boolean => !hidden || softphoneActive;
 
 /** The contacts a number matched more than once, for a person to pick. */
 export function contactCandidates(r: CallLiveRow): string[] {
@@ -187,6 +251,42 @@ export function noteFrames(
         : { updatedAt: r.updated_at, at: now, live };
   }
   return next;
+}
+
+/**
+ * The server's clock minus this browser's, from a response's Date
+ * header; null when there is none. Slightly low (the answer's travel
+ * time), so a call only ever looks fresher than it is.
+ */
+export function clockSkewMs(
+  dateHeader: string | null,
+  now: number
+): number | null {
+  const at = Date.parse(dateHeader ?? '');
+  return Number.isNaN(at) ? null : at - now;
+}
+
+/**
+ * How long a row has had no frame. On the server's clock (`skew`) where
+ * that is known, so a browser clock minutes out changes nothing, and
+ * never longer than since this browser saw the frame arrive: a clock set
+ * right after the page opened would otherwise age every call at once.
+ * Without the server's clock, since the frame was first seen; 0 when
+ * neither says.
+ */
+export function frameQuietMs(
+  row: Pick<CallLiveRow, 'updated_at'>,
+  seen: FrameSeen | null,
+  now: number,
+  skew: number | null
+): number {
+  const frame = seen?.updatedAt === row.updated_at ? seen : null;
+  const bySeen = frame ? Math.max(0, now - frame.at) : null;
+  const byServer =
+    skew === null ? NaN : now + skew - Date.parse(row.updated_at);
+  if (Number.isNaN(byServer)) return bySeen ?? 0;
+  const quiet = Math.max(0, byServer);
+  return frame?.live && bySeen !== null ? Math.min(quiet, bySeen) : quiet;
 }
 
 /**
@@ -621,6 +721,8 @@ export interface PanelState {
   panel: PanelCall | null;
   /** Ended calls whose wrap-up is unfinished, newest end first. */
   waiting: PanelCall[];
+  /** Live calls closed by hand: key → the updated_at they were closed at. */
+  dismissed?: Record<string, string>;
 }
 
 export const NO_PANEL: PanelState = { panel: null, waiting: [] };
@@ -667,7 +769,11 @@ function unfinished(
  * a browser softphone the panel holds the only hangup, hold, mute and
  * transfer controls. It takes the panel from an ended call's wrap-up,
  * which waits, and keeps it until it ends (then the panel is its own
- * wrap-up). With no live call an empty panel re-opens the newest waiting
+ * wrap-up). The one exception is a call that has gone quiet with no
+ * softphone session (PANEL_QUIET_MS, `pulse`): its hang-up may be lost,
+ * so it yields to a fresh call, though it is not closed and comes back
+ * when the panel is free and no wrap-up waits, or on its next frame.
+ * With no live call an empty panel re-opens the newest waiting
  * wrap-up: the call freshest in mind, whose two minutes may still run,
  * before older ones that are only still owed. Run on every call_live
  * change, on close (closeWrapUp) and when a reload recovers wrap-ups
@@ -678,29 +784,34 @@ export function selectPanel(
   rows: CallLiveRow[],
   userId: string | null,
   now: number,
-  mandatory: boolean
+  mandatory: boolean,
+  pulse?: CallPulse
 ): PanelState {
   let panel = s.panel;
   let waiting = s.waiting;
+  let yields = !panel || panel.endedAt !== null;
   if (panel && panel.endedAt === null) {
     const key = panel.key;
     const still = rows.find(
       (r) => liveKey(r) === key && r.answered_by === userId
     );
+    yields = !still || isQuiet(still, PANEL_QUIET_MS, pulse);
     if (!still) panel = { ...panel, endedAt: now };
     else if (still.contact_id !== panel.contactId)
       panel = { ...panel, contactId: still.contact_id };
   }
-  const active = myActiveCall(rows, userId);
-  if (active && (!panel || panel.endedAt !== null)) {
-    if (panel) waiting = [panel, ...waiting];
+  const active = myActiveCall(rows, userId, pulse, s.dismissed);
+  if (active && yields && !isQuiet(active, PANEL_QUIET_MS, pulse)) {
+    if (panel && panel.endedAt !== null) waiting = [panel, ...waiting];
     panel = livePanel(active, now);
   }
   waiting = unfinished(waiting, panel?.key ?? null, now, mandatory);
   if (!panel && waiting.length > 0) [panel, ...waiting] = waiting;
+  // A quiet call, when nothing else wants the panel: it may be real.
+  if (!panel && active) panel = livePanel(active, now);
   return panel === s.panel && sameItems(waiting, s.waiting)
     ? s
-    : { panel, waiting };
+    : { ...s, panel, waiting };
 }
 
 const sameItems = (a: PanelCall[], b: PanelCall[]) =>
@@ -709,7 +820,9 @@ const sameItems = (a: PanelCall[], b: PanelCall[]) =>
 /**
  * The panel of `key` was closed (Close, or its wrap-up's auto-close): it
  * leaves the panel and the queue for good, even when it lands after a
- * live call took the panel. A live call's panel is never closed.
+ * live call took the panel. A live call's panel is never closed, unless
+ * a person closes one that may be a lost hang-up (CLOSABLE_QUIET_MS and
+ * no softphone session, `pulse`); a new frame brings that call back.
  */
 export function closeWrapUp(
   s: PanelState,
@@ -717,18 +830,29 @@ export function closeWrapUp(
   rows: CallLiveRow[],
   userId: string | null,
   now: number,
-  mandatory: boolean
+  mandatory: boolean,
+  pulse?: CallPulse
 ): PanelState {
-  const keep = s.panel && (s.panel.key !== key || s.panel.endedAt === null);
+  const mine = s.panel?.key === key ? s.panel : null;
+  const lost =
+    mine?.endedAt === null
+      ? rows.find(
+          (r) => liveKey(r) === key && isQuiet(r, CLOSABLE_QUIET_MS, pulse)
+        )
+      : undefined;
+  const closes = mine !== null && (mine.endedAt !== null || lost !== undefined);
   return selectPanel(
     {
-      panel: keep ? s.panel : null,
+      ...s,
+      panel: closes ? null : s.panel,
       waiting: s.waiting.filter((w) => w.key !== key),
+      ...(lost && { dismissed: { ...s.dismissed, [key]: lost.updated_at } }),
     },
     rows,
     userId,
     now,
-    mandatory
+    mandatory,
+    pulse
   );
 }
 
@@ -743,20 +867,22 @@ export function recoverWrapUps(
   rows: CallLiveRow[],
   userId: string | null,
   now: number,
-  mandatory: boolean
+  mandatory: boolean,
+  pulse?: CallPulse
 ): PanelState {
   const known = new Set(
     [s.panel, ...s.waiting].flatMap((c) => (c ? [c.key] : []))
   );
   return selectPanel(
     {
-      panel: s.panel,
+      ...s,
       waiting: [...s.waiting, ...recovered.filter((c) => !known.has(c.key))],
     },
     rows,
     userId,
     now,
-    mandatory
+    mandatory,
+    pulse
   );
 }
 

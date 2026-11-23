@@ -24,6 +24,12 @@ import {
   messageWhen,
   myActiveCall,
   myRingingCall,
+  RING_QUIET_MS,
+  clockSkewMs,
+  frameQuietMs,
+  livePollMs,
+  livePollRuns,
+  type FrameSeen,
   needsOutcome,
   newContactPhone,
   noteFrames,
@@ -100,6 +106,61 @@ describe('constants mirror the routes', () => {
   });
 });
 
+describe('frameQuietMs', () => {
+  const at = Date.parse('2026-10-12T10:00:00Z');
+  const r = row();
+  const seen = (p: Partial<FrameSeen> = {}): FrameSeen => ({
+    updatedAt: r.updated_at,
+    at,
+    live: false,
+    ...p,
+  });
+
+  it('reads the server clock, whatever the browser thinks the time is', () => {
+    for (const out of [0, 25 * 60_000, -25 * 60_000]) {
+      // Loaded 20 min after the frame, asked 1 min later; browser `out` off.
+      const load = at + 20 * 60_000 + out;
+      const skew = clockSkewMs(new Date(load - out).toUTCString(), load);
+      expect(skew).toBe(0 - out);
+      expect(frameQuietMs(r, seen({ at: load }), load + 60_000, skew)).toBe(
+        21 * 60_000
+      );
+    }
+  });
+  it('is no longer than since the frame was seen to arrive', () => {
+    // The clock was set right by 25 minutes after the skew was taken.
+    const now = at + 25 * 60_000;
+    expect(
+      frameQuietMs(r, seen({ at: now - 5000, live: true }), now, 25 * 60_000)
+    ).toBe(5000);
+    expect(
+      frameQuietMs(r, seen({ at: now - 5000, updatedAt: 'x' }), now, 0)
+    ).toBe(25 * 60_000);
+  });
+  it('without the server clock counts from when the frame was first seen', () => {
+    expect(clockSkewMs(null, at)).toBeNull();
+    expect(clockSkewMs('soon', at)).toBeNull();
+    expect(frameQuietMs(r, seen(), at + 90_000, null)).toBe(90_000);
+    expect(frameQuietMs(r, seen(), at - 90_000, null)).toBe(0);
+    expect(frameQuietMs(r, null, at + 90_000, null)).toBe(0);
+    expect(frameQuietMs(r, seen({ updatedAt: 'x' }), at + 90_000, null)).toBe(
+      0
+    );
+    expect(frameQuietMs(row({ updated_at: '?' }), null, at, 0)).toBe(0);
+    expect(frameQuietMs(r, null, at - 5000, 0)).toBe(0);
+  });
+});
+
+describe('the live poll', () => {
+  it('is slower while realtime is up, and skips a hidden tab without the call', () => {
+    expect(livePollMs(true)).toBe(8000);
+    expect(livePollMs(false)).toBe(4000);
+    expect(livePollRuns(false, false)).toBe(true);
+    expect(livePollRuns(true, true)).toBe(true);
+    expect(livePollRuns(true, false)).toBe(false);
+  });
+});
+
 describe('myRingingCall', () => {
   it('is an inbound, unanswered call ringing my extension', () => {
     expect(myRingingCall([row()], ME)?.pbx_call_id).toBe('p1');
@@ -116,6 +177,18 @@ describe('myRingingCall', () => {
     expect(
       myRingingCall([row({ members: [ext('101'), outbound] })], ME)
     ).toBeNull();
+  });
+  it('passes over a ring quiet for 3 minutes, unless the softphone has it', () => {
+    const late = row({ pbx_call_id: 'p2', updated_at: '2026-10-12T10:00:09Z' });
+    const ring = (quiet: Record<string, number>, inCall: string[] = []) =>
+      myRingingCall([late, row()], ME, {
+        quietMs: (r) => quiet[r.pbx_call_id],
+        inCall: (r) => inCall.includes(r.pbx_call_id),
+      })?.pbx_call_id ?? null;
+    expect(ring({ p1: RING_QUIET_MS - 1, p2: 0 })).toBe('p1');
+    expect(ring({ p1: RING_QUIET_MS, p2: 0 })).toBe('p2');
+    expect(ring({ p1: RING_QUIET_MS, p2: RING_QUIET_MS })).toBeNull();
+    expect(ring({ p1: RING_QUIET_MS, p2: 0 }, ['p1'])).toBe('p1');
   });
   it('picks the oldest of two and needs a user', () => {
     const late = row({ pbx_call_id: 'p2', updated_at: '2026-10-12T10:00:09Z' });

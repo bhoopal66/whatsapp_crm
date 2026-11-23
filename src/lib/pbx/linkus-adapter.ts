@@ -28,6 +28,7 @@ import {
   describeSdkCode,
   eventCallId,
   matchSession,
+  maySessionBe,
   retryDelayMs,
   sdkCode,
   sdkCodeRetryable,
@@ -387,5 +388,8 @@ export function createLinkusAdapter(opts: {
         throw new Error('The softphone is not connected');
       check(await op.phone.call(n), 'place the call');
     },
+    // Whatever the registration's state: a call survives a reconnect.
+    hasCall: (call) =>
+      maySessionBe(views(), call, bound.get(call.pbxCallId) ?? null),
   };
 }

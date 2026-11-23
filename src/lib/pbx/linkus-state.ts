@@ -105,6 +105,28 @@ export function matchSession(
   return pool.length === 1 ? pool[0].callId : null;
 }
 
+const hasDigits = (n: string | null) => /\d/.test(n ?? '');
+
+/**
+ * Whether any session may be this call: bound to it, the same number, or
+ * no telling (either side without a number, a withheld caller id). Not
+ * matchSession: its by-elimination rule picks the one session there is,
+ * so another call would make a stale one look live.
+ */
+export function maySessionBe(
+  sessions: SdkCallView[],
+  ref: SoftphoneCallRef,
+  boundId: string | null = null
+): boolean {
+  return sessions.some(
+    (s) =>
+      s.callId === boundId ||
+      !hasDigits(s.number) ||
+      !hasDigits(ref.remoteNumber) ||
+      numbersMatch(s.number, ref.remoteNumber)
+  );
+}
+
 /**
  * `{ callId, session }` from a session event. The SDK's guide shows both
  * `(payload)` and `(callId, session)` callbacks; either is accepted.

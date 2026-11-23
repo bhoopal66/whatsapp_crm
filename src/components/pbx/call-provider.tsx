@@ -6,8 +6,9 @@
 // that stops being visible — answered by someone else, transferred
 // away — sends this subscriber no event), and the in-call panel's
 // snapshot, which outlives the live row until the panel is closed. A
-// live call always has the panel (selectPanel); unfinished wrap-ups
-// wait behind it and re-open after.
+// live call always has the panel (selectPanel; one whose hang-up may be
+// lost yields to a fresh call); unfinished wrap-ups wait behind it and
+// re-open after.
 // Nothing here sends anything to a customer.
 
 import {
@@ -25,8 +26,13 @@ import { loadPbxNames } from '@/hooks/use-pbx-names';
 import { cachedQuery } from '@/lib/client-cache';
 import {
   NO_PANEL,
+  clockSkewMs,
+  closableKeys,
   closeWrapUp,
+  frameQuietMs,
   liveKey,
+  livePollMs,
+  livePollRuns,
   loadsPbxMe,
   myRingingCall,
   noteFrames,
@@ -36,6 +42,7 @@ import {
   selectPanel,
   wrapUpPanel,
   type CallLiveRow,
+  type CallPulse,
   type FrameSeen,
   type PanelCall,
   type PanelState,
@@ -67,7 +74,9 @@ interface CallsValue {
   /** The ring timer's inputs for `ringing` (ringElapsedMs). */
   ringClock: { shownAt: number; frame: FrameSeen | null } | null;
   panel: PanelCall | null;
-  /** Closes the panel of that call: never a live one (closeWrapUp). */
+  /** The panel's call is live but may be a lost hang-up: Close shows. */
+  closable: boolean;
+  /** Closes the panel of that call; a live one only while `closable`. */
   closePanel: (key: string) => void;
   /** The panel reports whether its call has an outcome chosen. */
   noteOutcome: (key: string, chosen: boolean) => void;
@@ -93,19 +102,23 @@ const CallsContext = createContext<CallsValue | null>(null);
 /** Null outside the provider (and for a person with no extension: `me`). */
 export const useCalls = () => useContext(CallsContext);
 
-const POLL_MS = 4000;
-
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { user, accountId, accountRole } = useAuth();
   const userId = user?.id ?? null;
   const asksMe = loadsPbxMe(userId, accountId, accountRole);
   const supabase = useMemo(() => createClient(), []);
   const [me, setMe] = useState<PbxMe | null>(null);
-  const [rows, setRows] = useState<CallLiveRow[]>([]);
+  // The ringing call and the closable ones depend on the time, so they
+  // are settled as rows arrive (apply; the poll re-runs it), not in render.
+  const [ringRow, setRingRow] = useState<CallLiveRow | null>(null);
+  const [closable, setClosable] = useState<string[]>([]);
   const [panels, setPanels] = useState<PanelState>(NO_PANEL);
   const panel = panels.panel;
   const [adapter, setAdapter] = useState<SoftphoneAdapter | null>(null);
   const [adapterActive, setAdapterActive] = useState(false);
+  const adapterRef = useRef<SoftphoneAdapter | null>(null);
+  const softphone = adapter && adapterActive ? adapter : null;
+  const [subscribed, setSubscribed] = useState(false);
   const [softphoneState, setSoftphoneState] =
     useState<SoftphoneState>(SOFTPHONE_OFF);
   const [settings, setSettings] = useState({
@@ -125,6 +138,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     key: string;
     at: number;
   } | null>(null);
+  const framesRef = useRef<Record<string, FrameSeen>>({});
+  const skewRef = useRef<number | null>(null);
+  // How alive each call is at `now` (CallPulse).
+  const pulseAt = useCallback((now: number): CallPulse => {
+    const seen = framesRef.current;
+    const skew = skewRef.current;
+    const phone = adapterRef.current;
+    return {
+      quietMs: (r) => frameQuietMs(r, seen[liveKey(r)] ?? null, now, skew),
+      inCall: (r) =>
+        phone?.hasCall?.({
+          pbxCallId: r.pbx_call_id,
+          remoteNumber: r.remote_number,
+        }) ?? false,
+    };
+  }, []);
 
   useEffect(() => {
     // A bank guest has no phone here; me stays null, and with it the
@@ -132,7 +161,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (!asksMe) return;
     let live = true;
     fetch('/api/pbx/me')
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // Before the call_live subscription, which waits for `me`.
+        skewRef.current = clockSkewMs(r.headers.get('Date'), Date.now());
+        return r.ok ? r.json() : null;
+      })
       .then((b) => live && setMe(b?.extension ? (b as PbxMe) : null))
       .catch(() => live && setMe(null));
     return () => {
@@ -166,14 +199,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             : { ...s, mandatoryDisposition: mandatory }
         );
         setPanels((s) =>
-          recoverWrapUps(s, recovered, rowsRef.current, userId, now, mandatory)
+          recoverWrapUps(
+            s,
+            recovered,
+            rowsRef.current,
+            userId,
+            now,
+            mandatory,
+            pulseAt(now)
+          )
         );
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [me, userId]);
+  }, [me, userId, pulseAt]);
 
   // `live`: these rows' new frames arrived as they happened. The first
   // load's were written an unknown time before (noteFrames).
@@ -182,12 +223,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     (next: CallLiveRow[], live: boolean) => {
       const now = Date.now();
       rowsRef.current = next;
-      setRows(next);
-      setFrames((f) => noteFrames(f, next, now, live));
-      setRingShown((s) => ringFloor(s, myRingingCall(next, userId), now));
-      setPanels((s) => selectPanel(s, next, userId, now, mandatoryRef.current));
+      framesRef.current = noteFrames(framesRef.current, next, now, live);
+      setFrames(framesRef.current);
+      const pulse = pulseAt(now);
+      const ring = myRingingCall(next, userId, pulse);
+      setRingRow(ring);
+      setRingShown((s) => ringFloor(s, ring, now));
+      const keys = closableKeys(next, userId, pulse);
+      setClosable((c) => (c.join() === keys.join() ? c : keys));
+      setPanels((s) =>
+        selectPanel(s, next, userId, now, mandatoryRef.current, pulse)
+      );
     },
-    [userId]
+    [userId, pulseAt]
   );
   const reload = useCallback(async () => {
     const { data, error } = await supabase.from('call_live').select('*');
@@ -247,7 +295,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         );
       });
     }
+    let current = true;
     ch.subscribe((status) => {
+      if (current) setSubscribed(status === 'SUBSCRIBED');
       // The first load waits for the channel, so no change falls between.
       if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR') void reload();
     });
@@ -264,6 +314,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }).then(setDidNames);
     refreshSettings();
     return () => {
+      current = false;
+      setSubscribed(false);
       void supabase.removeChannel(ch);
     };
   }, [me, accountId, userId, supabase, reload, apply, refreshSettings]);
@@ -281,7 +333,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (me && wrapping) refreshSettings();
   }, [me, wrapping, refreshSettings]);
 
-  const ringing = me ? myRingingCall(rows, userId) : null;
+  // Asked again for a person who changed since; its age was asked in apply.
+  const ringing = me && ringRow ? myRingingCall([ringRow], userId) : null;
   const ringKey = ringing ? liveKey(ringing) : null;
   const ringClock = useMemo(
     () =>
@@ -291,12 +344,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [ringKey, ringShown, frames]
   );
 
+  const inTab = softphone !== null;
   const polling = Boolean(ringing || (panel && panel.endedAt === null));
   useEffect(() => {
     if (!polling) return;
-    const id = setInterval(() => void reload(), POLL_MS);
-    return () => clearInterval(id);
-  }, [polling, reload]);
+    const id = setInterval(() => {
+      if (livePollRuns(document.hidden, inTab)) void reload();
+    }, livePollMs(subscribed));
+    const onVisibility = () => {
+      if (!document.hidden) void reload();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [polling, reload, subscribed, inTab]);
 
   useEffect(() => {
     if (!adapter) return;
@@ -312,8 +375,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   );
 
   const registerSoftphone = useCallback((a: SoftphoneAdapter) => {
+    adapterRef.current = a;
     setAdapter(a);
-    return () => setAdapter((cur) => (cur === a ? null : cur));
+    return () => {
+      if (adapterRef.current === a) adapterRef.current = null;
+      setAdapter((cur) => (cur === a ? null : cur));
+    };
   }, []);
 
   const control = useCallback(
@@ -347,19 +414,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ringing,
       ringClock,
       panel,
-      closePanel: (key) =>
+      closable: Boolean(
+        panel && panel.endedAt === null && closable.includes(panel.key)
+      ),
+      closePanel: (key) => {
+        const now = Date.now();
+        const pulse = pulseAt(now);
         setPanels((s) =>
           closeWrapUp(
             s,
             key,
             rowsRef.current,
             userId,
-            Date.now(),
-            mandatoryRef.current
+            now,
+            mandatoryRef.current,
+            pulse
           )
-        ),
+        );
+      },
       noteOutcome: reportOutcome,
-      softphone: adapter && adapterActive ? adapter : null,
+      softphone,
       registerSoftphone,
       softphoneState,
       reportSoftphone: setSoftphoneState,
@@ -382,9 +456,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ringing,
       ringClock,
       panel,
+      closable,
+      pulseAt,
       reportOutcome,
-      adapter,
-      adapterActive,
+      softphone,
       registerSoftphone,
       softphoneState,
       control,
