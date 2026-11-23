@@ -32,7 +32,8 @@
  *   (`lib/whatsapp/channel-health.ts`), `meta_number_alert` (188,
  *   `lib/whatsapp/meta-health/alert.ts`) and `inbound_message_failed`
  *   (264's `webhook_inbox_notify_dead`): the WhatsApp settings tab, for
- *   those who can edit settings.
+ *   those who can edit settings. A personal number's alert
+ *   (`meta.personal`) is its holder's: the profile tab, any role.
  * - `pbx_connection_silent` / `pbx_connection_restored` (104's
  *   `pbx_connection_silence`): the Phone system settings tab, the same
  *   way.
@@ -122,6 +123,12 @@ function hrefFor(
     }
     case 'channel_disconnected':
     case 'channel_reconnected':
+      // A personal number's alert (meta.personal, channel-health.ts) is its
+      // holder's, of any role: the QR is in Settings → Profile → My WhatsApp.
+      if (metaField(n.meta, 'personal') === true) {
+        return '/settings?tab=profile';
+      }
+      return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
     case 'inbound_message_failed':
     case 'meta_number_alert':
       return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;

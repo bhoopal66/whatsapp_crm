@@ -33,6 +33,9 @@ No migration.
   on one the CRM no longer knows.
 - The first shared Whapi number of an account that only had a personal number
   is now its default number.
+- The bell alert for a personal number going down or coming back opens
+  Settings → Profile (My WhatsApp) for its holder, whatever their role. It
+  opened nothing for anyone who could not edit settings.
 
 ### Calendar
 

@@ -673,6 +673,9 @@ async function sendAlert(
     actor_user_id: null,
     title: alert.title,
     body: alert.body,
+    // The bell sends a personal number's alert to its holder's profile
+    // tab (notifications/target.ts), whatever their role.
+    ...(channel.isPersonal ? { meta: { personal: true } } : {}),
   }));
   // Nobody to tell. Retrying would not change that.
   if (rows.length === 0) return 0;

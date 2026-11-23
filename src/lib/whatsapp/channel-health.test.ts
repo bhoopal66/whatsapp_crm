@@ -878,6 +878,17 @@ describe('OpenWA numbers', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0].body).toContain('Settings → Profile → My WhatsApp');
         expect(rows[0].body).not.toContain('admin');
+        expect(rows[0]).toMatchObject({ meta: { personal: true } });
+      });
+
+      it('a shared number alert carries no personal marker', async () => {
+        const { rows } = await run(
+          { ...personal('connected'), isPersonal: false, personalUserId: null },
+          qr,
+          [{ user_id: 'admin-1' }]
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).not.toHaveProperty('meta');
       });
 
       it('up again is told to its holder too', async () => {
