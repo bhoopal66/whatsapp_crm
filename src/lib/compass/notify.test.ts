@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const resolveSendChannel = vi.fn();
 const findExistingContact = vi.fn();
 const resolveConversationByPhone = vi.fn();
+const sendCoreLoads = vi.fn();
 const sendMessageToConversation = vi.fn();
 
 vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
@@ -23,20 +24,30 @@ vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => {
     await importOriginal<typeof import('@/lib/whatsapp/send-message')>();
   return {
     ...actual,
-    sendMessageToConversation: (...args: unknown[]) =>
-      sendMessageToConversation(...args),
+    // The core's own order: its reads, the hook, then the gateway.
+    sendMessageToConversation: async (...args: unknown[]) => {
+      await sendCoreLoads();
+      await (args[2] as SendMessageParams).beforeGateway?.();
+      return sendMessageToConversation(...args);
+    },
   };
 });
 
 import {
-  DELIVERY_UNCONFIRMED,
-  isClaimRetryable,
   NotifyError,
   parseNotificationRequest,
   sendCompassNotification,
-  STALE_CLAIM_MS,
+  serializeNotification,
 } from './notify';
-import { SendMessageError } from '@/lib/whatsapp/send-message';
+import {
+  DELIVERY_UNCONFIRMED,
+  isClaimRetryable,
+  STALE_CLAIM_MS,
+} from './notification-status';
+import {
+  SendMessageError,
+  type SendMessageParams,
+} from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
 import { ContactLookupError } from '@/lib/contacts/dedupe';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
@@ -249,6 +260,7 @@ beforeEach(() => {
     contactCreated: false,
     conversationCreated: false,
   });
+  sendCoreLoads.mockReset();
   sendMessageToConversation.mockReset().mockResolvedValue({
     messageId: 'msg-1',
     whatsappMessageId: 'wa-1',
@@ -353,6 +365,44 @@ describe('isClaimRetryable', () => {
   });
 });
 
+describe('serializeNotification', () => {
+  const row = (over: Row) => ({
+    id: 'n-1',
+    idempotency_key: 'k',
+    status: 'sending',
+    error_code: DELIVERY_UNCONFIRMED,
+    error_message: 'not confirmed',
+    updated_at: new Date().toISOString(),
+    ...over,
+  });
+  const stale = new Date(Date.now() - STALE_CLAIM_MS - 1000).toISOString();
+
+  it('shows a marked send in flight as plain sending', () => {
+    expect(serializeNotification(row({}))).toMatchObject({
+      status: 'sending',
+      error: null,
+    });
+  });
+  it.each(['sending', 'failed'])(
+    'shows a stale marked row stored as %s as failed, unconfirmed',
+    (status) => {
+      expect(
+        serializeNotification(row({ status, updated_at: stale }))
+      ).toMatchObject({
+        status: 'failed',
+        error: { code: DELIVERY_UNCONFIRMED, message: 'not confirmed' },
+      });
+    }
+  );
+  it('leaves a stale claim that was never handed over as sending', () => {
+    expect(
+      serializeNotification(
+        row({ error_code: null, error_message: null, updated_at: stale })
+      )
+    ).toMatchObject({ status: 'sending', error: null });
+  });
+});
+
 describe('sendCompassNotification', () => {
   it('sends on Meta only, as the Compass template to a customer who never wrote, without renaming or pausing flows', async () => {
     const { db, tables } = makeDb();
@@ -390,6 +440,7 @@ describe('sendCompassNotification', () => {
       provider: 'meta',
       requireProvider: true,
       pauseActiveFlows: false,
+      beforeGateway: expect.any(Function),
     });
     // No sender_id: nothing attributes the chat to a person.
     expect(params).not.toHaveProperty('senderUserId');
@@ -920,6 +971,24 @@ describe('sendCompassNotification', () => {
     await sendCompassNotification(db, 'acct', baseRequest());
     expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ['a refusal', new SendMessageError('meta_not_connected', 'x', 409)],
+    ['a failed read', new SendMessageError('internal', 'x', 500)],
+    ['an unknown error', new Error('fetch failed')],
+  ])(
+    'keeps the key usable when the send core stops before the gateway: %s',
+    async (_label, err) => {
+      const { db, tables } = makeDb();
+      sendCoreLoads.mockRejectedValueOnce(err);
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toBe(err);
+      expect(tables.compass_notifications[0].status).toBe('failed');
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    }
+  );
 
   it('retries the sent record once', async () => {
     let fails = 1;

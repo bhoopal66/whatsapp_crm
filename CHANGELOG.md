@@ -18,13 +18,18 @@ No migration.
 - A Compass notification is no longer sent 1:1 to a customer who opted out
   or is marked do-not-contact: it answers 422 `customer_opted_out`, as in
   the group. When the contact cannot be read it answers 503
-  `contact_lookup_failed` and sends nothing. The opt-out counts on any
+  `contact_lookup_failed` and sends nothing, for a text too. The opt-out counts on any
   contact the phone matches, such as an older one saved without its
   country code.
 - A Compass notification that WhatsApp may already have is never sent
   twice. After a timeout, a gateway error or a restart mid-send, the answer
   is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite
-  refusal can still be retried with the same key.
+  refusal can still be retried with the same key, and so can a send that
+  stopped before WhatsApp was called.
+- A Compass notification whose outcome was never learned shows as `failed`
+  with `delivery_unconfirmed` in the API, and as **Not confirmed** on the
+  Compass screen. It stayed "Sending" for good. While it is being sent it
+  is plain `sending`.
 - A Compass notification that stalled for over two minutes and was sent by
   a retry stays `sent`: the first request's late failure overwrote it, and
   the next retry sent the message again.

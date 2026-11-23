@@ -51,6 +51,12 @@ import {
   isUniqueViolation,
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
+import {
+  DELIVERY_UNCONFIRMED,
+  isClaimRetryable,
+  isUnconfirmed,
+  type NotificationStatus,
+} from '@/lib/compass/notification-status';
 import { parseCompassId, normalizeCompassPhone } from '@/lib/compass/contacts';
 import {
   ChannelError,
@@ -80,11 +86,6 @@ import {
   type SystemSendResult,
 } from '@/lib/submission-groups/service';
 
-/** A `sending` claim older than this is presumed dead and may be retried. */
-export const STALE_CLAIM_MS = 2 * 60_000;
-
-/** `error_code` of a row handed to WhatsApp whose outcome is not known. */
-export const DELIVERY_UNCONFIRMED = 'delivery_unconfirmed';
 const DELIVERY_UNCONFIRMED_MESSAGE =
   'The message was handed to WhatsApp and its outcome is not confirmed. The customer may have received it, so it is not sent again.';
 
@@ -263,7 +264,8 @@ export const NOTIFICATION_SELECT = '*, message:messages(status, message_id)';
 export interface ApiCompassNotification {
   id: string;
   idempotency_key: string;
-  status: 'sending' | 'sent' | 'failed';
+  /** A row that stuck after the hand-over is `failed`, whatever is stored. */
+  status: NotificationStatus;
   /** WhatsApp delivery progress once sent: sent → delivered → read, or failed. */
   delivery_status: string | null;
   compass_id: string | null;
@@ -290,10 +292,17 @@ export function serializeNotification(
     status?: string;
     message_id?: string;
   } | null;
+  // The mark of a live send is not an error yet.
+  const unconfirmed = isUnconfirmed({
+    status: row.status as string,
+    updated_at: row.updated_at as string,
+    error_code: row.error_code as string | null,
+  });
+  const status = unconfirmed ? 'failed' : (row.status as NotificationStatus);
   return {
     id: row.id as string,
     idempotency_key: row.idempotency_key as string,
-    status: row.status as ApiCompassNotification['status'],
+    status,
     delivery_status: message?.status ?? null,
     compass_id: (row.compass_id as string | null) ?? null,
     event: (row.event as string | null) ?? null,
@@ -310,32 +319,16 @@ export function serializeNotification(
         ? 'customer'
         : null,
     submission_group_id: (row.submission_group_id as string | null) ?? null,
-    error: row.error_code
-      ? {
-          code: row.error_code as string,
-          message: (row.error_message as string | null) ?? '',
-        }
-      : null,
+    error:
+      row.error_code && status !== 'sending'
+        ? {
+            code: row.error_code as string,
+            message: (row.error_message as string | null) ?? '',
+          }
+        : null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };
-}
-
-/**
- * May a stored claim be taken over by a retry? `sent` never; `failed`
- * always; `sending` only once it has been abandoned; neither when the
- * message may already be with WhatsApp.
- */
-export function isClaimRetryable(
-  row: { status: string; updated_at: string; error_code?: string | null },
-  now = Date.now()
-): boolean {
-  if (row.error_code === DELIVERY_UNCONFIRMED) return false;
-  if (row.status === 'failed') return true;
-  if (row.status === 'sending') {
-    return now - new Date(row.updated_at).getTime() > STALE_CLAIM_MS;
-  }
-  return false;
 }
 
 // ---------- orchestration ----------
@@ -437,12 +430,7 @@ async function claim(
     error_code: string | null;
   };
   // A marked `sending` row that is still fresh is a live send (below).
-  if (
-    row.error_code === DELIVERY_UNCONFIRMED &&
-    isClaimRetryable({ ...row, error_code: null })
-  ) {
-    throw deliveryUnconfirmed();
-  }
+  if (isUnconfirmed(row)) throw deliveryUnconfirmed();
   if (isClaimRetryable(row)) {
     // Compare-and-set on updated_at: of two retries racing for the same
     // failed/stale claim, exactly one matches the old timestamp.
@@ -1038,8 +1026,6 @@ export async function sendCompassNotification(
       { renameExisting: false }
     );
 
-    await markHandedToGateway();
-    handedToGateway = true;
     const sent = await sendMessageToConversation(db, accountId, {
       conversationId: resolved.conversationId,
       ...(template
@@ -1059,6 +1045,10 @@ export async function sendCompassNotification(
       provider: 'meta',
       requireProvider: true,
       pauseActiveFlows: false,
+      beforeGateway: async () => {
+        await markHandedToGateway();
+        handedToGateway = true;
+      },
     });
 
     accepted = true;

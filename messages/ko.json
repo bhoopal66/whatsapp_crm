@@ -4759,6 +4759,7 @@
     "noMatches": "검색 조건에 맞는 고객이 없습니다.",
     "noNotifications": "Compass가 아직 알림을 보내지 않았습니다.",
     "latest100": "최근 알림 100건을 표시합니다.",
+    "unconfirmedNote": "WhatsApp에 전달했지만 명확한 응답이 없었습니다. 고객이 받았을 수 있으므로 다시 보내지 않습니다. 채팅을 확인하세요.",
     "linked": "채팅 있음",
     "notYet": "메시지 없음",
     "loadMore": "더 보기",
@@ -4779,7 +4780,8 @@
     "status": {
       "sending": "발송 중",
       "sent": "발송됨",
-      "failed": "실패"
+      "failed": "실패",
+      "unconfirmed": "확인되지 않음"
     },
     "delivery": {
       "sent": "발송됨",

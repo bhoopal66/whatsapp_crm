@@ -260,6 +260,13 @@ export interface SendMessageParams {
    * person's send has its own check (068).
    */
   enforceNumberDailyLimit?: boolean;
+  /**
+   * Awaited once, after every read and check and right before the first
+   * gateway call. A throw stops the send and reaches the caller as it
+   * is. The Compass notifications mark their row here, so a send that
+   * never got this far is not taken for one the customer may have.
+   */
+  beforeGateway?: () => Promise<void>;
 }
 
 export interface SendMessageResult {
@@ -577,6 +584,7 @@ export async function sendMessageToConversation(
     pauseActiveFlows = true,
     respectConsent = false,
     enforceNumberDailyLimit = false,
+    beforeGateway,
   } = params;
 
   if (!conversationId) {
@@ -1001,6 +1009,9 @@ export async function sendMessageToConversation(
     });
     return result.messageId;
   };
+
+  // Outside the try below, which would turn its error into whatsapp_error.
+  await beforeGateway?.();
 
   // Send via Whapi — retry across phone-number variants if the gateway
   // rejects the recipient; persist a working variant back to the

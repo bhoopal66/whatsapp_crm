@@ -366,7 +366,9 @@ same object without the last three fields. Use it after a timeout to
 find out what happened before deciding anything.
 
 - `status` is **our** processing state: `sending`, `sent`, or
-  `failed` (with `error.code` / `error.message`).
+  `failed` (with `error.code` / `error.message`). A notification that
+  was handed to WhatsApp and got no answer within two minutes (a restart
+  mid-send) shows `failed` with `error.code` `delivery_unconfirmed`.
 - `delivery_status` is **WhatsApp's** progress once sent: `sent`, then
   `delivered`, then `read`, or `failed` if WhatsApp could not deliver
   it. It updates over time, so poll it later if you need read receipts.
@@ -374,7 +376,7 @@ find out what happened before deciding anything.
 ### `GET /compass/notifications` — list
 
 Scope: `compass_notifications:send`. Filters: `status`
-(`sending`/`sent`/`failed`), `compass_id`. Pagination: `limit`,
+(`sending`/`sent`/`failed`, as shown in the answer), `compass_id`. Pagination: `limit`,
 `cursor`, same as the contacts list. Newest first.
 
 ### Error codes
@@ -404,8 +406,8 @@ Scope: `compass_notifications:send`. Filters: `status`
 A **failed** notification can be retried with the **same key**; it is
 not treated as a duplicate. A **sent** one never sends again, and neither
 does one whose `error.code` is `delivery_unconfirmed`: a retry answers
-409 with that code. A `GET` may show it on a `sending` notification too:
-during the send, and for good when the outcome was never learned.
+409 with that code. While the send is still running a `GET` shows plain
+`sending`, with no error.
 
 ### Retry recipe
 

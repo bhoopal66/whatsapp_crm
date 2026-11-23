@@ -4759,6 +4759,7 @@
     "noMatches": "No customers match this search.",
     "noNotifications": "Compass hasn't sent any notifications yet.",
     "latest100": "Showing the latest 100 notifications.",
+    "unconfirmedNote": "It was handed to WhatsApp and no clear answer came back. The customer may have received it, so it is not sent again. Check the chat.",
     "linked": "Has chat",
     "notYet": "Not messaged",
     "loadMore": "Load more",
@@ -4779,7 +4780,8 @@
     "status": {
       "sending": "Sending",
       "sent": "Sent",
-      "failed": "Failed"
+      "failed": "Failed",
+      "unconfirmed": "Not confirmed"
     },
     "delivery": {
       "sent": "Sent",

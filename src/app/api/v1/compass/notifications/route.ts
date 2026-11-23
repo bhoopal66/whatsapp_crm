@@ -37,6 +37,10 @@ import {
   buildPage,
 } from '@/lib/api/v1/pagination';
 import {
+  NOTIFICATION_STATUSES,
+  notificationStatusFilter,
+} from '@/lib/compass/notification-status';
+import {
   NOTIFICATION_SELECT,
   NotifyError,
   parseNotificationRequest,
@@ -95,14 +99,15 @@ export async function GET(request: Request) {
       .eq('account_id', ctx.accountId);
 
     if (status) {
-      if (!['sending', 'sent', 'failed'].includes(status)) {
+      const known = NOTIFICATION_STATUSES.find((s) => s === status);
+      if (!known) {
         return fail(
           'bad_request',
           "'status' must be sending, sent or failed",
           400
         );
       }
-      query = query.eq('status', status);
+      query = query.or(notificationStatusFilter(known));
     }
     if (compassId) query = query.eq('compass_id', compassId);
 
