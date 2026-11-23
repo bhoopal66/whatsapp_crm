@@ -72,6 +72,7 @@ export async function loadPipelineDonut(
     db.from('pipeline_stages').select('id, name, color, pipeline_id, position').order('position'),
     openDealsPromise,
   ])
+  if (stagesRes.error) throw stagesRes.error
   if (dealsRes.error) throw dealsRes.error
 
   const stages =

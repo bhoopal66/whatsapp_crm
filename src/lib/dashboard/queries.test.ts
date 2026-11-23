@@ -8,13 +8,20 @@ const ROWS = [
   { stage_id: 's2', deal_count: 1, total_value: 100 },
 ];
 
-function fakeDb(rpcResult: { data: unknown; error: unknown }) {
+function fakeDb(
+  rpcResult: { data: unknown; error: unknown },
+  tableError: unknown = null
+) {
   const rpc = vi.fn(() => Promise.resolve(rpcResult));
   const table = (rows: unknown[]) => {
     const b: Record<string, unknown> = {};
     for (const k of ['select', 'eq', 'gte', 'lt', 'order']) b[k] = () => b;
     b.then = (f: (r: unknown) => unknown) =>
-      Promise.resolve({ data: rows, count: 0, error: null }).then(f);
+      Promise.resolve({
+        data: tableError ? null : rows,
+        count: 0,
+        error: tableError,
+      }).then(f);
     return b;
   };
   const from = vi.fn((t: string) =>
@@ -40,6 +47,11 @@ describe('dashboard pipeline donut', () => {
       ['s2', 1],
     ]);
     expect(donut.totalValue).toBe(600);
+  });
+
+  it('rejects when the stages fail to load, never an empty chart', async () => {
+    const { db } = fakeDb({ data: ROWS, error: null }, new Error('stages'));
+    await expect(loadPipelineDonut(db)).rejects.toThrow('stages');
   });
 
   it('rejects when the RPC fails, so the panel shows its error', async () => {
