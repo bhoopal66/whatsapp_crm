@@ -16,6 +16,11 @@ import {
   type RecordingsSummary,
 } from './recordings';
 import {
+  RECONCILE_INTERVAL_MS,
+  reconcileLostCalls,
+  type ReconcileSummary,
+} from './reconcile-calls';
+import {
   onceEvery,
   settleStaleCalls,
   STALE_SWEEP_INTERVAL_MS,
@@ -310,6 +315,8 @@ export interface PbxCronSummary {
   orphans?: OrphanSweepSummary;
   /** Live calls whose end never arrived, settled from CDR (stale-calls.ts). */
   staleCalls?: StaleCallsSummary;
+  /** Calls whose events were lost, found in the CDR (reconcile-calls.ts). */
+  reconcile?: ReconcileSummary;
   /** Steps not started because the budget ran out. */
   outOfTime: string[];
   errors: Record<string, string>;
@@ -324,6 +331,7 @@ export interface PbxCronSummary {
  * API call, not worth making every minute for calls hours old.
  */
 const staleCallsDue = onceEvery(STALE_SWEEP_INTERVAL_MS);
+const reconcileDue = onceEvery(RECONCILE_INTERVAL_MS);
 
 export async function runPbxCron(input: {
   db: SupabaseClient;
@@ -331,9 +339,12 @@ export async function runPbxCron(input: {
   budgetMs?: number;
   /** Tests: the stale-call step's gate. */
   staleCallsDue?: (nowMs: number) => boolean;
+  /** Tests: the lost-call step's gate. */
+  reconcileDue?: (nowMs: number) => boolean;
 }): Promise<PbxCronSummary> {
   const { db, now = Date.now, budgetMs = PBX_CRON_BUDGET_MS } = input;
   const staleDue = input.staleCallsDue ?? staleCallsDue;
+  const lostDue = input.reconcileDue ?? reconcileDue;
   const deadline = now() + budgetMs;
   const summary: PbxCronSummary = { outOfTime: [], errors: {} };
   const steps: [string, () => Promise<void>][] = [
@@ -401,6 +412,20 @@ export async function runPbxCron(input: {
         const settled = await settleStaleCalls({ db, now, deadline });
         summary.staleCalls = settled;
         const failed = Object.entries(settled.errors);
+        if (failed.length) {
+          throw new Error(failed.map(([id, e]) => `${id}: ${e}`).join('; '));
+        }
+      },
+    ],
+    // After the retries and the stale calls, which own the calls the CRM
+    // has heard of. Gated inside the step, as above.
+    [
+      'reconcile',
+      async () => {
+        if (!lostDue(now())) return;
+        const found = await reconcileLostCalls({ db, now, deadline });
+        summary.reconcile = found;
+        const failed = Object.entries(found.errors);
         if (failed.length) {
           throw new Error(failed.map(([id, e]) => `${id}: ${e}`).join('; '));
         }
