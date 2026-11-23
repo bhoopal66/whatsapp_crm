@@ -2,22 +2,25 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Eye, Loader2, Lock, MessageSquareOff, Send } from 'lucide-react';
+import { Eye, Loader2, Lock, MessageSquareOff } from 'lucide-react';
 import { toast } from 'sonner';
 
+import {
+  GroupComposer,
+  type GroupMediaSendPayload,
+} from '@/components/groups/group-composer';
 import { MessageList } from '@/components/submission-groups/message-list';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/use-auth';
 import type { CaseTabProps } from '@/lib/cases/case-page';
 import {
+  composerDone,
   conversationView,
   parseConversation,
   sendResultMessageKey,
-  shouldRestoreText,
   type CaseConversation,
 } from '@/lib/cases/case-tabs';
-import { shouldSendOnKey } from '@/lib/groups/group-page';
-import { SEND_TEXT_MAX } from '@/lib/submission-groups/ui';
+import { ownSendStored } from '@/lib/submission-groups/ui';
 
 import { sendCaseRequest } from './case-dialogs';
 
@@ -26,19 +29,20 @@ type State = 'gated' | 'loading' | 'ok' | 'notReadable' | 'error';
 /**
  * Conversation: the case's WhatsApp group. Opening it is an audited read
  * for supervisors, so nothing is fetched until the reader asks. An ended
- * group is read-only; an active one gets a composer for case writers. A
- * submission opened without a WhatsApp group (136) gets neither.
+ * group is read-only; an active one gets the group composer (text, files,
+ * voice notes) for case writers. A submission opened without a WhatsApp
+ * group (136) gets neither.
  */
 export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const t = useTranslations('CasePage');
   const [state, setState] = useState<State>('gated');
   const [convo, setConvo] = useState<CaseConversation | null>(null);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
+  const userId = useAuth().user?.id ?? null;
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  /** What was read, or null. */
   const load = useCallback(
-    async (quiet = false) => {
+    async (quiet = false): Promise<CaseConversation | null> => {
       if (!quiet) setState('loading');
       try {
         const res = await fetch(`/api/cases/${caseId}/conversation`, {
@@ -46,9 +50,12 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
         });
         const json: unknown = await res.json().catch(() => null);
         if (res.ok) {
-          setConvo(parseConversation(json));
+          const read = parseConversation(json);
+          setConvo(read);
           setState('ok');
-        } else if (
+          return read;
+        }
+        if (
           res.status === 404 &&
           (json as { code?: unknown } | null)?.code === 'NOT_READABLE'
         ) {
@@ -57,6 +64,7 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
       } catch {
         if (!quiet) setState('error');
       }
+      return null;
     },
     [caseId]
   );
@@ -67,29 +75,29 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [convo]);
 
-  const send = async () => {
-    const body = text.trim();
-    if (!body || sending) return;
-    setSending(true);
-    setText('');
+  /** Sends, and says how it went. False gives it back to the composer. */
+  const post = async (
+    payload: { text: string } | { media: GroupMediaSendPayload }
+  ): Promise<boolean> => {
+    const before = convo?.messages ?? [];
     const res = await sendCaseRequest(
       `/api/cases/${caseId}/conversation`,
       'POST',
-      { text: body }
+      payload
     );
-    const key = sendResultMessageKey(
-      res.status,
-      (res.json as { code?: unknown } | null)?.code
-    );
+    const code = (res.json as { code?: unknown } | null)?.code;
+    const key = sendResultMessageKey(res.status, code);
     if (key === 'sent') toast.success(t('conversation.send.sent'));
     else if (key === 'sentNotRecorded')
       toast.warning(t('conversation.send.sentNotRecorded'));
-    else {
-      toast.error(t(`conversation.send.${key}`));
-      if (shouldRestoreText(res.status)) setText(body);
-    }
-    setSending(false);
-    await load(true);
+    else toast.error(t(`conversation.send.${key}`));
+    const now = await load(true);
+    return composerDone({
+      status: res.status,
+      code,
+      media: 'media' in payload,
+      stored: now && ownSendStored(before, now.messages, userId),
+    });
   };
 
   if (state === 'gated' || state === 'loading')
@@ -154,7 +162,7 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const noGroup = !convo || conversationView(convo) === 'noGroup';
 
   return (
-    <div className="bg-card flex h-[min(70vh,40rem)] min-h-80 flex-col rounded-lg border">
+    <div className="bg-card flex h-[min(70vh,40rem)] min-h-80 flex-col overflow-hidden rounded-lg border">
       {archived && (
         <p className="text-muted-foreground border-b px-3 py-2 text-xs">
           {t('conversation.archived')}
@@ -173,46 +181,21 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
         )}
       </div>
 
-      {!archived && !noGroup && (
-        <div className="border-t p-2">
-          {detail.permissions.canWrite ? (
-            <div className="flex items-end gap-2">
-              <Textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (shouldSendOnKey(e.nativeEvent)) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                disabled={sending}
-                rows={1}
-                maxLength={SEND_TEXT_MAX}
-                placeholder={t('conversation.placeholder')}
-                aria-label={t('conversation.placeholder')}
-                className="max-h-32 min-h-9 resize-none"
-              />
-              <Button
-                size="icon"
-                aria-label={t('conversation.send.button')}
-                disabled={sending || !text.trim()}
-                onClick={() => void send()}
-              >
-                {sending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-              </Button>
-            </div>
-          ) : (
-            <p className="text-muted-foreground px-1 text-xs">
-              {t('conversation.cannotSend')}
-            </p>
-          )}
-        </div>
-      )}
+      {!archived &&
+        !noGroup &&
+        (detail.permissions.canWrite ? (
+          <GroupComposer
+            chatKey={`case:${caseId}`}
+            userId={userId}
+            onSendText={(text) => post({ text })}
+            onSendMedia={(media) => post({ media })}
+            placeholder={t('conversation.placeholder')}
+          />
+        ) : (
+          <p className="text-muted-foreground border-t p-3 text-xs">
+            {t('conversation.cannotSend')}
+          </p>
+        ))}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useSyncExternalStore,
   KeyboardEvent,
   type Ref,
   type SetStateAction,
@@ -65,6 +66,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 import {
   reportComposeCheckOutcome,
   requestComposeCheck,
@@ -96,7 +98,11 @@ import {
 } from '@/lib/storage/staged-media';
 import { ReplyQuote } from './reply-quote';
 import { VoiceNotePlayer } from './voice-note-player';
-import { VoiceRecordingBar } from './voice-recording-bar';
+import {
+  VoiceFailedStrip,
+  VoiceRecordingBar,
+  VoiceWorkStrip,
+} from './voice-recording-bar';
 import { useTranslations } from 'next-intl';
 import { translateDraft } from '@/lib/translate/client';
 import {
@@ -128,11 +134,12 @@ import {
 import {
   MAX_RECORDING_SECONDS,
   micTooSoon,
-  OPUS_ENCODER_PATH,
   PICKER_ACCEPT,
   PILL_BUTTON,
   SEND_BUTTON,
 } from '@/lib/inbox/composer-ui';
+import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
+import type { MicProblem, RecordedTake } from '@/lib/media/take-recorder';
 import { ComposeCheckDialog } from './compose-check-dialog';
 
 /** Media content types an agent can send from the composer. */
@@ -219,6 +226,26 @@ interface HeldSend {
   send: () => void;
 }
 
+/** What a recording carries from the mic press to its file. */
+interface VoiceMeta {
+  /** The chat it was started in: the only one it can go to. */
+  chatId: string;
+  /** `parkedFor` when it was started. */
+  owner: string | null;
+  contactName: string | null;
+  /** Set by Send: that chat's own send, and the quote it answers. */
+  send: {
+    deliver: (payload: SendMediaPayload) => void;
+    replyToId?: string;
+  } | null;
+}
+
+/** A recording whose upload failed, kept to be tried again. */
+interface UnsentTake {
+  file: File;
+  meta: VoiceMeta;
+}
+
 /**
  * Drafts (typed text, a staged attachment and its caption, the reply
  * quote) parked by a chat switch, by conversation id. Module-level so they
@@ -228,6 +255,30 @@ interface HeldSend {
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
 let parkedFor: string | null = null;
+
+/**
+ * Told the chat when an upload is parked for it: the person can be back
+ * in it by then, with no switch left to take the parked draft.
+ */
+const parkedListeners = new Set<(conversationId: string) => void>();
+
+/** Recordings whose upload failed, by chat. */
+const unsentTakes = createUnsentTakes<UnsentTake>();
+
+/**
+ * Whether somebody else signed in to this tab since: what `owner` sent
+ * must not go out under their name. Nobody (a session that could not be
+ * read) is not somebody else; the send then fails as any would.
+ */
+async function anotherLogin(owner: string | null): Promise<boolean> {
+  try {
+    const { data } = await createClient().auth.getSession();
+    const now = data.session?.user.id;
+    return !!now && now !== owner;
+  } catch {
+    return false;
+  }
+}
 
 /** A failed send's words back as its chat's draft, if there is no newer. */
 export function parkUnsentText(
@@ -286,6 +337,7 @@ export function MessageComposer({
   onBusyChange,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
+  const tVoice = useTranslations('Inbox.voice');
   const tCheck = useTranslations('ComposeCheck');
   const tMenu = useTranslations('ComposerMenu');
 
@@ -529,6 +581,7 @@ export function MessageComposer({
 
   const userId = useAuth().user?.id ?? null;
   useLayoutEffect(() => {
+    unsentTakes.claim(userId);
     if (!userId || parkedFor === userId) return;
     // Nothing can restore a parked attachment after the clear, so delete
     // its object first. The delete runs as the newly signed-in user and
@@ -539,6 +592,33 @@ export function MessageComposer({
     for (const a of clearParkedDrafts(parkedDrafts)) removeStaged(a.path);
     parkedFor = userId;
   }, [userId, removeStaged]);
+
+  // Puts back what is parked for `chatId`: its text into a box holding
+  // `boxText`, its attachment unless one is staged, its quote.
+  const restoreParked = useCallback(
+    (chatId: string, boxText: string, staged: boolean) => {
+      const parked = takeParkedDraft(parkedDrafts, chatId, boxText, staged);
+      if (!parked) return;
+      if (parked.text.trim())
+        setBox((b) =>
+          restoreBox(b, parked.text, parked.origin as SendOrigin | null)
+        );
+      if (parked.attachment) {
+        // Parked longer than the server's sweep age (a tab left open for
+        // weeks): the object may be gone, and staging it would send a dead
+        // link. Taken out of the stash either way; deleted, best effort.
+        if (isExpiredStagedMedia(parked.attachment.path)) {
+          removeStaged(parked.attachment.path);
+          toast.warning(tRef.current('attachmentExpired'));
+        } else {
+          draftRef.current = parked.attachment;
+          setDraft(parked.attachment);
+        }
+      }
+      if (parked.reply) restoreReplyRef.current?.(parked.reply);
+    },
+    [removeStaged]
+  );
 
   // On a chat switch: park what the composer holds for the chat just
   // left (settling a check or dialog of it), empty the box, unstage the
@@ -559,31 +639,23 @@ export function MessageComposer({
     shownRef.current = conversationId;
     const boxCleared = effects.some((e) => e.type === 'clearBox');
     const unstaged = effects.some((e) => e.type === 'clearAttachment');
-    const parked = takeParkedDraft(
-      parkedDrafts,
+    restoreParked(
       conversationId,
       boxCleared ? '' : boxRef.current.text,
       !unstaged && draftRef.current !== null
     );
-    if (!parked) return;
-    if (parked.text.trim())
-      setBox((b) =>
-        restoreBox(b, parked.text, parked.origin as SendOrigin | null)
-      );
-    if (parked.attachment) {
-      // Parked longer than the server's sweep age (a tab left open for
-      // weeks): the object may be gone, and staging it would send a dead
-      // link. Taken out of the stash either way; deleted, best effort.
-      if (isExpiredStagedMedia(parked.attachment.path)) {
-        removeStaged(parked.attachment.path);
-        toast.warning(tRef.current('attachmentExpired'));
-      } else {
-        draftRef.current = parked.attachment;
-        setDraft(parked.attachment);
-      }
-    }
-    if (parked.reply) restoreReplyRef.current?.(parked.reply);
-  }, [conversationId, dispatchCheck, removeStaged]);
+  }, [conversationId, dispatchCheck, restoreParked]);
+  // An upload parked for this chat after it was opened again.
+  useEffect(() => {
+    const onParked = (chatId: string) => {
+      if (chatId === openChatRef.current)
+        restoreParked(chatId, boxRef.current.text, draftRef.current !== null);
+    };
+    parkedListeners.add(onParked);
+    return () => {
+      parkedListeners.delete(onParked);
+    };
+  }, [restoreParked]);
   // Leaving the inbox parks the draft the same way, so coming back to
   // the chat (the stash lives as long as the tab) puts it back. Declared
   // before the unmount cleanup below: a parked attachment is unstaged
@@ -628,17 +700,18 @@ export function MessageComposer({
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
 
-  // Voice recording state. The recorder encodes Ogg/Opus in-browser
-  // (opus-recorder) so there's no server-side transcode.
-  const [recording, setRecording] = useState(false);
-  const composerBusy = recording || !!draft;
-  useEffect(() => {
-    onBusyChange?.(composerBusy);
-  }, [composerBusy, onBusyChange]);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  const cancelledRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Voice notes: the recorder itself is further down (useVoiceRecorder).
+  // `voiceWork` is the chat whose recording is being sent or made ready;
+  // `unsentHere` this chat's recording whose upload failed.
+  const [voiceWork, setVoiceWork] = useState<{
+    chatId: string;
+    kind: 'send' | 'review';
+  } | null>(null);
+  const unsentHere = useSyncExternalStore(
+    unsentTakes.subscribe,
+    () => unsentTakes.get(userId, conversationId),
+    () => null
+  );
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
@@ -650,25 +723,11 @@ export function MessageComposer({
   // stay usable. Whapi and OpenWA have no window.
   const inputsDisabled = readOnly || freeTextBlocked;
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  // Tear down any live recording + timer on unmount so a mid-record
-  // navigation doesn't leak the mic, and GC a staged-but-unsent
-  // attachment so it doesn't orphan in the bucket.
+  // GC a staged-but-unsent attachment on unmount so it doesn't orphan in
+  // the bucket. (The recorder frees the mic by itself.)
   useEffect(() => {
-    return () => {
-      clearTimer();
-      cancelledRef.current = true;
-      // stop() releases the mic stream + audio context inside opus-recorder.
-      void recorderRef.current?.stop().catch(() => {});
-      removeStaged(draftRef.current?.path);
-    };
-  }, [clearTimer, removeStaged]);
+    return () => removeStaged(draftRef.current?.path);
+  }, [removeStaged]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -1141,6 +1200,7 @@ export function MessageComposer({
           attachment: staged,
         });
         removeStaged(displaced?.path);
+        for (const tell of [...parkedListeners]) tell(startedIn);
         return;
       }
       // Replacing an existing draft? GC the previous object first.
@@ -1197,120 +1257,185 @@ export function MessageComposer({
     [stageUpload]
   );
 
-  // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
+  // ---- Voice note (client-side Ogg/Opus, no server transcode) ---------
 
-  // The encoded Ogg/Opus file from opus-recorder → upload as an audio
-  // draft. WhatsApp renders Ogg/Opus as a playable voice note.
-  const finalizeRecording = useCallback(
-    async (
-      bytes: Uint8Array,
-      startedIn: string | null,
-      owner: string | null
-    ) => {
-      // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
-      // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
-      const file = new File(
-        [bytes as unknown as BlobPart],
-        `voice-${Date.now()}.ogg`,
-        {
-          type: 'audio/ogg',
-        }
-      );
-      if (file.size === 0) return; // cancelled / empty take
-      if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        toast.error('Recording is too long (over 16 MB).');
-        return;
-      }
+  // A finished recording: uploaded, then sent or staged to be listened
+  // to. Send is that chat's own send, captured when it was pressed, so
+  // it reaches that chat however soon the person moves on.
+  const uploadTake = useCallback(
+    async ({ file, meta }: UnsentTake) => {
       setBusy(true);
+      setVoiceWork({
+        chatId: meta.chatId,
+        kind: meta.send ? 'send' : 'review',
+      });
+      const name = meta.contactName ?? tVoice('thisCustomer');
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
           file,
           { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
-        landUpload(startedIn, owner, {
-          kind: 'audio',
-          mediaUrl: publicUrl,
-          path,
-          filename: file.name,
-          caption: '',
-        });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Upload failed.');
+        if (await anotherLogin(meta.owner)) {
+          removeStaged(path);
+        } else if (meta.send) {
+          lastSentAtRef.current = Date.now();
+          meta.send.deliver({
+            kind: 'audio',
+            mediaUrl: publicUrl,
+            path,
+            replyToId: meta.send.replyToId,
+          });
+        } else {
+          landUpload(meta.chatId, meta.owner, {
+            kind: 'audio',
+            mediaUrl: publicUrl,
+            path,
+            filename: file.name,
+            caption: '',
+          });
+          if (openChatRef.current !== meta.chatId && parkedFor === meta.owner)
+            toast.info(tVoice('waiting', { name }));
+        }
+      } catch {
+        // Kept for its chat, which says so; elsewhere a notice does. Not
+        // for another login, which must not see the customer's name.
+        const kept = unsentTakes.put(meta.owner, meta.chatId, { file, meta });
+        if (kept && openChatRef.current !== meta.chatId)
+          toast.error(tVoice('notSentElsewhere', { name }));
       } finally {
         setBusy(false);
+        setVoiceWork((w) => (w?.chatId === meta.chatId ? null : w));
       }
     },
-    [landUpload]
+    [landUpload, removeStaged, tVoice]
   );
 
-  const startRecording = useCallback(async () => {
-    if (inputsDisabled || busy || recording) return;
+  const handleTake = useCallback(
+    (take: RecordedTake<VoiceMeta>) => {
+      // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
+      // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
+      const file = new File(
+        [take.bytes as unknown as BlobPart],
+        `voice-${Date.now()}.ogg`,
+        { type: 'audio/ogg' }
+      );
+      if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
+        setVoiceWork(null);
+        toast.error(tVoice('tooLarge'));
+        return;
+      }
+      void uploadTake({ file, meta: take.meta });
+    },
+    [uploadTake, tVoice]
+  );
+
+  const handleMicProblem = useCallback(
+    (problem: MicProblem) => {
+      setVoiceWork(null);
+      toast.error(tVoice(`problem.${problem}`));
+    },
+    [tVoice]
+  );
+
+  const {
+    phase: voicePhase,
+    seconds: recordSeconds,
+    start: startTake,
+    finish: finishTake,
+    cancel: cancelRecording,
+    leave: leaveTake,
+    getLevelSource,
+  } = useVoiceRecorder<VoiceMeta>({
+    maxSeconds: MAX_RECORDING_SECONDS,
+    // Back on a phone takes the composer with it: what was being recorded
+    // is parked for its chat like any upload.
+    keepReview: true,
+    onTake: handleTake,
+    onProblem: handleMicProblem,
+  });
+  const recording = voicePhase === 'starting' || voicePhase === 'recording';
+
+  // The box comes back one line high: give it its text's height again.
+  useEffect(() => {
+    if (!recording && !draft) adjustHeight();
+  }, [recording, draft, adjustHeight]);
+
+  const voiceWorkHere = voiceWork?.chatId === conversationId ? voiceWork : null;
+  const composerBusy = recording || !!draft || !!voiceWorkHere || !!unsentHere;
+  useEffect(() => {
+    onBusyChange?.(composerBusy);
+  }, [composerBusy, onBusyChange]);
+
+  const startRecording = useCallback(() => {
+    if (readOnly || busy || checking || refuseBlocked()) return;
     if (micTooSoon(lastSentAtRef.current, Date.now())) return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof AudioContext === 'undefined'
-    ) {
-      toast.error("Voice recording isn't supported in this browser.");
+    // One recording waits per chat, and nothing staged is replaced: what
+    // is there goes first.
+    if (unsentHere || draftRef.current) {
+      toast.info(tVoice(unsentHere ? 'keptFirst' : 'draftFirst'));
       return;
     }
-    try {
-      // Lazy-load the encoder (≈400 KB worker) only when the user records,
-      // keeping it out of the main bundle.
-      const { default: Recorder } = await import('opus-recorder');
-      const recorder = new Recorder({
-        encoderPath: OPUS_ENCODER_PATH,
-        numberOfChannels: 1,
-        encoderApplication: 2048, // VOIP — tuned for speech
-        encoderSampleRate: 48000,
-        streamPages: false, // one callback with the complete file on stop
-      });
-      cancelledRef.current = false;
-      // The voice note is the chat's it was started in, wherever it stops.
-      const startedIn = openChatRef.current;
-      const owner = parkedFor;
-      recorder.ondataavailable = (bytes) => {
-        if (cancelledRef.current) return;
-        void finalizeRecording(bytes, startedIn, owner);
-      };
-      recorderRef.current = recorder;
-      await recorder.start();
-      setRecording(true);
-      setRecordSeconds(0);
-      timerRef.current = setInterval(
-        () => setRecordSeconds((s) => s + 1),
-        1000
-      );
-    } catch {
-      void recorderRef.current?.stop().catch(() => {});
-      recorderRef.current = null;
-      toast.error('Microphone access denied or unavailable.');
+    void startTake({
+      chatId: conversationId,
+      owner: parkedFor,
+      contactName: contactName ?? null,
+      send: null,
+    });
+  }, [
+    readOnly,
+    busy,
+    checking,
+    refuseBlocked,
+    unsentHere,
+    tVoice,
+    startTake,
+    conversationId,
+    contactName,
+  ]);
+
+  const listenFirst = useCallback(() => {
+    if (finishTake('review'))
+      setVoiceWork({ chatId: conversationId, kind: 'review' });
+  }, [finishTake, conversationId]);
+
+  const sendRecording = useCallback(() => {
+    // Meta's window closed while speaking: refused, and kept to listen to.
+    if (refuseBlocked()) {
+      listenFirst();
+      return;
     }
-  }, [inputsDisabled, busy, recording, finalizeRecording]);
+    const send = { deliver: onSendMedia, replyToId: replyTo?.id };
+    if (!finishTake('send', { send })) return;
+    lastSentAtRef.current = Date.now();
+    setVoiceWork({ chatId: conversationId, kind: 'send' });
+    onClearReply?.();
+  }, [
+    refuseBlocked,
+    listenFirst,
+    onSendMedia,
+    replyTo?.id,
+    finishTake,
+    conversationId,
+    onClearReply,
+  ]);
 
-  // The live meter taps the recorder's own graph.
-  const getLevelSource = useCallback(() => recorderRef.current, []);
+  const retryUnsent = useCallback(() => {
+    if (!unsentHere || busy) return;
+    const { file, meta } = unsentHere;
+    if (meta.send && refuseBlocked()) return;
+    unsentTakes.remove(meta.chatId);
+    void uploadTake({
+      file,
+      meta: meta.send
+        ? { ...meta, send: { ...meta.send, deliver: onSendMedia } }
+        : meta,
+    });
+  }, [unsentHere, busy, refuseBlocked, uploadTake, onSendMedia]);
 
-  const stopRecording = useCallback(() => {
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
-
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
-
-  // Auto-stop at the cap so a forgotten recording can't blow the
-  // upload size limit.
-  useEffect(() => {
-    if (recording && recordSeconds >= MAX_RECORDING_SECONDS) {
-      stopRecording();
-    }
-  }, [recording, recordSeconds, stopRecording]);
+  // A recording is its chat's. Left running, its Send would stand under
+  // the next chat: leaving the chat ends the take, which waits there.
+  useLayoutEffect(() => () => leaveTake(), [conversationId, leaveTake]);
 
   // ---- Draft send / discard -----------------------------------------
 
@@ -1450,6 +1575,15 @@ export function MessageComposer({
       busy: translating,
       hidden: !showTranslate,
     },
+    {
+      // The mic button is Send while the box holds text: this always
+      // records. Beside the saved ones, so the two are told apart.
+      id: 'record-voice',
+      icon: Mic,
+      label: tVoice('record'),
+      onSelect: startRecording,
+      disabled: freeTextBlocked || busy || checking || voicePhase !== 'idle',
+    },
     voiceLibraryItem,
     // ---- Add new More menu items above this line ----
   ];
@@ -1537,7 +1671,31 @@ export function MessageComposer({
         </div>
       )}
 
-      {draft ? (
+      {unsentHere && (
+        <VoiceFailedStrip
+          // Listened to first, it would replace what is staged now.
+          disabled={
+            busy || voicePhase !== 'idle' || (!!draft && !unsentHere.meta.send)
+          }
+          onRetry={retryUnsent}
+          onDiscard={() => unsentTakes.remove(conversationId)}
+        />
+      )}
+      {voiceWorkHere && <VoiceWorkStrip kind={voiceWorkHere.kind} />}
+
+      {recording ? (
+        // Recording bar — replaces the composer while the mic is live.
+        <VoiceRecordingBar
+          seconds={recordSeconds}
+          maxSeconds={MAX_RECORDING_SECONDS}
+          starting={voicePhase === 'starting'}
+          getLevelSource={getLevelSource}
+          onCancel={cancelRecording}
+          onStop={listenFirst}
+          onSend={sendRecording}
+          buttonClassName={SEND_BUTTON}
+        />
+      ) : draft ? (
         <MediaDraftPreview
           draft={draft}
           busy={busy}
@@ -1548,16 +1706,6 @@ export function MessageComposer({
           onDiscard={discardDraft}
           onSend={sendDraft}
           t={t}
-        />
-      ) : recording ? (
-        // Recording bar — replaces the composer while the mic is live.
-        <VoiceRecordingBar
-          seconds={recordSeconds}
-          maxSeconds={MAX_RECORDING_SECONDS}
-          getLevelSource={getLevelSource}
-          onCancel={cancelRecording}
-          onStop={stopRecording}
-          stopClassName={SEND_BUTTON}
         />
       ) : (
         // WhatsApp-like row: More (+) | the text box with attach and AI
@@ -1622,7 +1770,7 @@ export function MessageComposer({
                 the mic button. */}
             <DropdownMenu>
               <DropdownMenuTrigger
-                disabled={inputsDisabled || busy}
+                disabled={inputsDisabled || busy || voicePhase !== 'idle'}
                 title={
                   readOnly
                     ? t('readOnlyTitle')
@@ -1760,10 +1908,15 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={inputsDisabled || busy}
-              onClick={() => void startRecording()}
-              title={readOnly ? undefined : t('voiceNote')}
-              aria-label={t('voiceNote')}
+              disabled={inputsDisabled || busy || voicePhase !== 'idle'}
+              onClick={startRecording}
+              title={
+                readOnly
+                  ? undefined
+                  : ((freeTextBlocked ? freeTextBlockedText : null) ??
+                    tVoice('record'))
+              }
+              aria-label={tVoice('record')}
               className={SEND_BUTTON}
             >
               <Mic className="h-[18px] w-[18px]" />
@@ -1824,6 +1977,10 @@ export function MessageComposer({
         open={voiceLibraryOpen}
         onOpenChange={setVoiceLibraryOpen}
         conversationId={conversationId}
+        onRecord={() => {
+          setVoiceLibraryOpen(false);
+          startRecording();
+        }}
         onSend={(note) => {
           if (refuseBlocked()) return;
           onSendMedia({
@@ -1867,6 +2024,7 @@ function MediaDraftPreview({
   onSend: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tVoice = useTranslations('Inbox.voice');
   // A voice note is one row, like the recording bar it replaces:
   // discard, the player (to listen back before sending), send.
   if (draft.kind === 'audio') {
@@ -1875,8 +2033,8 @@ function MediaDraftPreview({
         <button
           type="button"
           onClick={onDiscard}
-          aria-label={t('removeAttachment')}
-          title={t('removeAttachment')}
+          aria-label={tVoice('discardRecording')}
+          title={tVoice('discardRecording')}
           className="text-wa-icon hover:bg-destructive-soft hover:text-destructive focus-visible:ring-destructive/50 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2"
         >
           <Trash2 className="h-5 w-5" />
@@ -1885,6 +2043,7 @@ function MediaDraftPreview({
           src={draft.mediaUrl}
           seed={draft.path ?? draft.filename}
           tone="in"
+          badge={false}
           className="w-auto min-w-0 flex-1"
         />
         <GatedButton
@@ -1893,6 +2052,8 @@ function MediaDraftPreview({
           gateReason="send messages"
           disabled={busy}
           onClick={onSend}
+          aria-label={tVoice('sendVoice')}
+          title={readOnly ? undefined : tVoice('sendVoice')}
           className={SEND_BUTTON}
         >
           <Send className="h-[18px] w-[18px]" />

@@ -704,6 +704,8 @@ export function SubmissionGroupPage({
 
             {!ended && (
               <GroupComposer
+                chatKey={`submission:${groupId}`}
+                userId={user?.id ?? null}
                 onSendText={(text) => postMessage({ text })}
                 onSendMedia={(media) => postMessage({ media })}
                 disabled={!detail.can_send}

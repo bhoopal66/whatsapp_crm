@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import en from '../../../messages/en.json';
 import {
+  composerDone,
   formatDuration,
   groupTimelineByDay,
   parseAuditRows,
@@ -151,6 +152,39 @@ describe('shouldRestoreText', () => {
     expect(shouldRestoreText(0)).toBe(true);
     expect(shouldRestoreText(500)).toBe(false);
     expect(shouldRestoreText(201)).toBe(false);
+  });
+});
+
+describe('composerDone', () => {
+  const answer = (
+    status: number,
+    over: Partial<Parameters<typeof composerDone>[0]> = {}
+  ) => composerDone({ status, code: null, media: true, stored: null, ...over });
+
+  it('is done with what was sent, recorded or not', () => {
+    expect(answer(201)).toBe(true);
+    expect(answer(200, { media: false })).toBe(true);
+  });
+
+  it('gives a text back as before', () => {
+    expect(answer(409, { media: false })).toBe(false);
+    expect(answer(0, { media: false })).toBe(false);
+    expect(answer(500, { media: false })).toBe(true);
+  });
+
+  it('gives a refused file back, but not one a blocked message points at', () => {
+    expect(answer(429)).toBe(false);
+    expect(answer(409, { code: 'SEND_NOT_ALLOWED' })).toBe(false);
+    expect(answer(400)).toBe(false);
+    expect(answer(409, { code: 'SEND_BLOCKED' })).toBe(true);
+  });
+
+  it('after an open answer asks the conversation, and else keeps the file', () => {
+    for (const status of [0, 500, 502, 503]) {
+      expect(answer(status, { stored: true })).toBe(true);
+      expect(answer(status, { stored: false })).toBe(false);
+      expect(answer(status, { stored: null })).toBe(true);
+    }
   });
 });
 

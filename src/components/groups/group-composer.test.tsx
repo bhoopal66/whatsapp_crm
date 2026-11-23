@@ -19,6 +19,8 @@ function render(props: Partial<React.ComponentProps<typeof GroupComposer>>) {
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
       <GroupComposer
+        chatKey="group:g"
+        userId="u"
         onSendText={async () => true}
         onSendMedia={async () => true}
         placeholder="Type a message"
@@ -37,6 +39,12 @@ describe('GroupComposer', () => {
     expect(html).toContain('image/png,image/jpeg,image/webp');
   });
 
+  it('has a mic where Send will be while the box is empty', () => {
+    const html = render({});
+    expect(html).toContain('aria-label="Record a voice note"');
+    expect(html).not.toContain('aria-label="Send"');
+  });
+
   it('shows why it is disabled instead of the notice', () => {
     const html = render({
       disabled: true,
@@ -46,5 +54,8 @@ describe('GroupComposer', () => {
     expect(html).toContain('You cannot send here');
     expect(html).not.toContain('Sent as Ali (Agent)');
     expect(html).toMatch(/<textarea[^>]*disabled/);
+    expect(html).toMatch(
+      /<button(?=[^>]*aria-label="Record a voice note")[^>]*\sdisabled/
+    );
   });
 });

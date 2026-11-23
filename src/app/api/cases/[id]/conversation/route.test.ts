@@ -50,6 +50,9 @@ vi.mock('@/lib/cases/server', () => ({
 vi.mock('@/lib/submission-groups/server', () => ({
   supabaseAdmin: () => admin,
 }));
+vi.mock('@/lib/supabase/urls', () => ({
+  publicSupabaseUrl: () => 'https://crm.example/supabase',
+}));
 vi.mock('@/lib/submission-groups/view-refs', () => ({
   loadNames: m.loadNames,
 }));
@@ -101,7 +104,7 @@ beforeEach(() => {
     get: vi.fn(async () => aCase()),
     role: vi.fn(async () => 'coordinator'),
   };
-  m.conv = { read: vi.fn(), reply: vi.fn() };
+  m.conv = { read: vi.fn(), reply: vi.fn(), replyMedia: vi.fn() };
   m.loadNames.mockResolvedValue(new Map([['u-2', 'Sara']]));
 });
 
@@ -243,6 +246,93 @@ describe('POST /api/cases/[id]/conversation', () => {
     expect(res.status).toBe(500);
     expect(JSON.stringify(spy.mock.calls)).not.toContain('+971');
     spy.mockRestore();
+  });
+});
+
+describe('POST /api/cases/[id]/conversation: an attachment', () => {
+  const path = 'account-acct-1/groups/1700000000000-voice-1.ogg';
+  const media = (over: Record<string, unknown> = {}) => ({
+    media: {
+      kind: 'voice',
+      url: `https://anything.example/storage/v1/object/public/chat-media/${path}`,
+      path,
+      mimeType: 'audio/ogg',
+      ...over,
+    },
+  });
+  const sent = {
+    messageId: 'msg-9',
+    prefixedBody: '*Me*',
+    waMessageId: 'wa-9',
+  };
+
+  it('sends the upload by a link rebuilt on our origin, never the given one', async () => {
+    m.conv.replyMedia.mockResolvedValue(sent);
+    const res = await post(media());
+    expect(res.status).toBe(201);
+    expect(m.conv.reply).not.toHaveBeenCalled();
+    expect(m.conv.replyMedia).toHaveBeenCalledTimes(1);
+    const [actor, caseId, input] = m.conv.replyMedia.mock.calls[0];
+    expect([actor, caseId]).toEqual(['u-me', ID]);
+    expect(input).toMatchObject({
+      kind: 'voice',
+      path,
+      mimeType: 'audio/ogg',
+    });
+    expect(input.link).toBe(
+      `https://crm.example/supabase/storage/v1/object/public/chat-media/${path}`
+    );
+  });
+
+  it.each([
+    [
+      "another account's file",
+      {
+        url: 'https://x.example/storage/v1/object/public/chat-media/account-acct-2/groups/v.ogg',
+        path: 'account-acct-2/groups/v.ogg',
+      },
+    ],
+    [
+      'a file outside the groups folder',
+      {
+        url: 'https://x.example/storage/v1/object/public/chat-media/account-acct-1/staged/v.ogg',
+        path: 'account-acct-1/staged/v.ogg',
+      },
+    ],
+    ['a url that names another file', { path: `${path}x` }],
+    ['an unknown kind', { kind: 'sticker' }],
+    ['a caption that is too long', { caption: 'x'.repeat(5000) }],
+  ])('is 400 for %s, and nothing is sent', async (_, over) => {
+    expect((await post(media(over))).status).toBe(400);
+    expect(m.conv.replyMedia).not.toHaveBeenCalled();
+    expect(m.conv.reply).not.toHaveBeenCalled();
+  });
+
+  it('is under the same checks as a text', async () => {
+    m.store.role.mockResolvedValue(null);
+    expect((await post(media())).status).toBe(404);
+    m.store.role.mockResolvedValue('coordinator');
+    m.countResult = { count: 20, error: null };
+    expect((await post(media())).status).toBe(429);
+    m.countResult = { count: 0, error: null };
+    m.conv.replyMedia.mockRejectedValue(
+      new SubmissionGroupSendBlockedError('opted_out')
+    );
+    const res = await post(media());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'SEND_BLOCKED' });
+  });
+
+  it('remembers a caption, and nothing for a voice note', async () => {
+    brain.after.length = 0;
+    m.conv.replyMedia.mockResolvedValue(sent);
+    await post(media());
+    expect(brain.after).toHaveLength(0);
+    await post(media({ kind: 'image', caption: ' the licence ' }));
+    for (const cb of brain.after) await cb();
+    expect(brain.record).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: 'msg-9', text: 'the licence' })
+    );
   });
 });
 

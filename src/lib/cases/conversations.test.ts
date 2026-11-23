@@ -66,6 +66,11 @@ function setup(
         waMessageId: 'wa-1',
       };
     }),
+    sendMediaFromCrm: vi.fn(async (input: { kind: string }) => {
+      log.push(`groups.sendMediaFromCrm ${input.kind}`);
+      if (opts.send) await opts.send();
+      return { messageId: 'msg-2', prefixedBody: 'X', waMessageId: 'wa-2' };
+    }),
     viewArchive: vi.fn(async () => {
       log.push('groups.viewArchive');
       return archive;
@@ -166,6 +171,50 @@ describe('CaseConversations.reply', () => {
       },
     });
     await expect(conv.reply(ACTOR, CASE_ID, 'hi')).rejects.toBeInstanceOf(
+      SubmissionGroupSendBlockedError
+    );
+  });
+});
+
+describe('CaseConversations.replyMedia', () => {
+  const voice = {
+    kind: 'voice' as const,
+    link: 'https://files.example/v.ogg',
+    path: 'account-a/groups/v.ogg',
+    mimeType: 'audio/ogg',
+  };
+
+  it('a non-writer is refused before any send', async () => {
+    const { groups, conv } = setup({ role: null });
+    await expect(conv.replyMedia(ACTOR, CASE_ID, voice)).rejects.toBeInstanceOf(
+      CaseRefusedError
+    );
+    expect(groups.sendMediaFromCrm).not.toHaveBeenCalled();
+  });
+
+  it("a writer's voice note goes into the case's own group, as them", async () => {
+    const { groups, conv } = setup({ role: 'coordinator' });
+    await conv.replyMedia(ACTOR, CASE_ID, {
+      ...voice,
+      // Whatever the caller adds, the group and the sender are the case's.
+      ...({ groupId: 'g-other', userId: 'u-other' } as object),
+    });
+    expect(groups.sendMediaFromCrm).toHaveBeenCalledWith({
+      ...voice,
+      groupId: GROUP_ID,
+      userId: ACTOR,
+    });
+    expect(groups.sendFromCrm).not.toHaveBeenCalled();
+  });
+
+  it('send errors pass through typed', async () => {
+    const { conv } = setup({
+      role: 'agent',
+      send: async () => {
+        throw new SubmissionGroupSendBlockedError('opted_out');
+      },
+    });
+    await expect(conv.replyMedia(ACTOR, CASE_ID, voice)).rejects.toBeInstanceOf(
       SubmissionGroupSendBlockedError
     );
   });

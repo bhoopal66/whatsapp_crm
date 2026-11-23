@@ -207,6 +207,7 @@ export function VoiceNotePlayer({
   unavailable = false,
   onDownload,
   downloading = false,
+  badge = true,
   className,
 }: {
   /** null: not known yet (a URL still to be minted), so nothing loads. */
@@ -225,6 +226,9 @@ export function VoiceNotePlayer({
   unavailable?: boolean;
   onDownload?: () => void;
   downloading?: boolean;
+  /** The round mic at the end. Off beside a Send, where it reads as a
+   *  second record button. */
+  badge?: boolean;
   className?: string;
 }) {
   const t = useTranslations('Inbox.voice');
@@ -477,7 +481,7 @@ export function VoiceNotePlayer({
             >
               {formatRate(rate)}
             </button>
-          ) : (
+          ) : badge ? (
             <span
               aria-hidden="true"
               className={cn(
@@ -487,7 +491,7 @@ export function VoiceNotePlayer({
             >
               <Mic className="h-[18px] w-[18px]" />
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 

@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type Ref,
 } from 'react';
 import { useTranslations } from 'next-intl';
@@ -33,10 +34,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { QuickReplyPicker } from '@/components/inbox/quick-reply-picker';
 import { VoiceNotePlayer } from '@/components/inbox/voice-note-player';
-import { VoiceRecordingBar } from '@/components/inbox/voice-recording-bar';
+import {
+  VoiceFailedStrip,
+  VoiceRecordingBar,
+  VoiceWorkStrip,
+} from '@/components/inbox/voice-recording-bar';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 import {
   MAX_RECORDING_SECONDS,
-  OPUS_ENCODER_PATH,
+  micTooSoon,
   SEND_BUTTON,
   TOOL_BUTTON,
 } from '@/lib/inbox/composer-ui';
@@ -53,6 +59,7 @@ import {
   type GroupPickerKind,
 } from '@/lib/groups/composer';
 import { shouldSendOnKey } from '@/lib/groups/group-page';
+import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import {
   GROUP_MEDIA_CAPTION_MAX,
   GROUP_MEDIA_FOLDER,
@@ -71,6 +78,10 @@ const BUCKET = 'chat-media';
 const TEXT_MAX = 4096;
 
 export interface GroupComposerProps {
+  /** The chat, for a voice note kept until it can be uploaded. */
+  chatKey: string;
+  /** Who is signed in: the only one it is kept for. */
+  userId: string | null;
   /** Sends text; false when it was not sent (the text comes back). */
   onSendText: (text: string) => Promise<boolean>;
   /**
@@ -86,6 +97,17 @@ export interface GroupComposerProps {
   placeholder?: string;
 }
 
+type SendMedia = GroupComposerProps['onSendMedia'];
+
+/** A recording and what Send captured: null is listened to first. */
+interface VoiceFile {
+  file: File;
+  deliver: SendMedia | null;
+}
+
+/** Recordings whose upload failed, by chat. */
+const unsentVoices = createUnsentTakes<VoiceFile>();
+
 /** Best effort: an upload nobody will send is removed from the bucket. */
 function removeUpload(path: string | undefined) {
   if (path) void deleteAccountMedia(BUCKET, path).catch(() => {});
@@ -98,6 +120,8 @@ function removeUpload(path: string | undefined) {
  * into `chat-media` under `account-<id>/groups/`, never `staged/`.
  */
 export function GroupComposer({
+  chatKey,
+  userId,
   onSendText,
   onSendMedia,
   disabled = false,
@@ -106,6 +130,7 @@ export function GroupComposer({
   placeholder,
 }: GroupComposerProps) {
   const t = useTranslations('Inbox.composer');
+  const tv = useTranslations('Inbox.voice');
   const tg = useTranslations('Groups.page.chat');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -122,85 +147,93 @@ export function GroupComposer({
     document: useRef<HTMLInputElement>(null),
   };
 
-  const [recording, setRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  const cancelledRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A recording being sent or made ready, and one whose upload failed.
+  const [voiceWork, setVoiceWork] = useState<'send' | 'review' | null>(null);
+  useLayoutEffect(() => unsentVoices.claim(userId), [userId]);
+  const unsentVoice = useSyncExternalStore(
+    unsentVoices.subscribe,
+    () => unsentVoices.get(userId, chatKey),
+    () => null
+  );
   const mountedRef = useRef(true);
-  const startingRef = useRef(false);
+  const lastSentAtRef = useRef(0);
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  // Leaving releases the mic and removes an upload that was never sent.
+  // Leaving removes an upload that was never sent (the recorder frees
+  // the mic by itself).
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      clearTimer();
-      cancelledRef.current = true;
-      void recorderRef.current?.stop().catch(() => {});
       removeUpload(draftRef.current?.path);
     };
-  }, [clearTimer]);
+  }, []);
 
-  // The text box grows with its text, up to about six lines.
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-  }, [text, draft, recording]);
+  /** Throws when the file cannot be uploaded. */
+  const upload = useCallback(
+    async (kind: GroupOutboundKind, file: File): Promise<GroupMediaDraft> => {
+      // Uploaded under a cleaned name so the path is one the send
+      // route accepts; the picked name is what the group sees.
+      const named = new File([file], groupUploadName(file.name), {
+        type: file.type,
+      });
+      const { publicUrl, path } = await uploadAccountMedia(BUCKET, named, {
+        subfolder: GROUP_MEDIA_FOLDER,
+      });
+      if (!isGroupUploadPath(path)) {
+        removeUpload(path);
+        throw new Error('unexpected upload path');
+      }
+      return {
+        kind,
+        url: publicUrl,
+        path,
+        filename: file.name,
+        mimeType: file.type,
+        caption: '',
+      };
+    },
+    []
+  );
+
+  /** Into the composer, unless it is gone. */
+  const land = useCallback((staged: GroupMediaDraft) => {
+    if (!mountedRef.current) {
+      removeUpload(staged.path);
+      return;
+    }
+    removeUpload(draftRef.current?.path);
+    setDraft(staged);
+    requestAnimationFrame(() => captionRef.current?.focus());
+  }, []);
+
+  const tooLarge = useCallback(
+    (kind: GroupOutboundKind, file: File) => {
+      const max = groupMediaMaxBytes(kind);
+      if (file.size <= max) return false;
+      toast.error(
+        tg('fileTooLarge', {
+          size: megabytes(file.size),
+          limit: megabytes(max),
+        })
+      );
+      return true;
+    },
+    [tg]
+  );
 
   const stage = useCallback(
     async (kind: GroupOutboundKind, file: File) => {
-      const max = groupMediaMaxBytes(kind);
-      if (file.size > max) {
-        toast.error(
-          tg('fileTooLarge', {
-            size: megabytes(file.size),
-            limit: megabytes(max),
-          })
-        );
-        return;
-      }
+      if (tooLarge(kind, file)) return;
       setBusy(true);
       try {
-        // Uploaded under a cleaned name so the path is one the send
-        // route accepts; the picked name is what the group sees.
-        const upload = new File([file], groupUploadName(file.name), {
-          type: file.type,
-        });
-        const { publicUrl, path } = await uploadAccountMedia(BUCKET, upload, {
-          subfolder: GROUP_MEDIA_FOLDER,
-        });
-        if (!isGroupUploadPath(path) || !mountedRef.current) {
-          removeUpload(path);
-          if (mountedRef.current) toast.error(tg('uploadFailed'));
-          return;
-        }
-        removeUpload(draftRef.current?.path);
-        setDraft({
-          kind,
-          url: publicUrl,
-          path,
-          filename: file.name,
-          mimeType: file.type,
-          caption: '',
-        });
-        requestAnimationFrame(() => captionRef.current?.focus());
+        land(await upload(kind, file));
       } catch {
         toast.error(tg('uploadFailed'));
       } finally {
         if (mountedRef.current) setBusy(false);
       }
     },
-    [tg]
+    [tg, tooLarge, land, upload]
   );
 
   const handlePicked = (picked: GroupPickerKind, file: File | undefined) => {
@@ -213,89 +246,140 @@ export function GroupComposer({
     void stage(kind, file);
   };
 
+  // ---- Sending -------------------------------------------------------
+
+  /** Sends what is uploaded; not sent, it comes back to the composer. */
+  const sendUploaded = useCallback(
+    async (staged: GroupMediaDraft, deliver: SendMedia) => {
+      // Put back (as text is) unless another was staged meanwhile or the
+      // composer is gone; only then is it deleted.
+      const giveBack = () => {
+        if (mountedRef.current && !draftRef.current) {
+          draftRef.current = staged;
+          setDraft(staged);
+        } else {
+          removeUpload(staged.path);
+        }
+      };
+      try {
+        const ok = await deliver(groupMediaPayload(staged));
+        if (!ok) giveBack();
+      } catch {
+        giveBack();
+      }
+    },
+    []
+  );
+
   // ---- Voice note (Ogg/Opus in the browser, as the inbox) -----------
 
-  const startRecording = useCallback(async () => {
-    // `recording` only turns true after the permission prompt: a second
-    // tap meanwhile would start a second recorder and leave its mic on.
-    if (disabled || busy || recording || startingRef.current) return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof AudioContext === 'undefined'
-    ) {
-      toast.error(tg('recordingUnsupported'));
-      return;
-    }
-    startingRef.current = true;
-    try {
-      const { default: Recorder } = await import('opus-recorder');
-      const recorder = new Recorder({
-        encoderPath: OPUS_ENCODER_PATH,
-        numberOfChannels: 1,
-        encoderApplication: 2048,
-        encoderSampleRate: 48000,
-        streamPages: false,
-      });
-      cancelledRef.current = false;
-      recorder.ondataavailable = (bytes) => {
-        if (cancelledRef.current) return;
-        const file = new File(
-          [bytes as unknown as BlobPart],
-          `voice-${Date.now()}.ogg`,
-          { type: 'audio/ogg' }
-        );
-        if (file.size === 0) return;
-        void stage('voice', file);
-      };
-      recorderRef.current = recorder;
-      await recorder.start();
-      if (!mountedRef.current) {
-        // Left while the mic was being granted: release it.
-        cancelledRef.current = true;
-        void recorder.stop().catch(() => {});
-        recorderRef.current = null;
+  // A finished recording: uploaded, then sent (by the group's own send,
+  // captured when Send was pressed) or staged to be listened to.
+  const sendOrStageVoice = useCallback(
+    async (voice: VoiceFile) => {
+      setBusy(true);
+      setVoiceWork(voice.deliver ? 'send' : 'review');
+      let staged: GroupMediaDraft;
+      try {
+        staged = await upload('voice', voice.file);
+      } catch {
+        // Kept for this chat, which says so; elsewhere a notice does.
+        const kept = unsentVoices.put(userId, chatKey, voice);
+        if (mountedRef.current) setVoiceWork(null);
+        else if (kept) toast.error(tv('notSent'));
+        return;
+      } finally {
+        if (mountedRef.current) setBusy(false);
+      }
+      if (!voice.deliver) {
+        if (mountedRef.current) setVoiceWork(null);
+        land(staged);
         return;
       }
-      setRecording(true);
-      setRecordSeconds(0);
-      timerRef.current = setInterval(
-        () => setRecordSeconds((s) => s + 1),
-        1000
+      lastSentAtRef.current = Date.now();
+      await sendUploaded(staged, voice.deliver);
+      if (mountedRef.current) setVoiceWork(null);
+    },
+    [upload, land, sendUploaded, tv, userId, chatKey]
+  );
+
+  const {
+    phase: voicePhase,
+    seconds: recordSeconds,
+    start: startTake,
+    finish: finishTake,
+    cancel: cancelRecording,
+    getLevelSource,
+  } = useVoiceRecorder<{ deliver: SendMedia | null }>({
+    maxSeconds: MAX_RECORDING_SECONDS,
+    onTake: (take) => {
+      const file = new File(
+        [take.bytes as unknown as BlobPart],
+        `voice-${Date.now()}.ogg`,
+        { type: 'audio/ogg' }
       );
-    } catch {
-      void recorderRef.current?.stop().catch(() => {});
-      recorderRef.current = null;
-      if (mountedRef.current) toast.error(tg('micDenied'));
-    } finally {
-      startingRef.current = false;
+      if (tooLarge('voice', file)) {
+        setVoiceWork(null);
+        return;
+      }
+      void sendOrStageVoice({ file, deliver: take.meta.deliver });
+    },
+    onProblem: (problem) => {
+      setVoiceWork(null);
+      toast.error(tv(`problem.${problem}`));
+    },
+  });
+  const recording = voicePhase === 'starting' || voicePhase === 'recording';
+
+  // The text box grows with its text, up to about six lines.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [text, draft, recording]);
+
+  const startRecording = () => {
+    if (disabled || busy) return;
+    if (micTooSoon(lastSentAtRef.current, Date.now())) return;
+    // One recording waits per chat, and nothing staged is replaced: what
+    // is there goes first.
+    if (unsentVoice || draftRef.current) {
+      toast.info(tv(unsentVoice ? 'keptFirst' : 'draftFirst'));
+      return;
     }
-  }, [disabled, busy, recording, stage, tg]);
+    void startTake({ deliver: null });
+  };
 
-  const getLevelSource = useCallback(() => recorderRef.current, []);
+  const listenFirst = () => {
+    if (finishTake('review')) setVoiceWork('review');
+  };
 
-  const stopRecording = useCallback(() => {
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
+  const sendRecording = () => {
+    // No longer allowed to send here: kept, to be listened to.
+    if (disabled) {
+      listenFirst();
+      return;
+    }
+    if (!finishTake('send', { deliver: onSendMedia })) return;
+    lastSentAtRef.current = Date.now();
+    setVoiceWork('send');
+  };
 
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
-
-  useEffect(() => {
-    if (recording && recordSeconds >= MAX_RECORDING_SECONDS) stopRecording();
-  }, [recording, recordSeconds, stopRecording]);
-
-  // ---- Sending -------------------------------------------------------
+  const retryVoice = () => {
+    if (!unsentVoice || busy || disabled) return;
+    unsentVoices.remove(chatKey);
+    void sendOrStageVoice({
+      file: unsentVoice.file,
+      deliver: unsentVoice.deliver && onSendMedia,
+    });
+  };
 
   const sendText = async () => {
     const body = text.trim();
     if (!body || sending || disabled) return;
     setSending(true);
+    lastSentAtRef.current = Date.now();
     setText('');
     try {
       const ok = await onSendText(body);
@@ -310,26 +394,11 @@ export function GroupComposer({
     const staged = draftRef.current;
     if (!staged || busy || sending || disabled) return;
     setSending(true);
+    lastSentAtRef.current = Date.now();
     setDraft(null);
     draftRef.current = null;
-    // Not sent: put the attachment back (as text is), unless another was
-    // staged meanwhile or the composer is gone; only then delete it.
-    const giveBack = () => {
-      if (mountedRef.current && !draftRef.current) {
-        draftRef.current = staged;
-        setDraft(staged);
-      } else {
-        removeUpload(staged.path);
-      }
-    };
-    try {
-      const ok = await onSendMedia(groupMediaPayload(staged));
-      if (!ok) giveBack();
-    } catch {
-      giveBack();
-    } finally {
-      if (mountedRef.current) setSending(false);
-    }
+    await sendUploaded(staged, onSendMedia);
+    if (mountedRef.current) setSending(false);
   };
 
   const discardDraft = () => {
@@ -378,7 +447,33 @@ export function GroupComposer({
         />
       ))}
 
-      {draft ? (
+      {unsentVoice && (
+        <VoiceFailedStrip
+          // Listened to first, it would replace what is staged now.
+          disabled={
+            busy ||
+            disabled ||
+            voicePhase !== 'idle' ||
+            (!!draft && !unsentVoice.deliver)
+          }
+          onRetry={retryVoice}
+          onDiscard={() => unsentVoices.remove(chatKey)}
+        />
+      )}
+      {voiceWork && <VoiceWorkStrip kind={voiceWork} />}
+
+      {recording ? (
+        <VoiceRecordingBar
+          seconds={recordSeconds}
+          maxSeconds={MAX_RECORDING_SECONDS}
+          starting={voicePhase === 'starting'}
+          getLevelSource={getLevelSource}
+          onCancel={cancelRecording}
+          onStop={listenFirst}
+          onSend={sendRecording}
+          buttonClassName={SEND_BUTTON}
+        />
+      ) : draft ? (
         <GroupDraftPreview
           draft={draft}
           busy={busy || sending || disabled}
@@ -390,20 +485,11 @@ export function GroupComposer({
           onSend={() => void sendDraft()}
           t={t}
         />
-      ) : recording ? (
-        <VoiceRecordingBar
-          seconds={recordSeconds}
-          maxSeconds={MAX_RECORDING_SECONDS}
-          getLevelSource={getLevelSource}
-          onCancel={cancelRecording}
-          onStop={stopRecording}
-          stopClassName={SEND_BUTTON}
-        />
       ) : (
         <div className="flex items-end gap-1">
           <DropdownMenu>
             <DropdownMenuTrigger
-              disabled={disabled || busy}
+              disabled={disabled || busy || voicePhase !== 'idle'}
               title={t('attachMedia')}
               aria-label={t('attachMedia')}
               className={TOOL_BUTTON}
@@ -432,9 +518,12 @@ export function GroupComposer({
                 <FileText className="me-2 h-4 w-4" />
                 {t('document')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void startRecording()}>
+              <DropdownMenuItem
+                disabled={voicePhase !== 'idle'}
+                onClick={startRecording}
+              >
                 <Mic className="me-2 h-4 w-4" />
-                {t('voiceNote')}
+                {tv('record')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -481,15 +570,32 @@ export function GroupComposer({
             )}
           />
 
-          <Button
-            size="sm"
-            aria-label={t('send')}
-            disabled={disabled || sending || !text.trim()}
-            onClick={() => void sendText()}
-            className={SEND_BUTTON}
-          >
-            <Send className="h-[18px] w-[18px]" />
-          </Button>
+          {/* Mic with an empty box, Send once there is text, keyed apart,
+              as in the inbox. */}
+          {text.trim() || sending ? (
+            <Button
+              key="send"
+              size="sm"
+              aria-label={t('send')}
+              disabled={disabled || sending || !text.trim()}
+              onClick={() => void sendText()}
+              className={SEND_BUTTON}
+            >
+              <Send className="h-[18px] w-[18px]" />
+            </Button>
+          ) : (
+            <Button
+              key="mic"
+              size="sm"
+              aria-label={tv('record')}
+              title={tv('record')}
+              disabled={disabled || busy || voicePhase !== 'idle'}
+              onClick={startRecording}
+              className={SEND_BUTTON}
+            >
+              <Mic className="h-[18px] w-[18px]" />
+            </Button>
+          )}
         </div>
       )}
 
@@ -524,14 +630,15 @@ function GroupDraftPreview({
   onSend: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tv = useTranslations('Inbox.voice');
   if (draft.kind === 'voice') {
     return (
-      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pe-1.5 ps-1">
+      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg ps-1 pe-1.5">
         <button
           type="button"
           onClick={onDiscard}
-          aria-label={t('removeAttachment')}
-          title={t('removeAttachment')}
+          aria-label={tv('discardRecording')}
+          title={tv('discardRecording')}
           className="text-wa-icon hover:bg-destructive-soft hover:text-destructive focus-visible:ring-destructive/50 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2"
         >
           <Trash2 className="h-5 w-5" />
@@ -540,11 +647,13 @@ function GroupDraftPreview({
           src={draft.url}
           seed={draft.path}
           tone="in"
+          badge={false}
           className="w-auto min-w-0 flex-1"
         />
         <Button
           size="sm"
-          aria-label={t('send')}
+          aria-label={tv('sendVoice')}
+          title={tv('sendVoice')}
           disabled={busy}
           onClick={onSend}
           className={SEND_BUTTON}

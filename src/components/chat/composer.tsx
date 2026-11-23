@@ -113,6 +113,7 @@ import {
 } from '@/components/ui/dialog';
 import { VoiceNotePlayer } from '@/components/inbox/voice-note-player';
 import { VoiceRecordingBar } from '@/components/inbox/voice-recording-bar';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { EmojiPicker } from './emoji-picker';
@@ -133,9 +134,6 @@ export interface ComposerProps {
 }
 
 const FORMAT_BAR_KEY = 'chat.formatBar';
-
-/** The Ogg/Opus encoder worker the inbox composer uses too (in /public). */
-const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
 
 /**
  * A recorded take awaiting Send. It lives only in the browser until then
@@ -231,6 +229,7 @@ export function Composer({
   onPosted,
 }: ComposerProps) {
   const t = useTranslations('Chat');
+  const tVoice = useTranslations('Inbox.voice');
   const ws = useChatWorkspaceContext();
   const { accountRole, canManageMembers, isBankGuest } = useAuth();
   const { permissions } = useChatPermissions();
@@ -320,54 +319,12 @@ export function Composer({
     [tellTyping]
   );
 
-  // ---- Voice notes: record, review, then upload on Send -------------
-  const [recording, setRecording] = useState(false);
-  const [recordSeconds, setRecordSeconds] = useState(0);
+  // ---- Voice notes: record, then send at once or after listening -----
   const [take, setTake] = useState<VoiceTake | null>(null);
-  const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  // The live recording's own token, captured by its ondataavailable: a
-  // take is staged only while its token is still this one and was not
-  // cancelled (cancel, unmount), so a late callback from an earlier
-  // recorder can never bring a discarded take back.
-  const takeTokenRef = useRef<{ cancelled: boolean } | null>(null);
-  // Recorders whose stop() has not settled yet; the mic stays disabled
-  // until then.
-  const [stopsPending, setStopsPending] = useState(0);
-  const startingRef = useRef(false);
   const aliveRef = useRef(true);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // performance.now() when recorder.start() resolved; the take's length
-  // is measured from it to the Stop press.
-  const startedAtRef = useRef<number | null>(null);
-  const durationRef = useRef(0);
   const takeUrlRef = useRef<string | null>(null);
   // This composer's claim on the page-wide one-recording guard.
   const recorderOwner = useRef({});
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  /** stop() is what releases the mic stream and audio context. */
-  const stopRecorder = useCallback(() => {
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    if (recorder) {
-      setStopsPending((n) => n + 1);
-      void recorder
-        .stop()
-        .catch(() => {})
-        .finally(() => setStopsPending((n) => n - 1));
-    }
-    chatRecorderGuard.release(recorderOwner.current);
-  }, []);
-
-  const cancelTake = useCallback(() => {
-    if (takeTokenRef.current) takeTokenRef.current.cancelled = true;
-  }, []);
 
   const dropTake = useCallback(() => {
     if (takeUrlRef.current) URL.revokeObjectURL(takeUrlRef.current);
@@ -375,122 +332,77 @@ export function Composer({
     setTake(null);
   }, []);
 
+  const {
+    phase: voicePhase,
+    seconds: recordSeconds,
+    start: startTake,
+    finish: finishTake,
+    cancel: cancelRecording,
+    getLevelSource,
+  } = useVoiceRecorder<object>({
+    maxSeconds: CHAT_VOICE_MAX_SECONDS,
+    onTake: ({ bytes, durationMs, intent }) => {
+      // Uint8Array is a BlobPart at runtime; the cast sidesteps lib.dom's
+      // ArrayBufferLike-vs-ArrayBuffer generic mismatch.
+      const file = new File(
+        [bytes as unknown as BlobPart],
+        voiceFileName(new Date()),
+        { type: 'audio/ogg' }
+      );
+      if (file.size > CHAT_FILE_MAX_BYTES) {
+        toast.error(t('voice.tooLarge'));
+        return;
+      }
+      // Left right after Send: it still goes out, with nothing to show.
+      const url = aliveRef.current ? URL.createObjectURL(file) : '';
+      if (takeUrlRef.current) URL.revokeObjectURL(takeUrlRef.current);
+      takeUrlRef.current = url || null;
+      const staged: VoiceTake = {
+        file,
+        url,
+        durationMs: voiceDurationMs(0, durationMs),
+        uploaded: null,
+      };
+      // Sent at once too: it shows while it goes out, and stays, with its
+      // own Send, if it does not.
+      setTake(staged);
+      if (intent === 'send') void sendTake(staged);
+    },
+    onProblem: (problem) => {
+      // Nothing is listening (an unsupported browser never was).
+      chatRecorderGuard.release(recorderOwner.current);
+      toast.error(tVoice(`problem.${problem}`));
+    },
+  });
+  const recording = voicePhase === 'starting' || voicePhase === 'recording';
+
+  // The microphone is closed: another composer may record.
+  useEffect(() => {
+    if (!recording) chatRecorderGuard.release(recorderOwner.current);
+  }, [recording]);
+
   // Switching channel unmounts the composer (key={channelId}): a live
   // recording is cancelled, the mic released and a staged take dropped.
   useEffect(() => {
+    const owner = recorderOwner.current;
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
-      cancelTake();
-      clearTimer();
-      stopRecorder();
+      chatRecorderGuard.release(owner);
       if (takeUrlRef.current) URL.revokeObjectURL(takeUrlRef.current);
       takeUrlRef.current = null;
     };
-  }, [clearTimer, stopRecorder, cancelTake]);
+  }, []);
 
-  const stageTake = (bytes: Uint8Array, token: { cancelled: boolean }) => {
-    if (token.cancelled || token !== takeTokenRef.current || !aliveRef.current)
-      return;
-    // Uint8Array is a BlobPart at runtime; the cast sidesteps lib.dom's
-    // ArrayBufferLike-vs-ArrayBuffer generic mismatch.
-    const file = new File(
-      [bytes as unknown as BlobPart],
-      voiceFileName(new Date()),
-      { type: 'audio/ogg' }
-    );
-    if (file.size === 0) return;
-    if (file.size > CHAT_FILE_MAX_BYTES) {
-      toast.error(t('voice.tooLarge'));
-      return;
-    }
-    if (takeUrlRef.current) URL.revokeObjectURL(takeUrlRef.current);
-    const url = URL.createObjectURL(file);
-    takeUrlRef.current = url;
-    setTake({ file, url, durationMs: durationRef.current, uploaded: null });
-  };
-
-  const startRecording = async () => {
-    if (recording || startingRef.current || sending || take || stopsPending)
-      return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof AudioContext === 'undefined'
-    ) {
-      toast.error(t('voice.unsupported'));
-      return;
-    }
+  const startRecording = () => {
+    if (voicePhase !== 'idle' || sending || take) return;
     // Another composer (the channel's or the thread's) is listening.
     if (!chatRecorderGuard.claim(recorderOwner.current)) {
       toast.error(t('voice.busy'));
       return;
     }
-    startingRef.current = true;
-    try {
-      // Lazy: the encoder stays out of the bundle until someone records.
-      const { default: Recorder } = await import('opus-recorder');
-      if (!aliveRef.current) return;
-      const recorder = new Recorder({
-        encoderPath: OPUS_ENCODER_PATH,
-        numberOfChannels: 1,
-        encoderApplication: 2048, // VOIP: tuned for speech
-        encoderSampleRate: 48000,
-        streamPages: false, // one callback with the whole file on stop
-      });
-      const token = { cancelled: false };
-      takeTokenRef.current = token;
-      recorder.ondataavailable = (bytes) => stageTake(bytes, token);
-      recorderRef.current = recorder;
-      await recorder.start();
-      // Unmounted (or cancelled) while the permission prompt was open.
-      if (!aliveRef.current || recorderRef.current !== recorder) {
-        token.cancelled = true;
-        void recorder.stop().catch(() => {});
-        return;
-      }
-      const startedAt = performance.now();
-      startedAtRef.current = startedAt;
-      setRecordSeconds(0);
-      setRecording(true);
-      timerRef.current = setInterval(
-        () =>
-          setRecordSeconds(Math.floor((performance.now() - startedAt) / 1000)),
-        1000
-      );
-    } catch {
-      cancelTake();
-      stopRecorder();
-      if (aliveRef.current) toast.error(t('voice.micDenied'));
-    } finally {
-      startingRef.current = false;
-    }
+    void startTake({});
   };
-
-  const stopRecording = useCallback(() => {
-    const startedAt = startedAtRef.current;
-    startedAtRef.current = null;
-    if (startedAt !== null)
-      durationRef.current = voiceDurationMs(startedAt, performance.now());
-    clearTimer();
-    setRecording(false);
-    stopRecorder();
-  }, [clearTimer, stopRecorder]);
-
-  const cancelRecording = useCallback(() => {
-    cancelTake();
-    startedAtRef.current = null;
-    clearTimer();
-    setRecording(false);
-    stopRecorder();
-  }, [clearTimer, stopRecorder, cancelTake]);
-
-  // The meter taps the recorder's own graph.
-  const getLevelSource = useCallback(() => recorderRef.current, []);
-
-  // A forgotten recording stops itself at the cap.
-  useEffect(() => {
-    if (recording && recordSeconds >= CHAT_VOICE_MAX_SECONDS) stopRecording();
-  }, [recording, recordSeconds, stopRecording]);
 
   // Escape cancels a live recording, and only that (not the thread panel).
   useEffect(() => {
@@ -760,6 +672,8 @@ export function Composer({
   );
   const canSend =
     !sending &&
+    // A take being encoded goes first: it would find a send under way.
+    voicePhase === 'idle' &&
     chipsReady(chips) &&
     (composed.ok || composed.reason === 'bodyLength');
 
@@ -834,10 +748,9 @@ export function Composer({
     }
   };
 
-  const sendVoice = async () => {
+  const sendTake = async (staged: VoiceTake) => {
     const accountId = ws.accountId;
-    if (!take || sending || !accountId) return;
-    const staged = take;
+    if (sending || !accountId) return;
     setSending(true);
     try {
       let uploaded = staged.uploaded;
@@ -863,12 +776,18 @@ export function Composer({
         replyToId: reply.target?.id,
         attachments: [voiceAttachment(uploaded, staged.durationMs)],
       });
+      if (!aliveRef.current) return;
       dropTake();
       reply.clear();
       if (typingSentAt.current !== null) tellTyping(false);
       onPosted?.(id);
     } catch (err) {
       const key = chatErrorKey(err);
+      // Left since: nothing here can show it any more.
+      if (!aliveRef.current) {
+        toast.error(tVoice('notSent'));
+        return;
+      }
       // The object is gone after all: the retry uploads it again.
       if (key === 'attachmentMissing')
         setTake((cur) =>
@@ -1047,7 +966,7 @@ export function Composer({
       {quote && (
         <div
           className={cn(
-            'bg-muted/50 mb-2 flex items-start gap-2 rounded-md border-s-4 py-1 pe-1 ps-2',
+            'bg-muted/50 mb-2 flex items-start gap-2 rounded-md border-s-4 py-1 ps-2 pe-1',
             quoteTint(quote.authorId)
           )}
         >
@@ -1107,10 +1026,12 @@ export function Composer({
         <VoiceRecordingBar
           seconds={recordSeconds}
           maxSeconds={CHAT_VOICE_MAX_SECONDS}
+          starting={voicePhase === 'starting'}
           getLevelSource={getLevelSource}
           onCancel={cancelRecording}
-          onStop={stopRecording}
-          stopClassName="bg-primary text-primary-foreground hover:bg-primary-hover size-9 shrink-0 rounded-lg"
+          onStop={() => finishTake('review')}
+          onSend={() => finishTake('send')}
+          buttonClassName="bg-primary text-primary-foreground hover:bg-primary-hover size-9 shrink-0 rounded-lg disabled:opacity-50"
         />
       ) : take ? (
         // The text draft stays in state (and storage) while a take is
@@ -1131,11 +1052,12 @@ export function Composer({
             seed={take.url}
             tone="chat"
             knownDuration={take.durationMs / 1000}
+            badge={false}
             className="min-w-0 flex-1"
           />
           <button
             type="button"
-            onClick={() => void sendVoice()}
+            onClick={() => void sendTake(take)}
             disabled={sending}
             aria-busy={sending}
             className="bg-primary text-primary-foreground hover:bg-primary-hover inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
@@ -1196,8 +1118,8 @@ export function Composer({
               type="button"
               aria-label={t('voice.record')}
               title={t('voice.record')}
-              onClick={() => void startRecording()}
-              disabled={sending || stopsPending > 0}
+              onClick={startRecording}
+              disabled={sending || voicePhase !== 'idle'}
               className="hover:bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50"
             >
               <Mic className="size-4" aria-hidden />
