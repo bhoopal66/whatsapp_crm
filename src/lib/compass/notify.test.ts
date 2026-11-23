@@ -1354,6 +1354,21 @@ describe('sendCompassNotification into a submission group (170)', () => {
     expect(tables.compass_notifications[0].status).toBe('failed');
   });
 
+  it('answers 503 and sends nothing when the contact cannot be read', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    findExistingContact.mockRejectedValue(new ContactLookupError('down'));
+    const groupSender = vi.fn();
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest(), { groupSender })
+    ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+    expect(groupSender).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: 'contact_lookup_failed',
+    });
+  });
+
   it('treats a duplicate that was sent as sent', async () => {
     const { db, tables } = makeDb({ groups: [group()] });
     const groupSender = vi.fn().mockResolvedValue({

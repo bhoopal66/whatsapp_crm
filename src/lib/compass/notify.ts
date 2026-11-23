@@ -468,6 +468,20 @@ const customerOptedOut = () =>
     422
   );
 
+/** A contact read whose failure answers a retryable 503. */
+async function readContacts<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read;
+  } catch (err) {
+    if (!(err instanceof ContactLookupError)) throw err;
+    throw new NotifyError(
+      'contact_lookup_failed',
+      'The customer could not be looked up. Nothing was sent — retry later with the same idempotency_key.',
+      503
+    );
+  }
+}
+
 /**
  * The CRM contact a 1:1 update would reach, found the way
  * `resolveConversationByPhone` finds it, or null when this phone has
@@ -482,19 +496,12 @@ async function consentingContact(
   phone: string
 ): Promise<ExistingContact | null> {
   const number = sanitizePhoneForMeta(`+${phone}`);
-  let contact: ExistingContact | null;
-  let matches: ExistingContact[];
-  try {
-    contact = await findExistingContact(db, accountId, number);
-    matches = await findMatchingContacts(db, accountId, number);
-  } catch (err) {
-    if (!(err instanceof ContactLookupError)) throw err;
-    throw new NotifyError(
-      'contact_lookup_failed',
-      'The customer could not be looked up. Nothing was sent — retry later with the same idempotency_key.',
-      503
-    );
-  }
+  const contact = await readContacts(
+    findExistingContact(db, accountId, number)
+  );
+  const matches = await readContacts(
+    findMatchingContacts(db, accountId, number)
+  );
   const registers = [contact, ...matches] as ({
     opted_out_at?: string | null;
     do_not_contact_at?: string | null;
@@ -700,10 +707,8 @@ async function groupCandidate(
     if (error) throw lookupFailed();
     if (data) return data as GroupCandidate;
   }
-  const contact = await findExistingContact(
-    db,
-    accountId,
-    sanitizePhoneForMeta(`+${phone}`)
+  const contact = await readContacts(
+    findExistingContact(db, accountId, sanitizePhoneForMeta(`+${phone}`))
   );
   if (!contact) return null;
   const { data, error } = await db
