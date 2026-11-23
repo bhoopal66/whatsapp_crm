@@ -12,6 +12,7 @@ import {
   normaliseParticipants,
   ourRoleIn,
   planParticipantBatches,
+  removeParticipants,
   sendGroupText,
   toParticipantWaId,
 } from './groups';
@@ -378,4 +379,29 @@ it('createTimeoutMs replaces the paced limit on the create call', async () => {
   });
   expect(timeout).toHaveBeenCalledWith(40_000);
   timeout.mockRestore();
+});
+
+describe('removeParticipants', () => {
+  it('sends hidden ids to Whapi only when asked to', async () => {
+    fetchMock.mockImplementation(async () =>
+      json({ processed: [], failed: [] })
+    );
+    const args = { channel: whapiChannel, groupId: GID };
+    const participants = ['971501234567', '99999@lid'];
+    await removeParticipants({ ...args, participants });
+    expect(bodyOf(0)).toEqual({ participants: ['971501234567'] });
+    await removeParticipants({ ...args, participants, includeHidden: true });
+    expect(bodyOf(1)).toEqual({ participants });
+  });
+
+  it('with hidden ids, answers an unusable id as failed instead of dropping it', async () => {
+    const out = await removeParticipants({
+      channel: whapiChannel,
+      groupId: GID,
+      participants: ['12@elsewhere'],
+      includeHidden: true,
+    });
+    expect(out.failed).toEqual([{ jid: '12@elsewhere', waId: null }]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

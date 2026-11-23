@@ -9,8 +9,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { CaseStoreError } from '@/lib/cases/store';
 
-import { runSubmissionGroupsCron } from './cron';
+import { INCOMPLETE_RETRY_MS, runSubmissionGroupsCron } from './cron';
 import type { SubmissionGroup } from './store';
+import { closeRemainingText } from './wa-errors';
 
 const g = (id: string, accountId: string, over: object = {}) =>
   ({ id, accountId, ...over }) as SubmissionGroup;
@@ -58,6 +59,32 @@ function fakes(o: {
 }
 
 describe('runSubmissionGroupsCron', () => {
+  it('tries a group somebody cannot be taken out of once in 30 minutes', async () => {
+    const stuck = g('stuck-1', 'A', {
+      waCloseError: closeRemainingText(1),
+    });
+    const other = g('other-1', 'A', { waCloseError: 'gateway error' });
+    const start = 1_800_000_000_000;
+    const tries = async (at: number) => {
+      const f = fakes({ unclosed: [stuck, other] });
+      await runSubmissionGroupsCron(admin, {
+        store: f.store as never,
+        serviceFor: f.serviceFor as never,
+        now: () => at,
+      });
+      return f.services
+        .get('A')!
+        .retryClose.mock.calls.map((c) => c[0])
+        .sort();
+    };
+    expect(await tries(start)).toEqual(['other-1', 'stuck-1']);
+    expect(await tries(start + 60_000)).toEqual(['other-1']);
+    expect(await tries(start + INCOMPLETE_RETRY_MS)).toEqual([
+      'other-1',
+      'stuck-1',
+    ]);
+  });
+
   it('sends the welcome message for each group the pass created', async () => {
     const f = fakes({ pending: [g('p1', 'A')] });
     await runSubmissionGroupsCron(admin, f);

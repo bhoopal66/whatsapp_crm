@@ -50,6 +50,17 @@ No migration.
 No migration.
 - A submission group's chat has "Load older messages": only its newest 200
   could be reached. Older messages already loaded stay through live updates.
+- Closing a group takes out the members WhatsApp hides too. When someone
+  could not be removed, the group is not recorded as closed, its number
+  stays in, and the page says how many are left; the cron tries again.
+- Closing a group takes hidden members out too, is tried again every 30
+  minutes while somebody is left, and after a day our number leaves anyway.
+- A group waiting to be created for a customer who opted out, or is marked
+  do-not-contact, says so instead of showing "being created" for ever.
+  Retry works once that changes.
+- The Cases list refreshes when its tab is shown again after a while and
+  after a lost connection, keeping the pages already loaded. A "Load more"
+  that fails says so.
 
 ### Push notifications that stay with the right person
 

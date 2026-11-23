@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import en from '../../../messages/en.json';
 import {
   formatDuration,
   groupTimelineByDay,
@@ -88,6 +89,24 @@ describe('timelineIcon', () => {
     expect(timelineIcon('group_message')).toBe('MessageSquare');
     expect(timelineIcon('message')).toBe('MessageSquare');
     expect(timelineIcon('call')).toBe('Phone');
+  });
+
+  it('has an icon and a name for the same kinds (messages.test.ts: in every language)', () => {
+    const kinds = Object.keys(en.CasePage.timeline.kinds);
+    expect(kinds).toContain('submission_status');
+    for (const kind of kinds) expect(timelineIcon(kind)).not.toBe('Circle');
+  });
+
+  it('keeps a submission status (267) as an entry like the others', () => {
+    const entry = {
+      at: '2026-11-23T08:00:00.000Z',
+      kind: 'submission_status',
+      refId: 'd-1',
+      actor: null,
+      summary: 'APPROVED → DISBURSED',
+      source: 'api',
+    };
+    expect(parseTimeline({ entries: [entry] })).toEqual([entry]);
   });
 
   it('falls back to a dot, also for prototype names', () => {

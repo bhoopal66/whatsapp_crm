@@ -35,6 +35,10 @@ import {
   SubmissionGroupChannelError,
 } from './whapi-groups-api';
 import { SubmissionGroupNumberDisconnectedError } from './service';
+import {
+  closeRemainingText,
+  SubmissionGroupCloseIncompleteError,
+} from './wa-errors';
 
 const admin = {} as SupabaseClient;
 const WA_GROUP = '120363000000000001@g.us';
@@ -66,12 +70,13 @@ beforeEach(() => {
     code: 'ABC',
     link: 'https://chat.whatsapp.com/ABC',
   });
+  h.removeParticipants.mockResolvedValue({ processed: [], failed: [] });
   h.getGroup.mockResolvedValue({
     id: WA_GROUP,
     participants: [
       { ...identity('971500000000'), role: 'superadmin' },
       { ...identity('971501234567'), role: 'member' },
-      { jid: '999@lid', waId: null, role: 'member' },
+      { jid: '99999@lid', waId: null, role: 'member' },
     ],
   });
 });
@@ -139,7 +144,7 @@ describe('getParticipants', () => {
     expect(await api().getParticipants('cfg-1', WA_GROUP)).toEqual([
       '971500000000',
       '971501234567',
-      '999@lid',
+      '99999@lid',
     ]);
     expect(h.getGroup).toHaveBeenCalledWith(
       expect.objectContaining({ groupId: WA_GROUP, timeoutMs: 8_000 })
@@ -287,6 +292,7 @@ describe('closeGroup', () => {
       groupId: WA_GROUP,
       participants: ['971501234567'],
       timeoutMs: 15_000,
+      includeHidden: true,
     });
     expect(h.leaveGroup).toHaveBeenCalledWith({
       channel: whapi,
@@ -306,6 +312,7 @@ describe('closeGroup', () => {
       groupId: WA_GROUP,
       participants: ['971501234567'],
       timeoutMs: 15_000,
+      includeHidden: true,
     });
   });
 
@@ -326,6 +333,74 @@ describe('closeGroup', () => {
     h.getGroup.mockResolvedValue({ id: WA_GROUP, participants: [] });
     h.leaveGroup.mockRejectedValue(new WhapiError('not found', 404));
     await expect(api().closeGroup('cfg-1', WA_GROUP)).resolves.toBeUndefined();
+  });
+
+  it('removes the hidden members too, in a call of their own, before leaving', async () => {
+    await api().closeGroup('cfg-1', WA_GROUP);
+    expect(
+      h.removeParticipants.mock.calls.map(([a]) => a.participants)
+    ).toEqual([['971501234567'], ['99999@lid']]);
+    expect(h.removeParticipants.mock.invocationCallOrder[1]).toBeLessThan(
+      h.leaveGroup.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('stays, and says how many, when WhatsApp keeps someone in', async () => {
+    h.removeParticipants.mockResolvedValueOnce({
+      processed: [],
+      failed: [identity('971501234567')],
+    });
+    const err = await api()
+      .closeGroup('cfg-1', WA_GROUP)
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupCloseIncompleteError);
+    expect((err as Error).message).toBe(closeRemainingText(1));
+    expect(h.leaveGroup).not.toHaveBeenCalled();
+  });
+
+  it('a refused hidden id counts as still in; a number that is down does not', async () => {
+    h.removeParticipants
+      .mockResolvedValueOnce({ processed: [], failed: [] })
+      .mockRejectedValueOnce(new WhapiError('bad participant', 400));
+    await expect(api().closeGroup('cfg-1', WA_GROUP)).rejects.toThrow(
+      closeRemainingText(1)
+    );
+    h.removeParticipants
+      .mockResolvedValueOnce({ processed: [], failed: [] })
+      .mockRejectedValueOnce(new WhapiError('down', 502));
+    await expect(api().closeGroup('cfg-1', WA_GROUP)).rejects.toThrow('down');
+    expect(h.leaveGroup).not.toHaveBeenCalled();
+  });
+
+  it('never removes a hidden id that may be our own number', async () => {
+    h.getGroup.mockResolvedValue({
+      id: WA_GROUP,
+      participants: [
+        { jid: '11111@lid', waId: null, role: 'admin' },
+        { jid: '99999@lid', waId: null, role: 'member' },
+      ],
+    });
+    await expect(api().closeGroup('cfg-1', WA_GROUP)).rejects.toThrow(
+      closeRemainingText(1)
+    );
+    expect(h.removeParticipants).not.toHaveBeenCalled();
+    expect(h.leaveGroup).not.toHaveBeenCalled();
+  });
+
+  it('leaves anyway once the caller has given up on them', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.getGroup.mockResolvedValue({
+      id: WA_GROUP,
+      participants: [
+        { jid: '11111@lid', waId: null, role: 'admin' },
+        { jid: '99999@lid', waId: null, role: 'member' },
+      ],
+    });
+    await api().closeGroup('cfg-1', WA_GROUP, { leaveAnyway: true });
+    expect(h.leaveGroup).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      '[submission-groups] left a group with 1 still in it'
+    );
   });
 
   it('propagates any other failure', async () => {

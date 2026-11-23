@@ -71,6 +71,7 @@ import type {
   SystemSendRefusal,
   WaMode,
 } from './store';
+import { createRefusedText } from './wa-errors';
 
 /** 210: what a staff member can attach; 'voice' is a recorded voice note. */
 export type SgAttachmentKind = 'image' | 'video' | 'document' | 'voice';
@@ -121,7 +122,12 @@ export interface GroupsApi {
     waGroupId: string,
     media: GroupMediaSend
   ): Promise<{ waMessageId: string }>;
-  closeGroup(channelId: string, waGroupId: string): Promise<void>;
+  /** `leaveAnyway`: our number leaves even if somebody could not be removed. */
+  closeGroup(
+    channelId: string,
+    waGroupId: string,
+    opts?: { leaveAnyway?: boolean }
+  ): Promise<void>;
   /** Sends the group's invite link 1:1 to `to` from the hosting number. */
   sendInvite(channelId: string, inviteCode: string, to: string): Promise<void>;
   /** The group's current invite link, from the gateway. */
@@ -267,6 +273,9 @@ export class SubmissionGroupChannelError extends Error {
     super(`WhatsApp number ${channelId} is not connected to this account`);
   }
 }
+
+/** How long a close keeps trying to take everyone out before our number leaves without them. */
+export const CLOSE_GIVE_UP_MS = 24 * 60 * 60_000;
 
 /** The group's number is marked disconnected: closeGroup called nothing, and the close waits for it. */
 export class SubmissionGroupNumberDisconnectedError extends Error {
@@ -685,7 +694,13 @@ export class SubmissionGroupService {
       // Re-checked by the claim holder before every createGroup: a pending group's row says nothing about consent now.
       const consent = await this.deps.consent(contactId);
       if (!consent.allowed || !consent.phone) {
-        await this.releaseClaimQuietly(group.id, token, null);
+        // The reason is what the page shows and offers Retry for; an unconfirmed count stays in front of it.
+        const why = createRefusedText(consent.reason);
+        await this.releaseClaimQuietly(
+          group.id,
+          token,
+          prior ? unconfirmedError(prior, why) : why
+        );
         return { consentRequired: true };
       }
       // The customer, then the coordinator numbers. A 142 row's list is already deduped, capped and holds the
@@ -1083,7 +1098,9 @@ export class SubmissionGroupService {
       });
     if (!live && !adoptable && group.channelId !== null) {
       try {
-        await this.deps.api.closeGroup(group.channelId, waGroupId);
+        await this.deps.api.closeGroup(group.channelId, waGroupId, {
+          leaveAnyway: true,
+        });
       } catch (err) {
         this.log.warn('orphan WhatsApp group could not be closed', {
           groupId: group.id,
@@ -1601,7 +1618,16 @@ export class SubmissionGroupService {
     if ((await store.countPendingOut(group.id)) > 0)
       return { ended, reason, ...none, closeDeferred: true };
     try {
-      await this.deps.api.closeGroup(group.channelId, group.waGroupId);
+      // Somebody WhatsApp will not take out (a hidden number) must not keep
+      // our number in the group, and the cron asking, for good.
+      const due = holdUntil ?? group.endedAt;
+      const leaveAnyway =
+        due !== null &&
+        (this.deps.now?.() ?? new Date()).getTime() - due.getTime() >
+          CLOSE_GIVE_UP_MS;
+      await this.deps.api.closeGroup(group.channelId, group.waGroupId, {
+        leaveAnyway,
+      });
     } catch (err) {
       // Nothing was called: a disconnected number answers 404 for every group, which would read as closed.
       if (err instanceof SubmissionGroupNumberDisconnectedError)

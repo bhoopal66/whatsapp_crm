@@ -8,6 +8,7 @@ import {
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
   type SubmissionGroupServiceDeps,
+  CLOSE_GIVE_UP_MS,
   MAX_CREATE_ATTEMPTS,
   unconfirmedCreate,
   type FoundGroup,
@@ -18,6 +19,7 @@ import {
   isNumberFailure,
   SubmissionGroupCreateUnsettledError,
   SubmissionGroupNumberDisconnectedError,
+  unconfirmedError,
 } from './service';
 import type {
   AddNumberBegin,
@@ -28,6 +30,7 @@ import type {
   SgOutMedia,
   SubmissionGroup,
 } from './store';
+import { createRefusedText } from './wa-errors';
 
 const ACC = 'acc-1';
 const CH = 'ch-1';
@@ -445,8 +448,11 @@ class FakeApi implements GroupsApi {
     this.maybeFail('sendGroupMedia');
     return { waMessageId: `wamid-${++this.seq}` };
   }
-  async closeGroup(ch: string, wa: string) {
+  /** `leaveAnyway` of each close, beside `calls`. */
+  leaveAnyway: boolean[] = [];
+  async closeGroup(ch: string, wa: string, opts?: { leaveAnyway?: boolean }) {
     this.calls.push({ method: 'closeGroup', args: [ch, wa] });
+    this.leaveAnyway.push(opts?.leaveAnyway ?? false);
     this.maybeFail('closeGroup');
   }
   of(m: string) {
@@ -646,6 +652,39 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(await s.open()).toMatchObject({ consentRequired: true });
     expect(s.api.of('createGroup')).toHaveLength(1);
     expect(s.store.claims.size).toBe(0);
+  });
+
+  it('a waiting create refused by consent says why, and is created once it changes', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    g.waCreateError = null;
+    s.consent.answer = { allowed: false, phone: '1', reason: 'opted_out' };
+    expect(await s.svc.retryOne(g.id)).toMatchObject({ consentRequired: true });
+    expect(g.waCreateError).toBe(createRefusedText('opted_out'));
+    expect(s.api.of('createGroup')).toHaveLength(1);
+    s.api.fail.delete('createGroup');
+    s.consent.answer = { allowed: true, phone: '+971500000001' };
+    expect(await s.svc.retryOne(g.id)).toMatchObject({
+      consentRequired: false,
+      group: { waGroupId: expect.any(String) },
+    });
+  });
+
+  it('a consent refusal keeps the unconfirmed count in front of its reason', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    const prior = { attempts: 3, at: new Date('2026-11-20T10:00:00.000Z') };
+    g.waCreateError = unconfirmedError(prior, 'timed out');
+    s.consent.answer = { allowed: false, phone: '1', reason: 'do_not_contact' };
+    expect(await s.open()).toMatchObject({ consentRequired: true });
+    expect(g.waCreateError).toBe(
+      unconfirmedError(prior, createRefusedText('do_not_contact'))
+    );
+    expect(s.api.of('createGroup')).toHaveLength(1);
   });
 
   it('claim held by another caller: no gateway call, the pending group is returned; after expiry one more create', async () => {
@@ -1371,6 +1410,20 @@ describe('SubmissionGroupService.endIfDue / sweep / archive', () => {
     expect(s.api.of('closeGroup').map((c) => c.args)).toEqual([
       [CH, g.waGroupId],
     ]);
+  });
+
+  it('gives up on people who cannot be removed a day after the close fell due', async () => {
+    const t = { ms: Date.now() };
+    const s = setup({ now: () => new Date(t.ms) });
+    const g = await opened(s);
+    s.api.fail.add('closeGroup');
+    await s.svc.endIfDue(due(g.id));
+    t.ms += CLOSE_GIVE_UP_MS - 60_000;
+    s.api.fail.add('closeGroup');
+    await s.svc.retryClose(g.id);
+    t.ms += 5 * 60_000;
+    expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
+    expect(s.api.leaveAnyway).toEqual([false, false, true]);
   });
 
   it('close error recorded and retried by the next call', async () => {
