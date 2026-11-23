@@ -20,6 +20,15 @@ vi.mock('@/hooks/use-push-subscription', () => ({
   usePushSubscription: () => ({ state: 'on', busy: false }),
 }));
 
+const saver = vi.hoisted(() => ({
+  schedule: vi.fn(),
+  flush: vi.fn(),
+  flushNow: vi.fn(),
+}));
+vi.mock('@/lib/push/preference-saver', () => ({
+  createPreferenceSaver: () => saver,
+}));
+
 import { NotificationsSettings } from './notifications-settings';
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -64,5 +73,18 @@ describe('loading notification settings', () => {
     NotificationsSettings();
     await settle();
     expect(sets).toMatchObject([{ enabled: false, quietStart: '22:00' }]);
+  });
+});
+
+describe('leaving the settings', () => {
+  it('saves what is still waiting, on unmount and as the page closes', () => {
+    vi.stubGlobal('fetch', () => new Promise(() => {}));
+    vi.clearAllMocks();
+    NotificationsSettings();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(saver.flushNow).toHaveBeenCalledTimes(1);
+    expect(saver.flush).not.toHaveBeenCalled();
+    cleanups.splice(0).forEach((c) => c());
+    expect(saver.flush).toHaveBeenCalledTimes(1);
   });
 });
