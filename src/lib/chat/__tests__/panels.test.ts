@@ -83,6 +83,7 @@ describe('addPickerRows', () => {
     bankCode: null,
     presenceStatus: null,
     lastSeenAt: null,
+    deactivated: false,
   });
   const member = (userId: string): ChannelMember => ({
     channelId: 'c1',

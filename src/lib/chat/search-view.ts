@@ -155,16 +155,18 @@ export function searchHitHref(
     : base;
 }
 
-/** People whose name contains every query word, by name; at most `limit`. */
-export function matchPeople<P extends Pick<ChatPerson, 'userId' | 'fullName'>>(
-  people: readonly P[],
-  q: string,
-  limit = 6
-): P[] {
+/**
+ * People whose name contains every query word, by name; at most `limit`.
+ * Each opens a DM, so nobody deactivated.
+ */
+export function matchPeople<
+  P extends Pick<ChatPerson, 'userId' | 'fullName' | 'deactivated'>,
+>(people: readonly P[], q: string, limit = 6): P[] {
   const terms = queryTerms(q);
   if (terms.length === 0) return [];
   return people
     .filter((p) => {
+      if (p.deactivated) return false;
       const name = fold(p.fullName ?? '');
       return !!name && terms.every((t) => name.includes(t));
     })

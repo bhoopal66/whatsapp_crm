@@ -24,6 +24,7 @@ const person = (
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 const member = (userId: string, role: ChannelRole): ChannelMember => ({
   channelId: 'c1',

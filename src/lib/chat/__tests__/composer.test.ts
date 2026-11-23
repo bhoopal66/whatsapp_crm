@@ -33,6 +33,7 @@ const person = (userId: string, fullName: string | null): ChatPerson => ({
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 
 describe('serializeDraft', () => {

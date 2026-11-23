@@ -1434,3 +1434,10 @@ jobs:
       # its live staff and the owner or admin who opened it, once while unread.
       - name: Verify deal room bells
         run: supabase db query --local --file supabase/ci/verify-deal-room-bells.sql
+
+      # Migration 277: chat_people lists deactivated people with a flag
+      # (a guest still only those of shared channels; nobody removed), and
+      # an edit's mentions are those of its new text: one added rings once
+      # and never who was rung, one taken out loses its badge.
+      - name: Verify chat people and mentions
+        run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql

@@ -29,6 +29,7 @@ const person = (
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 
 describe('channel names', () => {
