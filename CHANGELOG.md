@@ -14,6 +14,18 @@ and polish.
 
 ### Security
 
+- **Small access points closed.** Case desk: an upload naming a company
+  or customer the uploader has no case of waits for a sorter, and company
+  contacts and cases are shown only as far as the reader may see them.
+  Team chat: only channel admins add to a private channel, bank guests
+  included, and a post carries only one's own uploads. Webhooks and quick
+  replies are made in one's own name and keep their maker. The recycle,
+  new-chat-limit and insight functions answer only for chats and
+  customers the caller can see; a deal room name holding a phone number
+  in local form is masked for guests; the WhatsApp rate card is not
+  readable by bank guests. **Migration required: 289**, after 288; needs
+  a superuser or BYPASSRLS role.
+
 - **Who reads automation runs, flow settings and number credentials.**
   The run log of an automation, its steps and the nodes of a flow are read
   by owners and admins only, the people whose screens show them. The

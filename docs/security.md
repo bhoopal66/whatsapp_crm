@@ -258,3 +258,15 @@ in Settings → API keys.
 - A session writes only its own reaction, edits only its own customer
   note (an admin may delete one), and links a deal only to rows it can
   read (`deals_link_guard`).
+
+## Access points (migration 289)
+
+- Webhook endpoints and quick replies are inserted as `auth.uid()`, and a
+  session updates only the columns the app writes, never the maker, the
+  account or a webhook's secret.
+- `recycle_excluded_among`, `team_activity_start_check`,
+  `acknowledge_insight_attention` and `dismiss_tag_suggestion` answer only
+  for a customer or chat the caller can see.
+- The rate card tables need a live staff membership
+  (`current_account_id()`); `filter_contacts_by_tags` is not executable by
+  `anon`.

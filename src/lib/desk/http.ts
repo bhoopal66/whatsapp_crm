@@ -83,6 +83,10 @@ export const DESK_REFUSAL_HTTP: Readonly<
     status: 422,
     text: 'Choose an approved utility template whose text has {{1}} and {{2}}',
   },
+  COMPANY_RESTRICTED: {
+    status: 403,
+    text: 'This company or customer is with a colleague. A sorter will file it',
+  },
   CONFIRM_COMPANY: {
     status: 422,
     text: "Type the company's legal name to confirm this case",

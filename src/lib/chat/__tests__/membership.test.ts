@@ -85,10 +85,10 @@ describe('addRules / addCandidates', () => {
     ).toEqual(['ann', 'bob', 'gus']);
   });
 
-  it('private: a non-admin member who is workspace admin adds bank guests only', () => {
-    expect(offered(ctx({ myRole: 'member', accountRole: 'admin' }))).toEqual([
-      'gus',
-    ]);
+  it('private: a workspace admin who is no channel admin adds nobody, guests included (289)', () => {
+    expect(offered(ctx({ myRole: 'member', accountRole: 'admin' }))).toEqual(
+      []
+    );
   });
 
   it('private: a non-member, a DM, a deal room, an archive and a guest add nobody', () => {

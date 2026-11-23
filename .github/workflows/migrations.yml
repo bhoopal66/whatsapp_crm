@@ -1492,3 +1492,9 @@ jobs:
         run: supabase db query --local --file supabase/ci/verify-admin-rules.sql
       - name: Verify team and row rules
         run: supabase db query --local --file supabase/ci/verify-team-and-row-rules.sql
+
+      # Migration 289: desk uploads, chat guests and attachments, webhooks,
+      # quick replies and the definer functions answer only for what the
+      # caller may see, by role.
+      - name: Verify the access points
+        run: supabase db query --local --file supabase/ci/verify-access-points.sql

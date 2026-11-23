@@ -13136,6 +13136,7 @@
       "CASE_NOT_FOUND": "No open case matches that number or code.",
       "BANK_MISMATCH": "The case is at a different bank.",
       "CASE_EXISTS_NAME_MISMATCH": "That licence is on file under another company name.",
+      "COMPANY_RESTRICTED": "This company or customer is with a colleague. A sorter will file it.",
       "OTHER": "It could not be filed automatically."
     },
     "actions": {

@@ -67,6 +67,8 @@ export const DESK_REFUSALS = [
   'CONSENT_NOT_FOUND',
   // 234: reminder digest
   'TEMPLATE_INVALID',
+  // 289: an upload only a sorter may attach
+  'COMPANY_RESTRICTED',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
