@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useTranslations } from 'next-intl';
+import { RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -23,6 +24,11 @@ import {
   groupMediaRowMedia,
   groupMediaRowType,
 } from '@/lib/groups/outbound-media';
+import {
+  joinFreshPage,
+  startChatCatchUp,
+  type ChatLog,
+} from '@/lib/groups/live-chat';
 import { markGroupRead } from '@/lib/groups/mark-read';
 import {
   arrivedUnconfirmed,
@@ -30,6 +36,7 @@ import {
   unconfirmedSends,
 } from '@/lib/groups/unconfirmed-sends';
 import { thrownSendKind } from '@/lib/inbox/failed-send';
+import { settleRead } from '@/lib/submission-groups/ui';
 import { createClient } from '@/lib/supabase/client';
 
 import type { GroupTabProps } from '../group-page';
@@ -48,14 +55,24 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   const tFailed = useTranslations('Inbox.failedSend');
   const { user, profile } = useAuth();
   const userId = user?.id ?? null;
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [hasMore, setHasMore] = useState(false);
+  const [log, setLog] = useState<ChatLog<Msg>>({
+    messages: [],
+    hasMore: false,
+  });
+  const { messages, hasMore } = log;
+  const setMessages = useCallback(
+    (next: (m: Msg[]) => Msg[]) =>
+      setLog((l) => ({ ...l, messages: next(l.messages) })),
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const olderRef = useRef(false);
+  const mounted = useRef(true);
+  const readOwed = useRef(false);
 
   const sendBlock = detail.blocks.send;
 
@@ -73,23 +90,55 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     [groupId]
   );
 
+  // Read only with the chat on screen: a mark that falls due while the
+  // tab is hidden stays owed until it is shown. `due`: one just fell due.
+  const settle = useCallback(
+    (due: boolean) => {
+      const { mark, owed } = settleRead(
+        readOwed.current || due,
+        document.visibilityState === 'visible'
+      );
+      readOwed.current = owed;
+      if (mark) void markGroupRead(groupId);
+    },
+    [groupId]
+  );
+
+  // The newest page. Any success clears a failed load.
+  const refresh = useCallback(async (): Promise<boolean> => {
+    const page = await load();
+    if (!mounted.current) return false;
+    setLog((l) => joinFreshPage(l, page));
+    setFailed(false);
+    setLoading(false);
+    return true;
+  }, [load]);
+
+  const open = useCallback(async () => {
+    try {
+      // Opening the group reads it (migration 146): the sidebar's
+      // Groups count drops it.
+      if (await refresh()) settle(true);
+    } catch {
+      if (mounted.current) setFailed(true);
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }, [refresh, settle]);
+
   useEffect(() => {
-    let live = true;
-    load()
-      .then((r) => {
-        if (!live) return;
-        setMessages((m) => mergeMessages(m, r.messages));
-        setHasMore(r.hasMore);
-        // Opening the group reads it (migration 146): the sidebar's
-        // Groups count drops it.
-        void markGroupRead(groupId);
-      })
-      .catch(() => live && setFailed(true))
-      .finally(() => live && setLoading(false));
+    mounted.current = true;
+    void open();
     return () => {
-      live = false;
+      mounted.current = false;
     };
-  }, [load, groupId]);
+  }, [open]);
+
+  const retryOpen = () => {
+    setFailed(false);
+    setLoading(true);
+    void open();
+  };
 
   // Realtime: new and updated rows of this group (RLS applies per user).
   useEffect(() => {
@@ -97,6 +146,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     // One mark-read per burst of arrivals, not one per message (each
     // also refetches the sidebar's count).
     let readTimer: ReturnType<typeof setTimeout> | null = null;
+    const live = startChatCatchUp({ refresh, settle });
     const channel = supabase
       .channel(
         `group-messages:${groupId}:${Math.random().toString(36).slice(2)}`
@@ -111,21 +161,24 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         },
         (payload) => {
           if (payload.eventType === 'DELETE') return;
+          live.changed();
           const row = payload.new as Msg;
           if (row?.id) setMessages((m) => mergeMessages(m, [row]));
-          // Seen as it arrives, so it does not count as unread.
+          // Seen as it arrives, so it does not count as unread; judged
+          // when the timer fires, since the tab may be hidden by then.
           if (payload.eventType === 'INSERT' && row?.direction === 'in') {
             if (readTimer) clearTimeout(readTimer);
-            readTimer = setTimeout(() => void markGroupRead(groupId), 2000);
+            readTimer = setTimeout(() => settle(true), 2000);
           }
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
       if (readTimer) clearTimeout(readTimer);
+      live.stop();
       void supabase.removeChannel(channel);
     };
-  }, [groupId]);
+  }, [groupId, refresh, setMessages, settle]);
 
   // Follow new messages only while the reader is at the bottom.
   useLayoutEffect(() => {
@@ -145,16 +198,24 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   };
 
   const loadOlder = async () => {
-    const first = messages[0]?.created_at;
+    const first = messages[0];
     if (!first) return;
     setLoadingOlder(true);
     olderRef.current = true;
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     try {
-      const r = await load(first);
-      setMessages((m) => mergeMessages(m, r.messages));
-      setHasMore(r.hasMore);
+      const r = await load(first.created_at);
+      // A fresh page replaced the log meanwhile: these rows no longer
+      // join it, so leave them to the next press.
+      setLog((l) =>
+        l.messages[0]?.id === first.id
+          ? {
+              messages: mergeMessages(l.messages, r.messages),
+              hasMore: r.hasMore,
+            }
+          : l
+      );
       requestAnimationFrame(() => {
         if (el) el.scrollTop = el.scrollHeight - prevHeight;
       });
@@ -217,9 +278,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   };
 
   const reread = () => {
-    void load()
-      .then((r) => setMessages((m) => mergeMessages(m, r.messages)))
-      .catch(() => undefined);
+    void refresh().catch(() => undefined);
   };
 
   /**
@@ -340,9 +399,16 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
           </p>
         )}
         {failed && (
-          <p className="text-destructive py-8 text-center text-sm">
-            {t('chat.loadFailed')}
-          </p>
+          <div
+            role="alert"
+            className="flex flex-col items-center gap-3 py-8 text-center"
+          >
+            <p className="text-destructive text-sm">{t('chat.loadFailed')}</p>
+            <Button variant="outline" size="sm" onClick={retryOpen}>
+              <RotateCcw aria-hidden />
+              {t('retry')}
+            </Button>
+          </div>
         )}
         {!loading && !failed && shown.length === 0 && (
           <p className="text-muted-foreground py-8 text-center text-sm">

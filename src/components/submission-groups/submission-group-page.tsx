@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
+import { startChatCatchUp } from '@/lib/groups/live-chat';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
 import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
@@ -160,29 +161,38 @@ export function SubmissionGroupPage({
     [groupId]
   );
 
+  /** Rejects on a failed read; true when the group's chat is live. */
+  const refresh = useCallback(async (): Promise<boolean> => {
+    const res = await fetch(`/api/submission-groups/${groupId}`, {
+      cache: 'no-store',
+    });
+    if (!mounted.current) return false;
+    if (res.status === 404 || res.status === 403) {
+      setState(res.status === 404 ? 'gone' : 'forbidden');
+      return false;
+    }
+    if (!res.ok) throw new Error(String(res.status));
+    const json = (await res.json()) as SgDetail;
+    if (!mounted.current) return false;
+    setDetail(json);
+    setNow(new Date());
+    setState('ok');
+    const active = json.group.status === 'ACTIVE';
+    if (active && markedRead.current !== groupId) {
+      markedRead.current = groupId;
+      settle(true);
+    }
+    return active;
+  }, [groupId, settle]);
+
   const reload = useCallback(async () => {
     try {
-      const res = await fetch(`/api/submission-groups/${groupId}`, {
-        cache: 'no-store',
-      });
-      if (!mounted.current) return;
-      if (res.status === 404) return setState('gone');
-      if (res.status === 403) return setState('forbidden');
-      if (!res.ok) throw new Error(String(res.status));
-      const json = (await res.json()) as SgDetail;
-      if (!mounted.current) return;
-      setDetail(json);
-      setNow(new Date());
-      setState('ok');
-      if (json.group.status === 'ACTIVE' && markedRead.current !== groupId) {
-        markedRead.current = groupId;
-        settle(true);
-      }
+      await refresh();
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
       if (mounted.current) setState((s) => (s === 'ok' ? s : 'error'));
     }
-  }, [groupId, settle]);
+  }, [refresh]);
 
   useEffect(() => {
     mounted.current = true;
@@ -191,12 +201,6 @@ export function SubmissionGroupPage({
       mounted.current = false;
     };
   }, [reload]);
-
-  useEffect(() => {
-    const onVisibility = () => settle(false);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [settle]);
 
   // Live: a new or updated message row re-reads the group, which applies
   // the access rules server-side. One unique topic per mount.
@@ -207,6 +211,8 @@ export function SubmissionGroupPage({
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void reload(), REFETCH_DEBOUNCE_MS);
     };
+    // What arrived while the page slept or was cut off came as no event.
+    const live = startChatCatchUp({ refresh, settle });
     const supabase = createClient();
     const channel = supabase
       .channel(
@@ -240,13 +246,14 @@ export function SubmissionGroupPage({
         },
         soon
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
       if (timer) clearTimeout(timer);
       if (readTimer) clearTimeout(readTimer);
+      live.stop();
       void supabase.removeChannel(channel);
     };
-  }, [groupId, reload, settle]);
+  }, [groupId, refresh, reload, settle]);
 
   // The sheet is for the undocked layout only: close it on docking.
   useEffect(() => {
