@@ -127,7 +127,7 @@ describe('a failed team chat read', () => {
   it('is remembered for the channel it was raised for, never as loaded', async () => {
     const ws = useChatWorkspace();
     listMessages.mockRejectedValueOnce(new Error('503'));
-    const tl = useChannelTimeline({ ...ws, fail: () => {} }, CHANNEL);
+    const tl = useChannelTimeline({ ...ws, fail: () => '' }, CHANNEL);
     // An unread channel is never `loaded`, so it is not marked read.
     expect(tl.loading).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
