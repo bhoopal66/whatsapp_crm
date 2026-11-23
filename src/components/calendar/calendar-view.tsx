@@ -177,7 +177,7 @@ ${SCOPE} .fc .fc-col-header-cell-cushion { color: var(--muted-foreground); font-
 ${SCOPE} .fc .cal-dh { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 6px; }
 ${SCOPE} .fc .cal-dh__wd { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); }
 ${SCOPE} .fc .cal-dh__num { display: flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; padding: 0 6px; border-radius: 9999px; font-size: 1.25rem; font-weight: 500; line-height: 1; color: var(--foreground); }
-${SCOPE} .fc .cal-dh--today .cal-dh__wd { color: var(--primary); }
+${SCOPE} .fc .cal-dh--today .cal-dh__wd { color: var(--primary-text); }
 ${SCOPE} .fc .cal-dh--today .cal-dh__num { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
 ${SCOPE} .fc .cal-dh--past .cal-dh__num { color: var(--muted-foreground); }
 ${SCOPE} .fc .fc-daygrid-day.fc-day-sat, ${SCOPE} .fc .fc-daygrid-day.fc-day-sun { background: color-mix(in oklab, var(--muted) 35%, transparent); }
@@ -1158,7 +1158,7 @@ function MiniMonth({
             aria-pressed={d.key === cursor}
             className={cn(
               'hover:bg-muted relative mx-auto flex size-7 items-center justify-center rounded-full',
-              !d.inMonth && 'text-muted-foreground/60',
+              !d.inMonth && 'text-muted-foreground',
               d.key === cursor && 'bg-muted font-semibold',
               d.key === today &&
                 'bg-primary text-primary-foreground hover:bg-primary/90'

@@ -21,6 +21,18 @@ No migration.
   their visible text now contain it, so voice control finds them.
 - A pipeline card is one button. **Enter opens the deal; Space picks the
   card up**, arrows move it, Space or Enter drops it, Escape cancels.
+### Text colours are easier to read
+
+No migration.
+- Accent-coloured and red text now has enough contrast (WCAG AA, 4.5:1) on
+  the page, on cards and on its own soft tint, in light and dark mode and
+  every accent. Buttons and other accent fills keep their colour; a solid
+  red fill in dark mode is slightly deeper so white text on it reads.
+- Inbox: the light-mode green, teal and message time are a little darker,
+  the dark-mode time and teal a little lighter, and the AI badge and the
+  name on a quoted message read inside a green bubble.
+- Notification times, unselected tabs, days outside the month and today's
+  weekday in the calendar are no longer too faint.
 
 ### Failed reads and missed events are shown
 

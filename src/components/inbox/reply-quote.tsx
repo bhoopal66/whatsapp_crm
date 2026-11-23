@@ -35,7 +35,7 @@ export function ReplyQuote({
       )}
     >
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="text-wa-teal truncate text-[12.5px] font-medium">
+        <div className="text-wa-teal dark:text-wa-quote-bar truncate text-[12.5px] font-medium">
           {authorLabel}
         </div>
         {/* Wrap the preview instead of truncating to a single line.

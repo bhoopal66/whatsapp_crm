@@ -260,7 +260,7 @@ export function NotificationItem({
               {n.body}
             </p>
           )}
-          <p className="text-muted-foreground/70 mt-1 text-xs">
+          <p className="text-muted-foreground mt-1 text-xs">
             {formatDistanceToNow(new Date(n.created_at), {
               addSuffix: true,
             })}

@@ -555,7 +555,7 @@ export function MessageBubble({
     <>
       {message.ai_generated && (
         <span
-          className="bg-wa-teal/15 text-wa-teal inline-flex items-center gap-0.5 rounded px-1 py-px text-xs leading-none font-semibold tracking-wide uppercase"
+          className="bg-wa-quote text-wa-meta inline-flex items-center gap-0.5 rounded px-1 py-px text-xs leading-none font-semibold tracking-wide uppercase"
           title={t('aiBadgeTitle')}
         >
           <Sparkles className="h-2.5 w-2.5" />
