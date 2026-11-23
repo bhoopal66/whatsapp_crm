@@ -23,6 +23,9 @@ No migration.
   twice. After a timeout, a gateway error or a restart mid-send, the answer
   is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite
   refusal can still be retried with the same key.
+- A send whose connection to the gateway never opened (DNS, refused, a bad
+  certificate) counts as not sent, on every provider: the Compass key and
+  the inbox's Retry work again. It was "may have been sent".
 - A status Compass sends for a case that is already closed is answered with
   `case_status_applied: false` (`case_status_reason: "case_closed"`). It
   looked applied.

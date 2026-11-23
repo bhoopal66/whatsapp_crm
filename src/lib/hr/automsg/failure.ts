@@ -11,6 +11,7 @@
  */
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import { OpenWAError } from '@/lib/whatsapp/openwa-api';
+import { neverConnected } from '@/lib/whatsapp/never-connected';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import { DinstarSendError } from './dinstar';
 import { RcsSendError } from './rcs';
@@ -43,24 +44,6 @@ const unknown = (reason: string): SendFailure => ({
   reason,
   unconfirmed: true,
 });
-
-/** Connection errors after which no request can have left: refused, DNS. */
-const NEVER_CONNECTED: ReadonlySet<string> = new Set([
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-]);
-
-/** undici puts the socket error in `cause`; several addresses tried make
- *  it an AggregateError, whose every error must be one of these. */
-function neverConnected(e: unknown): boolean {
-  if (!(e instanceof Error)) return false;
-  if (e instanceof AggregateError && e.errors.length > 0)
-    return e.errors.every(neverConnected);
-  const code = (e as { code?: unknown }).code;
-  if (typeof code === 'string') return NEVER_CONNECTED.has(code);
-  return e.cause !== undefined && neverConnected(e.cause);
-}
 
 /** What a rejected fetch (or a lost response body) says about the send. */
 function byTransport(e: unknown): SendFailure {
