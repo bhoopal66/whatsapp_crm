@@ -88,6 +88,7 @@ import {
 } from '@/lib/customer-docs/filing-copy';
 import { noteDigestStop } from '@/lib/desk/digest';
 import { noteCsatReply } from '@/lib/cases/csat';
+import { noteLeadCustomerMessage } from '@/lib/cases/lead-customer-message';
 import { routeDeskDocument } from '@/lib/desk/route-inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
@@ -1003,6 +1004,20 @@ export async function processMessage(
   // update above so the write can be gated on the row's CURRENT status in
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation);
+
+  // The customer answered: the customer-reply timer of their open leads
+  // stops and a snoozed lead wakes (cases with no submission group; a
+  // group's messages never come through here). After the idempotency
+  // boundary, so a replay is not a second answer; before the fan-out cut,
+  // because a sender over the rate limit (fanOut: false) still answered.
+  // Never throws.
+  if (!channel.isPersonal) {
+    await noteLeadCustomerMessage(supabaseAdmin(), {
+      accountId,
+      contactId: contactRecord.id,
+      messageRowId: insertedRows[0].id,
+    });
+  }
 
   // Web push for the people who work this chat (migration 109). Part of
   // the inbox rather than the fan-out, so a sender over the rate limit
