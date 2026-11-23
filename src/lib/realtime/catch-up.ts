@@ -66,6 +66,8 @@ export interface LiveRead {
    * instead of rolling the change back.
    */
   changed: () => void;
+  /** Read again after a gap the caller saw; folded like the others. */
+  catchUp: () => void;
   stop: () => void;
 }
 
@@ -155,10 +157,26 @@ export function startLiveRead<T>({
     changed: () => {
       changes += 1;
     },
+    catchUp,
     stop: () => {
       stopped = true;
       clearTimeout(timer);
       doc?.removeEventListener('visibilitychange', onVisibility);
     },
   };
+}
+
+/**
+ * The same, for a screen that already loads itself: nothing on start,
+ * `run` after each gap. A rejecting `run` is retried as a read is.
+ */
+export function startCatchUp(run: () => unknown): LiveRead {
+  let opened = false;
+  return startLiveRead<void>({
+    read: async () => {
+      if (opened) await run();
+      opened = true;
+    },
+    apply: () => {},
+  });
 }

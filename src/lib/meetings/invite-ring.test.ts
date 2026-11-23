@@ -476,3 +476,79 @@ describe('isRingerBusy', () => {
     expect(isRingerBusy(null, { ringing: null, panel: null })).toBe(false);
   });
 });
+
+describe('InviteRinger.catchUp (after sleep or a lost connection)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rings a missed invite whose meeting someone is in', async () => {
+    const { ringer, readMeeting, startTone } = setup();
+    readMeeting.mockResolvedValue(detail());
+    const row = invite();
+    await ringer.catchUp([row]);
+    expect(ringer.getSnapshot()).toBe(row);
+    expect(startTone).toHaveBeenCalledTimes(1);
+    ringer.close();
+  });
+
+  it.each([
+    ['nobody is in it any more', detail({ presentCount: 0 })],
+    ['the meeting is gone', 'gone' as const],
+  ])('an instant invite does not ring: %s', async (_name, read) => {
+    const { ringer, readMeeting, startTone } = setup();
+    readMeeting.mockResolvedValue(read);
+    await ringer.catchUp([invite()]);
+    expect(ringer.getSnapshot()).toBeNull();
+    expect(startTone).not.toHaveBeenCalled();
+  });
+
+  it('one that rang or was dismissed does not ring again', async () => {
+    const { ringer, readMeeting, startTone } = setup();
+    readMeeting.mockResolvedValue(detail());
+    const row = invite();
+    ringer.handle({ type: 'insert', row });
+    ringer.close();
+    startTone.mockClear();
+    await ringer.catchUp([row]);
+    expect(ringer.getSnapshot()).toBeNull();
+    expect(startTone).not.toHaveBeenCalled();
+  });
+
+  it('a failed read is asked again after the next gap', async () => {
+    const { ringer, readMeeting } = setup();
+    const row = invite();
+    readMeeting.mockResolvedValue(null);
+    await ringer.catchUp([row]);
+    expect(ringer.getSnapshot()).toBeNull();
+    readMeeting.mockResolvedValue(detail());
+    await ringer.catchUp([row]);
+    expect(ringer.getSnapshot()).toBe(row);
+    ringer.close();
+  });
+
+  it('closed while the meeting was being read: stays silent', async () => {
+    const { ringer, readMeeting, startTone } = setup();
+    let answer: (r: MeetingRead) => void = () => {};
+    readMeeting.mockReturnValue(
+      new Promise<MeetingRead>((resolve) => {
+        answer = resolve;
+      })
+    );
+    const done = ringer.catchUp([invite()]);
+    ringer.close();
+    answer(detail());
+    await done;
+    expect(startTone).not.toHaveBeenCalled();
+  });
+
+  it('another workspace is left to the bell', async () => {
+    const { ringer, readMeeting } = setup();
+    await ringer.catchUp([invite({ account_id: OTHER })]);
+    expect(readMeeting).not.toHaveBeenCalled();
+    expect(ringer.getSnapshot()).toBeNull();
+  });
+});

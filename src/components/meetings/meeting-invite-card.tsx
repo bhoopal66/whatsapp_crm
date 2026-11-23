@@ -16,12 +16,33 @@ import {
   type MeetingRead,
 } from '@/lib/meetings/invite-ring';
 import { parseMeetingDetail } from '@/lib/meetings/schedule';
+import { startCatchUp } from '@/lib/realtime/catch-up';
+import { createClient } from '@/lib/supabase/client';
 import { notificationRow } from '@/lib/notifications/target';
 import type { Notification } from '@/types';
 
 import { holdRingSilent, startRingTone } from './invite-ring-tone';
 import { useActiveCall } from './session/meeting-session-provider';
 import { useWorkspaceMembers } from './use-workspace-members';
+
+/** An unread invite older than this is never looked at again. */
+const MISSED_INVITE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const MISSED_INVITE_LIMIT = 5;
+
+async function readUnreadInvites(userId: string): Promise<Notification[]> {
+  const since = new Date(Date.now() - MISSED_INVITE_MAX_AGE_MS).toISOString();
+  const { data, error } = await createClient()
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .is('read_at', null)
+    .eq('type', 'meeting_invite')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(MISSED_INVITE_LIMIT);
+  if (error) throw error;
+  return (data ?? []) as Notification[];
+}
 
 async function readMeeting(meetingId: string): Promise<MeetingRead> {
   try {
@@ -136,8 +157,9 @@ export function RingingCard({
 
 /** The ringing invite, over whatever page of the dashboard is open. */
 export function MeetingInviteCard() {
-  const { onChange } = useNotifications();
-  const { activeWorkspaceId } = useAuth();
+  const { onChange, onStatus } = useNotifications();
+  const { user, activeWorkspaceId } = useAuth();
+  const userId = user?.id ?? null;
   const pathname = usePathname();
   const active = useActiveCall();
   const calls = useCalls();
@@ -166,6 +188,25 @@ export function MeetingInviteCard() {
       ringer.close();
     };
   }, [onChange, ringer]);
+
+  // Sleep, a lost connection: an invite missed meanwhile rings if its
+  // meeting is still on. Nothing rings on a plain page load.
+  useEffect(() => {
+    if (!userId) return;
+    let stopped = false;
+    const live = startCatchUp(async () => {
+      const rows = await readUnreadInvites(userId);
+      if (!stopped) await ringer.catchUp(rows);
+    });
+    const stopStatus = onStatus(live.onStatus);
+    window.addEventListener('online', live.catchUp);
+    return () => {
+      stopped = true;
+      window.removeEventListener('online', live.catchUp);
+      stopStatus();
+      live.stop();
+    };
+  }, [userId, onStatus, ringer]);
 
   if (!row) return null;
   return <RingingCard row={row} onDone={() => ringer.close()} />;

@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Reminders and meeting invites after sleep
+
+No migration.
+- A reminder missed while the laptop slept or the connection was down
+  (up to 2 hours) rings once when it is back, with the time it was for.
+  One already shown or dismissed does not come back.
+- A missed meeting invite rings only if someone is in the meeting now.
+
 ### Server log with times
 
 No migration.

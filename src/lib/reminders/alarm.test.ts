@@ -340,3 +340,65 @@ describe('flashTitle', () => {
     expect(flashTitle('Inbox', 'Call Ahmed', 2)).toBe('Inbox');
   });
 });
+
+describe('AlarmQueue after a gap (wake)', () => {
+  const chime = vi.fn();
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    chime.mockReset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a missed alarm rings once, flagged missed, with its real time', () => {
+    const queue = new AlarmQueue({ chime });
+    const missed = row({ created_at: ago(90 * 60_000) });
+    queue.seed([missed], NOW, { wake: true });
+    expect(queue.getSnapshot()).toMatchObject([
+      { id: missed.id, missed: true, createdAt: NOW - 90 * 60_000 },
+    ]);
+    vi.advanceTimersByTime(10 * ALARM_REPEAT_MS);
+    expect(chime.mock.calls).toEqual([[missed.id, 0]]);
+    queue.close();
+  });
+
+  it('one just due rings as usual, one over two hours old not at all', () => {
+    const queue = new AlarmQueue({ chime });
+    const fresh = row();
+    const old = row({ created_at: ago(ALARM_MAX_AGE_MS + 1) });
+    queue.seed([fresh, old], NOW, { wake: true });
+    vi.advanceTimersByTime(5 * ALARM_REPEAT_MS);
+    expect(queue.getSnapshot().map((a) => a.id)).toEqual([fresh.id]);
+    expect(chime).toHaveBeenCalledTimes(ALARM_MAX_CHIMES);
+    queue.close();
+  });
+
+  it('what is shown, dismissed or read elsewhere does not come back', () => {
+    const queue = new AlarmQueue({ chime });
+    const [shown, dismissed, read] = [row(), row(), row()];
+    queue.seed([shown, dismissed], NOW);
+    queue.remove(dismissed.id);
+    queue.handle({
+      type: 'update',
+      row: { ...read, read_at: new Date(NOW).toISOString() },
+    });
+    chime.mockReset();
+    queue.seed([shown, dismissed, read], NOW, { wake: true });
+    expect(queue.getSnapshot().map((a) => a.id)).toEqual([shown.id]);
+    expect(chime).not.toHaveBeenCalled();
+    queue.close();
+  });
+
+  it('a missed alarm waits out a call before its one chime', () => {
+    const queue = new AlarmQueue({ chime });
+    queue.setBusy(true);
+    queue.seed([row({ created_at: ago(30 * 60_000) })], NOW, { wake: true });
+    expect(chime).not.toHaveBeenCalled();
+    queue.setBusy(false);
+    vi.advanceTimersByTime(3 * ALARM_REPEAT_MS);
+    expect(chime).toHaveBeenCalledTimes(1);
+    queue.close();
+  });
+});

@@ -106,6 +106,10 @@ export class InviteRinger {
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   /** Scheduled invites whose first read is out: row id → arrival order. */
   private readonly pending = new Map<string, number>();
+  /** Rows already handled here: they rang, or were left to the bell. */
+  private readonly seen = new Set<string>();
+  /** Bumped by close(): a catch-up still reading must not ring after. */
+  private closes = 0;
   private arrivals = 0;
   private ringingArrival = 0;
 
@@ -137,17 +141,46 @@ export class InviteRinger {
     if (change.type === 'update' && !change.row.read_at) return;
     const { id } = change.row;
     if (!id) return;
+    this.seen.add(id);
     this.pending.delete(id);
     if (this.ringing?.row.id === id) this.end();
   }
 
   close(): void {
+    this.closes += 1;
     this.pending.clear();
     this.end();
   }
 
+  /**
+   * Unread invites read again after a gap in realtime, newest first. The
+   * first one whose meeting someone is in right now rings; the rest stay
+   * with the bell. Nothing is taken on trust: an instant invite may be
+   * hours old by now. Another workspace's meeting cannot be read, so it
+   * never rings here; a failed read is tried again after the next gap.
+   */
+  async catchUp(rows: readonly Notification[]): Promise<void> {
+    const closes = this.closes;
+    for (const row of rows) {
+      if (this.ringing) return;
+      const meetingId = inviteMeetingId(row);
+      if (!meetingId || this.seen.has(row.id)) continue;
+      if (this.alreadyThere(meetingId) || this.inOtherWorkspace(row)) continue;
+      const read = await this.deps.readMeeting(meetingId);
+      // Handled while the meeting was being read: the live path has it.
+      if (this.ringing || closes !== this.closes) return;
+      if (read === null || this.seen.has(row.id)) continue;
+      this.seen.add(row.id);
+      if (!canEnter(read) || read.meeting.presentCount === 0) continue;
+      if (this.alreadyThere(meetingId)) continue;
+      this.ring(row, meetingId, ++this.arrivals);
+      return;
+    }
+  }
+
   private invited(row: Notification): void {
     const meetingId = inviteMeetingId(row);
+    if (meetingId) this.seen.add(row.id);
     if (!meetingId || this.alreadyThere(meetingId)) return;
     const arrival = ++this.arrivals;
     if (row.body === STARTING_NOW_BODY) {

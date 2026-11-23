@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  startCatchUp,
   CATCH_UP_GAP_MS,
   channelStep,
   hideStep,
@@ -186,5 +187,43 @@ describe('startLiveRead', () => {
     expect(applied).toEqual([]);
     expect(pending).toHaveLength(1);
     expect(doc.listeners.size).toBe(0);
+  });
+});
+
+describe('startCatchUp', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('runs after a gap only: not on start, not on the first join', async () => {
+    const run = vi.fn();
+    const live = startCatchUp(run);
+    live.onStatus('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(run).not.toHaveBeenCalled();
+    live.onStatus('CHANNEL_ERROR');
+    live.onStatus('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(CATCH_UP_GAP_MS);
+    expect(run).toHaveBeenCalledTimes(1);
+    live.stop();
+  });
+
+  it('folds a wake (online, joined again) into one run, and retries it', async () => {
+    const run = vi.fn().mockRejectedValueOnce(new Error('offline'));
+    const live = startCatchUp(run);
+    live.catchUp();
+    live.onStatus('TIMED_OUT');
+    live.onStatus('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(CATCH_UP_GAP_MS);
+    expect(run).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0]);
+    expect(run).toHaveBeenCalledTimes(2);
+    live.stop();
+    live.catchUp();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(run).toHaveBeenCalledTimes(2);
   });
 });

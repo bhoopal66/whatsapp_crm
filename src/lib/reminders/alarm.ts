@@ -14,6 +14,8 @@
 //   const queue = new AlarmQueue({ chime: playAlarmChime });
 //     // components/reminders/alarm-tone.ts; one queue per mounted shell
 //   queue.seed(unreadRowsReadOnLoad, Date.now());
+//   queue.seed(unreadRowsReadAgain, Date.now(), { wake: true });
+//     // after a gap in realtime (sleep, lost connection)
 //   onBellChange((change) => queue.handle(change));
 //     // the NotificationChange the bell provider already emits
 //   const alarms = useSyncExternalStore(queue.subscribe, queue.getSnapshot,
@@ -156,6 +158,7 @@ export function visibleAlarms(alarms: readonly Alarm[]): {
 interface Entry {
   alarm: Alarm;
   chimes: number;
+  maxChimes: number;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -171,6 +174,11 @@ export class AlarmQueue {
   private readonly deps: AlarmDeps;
   private readonly listeners = new Set<() => void>();
   private readonly entries = new Map<string, Entry>();
+  /**
+   * Every alarm shown or closed here. A card just dismissed may still be
+   * unread in a read already under way, which must not bring it back.
+   */
+  private readonly seen = new Set<string>();
   private snapshot: Alarm[] = [];
   private busy = false;
 
@@ -192,7 +200,7 @@ export class AlarmQueue {
   handle(change: NotificationChange): void {
     if (change.type === 'insert') {
       const alarm = alarmFor(change.row, Date.now());
-      if (alarm && this.add(alarm, true)) this.emit();
+      if (alarm && this.add(alarm, ALARM_MAX_CHIMES)) this.emit();
       return;
     }
     if (change.type === 'update' && !change.row.read_at) return;
@@ -201,15 +209,22 @@ export class AlarmQueue {
 
   /**
    * Unread rows read on page load. Only those younger than
-   * ALARM_CHIME_FRESH_MS chime; the rest show silently, flagged missed.
+   * ALARM_CHIME_FRESH_MS chime; the rest show flagged missed, silently
+   * on a page load. On `wake` (read again after the laptop slept or the
+   * connection dropped) nobody heard them, so each chimes once.
    */
-  seed(rows: readonly Notification[], now: number): void {
+  seed(
+    rows: readonly Notification[],
+    now: number,
+    { wake = false }: { wake?: boolean } = {}
+  ): void {
     let changed = false;
     for (const row of rows) {
       const alarm = alarmFor(row, now);
       if (!alarm) continue;
       const fresh = now - alarm.createdAt <= ALARM_CHIME_FRESH_MS;
-      if (this.add(fresh ? alarm : { ...alarm, missed: true }, fresh)) {
+      const chimes = fresh ? ALARM_MAX_CHIMES : wake ? 1 : 0;
+      if (this.add(fresh ? alarm : { ...alarm, missed: true }, chimes)) {
         changed = true;
       }
     }
@@ -217,6 +232,7 @@ export class AlarmQueue {
   }
 
   remove(id: string): void {
+    this.seen.add(id);
     const entry = this.entries.get(id);
     if (!entry) return;
     this.clearTimer(entry);
@@ -231,16 +247,18 @@ export class AlarmQueue {
 
   close(): void {
     for (const entry of this.entries.values()) this.clearTimer(entry);
+    this.seen.clear();
     if (this.entries.size === 0) return;
     this.entries.clear();
     this.emit();
   }
 
-  private add(alarm: Alarm, chime: boolean): boolean {
-    if (this.entries.has(alarm.id)) return false;
-    const entry: Entry = { alarm, chimes: 0, timer: null };
+  private add(alarm: Alarm, maxChimes: number): boolean {
+    if (this.seen.has(alarm.id)) return false;
+    this.seen.add(alarm.id);
+    const entry: Entry = { alarm, chimes: 0, maxChimes, timer: null };
     this.entries.set(alarm.id, entry);
-    if (chime) this.ring(entry);
+    if (maxChimes > 0) this.ring(entry);
     return true;
   }
 
@@ -251,7 +269,7 @@ export class AlarmQueue {
       this.deps.chime(entry.alarm.id, entry.chimes);
       entry.chimes += 1;
     }
-    if (entry.chimes >= ALARM_MAX_CHIMES) return;
+    if (entry.chimes >= entry.maxChimes) return;
     if (Date.now() - entry.alarm.createdAt >= ALARM_MAX_AGE_MS) return;
     entry.timer = setTimeout(() => this.ring(entry), ALARM_REPEAT_MS);
   }

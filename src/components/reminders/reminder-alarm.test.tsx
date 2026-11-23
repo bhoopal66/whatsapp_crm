@@ -139,8 +139,10 @@ describe('ReminderAlarmCard', () => {
   it('a missed alarm carries the badge and no ping ring', () => {
     const html = card(alarm({}, true));
     expect(html).toContain('>Missed<');
+    expect(html).toContain('data-alarm-time');
     expect(html).not.toContain('data-alarm-ping');
     expect(card(alarm())).not.toContain('>Missed<');
+    expect(card(alarm())).not.toContain('data-alarm-time');
   });
 });
 
