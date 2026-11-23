@@ -175,6 +175,30 @@ server block sets any. `verify-storage-safe-mime.sql` asserts the bucket
 lists and the trigger's refusals; nothing in CI checks the nginx
 headers.
 
+## WhatsApp media in Storage (migration 283)
+
+`chat-media` and `flow-media` are public buckets, because the WhatsApp
+gateways fetch a file by its link: whoever holds an object's full link can
+open it. Everything else about an object goes through RLS on
+`storage.objects`:
+
+- A signed-in person lists, reads, replaces, moves and removes only the
+  objects they uploaded (`owner_id`, or `owner` on a row an older Storage
+  wrote), and only in their active workspace's folder. This holds for
+  owners and admins too: what a person may see of a customer's files is
+  decided by the messages they may see, not by the bucket.
+- A person uploads into `chat-media` at `account-<id>/<file>`,
+  `account-<id>/staged/<file>` and `account-<id>/groups/<file>` only.
+  `inbound/`, `avatars/`, `voice-library/` and any other folder are
+  written by the server (service role). A new folder the browser uploads
+  to needs a migration restating 283's list
+  (`src/lib/storage/chat-media-owner-policy.test.ts`).
+- Anything a screen must do with another person's object goes through a
+  route with its own permission check and the service role, as the voice
+  library does.
+
+`verify-chat-media-owner.sql`.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.

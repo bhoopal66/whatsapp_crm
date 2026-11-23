@@ -193,8 +193,10 @@ BEGIN
   SELECT ctid::text INTO tm_ctid FROM team_members WHERE team_id = team AND user_id = u_u;
   SELECT ctid::text INTO tt_ctid FROM teams WHERE id = team;
 
-  INSERT INTO storage.objects (bucket_id, name)
-  VALUES ('chat-media', 'account-' || a_acct::text || '/inbound/ws-083.jpg');
+  -- 283: a person lists only their own uploads, so each has one here.
+  INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+    ('chat-media', 'account-' || a_acct::text || '/staged/ws-083-x.jpg', u_x::text),
+    ('chat-media', 'account-' || a_acct::text || '/staged/ws-083-g.jpg', u_g::text);
 
   -- ---------- 2, 3, 9. one account at a time: A, then B, then A again ----------
   -- Switching back defeats a helper that reads "the first row" instead
@@ -350,7 +352,7 @@ BEGIN
   r := pg_temp.ws_val(u_x, 'SELECT count(*) FROM storage.objects WHERE bucket_id = ''chat-media''');
   n := n + 1;
   IF r <> '1' THEN
-    failed := array_append(failed, ('storage: an agent of A does not list A''s chat media: ' || r)::text);
+    failed := array_append(failed, ('storage: an agent of A does not list exactly their own chat media: ' || r)::text);
   END IF;
 
   -- ---------- 4. switch_account refusals, and leaving a deactivated row ----------

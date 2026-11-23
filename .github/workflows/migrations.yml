@@ -1459,3 +1459,8 @@ jobs:
       # when it was handed to the gateway.
       - name: Verify case CSAT fixes
         run: supabase db query --local --file supabase/ci/verify-csat-fixes.sql
+
+      # Migration 283: in chat-media and flow-media a person reaches only
+      # what they uploaded, and uploads only into the browser's folders.
+      - name: Verify chat media owner
+        run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql

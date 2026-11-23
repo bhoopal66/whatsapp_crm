@@ -50,9 +50,10 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
  * mirror-inbound-media`) keys on Meta's media id so a redelivered
  * webhook rewrites one object instead of orphaning a second copy.
  *
- * `subfolder` inserts one level below `account-<id>`. The bucket's RLS
- * write policies only match the FIRST path segment (migrations 020/023),
- * so nesting below it is free.
+ * `subfolder` inserts one level below `account-<id>`. In `chat-media` a
+ * browser upload goes to the top of that folder, `staged/` or `groups/`
+ * only: migration 283 lists them, and every other folder is written by
+ * the server (service role).
  */
 export function buildMediaPath(
   accountId: string,
@@ -145,8 +146,8 @@ export async function uploadAccountMedia(
  * Delete a previously-uploaded object. Used to GC media that was staged
  * (uploaded) but never sent — a cancelled draft or a failed Meta send —
  * so abandoned attachments don't accumulate in the public bucket. The
- * DELETE is gated by the same account-scoped RLS policy as the upload,
- * so a caller can only remove objects under their own account folder.
+ * DELETE is gated by RLS: a caller can only remove objects they uploaded
+ * themselves, in their own account folder (migration 283).
  *
  * Best-effort: callers fire-and-forget and swallow errors (a missed
  * delete is a storage nit, not something to surface to the user).

@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Security
+
+**Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
+works before and after it; apply it as soon as you update.
+- WhatsApp files in Storage (`chat-media`, `flow-media`): a signed-in person
+  lists, reads, replaces and removes only the files they uploaded, and
+  uploads only where the app's own screens do. Files the server stores
+  (received attachments, profile pictures, the voice library) are the
+  server's alone. Links in messages open as before. See `docs/security.md`.
+
 ### Case satisfaction
 
 **Migration required: 281** (`281_csat_fixes.sql`, after 263). Apply it
