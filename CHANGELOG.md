@@ -23,6 +23,13 @@ No migration.
   twice. After a timeout, a gateway error or a restart mid-send, the answer
   is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite
   refusal can still be retried with the same key.
+- A status Compass sends for a case that is already closed is answered with
+  `case_status_applied: false` (`case_status_reason: "case_closed"`). It
+  looked applied.
+- A rating request is kept for an hourly retry when the chat or contact
+  cannot be read. It was refused for good, with the wrong reason.
+- A case's due date out of range is refused before anything is saved. The
+  other fields were saved and the screen showed an error.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -627,6 +627,8 @@ active and ended groups alike, and the answer adds
 - An update whose `changed_at` is older than the last applied one is
   **stale**: `200` with `sync.applied: false, reason: "stale"`, nothing
   written. `reason: "no_case"` means the group has no case.
+- A `status` a closed case did not take: `200` with
+  `case_status_applied: false` and `case_status_reason: "case_closed"`.
 - A refused stage or value is `422` with its code (`unknown_stage`,
   `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
   `bank_invalid`, `product_invalid`, `amount_invalid`,

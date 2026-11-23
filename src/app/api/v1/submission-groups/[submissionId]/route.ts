@@ -28,7 +28,8 @@
 // the submission app sends it again: a repeat on the group this call
 // ended re-applies the status (a repeated changed_at is not stale: only
 // an older one is). Reading the case back for the answer is best effort
-// (`case: null`).
+// (`case: null`). A status a closed case did not take is still a 200, with
+// `case_status_applied: false` and `case_status_reason: 'case_closed'`.
 //
 // Case sync (migration 134): a body with changed_at, stage,
 // outcome_reason, bank, product, amount, compass_url or documents
@@ -97,27 +98,74 @@ async function readCase(accountId: string, groupId: string) {
 }
 
 /**
- * Applies the status (when given) to the group's case. False when that
+ * Applies the status (when given) to the group's case. `ok: false` when that
  * failed, logged: the caller answers 500 so the submission app sends the
  * status again, which is safe (a case already at a final stage, or at the
- * status's stage, is left alone by the SQL).
+ * status's stage, is left alone by the SQL). `notApplied` is the part of
+ * the answer for a status the case did not take because it is closed. The
+ * SQL's false also covers a status that names no stage and the status the
+ * case was closed with (a repeat, or a sync that just closed it): those
+ * add nothing. Reading the case for it is best effort.
  */
 async function applyCaseStatus(
   accountId: string,
   groupId: string,
   status: string | null
-): Promise<boolean> {
-  if (status === null) return true;
+): Promise<
+  | { ok: false }
+  | {
+      ok: true;
+      notApplied: {
+        case_status_applied?: false;
+        case_status_reason?: 'case_closed';
+      };
+    }
+> {
+  if (status === null) return { ok: true, notApplied: {} };
   try {
-    await caseStore(accountId).applySubmissionStatus(groupId, status);
-    return true;
+    const cases = caseStore(accountId);
+    if (await cases.applySubmissionStatus(groupId, status))
+      return { ok: true, notApplied: {} };
   } catch (err) {
     console.error(
       `[api/v1/submission-groups] case status for group ${groupId}:`,
       caseErrorText(err)
     );
-    return false;
+    return { ok: false };
   }
+  try {
+    const cases = caseStore(accountId);
+    const caseId = await cases.idForGroup(groupId);
+    const c = caseId ? await cases.get(caseId) : null;
+    if (!c?.closedAt || closesAs(status, c.stage))
+      return { ok: true, notApplied: {} };
+    console.warn(
+      `[api/v1/submission-groups] status not applied for group ${groupId}: case_closed`
+    );
+    return {
+      ok: true,
+      notApplied: {
+        case_status_applied: false,
+        case_status_reason: 'case_closed',
+      },
+    };
+  } catch (err) {
+    console.error(
+      `[api/v1/submission-groups] closed case check for group ${groupId}:`,
+      caseErrorText(err)
+    );
+    return { ok: true, notApplied: {} };
+  }
+}
+
+/** Every final status ends in the word of its stage ("Customer Withdrawn"). */
+function closesAs(status: string, stage: string): boolean {
+  const last =
+    status
+      .trim()
+      .split(/[\s_]+/)
+      .pop() ?? '';
+  return isFinalStatus(status) && last.toUpperCase() === stage.toUpperCase();
 }
 
 const caseStatusFailed = () =>
@@ -223,14 +271,19 @@ export async function PATCH(request: Request, { params }: Params) {
         }
         group = (await store.get(group.id)) ?? group;
       }
-      if (!(await applyCaseStatus(ctx.accountId, group.id, caseStatus)))
-        return caseStatusFailed();
+      const applied = await applyCaseStatus(
+        ctx.accountId,
+        group.id,
+        caseStatus
+      );
+      if (!applied.ok) return caseStatusFailed();
       return ok({
         ...(await wire(store, group)),
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
         case: await readCase(ctx.accountId, group.id),
+        ...applied.notApplied,
         ...syncBlock,
       });
     }
@@ -279,14 +332,15 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     group = (await store.get(group.id)) ?? group;
     // After the end: a retry finds the group ENDED and re-applies it there.
-    if (!(await applyCaseStatus(ctx.accountId, group.id, caseStatus)))
-      return caseStatusFailed();
+    const applied = await applyCaseStatus(ctx.accountId, group.id, caseStatus);
+    if (!applied.ok) return caseStatusFailed();
     return ok({
       ...(await wire(store, group)),
       ended: end.ended,
       closed: end.closed || group.waClosedAt !== null,
       close_deferred: end.closeDeferred,
       case: await readCase(ctx.accountId, group.id),
+      ...applied.notApplied,
       ...syncBlock,
     });
   } catch (err) {

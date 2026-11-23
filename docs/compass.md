@@ -522,6 +522,11 @@ section).
 - From `Closed` nothing moves (`case_closed`). From `Approved`,
   `Declined` or `Withdrawn` only `Closed` is allowed (`final_stage`).
 - The same stage is a no-op.
+- A `status` for a case that is already closed is recorded on the
+  submission but does not move the case. The answer is still `200`, with
+  `case_status_applied: false` and `case_status_reason: "case_closed"`.
+  Neither key is there otherwise, nor on a repeat of the status the case
+  was closed with.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` is **final**:
   it closes the case, sets the outcome, and **ends the WhatsApp group**
   exactly as a final `status` does.
