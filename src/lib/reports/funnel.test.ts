@@ -38,6 +38,7 @@ const labels: FunnelCsvLabels = {
   unassigned: 'Unassigned',
   noNumber: 'No number',
   noBank: 'No bank',
+  unnamed: 'Unnamed',
   source: (k) => `src:${k}`,
 };
 
@@ -338,5 +339,18 @@ describe('funnelCsvRows', () => {
     expect(rows[5].slice(0, 2)).toEqual(['Number', '=cmd()']);
     expect(rows[6]).toEqual(['Bank', 'ADCB', null, null, 2, 0, 0, 0, 0]);
     expect(rows.every((r) => r.length === header.length)).toBe(true);
+  });
+
+  it('never prints an internal id for someone who left or a bare number', () => {
+    const { rows } = funnelCsvRows(
+      parseFunnelReport({
+        by_agent: [{ key: UUID, name: null, new_chats: 1 }],
+        by_number: [{ key: UUID, name: null, new_chats: 1 }],
+      }),
+      labels
+    );
+    const items = rows.map((r) => r[1]);
+    expect(items).not.toContain(UUID);
+    expect(items.filter((i) => i === 'Unnamed')).toHaveLength(2);
   });
 });

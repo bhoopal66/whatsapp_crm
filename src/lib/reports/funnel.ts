@@ -410,6 +410,8 @@ export interface FunnelCsvLabels {
   unassigned: string;
   noNumber: string;
   noBank: string;
+  /** A person who was removed, or a number without a label. */
+  unnamed: string;
   /** A lead source's label ('none' included). */
   source: (key: string) => string;
 }
@@ -461,14 +463,14 @@ export function funnelCsvRows(
   for (const r of report.byAgent) {
     countsRow(
       labels.sections.agent,
-      r.name ?? (r.key ? r.key : labels.unassigned),
+      r.name ?? (r.key ? labels.unnamed : labels.unassigned),
       r.counts
     );
   }
   for (const r of report.byNumber) {
     countsRow(
       labels.sections.number,
-      r.name ?? (r.key ? r.key : labels.noNumber),
+      r.name ?? (r.key ? labels.unnamed : labels.noNumber),
       r.counts
     );
   }

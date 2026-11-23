@@ -11,7 +11,12 @@
 // Pure: no I/O.
 // ============================================================
 
+import { dubaiDay } from '@/lib/case-files/day';
+
 export type CsvCell = string | number | boolean | null | undefined;
+
+/** The zone of every time in an export. */
+export const CSV_TIME_ZONE = 'Asia/Dubai';
 
 const FORMULA_START = /^[=+\-@\t\r]/;
 
@@ -36,11 +41,28 @@ export function buildCsv(
   return `﻿${lines.join('\r\n')}\r\n`;
 }
 
-/** A safe download file name: letters, digits, dot, dash, underscore. */
+/**
+ * A stored time as `2026-11-23 09:30:05` in CSV_TIME_ZONE (name the zone
+ * in the heading), which a spreadsheet reads as a time. Empty when there
+ * is none.
+ */
+export function csvTime(at: string | null | undefined): string {
+  const time = at ? new Date(at) : null;
+  if (!time || Number.isNaN(time.getTime())) return '';
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: CSV_TIME_ZONE,
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(time);
+}
+
+/**
+ * A safe download file name (letters, digits, dot, dash, underscore) with
+ * Dubai's day: in UTC a file saved before 04:00 carried yesterday's.
+ */
 export function csvFileName(stem: string, date: Date = new Date()): string {
   const clean = stem.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  const day = date.toISOString().slice(0, 10);
-  return `${clean || 'export'}-${day}.csv`;
+  return `${clean || 'export'}-${dubaiDay(date)}.csv`;
 }
 
 /** The Response for a CSV download: never cached, always an attachment. */

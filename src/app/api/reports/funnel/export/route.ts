@@ -57,6 +57,7 @@ export async function GET(request: Request) {
       unassigned: t('breakdown.unassigned'),
       noNumber: t('breakdown.noNumber'),
       noBank: t('breakdown.noBank'),
+      unnamed: t('filters.unnamed'),
       source: (key) =>
         key === NO_LEAD_SOURCE
           ? t('filters.noSource')

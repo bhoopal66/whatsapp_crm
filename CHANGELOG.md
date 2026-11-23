@@ -112,6 +112,10 @@ No migration.
 - **Custom fields:** a list that could not be read says so, with Try again;
   it said there were none and let a second field of the same name be added.
   A rename or delete that changed nothing says so.
+- A campaign's downloaded list has its times in Dubai time (it was UTC, four
+  hours early), every export's file name carries Dubai's day, and the funnel
+  export shows "Unnamed" for someone who left or a number without a label,
+  as the screen does. It printed an internal id.
 
 ### AI drafts, templates and groups: no second copies, no lost state
 
