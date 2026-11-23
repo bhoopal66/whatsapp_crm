@@ -957,12 +957,14 @@ export async function processMessage(
   // can process concurrently, and computing `snapshot + 1` in the app let
   // both reads see the same value and write the same increment, losing one
   // (issue #369). The RPC increments in a single UPDATE and refreshes the
-  // last-message summary in the same statement.
+  // last-message summary in the same statement, unless the chat already
+  // holds a newer message (265: this one may be a late retry).
   const { error: convError } = await supabaseAdmin().rpc(
     'bump_conversation_on_inbound',
     {
       p_conversation_id: conversation.id,
       p_last_message_text: contentText || `[${message.type}]`,
+      p_message_at: messageAt,
     }
   );
 

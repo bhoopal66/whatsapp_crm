@@ -728,7 +728,11 @@ describe('inbound webhook: atomic unread bump (#369)', () => {
     expect(bumps).toHaveLength(1);
     expect(bumps[0]).toMatchObject({
       name: 'bump_conversation_on_inbound',
-      args: { p_conversation_id: 'conv-1' },
+      args: {
+        p_conversation_id: 'conv-1',
+        // WhatsApp's own time: a late retry is not the newest (265).
+        p_message_at: h.state.upsertCalls[0].row.created_at,
+      },
     });
   });
 });

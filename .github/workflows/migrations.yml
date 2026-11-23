@@ -1353,3 +1353,11 @@ jobs:
       # ages; RLS forced, functions service role only.
       - name: Verify webhook inbox
         run: supabase db query --local --file supabase/ci/verify-webhook-inbox.sql
+
+      # Migration 265: five guards. Grants do not travel with a moved
+      # profile; role and ownership changes lock the target; only the
+      # owner touches the login of someone just lowered from admin; the
+      # files an erased customer sent in groups are collected; a late
+      # message is unread but not the chat's preview.
+      - name: Verify guards
+        run: supabase db query --local --file supabase/ci/verify-guards.sql

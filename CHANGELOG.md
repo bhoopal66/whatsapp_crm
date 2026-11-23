@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Guards on roles, ownership, erased files and late messages
+
+**Migration required:** apply `supabase/migrations/265_guards.sql` before
+the build. Additive for the previous build.
+- What a workspace granted a person (review all calls, a personal
+  WhatsApp number, the department) no longer comes back when they are
+  removed and invited again.
+- A role change and a transfer of ownership at the same moment can no
+  longer leave a workspace without an owner.
+- For 7 days after an admin's role is lowered by someone else, only the
+  owner can set their password or change their login email.
+- Erasing a customer deletes the files they sent in WhatsApp groups.
+- A customer message processed late no longer replaces a newer message
+  as the chat's preview.
+
 ### Limits on what reaches a customer's group, and on uploads
 
 No migration.

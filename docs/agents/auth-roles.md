@@ -56,5 +56,14 @@
   (140's rule), then GoTrue for a new email (`email_confirm: true`, put
   back if the profiles write fails), then the profiles rows, then
   `log_member_details_change`. `verify-member-details.sql`.
+- **Guards (migration 265).** Both checks refuse an admin, not the owner,
+  for someone another person lowered from admin or owner in the last 7
+  days (`member_lately_admin`, read from `workspace_audit`): lowering a
+  role must not be the way to a login. `set_member_role`,
+  `set_member_active` and `transfer_account_ownership` lock the target
+  before reading its role. `profiles_reset_grants` drops the call-review,
+  personal-number and department grants when a profile row moves to
+  another workspace: a new per-workspace grant on `profiles` joins it.
+  `verify-guards.sql`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
