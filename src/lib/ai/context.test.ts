@@ -6,11 +6,14 @@ import { buildConversationContext } from './context';
  *  from().select().eq().in().order().limit() → { data, error }. */
 function fakeDb(
   rows: unknown[],
-  seen: { contentTypes?: unknown } = {}
+  seen: { contentTypes?: unknown; columns?: string } = {}
 ): SupabaseClient {
   const chain = {
     from: () => chain,
-    select: () => chain,
+    select: (columns: string) => {
+      seen.columns = columns;
+      return chain;
+    },
     eq: () => chain,
     in: (_col: string, values: unknown) => {
       seen.contentTypes = values;
@@ -53,6 +56,28 @@ describe('buildConversationContext', () => {
     const seen: { contentTypes?: unknown } = {};
     await buildConversationContext(fakeDb([], seen), 'conv-1');
     expect(seen.contentTypes).toEqual(['text', 'interactive']);
+  });
+
+  it('leaves out our failed sends, so a failed reply is not an answer', async () => {
+    const seen: { columns?: string } = {};
+    const out = await buildConversationContext(
+      fakeDb(
+        [
+          { sender_type: 'agent', content_text: 'lost', status: 'failed' },
+          { sender_type: 'bot', content_text: 'lost too', status: 'failed' },
+          { sender_type: 'bot', content_text: 'Hello', status: 'delivered' },
+          // Not ours to fail: whatever its status, the customer wrote it.
+          { sender_type: 'customer', content_text: 'Fees?', status: 'failed' },
+        ],
+        seen
+      ),
+      'conv-1'
+    );
+    expect(out).toEqual([
+      { role: 'user', content: 'Fees?' },
+      { role: 'assistant', content: 'Hello' },
+    ]);
+    expect(seen.columns).toContain('status');
   });
 
   it('drops empty / whitespace-only messages', async () => {
