@@ -104,6 +104,14 @@ No migration.
   lost theirs and a returned call looked untouched. When the tasks cannot be
   read the screen says so; it listed every call as untouched.
 - **Missed calls and HR tasks** say when only the first 200 tasks are shown.
+- **My worklist** reads up to 1,000 open cases and says when there are more.
+  It read the first 200 before the person and team filters, so in a large
+  workspace a person's own cases could be missing.
+- **Recycle:** a page past the end goes back to the first (it showed no
+  customers), and two quick changes no longer end on the first one's answer.
+- **Custom fields:** a list that could not be read says so, with Try again;
+  it said there were none and let a second field of the same name be added.
+  A rename or delete that changed nothing says so.
 
 ### AI drafts, templates and groups: no second copies, no lost state
 

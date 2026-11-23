@@ -25,6 +25,7 @@ import {
   RECYCLE_HANDOFF_QUERY,
   saveRecycleHandoff,
 } from '@/lib/recycle/handoff';
+import { recyclePager } from '@/lib/recycle/pager';
 import {
   clampDays,
   daysSince,
@@ -57,6 +58,10 @@ export function RecycleScreen() {
   const { accountId } = useAuth();
   const canEdit = useCan('edit-settings');
   const supabase = useMemo(() => createClient(), []);
+  const readPage = useMemo(
+    () => recyclePager((args) => supabase.rpc('recycle_candidates', args)),
+    [supabase]
+  );
 
   const [settings, setSettings] = useState<RecycleSettings | null>(null);
   const [days, setDays] = useState('');
@@ -94,23 +99,20 @@ export function RecycleScreen() {
     if (!accountId) return;
     setLoading(true);
     setFailed(false);
-    const { data, error } = await supabase.rpc('recycle_candidates', {
-      p_days: effectiveDays,
-      p_limit: PAGE_SIZE,
-      p_offset: page * PAGE_SIZE,
-      p_search: query || null,
+    const answer = await readPage({
+      page,
+      pageSize: PAGE_SIZE,
+      days: effectiveDays,
+      search: query || null,
     });
-    if (error) {
-      setFailed(true);
-      setRows([]);
-      setTotal(0);
-    } else {
-      const mapped = ((data ?? []) as RecycleRpcRow[]).map(mapRecycleRow);
-      setRows(mapped);
-      setTotal(mapped[0]?.total ?? 0);
-    }
+    if (answer.kind === 'stale') return;
+    // Still loading: the first page is read next.
+    if (answer.kind === 'past_end') return setPage(0);
+    setFailed(answer.kind === 'failed');
+    setRows(answer.kind === 'rows' ? answer.rows : []);
+    setTotal(answer.kind === 'rows' ? answer.total : 0);
     setLoading(false);
-  }, [accountId, supabase, effectiveDays, page, query]);
+  }, [accountId, readPage, effectiveDays, page, query]);
 
   useEffect(() => {
     void load();
