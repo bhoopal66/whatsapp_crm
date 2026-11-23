@@ -227,6 +227,18 @@ describe('message', () => {
     );
   });
 
+  it('works on the text the queue stores: no NUL, no half surrogate', async () => {
+    h.processMessage.mockResolvedValue(undefined);
+    await run(
+      'whapi',
+      'message',
+      messagePayload({ ...MESSAGE, text: 'a\u0000b \ud83d c' })
+    );
+    expect(h.processMessage.mock.calls.at(-1)![0]).toMatchObject({
+      text: 'ab \ufffd c',
+    });
+  });
+
   it('an unreadable payload is failed', async () => {
     expect(await run('whapi', 'message', {})).toMatchObject({
       outcome: 'failed',

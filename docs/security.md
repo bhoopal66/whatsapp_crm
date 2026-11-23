@@ -31,7 +31,7 @@ per provider.
 The login page posts to `POST /api/auth/login`, which checks the
 lockout before the password goes to Supabase Auth (GoTrue):
 
-- **5 failures** for one email from one client IP, or **20 failures**
+- **5 failures** for one email from one client IP, or **60 failures**
   from one IP for any emails, **within 10 minutes** lock that pair (or
   the whole IP) for **15 minutes**. Emails are compared case-blind.
 - A locked caller gets **423** with `retryAfterSeconds` ("Try again in

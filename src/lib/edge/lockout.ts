@@ -9,8 +9,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { ipKey } from './ip';
 import { callEdgeRpc, callerNow, firstRow, type RpcClockOptions } from './rpc';
 
+// ipMax covers everyone behind one address: a whole office shares one,
+// so it only has to stop a script (a person is stopped by userMax).
 export const LOCKOUT = {
-  ipMax: 20,
+  ipMax: 60,
   userMax: 5,
   windowMs: 10 * 60_000,
   lockMs: 15 * 60_000,

@@ -29,7 +29,11 @@ import { InboundPersistError } from './inbound-persist-error';
 import { handleStatusUpdate, processMessage } from './inbound-pipeline';
 import type { NormalizedOpenWAOwnSend } from './openwa-webhook';
 import { persistOwnSend, resolveOpenWALidPhone } from './own-send';
-import type { InboundEvent, InboundOutcome } from './webhook-inbox';
+import {
+  sanitizePayload,
+  type InboundEvent,
+  type InboundOutcome,
+} from './webhook-inbox';
 
 // ---------- Payloads, one shape per kind ----------
 
@@ -132,7 +136,12 @@ export async function processInboundEvent(
 ): Promise<InboundOutcome> {
   let result: InboundOutcome;
   try {
-    result = await run(event, deps);
+    // Postgres refuses U+0000 and half surrogates in any text column, not
+    // only in the queue: the first try works on the same copy a retry gets.
+    result = await run(
+      { ...event, payload: sanitizePayload(event.payload) },
+      deps
+    );
   } catch (error) {
     result = failed(`${event.kind} failed: ${errorTag(error)}`);
   }

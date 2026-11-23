@@ -760,7 +760,7 @@ describe('guardAdmin over the RPC stores', () => {
       {
         p_ip: '203.0.113.9',
         p_user_key: '',
-        p_ip_max: 20,
+        p_ip_max: 60,
         p_user_max: 5,
         p_window_ms: 600_000,
         p_lock_ms: 900_000,

@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Webhooks during an outage, and an office behind one address
+
+No migration.
+- The Whapi webhook answers 503 (so Whapi sends again) when the database
+  cannot be read; it answered 401, as for a wrong secret.
+- A message holding characters Postgres refuses is stored on the first
+  try.
+- The sign-in lock for one address counts 60 failures (was 20): a whole
+  office shares one. The limit per person is unchanged (5).
+
 ### A lost hang-up no longer holds the call screen
 
 No migration.

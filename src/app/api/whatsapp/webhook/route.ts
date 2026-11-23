@@ -133,7 +133,14 @@ export async function GET(request: Request) {
     )
   }
 
-  const config = await findConfigByWebhookSecret(secret)
+  const lookup = await findConfigByWebhookSecret(secret)
+  if (lookup.failed) {
+    return NextResponse.json(
+      { ok: false, error: 'Lookup failed' },
+      { status: 503 },
+    )
+  }
+  const config = lookup.row
   if (!config) {
     return NextResponse.json(
       { ok: false, error: 'Unrecognised webhook secret.' },
@@ -165,7 +172,14 @@ export async function POST(request: Request) {
   // Resolve the config from the SECRET, not from the payload's
   // `channel_id`. The body is attacker-controlled; the secret is the
   // only authenticated fact in the request, so it drives tenancy.
-  const config = secret ? await findConfigByWebhookSecret(secret) : null
+  const lookup = secret
+    ? await findConfigByWebhookSecret(secret)
+    : { failed: false, row: null }
+  if (lookup.failed) {
+    // Our database, not their secret: Whapi has to come back.
+    return NextResponse.json({ error: 'Lookup failed' }, { status: 503 })
+  }
+  const config = lookup.row
 
   if (!config) {
     // 401 rather than a silent 200: Whapi's delivery log should show
@@ -478,8 +492,10 @@ function applyScreen(
  * stops being true, store a SHA-256 of the secret in an indexed column
  * and look it up directly.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function findConfigByWebhookSecret(secret: string): Promise<any | null> {
+async function findConfigByWebhookSecret(
+  secret: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ failed: boolean; row: any | null }> {
   const { data: configs, error } = await supabaseAdmin()
     .from('whatsapp_config')
     .select('*')
@@ -491,7 +507,7 @@ async function findConfigByWebhookSecret(secret: string): Promise<any | null> {
 
   if (error || !configs) {
     console.error('[whapi-webhook] could not load configs:', error)
-    return null
+    return { failed: true, row: null }
   }
 
   for (const config of configs) {
@@ -504,10 +520,10 @@ async function findConfigByWebhookSecret(secret: string): Promise<any | null> {
       // than failing the whole lookup for every other tenant.
       continue
     }
-    if (secretsMatch(secret, stored)) return config
+    if (secretsMatch(secret, stored)) return { failed: false, row: config }
   }
 
-  return null
+  return { failed: false, row: null }
 }
 
 /**

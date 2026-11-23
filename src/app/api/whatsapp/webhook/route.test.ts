@@ -37,6 +37,8 @@ const h = vi.hoisted(() => ({
     afterCallbacks: [] as (() => Promise<void> | void)[],
     automationStarted: 0,
     automationCompleted: 0,
+    /** The whatsapp_config read fails (the data service is down). */
+    configError: null as { message: string } | null,
     /** whatsapp_config.mirror_inbound_media for the matched row (#466). */
     mirrorInboundMedia: true as boolean | undefined,
     /** whatsapp_config.phone_number_id — the Whapi channel id. */
@@ -106,7 +108,7 @@ vi.mock('@supabase/supabase-js', () => ({
                       status: 'connected',
                     },
                   ],
-                  error: null,
+                  error: h.state.configError,
                 }),
             }),
             // `adoptChannelId` writes the real channel id back once an
@@ -1330,6 +1332,19 @@ describe('inbound webhook: edge screening (module 017a)', () => {
     expect(warn).toHaveBeenCalledWith(
       '[whapi-webhook] skipped 0 duplicate and 2 IP-limited event(s)'
     );
+  });
+
+  it('answers 503, not 401, when the numbers cannot be read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.state.configError = { message: 'connection refused' };
+    const res = (await POST(deliveryRequest([TEXT_MESSAGE]))) as unknown as {
+      init: { status: number };
+    };
+    h.state.configError = null;
+
+    expect(res.init.status).toBe(503);
+    expect(h.screenWebhook).not.toHaveBeenCalled();
+    expect(h.state.afterCallbacks).toHaveLength(0);
   });
 
   it('rejects an unknown secret with 401 before any screening', async () => {

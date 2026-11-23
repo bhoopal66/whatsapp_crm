@@ -6,9 +6,9 @@ const MIN = 60_000;
 const mk = () => new AuthLockout(new MemoryLockoutStore());
 
 describe('AuthLockout (memory)', () => {
-  it('defaults: 5 per (ip, user), 20 per ip, 10-minute window, 15-minute lock', () => {
+  it('defaults: 5 per (ip, user), 60 per ip, 10-minute window, 15-minute lock', () => {
     expect(LOCKOUT).toEqual({
-      ipMax: 20,
+      ipMax: 60,
       userMax: 5,
       windowMs: 10 * MIN,
       lockMs: 15 * MIN,
@@ -63,26 +63,26 @@ describe('AuthLockout (memory)', () => {
     expect((await lo.recordFailure(ip, T0 + 1, 'B')).locked).toBe(true);
     expect(await lo.isLocked(ip, T0 + 1, 'A')).toBe(false); // B's pair lock is not A's
     expect((await lo.recordFailure(ip, T0 + 2, 'A')).locked).toBe(false); // A's count restarted at 1
-    for (let i = 0; i < 11; i++) await lo.recordFailure(ip, T0 + 3, `u${i}`); // 9 + 11 = 20 in the window
+    for (let i = 0; i < 51; i++) await lo.recordFailure(ip, T0 + 3, `u${i}`); // 9 + 51 = 60 in the window
     expect(await lo.isLocked(ip, T0 + 3, 'fresh')).toBe(true);
   });
 
-  it('20 failures from one ip across many users lock the whole ip for 15 minutes', async () => {
+  it('60 failures from one ip across many users lock the whole ip for 15 minutes', async () => {
     const lo = mk();
     const ip = '10.0.0.7';
-    for (let i = 0; i < 19; i++)
+    for (let i = 0; i < 59; i++)
       expect(
         (await lo.recordFailure(ip, T0 + i * 1000, `user${i}`)).locked
       ).toBe(false);
-    expect(await lo.isLocked(ip, T0 + 19_000, 'someone')).toBe(false);
-    expect(await lo.recordFailure(ip, T0 + 19_000, 'user19')).toEqual({
+    expect(await lo.isLocked(ip, T0 + 59_000, 'someone')).toBe(false);
+    expect(await lo.recordFailure(ip, T0 + 59_000, 'user59')).toEqual({
       locked: true,
       retryAfterMs: 15 * MIN,
     });
-    expect(await lo.isLocked(ip, T0 + 19_000, 'someone')).toBe(true);
-    expect(await lo.isLocked(ip, T0 + 19_000)).toBe(true);
-    expect(await lo.isLocked('10.0.0.8', T0 + 19_000, 'someone')).toBe(false);
-    expect(await lo.isLocked(ip, T0 + 19_000 + 15 * MIN, 'someone')).toBe(
+    expect(await lo.isLocked(ip, T0 + 59_000, 'someone')).toBe(true);
+    expect(await lo.isLocked(ip, T0 + 59_000)).toBe(true);
+    expect(await lo.isLocked('10.0.0.8', T0 + 59_000, 'someone')).toBe(false);
+    expect(await lo.isLocked(ip, T0 + 59_000 + 15 * MIN, 'someone')).toBe(
       false
     ); // expired
   });
