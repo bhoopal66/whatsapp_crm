@@ -60,8 +60,9 @@ BEGIN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision an account';
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
-  UPDATE profiles SET account_id = a_acct, account_role = 'agent',
-                      may_connect_personal_whatsapp = true WHERE user_id = u_pers;
+  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_pers;
+  -- Granted there: a grant does not move in with the row (265).
+  UPDATE profiles SET may_connect_personal_whatsapp = true WHERE user_id = u_pers;
 
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, status, is_primary)
   VALUES (u_owner, a_acct, 'whapi', 'GO-208-W', 'x', 'connected', true) RETURNING id INTO w_whapi;
