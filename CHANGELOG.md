@@ -61,6 +61,20 @@ No migration.
 - Mentioning someone by editing a message now notifies them, once. Taking
   a mention out of a message clears its badge.
 
+### Team chat: an open thread catches up
+
+No migration.
+- A thread left open while the laptop slept or the connection dropped now
+  reads itself again: replies sent meanwhile appear, edits show their new
+  text, and deleted or removed replies show as such. Before, they stayed
+  missing until the thread was closed and opened again. A reply that
+  arrives while a thread is opening is no longer lost either.
+- A thread with more than 200 replies has a **Load older replies** button.
+- The thread follows new replies when scrolled to the bottom, and keeps
+  its place for someone reading further up.
+- A thread that cannot be read says so, with **Try again**, instead of
+  saying the message is not available.
+
 ### Team chat: a message is posted once
 
 **Migration required:** `276_chat_post_once.sql`

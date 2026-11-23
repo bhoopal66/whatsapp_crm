@@ -5873,7 +5873,9 @@
       "close": "Close thread",
       "loading": "Loading thread…",
       "gone": "This message isn't available.",
-      "replies": "{count, plural, =0 {No replies yet} =1 {# reply} other {# replies}}"
+      "replies": "{count, plural, =0 {No replies yet} =1 {# reply} other {# replies}}",
+      "loadOlder": "Load older replies",
+      "loadingOlder": "Loading older replies…"
     },
     "members": {
       "title": "Members",

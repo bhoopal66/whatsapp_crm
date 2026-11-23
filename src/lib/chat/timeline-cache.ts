@@ -88,9 +88,12 @@ export function timelineCacheKey(
  * skeleton is), but realtime events land in it, so a message posted
  * during the fetch is not lost when the page arrives.
  */
-export function placeholderTimeline(channelId: string): CachedTimeline {
+export function placeholderTimeline(
+  channelId: string,
+  threadRootId: string | null = null
+): CachedTimeline {
   return {
-    timeline: createTimeline(channelId),
+    timeline: createTimeline(channelId, threadRootId),
     cards: {},
     callCards: {},
     loaded: false,
@@ -269,8 +272,9 @@ export function revalidateTimeline(
       : placeholderTimeline(channelId);
   if (isOverflowed(base, mark)) return endTimelineFetch(base, mark);
   const held = new Map(base.timeline.messages.map((m) => [m.id, m]));
+  const { threadRootId } = base.timeline;
   const rows = page.messages
-    .filter((m) => m.channelId === channelId && m.threadRootId === null)
+    .filter((m) => m.channelId === channelId && m.threadRootId === threadRootId)
     .map((m) => {
       const old = held.get(m.id);
       return old ? mergeMessage(old, m) : m;
