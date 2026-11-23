@@ -9,7 +9,8 @@
 //   members:  live staff (no bank guests), plus anyone holding a limit
 //             of their own: { userId, name, role, deactivated,
 //             openCount, limit } where `limit` is the person's own
-//             limit (null = the default applies).
+//             limit (null = the default applies) and `openCount` is
+//             null when the open chats could not be read.
 //   available is false before migration 236.
 // PUT { any of the settings fields } -> { settings } as stored, through
 //   assignment_settings_set on the caller's RLS client (it re-checks
@@ -84,11 +85,9 @@ export async function GET() {
         members: [],
       });
     }
-    if (settingsRes.error || profilesRes.error) {
-      console.error(
-        '[assignment] settings read failed:',
-        (settingsRes.error ?? profilesRes.error)?.message
-      );
+    const failed = settingsRes.error ?? profilesRes.error ?? limitsRes.error;
+    if (failed) {
+      console.error('[assignment] settings read failed:', failed.message);
       return NextResponse.json({ error: 'load_failed' }, { status: 500 });
     }
 
@@ -99,7 +98,7 @@ export async function GET() {
     }[]) {
       own.set(r.user_id, r.max_open);
     }
-    const open = new Map(loads.map((l) => [l.userId, l.openCount]));
+    const open = loads && new Map(loads.map((l) => [l.userId, l.openCount]));
 
     const members = ((profilesRes.data ?? []) as ProfileRow[])
       .filter(
@@ -112,7 +111,7 @@ export async function GET() {
         name: p.full_name?.trim() || p.email || p.user_id,
         role: p.account_role,
         deactivated: !!p.deactivated_at,
-        openCount: open.get(p.user_id) ?? 0,
+        openCount: open ? (open.get(p.user_id) ?? 0) : null,
         limit: own.get(p.user_id) ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));

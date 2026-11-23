@@ -131,6 +131,20 @@ describe('ChatAssignmentPanel', () => {
     });
   });
 
+  it('says so when the open chats could not be read, not 0', async () => {
+    const lines = async (openCount: number | null) => {
+      resetHooks();
+      await open(ChatAssignmentPanel, stored, {
+        members: [{ ...member('u1'), limit: 5, openCount }],
+      });
+      return findElements(render(ChatAssignmentPanel), (el) =>
+        /^limits\.open(Now|Unknown)$/.test(String(el.props.children))
+      ).map((el) => el.props.children);
+    };
+    expect(await lines(null)).toEqual(['limits.openUnknown']);
+    expect(await lines(0)).toEqual(['limits.openNow']);
+  });
+
   it('a changed default limit goes alone; the same text is nothing to save', async () => {
     const save = await openPanel();
     const type = (value: string) =>

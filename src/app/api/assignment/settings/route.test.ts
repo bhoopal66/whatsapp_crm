@@ -153,6 +153,34 @@ describe('GET /api/assignment/settings', () => {
     expect(body.available).toBe(false);
   });
 
+  it('answers 500 when the own limits could not be read', async () => {
+    h.tables.assignment_chat_limits = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    const res = await GET();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'load_failed' });
+  });
+
+  it('before migration 236 the limits are missing too, and it is no failure', async () => {
+    const missing = { data: null, error: { code: '42P01', message: 'x' } };
+    h.tables.assignment_settings = missing;
+    h.tables.assignment_chat_limits = missing;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).available).toBe(false);
+  });
+
+  it('says the open chats are unknown when they could not be read', async () => {
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'timeout' } });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(
+      (await res.json()).members.map((m: { openCount: unknown }) => m.openCount)
+    ).toEqual([null, null]);
+  });
+
   it('answers 403 below admin', async () => {
     h.requireRole.mockRejectedValue(
       Object.assign(new Error('role'), { status: 403 })

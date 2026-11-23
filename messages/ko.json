@@ -6555,6 +6555,7 @@
       "ownHint": "A person's own limit replaces the default for them. These save as soon as you add, change or remove them.",
       "none": "Nobody has a limit of their own.",
       "openNow": "{count, plural, one {# open chat now} other {# open chats now}}",
+      "openUnknown": "열린 대화: 확인할 수 없음",
       "limitFor": "Chat limit for {name}",
       "update": "Update",
       "remove": "Remove the limit for {name}",

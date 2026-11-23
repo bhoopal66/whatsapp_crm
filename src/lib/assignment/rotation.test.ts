@@ -277,9 +277,13 @@ describe('loadMemberLoads', () => {
     ]);
   });
 
-  it('is empty on error', async () => {
+  it('is null when it could not be read', async () => {
     const { db } = rpcClient({ data: null, error: { message: 'x' } });
-    expect(await loadMemberLoads(db)).toEqual([]);
+    expect(await loadMemberLoads(db)).toBeNull();
+    const rpc = vi.fn().mockRejectedValue(new Error('offline'));
+    expect(
+      await loadMemberLoads({ rpc } as unknown as SupabaseClient)
+    ).toBeNull();
   });
 });
 

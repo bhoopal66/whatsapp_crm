@@ -27,6 +27,10 @@ No migration.
   and removed, so two admins' changes both stay. Where they cannot (the list
   has since become "everyone", or would), nothing is saved and the page says
   so.
+- **Chat assignment**: when the personal limits cannot be read, the page says
+  it did not load. It showed nobody as having one. When the open chats cannot
+  be read, it says "not available" instead of 0, and the **Assign** menu shows
+  no figures and asks again the next time it opens.
 
 ### Voice notes: one tap to record, one tap to send
 

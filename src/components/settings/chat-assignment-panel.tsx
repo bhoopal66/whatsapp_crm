@@ -41,7 +41,8 @@ interface MemberRow {
   name: string;
   role: string;
   deactivated: boolean;
-  openCount: number;
+  /** Open chats now; null = not read. */
+  openCount: number | null;
   /** The person's own limit; null = the default applies. */
   limit: number | null;
 }
@@ -374,7 +375,9 @@ export function ChatAssignmentPanel() {
                         {m.name}
                       </p>
                       <p className="text-muted-foreground text-xs">
-                        {t('limits.openNow', { count: m.openCount })}
+                        {m.openCount === null
+                          ? t('limits.openUnknown')
+                          : t('limits.openNow', { count: m.openCount })}
                       </p>
                     </div>
                     <Input
