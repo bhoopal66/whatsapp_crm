@@ -116,6 +116,8 @@ const KINDS: readonly ItemKind[] = ['new_case', 'pending_doc', 'info'];
 function text(v: unknown, max: number, name: string): string | null {
   if (v === undefined || v === null) return null;
   if (typeof v !== 'string') throw new DeskBadRequest(`${name} must be text`);
+  // Postgres text cannot hold a NUL: it would be a 500 at the RPC.
+  if (v.includes('\u0000')) throw new DeskBadRequest(`${name} is not valid`);
   const t = v.trim();
   if (t === '') return null;
   if (t.length > max) throw new DeskBadRequest(`${name} is too long`);

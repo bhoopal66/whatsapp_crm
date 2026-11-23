@@ -75,3 +75,30 @@ export function canChangeView(
 ) {
   return view.ownerId === me || (view.shared && isAdmin);
 }
+
+/**
+ * What a shared view may carry. The search text is a customer's name or
+ * phone, readable workspace-wide once shared, and the column choice is
+ * the viewer's own: both are left out (the search blanked, not dropped,
+ * so applying it clears the viewer's box rather than keeping theirs).
+ */
+export function sharedViewFilters(
+  filters: Record<string, unknown>
+): Record<string, unknown> {
+  const { hiddenColumns: _columns, ...rest } = filters;
+  void _columns;
+  if ('search' in rest) rest.search = '';
+  return rest;
+}
+
+/**
+ * A view's chat tag ids split by whether the tag still exists. A view
+ * whose tags were all deleted must not widen to "everything".
+ */
+export function splitKnownTags(
+  ids: readonly string[],
+  known: (id: string) => boolean
+): { kept: string[]; missing: number } {
+  const kept = ids.filter(known);
+  return { kept, missing: ids.length - kept.length };
+}

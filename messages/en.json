@@ -38,7 +38,9 @@
     "updated": "View updated.",
     "deleted": "View deleted.",
     "saveFailed": "Could not save the view.",
-    "deleteFailed": "Could not delete the view."
+    "deleteFailed": "Could not delete the view.",
+    "tagGone": "This view used a chat tag that no longer exists.",
+    "shareNote": "The search text is not shared."
   },
   "ServiceWindow": {
     "closedHours": "Customer last wrote {count} h ago. WhatsApp only allows a template now.",

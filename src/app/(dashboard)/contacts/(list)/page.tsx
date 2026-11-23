@@ -86,6 +86,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { SavedViewsMenu } from '@/components/saved-views/saved-views-menu';
 import { useChatTags } from '@/hooks/use-chat-tags';
+import { splitKnownTags } from '@/lib/saved-views/types';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
 import { recordReplace } from '@/lib/navigation/back-target';
@@ -231,6 +232,7 @@ export function ContactsPageInner({
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const tSearch = useTranslations('ContactSearch');
+  const tSaved = useTranslations('SavedViews');
   const tTable = useTranslations('ContactsTable');
   const locale = useLocale();
   const { user, accountId, accountRole, profileLoading } = useAuth();
@@ -270,7 +272,7 @@ export function ContactsPageInner({
   // Chat-tag filter — contacts shown have a conversation carrying ANY
   // of these main or sub tags (OR), as in the inbox.
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
-  const { tree: chatTagTree } = useChatTags();
+  const { tags: chatTagRows, tree: chatTagTree } = useChatTags();
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -990,8 +992,18 @@ export function ContactsPageInner({
     personalOnly: personalOnlyUserId !== null,
   });
 
-  function applyView(raw: ContactsViewFilters) {
+  function applyView(raw: ContactsViewFilters, shared: boolean) {
     const v = fromViewFilters(raw);
+    // A view whose tags were all deleted would otherwise show everyone.
+    // Only judged once the tag list has loaded.
+    if (chatTagRows !== null && v.chatTagIds.length > 0) {
+      const { kept, missing } = splitKnownTags(v.chatTagIds, (id) =>
+        chatTagTree.byId.has(id)
+      );
+      if (missing > 0) toast.warning(tSaved('tagGone'));
+      if (kept.length === 0) return;
+      v.chatTagIds = kept;
+    }
     if (searchTimer.current) clearTimeout(searchTimer.current);
     setSearch(v.search);
     setDebouncedSearch(v.search);
@@ -1001,7 +1013,11 @@ export function ContactsPageInner({
     const nextSources = LEAD_SOURCE_COLUMN_AVAILABLE ? v.sources : [];
     setSources(nextSources);
     if (v.hiddenColumns) {
-      changeColumnPrefs({ ...columnPrefs, hidden: v.hiddenColumns });
+      // A shared view's columns (old rows) are shown for now but never
+      // saved over the viewer's own choice.
+      const next = { ...columnPrefs, hidden: v.hiddenColumns };
+      if (shared) setColumnPrefs(next);
+      else changeColumnPrefs(next);
     }
     setPage(0);
     try {
@@ -1189,7 +1205,9 @@ export function ContactsPageInner({
               currentViewFilters.sort !== EMPTY_VIEW_FILTERS.sort ||
               currentViewFilters.dir !== EMPTY_VIEW_FILTERS.dir
             }
-            onApply={(raw) => applyView(fromViewFilters(raw))}
+            onApply={(raw, view) =>
+              applyView(fromViewFilters(raw), view.shared)
+            }
           />
           {toolbarExtras?.({ filters: currentViewFilters, applyView })}
           {LEAD_SOURCE_COLUMN_AVAILABLE && (

@@ -253,6 +253,9 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   } else {
     ordered = ordered.order('created_at', { ascending });
   }
+  // id last, so rows that tie on created_at never swap across pages
+  // (compareContactRows and migration 257 end on it too).
+  ordered = ordered.order('id', { ascending: false });
   let query = ordered
     .order(
       CONTACT_LIST_CONVERSATION_ORDER.column,

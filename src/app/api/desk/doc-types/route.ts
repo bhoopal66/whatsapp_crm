@@ -5,14 +5,14 @@
 // a raw id. Account-wide and label-only: no case, bank or customer data.
 import { NextResponse } from 'next/server';
 
-import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, requireRole } from '@/lib/auth/account';
 import { mergeDocTypes } from '@/lib/desk/doc-types';
 import { deskErrorResponse } from '@/lib/desk/http';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 export async function GET() {
   try {
-    const ctx = assertSalesAccess(await getCurrentAccount());
+    const ctx = assertSalesAccess(await requireRole('agent'));
     const db = supabaseAdmin();
     const [req, spec] = await Promise.all([
       db

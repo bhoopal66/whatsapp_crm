@@ -73,9 +73,11 @@ export function parseCoverRow(r: Record<string, unknown>): BankCover {
 
 /** A YYYY-MM-DD date, or null. */
 export function isoDay(v: unknown): string | null {
-  return typeof v === 'string' &&
-    /^\d{4}-\d{2}-\d{2}$/.test(v) &&
-    !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
-    ? v
-    : null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  // Round-trip: Date rolls 2026-02-30 over to March, and year 0000 is not
+  // a date Postgres will take (it became a 500).
+  if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== v)
+    return null;
+  return Number(v.slice(0, 4)) >= 1 ? v : null;
 }

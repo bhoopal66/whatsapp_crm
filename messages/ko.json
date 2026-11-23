@@ -38,7 +38,9 @@
     "updated": "View updated.",
     "deleted": "View deleted.",
     "saveFailed": "Could not save the view.",
-    "deleteFailed": "Could not delete the view."
+    "deleteFailed": "Could not delete the view.",
+    "tagGone": "This view used a chat tag that no longer exists.",
+    "shareNote": "The search text is not shared."
   },
   "ServiceWindow": {
     "closedHours": "고객이 {count}시간 전에 마지막으로 메시지를 보냈습니다. 이제 WhatsApp에서는 템플릿만 보낼 수 있습니다.",

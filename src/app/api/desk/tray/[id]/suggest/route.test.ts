@@ -11,6 +11,7 @@ vi.mock('@/lib/submission-groups/server', () => ({
 }));
 vi.mock('@/lib/insights/settings', () => ({ insightsAvailable: () => false }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
 import { POST } from './route';
 
 const T = '11111111-1111-4111-8111-111111111111';
@@ -18,6 +19,7 @@ const params = { params: Promise.resolve({ id: T }) };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   m.getCurrentAccount.mockResolvedValue({
     userId: 'u-1',
     accountId: 'acc-1',
@@ -40,6 +42,21 @@ describe('POST /api/desk/tray/[id]/suggest', () => {
     expect(m.rpc.mock.calls.map((c) => c[0])).toEqual([
       'desk_tray_suggest_input',
     ]);
+  });
+
+  it('answers 429 past 20 asks a minute, before reading anything', async () => {
+    m.rpc.mockResolvedValue({ data: { candidates: [] }, error: null });
+    for (let i = 0; i < 20; i++) {
+      const ok = await POST(
+        new Request('http://x', { method: 'POST' }),
+        params
+      );
+      expect(ok.status).toBe(200);
+    }
+    m.rpc.mockClear();
+    const res = await POST(new Request('http://x', { method: 'POST' }), params);
+    expect(res.status).toBe(429);
+    expect(m.rpc).not.toHaveBeenCalled();
   });
 
   it('maps a refusal for someone who may not sort the item', async () => {

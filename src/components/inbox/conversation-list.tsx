@@ -42,6 +42,7 @@ import {
   type ConversationListItem,
 } from '@/lib/inbox/conversations';
 import { SavedViewsMenu } from '@/components/saved-views/saved-views-menu';
+import { splitKnownTags } from '@/lib/saved-views/types';
 import {
   isEmptyInboxView,
   parseInboxView,
@@ -689,6 +690,7 @@ export function ConversationList({
   const tRowsList = useTranslations('InboxRows');
   const tThread = useTranslations('Inbox.messageThread');
   const tInsights = useTranslations('InsightsUi.list');
+  const tSaved = useTranslations('SavedViews');
   const tSearch = useTranslations('ContactSearch');
   const locale = useLocale();
 
@@ -1746,17 +1748,29 @@ export function ConversationList({
       selectedCompany,
     ]
   );
-  const applyView = useCallback((raw: Record<string, unknown>) => {
-    const v = parseInboxView(raw);
-    setFilter(v.unread ? 'unread' : 'all');
-    setImportantOnly(v.important);
-    setPinnedOnly(v.pinned);
-    setSelectedAssignee(v.assignee);
-    setSelectedCampaignId(v.campaignId);
-    setSelectedChatTagIds(v.chatTagIds);
-    setSelectedInsightFilters(v.insights);
-    setSelectedCompany(v.company);
-  }, []);
+  const applyView = useCallback(
+    (raw: Record<string, unknown>) => {
+      const v = parseInboxView(raw);
+      // A view whose tags were all deleted would otherwise show every chat.
+      if (chatTagRows !== null && v.chatTagIds.length > 0) {
+        const { kept, missing } = splitKnownTags(v.chatTagIds, (id) =>
+          chatTagTree.byId.has(id)
+        );
+        if (missing > 0) toast.warning(tSaved('tagGone'));
+        if (kept.length === 0) return;
+        v.chatTagIds = kept;
+      }
+      setFilter(v.unread ? 'unread' : 'all');
+      setImportantOnly(v.important);
+      setPinnedOnly(v.pinned);
+      setSelectedAssignee(v.assignee);
+      setSelectedCampaignId(v.campaignId);
+      setSelectedChatTagIds(v.chatTagIds);
+      setSelectedInsightFilters(v.insights);
+      setSelectedCompany(v.company);
+    },
+    [chatTagRows, chatTagTree, tSaved]
+  );
 
   const hasContactFilters =
     chatTagFilterIds.length > 0 ||

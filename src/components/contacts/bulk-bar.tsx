@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Check, Loader2, Megaphone, Tag, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import {
   Dialog,
@@ -48,6 +49,8 @@ export function BulkBar({
   const t = useTranslations('ContactsTable');
   const tPage = useTranslations('Contacts.page');
   const [tagOpen, setTagOpen] = useState(false);
+  // /broadcasts/new is admin-only: below that the button is a dead end.
+  const canCampaign = useCan('edit-settings');
   return (
     <div
       role="region"
@@ -76,16 +79,18 @@ export function BulkBar({
           <Tag className="size-4" />
           {t('setChatTag')}
         </GatedButton>
-        <GatedButton
-          variant="outline"
-          size="sm"
-          canAct={canAct}
-          gateReason="start a campaign"
-          onClick={onAddToCampaign}
-        >
-          <Megaphone className="size-4" />
-          {t('addToCampaign')}
-        </GatedButton>
+        {canCampaign && (
+          <GatedButton
+            variant="outline"
+            size="sm"
+            canAct={canAct}
+            gateReason="start a campaign"
+            onClick={onAddToCampaign}
+          >
+            <Megaphone className="size-4" />
+            {t('addToCampaign')}
+          </GatedButton>
+        )}
         <GatedButton
           variant="destructive"
           size="sm"

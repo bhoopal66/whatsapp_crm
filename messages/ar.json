@@ -38,7 +38,9 @@
     "updated": "تم تحديث العرض.",
     "deleted": "تم حذف العرض.",
     "saveFailed": "تعذّر حفظ العرض.",
-    "deleteFailed": "تعذّر حذف العرض."
+    "deleteFailed": "تعذّر حذف العرض.",
+    "tagGone": "استخدم هذا العرض وسم محادثة لم يعد موجودًا.",
+    "shareNote": "لا تتم مشاركة نص البحث."
   },
   "ServiceWindow": {
     "closedHours": "آخر رسالة من العميل منذ {count} ساعة. تسمح WhatsApp الآن بقالب فقط.",

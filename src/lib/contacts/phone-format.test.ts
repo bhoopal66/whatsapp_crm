@@ -51,3 +51,21 @@ describe('phoneForCopy', () => {
     expect(phoneForCopy('12345')).toBe('12345');
   });
 });
+
+describe('ids and service numbers', () => {
+  it('returns text with a letter or @ unchanged, to show and to copy', () => {
+    for (const raw of ['123456789012345@lid', 'erased-12345678901']) {
+      expect(formatPhoneDisplay(raw)).toBe(raw);
+      expect(phoneForCopy(raw)).toBe(raw);
+    }
+  });
+
+  it('adds no + to UAE 800 and 600 numbers', () => {
+    for (const raw of ['80012345', '600512345', '800 4 2255']) {
+      expect(formatPhoneDisplay(raw)).toBe(raw);
+      expect(phoneForCopy(raw)).toBe(raw);
+    }
+    // With a country code they are ordinary international numbers.
+    expect(phoneForCopy('+97180012345')).toBe('+97180012345');
+  });
+});

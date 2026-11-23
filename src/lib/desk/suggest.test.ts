@@ -55,6 +55,7 @@ describe('suggestTrayCase', () => {
     const judge = vi.fn().mockResolvedValue(ok(0, 0.85, 0.1));
     const out = await suggestTrayCase(db, 'u1', 'a1', 't1', {
       available: () => true,
+      switchOn: async () => true,
       judge,
     });
     expect(out.suggestion).toEqual({
@@ -86,20 +87,31 @@ describe('suggestTrayCase', () => {
       (
         await suggestTrayCase(db, 'u1', 'a1', 't1', {
           available: () => true,
+          switchOn: async () => true,
           judge,
         })
       ).suggestion
     ).toEqual({ status: 'failed' });
   });
 
+  it('is off, and never asks Jev, while the workspace AI safety switch is off', async () => {
+    const db = { rpc: vi.fn().mockResolvedValue({ data: INPUT, error: null }) };
+    const judge = vi.fn();
+    const out = await suggestTrayCase(db, 'u1', 'a1', 't1', {
+      available: () => true,
+      switchOn: async () => false,
+      judge,
+    });
+    expect(out.suggestion).toEqual({ status: 'off' });
+    expect(judge).not.toHaveBeenCalled();
+  });
+
   it('lets the SQL refusal through for the route to map', async () => {
     const db = {
-      rpc: vi
-        .fn()
-        .mockResolvedValue({
-          data: null,
-          error: { hint: 'TRAY_NOT_FOUND', code: '23514' },
-        }),
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: { hint: 'TRAY_NOT_FOUND', code: '23514' },
+      }),
     };
     await expect(suggestTrayCase(db, 'u1', 'a1', 't1')).rejects.toMatchObject({
       hint: 'TRAY_NOT_FOUND',

@@ -6,7 +6,8 @@
  * files.
  *
  * No suggestion (with the reason) when the insights layer is not
- * available for the workspace ('off'), the call fails ('failed'), Jev
+ * available for the workspace or its AI safety switch
+ * (`ts_account_settings.enabled`) is off ('off'), the call fails ('failed'), Jev
  * cannot tell or is under 60% sure ('unsure'), or the runner-up is within
  * 10 points ('tie': equal matches are listed with none suggested).
  * Never throws.
@@ -14,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { insightsAvailable } from '@/lib/insights/settings';
+import { supabaseAdmin } from '@/lib/submission-groups/server';
 import { getDecisionLayer } from '@/lib/typesafe';
 import type { DeskCaseJudgment } from '@/lib/typesafe/checks/desk-case';
 
@@ -54,6 +56,25 @@ export function readJudgment(
 }
 
 /**
+ * The workspace's AI safety switch. A missing row or any read error is
+ * off: the customer's file name and caption go to Jev only when an admin
+ * has turned the checks on.
+ */
+export async function aiSafetySwitchOn(accountId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin()
+      .from('ts_account_settings')
+      .select('enabled')
+      .eq('account_id', accountId)
+      .maybeSingle();
+    if (error) return false;
+    return (data as { enabled?: boolean } | null)?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reads what the actor may see of the tray item (SQL refuses anyone who
  * may not sort it), then asks Jev. Refusals from the SQL propagate (the
  * route maps them); everything after them never throws.
@@ -65,6 +86,7 @@ export async function suggestTrayCase(
   trayId: string,
   deps: {
     available?: (accountId: string) => boolean;
+    switchOn?: (accountId: string) => Promise<boolean>;
     judge?: (
       input: Parameters<
         NonNullable<ReturnType<typeof getDecisionLayer>>['deskCase']
@@ -81,6 +103,8 @@ export async function suggestTrayCase(
   const input = (data ?? { candidates: [] }) as SuggestInput;
   const available = deps.available ?? insightsAvailable;
   if (!available(account) || input.candidates.length === 0)
+    return { input, suggestion: { status: 'off' } };
+  if (!(await (deps.switchOn ?? aiSafetySwitchOn)(account)))
     return { input, suggestion: { status: 'off' } };
   try {
     const judge = deps.judge ?? ((x) => getDecisionLayer()!.deskCase(x));

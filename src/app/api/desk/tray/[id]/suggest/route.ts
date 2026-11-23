@@ -6,6 +6,11 @@
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import {
+  checkRateLimit,
+  RATE_LIMITS,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
 import { deskErrorResponse, requireUuid } from '@/lib/desk/http';
 import {
   DeskRefusedError,
@@ -22,6 +27,12 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const trayId = requireUuid((await params).id, 'id');
+    // One Jev request per click: bound a held-down button or a script.
+    const limit = checkRateLimit(
+      `desk-suggest:${ctx.userId}`,
+      RATE_LIMITS.deskSuggestUser
+    );
+    if (!limit.success) return rateLimitResponse(limit);
     let out;
     try {
       out = await suggestTrayCase(
