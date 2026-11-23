@@ -387,6 +387,8 @@ product, amount, stage, tasks, documents and SLA timers, worked at
   complete.
 - A `PATCH` with a final status ends the group as above and also moves the
   case to the matching final stage, even when the group had already ended.
+  When the case could not take the status the call answers 500 and the app
+  sends it again; a repeat re-applies it on the ended group.
 
 ### Sync from the submission app (migration 134)
 

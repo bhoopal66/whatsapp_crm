@@ -34,6 +34,11 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Cron:** the automations cron every 2 minutes (`cron.ts`): pending
   creates, stale sends, close retries. Idle ending is off.
   `verify-submission-groups.sql` asserts the SQL.
+- **PATCH status:** a status the case could not take is a 500 (Compass
+  retries), never a swallowed error; the repeat meets an ENDED group and
+  re-applies it, which the SQL makes harmless (a case at a final stage is
+  left alone; the same `changed_at` is not stale). Only the read-back is
+  best effort.
 - **Without a group (136).** `submission_groups.wa_mode` ('group' |
   'none') is fixed at creation; a 'none' row has no number, is never
   claimed or sent into (`NO_WHATSAPP_GROUP`), and `sg_end` still ends it.

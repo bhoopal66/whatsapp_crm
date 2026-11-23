@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups: nothing lost between Compass and the CRM
+
+No migration.
+- A status Compass reports that the case could not take now answers an error,
+  so Compass sends it again; before, a final status could be lost for good.
+
 ### Submission groups: no second WhatsApp group
 
 No migration.

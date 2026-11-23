@@ -596,7 +596,9 @@ recorded and the call reports its state with `ended: false`. `404` for an
 unknown submission.
 
 The answer also carries the group's case, `case: { "id", "stage",
-"outcome" }`, or `null` when the group has no case or the case step failed.
+"outcome" }`, or `null` when the group has no case or it could not be read
+back. A status the case could not take answers `500`: send it again (repeats
+are safe, on an ENDED group too).
 A final status moves a case not yet at a final stage to **Approved**,
 **Declined**, **Withdrawn** or **Closed**; this also happens on an ENDED
 group. `GET` carries no `case`.

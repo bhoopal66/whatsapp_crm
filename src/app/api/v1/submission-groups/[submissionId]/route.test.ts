@@ -92,20 +92,51 @@ describe('PATCH moves the case', () => {
     });
   });
 
-  it('answers 200 with case null when the case step fails', async () => {
+  it('answers 500 when the case could not take the status, so it is sent again', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.applySubmissionStatus.mockRejectedValueOnce(new Error('db down'));
+    m.service.endIfDue.mockResolvedValue({
+      ended: true,
+      closed: true,
+      closeDeferred: false,
+    });
+    const res = await patch({ status: 'APPROVED' });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('internal');
+
+    // The repeat finds the group that call ended and applies it there.
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    const again = await patch({ status: 'APPROVED' });
+    err.mockRestore();
+    expect(again.status).toBe(200);
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledTimes(2);
+    expect((await again.json()).data.case).toMatchObject({ id: 'case-1' });
+  });
+
+  it('answers 500 for a status the case could not take on an ENDED group', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
     m.cases.applySubmissionStatus.mockRejectedValue(new Error('db down'));
     const res = await patch({ status: 'APPROVED' });
     err.mockRestore();
+    expect(res.status).toBe(500);
+  });
+
+  it('a failed read-back still answers 200 with case null', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.get.mockRejectedValue(new Error('db down'));
+    const res = await patch({ status: 'APPROVED' });
+    err.mockRestore();
     expect(res.status).toBe(200);
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledTimes(1);
     expect((await res.json()).data.case).toBeNull();
   });
 
-  it('answers case null for a group without a case, applying nothing', async () => {
+  it('answers case null for a group without a case', async () => {
     m.cases.idForGroup.mockResolvedValue(null);
     const res = await patch({ status: 'APPROVED' });
+    expect(res.status).toBe(200);
     expect((await res.json()).data.case).toBeNull();
-    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
   });
 
   it('on an ENDED group still moves the case, recording nothing on the group', async () => {
