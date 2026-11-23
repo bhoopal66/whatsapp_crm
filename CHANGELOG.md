@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Case files: a replaced document can come back
+
+- A document replaced by mistake can be used again: open a document's
+  versions on the case's Documents tab and choose "Use this one again".
+  It becomes the newest version and is checked again; the current one
+  stays until it passes.
+- Of two updates of one submission sent at the same time, the older one
+  no longer leaves its status on the submission group.
+
+**Migration required: 270.** Apply
+`supabase/migrations/270_case_file_fixes.sql` (after 267) before the new
+build. The previous build keeps working on it.
+
 ### An alert when the site is down
 
 No migration. `.github/workflows/uptime.yml` checks the site from outside

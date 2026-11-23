@@ -223,6 +223,17 @@ export function buildCaseFilesView(data: CaseFilesData): CaseFilesView {
   return { ready: data.ready, rows, unclassified };
 }
 
+/** The classify body that brings a replaced version back (270); null when it is not one. */
+export function reuseBody(
+  file: CaseFileView
+): { docKey: string; expiresOn?: string } | null {
+  if (file.status !== 'superseded' || file.docKey === null) return null;
+  return {
+    docKey: file.docKey,
+    ...(file.expiresOn ? { expiresOn: file.expiresOn } : {}),
+  };
+}
+
 const KNOWN_DETAILS = new Set([
   'too_large',
   'low_resolution',

@@ -42,6 +42,7 @@ import {
   parseCaseBuild,
   parseCaseFiles,
   parseDownloadUrl,
+  reuseBody,
   shortHash,
   uploadProblem,
   validExpiry,
@@ -190,6 +191,7 @@ export function CaseFilesSection({
               label={labelOf(row.spec.docKey)}
               canAct={canAct}
               caseId={caseId}
+              settle={settle}
               onAttach={() => setDialog({ kind: 'attach', spec: row.spec })}
               onUpload={() => setDialog({ kind: 'upload', spec: row.spec })}
             />
@@ -236,6 +238,7 @@ function DocRow({
   label,
   canAct,
   caseId,
+  settle,
   onAttach,
   onUpload,
 }: {
@@ -243,11 +246,13 @@ function DocRow({
   label: string;
   canAct: boolean;
   caseId: string;
+  settle: (r: Reply, success: string | null) => boolean;
   onAttach: () => void;
   onUpload: () => void;
 }) {
   const t = useTranslations('CaseFiles');
   const [open, setOpen] = useState(false);
+  const [reuse, setReuse] = useState<CaseFileView | null>(null);
   const { current, history } = row;
   const versions = history.length + (current ? 1 : 0);
 
@@ -330,9 +335,22 @@ function DocRow({
       {open && history.length > 0 && (
         <ul className="bg-card-2 space-y-1 rounded-md border p-2">
           {history.map((f) => (
-            <HistoryLine key={f.id} file={f} />
+            <HistoryLine
+              key={f.id}
+              file={f}
+              onReuse={canAct && reuseBody(f) ? () => setReuse(f) : null}
+            />
           ))}
         </ul>
+      )}
+      {reuse && (
+        <ReuseDialog
+          caseId={caseId}
+          file={reuse}
+          label={label}
+          onClose={() => setReuse(null)}
+          settle={settle}
+        />
       )}
     </li>
   );
@@ -485,21 +503,92 @@ function BuildCard({
   );
 }
 
-function HistoryLine({ file }: { file: CaseFileView }) {
+function HistoryLine({
+  file,
+  onReuse,
+}: {
+  file: CaseFileView;
+  onReuse: (() => void) | null;
+}) {
   const t = useTranslations('CaseFiles');
   const when = useWhen();
   return (
-    <li className="text-muted-foreground text-xs break-all">
-      {[
-        file.version !== null ? t('version', { n: file.version }) : null,
-        file.renamedName ?? file.originalName ?? t('unnamed'),
-        t(`status.${file.status}`),
-        formatFileSize(file.sizeBytes),
-        when(file.registeredAt),
-      ]
-        .filter(Boolean)
-        .join(' · ')}
+    <li className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs break-all">
+      <span className="min-w-0 flex-1">
+        {[
+          file.version !== null ? t('version', { n: file.version }) : null,
+          file.renamedName ?? file.originalName ?? t('unnamed'),
+          t(`status.${file.status}`),
+          formatFileSize(file.sizeBytes),
+          when(file.registeredAt),
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+      {onReuse && (
+        <Button size="sm" variant="ghost" onClick={onReuse}>
+          {t('useAgain')}
+        </Button>
+      )}
     </li>
+  );
+}
+
+/** Confirms bringing a replaced version back as the newest one (270). */
+function ReuseDialog({
+  caseId,
+  file,
+  label,
+  onClose,
+  settle,
+}: {
+  caseId: string;
+  file: CaseFileView;
+  label: string;
+  onClose: () => void;
+  settle: (r: Reply, success: string | null) => boolean;
+}) {
+  const t = useTranslations('CaseFiles');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const body = reuseBody(file);
+    if (!body) return;
+    setBusy(true);
+    const r = await sendCaseRequest(
+      `/api/cases/${caseId}/files/${file.id}/classify`,
+      'POST',
+      body
+    );
+    setBusy(false);
+    const result = (r.json as { result?: { status?: unknown } } | null)?.result;
+    const failed = r.ok && result?.status === 'failed';
+    if (failed) toast.error(t('checkedFailed', { label }));
+    if (settle(r, failed ? null : t('usedAgain', { label }))) onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('useAgainTitle', { label })}</DialogTitle>
+          <DialogDescription>
+            {t('useAgainBody', {
+              name: file.renamedName ?? file.originalName ?? t('unnamed'),
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {t('cancel')}
+          </Button>
+          <Button disabled={busy} onClick={() => void submit()}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            {t('useAgain')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

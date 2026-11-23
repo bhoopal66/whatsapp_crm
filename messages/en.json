@@ -12063,6 +12063,10 @@
     "sidebarLink": "Open this customer's documents"
   },
   "CaseFiles": {
+    "useAgain": "Use this one again",
+    "useAgainTitle": "Use this {label} again?",
+    "useAgainBody": "{name} will be checked again. If it passes, it replaces the current version.",
+    "usedAgain": "{label} is now the earlier version again.",
     "title": "Case files",
     "hint": "The files sent to the bank, one per document. Each file is checked when it is attached.",
     "closedReadOnly": "This case is closed, so its files can only be viewed.",

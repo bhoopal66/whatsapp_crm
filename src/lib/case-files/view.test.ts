@@ -19,6 +19,8 @@ import {
   shortHash,
   uploadProblem,
   validExpiry,
+  reuseBody,
+  type CaseFileView,
 } from './view';
 
 const file = (over: Record<string, unknown> = {}) => ({
@@ -386,5 +388,35 @@ describe('case file build', () => {
     expect(parseDownloadUrl({ url: 'javascript:alert(1)' })).toBeNull();
     expect(parseDownloadUrl({ url: 'nope' })).toBeNull();
     expect(parseDownloadUrl(null)).toBeNull();
+  });
+});
+
+describe('reuseBody (270)', () => {
+  const file = (over: Partial<CaseFileView> = {}): CaseFileView => ({
+    id: 'f1',
+    customerDocumentId: 'd1',
+    docKey: 'passport',
+    version: 1,
+    status: 'superseded',
+    classifySeq: 1,
+    checks: null,
+    pages: null,
+    expiresOn: null,
+    renamedName: null,
+    registeredAt: '2026-11-10T08:00:00Z',
+    originalName: null,
+    mime: null,
+    sizeBytes: null,
+    ...over,
+  });
+  it('is the file’s own type and expiry, for a replaced version only', () => {
+    expect(reuseBody(file())).toEqual({ docKey: 'passport' });
+    expect(reuseBody(file({ expiresOn: '2030-01-01' }))).toEqual({
+      docKey: 'passport',
+      expiresOn: '2030-01-01',
+    });
+    for (const status of ['passed', 'failed', 'pending_checks'] as const)
+      expect(reuseBody(file({ status }))).toBeNull();
+    expect(reuseBody(file({ docKey: null }))).toBeNull();
   });
 });

@@ -167,6 +167,10 @@ export async function classifyAndCheck(input: {
     (doc ? await readDocument(doc, deps) : { kind: 'unreadable' });
   if (read.kind === 'unavailable')
     throw new CaseFilesRefusedError('STORAGE_UNAVAILABLE');
+  // A replaced file comes back only with its bytes (270): an erased one
+  // would become a failed newest version and undo the case's readiness.
+  if (file.status === 'superseded' && read.kind !== 'bytes')
+    throw new CaseFilesRefusedError('FILE_STATE');
 
   const cls = await retryOnConflict(() =>
     store.classify(actor, fileId, docKey)

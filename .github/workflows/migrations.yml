@@ -1393,3 +1393,9 @@ jobs:
 
       - name: Verify submission group fixes
         run: supabase db query --local --file supabase/ci/verify-sg-fixes.sql
+
+      # Migration 270: staff use a superseded case file again as a new
+      # version, the system and a raw update cannot; a status older than
+      # the case's last update is not stored on the group.
+      - name: Verify case file fixes
+        run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql

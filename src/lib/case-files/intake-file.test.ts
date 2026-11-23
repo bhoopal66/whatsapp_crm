@@ -2,7 +2,11 @@ import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it, vi } from 'vitest';
 
 import { readDocument, readDocumentBytes } from './bytes';
-import { attachCustomerDocument, uploadStaffFile } from './intake-file';
+import {
+  attachCustomerDocument,
+  classifyAndCheck,
+  uploadStaffFile,
+} from './intake-file';
 import {
   CaseFilesRefusedError,
   CaseFilesStore,
@@ -505,5 +509,60 @@ describe('attachCustomerDocument', () => {
       })
     ).rejects.toMatchObject({ reason: 'VALIDATION_FAILED' });
     expect(fa.calls).toHaveLength(0);
+  });
+});
+
+describe('classifyAndCheck on a superseded file (270)', () => {
+  const run = async (status: string, objects: Record<string, Uint8Array>) => {
+    const f = fakeAdmin(
+      {
+        case_file_spec_rows: ok([specRow]),
+        case_document_file_classify: cls,
+        case_document_file_check_result: (a) => ({
+          data: (a.p_checks as { ok: boolean }[]).every((c) => c.ok)
+            ? 'passed'
+            : 'failed',
+          error: null,
+        }),
+      },
+      {
+        case_document_files: { [FILE]: { ...fileRow, status } },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const result = classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      docKey: 'passport',
+      today: '2026-11-10',
+      deps: { storage: fakeStorage({ objects }).storage },
+    });
+    return { f, result };
+  };
+
+  it('classifies and checks it again', async () => {
+    const { f, result } = await run('superseded', {
+      'case-files/a.pdf': await pdfBytes(),
+    });
+    expect((await result).status).toBe('passed');
+    expect(f.rpcNames()).toContain('case_document_file_classify');
+  });
+
+  it('refuses one whose bytes are gone, before anything is classified', async () => {
+    const { f, result } = await run('superseded', {});
+    await expect(result).rejects.toMatchObject({ reason: 'FILE_STATE' });
+    expect(f.rpcNames()).not.toContain('case_document_file_classify');
+  });
+
+  it('any other file without bytes still fails its checks, as before', async () => {
+    const { result } = await run('failed', {});
+    expect((await result).status).toBe('failed');
   });
 });
