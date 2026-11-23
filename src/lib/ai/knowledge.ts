@@ -98,6 +98,10 @@ export interface KnowledgeRetrieval {
   /** False when the account has no chunks at all (or the count failed),
    *  so callers can tell "nothing relevant" from "nothing to search". */
   hasKnowledgeBase: boolean;
+  /** The knowledge base could not be searched properly: the count failed,
+   *  or the semantic search did with an embeddings key configured. What
+   *  was found then proves nothing about what is there. */
+  failed?: boolean;
 }
 
 export interface RetrievedChunk {
@@ -146,13 +150,15 @@ export async function retrieveKnowledgeScored(
       .from('ai_knowledge_chunks')
       .select('id', { count: 'exact', head: true })
       .eq('account_id', accountId);
-    if (error || !count) return EMPTY;
+    if (error) return { ...EMPTY, failed: true };
+    if (!count) return EMPTY;
   } catch {
-    return EMPTY;
+    return { ...EMPTY, failed: true };
   }
 
   const picked = new Map<string, RetrievedChunk>(); // id → chunk, preserves order
   let bestSimilarity: number | null = null;
+  let failed = false;
 
   // Semantic path.
   if (config.embeddingsApiKey) {
@@ -175,6 +181,10 @@ export async function retrieveKnowledgeScored(
           p_query_embedding: toVectorLiteral(queryEmbedding),
           p_match_count: k,
         });
+        if (error) {
+          failed = true;
+          console.error('[ai knowledge] semantic search failed:', error);
+        }
         if (!error && Array.isArray(data)) {
           for (const row of data as SemanticRow[]) {
             const sim = similarityFromDistance(row.distance);
@@ -193,6 +203,7 @@ export async function retrieveKnowledgeScored(
         }
       }
     } catch (err) {
+      failed = true;
       console.error(
         '[ai knowledge] semantic retrieval failed, falling back to FTS:',
         err
@@ -231,6 +242,7 @@ export async function retrieveKnowledgeScored(
     passages,
     bestSimilarity,
     hasKnowledgeBase: true,
+    ...(failed ? { failed } : {}),
   };
 }
 

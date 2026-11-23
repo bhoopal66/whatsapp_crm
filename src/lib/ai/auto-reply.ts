@@ -111,6 +111,8 @@ export interface RetrievalGateFailure {
   detail: string;
   /** Best similarity seen, for the knowledge-gaps log (null = lexical). */
   bestScore: number | null;
+  /** The search failed: an `error` hand-off, and no knowledge gap. */
+  errored?: boolean;
 }
 
 /**
@@ -149,6 +151,27 @@ export function retrievalGateFailure(
     };
   }
   return null;
+}
+
+/**
+ * Gate 2's other half: the search itself failed. With a floor or strict
+ * grounding set the account asked for answers from its knowledge base
+ * only, so an unsearchable one hands off (reason `error`) instead of
+ * passing for an empty one, or letting an unscored full-text hit through.
+ * Short conversational turns are exempt, as in `retrievalGateFailure`.
+ * Pure. Without either setting nothing changes.
+ */
+export function retrievalErrored(
+  retrieval: KnowledgeRetrieval,
+  config: Pick<AiConfig, 'retrievalMinScore' | 'strictGrounding'>,
+  question: string
+): boolean {
+  if (!retrieval.failed) return false;
+  if (config.retrievalMinScore === null && !config.strictGrounding) {
+    return false;
+  }
+  const words = question.trim().split(/\s+/).filter(Boolean).length;
+  return words >= RETRIEVAL_GATE_MIN_WORDS;
 }
 
 /**
@@ -1253,9 +1276,22 @@ export async function dispatchInboundToAiReply(
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
-    const gapIn = (p: PassageGateResult) =>
-      retrievalGateFailure(p.retrieval, config.retrievalMinScore, openQuestion);
+    const gapIn = (p: PassageGateResult): RetrievalGateFailure | null =>
+      retrievalErrored(p.retrieval, config, openQuestion)
+        ? {
+            detail: 'Knowledge base search failed',
+            bestScore: null,
+            errored: true,
+          }
+        : retrievalGateFailure(
+            p.retrieval,
+            config.retrievalMinScore,
+            openQuestion
+          );
     const noKnowledge = async (gap: RetrievalGateFailure) => {
+      if (gap.errored) {
+        return handOff('error', gap.detail, config.handoffMessage);
+      }
       await logKnowledgeGap(dbc, {
         accountId,
         conversationId,

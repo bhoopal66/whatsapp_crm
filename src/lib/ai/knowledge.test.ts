@@ -309,3 +309,41 @@ describe('ingestDocument', () => {
     expect(state.inserted![0].embedding).toBeNull();
   });
 });
+
+describe('retrieveKnowledgeScored: a failed search says so', () => {
+  const ask = (
+    db: Parameters<typeof retrieveKnowledgeScored>[0],
+    embeddingsApiKey: string | null = 'sk-x'
+  ) => retrieveKnowledgeScored(db, 'acct', { embeddingsApiKey }, 'the fee?');
+
+  it('a count error is not "no knowledge base"', async () => {
+    const db = {
+      from: () => ({
+        select: () => ({
+          eq: async () => ({ count: null, error: { message: 'timeout' } }),
+        }),
+      }),
+    } as unknown as Parameters<typeof retrieveKnowledgeScored>[0];
+    expect((await ask(db)).failed).toBe(true);
+  });
+
+  it('an embeddings failure and a semantic RPC error, with a key', async () => {
+    const { db, state } = makeDb();
+    state.fts = [{ id: 'f', content: 'hit' }];
+    h.embedTexts.mockRejectedValueOnce(new Error('quota'));
+    const r = await ask(db);
+    expect(r).toMatchObject({ failed: true, excerpts: ['hit'] });
+
+    const rpc = async (name: string) =>
+      name === 'match_ai_knowledge_semantic'
+        ? { data: null, error: { message: 'boom' } }
+        : { data: [], error: null };
+    const broken = Object.assign({}, db, { rpc }) as typeof db;
+    expect((await ask(broken)).failed).toBe(true);
+  });
+
+  it('not without a key, nor when the search worked', async () => {
+    expect((await ask(makeDb().db, null)).failed).toBeUndefined();
+    expect((await ask(makeDb().db)).failed).toBeUndefined();
+  });
+});

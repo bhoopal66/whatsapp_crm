@@ -23,6 +23,9 @@ No migration.
   answered.
 - Questions kept for the knowledge-gap review are stored with identifiers
   masked, and older ones are masked before they are grouped.
+- With a similarity floor or strict grounding set, a knowledge search that
+  fails hands the chat to a person. Before, it counted as "no knowledge base"
+  or let any keyword hit pass.
 
 ### Cases: timers, snoozes and rules
 

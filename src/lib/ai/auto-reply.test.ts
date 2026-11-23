@@ -3286,3 +3286,38 @@ describe('dispatchInboundToAiReply — knowledge gaps are stored masked', () => 
     expect(h.state.gaps[0].question).not.toContain('ali@example.com');
   });
 });
+
+describe('dispatchInboundToAiReply — a knowledge search that failed', () => {
+  const failed = { hasKnowledgeBase: false, failed: true };
+  const ask = (content: string) =>
+    h.buildConversationContext.mockResolvedValue([{ role: 'user', content }]);
+
+  it.each([
+    ['a floor', { retrievalMinScore: 0.4 }],
+    ['strict grounding', { strictGrounding: true }],
+  ])('hands off as an error with %s', async (_n, extra) => {
+    h.loadAiConfig.mockResolvedValue(aiConfig(extra));
+    ask('What is the early settlement fee?');
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval(['a keyword hit'], { ...failed, hasKnowledgeBase: true })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'error' });
+    expect(h.state.gaps).toEqual([]);
+    expect(h.generateReply).not.toHaveBeenCalled();
+  });
+
+  it('answers as before with neither', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig());
+    ask('What is the early settlement fee?');
+    h.retrieveKnowledge.mockResolvedValue(retrieval([], failed));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+  });
+
+  it('leaves a short turn to the prompt, like the gate', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ strictGrounding: true }));
+    ask('yes please');
+    h.retrieveKnowledge.mockResolvedValue(retrieval([], failed));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+  });
+});
