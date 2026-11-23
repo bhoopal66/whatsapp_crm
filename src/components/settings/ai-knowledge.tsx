@@ -185,7 +185,11 @@ export function AiKnowledgeCard({
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? t('uploadFailed'));
+        toast.error(
+          data.code === 'text_encoding'
+            ? t('uploadEncoding')
+            : (data.error ?? t('uploadFailed'))
+        );
         return;
       }
       if (data.warning) toast.warning(data.warning);

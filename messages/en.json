@@ -1106,6 +1106,8 @@
       "problemNoPhone": "No phone number.",
       "problemNotSaved": "Could not be saved: {reason}",
       "problemsMore": "+ {count} more",
+      "errorEncoding": "Some letters in this file can’t be read. In Excel, save it as “CSV UTF-8” or as .xlsx and upload that.",
+      "errorUnreadable": "Could not read the file.",
       "closeConfirm": "The import is still running. Stop it? Contacts already imported stay.",
       "keepImporting": "Keep importing",
       "stopAndClose": "Stop and close",
@@ -1529,6 +1531,7 @@
         "errorLoadFields": "Failed to load custom fields",
         "csvBadLines": "Lines that could not be read (a quote that is never closed): {lines}.",
         "errorCsvParse": "Could not read the file.",
+        "errorEncoding": "Some letters in this file can’t be read. In Excel, save it as “CSV UTF-8” or as .xlsx and upload that.",
         "errorXlsxLimit": "This workbook is too large to import: {reason}",
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
         "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
@@ -3415,6 +3418,7 @@
       "uploadFile": "Upload file",
       "uploadTooltip": "PDF, .txt, .md, .csv or .json — the text is extracted and added as a document",
       "uploadSuccess": "Document added ({chars} characters extracted).",
+      "uploadEncoding": "Some letters in this file can’t be read. Save it as UTF-8 text (in Excel, “CSV UTF-8”) and upload that.",
       "uploadFailed": "Upload failed."
     },
     "aiKnowledgeGaps": {

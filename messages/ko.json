@@ -1106,6 +1106,8 @@
       "problemNoPhone": "전화번호가 없습니다.",
       "problemNotSaved": "저장하지 못함: {reason}",
       "problemsMore": "+ {count}개 더",
+      "errorEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. Excel에서 \"CSV UTF-8\" 또는 .xlsx로 저장한 뒤 업로드하세요.",
+      "errorUnreadable": "파일을 읽을 수 없습니다.",
       "closeConfirm": "아직 가져오는 중입니다. 중지할까요? 이미 가져온 연락처는 그대로 유지됩니다.",
       "keepImporting": "계속 가져오기",
       "stopAndClose": "중지하고 닫기",
@@ -1529,6 +1531,7 @@
         "errorLoadFields": "커스텀 필드를 불러오지 못했습니다",
         "csvBadLines": "읽을 수 없는 줄(닫히지 않은 따옴표): {lines}.",
         "errorCsvParse": "파일을 읽을 수 없습니다.",
+        "errorEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. Excel에서 \"CSV UTF-8\" 또는 .xlsx로 저장한 뒤 업로드하세요.",
         "errorXlsxLimit": "통합 문서가 너무 커서 가져올 수 없습니다: {reason}",
         "errorCsvMissingPhone": "파일에 'phone' 또는 'Phone Number' 열이 있어야 합니다.",
         "errorXls": "이전 형식의 .xls 통합 문서입니다. .xlsx 또는 CSV로 저장한 뒤 업로드하세요.",
@@ -3415,6 +3418,7 @@
       "uploadFile": "파일 업로드",
       "uploadTooltip": "PDF, .txt, .md, .csv 또는 .json — 텍스트를 추출하여 문서로 추가합니다",
       "uploadSuccess": "문서가 추가되었습니다 ({chars}자 추출).",
+      "uploadEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. UTF-8 텍스트(Excel에서는 \"CSV UTF-8\")로 저장한 뒤 업로드하세요.",
       "uploadFailed": "업로드에 실패했습니다."
     },
     "aiKnowledgeGaps": {

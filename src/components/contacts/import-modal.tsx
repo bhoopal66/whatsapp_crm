@@ -14,6 +14,7 @@ import {
   type ParsedContactRow,
   type ReadContactCsvResult,
 } from '@/lib/contacts/parse-contact-csv';
+import { readTextFile, TextEncodingError } from '@/lib/csv/decode-text';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -202,11 +203,22 @@ export function ImportModal({
     setPlan(null);
     setPlanFailed(false);
 
-    const text = await selected.text();
-    // A `tags` column is ignored: contact tags are retired, and chat
-    // tags belong to a conversation, which an import does not create.
+    let parsed: ReadContactCsvResult;
+    try {
+      // A `tags` column is ignored: contact tags are retired, and chat
+      // tags belong to a conversation, which an import does not create.
+      parsed = readContactCsv(await readTextFile(selected));
+    } catch (err) {
+      if (run.current !== mine) return;
+      reset();
+      toast.error(
+        t(
+          err instanceof TextEncodingError ? 'errorEncoding' : 'errorUnreadable'
+        )
+      );
+      return;
+    }
     if (run.current !== mine) return;
-    const parsed = readContactCsv(text);
     const { rows, hasCompanyColumn: csvHasCompany } = parsed;
     setParsedFile(parsed);
     // The same file can be chosen again once it is corrected.

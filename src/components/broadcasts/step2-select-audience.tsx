@@ -9,6 +9,7 @@ import {
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
 import { readXlsxTable, XlsxLimitError } from '@/lib/contacts/read-xlsx';
+import { readTextFile, TextEncodingError } from '@/lib/csv/decode-text';
 import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
@@ -476,7 +477,7 @@ export function Step2SelectAudience({
               ),
               badLines: [],
             }
-          : readContactCsv(await file.text());
+          : readContactCsv(await readTextFile(file));
       if (phoneColumn === null) {
         fail(t('selectAudience.errorCsvMissingPhone'));
         return;
@@ -489,7 +490,9 @@ export function Step2SelectAudience({
       fail(
         err instanceof XlsxLimitError
           ? t('selectAudience.errorXlsxLimit', { reason: err.message })
-          : t('selectAudience.errorCsvParse')
+          : err instanceof TextEncodingError
+            ? t('selectAudience.errorEncoding')
+            : t('selectAudience.errorCsvParse')
       );
     }
   }

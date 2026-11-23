@@ -1106,6 +1106,8 @@
       "problemNoPhone": "لا يوجد رقم هاتف.",
       "problemNotSaved": "تعذّر الحفظ: {reason}",
       "problemsMore": "+ {count} أخرى",
+      "errorEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه في Excel بصيغة «CSV UTF-8» أو ‎.xlsx ثم ارفعه.",
+      "errorUnreadable": "تعذرت قراءة الملف.",
       "closeConfirm": "لا يزال الاستيراد جارياً. هل تريد إيقافه؟ ستبقى جهات الاتصال التي تم استيرادها.",
       "keepImporting": "متابعة الاستيراد",
       "stopAndClose": "إيقاف وإغلاق",
@@ -1529,6 +1531,7 @@
         "errorLoadFields": "تعذر تحميل الحقول المخصصة",
         "csvBadLines": "أسطر تعذّرت قراءتها (علامة اقتباس لم تُغلق): {lines}.",
         "errorCsvParse": "تعذرت قراءة الملف.",
+        "errorEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه في Excel بصيغة «CSV UTF-8» أو ‎.xlsx ثم ارفعه.",
         "errorXlsxLimit": "هذا المصنف كبير جدًا بحيث لا يمكن استيراده: {reason}",
         "errorCsvMissingPhone": "يجب أن يحتوي الملف على عمود «phone» أو «Phone Number».",
         "errorXls": "هذا مصنف .xls قديم. احفظه بصيغة .xlsx أو CSV ثم ارفعه.",
@@ -3415,6 +3418,7 @@
       "uploadFile": "رفع ملف",
       "uploadTooltip": "PDF أو .txt أو .md أو .csv أو .json — يُستخرج النص ويُضاف كمستند",
       "uploadSuccess": "تمت إضافة المستند (استُخرج {chars} حرف).",
+      "uploadEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه نصًا بترميز UTF-8 (في Excel: «CSV UTF-8») ثم ارفعه.",
       "uploadFailed": "فشل الرفع."
     },
     "aiKnowledgeGaps": {

@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Importing
+
+No migration.
+- Arabic names in a CSV saved by an Arabic Excel ("CSV (Comma delimited)",
+  Windows-1256) or as Unicode (UTF-16) are read; they were imported, and sent
+  to customers, as "????". A file whose letters are already lost is refused,
+  with what to save it as. Contacts import, broadcast lists and AI knowledge
+  files.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
