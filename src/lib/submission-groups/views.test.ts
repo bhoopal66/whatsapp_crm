@@ -7,7 +7,9 @@ import {
   LIST_LIMIT_MAX,
   cursorFilter,
   decodeCursor,
+  decodeMessageCursor,
   encodeCursor,
+  messagePage,
   bankHolderLabel,
   impliedLabel,
   myLabelOf,
@@ -518,5 +520,45 @@ describe('toMessageView', () => {
 
   it('leaves a staff or older row unmarked', () => {
     expect(toMessageView(base, new Map()).system_kind).toBeNull();
+  });
+});
+
+describe('a live chat by pages', () => {
+  const at = (n: number) => `2026-11-23T09:00:00.00000${n}+00:00`;
+  const rows = [5, 4, 3, 2].map((id) => ({ id, created_at: at(id) }));
+
+  it('answers the page oldest first and where the one before it starts', () => {
+    const page = messagePage(rows, 3);
+    expect(page.rows.map((r) => r.id)).toEqual([3, 4, 5]);
+    expect(page.hasMore).toBe(true);
+    // Microseconds kept, so rows of one millisecond are not skipped.
+    expect(decodeMessageCursor(page.olderCursor!)).toEqual({
+      at: at(3),
+      id: '3',
+    });
+  });
+
+  it('has nothing older when the page holds every row', () => {
+    expect(messagePage(rows, 4)).toMatchObject({
+      hasMore: false,
+      olderCursor: null,
+    });
+    expect(messagePage([], 4)).toEqual({
+      rows: [],
+      hasMore: false,
+      olderCursor: null,
+    });
+  });
+
+  it('refuses a cursor that is not one of a message', () => {
+    for (const raw of [
+      '',
+      'x y',
+      encodeCursor({ at: at(1), id: GID }),
+      encodeCursor({ at: at(1), id: '1),or(id.gt.0' }),
+      encodeCursor({ at: 'yesterday', id: '1' }),
+      encodeCursor({ at: at(1), id: '9'.repeat(19) }),
+    ])
+      expect(() => decodeMessageCursor(raw)).toThrow(SgHttpError);
   });
 });

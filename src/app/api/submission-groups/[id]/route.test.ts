@@ -86,8 +86,8 @@ let rls: FakeDb;
 let readable: boolean;
 let resolved: string | null;
 
-const get = (id = G) =>
-  GET(new Request(`http://x/api/submission-groups/${id}`), {
+const get = (id = G, query = '') =>
+  GET(new Request(`http://x/api/submission-groups/${id}${query}`), {
     params: Promise.resolve({ id }),
   });
 
@@ -377,5 +377,87 @@ describe('GET /api/submission-groups/[id]', () => {
     ];
     const body = await (await get()).json();
     expect(body.group).toMatchObject({ contact: null, channel: null });
+  });
+});
+
+describe('GET /api/submission-groups/[id]?before=', () => {
+  const at = (n: number) =>
+    new Date(Date.UTC(2026, 9, 10, 10, 0, n)).toISOString();
+  /** Ids 1001..1450, a second apart; 1251 shares 1250's instant. */
+  const many = Array.from({ length: 450 }, (_, i) =>
+    msg(1001 + i, { created_at: at(i === 250 ? 249 : i) })
+  );
+  const before = (cursor: string) => `?before=${encodeURIComponent(cursor)}`;
+  const idsOf = (body: { messages: { id: string }[] }) =>
+    body.messages.map((x) => Number(x.id));
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+  beforeEach(() => {
+    rls.tables.submission_group_messages = [...many];
+  });
+
+  it('reaches every message, each once, page by page', async () => {
+    const first = await (await get()).json();
+    expect(idsOf(first)).toEqual(range(1251, 1450));
+    expect(first.has_more).toBe(true);
+
+    const second = await (await get(G, before(first.older_cursor))).json();
+    expect(idsOf(second)).toEqual(range(1051, 1250));
+    expect(second).toMatchObject({ status: 'ACTIVE', has_more: true });
+    expect(second.group).toBeUndefined();
+
+    const third = await (await get(G, before(second.older_cursor))).json();
+    expect(idsOf(third)).toEqual(range(1001, 1050));
+    expect(third).toMatchObject({ has_more: false, older_cursor: null });
+  });
+
+  it('answers has_more false when the newest page is the whole chat', async () => {
+    rls.tables.submission_group_messages = many.slice(0, 200);
+    expect(await (await get()).json()).toMatchObject({
+      has_more: false,
+      older_cursor: null,
+    });
+  });
+
+  it('names the staff who sent the older messages', async () => {
+    const { older_cursor } = await (await get()).json();
+    Object.assign(
+      rls.tables.submission_group_messages.find((r) => r.id === 1100)!,
+      { direction: 'out', sender_user_id: 'u-me', send_status: 'sent' }
+    );
+    const body = await (await get(G, before(older_cursor))).json();
+    expect(
+      body.messages.find((x: { id: string }) => x.id === '1100').sender_name
+    ).toBe('Me Agent');
+  });
+
+  it('keeps the access checks of the first page', async () => {
+    const { older_cursor } = await (await get()).json();
+    // RLS no longer hands the caller the group.
+    rls.tables = { submission_group_messages: [...many] };
+    expect((await get(G, before(older_cursor))).status).toBe(404);
+    admin.tables.submission_groups = [groupRow({ account_id: 'acct-2' })];
+    expect((await get(G, before(older_cursor))).status).toBe(404);
+  });
+
+  it('answers no message of an ENDED group, refused or allowed', async () => {
+    const { older_cursor } = await (await get()).json();
+    endIt();
+    admin.tables.submission_group_messages = [...many];
+    expect((await get(G, before(older_cursor))).status).toBe(404);
+    readable = true;
+    expect(await (await get(G, before(older_cursor))).json()).toEqual({
+      status: 'ENDED',
+      messages: [],
+      has_more: false,
+      older_cursor: null,
+    });
+  });
+
+  it('refuses a malformed cursor before touching the database', async () => {
+    expect((await get(G, '?before=x%20y')).status).toBe(400);
+    expect(admin.log).toBeUndefined();
+    expect(rls.log).toBeUndefined();
   });
 });

@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups: the whole chat
+
+No migration.
+- A submission group's chat has "Load older messages": only its newest 200
+  could be reached. Older messages already loaded stay through live updates.
+
 ### Push notifications that stay with the right person
 
 No migration.

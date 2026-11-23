@@ -110,12 +110,24 @@ export interface SgMessage {
 export interface SgDetail {
   group: SgGroup;
   access: SgAccess[];
+  /** The newest page, oldest first. */
   messages: SgMessage[];
+  has_more: boolean;
+  /** Where the page before this one starts, for `?before=`. */
+  older_cursor: string | null;
   archive_available: boolean;
   can_send: boolean;
   can_manage: boolean;
   /** The group's case, or null when none was opened yet. */
   caseId: string | null;
+}
+
+/** GET /api/submission-groups/[id]?before=<older_cursor>. */
+export interface SgOlderPage extends Pick<
+  SgDetail,
+  'messages' | 'has_more' | 'older_cursor'
+> {
+  status: SgGroup['status'];
 }
 
 export interface SgListPage {

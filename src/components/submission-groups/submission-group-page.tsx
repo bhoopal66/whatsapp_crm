@@ -49,6 +49,12 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { startChatCatchUp } from '@/lib/groups/live-chat';
+import {
+  EMPTY_CHAT_LOG,
+  keptScrollTop,
+  withFreshPage,
+  withOlderPage,
+} from '@/lib/submission-groups/chat-log';
 import { isOffline, thrownSendKind } from '@/lib/inbox/failed-send';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
 import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
@@ -73,6 +79,7 @@ import {
   type SgDetail,
   type SgGroup,
   type SgMessage,
+  type SgOlderPage,
   waModeOf,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
@@ -132,6 +139,8 @@ export function SubmissionGroupPage({
   const { user, profile } = useAuth();
   const [state, setState] = useState<State>('loading');
   const [detail, setDetail] = useState<SgDetail | null>(null);
+  const [log, setLog] = useState(EMPTY_CHAT_LOG);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [archive, setArchive] = useState<SgMessage[] | null>(null);
   const [archiveLoading, setArchiveLoading] = useState(false);
@@ -145,6 +154,8 @@ export function SubmissionGroupPage({
   const { refreshList } = useSubmissionGroupsList();
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  // The scroll as it was when older rows were put in above it.
+  const anchorRef = useRef<{ top: number; height: number } | null>(null);
   const mounted = useRef(true);
   // `reload` runs on every live update; opening a group marks it once.
   const markedRead = useRef<string | null>(null);
@@ -177,6 +188,7 @@ export function SubmissionGroupPage({
     const json = (await res.json()) as SgDetail;
     if (!mounted.current) return false;
     setDetail(json);
+    setLog((l) => withFreshPage(l, json));
     setNow(new Date());
     setState('ok');
     const active = json.group.status === 'ACTIVE';
@@ -262,18 +274,51 @@ export function SubmissionGroupPage({
     if (docked) setDetailsOpen(false);
   }, [docked]);
 
-  const shown = archive ?? detail?.messages ?? [];
+  const shown = archive ?? log.messages;
 
   // Follow new messages only while the reader is at the bottom.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [archive, detail]);
+    const anchor = anchorRef.current;
+    anchorRef.current = null;
+    if (!el) return;
+    if (anchor) el.scrollTop = keptScrollTop(anchor, el.scrollHeight);
+    else if (stickRef.current) el.scrollTop = el.scrollHeight;
+    // `loadingOlder`: an older page that no longer joined changes no log,
+    // and its anchor must not wait for the next message.
+  }, [archive, detail, log, loadingOlder]);
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
+  const loadOlder = async () => {
+    const before = log.olderCursor;
+    if (!before) return;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(
+        `/api/submission-groups/${groupId}?before=${encodeURIComponent(before)}`,
+        { cache: 'no-store' }
+      );
+      if (!mounted.current) return;
+      // Ended, or access lost, meanwhile: the page says which.
+      if (res.status === 404 || res.status === 403) return void reload();
+      if (!res.ok) throw new Error(String(res.status));
+      const page = (await res.json()) as SgOlderPage;
+      if (!mounted.current) return;
+      if (page.status !== 'ACTIVE') return void reload();
+      const el = scrollRef.current;
+      if (el)
+        anchorRef.current = { top: el.scrollTop, height: el.scrollHeight };
+      setLog((l) => withOlderPage(l, before, page));
+    } catch {
+      if (mounted.current) toast.error(tGroups('chat.loadFailed'));
+    } finally {
+      if (mounted.current) setLoadingOlder(false);
+    }
   };
 
   /**
@@ -286,7 +331,7 @@ export function SubmissionGroupPage({
   ): Promise<boolean> => {
     if (!detail?.can_send) return false;
     stickRef.current = true;
-    const before = detail.messages;
+    const before = log.messages;
     // Nobody answered for it: the log says. Null when it cannot be read.
     const stored = async (): Promise<boolean | null> => {
       try {
@@ -633,7 +678,23 @@ export function SubmissionGroupPage({
                   {t('empty')}
                 </p>
               ) : (
-                <MessageList messages={shown} />
+                <>
+                  {!archive && log.olderCursor && (
+                    <div className="flex justify-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={loadingOlder}
+                        onClick={() => void loadOlder()}
+                      >
+                        {loadingOlder
+                          ? tGroups('chat.loading')
+                          : tGroups('chat.loadOlder')}
+                      </Button>
+                    </div>
+                  )}
+                  <MessageList messages={shown} />
+                </>
               )}
             </div>
 

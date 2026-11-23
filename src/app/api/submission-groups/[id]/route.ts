@@ -9,6 +9,10 @@
 // `sg_can_read` allows; never its messages (the archive is POST
 // /archive, which audits every view), and the list as it stood at the end.
 //
+// The newest page of messages; `?before=<older_cursor>` answers the page
+// before it, after the same access checks: `{ status, messages, has_more,
+// older_cursor }` alone, and no message once the group has ENDED.
+//
 // `caseId` is the group's case (019a), or null when none was opened yet:
 // looked up on the service role only once the checks above let the
 // caller in, pinned to their account.
@@ -40,7 +44,10 @@ import {
 } from '@/lib/submission-groups/view-refs';
 import {
   canManageSubmissionGroups,
+  cursorFilter,
+  decodeMessageCursor,
   DETAIL_MESSAGE_LIMIT,
+  messagePage,
   toAccessView,
   toDetailGroup,
   toMessageView,
@@ -51,11 +58,13 @@ type Params = { params: Promise<{ id: string }> };
 const MESSAGE_COLUMNS =
   'id, direction, sender_user_id, sender_wa_id, sender_kind, type, body, prefixed_body, media, wa_message_id, wa_timestamp, send_status, post_end, created_at, system_kind';
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     if (!isUuid(id)) throw new SgHttpError(404, GROUP_NOT_FOUND);
+    const rawBefore = new URL(request.url).searchParams.get('before');
+    const before = rawBefore === null ? null : decodeMessageCursor(rawBefore);
     const admin = supabaseAdmin();
     let group = ownGroup(
       await submissionGroupStore(admin).get(id),
@@ -63,7 +72,11 @@ export async function GET(_request: Request, { params }: Params) {
     );
 
     let access;
-    let messages: ReturnType<typeof toMessage>[] = [];
+    let page: ReturnType<typeof messagePage> = {
+      rows: [],
+      hasMore: false,
+      olderCursor: null,
+    };
     if (group.status === 'ENDED') {
       const store = submissionGroupStore(admin);
       if (!(await store.canRead(group.id, ctx.userId)))
@@ -77,18 +90,32 @@ export async function GET(_request: Request, { params }: Params) {
         throw new SgHttpError(404, GROUP_NOT_FOUND);
       group = visible;
       access = await mine.listAccess(group);
-      const { data, error } = await ctx.supabase
+      let read = ctx.supabase
         .from('submission_group_messages')
         .select(MESSAGE_COLUMNS)
         .eq('group_id', group.id)
-        .eq('post_end', false)
+        .eq('post_end', false);
+      if (before) read = read.or(cursorFilter('created_at', before));
+      const { data, error } = await read
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
-        .limit(DETAIL_MESSAGE_LIMIT);
+        .limit(DETAIL_MESSAGE_LIMIT + 1);
       if (error) throw new Error(`submission_group_messages: ${error.message}`);
-      messages = ((data ?? []) as Record<string, unknown>[])
-        .map(toMessage)
-        .reverse();
+      page = messagePage((data ?? []) as Record<string, unknown>[]);
+    }
+    const messages = page.rows.map(toMessage);
+    const paging = { has_more: page.hasMore, older_cursor: page.olderCursor };
+    if (before) {
+      const names = await loadNames(
+        admin,
+        ctx.accountId,
+        messages.map((m) => m.senderUserId)
+      );
+      return NextResponse.json({
+        status: group.status,
+        messages: messages.map((m) => toMessageView(m, names)),
+        ...paging,
+      });
     }
 
     const [refs, names, caseId, banks] = await Promise.all([
@@ -115,6 +142,7 @@ export async function GET(_request: Request, { params }: Params) {
       group: toDetailGroup(group, { ...refs, banks, myLabel }),
       access: access.map((a) => toAccessView(a, names)),
       messages: messages.map((m) => toMessageView(m, names)),
+      ...paging,
       archive_available: !active,
       can_send: active && myLabel !== null,
       can_manage: canManageSubmissionGroups(ctx.role),
