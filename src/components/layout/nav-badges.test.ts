@@ -21,10 +21,14 @@ describe('sumGroupBadge', () => {
 
 describe('teamInboxBadgeCount', () => {
   it('shows the team unread only with the team view', () => {
-    expect(teamInboxBadgeCount(true, 5)).toBe(5);
-    expect(teamInboxBadgeCount(false, 5)).toBe(0);
+    expect(teamInboxBadgeCount(true, 5, 2)).toBe(5);
+    expect(teamInboxBadgeCount(false, 5, 2)).toBe(0);
   });
   it('is hidden at 0', () => {
-    expect(teamInboxBadgeCount(true, 0)).toBe(0);
+    expect(teamInboxBadgeCount(true, 0, 0)).toBe(0);
+  });
+  it('does not repeat the personal figure', () => {
+    expect(teamInboxBadgeCount(true, 4, 4)).toBe(0);
+    expect(teamInboxBadgeCount(true, 5, 0)).toBe(5);
   });
 });

@@ -21,11 +21,14 @@ export function sumGroupBadge(
 
 /**
  * The team's unread as the Inbox row's second badge: only for people
- * with the team view, and nothing at 0.
+ * with the team view, and only when it says more than the personal badge.
+ * For an owner or admin the two are always the same figure, and the pair
+ * made the row's label wrap.
  */
 export function teamInboxBadgeCount(
   hasTeamView: boolean,
-  teamUnread: number
+  teamUnread: number,
+  personalUnread: number
 ): number {
-  return hasTeamView && teamUnread > 0 ? teamUnread : 0;
+  return hasTeamView && teamUnread > personalUnread ? teamUnread : 0;
 }

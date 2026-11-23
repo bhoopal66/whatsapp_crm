@@ -345,7 +345,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     canUseTeamView('inbox', profileLoading ? null : accountRole, {
       salesRestricted,
     }),
-    unreadChats.team
+    unreadChats.team,
+    unreadChats.inbox
   );
 
   function renderNavItem(item: NavItem) {
