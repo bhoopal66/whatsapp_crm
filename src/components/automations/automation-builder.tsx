@@ -104,8 +104,11 @@ import { cn } from "@/lib/utils"
 // ------------------------------------------------------------
 
 export interface BuilderStep {
-  /** Client id; the API assigns real UUIDs server-side. */
+  /** Client id, for addressing in the editor. */
   cid: string
+  /** The step's database id, kept across saves: a run waiting at this
+   *  step finds it again. Made here for a new step. */
+  id?: string
   step_type: AutomationStepType
   step_config: Record<string, unknown>
   branches?: { yes: BuilderStep[]; no: BuilderStep[] }
@@ -113,6 +116,8 @@ export interface BuilderStep {
 
 export interface BuilderInitial {
   id?: string
+  /** The automation's updated_at when loaded or last saved here. */
+  updated_at?: string
   name: string
   description: string
   trigger_type: AutomationTriggerType
@@ -191,6 +196,13 @@ function cid(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2) + Date.now().toString(36))
   )
+}
+
+/** Undefined without a secure context: the API then makes the id. */
+function newStepId(): string | undefined {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : undefined
 }
 
 // The send_buttons / send_list step_config IS an InteractiveMessagePayload,
@@ -933,6 +945,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
   function addStepAt(parent: ParentScope, index: number, type: AutomationStepType) {
     const node: BuilderStep = {
       cid: cid(),
+      id: newStepId(),
       step_type: type,
       step_config: blankConfig(type),
       branches: type === "condition" ? { yes: [], no: [] } : undefined,
@@ -959,6 +972,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
         trigger_config: state.trigger_config,
         is_active: state.is_active,
         steps: toApiSteps(state.steps),
+        updated_at: state.updated_at,
       }
 
       const res = isEditing
@@ -974,6 +988,10 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
           })
 
       const body = await res.json().catch(() => ({}))
+      if (res.status === 409) {
+        toast.error(t("toasts.changedElsewhere"))
+        return
+      }
       if (!res.ok) {
         // If the server blocked activation with validation issues,
         // surface the first concrete problem so the user can fix it
@@ -990,6 +1008,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
         return
       }
       toast.success(isEditing ? t("toasts.saved") : t("toasts.created"))
+      if (typeof body?.updated_at === "string") patchTop("updated_at", body.updated_at)
       if (!isEditing && body?.automation?.id) {
         router.replace(`/automations/${body.automation.id}/edit`)
       }
@@ -2093,6 +2112,7 @@ function previewFor(step: BuilderStep): string {
 // ------------------------------------------------------------
 
 interface ApiStep {
+  id?: string
   step_type: string
   step_config: Record<string, unknown>
   branches?: { yes?: ApiStep[]; no?: ApiStep[] }
@@ -2100,6 +2120,7 @@ interface ApiStep {
 
 export function toApiSteps(steps: BuilderStep[]): ApiStep[] {
   return steps.map((s) => ({
+    id: s.id,
     step_type: s.step_type,
     step_config: s.step_config,
     branches: s.branches
@@ -2122,6 +2143,7 @@ export interface ServerStepNode {
 export function fromServerSteps(nodes: ServerStepNode[]): BuilderStep[] {
   return nodes.map((n) => ({
     cid: cid(),
+    id: n.id,
     step_type: n.step_type as AutomationStepType,
     step_config: n.step_config ?? {},
     branches:

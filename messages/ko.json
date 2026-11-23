@@ -1771,7 +1771,8 @@
       "toasts": {
         "saved": "자동화가 저장되었습니다",
         "created": "자동화가 생성되었습니다",
-        "saveFailed": "저장 실패"
+        "saveFailed": "저장 실패",
+        "changedElsewhere": "이 자동화를 연 뒤 다른 사람이 변경했습니다. 변경 사항이 저장되지 않았습니다. 페이지를 새로 고쳐 최신 버전을 확인하세요."
       },
       "chatTags": {
         "label": "채팅 태그",

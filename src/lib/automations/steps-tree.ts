@@ -18,7 +18,7 @@ export interface BuilderStepInput {
   parent_index?: number | null
 }
 
-interface InsertRow {
+export interface InsertRow {
   id: string
   automation_id: string
   parent_step_id: string | null
@@ -33,24 +33,31 @@ const uid = () =>
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2) + Date.now().toString(36)
 
-export async function replaceSteps(
-  automationId: string,
-  input: BuilderStepInput[],
-): Promise<string | null> {
-  const admin = supabaseAdmin()
-  const { error: delErr } = await admin
-    .from('automation_steps')
-    .delete()
-    .eq('automation_id', automationId)
-  if (delErr) return delErr.message
-  return insertSteps(automationId, input)
-}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export async function insertSteps(
   automationId: string,
   input: BuilderStepInput[],
 ): Promise<string | null> {
-  if (!input || input.length === 0) return null
+  // A new automation: its steps are new too, whatever ids came with them.
+  const rows = flattenSteps(automationId, input, { keepIds: false })
+  if (rows.length === 0) return null
+  const { error } = await supabaseAdmin().from('automation_steps').insert(rows)
+  return error?.message ?? null
+}
+
+/**
+ * The builder's tree as rows. With `keepIds` a step keeps its id, so a
+ * run parked at it finds it again after the save; a missing, malformed
+ * or repeated id gets a fresh one. `automation_save` refuses an id that
+ * belongs to another automation.
+ */
+export function flattenSteps(
+  automationId: string,
+  input: BuilderStepInput[],
+  { keepIds }: { keepIds: boolean },
+): InsertRow[] {
+  if (!input || input.length === 0) return []
 
   const looksFlat = input.some(
     (s) => s.branch !== undefined || s.parent_index !== undefined,
@@ -58,13 +65,16 @@ export async function insertSteps(
   const tree = looksFlat ? seedsToTree(input) : input
 
   const rows: InsertRow[] = []
+  const used = new Set<string>()
   function walk(
     steps: BuilderStepInput[],
     parentId: string | null,
     branch: 'yes' | 'no' | null,
   ) {
     steps.forEach((s, idx) => {
-      const id = s.id ?? uid()
+      const given = keepIds && typeof s.id === 'string' ? s.id.toLowerCase() : ''
+      const id = UUID.test(given) && !used.has(given) ? given : uid()
+      used.add(id)
       rows.push({
         id,
         automation_id: automationId,
@@ -81,10 +91,7 @@ export async function insertSteps(
     })
   }
   walk(tree, null, null)
-
-  if (rows.length === 0) return null
-  const { error } = await supabaseAdmin().from('automation_steps').insert(rows)
-  return error?.message ?? null
+  return rows
 }
 
 function seedsToTree(seeds: BuilderStepInput[]): BuilderStepInput[] {
