@@ -287,7 +287,7 @@
         },
         "overdueCases": {
           "label": "ملفات متأخرة",
-          "hint": "{count, plural, =0 {تجاوزت مهلة SLA} other {# والعميل ينتظر}}"
+          "hint": "{count, plural, =0 {تجاوزت مهلة SLA} other {# بانتظار رد العميل}}"
         },
         "allClear": "لا شيء معلّق",
         "unavailable": "تعذر التحميل"
@@ -346,7 +346,7 @@
         "leads": "{count, plural, one {{shown} عميل محتمل} other {{shown} عملاء محتملين}}",
         "overdue": "تجاوزت SLA",
         "dueSoon": "مستحقة قريباً",
-        "customerWaiting": "العميل ينتظر",
+        "customerWaiting": "بانتظار رد العميل",
         "documentsMissing": "مستندات ناقصة",
         "bankQueries": "استفسارات البنك",
         "urgent": "الأكثر إلحاحاً",
@@ -9203,7 +9203,7 @@
       "sla": "SLA",
       "allSla": "أي SLA",
       "sort": "الترتيب",
-      "customerWaiting": "العميل ينتظر",
+      "customerWaiting": "بانتظار رد العميل",
       "documentsMissing": "مستندات ناقصة",
       "bankQueryOpen": "استفسار بنك مفتوح",
       "noActivity": "بلا نشاط منذ",
@@ -9243,7 +9243,7 @@
       "due": "الاستحقاق"
     },
     "flags": {
-      "customerWaiting": "العميل ينتظر",
+      "customerWaiting": "بانتظار رد العميل",
       "documentsMissing": "{count, plural, =1 {مستند واحد ناقص} other {# مستندات ناقصة}}",
       "bankQuery": "استفسار بنك",
       "overdueTasks": "{count, plural, =1 {مهمة متأخرة واحدة} other {# مهام متأخرة}}"
