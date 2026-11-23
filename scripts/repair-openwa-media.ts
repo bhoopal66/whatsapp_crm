@@ -25,13 +25,16 @@
  * writes go through `docker exec supabase-db psql` because the service
  * role may only read `customer_documents`. Run as root on the host.
  */
-import { config as loadEnv } from 'dotenv';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-loadEnv({ path: '.env.local' });
+try {
+  process.loadEnvFile('.env.local');
+} catch {
+  // No file: the environment already carries the settings.
+}
 
 const USAGE =
   'usage: npx tsx scripts/repair-openwa-media.ts [--contact <name or company>] [--apply]';

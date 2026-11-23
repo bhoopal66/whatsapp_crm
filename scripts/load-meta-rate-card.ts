@@ -31,11 +31,14 @@
  * Reads `.env.local` for the Supabase URL and service-role key; the
  * table is written only by the service role.
  */
-import { config as loadEnv } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 
-loadEnv({ path: '.env.local' });
+try {
+  process.loadEnvFile('.env.local');
+} catch {
+  // No file: the environment already carries the settings.
+}
 
 const MARKET_ALIASES: Record<string, string> = {
   'united arab emirates': 'AE',

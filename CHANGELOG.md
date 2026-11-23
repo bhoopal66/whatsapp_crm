@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Dependencies and repository settings
+
+No migration. Run `npm ci` after pulling.
+- Every package with a known vulnerability is updated (`npm audit`: 18 to
+  0; the MCP server 9 to 0). The `shadcn` CLI package and its
+  dependencies left the install: only its stylesheet was used, and that
+  is vendored in `src/app/shadcn-tailwind.css`.
+- Scripts read `.env.local` with Node's own loader (they relied on a
+  package that was never declared). Node 22 or newer, as before.
+- CI checks production packages for high vulnerabilities and builds the
+  MCP server; its token is read-only. Dependabot is batched and no
+  longer proposes ESLint 10, which crashes the React lint rules.
+- Test fixtures hold no real company, person or phone number.
+
 ### Case desk: WhatsApp documents reach the desk
 
 No migration.

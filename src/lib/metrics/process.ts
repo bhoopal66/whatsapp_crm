@@ -7,8 +7,10 @@
  *
  * Server-only (node:perf_hooks).
  */
-import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { Registry } from './registry';
+
+type IntervalHistogram = ReturnType<typeof monitorEventLoopDelay>;
 
 const GLOBAL_KEY = '__wacrmEventLoopHistogram';
 

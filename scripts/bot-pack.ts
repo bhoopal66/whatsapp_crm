@@ -27,11 +27,14 @@
  *
  * Reads `.env.local` for the Supabase + ENCRYPTION_KEY settings.
  */
-import { config as loadEnv } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
-loadEnv({ path: '.env.local' });
+try {
+  process.loadEnvFile('.env.local');
+} catch {
+  // No file: the environment already carries the settings.
+}
 
 interface Faq {
   q: string;
@@ -266,7 +269,9 @@ function buildSystemPrompt(packs: BotPack[]): string {
     ),
     '',
     'HARD GUARDRAILS (never violate):',
-    ...base.guardrails.map((g) => `- [${g.id}] ${GUARDRAIL_OVERRIDES[g.id] ?? g.rule}`),
+    ...base.guardrails.map(
+      (g) => `- [${g.id}] ${GUARDRAIL_OVERRIDES[g.id] ?? g.rule}`
+    ),
     '',
     "WHAT YOU MAY DO: answer questions from the knowledge base; ask the qualification questions one at a time; summarise the customer's profile back to them; send document checklists; tell the customer a relationship manager will follow up.",
     'WHAT YOU MAY NOT DO: confirm approvals, submissions or term-sheet acceptance; quote firm rates, fees or prices; name which bank will approve; review documents; give legal, tax or investment advice; state or promise the status of an application (you cannot see it — a relationship manager gives status updates).',

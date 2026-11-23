@@ -22,7 +22,6 @@
  *
  * Reads `.env.local` for the Supabase URL and service-role key.
  */
-import { config as loadEnv } from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { planCallRepair, type RepairRow } from '../src/lib/pbx/call-repair';
@@ -31,7 +30,11 @@ import {
   type CallEndEvent,
 } from '../src/lib/pbx/yeastar/events';
 
-loadEnv({ path: '.env.local' });
+try {
+  process.loadEnvFile('.env.local');
+} catch {
+  // No file: the environment already carries the settings.
+}
 
 const USAGE = `usage: npx tsx scripts/pbx-repair-call-legs.ts [--apply]
 

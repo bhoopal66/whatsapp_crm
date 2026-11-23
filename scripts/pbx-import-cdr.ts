@@ -25,7 +25,6 @@
  * it is imported dynamically, after the env is loaded. Tokens, secrets
  * and payloads are never printed.
  */
-import { config as loadEnv } from 'dotenv';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CdrRecord } from '../src/lib/pbx/yeastar/api';
@@ -82,7 +81,11 @@ async function main() {
     process.exit(2);
   }
 
-  loadEnv({ path: '.env.local' });
+  try {
+    process.loadEnvFile('.env.local');
+  } catch {
+    // No file: the environment already carries the settings.
+  }
   const { importWindowError, planCdrImport } =
     await import('../src/lib/pbx/cdr-import');
   const from = new Date(args.from);

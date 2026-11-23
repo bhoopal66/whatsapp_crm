@@ -14,9 +14,12 @@
  * after someone has looked at what it is. Tokens and URLs are never
  * printed. Reads `.env.local`; run on the host after migration 209.
  */
-import { config as loadEnv } from 'dotenv';
 
-loadEnv({ path: '.env.local' });
+try {
+  process.loadEnvFile('.env.local');
+} catch {
+  // No file: the environment already carries the settings.
+}
 
 const USAGE =
   'usage: npx tsx scripts/remirror-openwa-media.ts <message uuid>... [--apply]';

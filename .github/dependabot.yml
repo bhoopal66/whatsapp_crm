@@ -1,26 +1,22 @@
 version: 2
 updates:
-  # Runtime + dev dependencies. Weekly on Mondays — keeps the noise
-  # predictable and aligns with a normal review cycle.
+  # Runtime + dev dependencies. Weekly on Mondays, batched into three
+  # pull requests: the Supabase client libraries, everything else that
+  # ships, and everything that does not.
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
-    reviewers:
-      - ArnasDon
     labels:
       - dependencies
     groups:
-      # Batch related upgrades into one PR so we're not closing six
-      # independent Supabase-bumps per week.
       supabase:
         patterns:
           - "@supabase/*"
-      types:
-        patterns:
-          - "@types/*"
+      production:
+        dependency-type: production
         update-types:
           - minor
           - patch
@@ -30,13 +26,34 @@ updates:
           - minor
           - patch
     ignore:
-      # Next + React + Tailwind are pinned exactly on purpose. Let
-      # them flow through manual major bumps when we're ready.
+      # Next, React and Tailwind are pinned exactly on purpose: they move
+      # by hand, together, with a full check.
       - dependency-name: next
       - dependency-name: react
       - dependency-name: react-dom
       - dependency-name: tailwindcss
       - dependency-name: eslint-config-next
+      # eslint-plugin-react (inside eslint-config-next) crashes on ESLint
+      # 10: "contextOrFilename.getFilename is not a function" (2026-11-23).
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+
+  # The MCP server is a package of its own with its own lockfile.
+  - package-ecosystem: npm
+    directory: "/mcp-server"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+    groups:
+      mcp-server:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
 
   # GitHub Actions in .github/workflows/. Catches setup-node /
   # checkout version bumps that keep the CI matrix healthy.
@@ -46,8 +63,23 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
-    reviewers:
-      - ArnasDon
     labels:
       - dependencies
       - github-actions
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The Dockerfile's Node base image.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

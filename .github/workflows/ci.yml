@@ -12,6 +12,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only token: nothing here writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Lint, typecheck, test, build
@@ -47,6 +51,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Only what ships to production, and only high or critical: a new
+      # advisory in a dev tool must not block a fix.
+      - name: Known vulnerabilities in production packages
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint
         run: npm run lint
 
@@ -58,3 +67,8 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # mcp-server/ is its own package: the root scripts never touch it.
+      - name: MCP server (install, typecheck, build)
+        working-directory: mcp-server
+        run: npm ci && npm run typecheck && npm run build

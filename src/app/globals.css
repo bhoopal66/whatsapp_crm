@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
+@import './shadcn-tailwind.css';
 
 /* `dark:` matches the app's own mode attribute (html[data-mode='dark']),
  * so the shadcn primitives' dark rules apply. */
