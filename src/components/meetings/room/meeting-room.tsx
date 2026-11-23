@@ -544,7 +544,10 @@ export function LiveRoom({
         </div>
         <div className="col-start-1 row-start-2 min-w-0">
           <div className="px-2">
-            <DeviceNotices devices={call.devices} />
+            <DeviceNotices
+              devices={call.devices}
+              onRejoin={() => void call.rejoin()}
+            />
           </div>
           <ControlBar
             call={call}

@@ -430,6 +430,7 @@ export class MeetingCallEngine {
       ...snap,
       join: this.join,
       returnToLobby: this.returnToLobby,
+      rejoin: this.rejoin,
       leave: this.leave,
       end: this.end,
       toggleMic: this.toggleMic,
@@ -1119,6 +1120,28 @@ export class MeetingCallEngine {
     // `reconnecting` until the tries run out.
     if (await this.enter(true)) void this.reconnect();
   }
+
+  /**
+   * The person's own Rejoin, offered when the video service did not take
+   * their mic or camera. As fresh as a join from the lobby, and what the
+   * failed publish released is opened again so the rejoin sends it.
+   */
+  rejoin = async () => {
+    const pc = this.pc;
+    if (!this.isLive() || this.snap.phase !== 'live') return;
+    for (const kind of ['audio', 'video'] as const) {
+      if (this.snap.devices[kind] !== 'unreachable' || this[kind]) continue;
+      if (this.opening.has(kind)) continue;
+      this.opening.add(kind);
+      this[kind] = await this.open(kind).finally(() =>
+        this.opening.delete(kind)
+      );
+    }
+    if (!pc || pc !== this.pc) return;
+    this.attempts = 0;
+    this.pullRejoins = [];
+    await this.reconnect();
+  };
 
   private connectionFailed() {
     this.session += 1;
@@ -2320,6 +2343,7 @@ export class MeetingCallEngine {
 export interface MeetingCall extends CallSnapshot, CallActionsV2 {
   join: () => Promise<void>;
   returnToLobby: () => Promise<void>;
+  rejoin: () => Promise<void>;
   leave: () => Promise<void>;
   end: () => Promise<boolean>;
   toggleMic: () => Promise<void>;

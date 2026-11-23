@@ -15,6 +15,8 @@ export type DeviceError =
   | 'in_use'
   /** No mediaDevices at all: an insecure origin or an old browser. */
   | 'unsupported'
+  /** The device is fine; the video service did not take its track. */
+  | 'unreachable'
   | 'unknown';
 
 export function classifyMediaError(err: unknown): DeviceError {
@@ -107,7 +109,7 @@ export function isShareCancelled(err: unknown): boolean {
  * What a failed publish releases. A local track the SFU never received
  * is released, so the room reads it as off and the toggle's turn-on path
  * (open the device, publish through the queue) is the retry: the mic
- * and camera with an `unknown` device error, since the person sees
+ * and camera with an `unreachable` error, since the person sees
  * their own mic or camera as on otherwise and nobody hears or sees
  * them; the screen silently, the share button reading "share" again.
  * Never a track the engine has since replaced or dropped, and never a
@@ -123,7 +125,7 @@ export function afterFailedPublish<T>(
     .filter((f) => held[f.kind] === f.track && !published.has(f.kind))
     .map((f) => ({
       kind: f.kind,
-      error: f.kind === 'screen' ? null : 'unknown',
+      error: f.kind === 'screen' ? null : 'unreachable',
     }));
 }
 

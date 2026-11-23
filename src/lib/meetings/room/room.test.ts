@@ -298,8 +298,8 @@ describe('devices', () => {
       { track: scr, kind: 'screen' as const },
     ];
     expect(afterFailedPublish(failed, held, new Set())).toEqual([
-      { kind: 'audio', error: 'unknown' },
-      { kind: 'video', error: 'unknown' },
+      { kind: 'audio', error: 'unreachable' },
+      { kind: 'video', error: 'unreachable' },
       { kind: 'screen', error: null },
     ]);
   });
@@ -316,7 +316,7 @@ describe('devices', () => {
         { audio: 'mic', video: 'cam2', screen: null },
         new Set()
       )
-    ).toEqual([{ kind: 'audio', error: 'unknown' }]);
+    ).toEqual([{ kind: 'audio', error: 'unreachable' }]);
     // A duplicate publish of a mic that is already being sent.
     expect(
       afterFailedPublish(
