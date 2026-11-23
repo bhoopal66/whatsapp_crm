@@ -19,10 +19,9 @@ import {
 import { usePushSubscription } from '@/hooks/use-push-subscription';
 import type { PushKind } from '@/lib/push/kinds';
 import {
-  DEFAULT_PUSH_PREFERENCES,
   groupedPushKinds,
   isKindOn,
-  parsePushPreferences,
+  loadedPushPreferences,
   preferencesToSave,
   type PushPreferences,
 } from '@/lib/push/settings';
@@ -61,6 +60,8 @@ export function NotificationsSettings() {
   const t = useTranslations('PushNotifications');
   const push = usePushSubscription();
   const [prefs, setPrefs] = useState<PushPreferences | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zones = useMemo(
     () => timeZones(prefs?.timeZone ?? null),
@@ -73,18 +74,25 @@ export function NotificationsSettings() {
       .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
       .then((body: unknown) => {
         if (cancelled) return;
-        const p = parsePushPreferences(body);
+        // Never an editable form from defaults: the next toggle would
+        // save "everything on, no quiet hours" over the person's choices.
+        const p = loadedPushPreferences(body);
+        if (!p) throw new Error('unexpected answer');
         setPrefs({ ...p, timeZone: p.timeZone ?? browserTimeZone() });
       })
       .catch(() => {
         if (cancelled) return;
-        toast.error(t('loadFailed'));
-        setPrefs({ ...DEFAULT_PUSH_PREFERENCES, timeZone: browserTimeZone() });
+        setLoadFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [attempt]);
+
+  const retry = () => {
+    setLoadFailed(false);
+    setAttempt((n) => n + 1);
+  };
 
   useEffect(
     () => () => {
@@ -180,6 +188,18 @@ export function NotificationsSettings() {
       </div>
 
       <MessageSoundSetting />
+
+      {!prefs && loadFailed ? (
+        <div
+          role="alert"
+          className="border-border bg-card mt-6 flex items-center justify-between gap-4 rounded-xl border p-4"
+        >
+          <p className="text-destructive text-sm">{t('loadFailed')}</p>
+          <Button variant="outline" size="sm" onClick={retry}>
+            {t('retry')}
+          </Button>
+        </div>
+      ) : null}
 
       {prefs ? (
         <>

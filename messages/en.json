@@ -8126,6 +8126,7 @@
     "saved": "Notification settings saved",
     "saveFailed": "Couldn't save notification settings",
     "loadFailed": "Couldn't load notification settings",
+    "retry": "Retry",
     "bannerTitle": "Turn on notifications",
     "bannerBody": "Hear about new messages, meetings and tasks even when this tab is in the background.",
     "bannerAction": "Turn on",
