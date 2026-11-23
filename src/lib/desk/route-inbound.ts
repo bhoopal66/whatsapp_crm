@@ -36,7 +36,9 @@ import {
 import type { RouteDecision } from './tray';
 import { prepareIntakeFile, storeIntakeFile } from './upload';
 
-type Admin = Pick<SupabaseClient, 'rpc'> & { storage: CaseFilesStorage };
+type Admin = Pick<SupabaseClient, 'from' | 'rpc'> & {
+  storage: CaseFilesStorage;
+};
 
 const EMPTY_TAGS: ItemTags = {
   kind: null,
@@ -52,8 +54,8 @@ const EMPTY_TAGS: ItemTags = {
 
 export interface DeskDocumentInput {
   accountId: string;
-  /** The customer_documents row 178 just recorded. */
-  documentId: string;
+  /** The messages row the document arrived on (178 files one per message). */
+  messageRowId: string;
   /** The number it arrived on (desk numbers take unknown senders). */
   channelId: string | null;
   mediaUrl: string;
@@ -104,6 +106,31 @@ export async function copyIntoIntake(
   });
 }
 
+/**
+ * The id of the customer_documents row 178 recorded for this message.
+ * Read here because `customer_documents_record` answers the customer's
+ * FOLDER reference ('TC-000123'), never the row: handing that to the
+ * router failed every call (22P02 on its uuid argument).
+ */
+async function recordedDocumentId(
+  admin: Admin,
+  input: DeskDocumentInput
+): Promise<string> {
+  const { data, error } = await admin
+    .from('customer_documents')
+    .select('id')
+    .eq('account_id', input.accountId)
+    .eq('message_id', input.messageRowId)
+    .maybeSingle();
+  const id = (data as { id?: unknown } | null)?.id;
+  if (error || typeof id !== 'string') throw new DeskDocumentMissingError();
+  return id;
+}
+
+class DeskDocumentMissingError extends Error {
+  override name = 'DeskDocumentMissingError';
+}
+
 /** Routes one recorded document. Never throws; null on any failure. */
 export async function routeDeskDocument(
   admin: Admin,
@@ -111,10 +138,12 @@ export async function routeDeskDocument(
   store: DeskStore = new DeskStore(admin as unknown as SupabaseClient)
 ): Promise<RouteDecision | null> {
   let decision: RouteDecision;
+  let documentId: string;
   try {
+    documentId = await recordedDocumentId(admin, input);
     decision = await store.routeDocument(
       input.accountId,
-      input.documentId,
+      documentId,
       input.channelId
     );
   } catch (err) {
@@ -136,8 +165,8 @@ export async function routeDeskDocument(
     await copyIntoIntake(admin, store, {
       actor: decision.staffUserId,
       accountId: input.accountId,
-      itemId: input.documentId,
-      idemKey: `wa:${input.documentId}`,
+      itemId: documentId,
+      idemKey: `wa:${documentId}`,
       tags,
       media: input,
     });

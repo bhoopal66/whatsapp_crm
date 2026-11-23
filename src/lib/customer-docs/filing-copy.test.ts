@@ -170,9 +170,9 @@ describe('isCredentialFreeLink', () => {
 
 describe('fileWithDurableCopy', () => {
   it('records the mirrored URL when the copy succeeds', async () => {
-    // The recorded document comes back for the desk router (230).
+    // The folder's reference and the URL come back.
     await expect(file()).resolves.toEqual({
-      documentId: 'TC-000123',
+      ref: 'TC-000123',
       mediaUrl: STORED,
     });
 

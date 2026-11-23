@@ -126,9 +126,9 @@ function recordLabel(record: FilingRecordInput): string {
  * the race with the timeout but is still running can never reject
  * unhandled: the caller awaits this inside the route's `after()`.
  */
-/** The document a durable copy recorded (178), for the desk router (230). */
+/** What a durable copy recorded (178): the folder's reference, not a row id. */
 export interface FiledDocument {
-  documentId: string;
+  ref: string;
   mediaUrl: string;
 }
 
@@ -194,11 +194,11 @@ export async function fileWithDurableCopy(args: {
       console.error(`[customer-docs] no durable copy for ${label}`);
       return null;
     }
-    const documentId = await recordCustomerDocument(admin, {
+    const ref = await recordCustomerDocument(admin, {
       ...record,
       mediaUrl,
     } as CustomerDocumentInput);
-    return documentId ? { documentId, mediaUrl } : null;
+    return ref ? { ref, mediaUrl } : null;
   } catch (err) {
     // The error's name only: a gateway or fetch message can carry a URL.
     console.error(

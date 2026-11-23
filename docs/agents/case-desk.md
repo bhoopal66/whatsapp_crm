@@ -53,7 +53,8 @@ package 035a-c. `docs/case-desk.md` is the contract.
   unlinked sender only on a desk number. A staff phone (142's
   `coordinator_phones`, exactly one live staff) answers 'staff' and the
   TS uploads it through `desk_whatsapp_intake` (220's intake, channel
-  whatsapp, item id = the document id). Tray filing: bank scope
+  whatsapp, item id = the document id, read by the message it arrived on:
+  `customer_documents_record` answers the folder's ref). Tray filing: bank scope
   (`intake_scope_ok`), CONFIRM_COMPANY for a company the sender is not
   linked to, the sender's own document registered directly, another
   person's copied through the intake (item id = tray id) then

@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: WhatsApp documents reach the desk
+
+No migration.
+- A customer's WhatsApp document was offered to the case desk under its
+  folder's reference (`TC-000123`) instead of its own id, so every offer
+  failed (`[desk] route failed` in the log, nothing else affected) and
+  routing could not work once switched on. The desk now finds the
+  document by the message it arrived on.
+
 ### Two phone dialogs and the Privacy screen
 
 No migration.

@@ -8,13 +8,28 @@ import type { DeskStore } from './store';
 
 const PDF = new TextEncoder().encode('%PDF-1.4 test');
 const upload = vi.fn();
+const DOC_ID = '11111111-1111-4111-8111-111111111111';
+/** The customer_documents read: which filters it used, what it answers. */
+const read = vi.fn();
+const filters: [string, unknown][] = [];
 const admin = {
   rpc: vi.fn(),
+  from: (table: string) => {
+    const b = {
+      select: () => b,
+      eq: (col: string, v: unknown) => {
+        filters.push([`${table}.${col}`, v]);
+        return b;
+      },
+      maybeSingle: () => read(),
+    };
+    return b;
+  },
   storage: { from: () => ({ upload, download: vi.fn() }) },
-};
+} as unknown as Parameters<typeof routeDeskDocument>[0];
 const input = {
   accountId: 'acct-1',
-  documentId: '11111111-1111-4111-8111-111111111111',
+  messageRowId: 'msg-row-1',
   channelId: 'ch-1',
   mediaUrl: 'https://x/storage/v1/object/public/chat-media/a.pdf',
   mime: 'application/pdf',
@@ -42,21 +57,24 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   h.read.mockResolvedValue(PDF);
   upload.mockResolvedValue({ error: null });
+  filters.length = 0;
+  read.mockResolvedValue({ data: { id: DOC_ID }, error: null });
 });
 
 describe('routeDeskDocument', () => {
-  it('asks the SQL with the account, document and number', async () => {
+  it("asks the SQL with the account, the message's document row and the number", async () => {
     const store = fakeStore({ action: 'tray', staffUserId: null });
     const d = await routeDeskDocument(
       admin,
       input,
       store as unknown as DeskStore
     );
-    expect(store.routeDocument).toHaveBeenCalledWith(
-      'acct-1',
-      input.documentId,
-      'ch-1'
-    );
+    expect(store.routeDocument).toHaveBeenCalledWith('acct-1', DOC_ID, 'ch-1');
+    // Found by the message it arrived on, in this workspace.
+    expect(filters).toEqual([
+      ['customer_documents.account_id', 'acct-1'],
+      ['customer_documents.message_id', 'msg-row-1'],
+    ]);
     expect(d?.action).toBe('tray');
     expect(store.whatsappIntake).not.toHaveBeenCalled();
   });
@@ -69,14 +87,14 @@ describe('routeDeskDocument', () => {
     expect(actor).toBe('staff-1');
     expect(account).toBe('acct-1');
     // The document id is the item id and the idem key: a redelivery replays.
-    expect(body.itemId).toBe(input.documentId);
-    expect(body.idemKey).toBe(`wa:${input.documentId}`);
+    expect(body.itemId).toBe(DOC_ID);
+    expect(body.idemKey).toBe(`wa:${DOC_ID}`);
     expect(body.tags).toMatchObject({
       kind: 'pending_doc',
       caseRef: '4271RAKD',
     });
     expect(body.file.storagePath).toMatch(
-      new RegExp(`^intake/${input.documentId}/[0-9a-f]{64}\\.pdf$`)
+      new RegExp(`^intake/${DOC_ID}/[0-9a-f]{64}\\.pdf$`)
     );
     expect(upload).toHaveBeenCalledTimes(1);
   });
@@ -94,6 +112,20 @@ describe('routeDeskDocument', () => {
       bankCode: 'RAK',
       tradeLicence: '12345',
     });
+  });
+
+  it('asks nothing when the recorded row cannot be read', async () => {
+    for (const answer of [
+      { data: null, error: null },
+      { data: null, error: { code: '57014' } },
+    ]) {
+      read.mockResolvedValue(answer);
+      const store = fakeStore({});
+      await expect(
+        routeDeskDocument(admin, input, store as unknown as DeskStore)
+      ).resolves.toBeNull();
+      expect(store.routeDocument).not.toHaveBeenCalled();
+    }
   });
 
   it('never throws: a failed route or an unreadable file is only logged', async () => {

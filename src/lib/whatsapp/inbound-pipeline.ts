@@ -1020,10 +1020,10 @@ export async function processMessage(
   let fileDocument: (() => Promise<void>) | null = null;
   // A recorded document is offered to the case desk (migration 230): off
   // until an admin switches desk routing on, and it never throws.
-  const routeToDesk = async (documentId: string, url: string) => {
+  const routeToDesk = async (url: string) => {
     await routeDeskDocument(supabaseAdmin(), {
       accountId,
-      documentId,
+      messageRowId: documentRecord.messageRowId,
       channelId: channel.id,
       mediaUrl: url,
       mime: mediaType,
@@ -1036,11 +1036,11 @@ export async function processMessage(
   if (channel.isPersonal) {
     // nothing to file
   } else if (mediaUrl && isOwnStorageUrl(mediaUrl)) {
-    const documentId = await recordCustomerDocument(supabaseAdmin(), {
+    const ref = await recordCustomerDocument(supabaseAdmin(), {
       ...documentRecord,
       mediaUrl,
     });
-    if (documentId) await routeToDesk(documentId, mediaUrl);
+    if (ref) await routeToDesk(mediaUrl);
   } else if (documentKind && mediaUrl && message.media) {
     const media = message.media;
     fileDocument = async () => {
@@ -1060,7 +1060,7 @@ export async function processMessage(
         },
         record: documentRecord,
       });
-      if (filed) await routeToDesk(filed.documentId, filed.mediaUrl);
+      if (filed) await routeToDesk(filed.mediaUrl);
     };
   }
   const fileDocumentLater = async () => {

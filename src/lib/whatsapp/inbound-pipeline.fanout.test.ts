@@ -18,6 +18,9 @@ interface Call {
 
 type Result = { data: unknown; error: unknown };
 
+/** The customer_documents row the recording of message 'row-1' made. */
+const DOC_ROW_ID = '22222222-2222-4222-8222-222222222222';
+
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
@@ -86,6 +89,12 @@ function respond(call: Call): Result {
   }
   if (call.table === 'messages' && call.op === 'select') {
     return { data: [{ id: 'earlier' }], error: null };
+  }
+  if (call.table === 'customer_documents' && call.op === 'select') {
+    const byMessage = call.filters?.some(
+      ([op, col, v]) => op === 'eq' && col === 'message_id' && v === 'row-1'
+    );
+    return { data: byMessage ? { id: DOC_ROW_ID } : null, error: null };
   }
   return { data: null, error: null };
 }
@@ -1056,7 +1065,9 @@ describe('processMessage — customer documents', () => {
       media_type: 'application/pdf',
       created_at: '2025-10-09T08:53:20.000Z',
     });
-    // Then offered to the case desk (migration 230), by the recorded id.
+    // Then offered to the case desk (migration 230), by the id of the row
+    // recorded for this message: the record RPC answers the folder's
+    // reference, which the router's uuid argument refuses.
     expect(h.rpcs).toEqual([
       'bump_conversation_on_inbound',
       'push_whatsapp_inbound',
@@ -1065,7 +1076,7 @@ describe('processMessage — customer documents', () => {
     ]);
     expect(h.rpcArgs.at(-1)).toMatchObject({
       p_account: 'acct-1',
-      p_document: 'TC-000123',
+      p_document: DOC_ROW_ID,
       p_channel: channel.id,
     });
   });
