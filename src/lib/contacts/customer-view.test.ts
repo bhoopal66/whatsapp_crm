@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { MonthTotals } from '@/lib/pbx/timeline';
 import { sessionKey } from '@/lib/session-cache';
 
 import type { Basics, CustomerTimeline } from './customer-load';
@@ -108,10 +109,39 @@ describe('applyPart', () => {
     for (const part of ['basics', 'timeline', 'tasks'] as const)
       expect(applyPart(held, { kind: 'failed', part })).toBe(held);
   });
-  it('settles tasks empty when nothing was held', () => {
-    expect(
-      applyPart(EMPTY_CUSTOMER_VIEW, { kind: 'failed', part: 'tasks' }).tasks
-    ).toEqual([]);
+  it('fails the tasks and the month when nothing was held, never empty', () => {
+    const tasksFailed = applyPart(EMPTY_CUSTOMER_VIEW, {
+      kind: 'failed',
+      part: 'tasks',
+    });
+    expect(tasksFailed.tasks).toBeNull();
+    expect(customerSections(tasksFailed).tasks).toBe('failed');
+    const both = applyPart(tasksFailed, { kind: 'failed', part: 'summary' });
+    expect(customerSections(both)).toMatchObject({
+      tasks: 'failed',
+      month: 'failed',
+      timeline: 'loading',
+    });
+  });
+  it('clears the failure once the part lands', () => {
+    let v = applyPart(EMPTY_CUSTOMER_VIEW, { kind: 'failed', part: 'tasks' });
+    v = applyPart(v, { kind: 'failed', part: 'summary' });
+    v = applyPart(v, { kind: 'tasks', value: [] });
+    v = applyPart(v, { kind: 'summary', value: {} as MonthTotals });
+    expect(v.failed).toEqual(EMPTY_CUSTOMER_VIEW.failed);
+    expect(customerSections(v)).toMatchObject({
+      tasks: 'ready',
+      month: 'ready',
+    });
+  });
+  it('keeps the held month, and lets a failed thread wait', () => {
+    const v = { ...held, summary: {} as MonthTotals };
+    expect(applyPart(v, { kind: 'failed', part: 'summary' })).toBe(v);
+    expect(applyPart(v, { kind: 'failed', part: 'thread' })).toBe(v);
+  });
+  it('does not fail the basics of a missing contact', () => {
+    const v = applyPart(EMPTY_CUSTOMER_VIEW, { kind: 'basics', value: null });
+    expect(applyPart(v, { kind: 'failed', part: 'basics' })).toBe(v);
   });
   it('turns a held contact missing when the refresh finds none', () => {
     const v = applyPart(held, { kind: 'basics', value: null });
@@ -132,11 +162,15 @@ describe('startView and worthCaching', () => {
     const cached = {
       ...EMPTY_CUSTOMER_VIEW,
       basics,
-      failed: { basics: false, timeline: true },
+      failed: { basics: false, timeline: true, tasks: true, summary: true },
     };
     const v = startView(cached);
     expect(v.basics).toBe(basics);
-    expect(customerSections(v).timeline).toBe('loading');
+    expect(customerSections(v)).toMatchObject({
+      timeline: 'loading',
+      tasks: 'loading',
+      month: 'loading',
+    });
   });
   it('starts empty with nothing cached', () => {
     expect(startView(undefined)).toBe(EMPTY_CUSTOMER_VIEW);

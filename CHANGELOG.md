@@ -18,6 +18,9 @@ No migration.
 - My worklist says which part could not be loaded (HR conversations,
   agent drafts, cases) and offers a retry, instead of "Nothing needs
   action right now". A part that loaded before keeps its rows.
+- The customer page says when the open tasks, this month's calls or the
+  deals could not be loaded, with a retry, instead of "No open tasks",
+  "No deals" or a bar that never ends.
 
 ### Reminders and meeting invites after sleep
 

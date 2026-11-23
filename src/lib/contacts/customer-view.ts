@@ -46,7 +46,7 @@ export interface CustomerView {
   /** Display names by auth user id, as the profiles read found them. */
   names: Record<string, string>;
   /** A read failed with nothing held to show instead. Never cached. */
-  failed: { basics: boolean; timeline: boolean };
+  failed: Record<'basics' | 'timeline' | 'tasks' | 'summary', boolean>;
   /**
    * This load's own basics have landed. False on a cached start (the
    * held basics may be older than the contact's row) and when the
@@ -54,6 +54,13 @@ export interface CustomerView {
    */
   basicsRefreshed: boolean;
 }
+
+const NONE_FAILED: CustomerView['failed'] = {
+  basics: false,
+  timeline: false,
+  tasks: false,
+  summary: false,
+};
 
 export const EMPTY_CUSTOMER_VIEW: CustomerView = {
   basics: null,
@@ -63,7 +70,7 @@ export const EMPTY_CUSTOMER_VIEW: CustomerView = {
   tasks: null,
   summary: null,
   names: {},
-  failed: { basics: false, timeline: false },
+  failed: NONE_FAILED,
   basicsRefreshed: false,
 };
 
@@ -76,7 +83,7 @@ export function startView(cached: CustomerView | undefined): CustomerView {
   if (!cached) return EMPTY_CUSTOMER_VIEW;
   return {
     ...cached,
-    failed: { basics: false, timeline: false },
+    failed: NONE_FAILED,
     basicsRefreshed: false,
   };
 }
@@ -103,9 +110,9 @@ export type CustomerPart =
  * one whole (a revisit's older pages are dropped, not kept
  * unrefreshed). A failure changes nothing that is on screen: the held
  * value stays, as the session cache keeps a value whose refresh failed;
- * only a part with nothing held is marked failed (basics, timeline) or
- * settles empty (tasks: none listed). The thread and this month's
- * calls keep waiting, as they always have.
+ * only a part with nothing held is marked failed, never settled empty
+ * (a failed tasks read once hid a due call-back behind "No open tasks").
+ * The thread keeps waiting, as it always has.
  */
 export function applyPart(
   view: CustomerView,
@@ -129,23 +136,23 @@ export function applyPart(
     case 'thread':
       return { ...view, thread: part.value };
     case 'tasks':
-      return { ...view, tasks: part.value };
+      return {
+        ...view,
+        tasks: part.value,
+        failed: { ...view.failed, tasks: false },
+      };
     case 'summary':
-      return { ...view, summary: part.value };
+      return {
+        ...view,
+        summary: part.value,
+        failed: { ...view.failed, summary: false },
+      };
     case 'names':
       return { ...view, names: { ...view.names, ...part.value } };
     case 'failed':
-      if (part.part === 'basics')
-        return view.basics || view.missing
-          ? view
-          : { ...view, failed: { ...view.failed, basics: true } };
-      if (part.part === 'timeline')
-        return view.timeline
-          ? view
-          : { ...view, failed: { ...view.failed, timeline: true } };
-      if (part.part === 'tasks')
-        return view.tasks ? view : { ...view, tasks: [] };
-      return view;
+      if (part.part === 'thread' || view[part.part] !== null) return view;
+      if (part.part === 'basics' && view.missing) return view;
+      return { ...view, failed: { ...view.failed, [part.part]: true } };
   }
 }
 
@@ -179,8 +186,8 @@ export interface CustomerSections {
   header: 'loading' | 'ready';
   /** The timeline needs the basics too (names, call actions). */
   timeline: SectionState;
-  tasks: 'loading' | 'ready';
-  month: 'loading' | 'ready';
+  tasks: SectionState;
+  month: SectionState;
   /**
    * The cards that read for themselves by contact id alone (deals,
    * cases, memory, journey and consent). They mount with the page, so
@@ -208,8 +215,8 @@ export function customerSections(view: CustomerView): CustomerSections {
         : view.failed.timeline
           ? 'failed'
           : 'loading',
-    tasks: view.tasks ? 'ready' : 'loading',
-    month: view.summary ? 'ready' : 'loading',
+    tasks: view.tasks ? 'ready' : view.failed.tasks ? 'failed' : 'loading',
+    month: view.summary ? 'ready' : view.failed.summary ? 'failed' : 'loading',
     selfLoading: shown,
   };
 }

@@ -16,10 +16,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import {
   dealRows,
+  dealsFromRead,
   type DealRow,
   type DealRowInput,
 } from '@/lib/contacts/customer-layout';
 import { createClient } from '@/lib/supabase/client';
+
+import { FailedLine } from './failed-line';
 
 export function SideCard({
   title,
@@ -205,7 +208,8 @@ export function DealsCard({ contactId }: { contactId: string }) {
   const t = useTranslations('Contacts.detailView');
   const tl = useTranslations('CustomerTimeline');
   const { defaultCurrency } = useAuth();
-  const [deals, setDeals] = useState<DealRowInput[] | null>(null);
+  const [deals, setDeals] = useState<DealRowInput[] | 'failed' | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
     void createClient()
@@ -215,15 +219,19 @@ export function DealsCard({ contactId }: { contactId: string }) {
       )
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false })
-      .then(
-        ({ data }) =>
-          live && setDeals((data ?? []) as unknown as DealRowInput[])
-      );
+      .then((result) => {
+        if (live) setDeals(dealsFromRead(result));
+      });
     return () => {
       live = false;
     };
-  }, [contactId]);
-  const rows: DealRow[] = deals ? dealRows(deals, defaultCurrency) : [];
+  }, [contactId, attempt]);
+  const retry = () => {
+    setDeals(null);
+    setAttempt((n) => n + 1);
+  };
+  const rows: DealRow[] =
+    deals && deals !== 'failed' ? dealRows(deals, defaultCurrency) : [];
   return (
     <SideCard
       title={t('tabs.deals')}
@@ -238,6 +246,8 @@ export function DealsCard({ contactId }: { contactId: string }) {
     >
       {!deals ? (
         <div className="bg-muted h-10 animate-pulse rounded" aria-hidden />
+      ) : deals === 'failed' ? (
+        <FailedLine onRetry={retry} />
       ) : rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">{t('dealsTab.noDeals')}</p>
       ) : (

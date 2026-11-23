@@ -109,6 +109,7 @@ import {
 import { CasesCard } from './customer/cases-card';
 import { DocumentsCard } from './customer/documents-card';
 import { CustomerHeader } from './customer/customer-header';
+import { FailedLine } from './customer/failed-line';
 import { RecordingPlayer } from './recording-player';
 
 /** The view on screen, tagged with the contact it belongs to. */
@@ -190,6 +191,14 @@ export function CustomerPage({
   const restart = () => {
     loadGen.current += 1;
     setReloadKey((k) => k + 1);
+  };
+  // Retry of a failed part: every part is read again, and the failed
+  // ones show as loading meanwhile.
+  const retry = () => {
+    setHeld((h) =>
+      h.contactId === contactId ? { ...h, view: startView(h.view) } : h
+    );
+    restart();
   };
   const outreach = useContactOutreach({
     contact: view.basics
@@ -410,9 +419,11 @@ export function CustomerPage({
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
         <BackLink fallbackHref={contactsListPath(fromTeam)} />
-        <p className="text-muted-foreground text-sm">
-          {sections.page === 'missing' ? tl('notFound') : tl('loadFailed')}
-        </p>
+        {sections.page === 'missing' ? (
+          <p className="text-muted-foreground text-sm">{tl('notFound')}</p>
+        ) : (
+          <FailedLine onRetry={retry} />
+        )}
       </div>
     );
 
@@ -673,7 +684,7 @@ export function CustomerPage({
             ))}
           </nav>
           {sections.timeline === 'failed' ? (
-            <p className="text-muted-foreground text-sm">{tl('loadFailed')}</p>
+            <FailedLine onRetry={retry} />
           ) : sections.timeline === 'loading' ? (
             <div
               className="bg-muted h-40 animate-pulse rounded-xl"
@@ -727,7 +738,7 @@ export function CustomerPage({
               }
             />
           )}
-          <DealsCard contactId={contactId} />
+          <DealsCard key={contactId} contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
           <DocumentsCard key={contactId} contactId={contactId} />
           <Card title={tl('openTasks')}>
@@ -736,6 +747,8 @@ export function CustomerPage({
                 className="bg-muted h-10 animate-pulse rounded"
                 aria-hidden
               />
+            ) : sections.tasks === 'failed' ? (
+              <FailedLine onRetry={retry} />
             ) : tasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">
                 {tl('noOpenTasks')}
@@ -805,6 +818,8 @@ export function CustomerPage({
                 <p>{say(month.counts)}</p>
                 <p className="text-muted-foreground">{say(month.talk)}</p>
               </div>
+            ) : sections.month === 'failed' ? (
+              <FailedLine onRetry={retry} />
             ) : (
               <div
                 className="bg-muted h-10 animate-pulse rounded"
