@@ -4755,7 +4755,7 @@
       }
     },
     "title": "Taamul Compass",
-    "subtitle": "العملاء المزامَنون من نظام Compass ERP، وإشعارات الحالة التي أرسلها عبر رقم Whapi. للقراءة فقط: Compass هو النظام المرجعي.",
+    "subtitle": "العملاء المزامَنون من نظام Compass ERP، وإشعارات الحالة التي أرسلها عبر رقم Meta. للقراءة فقط: Compass هو النظام المرجعي.",
     "tabs": {
       "customers": "العملاء",
       "notifications": "الإشعارات",

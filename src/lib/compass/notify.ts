@@ -1018,12 +1018,10 @@ export async function sendCompassNotification(
       template = await compassTemplateSend(db, accountId, req.event, req.text);
     }
 
-    const resolved = await resolveConversationByPhone(
-      db,
-      accountId,
-      `+${phone}`,
-      name,
-      { renameExisting: false }
+    const resolved = await readContacts(
+      resolveConversationByPhone(db, accountId, `+${phone}`, name, {
+        renameExisting: false,
+      })
     );
 
     const sent = await sendMessageToConversation(db, accountId, {

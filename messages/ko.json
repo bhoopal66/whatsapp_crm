@@ -4755,7 +4755,7 @@
       }
     },
     "title": "Taamul Compass",
-    "subtitle": "Compass ERP에서 동기화된 고객과 Whapi 번호로 발송된 상태 알림입니다. 읽기 전용이며, 원본 데이터는 Compass에서 관리합니다.",
+    "subtitle": "Compass ERP에서 동기화된 고객과 Meta 번호로 발송된 상태 알림입니다. 읽기 전용이며, 원본 데이터는 Compass에서 관리합니다.",
     "tabs": {
       "customers": "고객",
       "notifications": "알림",
