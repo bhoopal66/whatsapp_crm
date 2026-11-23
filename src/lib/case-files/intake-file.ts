@@ -9,10 +9,11 @@
  *     the case and, with a doc_key, classified and checked.
  *   attachCustomerDocument - a document the customer already sent:
  *     register, classify, check.
- *   classifyAndCheck       - classify (the SQL hands out classify_seq),
- *     read the bytes, run the checks, post them under that classify_seq.
+ *   classifyAndCheck       - read the bytes, classify (the SQL hands out
+ *     classify_seq), run the checks, post them under that classify_seq.
  *     A file is never left pending: unreadable bytes post a failed
- *     'readable' check.
+ *     'readable' check. Storage that did not answer is not a verdict on the
+ *     document: STORAGE_UNAVAILABLE (503) before anything is classified.
  *
  * TENANCY: the caller (a route) has already checked the case belongs to
  * the actor's active account. Every function takes its I/O as arguments
@@ -20,7 +21,11 @@
  */
 import { recordCustomerDocumentInternal } from '@/lib/customer-docs/record';
 
-import { readDocumentBytes, type CaseFilesStorage } from './bytes';
+import {
+  readDocument,
+  type CaseFilesStorage,
+  type DocumentRead,
+} from './bytes';
 import {
   CASE_FILE_MIME,
   DEFAULT_MAX_MB,
@@ -33,6 +38,7 @@ import {
   type Check,
   type CaseFileMime,
 } from './checks';
+import { dubaiDay } from './day';
 import {
   CaseFilesRefusedError,
   CaseFilesStore,
@@ -86,7 +92,7 @@ function assertExpiresOn(expiresOn: string | null | undefined): void {
     throw new CaseFilesRefusedError('VALIDATION_FAILED');
 }
 
-const today = (clock: () => Date) => clock().toISOString().slice(0, 10);
+const today = (clock: () => Date) => dubaiDay(clock());
 
 const EXT: Readonly<Record<CaseFileMime, string>> = {
   'application/pdf': 'pdf',
@@ -118,6 +124,18 @@ async function loadFile(store: CaseFilesStore, fileId: string) {
   return file;
 }
 
+/** The bytes a file row stands on, tagged (`readDocument`). */
+export async function readCaseFile(
+  admin: CaseFilesDb,
+  fileId: string,
+  deps: CaseFilesDeps
+): Promise<DocumentRead> {
+  const store = new CaseFilesStore(admin);
+  const file = await loadFile(store, fileId);
+  const doc = await store.getDocument(file.customerDocumentId);
+  return doc ? readDocument(doc, deps) : { kind: 'unreadable' };
+}
+
 export async function classifyAndCheck(input: {
   admin: CaseFilesDb;
   /** NULL = the system intake (WhatsApp tap-to-classify). */
@@ -127,6 +145,8 @@ export async function classifyAndCheck(input: {
   expiresOn?: string | null;
   /** YYYY-MM-DD, the day the expiry rule counts from. */
   today: string;
+  /** Already read by the caller (`readCaseFile`); else read here. */
+  read?: DocumentRead;
   deps: CaseFilesDeps;
 }): Promise<CheckOutcomeResult> {
   const { admin, actor, fileId, docKey, deps } = input;
@@ -142,25 +162,23 @@ export async function classifyAndCheck(input: {
   ]);
   const row = spec.find((s) => s.docKey === docKey) ?? null;
 
+  const read: DocumentRead =
+    input.read ??
+    (doc ? await readDocument(doc, deps) : { kind: 'unreadable' });
+  if (read.kind === 'unavailable')
+    throw new CaseFilesRefusedError('STORAGE_UNAVAILABLE');
+
   const cls = await retryOnConflict(() =>
     store.classify(actor, fileId, docKey)
   );
 
-  const bytes = doc
-    ? await readDocumentBytes(doc, {
-        storage: deps.storage,
-        fetch: deps.fetch,
-        internalBaseUrl: deps.internalBaseUrl,
-      })
-    : null;
-
   let checks: Check[];
   let pages: number | null = null;
-  if (!bytes) {
+  if (read.kind !== 'bytes') {
     checks = [{ name: 'readable', ok: false, detail: 'storage read failed' }];
   } else {
     const out = await runChecks(
-      bytes,
+      read.bytes,
       doc?.mime ?? '',
       row
         ? {

@@ -1,7 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it, vi } from 'vitest';
 
-import { readDocumentBytes } from './bytes';
+import { readDocument, readDocumentBytes } from './bytes';
 import { attachCustomerDocument, uploadStaffFile } from './intake-file';
 import {
   CaseFilesRefusedError,
@@ -137,6 +137,57 @@ describe('readDocumentBytes', () => {
     );
     expect(out).toBeNull();
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('readDocument', () => {
+  const chat = {
+    mediaUrl:
+      'https://crm.example/supabase/storage/v1/object/public/chat-media/a/p.pdf',
+    storageBucket: null,
+    storagePath: null,
+  };
+  const kept = {
+    mediaUrl: null,
+    storageBucket: 'case-files',
+    storagePath: 'cases/c/x.pdf',
+  };
+  const viaFetch = (f: () => Promise<Response>) =>
+    readDocument(chat, {
+      storage: fakeStorage({}).storage,
+      fetch: f as unknown as typeof fetch,
+      internalBaseUrl: 'http://i',
+    });
+  const viaStorage = (downloadError: unknown) =>
+    readDocument(kept, { storage: fakeStorage({ downloadError }).storage });
+
+  it.each([400, 403, 404])('HTTP %i is unreadable', async (status) => {
+    expect(await viaFetch(async () => new Response('x', { status }))).toEqual({
+      kind: 'unreadable',
+    });
+  });
+  it.each([408, 429, 500, 502, 503])(
+    'HTTP %i is unavailable',
+    async (status) => {
+      expect(await viaFetch(async () => new Response('x', { status }))).toEqual(
+        { kind: 'unavailable' }
+      );
+    }
+  );
+  it('a timeout or a dead connection is unavailable', async () => {
+    expect(
+      await viaFetch(async () => {
+        throw new DOMException('timed out', 'TimeoutError');
+      })
+    ).toEqual({ kind: 'unavailable' });
+  });
+  it.each([
+    ['a missing object', { status: 400, statusCode: '404' }, 'unreadable'],
+    ['a gateway error', { status: 502, statusCode: '502' }, 'unavailable'],
+    ['a 5xx inside a 400', { status: 400, statusCode: '503' }, 'unavailable'],
+    ['no answer at all', { message: 'fetch failed' }, 'unavailable'],
+  ])('storage: %s', async (_n, error, kind) => {
+    expect(await viaStorage(error)).toEqual({ kind });
   });
 });
 
@@ -357,7 +408,7 @@ describe('attachCustomerDocument', () => {
       },
       tables()
     );
-    const f = vi.fn(async () => new Response('nope', { status: 500 }));
+    const f = vi.fn(async () => new Response('nope', { status: 404 }));
     await attachCustomerDocument({
       admin: fa.admin,
       actor: ACTOR,
@@ -378,6 +429,36 @@ describe('attachCustomerDocument', () => {
         { name: 'readable', ok: false, detail: 'storage read failed' },
       ],
     });
+  });
+
+  it('a storage hiccup classifies nothing and fails nothing', async () => {
+    const fa = fakeAdmin(
+      {
+        case_document_file_register: ok(FILE),
+        case_file_spec_rows: ok([specRow]),
+      },
+      tables()
+    );
+    const f = vi.fn(async () => new Response('nope', { status: 503 }));
+    await expect(
+      attachCustomerDocument({
+        admin: fa.admin,
+        actor: ACTOR,
+        caseId: CASE,
+        customerDocumentId: DOC,
+        docKey: 'passport',
+        deps: {
+          storage: fakeStorage({}).storage,
+          fetch: f as unknown as typeof fetch,
+          internalBaseUrl: 'http://i',
+          clock,
+        },
+      })
+    ).rejects.toMatchObject({ reason: 'STORAGE_UNAVAILABLE' });
+    expect(fa.rpcNames()).toEqual([
+      'case_document_file_register',
+      'case_file_spec_rows',
+    ]);
   });
 
   it('retries a deadlocked check_result once', async () => {

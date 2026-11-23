@@ -82,6 +82,10 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     text: 'Upload a PDF, JPEG or PNG file',
   },
   FILE_TOO_LARGE: { status: 413, text: FILE_TOO_LARGE_TEXT },
+  STORAGE_UNAVAILABLE: {
+    status: 503,
+    text: 'The file store did not answer. Try again in a moment',
+  },
 };
 
 /**
@@ -233,11 +237,6 @@ export function notConfiguredResponse(): NextResponse {
     { error: 'Downloads are not configured', code: 'NOT_CONFIGURED' },
     { status: 501 }
   );
-}
-
-/** The current date in UTC, YYYY-MM-DD (the expiry rule's "today"). */
-export function todayUtc(now: Date): string {
-  return now.toISOString().slice(0, 10);
 }
 
 /** 181's allowed_mime universe. */

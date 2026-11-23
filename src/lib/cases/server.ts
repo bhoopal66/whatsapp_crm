@@ -13,7 +13,7 @@ import type { CaseSlaHook } from '@/lib/submission-groups/inbound';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
 import { SubmissionGroupStore } from '@/lib/submission-groups/store';
 import type { IntakePorts, IntakeTemplateKind } from '@/lib/case-files/intake';
-import { classifyAndCheck } from '@/lib/case-files/intake-file';
+import { classifyAndCheck, readCaseFile } from '@/lib/case-files/intake-file';
 import {
   caseIntakeQueue,
   type CaseIntakeQueue,
@@ -282,13 +282,16 @@ export function caseIntakePorts(
       if (!docKey) throw rpcError('case_intake_prompt_answer', {});
       return { fileId, docKey };
     },
-    classifyAndCheck: async ({ fileId, docKey, today }) => {
+    readFile: (fileId) =>
+      readCaseFile(admin, fileId, { storage: admin.storage }),
+    classifyAndCheck: async ({ fileId, docKey, today, read }) => {
       const out = await classifyAndCheck({
         admin,
         actor: null,
         fileId,
         docKey,
         today,
+        read,
         deps: { storage: admin.storage },
       });
       return { status: out.status, checks: out.checks };

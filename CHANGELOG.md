@@ -22,6 +22,15 @@ No migration.
   once; every other call is added quietly.
 - The silence alert still rings during such an outage: a call found this
   way does not count as an event from the PBX.
+### Case documents: a storage hiccup is not a bad document
+
+No migration.
+- When the file store does not answer while a document is being checked,
+  nothing is marked failed and a customer is never told their document was
+  rejected: staff are asked to try again, and a customer's reply stays
+  open.
+- A document's expiry, and the date on a built case file, count Dubai
+  days.
 
 ### Automations that wait, and stay where they were
 

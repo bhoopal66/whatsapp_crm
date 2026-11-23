@@ -65,6 +65,8 @@ export interface FakeStorage {
 export function fakeStorage(opts: {
   uploadError?: unknown;
   objects?: Record<string, Uint8Array>;
+  /** What a download answers instead of 'not found'. */
+  downloadError?: unknown;
 }): FakeStorage {
   const uploads: FakeStorage['uploads'] = [];
   const downloads: FakeStorage['downloads'] = [];
@@ -79,7 +81,14 @@ export function fakeStorage(opts: {
         const bytes = opts.objects?.[`${bucket}/${path}`];
         return bytes
           ? { data: new Blob([bytes as BlobPart]), error: null }
-          : { data: null, error: { message: 'not found' } };
+          : {
+              data: null,
+              error: opts.downloadError ?? {
+                message: 'Object not found',
+                status: 400,
+                statusCode: '404',
+              },
+            };
       },
     }),
   };
