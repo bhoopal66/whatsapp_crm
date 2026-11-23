@@ -34,6 +34,7 @@ import {
   caseErrorResponse,
   CaseHttpError,
   loadCaseForCaller,
+  optionalDate,
   parseAmount,
   parseText,
   readJsonObject,
@@ -149,17 +150,8 @@ function parsePatch(body: Record<string, unknown> | null): CasePatch {
   // A value outside the list is the database's PRIORITY_INVALID (422).
   if (body.priority !== undefined)
     out.priority = text('priority', (v) => parseText(v, 20)) as CasePriority;
-  if (body.due_at !== undefined) {
-    const d =
-      body.due_at === null
-        ? null
-        : typeof body.due_at === 'string'
-          ? new Date(body.due_at)
-          : undefined;
-    if (d === undefined || (d !== null && Number.isNaN(d.getTime())))
-      throw badRequest('due_at is not valid');
-    out.dueAt = d;
-  }
+  if (body.due_at !== undefined)
+    out.dueAt = optionalDate(body.due_at, 'due_at');
   if (
     Object.keys(out.details).length === 0 &&
     out.priority === undefined &&
