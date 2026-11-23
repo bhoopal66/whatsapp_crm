@@ -258,11 +258,12 @@ export function createWhapiGroupsApi(
 
     /**
      * Remove everyone but our own number, then leave: only once nobody else
-     * is in it, so a partial failure throws and is retried. A group WhatsApp
+     * is in it, so a partial failure throws and is retried, until the caller
+     * gives up on them (`leaveAnyway`). A group WhatsApp
      * no longer knows on this number (404) is already closed; a number
      * marked disconnected is never asked, its 404 would say the same.
      */
-    async closeGroup(channelId, waGroupId) {
+    async closeGroup(channelId, waGroupId, opts) {
       const channel = await channelFor(channelId);
       if (channel.status === 'disconnected')
         throw new SubmissionGroupNumberDisconnectedError(channelId);
@@ -305,8 +306,12 @@ export function createWhapiGroupsApi(
           if (isNumberFailure(err) || isGroupGone(err)) throw err;
           remaining += plan.hidden.length;
         }
-        if (remaining > 0)
+        if (remaining > 0 && !opts?.leaveAnyway)
           throw new SubmissionGroupCloseIncompleteError(remaining);
+        if (remaining > 0)
+          console.warn(
+            `[submission-groups] left a group with ${remaining} still in it`
+          );
         await groups.leaveGroup(ref);
       } catch (err) {
         if (isGroupGone(err)) return;

@@ -21,6 +21,7 @@ import { caseErrorText, openGroupCase } from './open-case';
 import { failedLast, type SubmissionGroupService } from './service';
 import { submissionGroupService, submissionGroupStore } from './server';
 import type { SubmissionGroup, SubmissionGroupStore } from './store';
+import { closeRemaining } from './wa-errors';
 import { createWhapiGroupsApi, type ParticipantsApi } from './whapi-groups-api';
 
 export const PENDING_CREATE_AGE_MS = 120_000;
@@ -122,6 +123,10 @@ async function checkMembership(
     pass.out.membershipChecked++;
   }
 }
+
+/** A group somebody cannot be taken out of is tried again only this often. */
+export const INCOMPLETE_RETRY_MS = 30 * 60_000;
+const incompleteTried = new Map<string, number>();
 
 export async function runSubmissionGroupsCron(
   admin: SupabaseClient,
@@ -239,9 +244,16 @@ export async function runSubmissionGroupsCron(
           out.errors.push(`${accountId}: ${errText(err)}`);
         }
       }
-      for (const { id: groupId, channelId } of work.close) {
+      for (const { id: groupId, channelId, waCloseError } of work.close) {
         if (overBudget()) break;
         if (channelId && failedChannels.has(channelId)) continue;
+        // Each try is a read and up to two removals on the number.
+        if (closeRemaining(waCloseError) !== null) {
+          const last = incompleteTried.get(groupId);
+          if (last !== undefined && started - last < INCOMPLETE_RETRY_MS)
+            continue;
+          incompleteTried.set(groupId, started);
+        }
         try {
           const r = await svc.retryClose(groupId);
           if (channelId && r.numberDown) failedChannels.add(channelId);

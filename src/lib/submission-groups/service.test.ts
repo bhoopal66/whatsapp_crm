@@ -8,6 +8,7 @@ import {
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
   type SubmissionGroupServiceDeps,
+  CLOSE_GIVE_UP_MS,
   MAX_CREATE_ATTEMPTS,
   unconfirmedCreate,
   type FoundGroup,
@@ -447,8 +448,11 @@ class FakeApi implements GroupsApi {
     this.maybeFail('sendGroupMedia');
     return { waMessageId: `wamid-${++this.seq}` };
   }
-  async closeGroup(ch: string, wa: string) {
+  /** `leaveAnyway` of each close, beside `calls`. */
+  leaveAnyway: boolean[] = [];
+  async closeGroup(ch: string, wa: string, opts?: { leaveAnyway?: boolean }) {
     this.calls.push({ method: 'closeGroup', args: [ch, wa] });
+    this.leaveAnyway.push(opts?.leaveAnyway ?? false);
     this.maybeFail('closeGroup');
   }
   of(m: string) {
@@ -1406,6 +1410,20 @@ describe('SubmissionGroupService.endIfDue / sweep / archive', () => {
     expect(s.api.of('closeGroup').map((c) => c.args)).toEqual([
       [CH, g.waGroupId],
     ]);
+  });
+
+  it('gives up on people who cannot be removed a day after the close fell due', async () => {
+    const t = { ms: Date.now() };
+    const s = setup({ now: () => new Date(t.ms) });
+    const g = await opened(s);
+    s.api.fail.add('closeGroup');
+    await s.svc.endIfDue(due(g.id));
+    t.ms += CLOSE_GIVE_UP_MS - 60_000;
+    s.api.fail.add('closeGroup');
+    await s.svc.retryClose(g.id);
+    t.ms += 5 * 60_000;
+    expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
+    expect(s.api.leaveAnyway).toEqual([false, false, true]);
   });
 
   it('close error recorded and retried by the next call', async () => {

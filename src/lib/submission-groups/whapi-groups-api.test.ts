@@ -387,6 +387,22 @@ describe('closeGroup', () => {
     expect(h.leaveGroup).not.toHaveBeenCalled();
   });
 
+  it('leaves anyway once the caller has given up on them', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.getGroup.mockResolvedValue({
+      id: WA_GROUP,
+      participants: [
+        { jid: '11111@lid', waId: null, role: 'admin' },
+        { jid: '99999@lid', waId: null, role: 'member' },
+      ],
+    });
+    await api().closeGroup('cfg-1', WA_GROUP, { leaveAnyway: true });
+    expect(h.leaveGroup).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      '[submission-groups] left a group with 1 still in it'
+    );
+  });
+
   it('propagates any other failure', async () => {
     h.removeParticipants.mockRejectedValue(new WhapiError('not admin', 403));
     await expect(api().closeGroup('cfg-1', WA_GROUP)).rejects.toThrow(
