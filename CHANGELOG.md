@@ -25,6 +25,8 @@ No migration.
   picked as the account's new default number; a shared one is.
 - Settings → Numbers, and the question before disconnecting a number, say when
   its chats could not be counted. They showed 0.
+- Disconnecting a number whose row could not be read now says so (an error)
+  instead of answering that it was removed.
 
 ### Calendar
 

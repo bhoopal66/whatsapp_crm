@@ -8,6 +8,11 @@ const h = vi.hoisted(() => ({
   row: null as Record<string, unknown> | null,
   updates: [] as Record<string, unknown>[],
   eqs: [] as unknown[][],
+  /** Read/write errors to inject, by select columns or 'update'/'insert'. */
+  fail: {} as Record<string, { message: string; code?: string }>,
+  inserts: [] as Record<string, unknown>[],
+  /** Rows the sibling count sees. */
+  siblings: 0,
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -37,26 +42,39 @@ function fakeDb() {
     },
     from(table: string) {
       let columns = '';
+      let head = false;
+      let updating = false;
       const builder: Record<string, unknown> = {};
-      for (const m of ['neq', 'order', 'limit', 'insert', 'delete']) {
+      for (const m of ['neq', 'order', 'limit', 'delete']) {
         builder[m] = () => builder;
       }
       builder.eq = (col: string, val: unknown) => {
         h.eqs.push([table, col, val]);
         return builder;
       };
-      builder.select = (cols: string) => {
+      builder.select = (cols: string, opts?: { head?: boolean }) => {
         columns = cols;
+        head = Boolean(opts?.head);
         return builder;
       };
+      builder.insert = (payload: Record<string, unknown>) => {
+        h.inserts.push(payload);
+        return builder;
+      };
+      builder.single = async () => ({
+        data: h.fail.insert ? null : { id: 'new-1' },
+        error: h.fail.insert ?? null,
+      });
       builder.update = (payload: Record<string, unknown>) => {
         if (table === 'whatsapp_config') h.updates.push(payload);
+        updating = true;
         return builder;
       };
       builder.maybeSingle = async () => {
         if (table === 'profiles') {
           return { data: { account_id: 'acct-1' }, error: null };
         }
+        if (h.fail[columns]) return { data: null, error: h.fail[columns] };
         // findWhapiRow reads the row; the duplicate/claim checks find none.
         if (
           table === 'whatsapp_config' &&
@@ -67,11 +85,20 @@ function fakeDb() {
         }
         return { data: null, error: null };
       };
-      builder.then = (resolve: (r: unknown) => unknown) =>
-        resolve({
+      builder.then = (resolve: (r: unknown) => unknown) => {
+        if (head) {
+          return resolve({
+            count: h.siblings,
+            error: h.fail.count ?? null,
+          });
+        }
+        if (h.fail[columns])
+          return resolve({ data: null, error: h.fail[columns] });
+        return resolve({
           data: table === 'profiles' ? [{ account_id: 'acct-1' }] : [],
-          error: null,
+          error: updating ? (h.fail.update ?? null) : null,
         });
+      };
       return builder;
     },
   };
@@ -110,6 +137,9 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SITE_URL = 'https://crm.test';
   h.updates = [];
   h.eqs = [];
+  h.fail = {};
+  h.inserts = [];
+  h.siblings = 0;
   h.row = {
     id: 'cfg-1',
     verify_token: 'enc:secret',
@@ -244,5 +274,20 @@ describe('DELETE /api/whatsapp/config — default hand-over', () => {
     );
     expect(res.status).toBe(200);
     expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
+  });
+});
+
+describe('DELETE /api/whatsapp/config — a failed read', () => {
+  it('answers 500 and removes nothing, not success', async () => {
+    h.fail['id'] = { message: 'connection reset' };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await DELETE(
+      new Request('https://crm.test/api/whatsapp/config?config_id=cfg-1', {
+        method: 'DELETE',
+      })
+    );
+    error.mockRestore();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toHaveProperty('error');
   });
 });

@@ -25,11 +25,20 @@ export async function GET(
   const { configId } = await context.params;
 
   const db = personalNumbersAdmin();
-  const row = await loadOpenWARow(db, {
-    accountId: ctx.accountId,
-    configId,
-    ownerId: ctx.userId,
-  });
+  let row;
+  try {
+    row = await loadOpenWARow(db, {
+      accountId: ctx.accountId,
+      configId,
+      ownerId: ctx.userId,
+    });
+  } catch (err) {
+    console.error('Error loading OpenWA number:', err);
+    return NextResponse.json(
+      { error: 'Failed to read the number' },
+      { status: 500 }
+    );
+  }
   if (!row) {
     return NextResponse.json({ error: 'Number not found' }, { status: 404 });
   }

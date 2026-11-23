@@ -274,7 +274,9 @@ export async function loadOpenWARow(
   if (args.ownerId !== undefined) {
     query = query.eq('is_personal', true).eq('user_id', args.ownerId);
   }
-  const { data } = await query.maybeSingle();
+  const { data, error } = await query.maybeSingle();
+  // A failed read is not "absent": callers answer 404 / success on null.
+  if (error) throw new Error(`loadOpenWARow: ${error.message}`);
   return (data as OpenWARow | null) ?? null;
 }
 

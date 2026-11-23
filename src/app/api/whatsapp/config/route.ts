@@ -825,12 +825,18 @@ export async function DELETE(request: Request) {
     // and allocations for THIS number cascade, and its chat history
     // stays (conversations/messages.channel_id go NULL).
     const configId = new URL(request.url).searchParams.get('config_id')
-    const { data: target } = await findWhapiRow<{ id: string }>(
-      supabase,
-      accountId,
-      'id',
-      configId,
-    )
+    const { data: target, error: targetError } = await findWhapiRow<{
+      id: string
+    }>(supabase, accountId, 'id', configId)
+    if (targetError) {
+      // A failed read is not "nothing to remove": answering success
+      // here told the admin the number was gone while it stayed.
+      console.error('Error reading whatsapp_config for delete:', targetError)
+      return NextResponse.json(
+        { error: 'Failed to read configuration' },
+        { status: 500 }
+      )
+    }
     if (!target) {
       return NextResponse.json({ success: true })
     }
