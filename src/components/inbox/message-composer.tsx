@@ -75,6 +75,7 @@ import {
   initialComposeFlow,
   lateUploadLanding,
   parkDraft,
+  parkIfFree,
   takeParkedDraft,
   type ComposeFlowEffect,
   type ComposeFlowEvent,
@@ -227,6 +228,19 @@ interface HeldSend {
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
 let parkedFor: string | null = null;
+
+/** A failed send's words back as its chat's draft, if there is no newer. */
+export function parkUnsentText(
+  userId: string | null,
+  conversationId: string,
+  draft: { text: string; origin: string | null; reply: ReplyDraft | null }
+): boolean {
+  if (!userId || parkedFor !== userId) return false;
+  return parkIfFree(parkedDrafts, conversationId, {
+    ...draft,
+    attachment: null,
+  });
+}
 
 /** The "/" list gives up loading after this long. */
 const SLASH_LOAD_TIMEOUT_MS = 8000;

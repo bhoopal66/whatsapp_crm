@@ -1,4 +1,5 @@
 import type { Message } from '@/types';
+import { isOwnRow, isTempId } from '@/lib/inbox/optimistic';
 import { isExpiredStagedMedia } from '@/lib/storage/staged-media';
 import type { ConsentRefusal } from '@/lib/whatsapp/send-origin';
 
@@ -27,10 +28,29 @@ export interface SendAttempt {
    * delivered message links to it.
    */
   uploadPath?: string;
+  /** The quote it replied with, to go back with a parked draft. */
+  quote?: { id: string; authorLabel: string; preview: string } | null;
+  /**
+   * The newest saved message of the chat when it was sent (the server's
+   * clock), so only a newer row can be this one arriving.
+   */
+  sentAfter?: string | null;
 }
+
+/**
+ * What is certain about a send that did not succeed:
+ *   - `refused`: it did not go out, and can be sent again;
+ *   - `offline`: it never left this device, and can be sent again;
+ *   - `maybe`: it may have reached the customer, so no Retry;
+ *   - `final`: it did not go out, and the same body never will;
+ *   - `barred`: the consent register said no.
+ */
+export type FailedSendKind =
+  'refused' | 'offline' | 'maybe' | 'final' | 'barred';
 
 export interface FailedSend extends SendAttempt {
   conversationId: string;
+  kind: FailedSendKind;
   /** The route's own words for the failure, shown under the bubble. */
   reason: string;
 }
@@ -59,8 +79,7 @@ export interface FailedSend extends SendAttempt {
  *   - 500 is excluded. `db_error` means "sent to WhatsApp but could not
  *     be saved", and any other 500 is an exception that may have been
  *     thrown after the gateway accepted the send.
- *   - A thrown fetch never gets here. It is a network error, and just
- *     as ambiguous.
+ *   - A thrown fetch never gets here: see `thrownSendKind`.
  */
 export function isRetryableSendFailure(status: number, body: unknown): boolean {
   if (status >= 200 && status < 300) return false;
@@ -104,6 +123,123 @@ export function consentRefusalOf(
   return code === 'do_not_contact' || code === 'opted_out' ? code : null;
 }
 
+/** The kind of a failed answer from `/api/whatsapp/send`. */
+export function answeredSendKind(
+  status: number,
+  body: unknown
+): Exclude<FailedSendKind, 'offline'> {
+  if (isRetryableSendFailure(status, body)) return 'refused';
+  if (consentRefusalOf(status, body)) return 'barred';
+  if (shouldWarnMaybeSent(status, body)) return 'maybe';
+  // db_error: sent, but not saved. Never offered as "Not sent".
+  const code = (body as { code?: unknown } | null)?.code;
+  return code === 'db_error' ? 'maybe' : 'final';
+}
+
+/**
+ * The kind of a send whose fetch threw. The browser says the same thing
+ * for a request that never left and for one whose answer was lost, so
+ * only a device that was offline throughout is certain: one that dropped
+ * while the request was out may have delivered it.
+ */
+export function thrownSendKind(
+  offlineBefore: boolean,
+  offlineAfter: boolean
+): 'offline' | 'maybe' {
+  return offlineBefore && offlineAfter ? 'offline' : 'maybe';
+}
+
+/** Whether sending it again cannot reach the customer twice. */
+export function canRetry(kind: FailedSendKind): boolean {
+  return kind === 'refused' || kind === 'offline';
+}
+
+/**
+ * Whether its upload is certainly unused, so it goes when the row does.
+ * After a `maybe` the delivered message may link to it.
+ */
+export function ownsUpload(kind: FailedSendKind): boolean {
+  return kind !== 'maybe';
+}
+
+/** The words Copy puts on the clipboard, or null for no Copy. */
+export function copyableText(
+  failed: Pick<FailedSend, 'kind' | 'message'>
+): string | null {
+  // Pasted, they would go out as an ordinary reply, which the consent
+  // register does not gate.
+  if (failed.kind === 'barred') return null;
+  return failed.message.content_text?.trim() || null;
+}
+
+/** The newest saved message of the chat, for `SendAttempt.sentAfter`. */
+export function newestSavedAt(
+  messages: readonly Message[],
+  conversationId: string
+): string | null {
+  let newest: string | null = null;
+  for (const m of messages) {
+    if (m.conversation_id !== conversationId || isTempId(m.id)) continue;
+    if (!newest || Date.parse(m.created_at) > Date.parse(newest)) {
+      newest = m.created_at;
+    }
+  }
+  return newest;
+}
+
+/** How far this device's clock may run ahead of the server's. */
+const CLOCK_SKEW_MS = 2 * 60_000;
+
+/**
+ * The rows whose message turns out to be in the chat after all: one of
+ * this person's, saved after the send, with the same words (and the same
+ * upload). Each saved message settles one row. A certain refusal is
+ * never settled this way.
+ */
+export function arrivedSends(
+  failed: readonly FailedSend[],
+  messages: readonly Message[],
+  viewerId: string | null | undefined
+): FailedSend[] {
+  const used = new Set<string>();
+  return failed.filter((f) => {
+    if (f.kind !== 'maybe' && f.kind !== 'offline') return false;
+    const after = f.sentAfter
+      ? Date.parse(f.sentAfter)
+      : Date.parse(f.message.created_at) - CLOCK_SKEW_MS;
+    const row = messages.find(
+      (m) =>
+        m.conversation_id === f.conversationId &&
+        isOwnRow(m, viewerId) &&
+        !used.has(m.id) &&
+        m.content_type === f.message.content_type &&
+        (m.content_text ?? '') === (f.message.content_text ?? '') &&
+        (!f.message.media_url || m.media_url === f.message.media_url) &&
+        Date.parse(m.created_at) > after
+    );
+    if (row) used.add(row.id);
+    return !!row;
+  });
+}
+
+/**
+ * What a failure does besides its row. The words go back into the
+ * composer after a refusal seen in their own chat, and into the chat's
+ * parked draft when the person has left the inbox. The row is kept
+ * either way: with a newer draft there it is the only copy.
+ */
+export function failedSendPlace(
+  failed: Pick<FailedSend, 'kind' | 'restoreText' | 'conversationId'>,
+  at: { leftInbox: boolean; openConversationId: string | null | undefined }
+): 'composer' | 'parked' | 'row' {
+  if (!failed.restoreText || !canRetry(failed.kind)) return 'row';
+  if (at.leftInbox) return 'parked';
+  return failed.kind === 'refused' &&
+    at.openConversationId === failed.conversationId
+    ? 'composer'
+    : 'row';
+}
+
 /** The route's `{ error }`, or the bare status when there is none. */
 export function sendFailureReason(status: number, body: unknown): string {
   return hasRouteError(body) ? body.error : `HTTP ${status}`;
@@ -138,6 +274,7 @@ export function retryAttempt(
     body: failed.body,
     restoreText: failed.restoreText,
     uploadPath: failed.uploadPath,
+    quote: failed.quote,
   };
 }
 
@@ -170,7 +307,8 @@ export function supersededBy<
 
 /**
  * Uploads kept for a Retry, listed in the tab's sessionStorage so a
- * reload does not orphan them.
+ * reload does not orphan them. A row outlives the inbox screen, so the
+ * next mount lists again what a row still holds.
  *
  * A failed media send keeps its upload so a Retry sends the same link.
  * The failed row lives only in memory, and React runs no cleanup when
