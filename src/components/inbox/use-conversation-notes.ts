@@ -1,7 +1,8 @@
 'use client';
 
-// The chat's team notes (migration 241), loaded once per conversation
-// and kept live over realtime (INSERT and UPDATE; realtime does not
+// The chat's team notes (migration 241), loaded once per conversation,
+// read again after a gap in realtime (lib/realtime/catch-up.ts) and
+// kept live in between (INSERT and UPDATE; realtime does not
 // RLS-filter DELETE, so a teammate's delete shows on the next open and
 // one's own delete is applied at once). Reads and writes go straight
 // to `conversation_notes` under its RLS: the policies decide who reads,
@@ -11,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createClient } from '@/lib/supabase/client';
+import { startLiveRead, type LiveRead } from '@/lib/realtime/catch-up';
 import {
   mergeNote,
   type ConversationNote,
@@ -24,11 +26,13 @@ const COLUMNS =
 const NO_NOTES: ConversationNote[] = [];
 
 async function fetchNotes(conversationId: string): Promise<ConversationNote[]> {
-  const { data } = await createClient()
+  const { data, error } = await createClient()
     .from('conversation_notes')
     .select(COLUMNS)
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true });
+  // Thrown, not read as "no notes": the notes on screen stay.
+  if (error) throw error;
   return (data ?? []) as ConversationNote[];
 }
 
@@ -45,8 +49,12 @@ export function useConversationNotes(conversationId: string | null) {
     currentIdRef.current = conversationId;
   }, [conversationId]);
 
+  const liveRef = useRef<LiveRead | null>(null);
+
   const apply = useCallback(
     (id: string, update: (notes: ConversationNote[]) => ConversationNote[]) => {
+      // A read in flight may be older than this change.
+      if (currentIdRef.current === id) liveRef.current?.changed();
       setState((prev) => {
         if (currentIdRef.current !== id) return prev;
         const notes = prev.conversationId === id ? prev.notes : [];
@@ -58,10 +66,11 @@ export function useConversationNotes(conversationId: string | null) {
 
   useEffect(() => {
     if (!conversationId) return;
-    let cancelled = false;
-    fetchNotes(conversationId).then((notes) => {
-      if (!cancelled) setState({ conversationId, notes });
+    const live = startLiveRead({
+      read: () => fetchNotes(conversationId),
+      apply: (notes) => setState({ conversationId, notes }),
     });
+    liveRef.current = live;
     const supabase = createClient();
     // A unique topic per subscription (see useConversationEvents).
     const channel = supabase
@@ -83,9 +92,10 @@ export function useConversationNotes(conversationId: string | null) {
           apply(conversationId, (notes) => mergeNote(notes, row));
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
-      cancelled = true;
+      live.stop();
+      liveRef.current = null;
       void supabase.removeChannel(channel);
     };
   }, [conversationId, apply]);

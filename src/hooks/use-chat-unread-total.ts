@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { subscribeChat, unreadCounts, type UnreadCount } from '@/lib/chat';
 import { totalUnread } from '@/lib/chat/view';
+import { startLiveRead } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 
 /** Re-read at most this often while chat events stream in. */
@@ -25,30 +26,27 @@ export function useChatUnreadTotal(): number {
   useEffect(() => {
     if (!userId || !accountId) return;
     const sb = createClient();
-    let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () => {
-      unreadCounts(sb, accountId)
-        .then((c) => {
-          if (!cancelled) setCounts(c);
-        })
-        // A badge is not worth an error toast; the next event retries.
-        .catch(() => {});
-    };
+    // Also read again after a gap in realtime. A badge is not worth an
+    // error toast: a failed read is retried quietly.
+    const live = startLiveRead({
+      read: () => unreadCounts(sb, accountId),
+      apply: setCounts,
+    });
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(load, REFRESH_DEBOUNCE_MS);
+      timer = setTimeout(live.refresh, REFRESH_DEBOUNCE_MS);
     };
-    load();
     const unsubscribe = subscribeChat(sb, {
       accountId,
       userId,
       onMessage: schedule,
       onMember: schedule,
       onChannel: schedule,
+      onStatus: live.onStatus,
     });
     return () => {
-      cancelled = true;
+      live.stop();
       clearTimeout(timer);
       unsubscribe();
     };

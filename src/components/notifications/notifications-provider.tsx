@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { startLiveRead } from '@/lib/realtime/catch-up';
 import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import type { Notification } from '@/types';
 import type { NotificationRowPlan } from '@/lib/notifications/target';
@@ -26,10 +27,45 @@ import {
   notificationsReducer,
   unreadCount,
   type NotificationChange,
+  type NotificationsAction,
 } from '@/lib/notifications/store';
 
 /** How many of the latest rows the bell and the page list. */
 const WINDOW = 100;
+
+/**
+ * Every workspace's rows, as the badge counts them: RLS shows the
+ * reader's rows in each workspace where they are live (083's
+ * my_live_account_ids()), so this list, "Mark all as read" and the
+ * realtime handler all cover the same rows.
+ */
+async function fetchWindow() {
+  const [list, unreadTotal] = await Promise.all([
+    createClient()
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(WINDOW),
+    fetchUnreadCount(),
+  ]);
+  if (list.error) throw list.error;
+  return { rows: (list.data ?? []) as Notification[], unreadTotal };
+}
+
+/**
+ * head:true skips fetching rows — we only need the `count` supabase-js
+ * returns alongside the (empty) response body. RLS on `notifications`
+ * already scopes every read to `auth.uid() = user_id`, so no explicit
+ * filter is needed here.
+ */
+async function fetchUnreadCount(): Promise<number> {
+  const { count, error } = await createClient()
+    .from('notifications')
+    .select('*', { count: 'exact', head: true })
+    .is('read_at', null);
+  if (error) throw error;
+  return count ?? 0;
+}
 
 interface NotificationsContextValue {
   /** The latest rows, newest first; null until first loaded. */
@@ -87,55 +123,22 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     setLoading(true);
-    const supabase = createClient();
-    // Every workspace's rows, as the badge counts them: RLS shows the
-    // reader's rows in each workspace where they are live (083's
-    // my_live_account_ids()), so this list, "Mark all as read" and the
-    // realtime handler below all cover the same rows.
-    const [list, count] = await Promise.all([
-      supabase
-        .from('notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(WINDOW),
-      supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .is('read_at', null),
-    ]);
-    if (seq !== loadSeq.current) return;
-    setLoading(false);
-    const failure = list.error ?? count.error;
-    if (failure) {
-      setError(failure.message);
-      return;
+    try {
+      const window = await fetchWindow();
+      if (seq !== loadSeq.current) return;
+      setError(null);
+      dispatch({ type: 'loaded', ...window });
+    } catch (err) {
+      if (seq !== loadSeq.current) return;
+      setError((err as { message?: string })?.message ?? String(err));
     }
-    setError(null);
-    dispatch({
-      type: 'loaded',
-      rows: (list.data ?? []) as Notification[],
-      unreadTotal: count.count ?? 0,
-    });
+    setLoading(false);
   }, []);
 
-  // The badge before any list is loaded. head:true skips fetching rows —
-  // we only need the `count` supabase-js returns alongside the (empty)
-  // response body. RLS on `notifications` already scopes every read to
-  // `auth.uid() = user_id`, so no explicit filter is needed here.
+  const listLoadedRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const { count, error: countErr } = await createClient()
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .is('read_at', null);
-      if (cancelled || countErr) return;
-      dispatch({ type: 'count', unread: count ?? 0 });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    listLoadedRef.current = state.rows !== null;
+  }, [state.rows]);
 
   // Realtime — new notifications appear and count without a refresh, and
   // a "mark all read" fired from another tab/device stays in sync here.
@@ -150,6 +153,28 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const bindings = scopedChangeBindings('notifications', 'user_id', userId);
     if (!bindings) return;
     const supabase = createClient();
+    // The badge before any list is loaded, and whatever is loaded again
+    // after a gap in realtime, quietly: no spinner, no error.
+    const live = startLiveRead({
+      read: async () => {
+        const seq = loadSeq.current;
+        const action: NotificationsAction = listLoadedRef.current
+          ? { type: 'loaded', ...(await fetchWindow()) }
+          : { type: 'count', unread: await fetchUnreadCount() };
+        return { seq, action };
+      },
+      apply: ({ seq, action }) => {
+        if (action.type === 'loaded') {
+          // A load begun since is newer; one begun before is older, and
+          // must not land on top of this.
+          if (seq !== loadSeq.current) return;
+          loadSeq.current += 1;
+          setLoading(false);
+          setError(null);
+        }
+        dispatch(action);
+      },
+    });
     // The topic names the user: removeChannel is async, and a re-run on
     // the same topic would be handed the channel still leaving.
     let channel = supabase.channel(`notifications-bell:${userId}`);
@@ -157,13 +182,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       channel = channel.on('postgres_changes', binding, (payload) => {
         const change = changeFromPayload(payload);
         if (!change) return;
+        live.changed();
         dispatch(change);
         for (const fn of listenersRef.current) fn(change);
       });
     }
-    channel.subscribe();
+    channel.subscribe(live.onStatus);
 
     return () => {
+      live.stop();
       supabase.removeChannel(channel);
     };
   }, [userId]);

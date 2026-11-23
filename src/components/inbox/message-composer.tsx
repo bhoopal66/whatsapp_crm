@@ -81,6 +81,7 @@ import {
   type ComposeFlowState,
   type ParkedDrafts,
 } from '@/lib/insights/compose-check-flow';
+import { isImeKey } from '@/lib/keyboard/ime';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -1069,6 +1070,7 @@ export function MessageComposer({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (isImeKey(e.nativeEvent)) return;
       if (slashOpen) {
         const count = slashMatches.length;
         const action = slashKeyAction(e, { loading: slashLoading, count });
@@ -1929,6 +1931,7 @@ function MediaDraftPreview({
           maxLength={MEDIA_CAPTION_MAX}
           onChange={(e) => onCaptionChange(e.target.value)}
           onKeyDown={(e) => {
+            if (isImeKey(e.nativeEvent)) return;
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               onSend();

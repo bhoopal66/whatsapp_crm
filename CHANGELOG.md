@@ -75,6 +75,17 @@ No migration.
   and a resync no longer shows it twice.
 - A chat left open in a hidden tab stays unread until you look at it,
   and a failed "mark as read" is tried again.
+### Screens that catch up after sleep or a dropped connection
+
+No migration.
+- **Unread badges, team notes, the bell and the team chat badge** read
+  again when the connection returns or the tab comes back after being
+  hidden for a while, and retry a failed read. A chat moved out of your
+  sight no longer stays counted.
+- **Inbox list.** A list that could not be loaded says so and offers
+  Retry instead of "No conversations found"; so does a further page.
+- **Typing with an input method** (Korean, Chinese, Japanese): the Enter
+  that finishes a word no longer sends the message, caption or note.
 
 ### Dependencies and repository settings
 

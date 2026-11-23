@@ -30,6 +30,7 @@ import {
 } from '@/lib/inbox/notes';
 import { noteDrafts } from '@/lib/inbox/note-drafts';
 import { useAuth } from '@/hooks/use-auth';
+import { isImeKey } from '@/lib/keyboard/ime';
 import { cn } from '@/lib/utils';
 import { fetchMentionCandidates } from './use-conversation-notes';
 
@@ -140,6 +141,7 @@ export function NoteComposer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeKey(e.nativeEvent)) return;
     if (listOpen) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -158,7 +160,7 @@ export function NoteComposer({
         return;
       }
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void save();
     }
