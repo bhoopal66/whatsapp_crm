@@ -435,11 +435,10 @@ export async function dispatchInboundToAiReply(
     // stand down before the number lookup below, which would throw
     // `personal_chat`, and before any token is spent. Recorded as
     // `skipped_number` - the message is on a number the bot does not
-    // answer. Fails open on a read error (the channel resolver still
-    // refuses a personal chat).
-    const { data: personalRow } = await dbc
+    // answer. A read error stands the bot down (below).
+    const { data: personalRow, error: personalErr } = await dbc
       .from('conversations')
-      .select('personal_owner_id')
+      .select('personal_owner_id, inbox_department')
       .eq('id', conversationId)
       .maybeSingle();
     if (personalRow?.personal_owner_id) {
@@ -448,6 +447,19 @@ export async function dispatchInboundToAiReply(
         'Personal chat: the bot never answers on a personal number.'
       );
     }
+
+    // HR, IT and accounts chats are not the sales bot's either. Before
+    // any spend, for a Flow's fallback too. A check that cannot be read
+    // throws: recorded as `error`, and nothing is sent.
+    if (personalErr) {
+      throw new Error(`department lookup: ${personalErr.message}`);
+    }
+    const notSales = await notSalesChat(dbc, {
+      conversationId,
+      inboxDepartment: personalRow?.inbox_department ?? null,
+      inboundChannelId: inboundChannelId ?? null,
+    });
+    if (notSales) return skip('skipped_number', notSales);
 
     // Which number the bot answers on (migration 079). Every send below
     // goes out on `replyChannelId` when it is set; unset, the send
@@ -1538,6 +1550,51 @@ const UNANSWERED_ERROR =
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Why a chat is not the sales bot's to answer, or null: it sits in a
+ * department inbox other than sales (192), it has an `hr_conversations`
+ * row (200; a closed one too, the person is still a candidate or a
+ * colleague), or the message came in on an HR line (213).
+ *
+ * `hr_lines` is readable only through functions, and the service role has
+ * one: `hr_auto_open_recruiter`, which the inbound pipeline calls for
+ * every message anyway. Asked here first it opens the Recruitment chat a
+ * moment earlier (idempotent). It answers `off` without looking at the
+ * lines while *Open a Recruitment chat* is off: an HR line is then only
+ * recognised by its chats' HR rows. Throws when a check cannot be read.
+ */
+async function notSalesChat(
+  db: SupabaseClient,
+  args: {
+    conversationId: string;
+    inboxDepartment: string | null;
+    inboundChannelId: string | null;
+  }
+): Promise<string | null> {
+  if (args.inboxDepartment && args.inboxDepartment !== 'sales') {
+    return `This chat is in the ${args.inboxDepartment} inbox.`;
+  }
+  const { data: hrRow, error: hrErr } = await db
+    .from('hr_conversations')
+    .select('conversation_id')
+    .eq('conversation_id', args.conversationId)
+    .maybeSingle();
+  if (hrErr) throw new Error(`HR chat lookup: ${hrErr.message}`);
+  if (hrRow) return 'This is an HR chat.';
+  if (!args.inboundChannelId) return null;
+  const { data: line, error: lineErr } = await db.rpc(
+    'hr_auto_open_recruiter',
+    {
+      p_conversation_id: args.conversationId,
+      p_channel_id: args.inboundChannelId,
+    }
+  );
+  if (lineErr) throw new Error(`HR line lookup: ${lineErr.message}`);
+  return line === 'opened' || line === 'exists' || line === 'other_numbers'
+    ? 'The message came in on an HR line.'
+    : null;
 }
 
 /** Kept back from a generation's timeout for the send or hand-off. */

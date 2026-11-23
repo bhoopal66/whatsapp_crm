@@ -68,6 +68,12 @@ const h = vi.hoisted(() => ({
     drafts: [] as Record<string, unknown>[],
     /** Fail the held-draft write with this message. */
     draftError: null as string | null,
+    /** The chat's `hr_conversations` row, and what each HR read answers. */
+    hrRow: null as Record<string, unknown> | null,
+    hrRowError: null as string | null,
+    hrLine: 'off' as string | null,
+    hrLineError: null as string | null,
+    deptError: null as string | null,
   },
 }));
 
@@ -117,6 +123,20 @@ vi.mock('./admin-client', () => ({
               error: null,
             });
           },
+        };
+        return chain;
+      }
+      if (table === 'hr_conversations') {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: () =>
+            Promise.resolve({
+              data: h.state.hrRowError ? null : h.state.hrRow,
+              error: h.state.hrRowError
+                ? { message: h.state.hrRowError }
+                : null,
+            }),
         };
         return chain;
       }
@@ -226,14 +246,17 @@ vi.mock('./admin-client', () => ({
             // The dispatch's first read sees `conv`; a re-read sees what
             // a person made of it since (`convLive`).
             maybeSingle: () =>
-              cols === 'personal_owner_id'
+              cols === 'personal_owner_id, inbox_department'
                 ? // A read of its own: must not use up the "first read".
                   Promise.resolve({
                     data: {
                       personal_owner_id:
                         h.state.conv?.personal_owner_id ?? null,
+                      inbox_department: h.state.conv?.inbox_department ?? null,
                     },
-                    error: null,
+                    error: h.state.deptError
+                      ? { message: h.state.deptError }
+                      : null,
                   })
                 : Promise.resolve({
                     data:
@@ -320,6 +343,13 @@ vi.mock('./admin-client', () => ({
       };
     },
     rpc: (name: string, args: unknown) => {
+      if (name === 'hr_auto_open_recruiter') {
+        return Promise.resolve(
+          h.state.hrLineError
+            ? { data: null, error: { message: h.state.hrLineError } }
+            : { data: h.state.hrLine, error: null }
+        );
+      }
       h.state.rpcCalls.push({ name, args });
       return Promise.resolve(
         h.state.claimError
@@ -430,6 +460,11 @@ beforeEach(() => {
   h.state.resumes = [];
   h.state.drafts = [];
   h.state.draftError = null;
+  h.state.hrRow = null;
+  h.state.hrRowError = null;
+  h.state.hrLine = 'off';
+  h.state.hrLineError = null;
+  h.state.deptError = null;
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -1562,6 +1597,60 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
     expect(h.resolveAiReplyChannel).not.toHaveBeenCalled();
     expect(h.generateReply).not.toHaveBeenCalled();
     expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  describe('chats that are not sales', () => {
+    const LINE = { ...ARGS, inboundChannelId: 'ch-hr' };
+    const silent = () => {
+      expect(h.generateReply).not.toHaveBeenCalled();
+      expect(h.engineSendText).not.toHaveBeenCalled();
+    };
+
+    it('an HR chat is never answered, whatever number it is on', async () => {
+      h.state.hrRow = { conversation_id: 'conv-1' };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_number');
+      silent();
+    });
+
+    it.each(['hr', 'it', 'accounts'])(
+      'nor a chat in the %s inbox',
+      async (dept) => {
+        h.state.conv = { ...h.state.conv, inbox_department: dept };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+        expect(lastOutcome()).toBe('skipped_number');
+        silent();
+      }
+    );
+
+    it.each(['opened', 'exists', 'other_numbers'])(
+      'nor a message on an HR line (%s)',
+      async (answer) => {
+        h.state.hrLine = answer;
+        expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+        expect(lastOutcome()).toBe('skipped_number');
+        silent();
+      }
+    );
+
+    it.each(['hrRowError', 'hrLineError', 'deptError'] as const)(
+      'a failed check (%s) stands the bot down',
+      async (key) => {
+        h.state[key] = 'timeout';
+        expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+        expect(lastOutcome()).toBe('error');
+        silent();
+      }
+    );
+
+    it.each(['off', 'not_hr_line'])(
+      'a sales chat on an ordinary number (%s) is answered',
+      async (answer) => {
+        h.state.hrLine = answer;
+        h.state.conv = { ...h.state.conv, inbox_department: 'sales' };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+      }
+    );
   });
 
   it('skipped_paused: the bot is paused on this thread', async () => {

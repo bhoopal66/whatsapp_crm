@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### AI
+
+No migration.
+- The sales bot no longer answers HR candidates and colleagues: it stands
+  down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
+  HR line while "open a Recruitment chat" is on. When that cannot be checked
+  it sends nothing.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`
