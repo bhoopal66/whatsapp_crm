@@ -223,6 +223,9 @@ export async function mirrorInboundMedia(
   } = args;
 
   const normalizedMime = normalizeMimeType(mimeType);
+  // An OpenWA id spells out the chat's and the sender's number: the log
+  // gets the object's key instead, which is in the stored path too.
+  const logId = mirrorKey(mediaId);
 
   // Skip oversized media BEFORE spending the transfer. The bucket
   // rejects anything past its 16 MB `file_size_limit` anyway, and Whapi
@@ -230,7 +233,7 @@ export async function mirrorInboundMedia(
   // defensive one.
   if (typeof fileSize === 'number' && fileSize > MEDIA_MAX_BYTES) {
     console.warn(
-      `[mirror-media] skipping ${mediaId}: ${fileSize} bytes exceeds the ${MEDIA_MAX_BYTES}-byte bucket limit`
+      `[mirror-media] skipping ${logId}: ${fileSize} bytes exceeds the ${MEDIA_MAX_BYTES}-byte bucket limit`
     );
     return null;
   }
@@ -246,7 +249,7 @@ export async function mirrorInboundMedia(
     // the bucket.
     if (buffer.byteLength > MEDIA_MAX_BYTES) {
       console.warn(
-        `[mirror-media] skipping ${mediaId}: downloaded ${buffer.byteLength} bytes, over the ${MEDIA_MAX_BYTES}-byte bucket limit`
+        `[mirror-media] skipping ${logId}: downloaded ${buffer.byteLength} bytes, over the ${MEDIA_MAX_BYTES}-byte bucket limit`
       );
       return null;
     }
@@ -287,7 +290,7 @@ export async function mirrorInboundMedia(
       // 039 covers what WhatsApp realistically sends, but a document can be
       // any type at all). Log and let the caller keep the proxy URL.
       console.warn(
-        `[mirror-media] upload failed for ${mediaId} (${uploadType}):`,
+        `[mirror-media] upload failed for ${logId} (${uploadType}):`,
         error.message
       );
       return null;
@@ -303,7 +306,7 @@ export async function mirrorInboundMedia(
     return publicUrl ? toPublicSupabaseUrl(publicUrl) : null;
   } catch (error) {
     console.warn(
-      `[mirror-media] could not mirror ${mediaId}:`,
+      `[mirror-media] could not mirror ${logId}:`,
       error instanceof Error ? error.message : error
     );
     return null;

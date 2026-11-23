@@ -17,6 +17,11 @@ the contract.
 - **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
   change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
 - **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
+- **Files** (`lib/groups/inbound-media.ts`): after the row is stored, the
+  one-to-one mirror copies the bytes to `chat-media` `inbound/` (never
+  `staged/`, which is swept, nor `groups/`, which staff may send from) and
+  a compare-and-set fills `media.link`. Best effort, in `later`. Submission
+  groups keep Whapi's link: their table has no RPC that updates `media`.
 - **Delete** (`POST /api/whatsapp/groups/delete`, owner/admin) is for
   good: a still-joined group is left on WhatsApp first (failure deletes
   nothing), then `whatsapp_group_tombstones` (173), then the row;

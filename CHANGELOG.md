@@ -25,6 +25,14 @@ No migration.
   is refused.
 - Web form: with no known client address the limit is per form, so one
   caller cannot close every form.
+### Files sent in WhatsApp groups can be opened
+
+No migration. A photo, sticker, video, voice note or document somebody sends
+in a WhatsApp group is now copied into the workspace's own storage, as in
+one-to-one chats. On an OpenWA number such a file could never be opened; on a
+Whapi number it stopped opening after about 30 days. Files received before
+this update are not copied, and submission groups still keep Whapi's link.
+The download button saves a document under its own name.
 
 ### Group chats that stay current and never send twice
 

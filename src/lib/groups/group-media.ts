@@ -8,8 +8,10 @@ import type { SharedContact } from '@/lib/whatsapp/contact-card';
  * `lib/groups/inbound.ts` from the normalised Whapi payload:
  * `{ id, link, mime_type, filename, file_size }`, `{ location }`, or
  * `{ contacts }` (a shared contact card, `groupContactCards`).
- * `link` is Whapi's own https link to the bytes (auto_download), so the
- * browser can show or open it directly. Pure: no React, no I/O.
+ * `link` is our own https link once `inbound-media.ts` has copied the
+ * bytes into `chat-media`. Until then, or when the copy failed, it is
+ * Whapi's own link (about 30 days) or null on an OpenWA number; a
+ * submission group always keeps Whapi's. Pure: no React, no I/O.
  */
 
 export type GroupMediaKind =
@@ -43,7 +45,11 @@ function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
-/** Only an absolute https link is ever put in an href or src. */
+/**
+ * Only an absolute https link is ever put in an href or src: our public
+ * storage origin or Whapi's. (A development stack on plain http shows its
+ * copies as unavailable.)
+ */
 export function safeMediaUrl(v: unknown): string | null {
   const s = str(v);
   if (!s) return null;
@@ -53,6 +59,20 @@ export function safeMediaUrl(v: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The link a document's download button opens. A browser ignores the
+ * anchor's `download` name on another origin, so for a file in our own
+ * storage the name goes into the URL, which makes the storage API answer
+ * it as an attachment of that name.
+ */
+export function groupDownloadUrl(url: string, filename: string | null): string {
+  if (!filename) return url;
+  const u = new URL(url);
+  if (!u.pathname.includes('/storage/v1/object/public/')) return url;
+  u.searchParams.set('download', filename);
+  return u.toString();
 }
 
 export function fileSizeLabel(v: unknown): string | null {
