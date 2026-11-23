@@ -501,82 +501,110 @@ export function pickIntentFlow(
 // thread can quote the prompt the customer is replying to.
 // ============================================================
 
+/**
+ * A menu that could not be sent ends its run, as a failed `send_message`
+ * does: an active run whose menu never went out would swallow the
+ * customer's next messages. Returns false for the caller to pass on.
+ */
+async function failInteractiveSend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  err: unknown
+): Promise<false> {
+  await logEvent(db, run.id, 'error', node.node_key, {
+    reason: 'send_interactive_failed',
+    node_type: node.node_type,
+    detail: err instanceof Error ? err.message : String(err),
+  });
+  await endRun(db, run.id, 'failed', 'send_interactive_failed');
+  return false;
+}
+
 async function sendButtonsAndSuspend(
   db: AdminClient,
   run: FlowRunRow,
   node: FlowNodeRow
-): Promise<{ outcome: 'advanced'; node_key: string }> {
+): Promise<boolean> {
   const cfg = node.config as unknown as SendButtonsNodeConfig;
-  const { whatsapp_message_id } = await engineSendInteractiveButtons({
-    accountId: run.account_id,
-    userId: run.user_id,
-    conversationId: run.conversation_id!,
-    contactId: run.contact_id!,
-    bodyText: cfg.text,
-    headerText: cfg.header_text,
-    footerText: cfg.footer_text,
-    buttons: cfg.buttons.map((b) => ({ id: b.reply_id, title: b.title })),
-  });
-  await logEvent(db, run.id, 'message_sent', node.node_key, {
-    node_type: 'send_buttons',
-    whatsapp_message_id,
-  });
-  // Look up our internal message id so we can stash it on the run.
-  // Cheap — indexed on `messages.message_id`.
-  const { data: msg } = await db
-    .from('messages')
-    .select('id')
-    .eq('message_id', whatsapp_message_id)
-    .maybeSingle();
-  await db
-    .from('flow_runs')
-    .update({
-      last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
-    })
-    .eq('id', run.id);
-  return { outcome: 'advanced', node_key: node.node_key };
+  try {
+    const { whatsapp_message_id } = await engineSendInteractiveButtons({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      bodyText: cfg.text,
+      headerText: cfg.header_text,
+      footerText: cfg.footer_text,
+      buttons: cfg.buttons.map((b) => ({ id: b.reply_id, title: b.title })),
+    });
+    await logEvent(db, run.id, 'message_sent', node.node_key, {
+      node_type: 'send_buttons',
+      whatsapp_message_id,
+    });
+    // Look up our internal message id so we can stash it on the run.
+    // Cheap — indexed on `messages.message_id`.
+    const { data: msg } = await db
+      .from('messages')
+      .select('id')
+      .eq('message_id', whatsapp_message_id)
+      .maybeSingle();
+    await db
+      .from('flow_runs')
+      .update({
+        last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
+      })
+      .eq('id', run.id);
+    return true;
+  } catch (err) {
+    return failInteractiveSend(db, run, node, err);
+  }
 }
 
 async function sendListAndSuspend(
   db: AdminClient,
   run: FlowRunRow,
   node: FlowNodeRow
-): Promise<{ outcome: 'advanced'; node_key: string }> {
+): Promise<boolean> {
   const cfg = node.config as unknown as SendListNodeConfig;
-  const { whatsapp_message_id } = await engineSendInteractiveList({
-    accountId: run.account_id,
-    userId: run.user_id,
-    conversationId: run.conversation_id!,
-    contactId: run.contact_id!,
-    bodyText: cfg.text,
-    buttonLabel: cfg.button_label,
-    headerText: cfg.header_text,
-    footerText: cfg.footer_text,
-    sections: cfg.sections.map((s) => ({
-      title: s.title,
-      rows: s.rows.map((r) => ({
-        id: r.reply_id,
-        title: r.title,
-        description: r.description,
+  try {
+    const { whatsapp_message_id } = await engineSendInteractiveList({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      bodyText: cfg.text,
+      buttonLabel: cfg.button_label,
+      headerText: cfg.header_text,
+      footerText: cfg.footer_text,
+      sections: cfg.sections.map((s) => ({
+        title: s.title,
+        rows: s.rows.map((r) => ({
+          id: r.reply_id,
+          title: r.title,
+          description: r.description,
+        })),
       })),
-    })),
-  });
-  await logEvent(db, run.id, 'message_sent', node.node_key, {
-    node_type: 'send_list',
-    whatsapp_message_id,
-  });
-  const { data: msg } = await db
-    .from('messages')
-    .select('id')
-    .eq('message_id', whatsapp_message_id)
-    .maybeSingle();
-  await db
-    .from('flow_runs')
-    .update({
-      last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
-    })
-    .eq('id', run.id);
-  return { outcome: 'advanced', node_key: node.node_key };
+    });
+    await logEvent(db, run.id, 'message_sent', node.node_key, {
+      node_type: 'send_list',
+      whatsapp_message_id,
+    });
+    const { data: msg } = await db
+      .from('messages')
+      .select('id')
+      .eq('message_id', whatsapp_message_id)
+      .maybeSingle();
+    await db
+      .from('flow_runs')
+      .update({
+        last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
+      })
+      .eq('id', run.id);
+    return true;
+  } catch (err) {
+    return failInteractiveSend(db, run, node, err);
+  }
 }
 
 async function executeHandoff(
@@ -958,7 +986,9 @@ async function advanceFromNodeKey(
       continue;
     }
     if (node.node_type === 'send_buttons') {
-      await sendButtonsAndSuspend(db, run, node);
+      if (!(await sendButtonsAndSuspend(db, run, node))) {
+        return { outcome: 'failed' };
+      }
       // Persist the new current_node_key via optimistic UPDATE.
       const advanced = await advanceCurrentNodeKey(
         db,
@@ -974,7 +1004,9 @@ async function advanceFromNodeKey(
       return { outcome: 'advanced', lostRace: !advanced };
     }
     if (node.node_type === 'send_list') {
-      await sendListAndSuspend(db, run, node);
+      if (!(await sendListAndSuspend(db, run, node))) {
+        return { outcome: 'failed' };
+      }
       const advanced = await advanceCurrentNodeKey(
         db,
         run.id,
@@ -1206,6 +1238,13 @@ async function handleReplyForActiveRun(
     return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
   }
 
+  if (!isSuspending(currentNode.node_type)) {
+    // The run never asked anything here, so nothing this message says
+    // can move it: hand the message back rather than swallow it.
+    await endRun(db, run.id, 'failed', 'current_node_not_waiting');
+    return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+  }
+
   // Three ways a reply can advance:
   //   1. Interactive button/list tap on a send_buttons/send_list node.
   //   2. Typed text on such a node that names an option (typed-reply.ts).
@@ -1399,9 +1438,13 @@ async function handleReplyForActiveRun(
   if (action.type === 'reprompt') {
     // Re-send the same prompt. Same node, no current_node_key change.
     if (currentNode.node_type === 'send_buttons') {
-      await sendButtonsAndSuspend(db, run, currentNode);
+      if (!(await sendButtonsAndSuspend(db, run, currentNode))) {
+        return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+      }
     } else if (currentNode.node_type === 'send_list') {
-      await sendListAndSuspend(db, run, currentNode);
+      if (!(await sendListAndSuspend(db, run, currentNode))) {
+        return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+      }
     } else if (currentNode.node_type === 'collect_input') {
       // Customer typed something we couldn't accept (empty after trim,
       // or var_key missing — rare). Re-send the prompt so they try again.
