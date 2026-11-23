@@ -140,6 +140,9 @@ export type TaskListScope = (typeof TASK_LIST_SCOPES)[number];
 export type TaskListQuery = {
   status: TaskStatus | 'all';
   limit: number;
+  kind?: TaskKind;
+  /** Only tasks opened or changed at or after this instant (UTC ISO). */
+  updatedSince?: string;
 } & (
   | { scope: 'mine' | 'all' }
   | { scope: 'contact'; contactId: string }

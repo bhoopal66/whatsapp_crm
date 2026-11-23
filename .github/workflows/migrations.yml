@@ -1417,3 +1417,9 @@ jobs:
       # repeat too; one chat_post_message, calls without the id as before.
       - name: Verify chat posts once
         run: supabase db query --local --file supabase/ci/verify-chat-post-once.sql
+
+      # Migration 272: a waiting customer whose assignee was deactivated or
+      # removed counts as unassigned on the live view; a live person's
+      # does not.
+      - name: Verify live view leavers
+        run: supabase db query --local --file supabase/ci/verify-live-view-leavers.sql

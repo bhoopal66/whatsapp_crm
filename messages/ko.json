@@ -7029,6 +7029,7 @@
     },
     "mineHint": "내가 걸거나 받았거나 내 전화로 울린 통화, 최신순",
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
+    "tasksTruncated": "부재중 전화 작업 중 처음 {count, number}개만 표시합니다. 표시가 없는 통화에도 작업이 있을 수 있습니다.",
     "missedWho": {
       "label": "부재중 전화 범위",
       "mine": "내 것",
@@ -12424,6 +12425,7 @@
       "done": "완료",
       "empty": "열린 HR 작업이 없습니다.",
       "loadFailed": "HR 작업을 불러오지 못했습니다.",
+      "truncated": "마감이 가까운 처음 {count, number}개 작업만 표시합니다. ‘내 작업’과 ‘기한 지남만’은 이 목록 안에서만 찾습니다.",
       "doneFailed": "작업을 완료로 표시하지 못했습니다.",
       "doneTask": "“{title}” 완료 처리",
       "openChat": "채팅 열기",

@@ -93,6 +93,18 @@ No migration.
   ones not loaded are still marked, and the button says so; it waits until
   the list has loaded.
 
+### Lists that were cut short
+
+**Migration required:** `272_live_view_leavers.sql`
+- **Live view:** a waiting customer whose chat belongs to someone who was
+  deactivated or removed counts as unassigned. They were in no figure, so
+  the screen said all clear.
+- **Missed calls:** the callback labels are read for missed calls of the
+  last 7 days only. With more than 200 open tasks of any kind, today's calls
+  lost theirs and a returned call looked untouched. When the tasks cannot be
+  read the screen says so; it listed every call as untouched.
+- **Missed calls and HR tasks** say when only the first 200 tasks are shown.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.
