@@ -57,6 +57,64 @@ describe('the MCP client', () => {
     }
   );
 
+  const dropped = (code?: string) =>
+    Object.assign(new TypeError('fetch failed'), { cause: { code } });
+
+  it.each(['ECONNRESET', 'UND_ERR_SOCKET', undefined])(
+    'says a write whose connection dropped (%s) may have gone through',
+    async (code) => {
+      fetchMock.mockRejectedValue(dropped(code));
+      expect(await send()).toMatchObject({
+        name: 'TaamulApiError',
+        code: 'network_error',
+        message: expect.stringContaining('may have gone through'),
+      });
+      expect(((await get()) as Error).message).not.toContain('gone through');
+    }
+  );
+
+  it.each(['ECONNREFUSED', 'ENOTFOUND'])(
+    'a write that never connected (%s) did not go through',
+    async (code) => {
+      fetchMock.mockRejectedValue(dropped(code));
+      expect(await send()).toMatchObject({
+        code: 'network_error',
+        message: 'Could not reach Taamul Connect at http://crm: fetch failed',
+      });
+    }
+  );
+
+  it.each([
+    [502, '<html>Bad gateway</html>'],
+    [504, '<html>Timed out</html>'],
+    [502, ''],
+  ])(
+    'says a write a proxy answered %i %j may have gone through',
+    async (status, body) => {
+      const reply = () =>
+        fetchMock.mockResolvedValue(new Response(body, { status }));
+      reply();
+      const message = expect.stringContaining('may have gone through');
+      expect(await send()).toMatchObject({ status, code: 'internal', message });
+      reply();
+      expect(await get()).toMatchObject({
+        status,
+        message: body || `Request failed with status ${status}`,
+      });
+    }
+  );
+
+  it.each([
+    [500, '{"error":{"code":"internal","message":"Failed"}}', 'Failed'],
+    [413, '<html>Too large</html>', '<html>Too large</html>'],
+  ])(
+    'a write refused with %i %s is just that',
+    async (status, body, message) => {
+      answer(body, { status });
+      expect(await send()).toMatchObject({ status, message });
+    }
+  );
+
   it.each([429, 503])('passes on Retry-After for a %i', async (status) => {
     answer('{"error":{"code":"x","message":"Wait"}}', {
       status,

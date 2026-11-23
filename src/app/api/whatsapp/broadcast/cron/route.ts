@@ -29,8 +29,10 @@
 // that: nobody has a tab open on it. The mark of one is a NULL
 // `audience_filter`: the wizard always writes it, and
 // `create_broadcast_with_recipients`, which only the API calls, never
-// does (pinned in `cron-continue.test.ts`). One sent from the wizard has
-// no appointment and is finished by the tab or by Resume.
+// does (pinned in `cron-continue.test.ts`). Such a campaign has no quiet
+// hours to obey, so it is continued in the daytime only
+// (`apiCampaignNight`). One sent from the wizard has no appointment and is
+// finished by the tab or by Resume.
 //
 // Every tick also replays Meta receipts that no recipient row matched
 // when they arrived (migration 066), so a lost 'failed' is still
@@ -64,7 +66,9 @@ import {
   isInQuietHours,
   nextAllowedSendTime,
   parseQuietHours,
+  type QuietHours,
 } from '@/lib/broadcasts/quiet-hours';
+import { DEFAULT_TIMEZONE } from '@/lib/response-times/hours';
 import { serverErrorResponse } from '@/lib/api/server-error';
 
 export const maxDuration = 300;
@@ -77,6 +81,9 @@ const CONTINUE_CANDIDATES = 20;
 
 /** How long after its appointment (API: its creation) one is continued. */
 const CONTINUE_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** When an API campaign, which has no quiet hours, is not continued. */
+const API_NIGHT = { start: '21:00', end: '08:00' };
 
 interface DueRow {
   id: string;
@@ -208,7 +215,7 @@ export async function GET(request: Request) {
   const weekAgo = new Date(+now - CONTINUE_WITHIN_MS).toISOString();
   const { data: unfinished, error: unfinishedError } = await admin
     .from('broadcasts')
-    .select('id, account_id, quiet_hours, updated_at')
+    .select('id, account_id, scheduled_at, quiet_hours, updated_at')
     .eq('status', 'sending')
     .or(
       `and(scheduled_at.lte.${nowIso},scheduled_at.gte.${weekAgo}),` +
@@ -237,7 +244,28 @@ export async function GET(request: Request) {
 }
 
 interface UnfinishedRow extends ContinueCandidate {
+  /** Null: the public API created it. */
+  scheduled_at: string | null;
   quiet_hours: unknown;
+}
+
+/** `API_NIGHT` in the account's time zone. Throws when it cannot be read. */
+async function apiCampaignNight(
+  admin: SupabaseClient,
+  accountId: string
+): Promise<QuietHours> {
+  const { data, error } = await admin
+    .from('team_activity_settings')
+    .select('timezone')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) throw new Error(`time zone read failed: ${error.message}`);
+  return (
+    parseQuietHours({ ...API_NIGHT, tz: data?.timezone }) ?? {
+      ...API_NIGHT,
+      tz: DEFAULT_TIMEZONE,
+    }
+  );
 }
 
 /** Start the next pass of an unfinished campaign, if it may run now. */
@@ -246,13 +274,14 @@ async function continueBroadcast(
   row: UnfinishedRow,
   now: Date
 ): Promise<'started' | 'skipped'> {
-  const quiet = parseQuietHours(row.quiet_hours);
-  if (quiet && isInQuietHours(now, quiet)) return 'skipped';
-
   const claimedAt = new Date();
   const token = claimedAt.toISOString();
   let claimed = false;
   try {
+    const quiet =
+      parseQuietHours(row.quiet_hours) ??
+      (row.scheduled_at ? null : await apiCampaignNight(admin, row.account_id));
+    if (quiet && isInQuietHours(now, quiet)) return 'skipped';
     if (!(await mayContinueBroadcast(admin, row, now))) return 'skipped';
     claimed = await claimBroadcastDelivery(
       admin,
@@ -268,7 +297,8 @@ async function continueBroadcast(
       row.id,
       'pending'
     );
-    after(() => runBroadcastPass(admin, plan, token));
+    // Read again before every send, so a pass also stops when they begin.
+    after(() => runBroadcastPass(admin, { ...plan, quietHours: quiet }, token));
     return 'started';
   } catch (err) {
     const code = err instanceof BroadcastError ? err.code : null;

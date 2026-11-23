@@ -260,6 +260,78 @@ describe('continuing a campaign the API created', () => {
     expect(await tick()).toMatchObject({ started: 1 });
   });
 
+  describe('not at night', () => {
+    /** The tick at `time` (UTC), in an account whose time zone is `tz`. */
+    const at = (time: string, row: Row = {}, tz?: string) => {
+      vi.setSystemTime(new Date(`2026-11-23T${time}Z`));
+      const w = world([2], api({ created_at: ago(DAY), ...row }));
+      w.broadcasts[0].updated_at = ago(31 * MIN);
+      const settings: Row[] = tz
+        ? [{ account_id: 'acct-1', timezone: tz }]
+        : [];
+      return Object.assign(w, { team_activity_settings: settings });
+    };
+
+    it.each([
+      ['20:00', 0], // 00:00 in Dubai
+      ['03:59', 0],
+      ['04:00', 1], // 08:00
+      ['16:59', 1],
+      ['17:00', 0], // 21:00
+    ])('at %s UTC starts %i', async (time, started) => {
+      const w = use(at(time));
+      const untouched = { ...w.broadcasts[0] };
+      expect(await tick()).toMatchObject({ started });
+      if (!started) expect(w.broadcasts[0]).toEqual(untouched);
+    });
+
+    it.each([
+      ['20:00', 'America/New_York', 1], // 15:00 there
+      ['08:00', 'America/New_York', 0], // 03:00
+      ['08:00', 'Nowhere/Nothing', 1], // Dubai
+    ])('at %s UTC in %s starts %i', async (time, tz, started) => {
+      use(at(time, {}, tz));
+      expect(await tick()).toMatchObject({ started });
+    });
+
+    it('stops a pass that reaches the night, to go on in the morning', async () => {
+      const w = use(at('16:59'));
+      h.send.mockImplementation(async () => {
+        later(2 * MIN);
+        return { messageId: 'wamid.1' };
+      });
+      await tick();
+      await runPasses();
+      expect(w.broadcast_recipients.map((r) => r.status)).toEqual([
+        'sent',
+        'pending',
+      ]);
+
+      later(11 * 60 * MIN); // 08:01 in Dubai
+      expect(await tick()).toMatchObject({ started: 1 });
+    });
+
+    it('keeps its own quiet hours', async () => {
+      const own = { start: '11:00', end: '13:00', tz: 'Asia/Dubai' };
+      use(at('08:00', { quiet_hours: own }));
+      expect(await tick()).toMatchObject({ started: 0 });
+      use(at('20:00', { quiet_hours: own }));
+      expect(await tick()).toMatchObject({ started: 1 });
+    });
+
+    it('is no rule for a scheduled campaign', async () => {
+      use(at('20:00', { scheduled_at: '2026-11-23T10:00:00Z' }));
+      expect(await tick()).toMatchObject({ started: 1 });
+    });
+
+    it('waits when the time zone cannot be read', async () => {
+      use(world([1], api()), ({ table }) =>
+        table === 'team_activity_settings' ? 'timeout' : null
+      );
+      expect(await tick()).toMatchObject({ started: 0, skipped: 1 });
+    });
+  });
+
   it('starts one pass for two ticks at once', async () => {
     use(world([2], api()));
     const ticks = await Promise.all([tick(), tick()]);

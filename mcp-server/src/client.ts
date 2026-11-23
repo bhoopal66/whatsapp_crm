@@ -97,12 +97,25 @@ export class TaamulClient {
           `Taamul Connect did not answer within ${TIMEOUT_MS / 1000} seconds`,
         );
       }
-      throw new TaamulApiError(
+      const { message, cause } = err as Error & { cause?: { code?: string } };
+      // Never connected: nothing was sent.
+      if (cause?.code === 'ECONNREFUSED' || cause?.code === 'ENOTFOUND') {
+        throw new TaamulApiError(
+          0,
+          'network_error',
+          `Could not reach Taamul Connect at ${this.baseUrl}: ${message}`,
+        );
+      }
+      throw unanswered(
+        method,
         0,
         'network_error',
-        `Could not reach Taamul Connect at ${this.baseUrl}: ${(err as Error).message}`,
+        `No answer from Taamul Connect at ${this.baseUrl}: ${message}`,
       );
     }
+
+    // A 5xx with no envelope is a proxy's, not the API's own answer.
+    const proxyFailed = res.status >= 500 && method !== 'GET';
 
     let payload: unknown = undefined;
     if (text) {
@@ -110,7 +123,7 @@ export class TaamulClient {
         payload = JSON.parse(text);
       } catch {
         // Non-JSON body (e.g. an upstream proxy error page).
-        if (!res.ok) {
+        if (!res.ok && !proxyFailed) {
           throw new TaamulApiError(res.status, 'internal', text.slice(0, 500));
         }
       }
@@ -119,11 +132,16 @@ export class TaamulClient {
     if (!res.ok) {
       const envelope = payload as { error?: { code?: string; message?: string } } | undefined;
       const code = envelope?.error?.code ?? 'internal';
-      let message = envelope?.error?.message ?? `Request failed with status ${res.status}`;
+      let message =
+        envelope?.error?.message ??
+        `Request failed with status ${res.status}${proxyFailed && text ? `: ${text.slice(0, 500)}` : ''}`;
       // Both carry a Retry-After we surface to the model.
       if (res.status === 429 || res.status === 503) {
         const retryAfter = res.headers.get('Retry-After');
         if (retryAfter) message += ` (retry after ${retryAfter}s)`;
+      }
+      if (proxyFailed && !envelope?.error) {
+        throw unanswered(method, res.status, code, message);
       }
       throw new TaamulApiError(res.status, code, message);
     }

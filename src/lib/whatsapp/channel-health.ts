@@ -142,17 +142,19 @@ export function nextHealth(
 }
 
 /**
- * How long consecutive probes must have agreed on OpenWA's `disconnected`
- * before it is believed: the five minutes between two ticks, less the
- * slack a tick may come early by (see `everyInterval`).
+ * How long a number must have stayed on OpenWA's `disconnected` before it
+ * is believed: the five minutes between two ticks, less the slack a tick
+ * may come early by (see `everyInterval`).
  */
 export const OPENWA_DISCONNECTED_CONFIRM_MS = 4.5 * 60_000;
 
 /**
  * Record one probe in `firstSeen` (number id → when the current run of
  * `disconnected` answers began) and say whether the run is long enough to
- * believe. Any other answer ends the run. In this process only: after a
- * restart of the app a run starts again.
+ * believe. `ready`, or an answer that is down on its own, ends the run. An
+ * inconclusive one does not: OpenWA retries a dead session for ever, so it
+ * alternates `disconnected` and `initializing`. In this process only: after
+ * a restart of the app a run starts again.
  */
 export function confirmDisconnected(
   firstSeen: Map<string, number>,
@@ -160,12 +162,11 @@ export function confirmDisconnected(
   probe: ProbeOutcome,
   nowMs: number
 ): boolean {
-  if (
-    channel.provider !== 'openwa' ||
-    !probe.ok ||
-    probe.status !== 'disconnected'
-  ) {
-    firstSeen.delete(channel.id);
+  if (channel.provider !== 'openwa') return false;
+  if (!probe.ok || probe.status !== 'disconnected') {
+    if (nextHealth('', probe, 'openwa').reason !== 'inconclusive') {
+      firstSeen.delete(channel.id);
+    }
     return false;
   }
   const since = firstSeen.get(channel.id);
@@ -483,6 +484,10 @@ export async function runChannelHealthCheck(
   const now = deps.now ?? (() => new Date());
   const firstSeen = deps.disconnectedSince ?? disconnectedSince;
   const channels = await loadLinkedChannelsForHealth(admin);
+  const probedIds = new Set(channels.map((c) => c.id));
+  for (const id of firstSeen.keys()) {
+    if (!probedIds.has(id)) firstSeen.delete(id);
+  }
   const summary: ChannelHealthSummary = {
     checked: 0,
     changed: 0,
