@@ -21,6 +21,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   BroadcastError,
   assertHeaderMedia,
+  OPTED_OUT_REASON,
+  quietHoursMessage,
   type BroadcastPlan,
 } from '@/lib/whatsapp/broadcast-core';
 import {
@@ -28,6 +30,7 @@ import {
   ChannelError,
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
+import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
@@ -129,8 +132,7 @@ export interface ResumePlan {
   optedOut: number;
 }
 
-/** The failure reason stamped on a recipient who opted out. */
-export const OPTED_OUT_REASON = 'Customer opted out of messages';
+export { OPTED_OUT_REASON };
 
 interface RecipientContact {
   phone?: string | null;
@@ -172,13 +174,22 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language, header_media_url')
+    .select(
+      'id, template_name, template_language, header_media_url, quiet_hours'
+    )
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
 
   if (bcError || !broadcast) {
     throw new BroadcastError('not_found', 'Broadcast not found', 404);
+  }
+
+  // Never 409 here: the wizard reads that as "a pass is running" and
+  // waits for it.
+  const quietHours = parseQuietHours(broadcast.quiet_hours);
+  if (quietHours && isInQuietHours(new Date(), quietHours)) {
+    throw new BroadcastError('quiet_hours', quietHoursMessage(quietHours), 400);
   }
 
   const statuses = scopeStatuses(scope);
@@ -194,7 +205,10 @@ export async function planBroadcastResume(
     .order('created_at', { ascending: true });
 
   if (recError) {
-    console.error('[broadcast-resume] recipient load failed:', recError.message);
+    console.error(
+      '[broadcast-resume] recipient load failed:',
+      recError.message
+    );
     throw new BroadcastError('internal', 'Failed to load recipients', 500);
   }
 
@@ -311,6 +325,7 @@ export async function planBroadcastResume(
     channel,
     templateRow: resolvedTemplate.row,
     headerMediaUrl,
+    quietHours,
     planned: slice.map((row) => ({
       recipientRowId: row.id,
       contactId: row.contact_id ?? null,

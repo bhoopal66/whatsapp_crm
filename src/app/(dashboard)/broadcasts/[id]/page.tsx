@@ -591,7 +591,8 @@ export default function BroadcastDetailPage() {
 
       {/* Scheduled (migration 053): the cron sends it when due. "Send
           now" is the same server-side pass a resume runs — it ignores
-          the appointment and delivers the pending rows immediately. */}
+          the appointment and delivers the pending rows immediately, but
+          not inside the campaign's quiet hours. */}
       {broadcast.status === 'scheduled' && (
         <div className="border-info/30 bg-info-soft flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
           <div className="flex items-start gap-3 text-sm">

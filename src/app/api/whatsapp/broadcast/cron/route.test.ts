@@ -131,6 +131,18 @@ describe('GET /api/whatsapp/broadcast/cron — delivery', () => {
     expect(h.claim).not.toHaveBeenCalled();
   });
 
+  it('leaves a campaign scheduled when quiet hours begin while planning', async () => {
+    const { BroadcastError } = await import('@/lib/whatsapp/broadcast-core');
+    h.due = [DUE];
+    h.plan.mockRejectedValue(new BroadcastError('quiet_hours', 'quiet', 400));
+    expect(await (await GET(req('s3cret'))).json()).toMatchObject({
+      started: 0,
+      skipped: 1,
+    });
+    expect(h.updates).toEqual([]);
+    expect(h.release).toHaveBeenCalledTimes(1);
+  });
+
   it('claims, plans, marks sending, and delivers in after()', async () => {
     h.due = [DUE];
     const res = await GET(req('s3cret'));

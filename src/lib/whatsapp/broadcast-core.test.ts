@@ -588,8 +588,10 @@ describe('deliverBroadcast and the number daily limit (migration 204)', () => {
           };
           return chain;
         },
+        // The opt-out read before each send: nobody opted out.
         select: () => ({
           eq: () => ({
+            in: () => ({ not: async () => ({ data: [], error: null }) }),
             eq: async () => ({ count: 1 }),
             then: (r: (v: { count: number }) => void) => r({ count: 2 }),
           }),
