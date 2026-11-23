@@ -24,9 +24,13 @@
  *   - Idempotency on `meta_message_id`: the runner refuses to advance
  *     an active run twice for the same Meta message — protects against
  *     Meta's retries.
- *   - Optimistic UPDATE with `current_node_key` precondition: two
- *     simultaneous taps for the same run collide at the DB layer; the
- *     second is a no-op.
+ *   - Claim before sending: an UPDATE conditional on `current_node_key`
+ *     and `last_advanced_at` parks the run (`current_node_key` null, "in
+ *     transit") before the first send; the walk puts the pointer on the
+ *     node it suspends on once that prompt is out. Of two quick messages
+ *     one claims; the other, and any that arrives while the run is in
+ *     transit, sends nothing. A run whose send fails is ended, never
+ *     re-sent.
  *   - Partial unique index `idx_one_active_run_per_contact`: two
  *     simultaneous starts for the same contact collide; the second
  *     INSERT raises 23505 and the runner catches & exits.
@@ -806,7 +810,41 @@ async function endRun(
       ended_at: new Date().toISOString(),
       end_reason: reason,
     })
-    .eq('id', runId);
+    .eq('id', runId)
+    .eq('status', 'active');
+}
+
+/** How long a walk may hold a run in transit before it counts as dead. */
+const IN_TRANSIT_MS = 2 * 60 * 1000;
+
+/**
+ * Take the run for one walk (see "Concurrency model"). True when this
+ * call won it; `run` then mirrors the row. Throws when the database
+ * could not answer, so nothing is sent on a claim that may not be ours.
+ */
+async function claimRun(
+  db: AdminClient,
+  run: FlowRunRow,
+  vars?: Record<string, unknown>
+): Promise<boolean> {
+  const patch = {
+    current_node_key: null,
+    last_advanced_at: new Date().toISOString(),
+    reprompt_count: 0,
+    ...(vars ? { vars } : {}),
+  };
+  const { data, error } = await db
+    .from('flow_runs')
+    .update(patch)
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .eq('current_node_key', run.current_node_key!)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .select('id');
+  if (error) throw new Error(`flow run claim failed: ${error.message}`);
+  if (!data?.length) return false;
+  Object.assign(run, patch);
+  return true;
 }
 
 // ============================================================
@@ -944,12 +982,7 @@ async function advanceFromNodeKey(
         await endRun(db, run.id, 'failed', 'collect_input_prompt_failed');
         return { outcome: 'failed' };
       }
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -990,12 +1023,7 @@ async function advanceFromNodeKey(
         return { outcome: 'failed' };
       }
       // Persist the new current_node_key via optimistic UPDATE.
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -1007,12 +1035,7 @@ async function advanceFromNodeKey(
       if (!(await sendListAndSuspend(db, run, node))) {
         return { outcome: 'failed' };
       }
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -1045,35 +1068,32 @@ async function advanceFromNodeKey(
 }
 
 /**
- * Optimistic UPDATE — only advance current_node_key when it matches
- * the value we read at the top of dispatch. If another webhook beat
- * us, the row's pointer has already moved and our UPDATE returns
- * zero rows; we treat that as a no-op and let the other run continue.
+ * Put the run on the node whose prompt was just sent. Conditional on it
+ * still being this walk's: active, in transit, and carrying the claim's
+ * timestamp (a run ended meanwhile stays ended).
  */
 async function advanceCurrentNodeKey(
   db: AdminClient,
-  runId: string,
-  expectedOldKey: string | null,
+  run: FlowRunRow,
   newKey: string
 ): Promise<boolean> {
-  // PostgREST: when expectedOldKey is null we can't `.eq` (would match
-  // any row); use `.is('current_node_key', null)` instead.
-  let q = db
+  // PostgREST: `.eq` never matches a null; use `.is` instead.
+  const { data, error } = await db
     .from('flow_runs')
     .update({
       current_node_key: newKey,
       last_advanced_at: new Date().toISOString(),
     })
-    .eq('id', runId)
-    .eq('status', 'active');
-  if (expectedOldKey === null) {
-    q = q.is('current_node_key', null);
-  } else {
-    q = q.eq('current_node_key', expectedOldKey);
-  }
-  const { data, error } = await q.select('id');
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .is('current_node_key', null)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .select('id');
   if (error) {
     console.error('[flows] advanceCurrentNodeKey error:', error.message);
+    // The prompt is out but the run could not be put on it. Left in
+    // transit it would swallow the answer, so it ends instead.
+    await endRun(db, run.id, 'failed', 'advance_write_failed');
     return false;
   }
   return Array.isArray(data) && data.length > 0;
@@ -1230,6 +1250,15 @@ async function handleReplyForActiveRun(
   });
 
   if (!run.current_node_key) {
+    // Another message's walk is still sending: that walk speaks for the
+    // run, and this message must not make it speak twice.
+    if (Date.now() - Date.parse(run.last_advanced_at) < IN_TRANSIT_MS) {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: 'duplicate_inbound_ignored',
+      };
+    }
     // Defensive — a run with status='active' but no current node is
     // malformed. Fail the run rather than spin.
     await endRun(db, run.id, 'failed', 'active_run_missing_current_node');
@@ -1263,6 +1292,7 @@ async function handleReplyForActiveRun(
   // gone through: a concurrent tap that won the optimistic update must
   // not leave an event saying this text moved the run.
   let typedMatch: TypedReplyResolution | null = null;
+  let capture: { key: string; value: string } | null = null;
   if (
     message.kind === 'interactive_reply' &&
     (currentNode.node_type === 'send_buttons' ||
@@ -1301,44 +1331,30 @@ async function handleReplyForActiveRun(
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
     if (captured.length > 0 && cfg.var_key) {
-      // Persist captured value + reset reprompt count atomically.
-      const newVars = { ...run.vars, [cfg.var_key]: captured };
-      const { error: capErr } = await db
-        .from('flow_runs')
-        .update({
-          vars: newVars,
-          reprompt_count: 0,
-        })
-        .eq('id', run.id);
-      if (!capErr) {
-        // Mirror the UPDATE in-memory so downstream interpolation in
-        // the advance loop sees the captured var without us having to
-        // re-SELECT the whole row.
-        run.vars = newVars;
-        run.reprompt_count = 0;
-        await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
-          captured_key: cfg.var_key,
-          captured_length: captured.length,
-        });
-        matched = cfg.next_node_key;
-      }
+      // Stored by the claim itself, so a lost claim stores nothing.
+      capture = { key: cfg.var_key, value: captured };
+      matched = cfg.next_node_key;
     }
   }
 
   if (matched) {
-    // Reset reprompt count on a successful match. Skip the write when
-    // already 0 — the collect_input capture branch above already
-    // zeroed it, and interactive-reply matches against a fresh run
-    // (post-prior-reset) are also already 0. The previous re-read of
-    // the whole row was needed only because we weren't mirroring the
-    // capture UPDATE into the in-memory `run`; now that we do, the
-    // local copy is the source of truth.
-    if (run.reprompt_count !== 0) {
-      const { error } = await db
-        .from('flow_runs')
-        .update({ reprompt_count: 0 })
-        .eq('id', run.id);
-      if (!error) run.reprompt_count = 0;
+    const won = await claimRun(
+      db,
+      run,
+      capture ? { ...run.vars, [capture.key]: capture.value } : undefined
+    );
+    if (!won) {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: 'duplicate_inbound_ignored',
+      };
+    }
+    if (capture) {
+      await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
+        captured_key: capture.key,
+        captured_length: capture.value.length,
+      });
     }
     const outcome = await advanceFromNodeKey(db, run, matched, nodes);
     if (typedMatch && outcome.outcome !== 'failed' && !outcome.lostRace) {
@@ -1424,10 +1440,26 @@ async function handleReplyForActiveRun(
   }
 
   const newReprompts = run.reprompt_count + 1;
-  await db
+  // Claimed like an advance: of two off-script messages sent together
+  // one re-sends the prompt, and none does once another message moved
+  // the run.
+  const { data: counted, error: countErr } = await db
     .from('flow_runs')
     .update({ reprompt_count: newReprompts })
-    .eq('id', run.id);
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .eq('current_node_key', run.current_node_key)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .eq('reprompt_count', run.reprompt_count)
+    .select('id');
+  if (countErr) throw new Error(`reprompt claim failed: ${countErr.message}`);
+  if (!counted?.length && policy.on_unknown_reply !== 'ignore') {
+    return {
+      consumed: true,
+      flow_run_id: run.id,
+      outcome: 'duplicate_inbound_ignored',
+    };
+  }
 
   const action = decideFallback({
     policy,
@@ -1517,7 +1549,8 @@ async function startNewRun(
       contact_id: input.contactId,
       conversation_id: input.conversationId,
       status: 'active',
-      current_node_key: flow.entry_node_id,
+      // In transit until the first prompt is out (see claimRun).
+      current_node_key: null,
       ...(seed ? { broadcast_id: seed.broadcastId, vars: seed.vars } : {}),
     })
     .select('*')

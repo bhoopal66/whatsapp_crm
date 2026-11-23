@@ -195,7 +195,9 @@ function expectAdvancedTo(nodeKey: string) {
     expect.objectContaining({ status: 'completed' })
   );
   // Reprompt counter reset, as on a tap.
-  expect(runUpdates()).toContainEqual({ reprompt_count: 0 });
+  expect(runUpdates()).toContainEqual(
+    expect.objectContaining({ reprompt_count: 0 })
+  );
   expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
 }
 
@@ -316,8 +318,6 @@ describe('typed answers to a waiting send_buttons node', () => {
   });
 
   it('writes no match event when the advance lost the race to a concurrent tap', async () => {
-    // Only a waiting target (buttons, list) does the optimistic node
-    // update; an end node completes without it.
     h.state.nodes = [
       ...NODES.filter((n) => (n as { node_key: string }).node_key !== 'c_end'),
       {
@@ -333,13 +333,8 @@ describe('typed answers to a waiting send_buttons node', () => {
     ];
     h.state.zeroAdvance = true;
     await sendText('compare!');
-    expect(events()).toContainEqual(
-      expect.objectContaining({
-        event_type: 'error',
-        node_key: 'c_end',
-        payload: { reason: 'lost_race_during_advance' },
-      })
-    );
+    // The claim comes before the send: the loser sends nothing.
+    expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
     expect(matchEvent()).toBeUndefined();
   });
 
