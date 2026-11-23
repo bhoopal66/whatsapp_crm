@@ -75,7 +75,7 @@ describe('runDeskTrayEscalation', () => {
 });
 
 describe('runDeskQueueAlerts', () => {
-  it('raises one task per upload and level, for the named person', async () => {
+  it('raises one task per bank, level and Dubai day, for the named person', async () => {
     const store = {
       queueAlertsDue: vi.fn().mockResolvedValue([
         {
@@ -105,17 +105,20 @@ describe('runDeskQueueAlerts', () => {
     const s = await runDeskQueueAlerts(
       db,
       store as unknown as DeskStore,
-      create
+      create,
+      // 01:00 on the 24th in Dubai.
+      () => new Date('2026-11-23T21:00:00Z')
     );
     expect(s).toEqual({ due: 2, escalated: 1, failed: 0 });
     expect(create.mock.calls[0]![1]).toMatchObject({
-      sourceRef: 'desk_queue:i1:second',
+      sourceRef: 'desk_queue:RAK:second:2026-11-24',
+      meta: { desk_queue_oldest_item: 'i1', desk_queue_waiting: 3 },
       assignedTo: 'u2',
       kind: 'follow_up',
       source: 'automation',
     });
     expect(create.mock.calls[1]![1]).toMatchObject({
-      sourceRef: 'desk_queue:i9:lead',
+      sourceRef: 'desk_queue:none:lead:2026-11-24',
     });
     expect(create.mock.calls[1]![1].title).toContain('no-bank');
   });

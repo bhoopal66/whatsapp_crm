@@ -227,14 +227,16 @@ decides their own. An approval lasts 2 hours and covers the person's next
 send in that chat, once; it is then used up. The person gets a bell with
 the decision.
 
-**Automatic senders.** Broadcasts, public API v1 sends, flows and
-automations are checked against the number's daily limit only
+**Automatic senders.** Broadcasts, public API v1 sends, flows,
+automations, case rating requests (CSAT) and desk reminder digests are
+checked against the number's daily limit only
 (`enforce_auto_senders`, default on, together with `enforce_daily_number`).
 A blocked broadcast stops on that number and its remaining recipients
 stay pending: the campaign stays "sending" until someone presses Resume
 after the day turns (the cron only picks up scheduled campaigns). The
 API answers `429` `number_daily_limit`. A flow or automation records a
-failed step. **Known limit:** the AI auto-reply (it only answers), Compass
+failed step, a rating request is held and retried hourly, a desk reminder
+fails until its gap days pass. **Known limit:** the AI auto-reply (it only answers), Compass
 notifications, HR automated messages and the journey bot are not
 checked, and the last three can start a chat.
 

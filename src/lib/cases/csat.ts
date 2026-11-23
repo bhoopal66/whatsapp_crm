@@ -100,43 +100,77 @@ export interface CsatReply {
   comment: string | null;
 }
 
+// Star emoji once the variation selector is gone.
+const STAR_CLASS = '[⭐★🌟]';
+// What may trail a rating that is the whole message: punctuation, emoji
+// (a keycap's U+20E3 included) and space. Never % + / # or a letter.
+const TRAIL =
+  '[\\s.,،!؟?;؛:…*~)\'"’”»–—\\-\\p{Extended_Pictographic}\\u{1F3FB}-\\u{1F3FF}\\u200D\\u20E3]*';
+const END_WORD = '(?![\\p{L}\\p{M}\\p{N}])';
+// Unmistakably a rating, so a bare space may lead into the comment.
+const EXPLICIT = `(?:\\/ ?5|out of 5|stars?|نجوم|نجمة|نجمات)${END_WORD}|${STAR_CLASS}+`;
+// "4 of 5 documents sent" is not a rating: these need a separator.
+const OUT_OF = `(?:of 5|من ?5)${END_WORD}`;
+
+const RE_WHOLE = new RegExp(
+  `^([1-5])(?: ?(?:${EXPLICIT}|${OUT_OF})){0,2}${TRAIL}$`,
+  'iu'
+);
+const RE_SEPARATED = new RegExp(
+  `^([1-5])(?: ?(?:${EXPLICIT}|${OUT_OF})){0,2} ?[,،\\-–—:;؛!\\n][,،\\-–—:;؛!\\s]*((?![\\p{N}\\s,،\\-–—:;؛!])[\\s\\S]+)$`,
+  'iu'
+);
+const RE_EXPLICIT = new RegExp(
+  `^([1-5]) ?(?:${EXPLICIT})(?: ?${STAR_CLASS}+)? ((?!\\p{N})[\\s\\S]+)$`,
+  'iu'
+);
+const RE_STARS = new RegExp(
+  `^(${STAR_CLASS}(?: ?${STAR_CLASS})*)(?:${TRAIL}|\\s+((?!\\p{N})[\\s\\S]+))$`,
+  'u'
+);
+
 /**
- * A rating reply: the message starts with a single digit 1-5 (ASCII or
- * Arabic-Indic), optionally followed by "/5", "out of 5", "stars" (or
- * نجوم / نجمة / من 5), then punctuation and an optional comment. Also a
- * row of 1-5 star emoji alone. Anything else (a longer number, a
- * decimal, "1st", a phone number, empty) is null: never a guess.
+ * A rating reply, read strictly: while a request is open the message is
+ * consumed and stored against an agent, so "2 years in business" or "1.
+ * Passport" must stay an ordinary message. A rating is
+ *  (a) the whole message: one digit 1-5 (ASCII or Arabic-Indic) with an
+ *      optional "/5", "out of 5", "of 5", "من 5", "stars" / نجوم or star
+ *      emoji, then only punctuation, emoji and space;
+ *  (b) that, then a separator (comma, dash, colon, semicolon,
+ *      exclamation, new line) and a comment not starting with a digit;
+ *  (c) an explicit form ("5/5", "5 out of 5", "5 stars"), a space and a
+ *      comment;
+ *  (d) 1-5 star emoji alone, or with a comment after a space.
+ * A lone digit followed by a space, a full stop or a closing bracket and
+ * words is not a rating. Anything else is null: never a guess.
  */
 export function parseCsatReply(
   text: string | null | undefined
 ): CsatReply | null {
   if (!text) return null;
-  const t = asciiDigits(text).replace(/\s+/g, ' ').trim();
+  const t = asciiDigits(text)
+    .replace(/️/g, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n\s*/g, '\n')
+    .trim();
   if (t.length === 0 || t.length > MAX_REPLY + 20) return null;
 
-  const starsOnly = t.replace(/️/g, '');
-  if (/^(?:⭐|★|🌟|\s)+$/.test(starsOnly)) {
-    const n = (starsOnly.match(STAR) ?? []).length;
-    return n >= 1 && n <= 5
-      ? { score: n as CsatReply['score'], comment: null }
-      : null;
+  let score: number;
+  let rest: string | undefined;
+  const stars = RE_STARS.exec(t);
+  if (stars) {
+    score = (stars[1]!.match(STAR) ?? []).length;
+    rest = stars[2];
+    if (score > 5) return null;
+  } else {
+    const m = RE_WHOLE.exec(t) ?? RE_SEPARATED.exec(t) ?? RE_EXPLICIT.exec(t);
+    if (!m) return null;
+    score = Number(m[1]);
+    rest = m[2];
   }
-
-  const m =
-    /^([1-5])(?![0-9]|[.,][0-9])(?:\s*(?:\/\s*5|out of 5|of 5|من\s*5|stars?|نجوم|نجمة|نجمات)(?![a-z؀-ۿ]))?(?:\s*[⭐★️]+)?([\s\S]*)$/i.exec(
-      t
-    );
-  if (!m) return null;
-  const rest = m[2] ?? '';
-  // A comment must be set off from the digit: "5 great", "5. great",
-  // "5 - great"; "5th" or "5am" is not a rating.
-  if (rest.length > 0 && !/^[\s.)\-:،,!؛;|/]/.test(rest)) return null;
-  const comment = rest
-    .replace(/^[\s.)\-:،,!؛;|/]+/, '')
-    .trim()
-    .slice(0, MAX_REPLY);
+  const comment = (rest ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_REPLY);
   return {
-    score: Number(m[1]) as CsatReply['score'],
+    score: score as CsatReply['score'],
     comment: comment.length > 0 ? comment : null,
   };
 }
@@ -403,6 +437,12 @@ export interface CsatDrainSummary {
 }
 
 /**
+ * Requests sent per 5-minute pass. Near-identical messages sent back to
+ * back get a linked-device number restricted, so a backlog goes out slowly.
+ */
+export const CSAT_CLAIM_LIMIT = 5;
+
+/**
  * Claim what may go now (SQL re-checks everything) and send each once. A
  * send that throws is marked failed with a code (a CsatRefusal) or the
  * error's name, never its text; a claim never marked turns
@@ -417,7 +457,7 @@ export async function runCaseCsat(
   try {
     const c = await db.rpc('case_csat_claim', {
       p_now: now().toISOString(),
-      p_limit: 50,
+      p_limit: CSAT_CLAIM_LIMIT,
     });
     if (c.error) throw c.error;
     const rows = (Array.isArray(c.data) ? c.data : []) as Record<

@@ -751,7 +751,7 @@ describe('processMessage — case CSAT reply', () => {
     h.automations.mock.calls.map(
       (c) => (c[0] as { triggerType: string }).triggerType
     );
-  const rating = { ...message, id: 'wamid.csat', text: '5 great' };
+  const rating = { ...message, id: 'wamid.csat', text: '5, great' };
 
   it('asks nothing of the database for a message that is not a rating', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);

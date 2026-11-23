@@ -56,7 +56,8 @@ identical openers in first messages, failures, response times.
   same opener, then Jev `cold_pitch` in TS (1.5 s, ≥ `jev_block_min_p`).
   Refusal is 429 `restricted`; blocks land in `team_activity_blocks` (90
   days, no text). An approved unlock (205, 2 h, one use) bypasses all.
-  Broadcast, API v1, flows and automations use `team_activity_auto_check`
+  Broadcast, API v1, flows, automations, case CSAT (held) and desk digests
+  (failed) use `team_activity_auto_check`
   (number limit only); AI reply, Compass notify, HR automsg and the journey
   bot are unchecked. It **fails open** on any error. Agents read `/my-activity`
   (206). Apply 204, 205, 206 before the build. `docs/team-activity.md`;

@@ -89,9 +89,14 @@ Arabic):
 ending in "account" drops that word, so the sentence does not read
 "account account".
 
-The sent request is recorded in the chat as a bot message. Team
-activity's send checks are not applied (as with the desk reminder
-digest). CSAT requests do not count toward, and are not counted by, the
+At most **5 requests go out per 5-minute pass**, and on a Whapi or
+OpenWA number the number's **daily limit of new chats** applies (Team
+activity's limit for automatic senders): over it the request is **held**
+(`number_daily_limit`) and retried hourly until it expires. Team
+activity's other send checks are not applied. Opt-out and do-not-contact
+are checked again right before each send (`failed` / `opted_out`).
+
+The sent request is recorded in the chat as a bot message. CSAT requests do not count toward, and are not counted by, the
 daily cap shared by HR automated messages and desk digests.
 
 ## Capturing the reply
@@ -99,12 +104,21 @@ daily cap shared by HR automated messages and desk digests.
 Every inbound message on a company number is checked, after the message
 is stored and after Flows:
 
-- The text must **start with a single digit 1 to 5** (Arabic-Indic digits
-  accepted), optionally followed by `/5`, `out of 5`, `stars`, `نجوم`,
-  `من 5` or star emoji; anything after a space or punctuation is the
-  **comment** (up to 1000 characters). A row of 1 to 5 star emoji alone
-  also counts. `10`, `5.5`, `1st`, a phone number or text that does not
-  start with the digit is not a rating.
+- A rating is one of:
+  - the **whole message** is one digit 1 to 5 (Arabic-Indic digits
+    accepted), optionally with `/5`, `out of 5`, `of 5`, `من 5`,
+    `stars`, `نجوم` or star emoji, and nothing after it but punctuation
+    or emoji;
+  - that, then a **separator** (comma, dash, colon, semicolon,
+    exclamation mark or new line) and a comment that does not start with
+    a digit: `2 - too slow`;
+  - `5/5`, `5 out of 5` or `5 stars`, a space and a comment;
+  - 1 to 5 star emoji, alone or with a comment after a space.
+
+  The comment keeps up to 1000 characters. A digit followed by only a
+  space, a full stop or a closing bracket and then words is **not** a
+  rating: `5 great`, `2 years in business`, `1. Passport`, `3 pm call
+  me`, `2-3 years`.
 - Text that is not a rating costs nothing. A rating costs one database
   call, which stores it only when CSAT is on and the person has a request
   **sent within the reply window** (default 7 days) and not yet
@@ -118,9 +132,9 @@ is stored and after Flows:
   fire. A sender over the webhook rate limit is not captured.
 - No thank-you message is sent.
 
-A message that starts with a digit 1 to 5 while a request is open (for
-example "2 more documents tomorrow") is stored as a rating with a
-comment. The 7-day window and the once-per-request rule keep that rare.
+A list typed with dashes ("1- Passport") or a word like "2-year visa"
+while a request is open still reads as a rating with a comment. The 7-day
+window and the once-per-request rule keep that rare.
 
 ## Showing it
 

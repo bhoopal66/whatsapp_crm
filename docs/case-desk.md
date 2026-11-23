@@ -235,6 +235,11 @@ application number and `{{2}}` for what is missing, for example:
   result never came back is marked *unconfirmed* and never resent.
 - **STOP:** replying STOP (or *unsubscribe*, *توقف*, *إيقاف*) to a
   reminder received in the last 30 days opts the person out.
+- At most 5 reminders go out per 5-minute pass. On a Whapi or OpenWA
+  number the number's daily limit of new chats applies (Team activity's
+  limit for automatic senders): over it the reminder fails with
+  `number_daily_limit` and the next one queues after the gap days. Opt-out and
+  do-not-contact are checked again right before each send (`opted_out`).
 - Whether a reminder is a transactional message is for legal sign-off
   (design section 8). HR automated messages do not yet count reminders
   toward their own cap (a person could get 3 HR messages and a
@@ -256,8 +261,8 @@ and up):
 - **Queue alerts** (instead of load caps): when a bank's sorting queue
   has an upload waiting over 2 hours, the second coordinator (else
   whoever covers) gets a follow-up task; over 4 hours, the lead does. The
-  no-bank queue goes to the lead at 2 hours. One task per upload and
-  level, from the automations cron.
+  no-bank queue goes to the lead at 2 hours. One task per bank, level
+  and Dubai day, from the automations cron.
 
 ## Follow-ups and suggestions
 

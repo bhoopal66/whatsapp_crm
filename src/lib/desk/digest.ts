@@ -57,6 +57,12 @@ export interface DigestSummary {
 }
 
 /**
+ * Digests sent per 5-minute pass. Near-identical messages sent back to
+ * back get a linked-device number restricted, so a backlog goes out slowly.
+ */
+export const DIGEST_CLAIM_LIMIT = 5;
+
+/**
  * Queue today's digests, claim what may go now and send each once. A
  * send that throws is marked failed with the error's name only (never
  * its text, which can carry a number or URL); a claim the process never
@@ -76,7 +82,7 @@ export async function runDeskDigests(
     summary.queued = typeof q.data === 'number' ? q.data : 0;
     const c = await db.rpc('desk_digest_claim', {
       p_now: now().toISOString(),
-      p_limit: 50,
+      p_limit: DIGEST_CLAIM_LIMIT,
     });
     if (c.error) throw c.error;
     const rows = (Array.isArray(c.data) ? c.data : []) as Record<
