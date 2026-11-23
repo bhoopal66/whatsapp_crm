@@ -33,6 +33,7 @@ import { InboundPersistError } from './inbound-persist-error';
 import { handleStatusUpdate, processMessage } from './inbound-pipeline';
 import type { NormalizedOpenWAOwnSend } from './openwa-webhook';
 import { persistOwnSend, resolveOpenWALidPhone } from './own-send';
+import { logPersonalDrop, mayRecordFor } from './personal-owner';
 import {
   sanitizePayload,
   type InboundEvent,
@@ -179,6 +180,13 @@ async function run(
   // A row handed in for another number would file the event under it.
   if (config.id !== event.channel || config.account_id !== event.accountId) {
     return failed('number does not match the event');
+  }
+  // A personal number whose owner left records nothing, and an event
+  // queued before they did is dropped too. An unreadable owner throws,
+  // and the event is retried.
+  if (!(await mayRecordFor(admin, config))) {
+    logPersonalDrop(config.id, event.kind);
+    return DONE;
   }
 
   const payload = (event.payload ?? {}) as Record<string, unknown>;

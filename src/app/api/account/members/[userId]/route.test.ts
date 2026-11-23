@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   updateUserById: vi.fn(),
   limit: vi.fn(),
+  disconnectPersonal: vi.fn(),
   filters: [] as unknown[][],
 }));
 
@@ -52,6 +53,10 @@ vi.mock('@/lib/rate-limit', () => ({
   RATE_LIMITS: { adminAction: {} },
 }));
 
+vi.mock('@/lib/whatsapp/personal-offboarding', () => ({
+  disconnectPersonalNumbersOf: mocks.disconnectPersonal,
+}));
+
 import { DELETE, PATCH } from './route';
 
 const ADMIN_CTX = {
@@ -75,7 +80,51 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.updateUserById.mockResolvedValue({ error: null });
     mocks.limit.mockResolvedValue({ data: [], error: null });
+    mocks.disconnectPersonal.mockResolvedValue(true);
     mocks.filters.length = 0;
+  });
+
+  it('disconnects the personal number once the deactivation stands', async () => {
+    const res = await PATCH(request({ active: false }), params);
+    expect(await res.json()).toEqual({ ok: true, active: false });
+    expect(mocks.disconnectPersonal).toHaveBeenCalledTimes(1);
+    expect(mocks.disconnectPersonal.mock.calls[0].slice(1)).toEqual([
+      'account-1',
+      'user-2',
+    ]);
+    expect(mocks.updateUserById.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.disconnectPersonal.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('disconnects it when they keep another workspace too', async () => {
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'a2' }],
+      error: null,
+    });
+    await PATCH(request({ active: false }), params);
+    expect(mocks.disconnectPersonal).toHaveBeenCalledTimes(1);
+  });
+
+  it('only warns when the number could not be disconnected', async () => {
+    mocks.disconnectPersonal.mockResolvedValue(false);
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      active: false,
+      warning: 'personal_number_not_disconnected',
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the number alone on a failed deactivation or a reactivation', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.updateUserById.mockResolvedValueOnce({ error: { message: 'x' } });
+    await PATCH(request({ active: false }), params);
+    await PATCH(request({ active: true }), params);
+    expect(mocks.disconnectPersonal).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('flags the profile, then bans the login', async () => {
@@ -322,6 +371,21 @@ describe('DELETE /api/account/members/[userId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+    mocks.disconnectPersonal.mockResolvedValue(true);
+  });
+
+  it('disconnects the removed person’s number, and warns if it could not', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    mocks.disconnectPersonal.mockResolvedValue(false);
+    const res = await DELETE(request(null), params);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      warning: 'personal_number_not_disconnected',
+    });
+    expect(mocks.disconnectPersonal.mock.calls[0].slice(1)).toEqual([
+      'account-1',
+      'user-2',
+    ]);
   });
 
   it('accepts NULL: the person keeps another membership', async () => {

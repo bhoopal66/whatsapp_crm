@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### A person who leaves takes their personal WhatsApp number with them
+
+No migration.
+- Deactivating or removing a member disconnects their personal WhatsApp
+  number in that workspace. If the OpenWA server does not answer, the
+  person is still deactivated and the admin is told to finish there.
+- Nothing from a personal number is recorded once its owner is
+  deactivated or no longer a member: messages, receipts, what they type
+  on the phone and the history import. Company numbers are not affected,
+  and reactivating someone reconnects nothing.
+
 ### Limits on what reaches a customer's group, and on uploads
 
 No migration.

@@ -42,6 +42,7 @@ import {
   type OpenWAChatSummary,
   type OpenWAHistoryMessage,
 } from './openwa-api';
+import { isLiveMember } from './personal-owner';
 import { normalizePhone } from './phone-utils';
 
 // ============================================================
@@ -437,6 +438,22 @@ async function work(
     channel.provider !== 'openwa' ||
     channel.status !== 'connected'
   ) {
+    state.status = 'paused';
+    return;
+  }
+
+  // The owner left: read nothing more of their phone.
+  let ownerLive: boolean;
+  try {
+    ownerLive = await isLiveMember(
+      admin,
+      job.account_id,
+      channel.personalUserId
+    );
+  } catch (err) {
+    throw new StopTick(`owner: ${errorText(err)}`);
+  }
+  if (!ownerLive) {
     state.status = 'paused';
     return;
   }

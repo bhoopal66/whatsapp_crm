@@ -350,6 +350,10 @@ automations and the journey bot do not. Team activity counts it as a
 phone number, like Whapi (migration 145); the Safety Meter stays
 Whapi-only.
 
+A personal number records nothing once its owner is deactivated or
+removed: `mayRecordFor` (`personal-owner.ts`) runs before the webhook
+screens or queues and again per event, and `personal-offboarding.ts`
+disconnects the number when they go.
 **Personal numbers (190, 191).** An admin allows a person
 (`profiles.may_connect_personal_whatsapp`) to link their own OpenWA
 number: a `whatsapp_config` row with `is_personal`, owner = `user_id`, one

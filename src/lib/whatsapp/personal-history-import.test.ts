@@ -147,6 +147,10 @@ describe('isImportableChat', () => {
 type Row = Record<string, unknown>;
 
 function fakeDb(tables: Record<string, Row[]>) {
+  tables.profiles ??= [
+    { id: 'p1', user_id: OWNER, account_id: ACCOUNT, deactivated_at: null },
+    { id: 'p2', user_id: 'u-2', account_id: ACCOUNT, deactivated_at: null },
+  ];
   const seen = new Set<string>();
   const rpcCalls: Array<{ name: string; args: Row }> = [];
   const failRpc: Record<string, string> = {};
@@ -196,6 +200,7 @@ function fakeDb(tables: Record<string, Row[]>) {
         return b;
       },
       eq: (col: string, v: unknown) => (filters.push((r) => r[col] === v), b),
+      is: (col: string, v: null) => (filters.push((r) => r[col] === v), b),
       not: (col: string) => (filters.push((r) => r[col] != null), b),
       order: (col: string, o: { ascending: boolean }) => (
         (orderBy = { col, asc: o.ascending }),
@@ -535,6 +540,27 @@ describe('runPersonalHistoryImportTick', () => {
     const held = Date.parse(String(job(db).lease_until)) - Date.now();
     expect(held).toBeGreaterThan(PAUSED_RETRY_MS - 60_000);
     expect(held).toBeLessThanOrEqual(PAUSED_RETRY_MS);
+    expect(listChatsMock).not.toHaveBeenCalled();
+    expect(historyMock).not.toHaveBeenCalled();
+  });
+
+  it('reads nothing more of a phone whose owner was deactivated', async () => {
+    const db = fakeDb({
+      whatsapp_config: [configRow()],
+      profiles: [
+        {
+          id: 'p1',
+          user_id: OWNER,
+          account_id: ACCOUNT,
+          deactivated_at: '2026-11-20T00:00:00Z',
+        },
+      ],
+    });
+    const res = await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 60_000,
+      ...noPause,
+    });
+    expect(res.status).toBe('paused');
     expect(listChatsMock).not.toHaveBeenCalled();
     expect(historyMock).not.toHaveBeenCalled();
   });

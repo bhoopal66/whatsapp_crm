@@ -13,6 +13,7 @@ import {
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
 import { persistOwnSend, resolveOpenWALidPhone } from '@/lib/whatsapp/own-send';
+import { logPersonalDrop, mayRecordFor } from '@/lib/whatsapp/personal-owner';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import {
   awaitLater,
@@ -165,6 +166,26 @@ export async function POST(request: Request) {
     console.warn(
       `[openwa-webhook] dropped ${event.unmappedLidSenders} message(s) from a sender with no phone number`
     );
+  }
+
+  // A personal number whose owner was deactivated or removed records
+  // nothing: no claim, no queue row, no message. Answered 200, so OpenWA
+  // does not redeliver what will never be kept.
+  let mayRecord: boolean;
+  try {
+    mayRecord = await mayRecordFor(supabaseAdmin(), config);
+  } catch (error) {
+    console.error(
+      '[openwa-webhook] owner lookup failed:',
+      (error as { code?: unknown } | null)?.code
+    );
+    return NextResponse.json({ error: 'Lookup failed' }, { status: 503 });
+  }
+  if (!mayRecord) {
+    if (event.messages.length > 0) logPersonalDrop(config.id, 'message');
+    if (event.statuses.length > 0) logPersonalDrop(config.id, 'status');
+    if (event.ownSends.length > 0) logPersonalDrop(config.id, 'own_send');
+    return NextResponse.json({ status: 'ignored' }, { status: 200 });
   }
 
   // Edge screening: one call per request, after the signature has

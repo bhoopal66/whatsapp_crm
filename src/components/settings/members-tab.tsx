@@ -411,6 +411,15 @@ export function MembersTab() {
     }
   }
 
+  // The person is gone either way; their own WhatsApp number may still
+  // be linked on the gateway, which only an admin can finish.
+  async function warnPersonalNumber(res: Response, name: string) {
+    const payload = await res.json().catch(() => null);
+    if (payload?.warning === 'personal_number_not_disconnected') {
+      toast.warning(t('personal.notDisconnected', { name }));
+    }
+  }
+
   // Deactivate (after the confirm dialog) or reactivate (directly — it
   // only gives access back). Not optimistic: the server bans or unbans
   // the login as part of the same call, and the row should not claim a
@@ -448,6 +457,7 @@ export function MembersTab() {
           ? t('reactivatedToast', { name })
           : t('deactivatedToast', { name })
       );
+      await warnPersonalNumber(res, name);
       setDeactivatingMember(null);
     } catch (err) {
       console.error('[MembersTab] set active error:', err);
@@ -471,9 +481,9 @@ export function MembersTab() {
         return;
       }
       invalidateCached(MEMBERS_CACHE_KEY);
-      toast.success(
-        t('removedToast', { name: removingMember.full_name || t('unnamed') })
-      );
+      const name = removingMember.full_name || t('unnamed');
+      toast.success(t('removedToast', { name }));
+      await warnPersonalNumber(res, name);
       setMembers((prev) =>
         prev.filter((m) => m.user_id !== removingMember.user_id)
       );
@@ -573,7 +583,7 @@ export function MembersTab() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="relative w-full sm:max-w-xs">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -586,14 +596,14 @@ export function MembersTab() {
               }}
               placeholder={t('searchPlaceholder')}
               aria-label={t('searchLabel')}
-              className="pe-8 ps-8"
+              className="ps-8 pe-8"
             />
             {memberQuery && (
               <button
                 type="button"
                 onClick={() => setMemberQuery('')}
                 aria-label={t('searchClear')}
-                className="text-muted-foreground hover:text-foreground absolute top-1/2 end-2 -translate-y-1/2 rounded p-0.5"
+                className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5"
               >
                 <X className="size-3.5" aria-hidden />
               </button>

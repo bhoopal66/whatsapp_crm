@@ -38,6 +38,7 @@ import {
   RATE_LIMITS,
 } from "@/lib/rate-limit";
 import { serverSupabaseUrl } from "@/lib/supabase/urls";
+import { disconnectPersonalNumbersOf } from "@/lib/whatsapp/personal-offboarding";
 
 /** GoTrue takes a Go duration; ~100 years is "until lifted". */
 const BAN_DURATION = "876000h";
@@ -293,6 +294,10 @@ async function setCallReview(
  * read, the flag is put back: a member shown as deactivated who can
  * still sign in (or shown active who cannot) is worse than a clear
  * error the admin can retry.
+ *
+ * Last, once the deactivation stands, the person's personal WhatsApp
+ * number of this workspace is disconnected (they can no longer do it). A
+ * failure there only adds a `warning`. Reactivating reconnects nothing.
  */
 async function setActive(
   ctx: AccountContext,
@@ -327,7 +332,11 @@ async function setActive(
     // Still working elsewhere: the deactivation is this workspace's
     // row alone, and the login stays open for the others.
     if (others && others.length > 0) {
-      return NextResponse.json({ ok: true, active });
+      return NextResponse.json({
+        ok: true,
+        active,
+        ...(await personalNumberWarning(admin, ctx.accountId, userId)),
+      });
     }
   }
 
@@ -343,7 +352,24 @@ async function setActive(
     return revertActive(ctx.supabase, userId, active);
   }
 
-  return NextResponse.json({ ok: true, active });
+  return NextResponse.json({
+    ok: true,
+    active,
+    ...(active
+      ? {}
+      : await personalNumberWarning(admin, ctx.accountId, userId)),
+  });
+}
+
+/** Disconnect the departed person's own number; what to tell the admin. */
+async function personalNumberWarning(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string,
+): Promise<{ warning?: "personal_number_not_disconnected" }> {
+  return (await disconnectPersonalNumbersOf(admin, accountId, userId))
+    ? {}
+    : { warning: "personal_number_not_disconnected" };
 }
 
 /** Put the flag back after the login could not be brought in line. */
@@ -398,6 +424,7 @@ export async function DELETE(
     return NextResponse.json({
       ok: true,
       newPersonalAccountId: (data as string | null) ?? null,
+      ...(await personalNumberWarning(supabaseAdmin(), ctx.accountId, userId)),
     });
   } catch (err) {
     return toErrorResponse(err);
