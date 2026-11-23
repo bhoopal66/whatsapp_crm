@@ -140,6 +140,9 @@ export async function POST() {
           continue;
         }
         if (touched.has(row.id) || row.status === 'DISABLED') continue;
+        // Submitted seconds ago, Meta's list may not have it yet, and no
+        // sender offers it.
+        if (row.status === 'PENDING') continue;
         // The id again: a row resubmitted meanwhile carries a new one.
         const { data, error } = await supabase
           .from('message_templates')

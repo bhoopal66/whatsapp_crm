@@ -108,6 +108,13 @@ describe('templates sync: what Meta no longer has', () => {
     expect(status('4')).toBe('APPROVED');
   });
 
+  it('leaves one still waiting for Meta alone: the list may not have it yet', async () => {
+    mocks.db.tables.message_templates.push(local('5', { status: 'PENDING' }));
+    answer([remote('1'), remote('2')]);
+    expect((await sync()).disabled).toBe(0);
+    expect(status('5')).toBe('PENDING');
+  });
+
   it('counts a body-less template Meta still lists as present', async () => {
     answer([remote('1'), remote('2', 't-2', null)]);
     expect(await sync()).toMatchObject({ skipped: 1, disabled: 0 });
