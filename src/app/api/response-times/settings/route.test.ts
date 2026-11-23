@@ -98,7 +98,10 @@ describe('PUT /api/response-times/settings', () => {
   });
 
   it.each([
-    [{ timezone: 'UTC', hours: HOURS, targetMinutes: 20 }, 400],
+    [{}, 400],
+    [{ other: 1 }, 400],
+    [{ enabled: 'yes' }, 400],
+    [{ targetMinutes: null }, 422],
     [{ enabled: true, timezone: '', hours: HOURS, targetMinutes: 20 }, 422],
     [
       {
@@ -112,6 +115,55 @@ describe('PUT /api/response-times/settings', () => {
     [{ enabled: true, timezone: 'UTC', hours: HOURS, targetMinutes: 0 }, 422],
   ])('refuses a bad body (%j) before the database', async (body, status) => {
     expect((await put(body)).status).toBe(status);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  const STORED = {
+    enabled: true,
+    timezone: 'Asia/Kolkata',
+    hours: { tue: [['10:00', '14:00']] },
+    target_minutes: 45,
+  };
+  const KEPT_HOURS = {
+    mon: [],
+    tue: [['10:00', '14:00']],
+    wed: [],
+    thu: [],
+    fri: [],
+    sat: [],
+    sun: [],
+  };
+
+  it('a field left out keeps what is stored at that moment', async () => {
+    h.row = { data: STORED, error: null };
+    expect((await put({ targetMinutes: 20 })).status).toBe(200);
+    expect(h.rpc).toHaveBeenCalledWith('response_settings_set', {
+      p_enabled: true,
+      p_timezone: 'Asia/Kolkata',
+      p_hours: KEPT_HOURS,
+      p_target_minutes: 20,
+    });
+  });
+
+  it('switching off keeps the hours', async () => {
+    h.row = { data: STORED, error: null };
+    expect((await put({ enabled: false })).status).toBe(200);
+    expect(h.rpc).toHaveBeenCalledWith('response_settings_set', {
+      p_enabled: false,
+      p_timezone: 'Asia/Kolkata',
+      p_hours: KEPT_HOURS,
+      p_target_minutes: 45,
+    });
+  });
+
+  it.each([
+    [{ code: '57014', message: 'timeout' }, 500, 'load_failed'],
+    [{ code: '42P01', message: 'missing' }, 503, 'not_available'],
+  ])('a failed read (%j) saves nothing', async (error, status, code) => {
+    h.row = { data: null, error };
+    const res = await put({ targetMinutes: 20 });
+    expect(res.status).toBe(status);
+    await expect(res.json()).resolves.toEqual({ error: code });
     expect(h.rpc).not.toHaveBeenCalled();
   });
 

@@ -125,6 +125,26 @@ export function parseResponseSettings(value: unknown): ResponseSettings {
   };
 }
 
+/**
+ * The fields `next` changed from `saved` (what the screen loaded): all
+ * the form may send, so an old tab keeps another admin's other fields.
+ */
+export function responseSettingsDiff(
+  saved: ResponseSettings,
+  next: ResponseSettings
+): Partial<ResponseSettings> {
+  const patch: Partial<ResponseSettings> = {};
+  if (next.enabled !== saved.enabled) patch.enabled = next.enabled;
+  if (next.timezone !== saved.timezone) patch.timezone = next.timezone;
+  if (WEEKDAYS.some((d) => `${next.hours[d]}` !== `${saved.hours[d]}`)) {
+    patch.hours = next.hours;
+  }
+  if (next.targetMinutes !== saved.targetMinutes) {
+    patch.targetMinutes = next.targetMinutes;
+  }
+  return patch;
+}
+
 const DAY_MS = 86_400_000;
 
 /** The local calendar date (as a UTC-midnight epoch) of `instant` in `tz`. */

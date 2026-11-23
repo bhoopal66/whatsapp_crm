@@ -67,6 +67,32 @@ No migration.
   direct message of three or more people can still be left; opening it
   again with the same people brings everyone back.
 
+### Settings saved from an old tab, and older notifications
+
+No migration.
+- **Departments**: turning one switch changes that switch only. It sent the
+  other one as the screen had loaded it, so a page left open could undo
+  another admin's change (and give HR staff the sales areas back). If the
+  current settings cannot be read, nothing is saved and the page says so.
+- **Response times**: saving sends only what was changed, and the rest keeps
+  what is stored at that moment. A page left open sent its whole old form,
+  which could switch the feature off and lose another admin's hours. Undoing
+  a change leaves nothing to save.
+- **Chat assignment**: the same. Who takes turns is saved as the people added
+  and removed, so two admins' changes both stay. Where they cannot (the list
+  has since become "everyone", or would), nothing is saved and the page says
+  so.
+- **Chat assignment**: when the personal limits cannot be read, the page says
+  it did not load. It showed nobody as having one. When the open chats cannot
+  be read, it says "not available" instead of 0, and the **Assign** menu shows
+  no figures and asks again the next time it opens.
+- **Notifications**: the page has **Load older**. An unread notification past
+  the newest 100 was counted on the bell and could not be opened anywhere.
+- **Mark all as read** stops at the newest notification on the screen. One
+  that arrived as it was clicked was marked read without being seen. Older
+  ones not loaded are still marked, and the button says so; it waits until
+  the list has loaded.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

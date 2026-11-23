@@ -21,17 +21,32 @@ const db = vi.hoisted(() => ({
     data: unknown;
     error: unknown;
   },
+  // The one row, as it is when a switch is toggled.
+  fresh: { data: null, error: null } as { data: unknown; error: unknown },
+  asked: [] as unknown[][],
   rpc: vi.fn(async () => ({ error: null })),
 }));
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     rpc: db.rpc,
     from: () => ({
-      select: () => ({ eq: async () => db.answer }),
+      select: () => ({
+        eq: (...first: unknown[]) => ({
+          then: (resolve: (v: unknown) => unknown) =>
+            Promise.resolve(db.answer).then(resolve),
+          eq: (...second: unknown[]) => ({
+            maybeSingle: async () => {
+              db.asked.push(first, second);
+              return db.fresh;
+            },
+          }),
+        }),
+      }),
     }),
   }),
 }));
 
+import { toast } from 'sonner';
 import { ErrorState } from '@/components/dashboard/error-state';
 import { Switch } from '@/components/ui/switch';
 import { findElements, render, resetHooks, settle } from '@/test/hook-renderer';
@@ -47,6 +62,7 @@ const retry = (tree: ReactNode) =>
 beforeEach(() => {
   resetHooks();
   vi.clearAllMocks();
+  db.asked = [];
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -63,27 +79,73 @@ describe('DepartmentsPanel', () => {
     expect(editable(tree)).toHaveLength(0);
   });
 
-  it('after Retry, a switch sends the other column as it was read', async () => {
-    db.answer = { data: null, error: { message: 'timeout' } };
+  const loadWith = async (data: unknown) => {
+    db.answer = { data, error: null };
     render(DepartmentsPanel);
     await settle();
-    // The opposite of HR's built-in defaults, both columns.
-    db.answer = {
-      data: [{ department: 'hr', own_inbox: false, restricted: false }],
+  };
+  const switchOf = (id: string) =>
+    findElements(
+      render(DepartmentsPanel),
+      (el) => el.props['aria-labelledby'] === id
+    )[0];
+  const toggle = async (id: string, on: boolean) => {
+    (switchOf(id).props.onCheckedChange as (on: boolean) => void)(on);
+    await settle();
+  };
+
+  it('a switch sends the other column as it is stored now, not as it was loaded', async () => {
+    // Loaded unrestricted; another admin has restricted HR since.
+    await loadWith([{ department: 'hr', own_inbox: false, restricted: false }]);
+    db.fresh = {
+      data: { department: 'hr', own_inbox: false, restricted: true },
       error: null,
     };
-    retry(render(DepartmentsPanel));
-    render(DepartmentsPanel);
-    await settle();
-    const [own] = findElements(
-      render(DepartmentsPanel),
-      (el) => el.props['aria-labelledby'] === 'dept-hr-own_inbox'
-    );
-    (own.props.onCheckedChange as (on: boolean) => void)(true);
+    await toggle('dept-hr-own_inbox', true);
+    expect(db.asked).toEqual([
+      ['account_id', 'acc-1'],
+      ['department', 'hr'],
+    ]);
     expect(db.rpc).toHaveBeenCalledWith('set_department_settings', {
       p_department: 'hr',
       p_own_inbox: true,
-      p_restricted: false,
+      p_restricted: true,
     });
+    // And the screen now shows what is stored.
+    expect(switchOf('dept-hr-restricted').props.checked).toBe(true);
+  });
+
+  it('a failed re-read saves nothing and says so', async () => {
+    await loadWith([{ department: 'hr', own_inbox: true, restricted: true }]);
+    db.fresh = { data: null, error: { message: 'timeout' } };
+    await toggle('dept-hr-own_inbox', false);
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('rereadFailed');
+    expect(switchOf('dept-hr-own_inbox').props).toMatchObject({
+      checked: true,
+      disabled: false,
+    });
+  });
+
+  it('a department never saved keeps its built-in other switch', async () => {
+    await loadWith([]);
+    db.fresh = { data: null, error: null };
+    await toggle('dept-hr-own_inbox', false);
+    expect(db.rpc).toHaveBeenCalledWith('set_department_settings', {
+      p_department: 'hr',
+      p_own_inbox: false,
+      p_restricted: true,
+    });
+  });
+
+  it('after Retry, the switches are back', async () => {
+    db.answer = { data: null, error: { message: 'timeout' } };
+    render(DepartmentsPanel);
+    await settle();
+    db.answer = { data: [], error: null };
+    retry(render(DepartmentsPanel));
+    render(DepartmentsPanel);
+    await settle();
+    expect(editable(render(DepartmentsPanel)).length).toBeGreaterThan(0);
   });
 });

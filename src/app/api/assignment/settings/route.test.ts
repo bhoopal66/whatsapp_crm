@@ -153,6 +153,34 @@ describe('GET /api/assignment/settings', () => {
     expect(body.available).toBe(false);
   });
 
+  it('answers 500 when the own limits could not be read', async () => {
+    h.tables.assignment_chat_limits = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    const res = await GET();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'load_failed' });
+  });
+
+  it('before migration 236 the limits are missing too, and it is no failure', async () => {
+    const missing = { data: null, error: { code: '42P01', message: 'x' } };
+    h.tables.assignment_settings = missing;
+    h.tables.assignment_chat_limits = missing;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).available).toBe(false);
+  });
+
+  it('says the open chats are unknown when they could not be read', async () => {
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'timeout' } });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(
+      (await res.json()).members.map((m: { openCount: unknown }) => m.openCount)
+    ).toEqual([null, null]);
+  });
+
   it('answers 403 below admin', async () => {
     h.requireRole.mockRejectedValue(
       Object.assign(new Error('role'), { status: 403 })
@@ -177,8 +205,82 @@ describe('PUT /api/assignment/settings', () => {
     expect((await res.json()).settings.broadcastPool).toEqual([U1]);
   });
 
+  const poolSent = () =>
+    h.rpc.mock.calls.map(([, args]) => args.p_broadcast_pool);
+
+  it('applies a pool change to the pool stored now', async () => {
+    // Another admin added U2 since this screen loaded [].
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U2] },
+      error: null,
+    };
+    const res = await PUT(
+      json({
+        broadcastPoolChange: { add: [U1], remove: [], fromEveryone: true },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(poolSent()).toEqual([[U2, U1]]);
+  });
+
+  it('refuses a change the stored pool cannot take', async () => {
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U1] },
+      error: null,
+    };
+    const res = await PUT(
+      json({
+        broadcastPoolChange: { add: [], remove: [U1], fromEveryone: false },
+      })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('pool_changed');
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('saves nothing when the stored pool cannot be read', async () => {
+    const change = { add: [U1], remove: [], fromEveryone: true };
+    h.tables.assignment_settings = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    const res = await PUT(json({ broadcastPoolChange: change }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('load_failed');
+    h.tables.assignment_settings.error = { code: '42P01', message: 'missing' };
+    expect((await PUT(json({ broadcastPoolChange: change }))).status).toBe(503);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('does not read the pool for other fields', async () => {
+    h.tables.assignment_settings = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    expect((await PUT(json({ limitsEnabled: true }))).status).toBe(200);
+    expect(poolSent()).toEqual([null]);
+  });
+
   it('refuses a bad body before the database', async () => {
     expect((await PUT(json({}))).status).toBe(400);
+    for (const broadcastPoolChange of [
+      null,
+      { add: [U1] },
+      { add: ['x'], remove: [], fromEveryone: false },
+      { add: [], remove: [], fromEveryone: false },
+    ]) {
+      expect((await PUT(json({ broadcastPoolChange }))).status).toBe(400);
+    }
+    expect(
+      (
+        await PUT(
+          json({
+            broadcastPool: [U1],
+            broadcastPoolChange: { add: [U1], remove: [], fromEveryone: true },
+          })
+        )
+      ).status
+    ).toBe(400);
     expect((await PUT(json({ limitsEnabled: 'yes' }))).status).toBe(400);
     expect((await PUT(json({ broadcastPool: ['x'] }))).status).toBe(400);
     const bad = await PUT(json({ defaultChatLimit: 0 }));

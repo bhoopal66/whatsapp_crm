@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { useAuth } from '@/hooks/use-auth';
 import { loadMemberLoads } from '@/lib/assignment/rotation';
@@ -14,6 +15,13 @@ export const MEMBER_LOADS_CACHE_PREFIX = 'assignment-loads:';
 
 /** Loads change with every assignment, so a short life only. */
 const TTL_MS = 15_000;
+
+/** Throws when they were not read: only a rejected load is not cached. */
+async function readLoads(db: SupabaseClient): Promise<MemberLoad[]> {
+  const loads = await loadMemberLoads(db);
+  if (!loads) throw new Error('member loads not read');
+  return loads;
+}
 
 const EMPTY: ReadonlyMap<string, MemberLoad> = new Map();
 
@@ -42,11 +50,14 @@ export function useMemberLoads(
   useEffect(() => {
     if (!active || !key) return;
     let live = true;
-    void cachedQuery(key, TTL_MS, () => loadMemberLoads(supabase))
+    void cachedQuery(key, TTL_MS, () => readLoads(supabase))
       .then((rows) => {
         if (live) setLoaded({ key, loads: loadsByUser(rows) });
       })
-      .catch(() => {});
+      .catch(() => {
+        // No figures rather than those of an earlier opening.
+        if (live) setLoaded(null);
+      });
     return () => {
       live = false;
     };

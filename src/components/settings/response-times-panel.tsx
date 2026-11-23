@@ -27,6 +27,7 @@ import {
   endToInput,
   nextInterval,
   parseResponseSettings,
+  responseSettingsDiff,
   validateHours,
   type HoursInterval,
   type ResponseSettings,
@@ -61,11 +62,13 @@ const ERROR_KEYS = [
 export function ResponseTimesPanel() {
   const t = useTranslations('ResponseTimes');
   const { accountId } = useAuth();
+  // What was loaded (or last saved), and the form over it: a save sends
+  // only the difference.
+  const [saved, setSaved] = useState<ResponseSettings | null>(null);
   const [form, setForm] = useState<ResponseSettings | null>(null);
   const [targetText, setTargetText] = useState('');
   const [available, setAvailable] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   // A failed load keeps the form empty: the defaults must never be
   // savable over settings that were not read.
   const [failed, setFailed] = useState(false);
@@ -79,10 +82,10 @@ export function ResponseTimesPanel() {
         const body = await readSettings('/api/response-times/settings');
         if (cancelled) return;
         const s = parseResponseSettings(body.settings);
+        setSaved(s);
         setForm(s);
         setTargetText(String(s.targetMinutes));
         setAvailable(body.available !== false);
-        setDirty(false);
         setFailed(false);
       } catch {
         if (cancelled) return;
@@ -114,7 +117,7 @@ export function ResponseTimesPanel() {
       </div>
     );
   }
-  if (!form) {
+  if (!form || !saved) {
     return (
       <div>
         <SettingsPanelHead title={t('title')} description={t('description')} />
@@ -129,28 +132,25 @@ export function ResponseTimesPanel() {
     target >= MIN_TARGET_MINUTES &&
     target <= MAX_TARGET_MINUTES;
   const hoursValid = validateHours(form.hours);
+  const patch = responseSettingsDiff(saved, {
+    ...form,
+    targetMinutes: targetValid ? target : saved.targetMinutes,
+  });
+  const dirty = Object.keys(patch).length > 0;
   const canSave = available && dirty && targetValid && hoursValid && !saving;
 
-  const update = (next: ResponseSettings) => {
-    setForm(next);
-    setDirty(true);
-  };
+  const update = (next: ResponseSettings) => setForm(next);
   const setDay = (day: Weekday, intervals: HoursInterval[]) =>
     update({ ...form, hours: { ...form.hours, [day]: intervals } });
 
   async function save() {
-    if (!form || !canSave) return;
+    if (!canSave) return;
     setSaving(true);
     try {
       const res = await fetch('/api/response-times/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          enabled: form.enabled,
-          timezone: form.timezone,
-          hours: form.hours,
-          targetMinutes: target,
-        }),
+        body: JSON.stringify(patch),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -161,9 +161,9 @@ export function ResponseTimesPanel() {
         return;
       }
       const s = parseResponseSettings(body?.settings);
+      setSaved(s);
       setForm(s);
       setTargetText(String(s.targetMinutes));
-      setDirty(false);
       toast.success(t('saved'));
     } catch {
       toast.error(t('saveFailed'));
@@ -208,10 +208,7 @@ export function ResponseTimesPanel() {
                 className="w-24"
                 value={targetText}
                 aria-invalid={!targetValid}
-                onChange={(e) => {
-                  setTargetText(e.target.value);
-                  setDirty(true);
-                }}
+                onChange={(e) => setTargetText(e.target.value)}
               />
               <span className="text-muted-foreground text-sm">
                 {t('minutes')}

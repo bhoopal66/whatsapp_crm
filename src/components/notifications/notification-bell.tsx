@@ -14,6 +14,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { notificationBadgeLabel } from '@/lib/notifications/badge';
+import { NOTIFICATIONS_PAGE } from '@/lib/notifications/store';
 import { useNotifications } from './notifications-provider';
 import { NotificationItem } from './notification-item';
 
@@ -31,6 +32,7 @@ export function NotificationBell() {
     unread,
     error,
     loading,
+    loadingOlder,
     markingAll,
     load,
     markAllRead,
@@ -56,7 +58,7 @@ export function NotificationBell() {
         {badge && (
           <span
             aria-hidden
-            className="bg-primary text-primary-foreground ring-card absolute top-1 end-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-xs leading-none font-semibold ring-2"
+            className="bg-primary text-primary-foreground ring-card absolute end-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-xs leading-none font-semibold ring-2"
           >
             {badge}
           </span>
@@ -74,7 +76,11 @@ export function NotificationBell() {
           <Button
             variant="ghost"
             size="sm"
-            disabled={unread === 0 || markingAll}
+            // Not before the list is on screen: see markAllBound.
+            disabled={
+              unread === 0 || !notifications || loadingOlder || markingAll
+            }
+            title={t('markAllReadHint')}
             onClick={() => void markAllRead()}
           >
             {markingAll ? <Loader2 className="animate-spin" /> : <CheckCheck />}
@@ -120,7 +126,8 @@ export function NotificationBell() {
             </div>
           ) : (
             <ul className="space-y-1 p-1.5">
-              {notifications.map((n) => (
+              {/* The older pages belong to the full page. */}
+              {notifications.slice(0, NOTIFICATIONS_PAGE).map((n) => (
                 <NotificationItem
                   key={n.id}
                   notification={n}
