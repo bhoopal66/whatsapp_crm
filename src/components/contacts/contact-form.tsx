@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
+import { saveContactEdit } from '@/lib/contacts/contact-edit';
 import { keepFloatingFormOpen } from '@/lib/contacts/floating-form';
 
 interface ContactFormProps {
@@ -206,18 +207,22 @@ export function ContactForm({
 
       let contactId = contact?.id ?? null;
 
-      if (isEdit && contactId) {
-        const { error } = await supabase
-          .from('contacts')
-          .update({
-            name: name.trim() || null,
-            phone: phoneToSave,
-            email: email.trim() || null,
-            company: company.trim() || null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', contactId);
-        if (error) throw error;
+      if (contact) {
+        const res = await saveContactEdit(
+          supabase,
+          contact,
+          { name, phone, email, company },
+          phoneToSave,
+        );
+        if (res.kind === 'failed') throw res.error;
+        if (res.kind === 'none') {
+          toast.error(t('toastNotSaved'));
+          return;
+        }
+        if (res.kind === 'unchanged') {
+          onOpenChange(false);
+          return;
+        }
       } else {
         const { data, error } = await supabase
           .from('contacts')

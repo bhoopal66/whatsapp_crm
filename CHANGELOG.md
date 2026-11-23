@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Editing and deleting customers and deals
+
+No migration.
+- **Agents and team leaders no longer see Delete on the contacts list**
+  (row menu, right-click, bulk bar), like on the customer page. Admins
+  and owners still do.
+- Custom fields on the customer page: saving writes only the fields you
+  changed, so a failed load or save no longer wipes the others and two
+  people can edit different fields. If they cannot be loaded, the card
+  says so and offers Retry.
+- Editing a contact saves only what you changed, so it no longer undoes a
+  colleague's change to another field.
+- A save, move or delete that changed nothing (you lost access, or it was
+  removed) now says so instead of showing success, a dragged deal goes
+  back to its stage, and a bulk delete counts what was really deleted.
 ### Server log with times
 
 No migration.

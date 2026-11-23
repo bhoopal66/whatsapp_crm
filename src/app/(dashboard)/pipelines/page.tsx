@@ -8,6 +8,7 @@ import {
   useCallback,
   useMemo,
 } from 'react';
+import { updateRow } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import type { Pipeline } from '@/types';
 import { BOARD_DEAL_SELECT, type BoardDeal } from '@/lib/pipelines/board-deal';
@@ -61,6 +62,7 @@ import {
   type PipelineWithStages,
 } from '@/lib/pipelines/board-stages';
 import { useDealPeople } from '@/components/pipelines/use-deal-people';
+import { moveDeal } from '@/lib/pipelines/deal-move';
 import { dealOwnerOrFilter, ownerFilterOptions } from '@/lib/pipelines/owner';
 import { useDealSignals } from '@/components/pipelines/use-deal-signals';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
@@ -402,19 +404,19 @@ export default function PipelinesPage() {
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
       // Optimistic update — board already animated; just persist.
-      setDeals((prev) =>
-        prev.map((d) => (d.id === dealId ? { ...d, stage_id: newStageId } : d))
-      );
-      const { error } = await supabase
-        .from('deals')
-        .update({ stage_id: newStageId })
-        .eq('id', dealId);
-      if (error) {
-        toast.error(t('toastFailedMoveDeal'));
-        refreshDeals();
-      }
+      const moved = await moveDeal({
+        deals,
+        dealId,
+        to: newStageId,
+        setDeals,
+        write: () =>
+          updateRow(supabase, 'deals', dealId, { stage_id: newStageId }),
+        refresh: refreshDeals,
+      });
+      if (moved === 'failed') toast.error(t('toastFailedMoveDeal'));
+      else if (moved === 'none') toast.error(t('toastDealNotMoved'));
     },
-    [supabase, refreshDeals, setDeals, t]
+    [supabase, deals, refreshDeals, setDeals, t]
   );
 
   const handleAddDeal = useCallback(

@@ -56,6 +56,7 @@ import {
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import { initials } from '@/lib/pbx/timeline';
+import { deleteRows } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -127,15 +128,17 @@ export function CustomerHeader({
 
   const remove = async () => {
     setDeleting(true);
-    const { error } = await createClient()
-      .from('contacts')
-      .delete()
-      .eq('id', contact.id);
+    const res = await deleteRows(createClient(), 'contacts', [contact.id]);
     setDeleting(false);
-    if (error)
+    if (res.kind === 'failed')
       return void toast.error(
-        tp(error.hint === 'LEGAL_HOLD' ? 'toastLegalHold' : 'toastFailedDelete')
+        tp(
+          res.error.hint === 'LEGAL_HOLD'
+            ? 'toastLegalHold'
+            : 'toastFailedDelete'
+        )
       );
+    if (res.kind === 'none') return void toast.error(tp('toastNotDeleted'));
     toast.success(tp('toastDeleted'));
     setConfirm(false);
     onDeleted?.();

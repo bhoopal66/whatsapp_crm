@@ -4,6 +4,7 @@ import { EmptyState } from '@/components/dashboard/empty-state';
 import { ErrorState } from '@/components/dashboard/error-state';
 import { LoadingState } from '@/components/dashboard/loading-state';
 import { isUuid } from '@/lib/chat/mentions';
+import { customerAccess } from '@/lib/contacts/customer-access';
 import { customerPath } from '@/lib/contacts/customer-links';
 import {
   Fragment,
@@ -14,6 +15,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import { bulkAnswer, deleteRows } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact } from '@/types';
@@ -244,6 +246,8 @@ export function ContactsPageInner({
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  // Every delete entry point here, by the customer page's own rule.
+  const canDelete = customerAccess(accountRole).deleteContact;
   // Names for the Owner / Assigned to columns, from the members
   // list the inbox and pipelines already cache (no extra round trip).
   const { nameOf } = useWorkspaceMembers();
@@ -835,17 +839,19 @@ export function ContactsPageInner({
     if (!deleteTarget) return;
     setDeleting(true);
 
-    const { error } = await supabase
-      .from('contacts')
-      .delete()
-      .eq('id', deleteTarget.id);
+    const res = await deleteRows(supabase, 'contacts', [deleteTarget.id]);
 
-    if (error) {
+    if (res.kind === 'failed') {
       toast.error(
-        t(error.hint === 'LEGAL_HOLD' ? 'toastLegalHold' : 'toastFailedDelete')
+        t(
+          res.error.hint === 'LEGAL_HOLD'
+            ? 'toastLegalHold'
+            : 'toastFailedDelete'
+        )
       );
     } else {
-      toast.success(t('toastDeleted'));
+      if (res.kind === 'none') toast.error(t('toastNotDeleted'));
+      else toast.success(t('toastDeleted'));
       refreshContacts();
     }
 
@@ -939,18 +945,31 @@ export function ContactsPageInner({
     if (ids.length === 0) return;
     setDeleting(true);
 
-    const { error } = await supabase.from('contacts').delete().in('id', ids);
+    const res = await deleteRows(supabase, 'contacts', ids);
 
-    if (error) {
+    if (res.kind === 'failed') {
       toast.error(
         t(
-          error.hint === 'LEGAL_HOLD'
+          res.error.hint === 'LEGAL_HOLD'
             ? 'toastLegalHold'
             : 'toastBulkFailedDelete'
         )
       );
     } else {
-      toast.success(t('toastBulkDeleted', { count: ids.length }));
+      const answer = bulkAnswer(
+        ids.length,
+        res.kind === 'changed' ? res.ids.length : 0
+      );
+      if (answer.kind === 'all')
+        toast.success(t('toastBulkDeleted', { count: answer.count }));
+      else if (answer.kind === 'some')
+        toast.warning(
+          t('toastBulkDeletedSome', {
+            count: answer.count,
+            total: answer.total,
+          })
+        );
+      else toast.error(t('toastBulkNotDeleted'));
       setSelected(new Set());
       refreshContacts();
     }
@@ -1271,6 +1290,7 @@ export function ContactsPageInner({
         <BulkBar
           count={selected.size}
           canAct={canEdit}
+          canDelete={canDelete}
           tree={chatTagTree}
           onClear={() => setSelected(new Set())}
           onDelete={() => setBulkDeleteOpen(true)}
@@ -1439,7 +1459,9 @@ export function ContactsPageInner({
                     teamView={teamView}
                     onOpen={() => openDetail(contact.id)}
                     onEdit={() => openEditForm(contact)}
-                    onDelete={() => confirmDelete(contact)}
+                    onDelete={
+                      canDelete ? () => confirmDelete(contact) : undefined
+                    }
                   >
                     <TableCell
                       onClick={(e) => e.stopPropagation()}
@@ -1596,17 +1618,21 @@ export function ContactsPageInner({
                             <Pencil className="size-4" />
                             {t('editAction')}
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator className="bg-border" />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              confirmDelete(contact);
-                            }}
-                          >
-                            <Trash2 className="size-4" />
-                            {t('deleteAction')}
-                          </DropdownMenuItem>
+                          {canDelete && (
+                            <>
+                              <DropdownMenuSeparator className="bg-border" />
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmDelete(contact);
+                                }}
+                              >
+                                <Trash2 className="size-4" />
+                                {t('deleteAction')}
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -1799,7 +1825,8 @@ function ContactRow({
   teamView: boolean;
   onOpen: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  /** Absent for someone who may not delete a customer. */
+  onDelete?: () => void;
   children: ReactNode;
 }) {
   const tMenu = useTranslations('ContextMenu');
@@ -1850,15 +1877,17 @@ function ContactRow({
         label: tMenu('records.edit'),
         icon: Pencil,
         onSelect: onEdit,
-      },
-      {
+      }
+    );
+    if (onDelete) {
+      items.push({
         id: 'delete',
         label: tMenu('records.delete'),
         icon: Trash2,
         destructive: true,
         onSelect: onDelete,
-      }
-    );
+      });
+    }
     return items;
   });
   return (

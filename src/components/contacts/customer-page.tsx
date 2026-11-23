@@ -96,6 +96,7 @@ import { CONTACT_LIST_QUESTION_PREFIX } from '@/lib/contacts/list-query';
 import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import type { Contact } from '@/types';
+import { deleteRows } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -440,11 +441,14 @@ export function CustomerPage({
 
   const deleteNote = async (id: string) => {
     if (!window.confirm(td('confirmDeleteNote'))) return;
-    const { error } = await createClient()
-      .from('contact_notes')
-      .delete()
-      .eq('id', id);
-    if (error) return void toast.error(td('toastNoteDeleteFailed'));
+    const res = await deleteRows(createClient(), 'contact_notes', [id]);
+    if (res.kind === 'failed')
+      return void toast.error(td('toastNoteDeleteFailed'));
+    if (res.kind === 'none') {
+      toast.error(td('toastNoteNotDeleted'));
+      // Shows it gone if a colleague deleted it.
+      return restart();
+    }
     edit((v) =>
       v.timeline
         ? {

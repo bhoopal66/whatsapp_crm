@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { deleteRows, updateRow } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { CURRENCIES } from '@/lib/currency';
@@ -176,12 +177,11 @@ export function DealForm({
     };
 
     if (deal) {
-      const { error } = await supabase
-        .from('deals')
-        .update(payload)
-        .eq('id', deal.id);
-      if (error) {
-        toast.error(t('toastFailedSave'));
+      const res = await updateRow(supabase, 'deals', deal.id, payload);
+      if (res.kind !== 'changed') {
+        toast.error(
+          t(res.kind === 'none' ? 'toastNotSaved' : 'toastFailedSave')
+        );
         setSaving(false);
         return;
       }
@@ -222,13 +222,12 @@ export function DealForm({
   async function handleStatusChange(status: DealStatus) {
     if (!deal) return;
     setStatusAction(status);
-    const { error } = await supabase
-      .from('deals')
-      .update({ status })
-      .eq('id', deal.id);
+    const res = await updateRow(supabase, 'deals', deal.id, { status });
     setStatusAction(null);
-    if (error) {
-      toast.error(t('toastFailedStatus'));
+    if (res.kind !== 'changed') {
+      toast.error(
+        t(res.kind === 'none' ? 'toastNotSaved' : 'toastFailedStatus')
+      );
       return;
     }
     toast.success(
@@ -245,10 +244,12 @@ export function DealForm({
   async function handleDelete() {
     if (!deal) return;
     setDeleting(true);
-    const { error } = await supabase.from('deals').delete().eq('id', deal.id);
+    const res = await deleteRows(supabase, 'deals', [deal.id]);
     setDeleting(false);
-    if (error) {
-      toast.error(t('toastFailedDelete'));
+    if (res.kind !== 'changed') {
+      toast.error(
+        t(res.kind === 'none' ? 'toastNotDeleted' : 'toastFailedDelete')
+      );
       return;
     }
     toast.success(t('toastDeleted'));
