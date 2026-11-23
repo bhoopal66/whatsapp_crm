@@ -27,6 +27,7 @@ import {
   type AlarmKind,
   type SnoozeOption,
 } from '@/lib/reminders/alarm';
+import { startLiveRead } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { tabTitle } from '@/lib/tab-alerts/title-owner';
 import { cn } from '@/lib/utils';
@@ -258,6 +259,7 @@ export function ReminderAlarmCard({
   actions,
 }: ReminderAlarmCardProps) {
   const t = useTranslations('Reminders.alarm');
+  const format = useFormatter();
   const [snoozing, setSnoozing] = useState(false);
   const [pending, setPending] = useState(false);
   const style = KIND_STYLE[alarm.kind];
@@ -304,6 +306,18 @@ export function ReminderAlarmCard({
           <span className="bg-destructive-soft text-destructive rounded-full px-2 py-0.5 text-xs font-medium">
             {t('missed')}
           </span>
+        )}
+        {alarm.missed && (
+          <time
+            data-alarm-time
+            dateTime={new Date(alarm.createdAt).toISOString()}
+            className="shrink-0 font-medium tabular-nums"
+          >
+            {format.dateTime(new Date(alarm.createdAt), {
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+          </time>
         )}
         <button
           type="button"
@@ -553,7 +567,7 @@ class RingingAlarms extends AlarmQueue {
 
 /** The ringing reminder cards, over whatever page of the dashboard is open. */
 export function ReminderAlarm() {
-  const { onChange } = useNotifications();
+  const { onChange, onStatus } = useNotifications();
   const { user, activeWorkspaceId, accountRole, workspaces } = useAuth();
   const active = useActiveCall();
   const calls = useCalls();
@@ -587,9 +601,12 @@ export function ReminderAlarm() {
   const userId = user?.id ?? null;
   useEffect(() => {
     if (!userId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
+    let opened = false;
+    // Read on load, then again after every gap realtime cannot fill: the
+    // tab shown after a hide, the bell's channel joined again, or back
+    // online. A failed read is retried; realtime still rings new rows.
+    const live = startLiveRead({
+      read: async () => {
         const since = new Date(Date.now() - ALARM_MAX_AGE_MS).toISOString();
         const { data, error } = await createClient()
           .from('notifications')
@@ -600,16 +617,22 @@ export function ReminderAlarm() {
           .gte('created_at', since)
           .order('created_at', { ascending: false })
           .limit(SEED_LIMIT);
-        if (cancelled || error || !data) return;
-        queue.seed(data as Notification[], Date.now());
-      } catch {
-        // A failed read seeds nothing; realtime still rings new rows.
-      }
-    })();
+        if (error) throw error;
+        return (data ?? []) as Notification[];
+      },
+      apply: (rows) => {
+        queue.seed(rows, Date.now(), { wake: opened });
+        opened = true;
+      },
+    });
+    const stopStatus = onStatus(live.onStatus);
+    window.addEventListener('online', live.catchUp);
     return () => {
-      cancelled = true;
+      window.removeEventListener('online', live.catchUp);
+      stopStatus();
+      live.stop();
     };
-  }, [queue, userId]);
+  }, [queue, userId, onStatus]);
 
   const { shown, hidden } = visibleAlarms(alarms);
   useFlashingTitle(shown[0]?.title ?? null);

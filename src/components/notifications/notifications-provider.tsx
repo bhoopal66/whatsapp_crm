@@ -88,6 +88,8 @@ interface NotificationsContextValue {
   ) => Promise<void>;
   /** Hears every realtime change, after the list has; answers how to stop. */
   onChange: (fn: (change: NotificationChange) => void) => () => void;
+  /** Hears every status of the bell's channel; answers how to stop. */
+  onStatus: (fn: (status: string) => void) => () => void;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(
@@ -119,6 +121,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // A switch to another workspace is in flight (it ends in a page load).
   const switchingRef = useRef(false);
   const listenersRef = useRef(new Set<(change: NotificationChange) => void>());
+  const statusListenersRef = useRef(new Set<(status: string) => void>());
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -187,7 +190,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         for (const fn of listenersRef.current) fn(change);
       });
     }
-    channel.subscribe(live.onStatus);
+    channel.subscribe((status) => {
+      live.onStatus(status);
+      for (const fn of statusListenersRef.current) fn(status);
+    });
 
     return () => {
       live.stop();
@@ -266,6 +272,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const onStatus = useCallback((fn: (status: string) => void) => {
+    const listeners = statusListenersRef.current;
+    listeners.add(fn);
+    return () => {
+      listeners.delete(fn);
+    };
+  }, []);
+
   const value = useMemo<NotificationsContextValue>(
     () => ({
       notifications: state.rows,
@@ -278,6 +292,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       markAllRead,
       openNotification,
       onChange,
+      onStatus,
     }),
     [
       state,
@@ -289,6 +304,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       markAllRead,
       openNotification,
       onChange,
+      onStatus,
     ]
   );
 
