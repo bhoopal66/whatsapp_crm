@@ -1104,7 +1104,15 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div ref={inputWrap} className="flex items-end gap-2" onPaste={onPaste}>
+        // In a narrow column (a thread, a phone) the text has a row of its own.
+        <div
+          ref={inputWrap}
+          className={cn(
+            'flex items-end gap-2',
+            threadRootId ? 'flex-wrap' : 'max-sm:flex-wrap'
+          )}
+          onPaste={onPaste}
+        >
           {controls.attach && (
             <button
               type="button"
@@ -1171,7 +1179,12 @@ export function Composer({
           />
           <MentionTextarea
             controlRef={input}
-            className="min-w-0 flex-1"
+            className={cn(
+              'min-w-0',
+              threadRootId
+                ? 'order-first basis-full'
+                : 'flex-1 max-sm:order-first max-sm:basis-full'
+            )}
             onCancel={reply.target ? reply.clear : undefined}
             draft={draft}
             onDraftChange={changeDraft}
@@ -1189,7 +1202,10 @@ export function Composer({
             type="button"
             onClick={() => void send()}
             disabled={!canSend}
-            className="bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
+            className={cn(
+              'bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50',
+              threadRootId ? 'ms-auto' : 'max-sm:ms-auto'
+            )}
           >
             {t('composer.send')}
           </button>

@@ -12,6 +12,11 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat
+
+- In a thread, and on a phone, the text box has a row of its own above the
+  buttons. It was too narrow to read what you typed.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
@@ -67,7 +72,8 @@ it; HR lines are then recognised only while "open a Recruitment chat" is on.
   down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
   HR line. When that cannot be checked it sends nothing.
 - The bot no longer also answers a message a meaning-trigger automation just
-  answered.
+  answered (one that only tagged the chat, or whose message failed, does not
+  silence it).
 - Questions kept for the knowledge-gap review are stored with identifiers
   masked, and older ones are masked before they are grouped.
 - With a similarity floor or strict grounding set, a knowledge search that
