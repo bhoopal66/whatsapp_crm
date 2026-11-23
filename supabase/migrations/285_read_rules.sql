@@ -15,10 +15,15 @@
 --                     before.
 --
 -- ORDER: the new build first, then this file. The old build reads the
--- token columns through the session and could not send after it.
+-- token columns through the session and could not send after it. To go
+-- back to that build, first:
+--   GRANT SELECT ON public.whatsapp_config TO authenticated;
+--   NOTIFY pgrst, 'reload schema';
 -- Re-runnable. A column added to whatsapp_config later is readable by a
 -- session only after its own GRANT SELECT (verify-read-rules.sql fails
 -- until it is granted or named there as a secret).
+
+SET lock_timeout = '5s';
 
 -- ---- automation_logs, automation_steps, flow_nodes --------------
 ALTER POLICY automation_logs_select ON automation_logs
@@ -102,3 +107,5 @@ BEGIN
   END IF;
 END
 $grants$;
+
+RESET lock_timeout;

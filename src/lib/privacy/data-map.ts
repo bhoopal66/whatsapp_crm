@@ -1070,6 +1070,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // CASCADE); the meta row is the day the log began.
             'chat_tag_history',
             'chat_tag_history_meta',
+            // 288: a staff login's new address, good for two minutes and
+            // gone within a day. No customer.
+            'login_email_permits',
           ],
         ],
       ] as const

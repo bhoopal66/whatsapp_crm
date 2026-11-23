@@ -15,12 +15,20 @@
 -- after 167's authorisation). Creating a login, banning one, a password
 -- change and a change of case only are not affected.
 --
+-- Nobody outranks an owner: an owner's own address is changed by an
+-- operator, SELECT public.permit_login_email('<user id>', '<address>') as
+-- the service role and then the change in the sign-in service, within two
+-- minutes. To go back to the build before: DROP TRIGGER guard_login_email
+-- ON auth.users.
+--
 -- Nothing here refuses itself on existing data. Re-runnable. Apply after
 -- 167; with the build (the build asks for the permit and tolerates this
 -- file's absence; the build before it cannot change a member's email once
 -- this is applied). As a role that may create triggers on auth.users, as
 -- 017.
 -- ============================================================
+
+SET lock_timeout = '5s';
 
 CREATE TABLE IF NOT EXISTS public.login_email_permits (
   user_id     uuid NOT NULL,
@@ -75,4 +83,5 @@ CREATE OR REPLACE TRIGGER guard_login_email
   WHEN (lower(OLD.email::text) IS DISTINCT FROM lower(NEW.email::text) AND NEW.email IS NOT NULL)
   EXECUTE FUNCTION public.guard_login_email();
 
+RESET lock_timeout;
 NOTIFY pgrst, 'reload schema';

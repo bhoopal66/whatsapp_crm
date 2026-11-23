@@ -29,6 +29,8 @@
 -- 217 (which would bring the older policies back) does not undo 1-4.
 -- Re-running 062 does undo 5: apply 284 after it.
 
+SET lock_timeout = '5s';
+
 -- ------------------------------------------------------------
 -- 1, 2. Chats: identity, and opening a personal one
 -- ------------------------------------------------------------
@@ -145,6 +147,7 @@ CREATE OR REPLACE TRIGGER messages_session_no_change
 -- word, for INSERT alone. Its read was a narrower messages_select, so
 -- reading does not change. A coordinator still writes through
 -- messages_coordinator_insert (133).
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS messages_modify ON public.messages;
 DROP POLICY IF EXISTS messages_insert ON public.messages;
 CREATE POLICY messages_insert ON public.messages
@@ -171,6 +174,7 @@ CREATE POLICY messages_insert ON public.messages
          )
     )
   );
+END $swap$;
 
 -- ------------------------------------------------------------
 -- 4. Chats are not deleted from a session
@@ -242,3 +246,5 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.enforce_conversation_channel() FROM PUBLIC, anon, authenticated;
+
+RESET lock_timeout;

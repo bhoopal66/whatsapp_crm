@@ -170,7 +170,9 @@ BEGIN
       ('own note', u_owner, format('UPDATE contact_notes SET note_text = ''z'' WHERE id = %L', note), '1'),
       ('own note given away', u_owner, format('UPDATE contact_notes SET user_id = %L WHERE id = %L', u_agent, note), '42501'),
       ('read back', u_agent, format('SELECT count(*) FROM contact_notes WHERE id = %L', note), '1'),
-      ('delete as before', u_agent, format('DELETE FROM contact_notes WHERE id = %L', note), '1')) v(lbl, uid, sql, want)
+      -- 286: its writer, or an admin.
+      ('a colleague''s note deleted', u_agent, format('DELETE FROM contact_notes WHERE id = %L', note), '0'),
+      ('own note deleted', u_owner, format('DELETE FROM contact_notes WHERE id = %L', note), '1')) v(lbl, uid, sql, want)
   LOOP
     n := n + 1;
     r := pg_temp.rr_try(it.uid, it.sql);

@@ -203,7 +203,7 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   IF p_user_id = auth.uid() THEN
-    RAISE EXCEPTION 'Change your own name and email in Settings → Profile.'
+    RAISE EXCEPTION 'Change your own name in Settings → Profile. Another owner or admin changes your login email.'
       USING ERRCODE = '22023';
   END IF;
   SELECT account_role INTO v_target_role
@@ -343,6 +343,7 @@ $$;
 -- redeem_invitation judges a link by its creator, so a link carries only
 -- the name of the session that made it. The year is the route's
 -- MAX_INVITE_EXPIRY_DAYS, in hours, with room for the app's clock.
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS account_invitations_modify ON public.account_invitations;
 DROP POLICY IF EXISTS account_invitations_insert ON public.account_invitations;
 CREATE POLICY account_invitations_insert ON public.account_invitations FOR INSERT
@@ -356,6 +357,7 @@ CREATE POLICY account_invitations_insert ON public.account_invitations FOR INSER
 DROP POLICY IF EXISTS account_invitations_delete ON public.account_invitations;
 CREATE POLICY account_invitations_delete ON public.account_invitations FOR DELETE
   USING (public.is_account_member(account_id, 'admin'));
+END $swap$;
 
 -- ---------- 4. The stored hash is not the link ----------
 
@@ -387,9 +389,11 @@ GRANT EXECUTE ON FUNCTION public.peek_invitation_token(text) TO anon, authentica
 
 -- ---------- 5. An API key is its maker's own ----------
 
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS api_keys_insert ON public.api_keys;
 CREATE POLICY api_keys_insert ON public.api_keys FOR INSERT
   WITH CHECK (public.is_account_member(account_id, 'admin') AND created_by = auth.uid());
+END $swap$;
 
 -- Revoking is the only change the app makes to a key as a person;
 -- last_used_at is the service role's.

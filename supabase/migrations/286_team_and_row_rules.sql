@@ -49,6 +49,40 @@ BEGIN
 END
 $scan$;
 
+-- A roster reader whose body is not what 286 patches refuses here, before
+-- any change: it would keep the join without the account.
+DO $shape$
+DECLARE
+  f   record;
+  def text;
+BEGIN
+  FOR f IN
+    SELECT p.oid, p.proname FROM pg_proc p
+     WHERE p.pronamespace = 'public'::regnamespace
+       AND p.proname IN (
+         'leads_teammate', 'led_teammate_user_ids', 'pbx_visible_user_ids',
+         'contact_visibility_people', 'can_view_conversation_for_user',
+         'conversation_note_user_can_see', 'memory_can_read',
+         'whatsapp_group_visible_ids', 'team_activity_my_team',
+         'team_activity_request_unlock', 'team_activity_decide_unlock',
+         'team_activity_alert_sweep', 'team_activity_team_number_counts',
+         'pbx_call_report', 'live_team_view', 'response_escalation_sweep',
+         'chat_dm_pair_allowed', 'chat_user_in_channel_audience',
+         'channel_team_desired_members', 'set_team_members')
+  LOOP
+    def := pg_get_functiondef(f.oid);
+    IF def ~ '\mteam_members\M'
+       AND def !~ '\m(tm|m)\.team_id = (t|ct)\.(id|team_id)\M'
+       AND def !~ '\mt\.id = tm\.team_id AND t\.account_id = s\.account_id\M'
+       AND def !~ '\mmb\.team_id = ma\.team_id\M'
+       AND def !~ '(tm|m|mb)\.account_id = '
+       AND f.proname <> 'set_team_members' THEN
+      RAISE EXCEPTION '286: % reads team_members in a way this file does not know; look at it first', f.proname;
+    END IF;
+  END LOOP;
+END
+$shape$;
+
 -- ---------- 1. teams ----------
 
 -- One foreign key, not two: PostgREST refuses `teams(team_members(...))`
@@ -83,14 +117,15 @@ BEGIN
                                      WHERE w.id = wr.config_id AND w.account_id = wr.account_id)) THEN
     ALTER TABLE public.whatsapp_routes VALIDATE CONSTRAINT whatsapp_routes_config_account_fkey;
   END IF;
+  -- In the same statement: with both keys an embed would be ambiguous.
+  ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_team_id_fkey;
+  ALTER TABLE public.whatsapp_routes DROP CONSTRAINT IF EXISTS whatsapp_routes_config_id_fkey;
 END
 $fk$;
 
-ALTER TABLE public.team_members DROP CONSTRAINT IF EXISTS team_members_team_id_fkey;
-ALTER TABLE public.whatsapp_routes DROP CONSTRAINT IF EXISTS whatsapp_routes_config_id_fkey;
-
 -- The person is live staff of the same account, as 135 already asks of
 -- set_team_members and whatsapp_channel_members_modify of a number.
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS team_members_modify ON public.team_members;
 CREATE POLICY team_members_modify ON public.team_members
   FOR ALL USING (is_account_member(account_id, 'admin'))
@@ -103,6 +138,7 @@ CREATE POLICY team_members_modify ON public.team_members
          AND p.account_role <> 'bank_guest'
          AND p.deactivated_at IS NULL)
   );
+END $swap$;
 
 DO $patch$
 DECLARE
@@ -240,6 +276,7 @@ GRANT EXECUTE ON FUNCTION public.team_activity_release_unlock(uuid) TO authentic
 -- The customer's reaction, and a colleague's that the customer no longer
 -- sees, are written by the server (inbound-pipeline.ts, react/route.ts)
 -- with the service role.
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS message_reactions_modify ON public.message_reactions;
 CREATE POLICY message_reactions_modify ON public.message_reactions
   FOR ALL
@@ -262,20 +299,25 @@ CREATE POLICY message_reactions_modify ON public.message_reactions
          AND ((SELECT current_role_rank()) >= 4
               OR can_view_conversation(c.account_id, c.user_id, c.assigned_agent_id, c.channel_id, c.send_channel_id)))
   );
+END $swap$;
 
 -- ---------- 5. customer notes ----------
 
 -- Added to 059's update and delete rules (the customer must be visible).
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS contact_notes_update_own ON public.contact_notes;
 CREATE POLICY contact_notes_update_own ON public.contact_notes
   AS RESTRICTIVE FOR UPDATE
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+END $swap$;
 
+DO $swap$ BEGIN
 DROP POLICY IF EXISTS contact_notes_delete_own ON public.contact_notes;
 CREATE POLICY contact_notes_delete_own ON public.contact_notes
   AS RESTRICTIVE FOR DELETE
   USING (user_id = (SELECT auth.uid()) OR (SELECT current_role_rank()) >= 4);
+END $swap$;
 
 -- SECURITY INVOKER on purpose, here and below: current_user is the
 -- session's role only when the session itself writes. A definer function,
@@ -298,8 +340,7 @@ $$;
 
 REVOKE ALL ON FUNCTION public.contact_notes_frozen() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS contact_notes_frozen ON public.contact_notes;
-CREATE TRIGGER contact_notes_frozen
+CREATE OR REPLACE TRIGGER contact_notes_frozen
   BEFORE UPDATE ON public.contact_notes
   FOR EACH ROW EXECUTE FUNCTION public.contact_notes_frozen();
 
@@ -346,10 +387,11 @@ $$;
 
 REVOKE ALL ON FUNCTION public.deals_link_guard() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS deals_link_guard ON public.deals;
-CREATE TRIGGER deals_link_guard
+CREATE OR REPLACE TRIGGER deals_link_guard
   BEFORE INSERT OR UPDATE OF contact_id, conversation_id, pipeline_id, stage_id, account_id
   ON public.deals
   FOR EACH ROW EXECUTE FUNCTION public.deals_link_guard();
 
 RESET lock_timeout;
+
+NOTIFY pgrst, 'reload schema';
