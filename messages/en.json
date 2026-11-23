@@ -2630,7 +2630,8 @@
         "document": "PDF, ≤16 MB"
       },
       "toastInvalidMedia": "Header {format} must be one of: {types}.",
-      "toastMediaTooLarge": "File is {size} MB — the limit for this header is {max} MB."
+      "toastMediaTooLarge": "File is {size} MB — the limit for this header is {max} MB.",
+      "editInMeta": "This template belongs to Meta. Edit it in Meta Business Manager, then Sync."
     },
     "roles": {
       "admin": "Admin",

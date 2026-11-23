@@ -2630,7 +2630,8 @@
         "document": "PDF، ≤16 MB"
       },
       "toastInvalidMedia": "يجب أن تكون ترويسة {format} أحد الأنواع: {types}.",
-      "toastMediaTooLarge": "حجم الملف {size} MB — الحد الأقصى لهذه الترويسة {max} MB."
+      "toastMediaTooLarge": "حجم الملف {size} MB — الحد الأقصى لهذه الترويسة {max} MB.",
+      "editInMeta": "هذا القالب تابع لـ Meta. عدّله في Meta Business Manager ثم نفّذ المزامنة."
     },
     "roles": {
       "admin": "مسؤول",
