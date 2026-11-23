@@ -26,6 +26,9 @@ No migration.
   (`15/12/2026`, `7.25%`), not as Excel stores them (`46371`, `0.0725`): a
   broadcast sent the stored number. Phone numbers stay plain digits. Also in
   the approved answers import.
+- The contacts import no longer duplicates a customer already saved in local
+  form (`050...`, `50...`, `9710...`, `00971...`): it counts as already there
+  and is listed as "Already a customer (saved as ...)" in the preview.
 
 ### Calendar
 

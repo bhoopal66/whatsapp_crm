@@ -1106,6 +1106,7 @@
       "problemNoPhone": "لا يوجد رقم هاتف.",
       "problemNotSaved": "تعذّر الحفظ: {reason}",
       "problemsMore": "+ {count} أخرى",
+      "savedAs": "عميل بالفعل (محفوظ باسم {savedAs})",
       "errorEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه في Excel بصيغة «CSV UTF-8» أو ‎.xlsx ثم ارفعه.",
       "errorXls": "هذا مصنف .xls قديم. احفظه بصيغة .xlsx أو CSV ثم ارفعه.",
       "errorXlsxLimit": "هذا المصنف كبير جدًا بحيث لا يمكن استيراده: {reason}",

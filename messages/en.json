@@ -1106,6 +1106,7 @@
       "problemNoPhone": "No phone number.",
       "problemNotSaved": "Could not be saved: {reason}",
       "problemsMore": "+ {count} more",
+      "savedAs": "Already a customer (saved as {savedAs})",
       "errorEncoding": "Some letters in this file can’t be read. In Excel, save it as “CSV UTF-8” or as .xlsx and upload that.",
       "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
       "errorXlsxLimit": "This workbook is too large to import: {reason}",

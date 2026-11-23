@@ -154,7 +154,7 @@ export function formatNumber(
       return date && `${date} ${clock}`;
     }
     default: {
-      const never: never = format.kind;
+      const never: never = format;
       return never;
     }
   }

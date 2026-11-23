@@ -1106,6 +1106,7 @@
       "problemNoPhone": "전화번호가 없습니다.",
       "problemNotSaved": "저장하지 못함: {reason}",
       "problemsMore": "+ {count}개 더",
+      "savedAs": "이미 고객입니다 ({savedAs}(으)로 저장됨)",
       "errorEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. Excel에서 \"CSV UTF-8\" 또는 .xlsx로 저장한 뒤 업로드하세요.",
       "errorXls": "이전 형식의 .xls 통합 문서입니다. .xlsx 또는 CSV로 저장한 뒤 업로드하세요.",
       "errorXlsxLimit": "통합 문서가 너무 커서 가져올 수 없습니다: {reason}",

@@ -8,6 +8,7 @@ import {
   planImport,
   type ImportPlan,
   type ImportProblem,
+  type SavedElsewhere,
 } from '@/lib/contacts/import-contacts';
 import type {
   ParsedContactRow,
@@ -42,6 +43,7 @@ import { useTranslations } from 'next-intl';
 const PREVIEW_LIMIT = 5;
 /** Rows listed by name; the rest are counted. */
 const PROBLEM_LIMIT = 200;
+const SAVED_ELSEWHERE_LIMIT = 20;
 
 /** The rows that gave no contact, each with its line and reason. */
 function ProblemList({ problems }: { problems: ImportProblem[] }) {
@@ -76,6 +78,36 @@ function ProblemList({ problems }: { problems: ImportProblem[] }) {
       {problems.length > PROBLEM_LIMIT && (
         <p className="text-muted-foreground">
           {t('problemsMore', { count: problems.length - PROBLEM_LIMIT })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Numbers already a customer under another spelling of the number. */
+function SavedElsewhereList({ items }: { items: SavedElsewhere[] }) {
+  const t = useTranslations('Contacts.importModal');
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1 text-xs">
+      <ul className="border-border divide-border/70 max-h-48 divide-y overflow-y-auto rounded-lg border">
+        {items.slice(0, SAVED_ELSEWHERE_LIMIT).map((item, i) => (
+          <li key={i} className="text-muted-foreground px-3 py-1.5">
+            {item.line !== null && (
+              <span className="text-foreground font-medium">
+                {t('problemLine', { line: item.line })}
+              </span>
+            )}{' '}
+            <span dir="ltr" className="font-mono">
+              {item.phone}
+            </span>{' '}
+            {t('savedAs', { savedAs: item.savedAs })}
+          </li>
+        ))}
+      </ul>
+      {items.length > SAVED_ELSEWHERE_LIMIT && (
+        <p className="text-muted-foreground">
+          {t('problemsMore', { count: items.length - SAVED_ELSEWHERE_LIMIT })}
         </p>
       )}
     </div>
@@ -422,6 +454,7 @@ export function ImportModal({
                   </p>
                 )
               )}
+              {plan && <SavedElsewhereList items={plan.savedElsewhere} />}
               {plan && <ProblemList problems={plan.problems} />}
             </div>
           )}
