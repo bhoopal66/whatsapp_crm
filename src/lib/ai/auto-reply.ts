@@ -35,6 +35,7 @@ import {
 import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { containsSensitiveData } from '@/lib/kb/sensitive';
+import { echoesRedaction, redactOwnText } from './redact-input';
 import { shortlistApprovedAnswers } from '@/lib/kb/shortlist';
 import {
   decideApprovedAnswer,
@@ -1157,7 +1158,16 @@ export async function dispatchInboundToAiReply(
         knowledge: p.knowledge,
         conflictingKnowledge: p.conflicts,
         campaign,
-        flow: flowContext ?? null,
+        // A step's wording can quote what the customer answered earlier
+        // in the flow.
+        flow: flowContext
+          ? {
+              ...flowContext,
+              promptTemplate: flowContext.promptTemplate
+                ? redactOwnText(flowContext.promptTemplate)
+                : flowContext.promptTemplate,
+            }
+          : null,
         // A message that tried to steer the assistant is answered from
         // the knowledge base only (TypeSafe triage, 063).
         strictGrounding: config.strictGrounding || triage.restricted,
@@ -1369,6 +1379,16 @@ export async function dispatchInboundToAiReply(
         config.handoffMessage,
         null,
         'held_for_review'
+      );
+    }
+
+    if (text && echoesRedaction(text)) {
+      // The model quoted a mask (redact-input.ts) back; the customer must
+      // never read "[EID]", and the bot does not know the real value.
+      return handOff(
+        'model',
+        'The reply needed a masked number',
+        config.handoffMessage
       );
     }
 

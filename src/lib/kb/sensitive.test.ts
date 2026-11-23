@@ -104,3 +104,19 @@ describe('sensitiveKinds', () => {
     expect(sensitiveKinds('٤١١١ ١١١١ ١١١١ ١١١١')).toEqual(['card']);
   });
 });
+
+describe('passport numbers', () => {
+  it.each([
+    'passport no. A1234567',
+    'Passport number is AB1234567',
+    'جواز سفر رقم A1234567',
+  ])('sees %s', (t) => expect(containsSensitiveData(t)).toBe(true));
+  it.each([
+    'passport copy attached, salary 25000',
+    'passport ready, Dh1500000',
+    'passport Dh1500000',
+    'my passport and visa expire 01/02/2027',
+    'ref A1234567',
+    'passport of company FZ1234567',
+  ])('leaves %s', (t) => expect(containsSensitiveData(t)).toBe(false));
+});

@@ -111,6 +111,12 @@ export interface ChatMessage {
    * burst (`burstTurn`); the providers send role and content only.
    */
   at?: string;
+  /**
+   * The part of `content` an agent typed for this message (a draft's
+   * reply box). Its phone numbers and e-mails are kept when the turn is
+   * masked for the provider (`redactMessages`).
+   */
+  agentText?: string;
 }
 
 /**

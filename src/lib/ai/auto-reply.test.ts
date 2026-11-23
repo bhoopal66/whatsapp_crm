@@ -2844,3 +2844,16 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
     ]);
   });
 });
+
+describe('safety of what goes out', () => {
+  it('hands off instead of sending a mask the model repeated', async () => {
+    h.generateReply.mockResolvedValue({
+      text: 'Is your ID [EID]?',
+      handoff: false,
+      usage: null,
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload?.ai_handoff_reason).toBe('model');
+  });
+});

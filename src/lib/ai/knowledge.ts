@@ -2,6 +2,7 @@ import { assertAiTransfer } from '@/lib/privacy/ai-transfer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiConfig } from './types';
 import { chunkText } from './chunk';
+import { redactForProvider } from './redact-input';
 import { embedTexts, toVectorLiteral } from './embeddings';
 
 // ============================================================
@@ -163,8 +164,10 @@ export async function retrieveKnowledgeScored(
         null,
         query.length
       );
+      // Masked: the question can carry the customer's identifiers. The
+      // full-text search below runs in our own database on the raw text.
       const [queryEmbedding] = await embedTexts(config.embeddingsApiKey, [
-        query,
+        redactForProvider(query),
       ]);
       if (queryEmbedding) {
         const { data, error } = await db.rpc('match_ai_knowledge_semantic', {
