@@ -32,4 +32,9 @@ export interface SoftphoneAdapter {
   /** Keypad tones, one or more of 0-9 * #. */
   dtmf(call: SoftphoneCallRef, digits: string): Promise<void>;
   call(number: string): Promise<void>;
+  /**
+   * Whether this tab holds a session that may be this call. Errs on yes:
+   * a call it names is never treated as a lost hang-up (call-ui.ts).
+   */
+  hasCall?(call: SoftphoneCallRef): boolean;
 }

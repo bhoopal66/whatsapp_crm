@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### A lost hang-up no longer holds the call screen
+
+No migration.
+- A call whose hang-up never arrived gives way to the next one: a ring
+  quiet for 3 minutes leaves the card, and an answered call quiet for 10
+  lets a newer call have the window (at 30 it can be closed by hand). A
+  call the browser softphone holds is never treated so, and a hidden tab
+  stops polling for calls.
+
 ### Screen readers and keyboard: names for every control
 
 No migration.

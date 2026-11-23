@@ -931,8 +931,8 @@ function Panel() {
               {x.panel}
             </div>
           ))}
-          {/* A live call has no Close: it always has the panel. */}
-          {ended && (
+          {/* A live call has no Close, unless its hang-up may be lost. */}
+          {(ended || calls.closable) && (
             <div className="shrink-0 border-t p-3">
               <button
                 type="button"

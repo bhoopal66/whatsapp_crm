@@ -52,7 +52,10 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   `NEXT_PUBLIC_PBX_ORIGIN` (https and wss) are added to the CSP in
   `src/lib/csp.ts`, both inlined at build time. `CallProvider` in
   `dashboard-shell.tsx` mounts the incoming-call card, in-call panel and
-  softphone.
+  softphone. A row's silence is no proof a call ended (nothing writes
+  it between frames), so lost hang-ups are judged by `CallPulse` in
+  `call-ui.ts`: quiet on the server's clock and no softphone session;
+  such a call yields, and only a person closes it.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
   after 45 s. `verify-pbx.sql`. The retry also picks events interrupted

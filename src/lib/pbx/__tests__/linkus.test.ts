@@ -4,6 +4,7 @@ import { createLinkusAdapter, SoftphoneError } from '../linkus-adapter';
 import { loadLinkusSdk, shouldLoadSoftphone } from '../linkus-loader';
 import {
   matchSession,
+  maySessionBe,
   numbersMatch,
   sessionEventArgs,
   signatureFailure,
@@ -57,6 +58,21 @@ describe('linkus-state', () => {
     ];
     expect(matchSession(s, ref('0501111111'), 'live')).toBe('s1');
     expect(matchSession(s, ref('0501111111'), 'live', 's9')).toBe('s9');
+  });
+
+  it('names only the calls a session may be, never by elimination', () => {
+    const one = [v('s1', '0501111111', { callStatus: 'talking' })];
+    expect(maySessionBe(one, ref('+971501111111'))).toBe(true);
+    // matchSession would pick the one session there is.
+    expect(matchSession(one, ref('+971502222222'), 'live')).toBe('s1');
+    expect(maySessionBe(one, ref('+971502222222'))).toBe(false);
+    expect(maySessionBe(one, ref('+971502222222'), 's1')).toBe(true);
+    expect(maySessionBe(one, ref('+971502222222'), 's9')).toBe(false);
+    // No telling: a withheld number on either side.
+    expect(maySessionBe([v('s1', 'anonymous')], ref('0502222222'))).toBe(true);
+    expect(maySessionBe([v('s1', null)], ref('0502222222'))).toBe(true);
+    expect(maySessionBe(one, ref(null))).toBe(true);
+    expect(maySessionBe([], ref('+971501111111'), 's1')).toBe(false);
   });
 
   it('reads both incoming payload shapes', () => {
@@ -241,6 +257,29 @@ describe('linkus-adapter', () => {
     phone.emit('deleteSession', { callId: 'sip-1', cause: 'bye' });
     expect(media.stop).toHaveBeenCalledWith('sip-1');
     await expect(a.hangup(ref)).rejects.toThrow(/not ringing/);
+  });
+
+  it('tells whether it holds a call, through a reconnect, until it ends', async () => {
+    const { a, ops } = await started();
+    const { phone } = ops[0];
+    phone.emit('registered');
+    const ref = { pbxCallId: 'pbx-9', remoteNumber: '+971501234567' };
+    const other = { pbxCallId: 'pbx-1', remoteNumber: '+971507654321' };
+    expect(a.hasCall?.(ref)).toBe(false);
+    const session = Object.assign(new EventEmitter(), {
+      status: { callId: 'sip-1', number: '0501234567', callStatus: 'talking' },
+    });
+    phone.emit('newRTCSession', { callId: 'sip-1', session });
+    expect(a.hasCall?.(ref)).toBe(true);
+    expect(a.hasCall?.(other)).toBe(false);
+    await a.mute(ref, true); // bound: the number no longer matters
+    session.status.number = '1012';
+    expect(a.hasCall?.(ref)).toBe(true);
+    phone.emit('disconnected');
+    expect(a.isActive()).toBe(false);
+    expect(a.hasCall?.(ref)).toBe(true);
+    session.emit('ended');
+    expect(a.hasCall?.(ref)).toBe(false);
   });
 
   it('turns an SDK failure code into an error', async () => {
