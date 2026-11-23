@@ -393,6 +393,59 @@ describe('planBroadcastResume', () => {
     expect(plan.planned).toHaveLength(1);
   });
 
+  it.each([
+    ['0501234567', '971501234567'],
+    ['50 123 4567', '971501234567'],
+    ['00971501234567', '971501234567'],
+    ['9710501234567', '971501234567'],
+    // Breaks the entry rules, but not local: as WhatsApp gave it.
+    ['97150123456789', '97150123456789'],
+  ])('sends to %s as %s', async (saved, phone) => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: CONFIG,
+        recipients: [recipient('r1', saved)],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.phone)).toEqual([phone]);
+  });
+
+  it('fails a local number it cannot complete, never sending it as it is', async () => {
+    const writes: PlanWrites = {};
+    const { plan, unsendable } = await planBroadcastResume(
+      planDb(
+        {
+          broadcast: BROADCAST,
+          config: CONFIG,
+          recipients: [
+            recipient('r1', '+971 50 123 4567'),
+            recipient('r2', '98765 43210'),
+            recipient('r3', '04 123 4567'),
+          ],
+        },
+        writes
+      ),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1']);
+    expect(unsendable).toBe(2);
+    expect(writes.updates).toEqual([
+      {
+        row: {
+          status: 'failed',
+          error_message: 'No valid phone number on contact',
+        },
+        ids: ['r2', 'r3'],
+      },
+    ]);
+  });
+
   it('drops a recipient who opted out after planning and fails the row with the reason', async () => {
     const writes: PlanWrites = {};
     const { plan, optedOut, unsendable } = await planBroadcastResume(

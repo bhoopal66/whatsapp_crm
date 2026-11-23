@@ -37,6 +37,11 @@ import {
 } from '@/lib/broadcasts/unconfirmed-send';
 import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import { isLocalPhone } from '@/lib/contacts/phone-match';
+import {
+  validateContactPhone,
+  withUaeCountryCode,
+} from '@/lib/contacts/phone-validation';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import {
   consentRefusal,
@@ -195,8 +200,21 @@ function rowContact(row: RecipientRow): RecipientContact | null {
   return (Array.isArray(row.contact) ? row.contact[0] : row.contact) ?? null;
 }
 
-function contactPhone(row: RecipientRow): string | null {
-  return rowContact(row)?.phone ?? null;
+/**
+ * The number to send to, or null when the contact's is not usable. The
+ * saved number may be a local form of the one the first pass sent to
+ * (`findOrCreateContact` matches those): a UAE mobile gets its 971, and
+ * the rest is the rule `createBroadcast` applies. A local number that is
+ * still local is never sent: the gateway calls that 'sent', to nobody. An
+ * international one that breaks the entry rules goes as it is saved, as
+ * WhatsApp itself may have given it.
+ */
+function sendablePhone(row: RecipientRow): string | null {
+  const saved = rowContact(row)?.phone ?? '';
+  const checked = validateContactPhone(withUaeCountryCode(saved));
+  if (checked.ok) return checked.normalized;
+  const digits = sanitizePhoneForMeta(saved);
+  return isValidE164(digits) && !isLocalPhone(digits) ? digits : null;
 }
 
 /** Rows per load: the most PostgREST answers with. */
@@ -304,7 +322,7 @@ export async function planBroadcastResume(
   // A customer who asked not to be messaged after the campaign was
   // planned (migration 076) is never sent to: their row is stamped
   // failed with the reason, which also settles the broadcast's status.
-  const sendable: RecipientRow[] = [];
+  const sendable: { row: RecipientRow; phone: string }[] = [];
   const unsendable: string[] = [];
   const refused: Record<ConsentRefusal, string[]> = {
     opted_out: [],
@@ -348,8 +366,8 @@ export async function planBroadcastResume(
         refused[refusal].push(row.id);
         continue;
       }
-      const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
-      if (isValidE164(sanitized)) sendable.push(row);
+      const phone = sendablePhone(row);
+      if (phone) sendable.push({ row, phone });
       else unsendable.push(row.id);
     }
     if (rows.length < LOAD_PAGE) break;
@@ -441,10 +459,10 @@ export async function planBroadcastResume(
     templateRow: resolvedTemplate.row,
     headerMediaUrl,
     quietHours,
-    planned: slice.map((row) => ({
+    planned: slice.map(({ row, phone }) => ({
       recipientRowId: row.id,
       contactId: row.contact_id ?? null,
-      phone: sanitizePhoneForMeta(contactPhone(row) ?? ''),
+      phone,
       params: Array.isArray(row.template_params)
         ? row.template_params.filter((p): p is string => typeof p === 'string')
         : [],

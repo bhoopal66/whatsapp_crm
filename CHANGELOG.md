@@ -73,6 +73,9 @@ No migration.
   by the broadcast cron, half an hour later. It stayed `sending` until
   someone pressed Resume. This includes ones already stuck, if they were
   created in the last 7 days.
+- Continuing, resuming or retrying a campaign sends to a customer saved with a
+  local UAE mobile number (`050...`, `50...`) on the full +971 number. Any
+  other local number is marked failed and never sent to.
 - MCP server: a request that gets no answer in 30 seconds, or an unreadable
   one, is reported as "may have gone through" instead of hanging or
   returning nothing. `Retry-After` is passed on for 503 as well as 429.
