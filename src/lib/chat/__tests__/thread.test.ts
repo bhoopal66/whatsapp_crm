@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CATCH_UP_RETRY_MS,
   createThreadStore,
   readReplies,
   REPLY_LIMIT,
@@ -300,6 +301,74 @@ describe('a resync of an open thread', () => {
     const { root: r, replies } = store.get();
     expect([r.flights, replies.flights]).toEqual([[], []]);
     expect([r.journal, replies.journal]).toEqual([[], []]);
+  });
+});
+
+describe('a failed catch-up read', () => {
+  beforeEach(() => void vi.useFakeTimers());
+  afterEach(() => void vi.useRealTimers());
+  const later = async () => {
+    await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+    await settle();
+  };
+
+  it('is tried again a little later, once, quietly', async () => {
+    const { store, pages, fail } = await opened([msg('r1', 1)]);
+    store.resync();
+    pages[0].fail(new Error('503'));
+    await settle();
+    expect(pages).toHaveLength(1);
+    await later();
+    pages[1].answer(page([msg('r1', 1), msg('r2', 2)]));
+    await settle();
+    expect(bodies(store)).toEqual(['r1', 'r2']);
+    await later();
+    expect(pages).toHaveLength(2);
+
+    store.resync();
+    pages[2].fail(new Error('503'));
+    await settle();
+    await later();
+    pages[3].fail(new Error('503'));
+    await settle();
+    await later();
+    expect(pages).toHaveLength(4);
+    expect(fail).not.toHaveBeenCalled();
+  });
+
+  it('is not, once a read begun after it has landed', async () => {
+    const { store, pages } = await opened([msg('r1', 1)]);
+    store.resync();
+    store.resync();
+    pages[1].answer(page([msg('r1', 1), msg('r2', 2)]));
+    pages[0].fail(new Error('503'));
+    await settle();
+    await later();
+    expect(pages).toHaveLength(2);
+  });
+
+  it('is, when only a read begun before it has landed', async () => {
+    const { store, pages } = await opened([msg('r1', 1)]);
+    store.resync();
+    store.resync();
+    pages[1].fail(new Error('503'));
+    pages[0].answer(page([msg('r1', 1)]));
+    await settle();
+    await later();
+    expect(pages).toHaveLength(3);
+  });
+
+  it('is not, after the thread was left', async () => {
+    const { store, pages, leave } = await opened([msg('r1', 1)]);
+    store.resync();
+    pages[0].fail(new Error('503'));
+    await settle();
+    leave();
+    store.show(() => {});
+    pages[1].answer(page([msg('r1', 1)]));
+    await settle();
+    await later();
+    expect(pages).toHaveLength(2);
   });
 });
 
