@@ -1351,7 +1351,9 @@ async function handleReplyForActiveRun(
         ai_outcome: aiOutcome,
         reprompt_count: run.reprompt_count,
       });
-      if (aiOutcome === 'replied') {
+      // Superseded: the dispatch of a newer message answers this one too,
+      // so the options must not be re-sent on top of that reply.
+      if (aiOutcome === 'replied' || aiOutcome === 'superseded') {
         return {
           consumed: true,
           flow_run_id: run.id,

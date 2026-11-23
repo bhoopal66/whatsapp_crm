@@ -222,11 +222,15 @@ export interface DispatchArgs {
  *   replied    — a reply went out; the thread stays with the bot
  *   handed_off — a gate fired or the cap was reached; the thread is now
  *                a human's (`ai_autoreply_disabled` set)
+ *   superseded — inside a flow, a newer customer message arrived while
+ *                the reply was written: its own dispatch answers both,
+ *                so the caller must not answer this one
  *   skipped    — the bot is not eligible here (off, wrong number,
  *                human-owned thread, nothing to answer, throttled) and
  *                sent nothing; the caller should answer some other way
  */
-export type AiReplyOutcome = 'replied' | 'handed_off' | 'skipped';
+export type AiReplyOutcome =
+  'replied' | 'handed_off' | 'superseded' | 'skipped';
 
 /** Why the bot must not message a contact (`contacts.*_at` stamps). */
 type ContactBlock = 'do_not_contact' | 'opted_out';
@@ -1498,6 +1502,20 @@ export async function dispatchInboundToAiReply(
       // before the marker ("a relationship manager will contact you")
       // still goes out first.
       return handOff('model', null, text || null);
+    }
+
+    // A Flow's fallback is not coalesced above, so each message of a burst
+    // is generated for. Only the newest one's reply goes out: it was
+    // written with the whole thread in view.
+    if (flowContext && inboundMessageId) {
+      const newest = await newestCustomerMessage(dbc, conversationId);
+      if (newest?.id && newest.id !== inboundMessageId) {
+        await record(
+          'skipped_superseded',
+          'A newer customer message arrived; its reply answers both.'
+        );
+        return 'superseded';
+      }
     }
 
     const unsent = await sendReply(text);

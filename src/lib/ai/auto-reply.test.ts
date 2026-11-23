@@ -3115,3 +3115,57 @@ describe('dispatchInboundToAiReply — a customer left unanswered is flagged', (
     }
   );
 });
+
+describe('dispatchInboundToAiReply — a burst inside a flow', () => {
+  const FLOW_ARGS = {
+    ...ARGS,
+    flowContext: { flowName: 'Apply', promptText: 'Quote?', options: ['Yes'] },
+    inboundMessageId: 'wamid-1',
+    inboundText: 'how much?',
+  };
+  const message = (id: string) => ({
+    message_id: id,
+    created_at: '2026-11-23T08:00:00Z',
+    content_text: 'how much?',
+  });
+
+  it('drops the reply when a newer customer message arrived meanwhile', async () => {
+    h.state.customerMessages = [message('wamid-1')];
+    h.generateReply.mockImplementation(async () => {
+      h.state.customerMessages = [message('wamid-2'), message('wamid-1')];
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(FLOW_ARGS)).toBe('superseded');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.rpcCalls).toEqual([]);
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      'skipped_superseded',
+    ]);
+  });
+
+  it('answers when its message is still the newest, or that cannot be read', async () => {
+    for (const rows of [[message('wamid-1')], []]) {
+      h.state.customerMessages = rows;
+      h.state.convReads = 0;
+      expect(await dispatchInboundToAiReply(FLOW_ARGS)).toBe('replied');
+    }
+    expect(h.engineSendText).toHaveBeenCalledTimes(2);
+  });
+
+  it('still warns about sensitive data in a superseded message', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ sensitiveDataReply: 'Please do not send IDs here.' })
+    );
+    h.state.customerMessages = [message('wamid-2'), message('wamid-1')];
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'My ID is 784-1990-1234567-1' },
+    ]);
+    expect(
+      await dispatchInboundToAiReply({
+        ...FLOW_ARGS,
+        inboundText: 'My ID is 784-1990-1234567-1',
+      })
+    ).toBe('replied');
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+  });
+});

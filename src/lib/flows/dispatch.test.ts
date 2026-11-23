@@ -102,7 +102,7 @@ vi.mock('./channel-send', () => ({
 }));
 
 // The AI agent, for the `ai` fallback (054). Outcome is set per test.
-type AiOutcome = 'replied' | 'handed_off' | 'skipped';
+type AiOutcome = 'replied' | 'handed_off' | 'superseded' | 'skipped';
 const aiReply = vi.fn<(args: unknown) => Promise<AiOutcome>>(
   async () => 'replied'
 );
@@ -553,6 +553,16 @@ describe('dispatchInboundToFlows — `ai` fallback (054)', () => {
       },
     });
     // No reprompt, no counter bump, no status change — the buttons stay live.
+    expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
+    expect(runUpdates()).toEqual([]);
+  });
+
+  it('sends nothing when a newer message took over the reply', async () => {
+    aiReply.mockResolvedValue('superseded');
+
+    const result = await dispatchOffScript();
+
+    expect(result).toMatchObject({ consumed: true, outcome: 'fallback_fired' });
     expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
     expect(runUpdates()).toEqual([]);
   });
