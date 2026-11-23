@@ -68,7 +68,7 @@ export function addRules(c: ChannelCtx): AddRules {
   return staff || guests ? { staff, guests, block: null } : nobody('notAdmin');
 }
 
-/** The people the viewer may add: not yet members, and of a kind the rules allow. */
+/** The people the viewer may add: active, not yet members, and of a kind the rules allow. */
 export function addCandidates(
   people: readonly ChatPerson[],
   members: readonly Pick<ChannelMember, 'userId'>[],
@@ -77,6 +77,7 @@ export function addCandidates(
   const inside = new Set(members.map((m) => m.userId.toLowerCase()));
   return people.filter(
     (p) =>
+      !p.deactivated &&
       !inside.has(p.userId.toLowerCase()) &&
       (isGuestPerson(p) ? rules.guests : rules.staff)
   );
@@ -95,13 +96,13 @@ interface Roster {
   peopleById: ReadonlyMap<string, ChatPerson>;
 }
 
-/** Admins other than `userId` who still count: in the workspace and not a guest (as in SQL). */
+/** Admins other than `userId` who still count: active in the workspace and not a guest (as in SQL). */
 function otherAdmins(r: Roster, userId: string): number {
   const me = userId.toLowerCase();
   return r.members.filter((m) => {
     if (m.role !== 'admin' || m.userId.toLowerCase() === me) return false;
     const p = r.peopleById.get(m.userId.toLowerCase());
-    return !!p && !isGuestPerson(p);
+    return !!p && !p.deactivated && !isGuestPerson(p);
   }).length;
 }
 

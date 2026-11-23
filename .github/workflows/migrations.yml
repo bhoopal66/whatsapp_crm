@@ -1411,3 +1411,8 @@ jobs:
       # repeat too; one chat_post_message, calls without the id as before.
       - name: Verify chat posts once
         run: supabase db query --local --file supabase/ci/verify-chat-post-once.sql
+
+      # Migration 277: chat_people lists deactivated people with a flag
+      # (a guest still only those of shared channels; nobody removed).
+      - name: Verify chat people and mentions
+        run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql

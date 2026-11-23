@@ -151,10 +151,10 @@ describe('searchHitHref', () => {
 
 describe('matchPeople', () => {
   const people = [
-    { userId: '3', fullName: 'Sara Khan' },
-    { userId: '1', fullName: 'Omar Saeed' },
-    { userId: '2', fullName: null },
-    { userId: '4', fullName: 'Ahmed Sarawi' },
+    { userId: '3', fullName: 'Sara Khan', deactivated: false },
+    { userId: '1', fullName: 'Omar Saeed', deactivated: false },
+    { userId: '2', fullName: null, deactivated: false },
+    { userId: '4', fullName: 'Ahmed Sarawi', deactivated: false },
   ];
 
   it('needs every word in the name, sorted by name', () => {

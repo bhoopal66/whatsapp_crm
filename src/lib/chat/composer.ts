@@ -165,8 +165,8 @@ export type MentionCandidate =
   | { type: 'broadcast'; kind: BroadcastKind };
 
 /**
- * The popover's list for '@query': named people whose name (or a word
- * of it) starts with the query, name-prefix matches first, then
+ * The popover's list for '@query': named, active people whose name (or
+ * a word of it) starts with the query, name-prefix matches first, then
  * @channel / @here when `broadcasts` (team and private channels).
  */
 export function mentionCandidates(
@@ -178,6 +178,7 @@ export function mentionCandidates(
   const ranked: { c: MentionCandidate & { type: 'person' }; rank: number }[] =
     [];
   for (const person of people) {
+    if (person.deactivated) continue;
     const name = person.fullName?.trim().replace(/\s+/g, ' ');
     if (!name) continue;
     const lower = name.toLowerCase();

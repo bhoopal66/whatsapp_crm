@@ -19,6 +19,7 @@ const person = (userId: string, role: string): ChatPerson => ({
   bankCode: role === 'bank_guest' ? 'ADCB' : null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 
 describe('addPeopleOptions', () => {

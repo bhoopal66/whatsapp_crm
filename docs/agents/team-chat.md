@@ -24,6 +24,10 @@ only). `docs/internal-chat.md` is the contract.
   one per draft and renewed when its content changes (`post-id.ts`), else
   an edit is lost. Re-apply 276 after 156 or 157.
   `verify-chat-post-once.sql`.
+- **People who left (277).** `chat_people` lists deactivated people with
+  `deactivated`, so their names stay; anything that offers people leaves
+  them out, and "not in the list" no longer means "left" (`otherAdmins`).
+  `verify-chat-people-mentions.sql`, `deactivated.test.ts`.
 - **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
   to the service role; every write is a SECURITY DEFINER `chat_*` function the
   browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is

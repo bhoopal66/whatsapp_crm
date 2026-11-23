@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: names of people who left, and mentions in an edited message
+
+**Migration required:** `277_chat_people_and_mentions.sql`
+- Messages, direct messages and member lists of someone deactivated show
+  their name again; it read "Unknown" for everyone. Deactivated people
+  are still not offered for a new message, a channel or a mention, and no
+  longer as a forward target. Someone removed from the workspace still
+  reads "Unknown".
+
 ### Team chat: a message is posted once
 
 **Migration required:** `276_chat_post_once.sql`

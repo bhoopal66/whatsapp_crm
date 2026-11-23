@@ -12,7 +12,7 @@ import {
 
 import { countsAsChannelAdmin } from './composer-gating';
 import { normalizeDigits } from './search-view';
-import { channelDisplayName } from './view';
+import { channelDisplayName, dmOthers } from './view';
 import type { ChannelWithMembership, ChatMessage, ChatPerson } from './types';
 
 /** How many channels one forward may go to. */
@@ -35,7 +35,8 @@ export interface ForwardTarget {
  * channel (`posting` 'admins') the viewer is not a channel admin of: a
  * forward is a top-level post, which chat_assert_post_rules refuses there
  * unless the viewer is its channel admin or a workspace owner/admin (never
- * a bank guest). Channels by name, then DMs by name.
+ * a bank guest), and never a DM where everyone else is deactivated.
+ * Channels by name, then DMs by name.
  */
 export function forwardTargets(
   channels: readonly ChannelWithMembership[],
@@ -50,7 +51,10 @@ export function forwardTargets(
     selfId: string;
     /** The viewer's role in the active workspace. */
     accountRole: AccountRole | null;
-    peopleById: ReadonlyMap<string, Pick<ChatPerson, 'fullName'>>;
+    peopleById: ReadonlyMap<
+      string,
+      Pick<ChatPerson, 'fullName' | 'deactivated'>
+    >;
     query?: string;
     unknown: string;
     exclude?: string | null;
@@ -67,6 +71,14 @@ export function forwardTargets(
       role: c.membership?.role,
       bankGuest,
     });
+  const everyoneLeft = (c: ChannelWithMembership) => {
+    if (c.kind !== 'dm') return false;
+    const others = dmOthers(c.dmMemberIds, selfId);
+    return (
+      others.length > 0 &&
+      others.every((id) => peopleById.get(id.toLowerCase())?.deactivated)
+    );
+  };
   return channels
     .filter(
       (c) =>
@@ -74,7 +86,8 @@ export function forwardTargets(
         !c.archivedAt &&
         (c.kind === 'team' ||
           ((c.kind === 'private' || c.kind === 'dm') && !!c.membership)) &&
-        mayPost(c)
+        mayPost(c) &&
+        !everyoneLeft(c)
     )
     .map((c) => ({
       id: c.id,

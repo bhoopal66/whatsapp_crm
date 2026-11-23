@@ -95,7 +95,7 @@ export function TeamChatSettings() {
   const supabase = useMemo(() => createClient(), []);
 
   // Deactivated members too: their messages are still there to read
-  // and to erase. chat_people would leave them out.
+  // and to erase.
   const [people, setPeople] = useState<AccountMember[] | null>(null);
   const [peopleFailed, setPeopleFailed] = useState(false);
   useEffect(() => {
