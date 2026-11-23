@@ -761,6 +761,13 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     .from('call_live')
     .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
   if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  // The end may have landed since the read above, its own delete before
+  // this upsert: the row just written would be a ghost nothing removes.
+  // An end landing after this read deletes the row itself.
+  const now = await readCall(ctx, ev.callId);
+  if (now && !LIVE.includes(now.status as CallStatus)) {
+    return deleteLive(ctx, ev.callId);
+  }
 
   const status: CallStatus =
     answered.length || existing?.status === 'in_progress'
