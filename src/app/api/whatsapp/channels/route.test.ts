@@ -144,4 +144,15 @@ describe('GET /api/whatsapp/channels', () => {
     });
     consoleError.mockRestore();
   });
+
+  it('answers null, never 0, for chats that could not be counted', async () => {
+    mocks.requireRole.mockResolvedValue({
+      supabase: client(
+        tables({ conversations: { error: { message: 'timeout' } } })
+      ),
+      accountId: 'account-1',
+    });
+    const body = await (await GET()).json();
+    expect(body.channels[0].conversation_count).toBeNull();
+  });
 });

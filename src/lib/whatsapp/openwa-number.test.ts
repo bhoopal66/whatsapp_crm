@@ -20,6 +20,7 @@ import { OpenWAError } from './openwa-api';
 import {
   OPENWA_PROBE_CACHE_MS,
   probeOpenWANumber,
+  loadOpenWARow,
   resetOpenWAProbeCache,
   type OpenWARow,
 } from './openwa-number';
@@ -135,5 +136,30 @@ describe('probeOpenWANumber — per-number cache', () => {
     const poll = await probeOpenWANumber(db, 'acct-1', row, { now });
     expect(await poll.json()).toEqual({ status: 'authenticating' });
     expect(getSession).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('loadOpenWARow — a failed read', () => {
+  it('throws instead of reading as an absent number', async () => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq']) chain[m] = () => chain;
+    chain.maybeSingle = async () => ({
+      data: null,
+      error: { message: 'connection reset' },
+    });
+    const failing = { from: () => chain } as unknown as SupabaseClient;
+    await expect(
+      loadOpenWARow(failing, { accountId: 'acct-1', configId: 'cfg-1' })
+    ).rejects.toThrow(/connection reset/);
+  });
+
+  it('still returns null for a number that is not there', async () => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq']) chain[m] = () => chain;
+    chain.maybeSingle = async () => ({ data: null, error: null });
+    const empty = { from: () => chain } as unknown as SupabaseClient;
+    expect(
+      await loadOpenWARow(empty, { accountId: 'acct-1', configId: 'cfg-1' })
+    ).toBeNull();
   });
 });

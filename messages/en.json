@@ -2911,6 +2911,8 @@
       "makeDefault": "Make default",
       "madeDefault": "{name} is now the default number",
       "chatCount": "{count} {count, plural, =1 {chat} other {chats}}",
+      "chatCountUnknown": "Chats not counted",
+      "removeChatsUnknown": "The chats on this number could not be counted.",
       "rename": "Rename",
       "renamed": "Renamed to {name}",
       "saveName": "Save name",

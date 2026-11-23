@@ -17,6 +17,31 @@ and polish.
 - In a thread, and on a phone, the text box has a row of its own above the
   buttons. It was too narrow to read what you typed.
 
+### WhatsApp numbers
+
+No migration.
+- A restart of the OpenWA gateway is no longer announced as "logged out, scan
+  the QR" for every number. A number the gateway calls disconnected is
+  reported, and marked disconnected, only when it still is five minutes later.
+- A personal number going down, or coming back, is told to the person whose
+  number it is, with where to re-link it (Settings → Profile → My WhatsApp),
+  and no longer to the owners and admins.
+- When an abandoned QR connect is cleaned up, a personal number is never
+  picked as the account's new default number; a shared one is.
+- Settings → Numbers, and the question before disconnecting a number, say when
+  its chats could not be counted. They showed 0.
+- Disconnecting a number whose row could not be read now says so (an error)
+  instead of answering that it was removed.
+- Connecting a Whapi number no longer skips the duplicate-number checks when
+  one of their reads fails (it answers an error), and when the save itself
+  fails the channel is pointed back at the callback it had, instead of staying
+  on one the CRM no longer knows.
+- The first shared Whapi number of an account that only had a personal number
+  is now its default number.
+- The bell alert for a personal number going down or coming back opens
+  Settings → Profile (My WhatsApp) for its holder, whatever their role. It
+  opened nothing for anyone who could not edit settings.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it

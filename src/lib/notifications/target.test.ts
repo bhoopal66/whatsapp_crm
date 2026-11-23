@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AccountRole } from '@/lib/auth/roles';
+
 import {
   notificationRow,
   notificationTarget,
@@ -157,6 +159,21 @@ describe('notificationTarget', () => {
         { channel_id: CH },
       ])
         expect(notificationTarget({ type, meta }, 'agent')).toBeNull();
+    }
+  );
+
+  it.each(['channel_disconnected', 'channel_reconnected'])(
+    '%s of a personal number opens the profile tab, for any role',
+    (type) => {
+      const row = { type, meta: { personal: true } };
+      for (const role of ['owner', 'admin', 'team_leader', 'agent', 'viewer']) {
+        expect(notificationTarget(row, role as AccountRole)).toBe(
+          '/settings?tab=profile'
+        );
+      }
+      expect(
+        notificationTarget({ type, meta: { personal: false } }, 'agent')
+      ).toBeNull();
     }
   );
 

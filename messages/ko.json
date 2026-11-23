@@ -2911,6 +2911,8 @@
       "makeDefault": "기본으로 설정",
       "madeDefault": "{name}이(가) 기본 번호가 되었습니다",
       "chatCount": "채팅 {count}개",
+      "chatCountUnknown": "채팅 수를 확인할 수 없음",
+      "removeChatsUnknown": "이 번호의 채팅 수를 확인할 수 없습니다.",
       "rename": "이름 변경",
       "renamed": "이름을 {name}(으)로 변경했습니다",
       "saveName": "이름 저장",
