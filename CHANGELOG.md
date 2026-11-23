@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Lists that were cut short
+
+**Migration required:** `272_live_view_leavers.sql`
+- **Live view:** a waiting customer whose chat belongs to someone who was
+  deactivated or removed counts as unassigned. They were in no figure, so
+  the screen said all clear.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.
