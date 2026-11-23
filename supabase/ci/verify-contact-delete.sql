@@ -7,7 +7,7 @@ DECLARE
   u_owner UUID := '00000000-0000-4000-8000-000000280001';
   u_agent UUID := '00000000-0000-4000-8000-000000280002';
   u_bown  UUID := '00000000-0000-4000-8000-000000280003';
-  a_acct UUID; b_acct UUID; c UUID; c2 UUID; c3 UUID; g UUID; chan UUID; r UUID;
+  a_acct UUID; b_acct UUID; px UUID; py UUID; c UUID; c2 UUID; c3 UUID; g UUID; chan UUID; r UUID;
   s contact_suppressions%ROWTYPE;
   t0 TIMESTAMPTZ := '2026-01-02 03:04:05.678901+00';
   v TEXT; n INT := 0; j JSONB; failed TEXT[] := '{}'; f TEXT;
@@ -53,6 +53,14 @@ BEGIN
      OR contact_suppression_number('erased-123456789012') IS NOT NULL OR contact_suppression_number('12345') IS NOT NULL
      OR contact_suppression_number('447700900123') <> '447700900123' THEN
     failed := failed || 'FORMS: the canonical number is wrong'::text; END IF;
+  -- a + is never a local number; a trunk 0 before 971 is dropped
+  n := n + 1;
+  SELECT string_agg(p.raw || ' = ' || coalesce(contact_suppression_number(p.raw), 'NULL'), ', ') INTO v
+    FROM (VALUES ('+508 412345', '508412345'), (' (+508) 412-345', '508412345'), ('0508412345', '971508412345'),
+      ('508412345', '971508412345'), ('0971501234567', '971501234567'), ('+9710501234567', '971501234567'),
+      ('971501234567', '971501234567'), ('+447700900123', '447700900123'), ('+97141234567', '97141234567')) p(raw, want)
+   WHERE contact_suppression_number(p.raw) IS DISTINCT FROM p.want;
+  IF v IS NOT NULL THEN failed := failed || format('FORMS: a + or a trunk 0 is misread (%s)', v); END IF;
 
   -- keep (an admin deletes), no number, no name
   INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at, do_not_contact_at, do_not_contact_reason)
@@ -61,7 +69,7 @@ BEGIN
   SELECT * INTO s FROM contact_suppressions WHERE account_id = a_acct;
   n := n + 1;
   IF v <> 'ok' OR s.opted_out_at IS DISTINCT FROM t0 OR s.do_not_contact_at IS DISTINCT FROM t0
-     OR s.do_not_contact_reason IS DISTINCT FROM 'asked twice' OR s.deleted_by IS DISTINCT FROM u_owner OR s.via <> 'delete'
+     OR to_jsonb(s)::text ~ 'asked twice' OR s.contact_id IS NOT NULL OR s.deleted_by IS DISTINCT FROM u_owner OR s.via <> 'delete'
      OR NOT jsonb_path_exists(s.consent_events, '$[*] ? (@.kind == "opted_out")')
      OR to_jsonb(s)::text ~ '(501280001|Secretname)' THEN
     failed := failed || format('KEEP: the opt-out of a deleted contact was not kept (%s, %s)', v, to_jsonb(s)); END IF;
@@ -76,7 +84,7 @@ BEGIN
   v := pg_temp.kd_as(u_agent, format('INSERT INTO contacts (account_id, user_id, phone, name) VALUES (%L, %L, ''0501280001'', ''again'')', a_acct, u_agent));
   SELECT x.id INTO c FROM contacts x WHERE x.account_id = a_acct AND x.phone = '0501280001';
   n := n + 1;
-  IF v <> 'ok' OR NOT (SELECT opted_out_at = t0 AND do_not_contact_at = t0 AND do_not_contact_reason = 'asked twice' FROM contacts WHERE id = c) IS TRUE
+  IF v <> 'ok' OR NOT (SELECT opted_out_at = t0 AND do_not_contact_at = t0 AND do_not_contact_reason IS NULL FROM contacts WHERE id = c) IS TRUE
   THEN failed := failed || format('RESTORE: a re-added number is not opted out (%s)', v); END IF;
   n := n + 1;
   IF (SELECT string_agg(kind, ',') FROM contact_consent_events WHERE contact_id = c) IS DISTINCT FROM 'restored' THEN
@@ -120,7 +128,7 @@ BEGIN
   j := privacy_subject_erase(u_owner, a_acct, c, false, 'ERASE ' || c);
   SELECT * INTO s FROM contact_suppressions WHERE account_id = a_acct;
   n := n + 1;
-  IF j ->> 'mode' IS DISTINCT FROM 'erase' OR s.opted_out_at IS DISTINCT FROM t0 OR s.via <> 'erase' OR s.do_not_contact_reason IS NOT NULL
+  IF j ->> 'mode' IS DISTINCT FROM 'erase' OR s.opted_out_at IS DISTINCT FROM t0 OR s.via <> 'erase' OR s.contact_id IS NOT NULL
      OR s.deleted_by IS NOT NULL OR to_jsonb(s)::text ~ '(501280020|Secretname)' THEN
     failed := failed || format('ERASE: an erased person''s opt-out is not kept by hash alone (%s)', to_jsonb(s)); END IF;
   INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '0501280020', 'KD back') RETURNING id INTO c2;
@@ -130,6 +138,84 @@ BEGIN
   j := privacy_subject_export(u_owner, a_acct, c2);
   IF position('"via": "erase"' IN j::text) = 0 OR position('phone_hash' IN j::text) > 0 THEN
     failed := failed || 'EXPORT: the kept opt-out is not exported, or with its hash'::text; END IF;
+
+  -- a number changed, then erased: both numbers, nothing said about the person
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at, do_not_contact_at, do_not_contact_reason)
+  VALUES (a_acct, u_agent, '971501280050', 'KD moved', t0, t0, 'KD private note') RETURNING id INTO px;
+  v := pg_temp.kd_as(u_owner, format('UPDATE contacts SET phone = ''971501280051'' WHERE id = %L', px));
+  SELECT * INTO s FROM contact_suppressions WHERE account_id = a_acct AND phone_hash = contact_suppression_hash(a_acct, '971501280050');
+  n := n + 1;
+  IF v <> 'ok' OR s.via IS DISTINCT FROM 'phone_change' OR s.contact_id IS DISTINCT FROM px OR s.deleted_by IS NOT NULL THEN
+    failed := failed || format('MOVE: a changed number is not kept as the contact''s (%s, %s)', v, to_jsonb(s)); END IF;
+  n := n + 1; j := privacy_contact_suppressions_export(a_acct, px);
+  IF jsonb_array_length(j) <> 1 OR j::text ~ '(contact_id|phone_hash|deleted_by|private note)' THEN
+    failed := failed || format('MOVE: a number the contact left is not exported, or with too much (%s)', j); END IF;
+  PERFORM privacy_subject_erase(u_owner, a_acct, px, false, 'ERASE ' || px);
+  n := n + 1;
+  IF (SELECT count(*) FROM contact_suppressions k WHERE k.account_id = a_acct AND k.via = 'erase' AND k.deleted_by IS NULL
+        AND k.contact_id IS NULL AND k.opted_out_at = t0 AND k.do_not_contact_at = t0
+        AND k.phone_hash IN (contact_suppression_hash(a_acct, '971501280050'), contact_suppression_hash(a_acct, '971501280051'))) <> 2 THEN
+    failed := failed || 'MOVE: the erase did not reach a number the contact left'::text; END IF;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '0501280050', 'KD stranger') RETURNING id INTO py;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM contact_suppressions k WHERE k.account_id = a_acct AND to_jsonb(k)::text ~ 'private note')
+     OR NOT (SELECT opted_out_at = t0 AND do_not_contact_at = t0 AND do_not_contact_reason IS NULL FROM contacts WHERE id = py) IS TRUE
+     OR EXISTS (SELECT 1 FROM contact_consent_events e WHERE e.contact_id = py AND to_jsonb(e)::text ~ 'private note') THEN
+    failed := failed || 'REASON: a do-not-contact reason outlived the erase'::text; END IF;
+
+  -- a mistyped number corrected: nobody else is opted out, the customer still is
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at) VALUES (a_acct, u_agent, '971501280052', 'KD typo', t0) RETURNING id INTO px;
+  UPDATE contacts SET phone = '971501280053' WHERE id = px;
+  UPDATE contacts SET phone = '0501280052' WHERE id = px;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971501280053', 'KD innocent') RETURNING id INTO py;
+  n := n + 1;
+  IF (SELECT opted_out_at FROM contacts WHERE id = py) IS NOT NULL OR (SELECT opted_out_at FROM contacts WHERE id = px) IS DISTINCT FROM t0
+     OR EXISTS (SELECT 1 FROM contact_suppressions k WHERE k.account_id = a_acct AND k.phone_hash IN
+                 (contact_suppression_hash(a_acct, '971501280052'), contact_suppression_hash(a_acct, '971501280053'))) THEN
+    failed := failed || 'UNDO: correcting a mistyped number opted out its holder'::text; END IF;
+  -- the same for a customer deleted and added again (the kept row is nobody's)
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at) VALUES (a_acct, u_agent, '971501280054', 'KD gone', t0) RETURNING id INTO px;
+  DELETE FROM contacts WHERE id = px;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971501280054', 'KD again') RETURNING id INTO px;
+  UPDATE contacts SET phone = '971501280055' WHERE id = px;
+  UPDATE contacts SET phone = '971501280054' WHERE id = px;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM contact_suppressions k WHERE k.account_id = a_acct AND k.phone_hash = contact_suppression_hash(a_acct, '971501280055'))
+     OR (SELECT opted_out_at FROM contacts WHERE id = px) IS DISTINCT FROM t0 THEN
+    failed := failed || 'UNDO: a re-added customer''s mistyped number stayed opted out'::text; END IF;
+  -- lifting the stamp a mistyped number gave leaves that number's holder opted out
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971501280056', 'KD visitor') RETURNING id INTO px;
+  UPDATE contacts SET phone = '971501280050' WHERE id = px;
+  UPDATE contacts SET phone = '971501280056' WHERE id = px;
+  UPDATE contacts SET opted_out_at = NULL, do_not_contact_at = NULL WHERE id = px;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM contact_suppressions k WHERE k.account_id = a_acct AND k.opted_out_at = t0 AND k.do_not_contact_at = t0
+                   AND k.phone_hash = contact_suppression_hash(a_acct, '971501280050')) THEN
+    failed := failed || 'UNDO: lifting a visitor''s stamp lifted a stranger''s'::text; END IF;
+
+  -- lifted on the new number: the old one stays lifted, one stamp at a time
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at, do_not_contact_at, do_not_contact_reason)
+  VALUES (a_acct, u_agent, '971501280058', 'KD back', t0, t0, 'asked') RETURNING id INTO px;
+  UPDATE contacts SET phone = '971501280059' WHERE id = px;
+  UPDATE contacts SET opted_out_at = NULL WHERE id = px;
+  SELECT * INTO s FROM contact_suppressions WHERE account_id = a_acct AND phone_hash = contact_suppression_hash(a_acct, '971501280058');
+  n := n + 1;
+  IF s.opted_out_at IS NOT NULL OR s.do_not_contact_at IS DISTINCT FROM t0 THEN
+    failed := failed || format('RELIFT: lifting one stamp did not clear it alone on the old number (%s)', to_jsonb(s)); END IF;
+  UPDATE contacts SET do_not_contact_at = NULL, do_not_contact_reason = NULL WHERE id = px;
+  UPDATE contacts SET phone = '971501280058' WHERE id = px;
+  n := n + 1;
+  IF NOT (SELECT opted_out_at IS NULL AND do_not_contact_at IS NULL FROM contacts WHERE id = px) IS TRUE
+     OR EXISTS (SELECT 1 FROM contact_suppressions k WHERE k.account_id = a_acct AND k.phone_hash = contact_suppression_hash(a_acct, '971501280058')) THEN
+    failed := failed || 'RELIFT: a lifted customer is opted out again by their old number'::text; END IF;
+  -- deleting the contact leaves the number it left kept, as nobody's
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at) VALUES (a_acct, u_agent, '971501280060', 'KD last', t0) RETURNING id INTO px;
+  UPDATE contacts SET phone = '971501280061' WHERE id = px;
+  DELETE FROM contacts WHERE id = px;
+  n := n + 1;
+  IF (SELECT count(*) FROM contact_suppressions k WHERE k.account_id = a_acct AND k.contact_id IS NULL AND k.phone_hash IN
+       (contact_suppression_hash(a_acct, '971501280060'), contact_suppression_hash(a_acct, '971501280061'))) <> 2 THEN
+    failed := failed || 'MOVE: a deleted contact''s old number was not kept'::text; END IF;
 
   -- guard: room, group, case; a person is refused, the service is not
   n := n + 1; v := pg_temp.kd_as(u_owner, format('DELETE FROM contacts WHERE id = %L', c));

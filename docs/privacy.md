@@ -107,9 +107,11 @@ erase. The confirmation lists what it does (migration 280):
 erased or given another number, so a number added again (by hand, by an
 import, or by writing in) is not messaged: the new contact gets the same
 opt-out back, with a "restored" line in its consent history. The number
-is kept only as a keyed hash, never a name; the do-not-contact reason is
-kept after a delete and dropped by an erase. Lifting it on the new
-contact lifts it for good.
+is kept only as a keyed hash, never a name and never the do-not-contact
+reason. Lifting it on the new contact lifts it for good. A customer whose
+number changed keeps it on both numbers, and lifting it lifts both;
+putting back the number they had before (a mistyped one corrected) frees
+the number in between.
 
 ## Retention
 

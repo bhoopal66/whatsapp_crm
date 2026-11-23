@@ -9,18 +9,28 @@
 --     neither an app reader nor the service role can read it back; whoever
 --     holds the whole database could still test guessed numbers, which is
 --     what a suppression list must be able to answer. The hash is of one
---     canonical form, so 0501234567, 501234567, 00971…, 9710… and +971 50…
---     are one number: a number with no country code is taken for a UAE one
---     (as normalizeSalesPhone does). phone_normalized alone (022) would miss
---     the local form, and a last-8 match (phonesMatch) cannot be hashed
---     without matching strangers. Never a name. The do-not-contact reason is
---     kept with a plain delete, never with an erase.
---  2. A new contact, or one given that number, gets the stamps back if its
---     own are empty, with ONE consent event of kind 'restored'. One primary
+--     canonical form, so 0501234567, 501234567, 00971…, 0971…, 9710… and
+--     +971 50… are one number: a number with no country code is taken for a
+--     UAE one (as normalizeSalesPhone does), unless it was typed with a +.
+--     phone_normalized alone (022) would miss the local form, and a last-8
+--     match (phonesMatch) cannot be hashed without matching strangers.
+--     Never a name, never the do-not-contact reason (free text about a
+--     person, which the number's next holder would be shown).
+--     contact_id, set on a change of number only, says whose kept row it is:
+--       a. going back to a number the contact left undoes a mistyped one:
+--          that kept row goes and nothing is kept for the number undone
+--          (nor when the kept row already says exactly what the contact
+--          says: a re-added customer whose number was mistyped).
+--       b. 3 and 6 reach the numbers the contact left before.
+--     A row another contact also wrote belongs to nobody (NULL), so that
+--     lifting one customer's opt-out cannot lift a stranger's.
+--  2. A new contact, or one given that number, gets the two stamps back if
+--     its own are empty, with ONE consent event of kind 'restored'. One primary
 --     key look-up per row. The stamps are set BEFORE INSERT, after 076's and
 --     086's guards (triggers fire by name), so an agent may add the number
 --     and INSERT … RETURNING already shows it opted out.
---  3. Lifting a stamp on a contact clears the kept one.
+--  3. Lifting a stamp on a contact clears the kept one, for its number and
+--     for the numbers it left.
 --  4. contacts_open_work_guard: a signed-in person cannot delete a customer
 --     with an open case, open deal room or active submission group
 --     (ZC280, HINT HAS_OPEN_WORK, DETAIL = the counts as JSON). Not
@@ -31,12 +41,15 @@
 --  5. contact_delete_preview(ids): counts only, for the contacts the caller
 --     may delete (059's contacts_delete). Definer, because what goes with a
 --     customer is not limited to what the caller can read.
---  6. privacy_extensions: exported; the erase drops the reason and who
---     deleted it, and keeps the hash and the dates.
+--  6. privacy_extensions: exported; the erase (by number and by contact)
+--     drops who deleted it and whose it was, and keeps the hash and dates.
 --
 -- RESTATES 086's contacts_consent_log (function and trigger): apply in
 -- order, once (re-running 086 afterwards reverts it; re-run 280 after it).
--- Apply after 262 as a superuser or BYPASSRLS role, before the build.
+-- Apply after 262 as a superuser or BYPASSRLS role, before the build, with
+-- ON_ERROR_STOP: psql goes on after an error. A statement that failed on
+-- the lock timeout is safe to re-run; contacts_consent_log refuses to be
+-- replaced while the events' CHECK would refuse its 'restored'.
 -- Re-runnable. verify-contact-delete.sql.
 -- ============================================================
 
@@ -64,18 +77,22 @@ REVOKE ALL ON public.contact_suppression_keys FROM PUBLIC, anon, authenticated, 
 INSERT INTO public.contact_suppression_keys (secret) VALUES (extensions.gen_random_bytes(32)) ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.contact_suppressions (
-  account_id             uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
-  phone_hash             bytea NOT NULL,
-  opted_out_at           timestamptz NULL,
-  do_not_contact_at      timestamptz NULL,
-  do_not_contact_reason  text NULL CHECK (char_length(do_not_contact_reason) <= 500),
-  consent_events         jsonb NOT NULL DEFAULT '[]'::jsonb,
-  via                    text NOT NULL CHECK (via IN ('delete', 'erase', 'phone_change')),
-  deleted_at             timestamptz NOT NULL DEFAULT now(),
-  deleted_by             uuid NULL,
+  account_id         uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+  phone_hash         bytea NOT NULL,
+  opted_out_at       timestamptz NULL,
+  do_not_contact_at  timestamptz NULL,
+  consent_events     jsonb NOT NULL DEFAULT '[]'::jsonb,
+  via                text NOT NULL CHECK (via IN ('delete', 'erase', 'phone_change')),
+  deleted_at         timestamptz NOT NULL DEFAULT now(),
+  deleted_by         uuid NULL,
+  contact_id         uuid NULL REFERENCES public.contacts(id) ON DELETE SET NULL,
   PRIMARY KEY (account_id, phone_hash),
+  CONSTRAINT contact_suppressions_who CHECK ((deleted_by IS NULL OR via = 'delete')
+    AND (contact_id IS NULL OR via = 'phone_change')),
   CONSTRAINT contact_suppressions_stamp CHECK (opted_out_at IS NOT NULL OR do_not_contact_at IS NOT NULL)
 );
+CREATE INDEX IF NOT EXISTS contact_suppressions_contact ON public.contact_suppressions (contact_id)
+  WHERE contact_id IS NOT NULL;
 ALTER TABLE public.contact_suppressions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_suppressions FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.contact_suppressions FROM PUBLIC, anon, authenticated, service_role;
@@ -85,6 +102,8 @@ COMMENT ON TABLE public.contact_suppressions IS
 -- One form per number; NULL when it identifies nobody (an erased row's
 -- 'erased-…', too short). 022's phone_normalized is not computed yet in a
 -- BEFORE trigger, hence the raw phone.
+-- 971 and 8 digits or more carries the country code; a + before the first
+-- digit says the number does, so it is never a local one.
 -- plpgsql, not SQL: the plans are cached, so a large import stays fast.
 CREATE OR REPLACE FUNCTION public.contact_suppression_number(p_phone text)
 RETURNS text
@@ -97,8 +116,8 @@ DECLARE
   n text := ltrim(d, '0');
 BEGIN
   RETURN CASE WHEN p_phone LIKE 'erased-%' OR length(n) < 7 THEN NULL
-              WHEN n LIKE '9710%' THEN '971' || ltrim(substr(n, 4), '0')
-              WHEN d LIKE '0%' OR length(n) <= 9 THEN '971' || n
+              WHEN n LIKE '971%' AND length(n) >= 11 THEN '971' || ltrim(substr(n, 4), '0')
+              WHEN p_phone !~ '^[^0-9]*[+]' AND (d LIKE '0%' OR length(n) <= 9) THEN '971' || n
               ELSE n END;
 END;
 $$;
@@ -130,11 +149,24 @@ SET search_path = ''
 AS $$
 DECLARE
   v_hash bytea := public.contact_suppression_hash(OLD.account_id, OLD.phone);
+  v_new  bytea;
   v_via  text := 'delete';
   v_ev   jsonb;
+  s      public.contact_suppressions%ROWTYPE;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
-    IF v_hash IS NOT DISTINCT FROM public.contact_suppression_hash(NEW.account_id, NEW.phone) THEN
+    v_new := public.contact_suppression_hash(NEW.account_id, NEW.phone);
+    IF v_hash IS NOT DISTINCT FROM v_new THEN
+      RETURN NEW;
+    END IF;
+    -- Undone (1a): its own row goes; a row of nobody stays for the number.
+    SELECT * INTO s FROM public.contact_suppressions x
+     WHERE x.account_id = NEW.account_id AND x.phone_hash = v_new;
+    IF FOUND AND (s.contact_id = OLD.id
+                  OR (s.opted_out_at IS NOT DISTINCT FROM OLD.opted_out_at
+                      AND s.do_not_contact_at IS NOT DISTINCT FROM OLD.do_not_contact_at)) THEN
+      DELETE FROM public.contact_suppressions x
+       WHERE x.account_id = NEW.account_id AND x.phone_hash = v_new AND x.contact_id = OLD.id;
       RETURN NEW;
     END IF;
     v_via := CASE WHEN NEW.phone LIKE 'erased-%' THEN 'erase' ELSE 'phone_change' END;
@@ -145,18 +177,17 @@ BEGIN
       INTO v_ev
       FROM (SELECT x.kind, x.source, x.at FROM public.contact_consent_events x
              WHERE x.contact_id = OLD.id ORDER BY x.at DESC LIMIT 5) e;
-    INSERT INTO public.contact_suppressions AS s (account_id, phone_hash, opted_out_at, do_not_contact_at,
-      do_not_contact_reason, consent_events, via, deleted_at, deleted_by)
-    VALUES (OLD.account_id, v_hash, OLD.opted_out_at, OLD.do_not_contact_at,
-      CASE WHEN v_via <> 'erase' THEN left(OLD.do_not_contact_reason, 500) END, v_ev, v_via, now(),
-      CASE WHEN v_via <> 'erase' THEN auth.uid() END)
+    INSERT INTO public.contact_suppressions AS k (account_id, phone_hash, opted_out_at, do_not_contact_at,
+      consent_events, via, deleted_at, deleted_by, contact_id)
+    VALUES (OLD.account_id, v_hash, OLD.opted_out_at, OLD.do_not_contact_at, v_ev, v_via, now(),
+      CASE WHEN v_via = 'delete' THEN auth.uid() END, CASE WHEN v_via = 'phone_change' THEN OLD.id END)
     ON CONFLICT (account_id, phone_hash) DO UPDATE
-      SET opted_out_at = coalesce(excluded.opted_out_at, s.opted_out_at),
-          do_not_contact_at = coalesce(excluded.do_not_contact_at, s.do_not_contact_at),
-          do_not_contact_reason = CASE WHEN excluded.via <> 'erase'
-                                       THEN coalesce(excluded.do_not_contact_reason, s.do_not_contact_reason) END,
+      SET opted_out_at = coalesce(excluded.opted_out_at, k.opted_out_at),
+          do_not_contact_at = coalesce(excluded.do_not_contact_at, k.do_not_contact_at),
           consent_events = excluded.consent_events, via = excluded.via,
-          deleted_at = excluded.deleted_at, deleted_by = excluded.deleted_by;
+          deleted_at = excluded.deleted_at, deleted_by = excluded.deleted_by,
+          -- Two contacts' stamps in one row: nobody's to lift from afar.
+          contact_id = NULL;
   END IF;
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;
@@ -191,10 +222,7 @@ BEGIN
    WHERE x.account_id = NEW.account_id AND x.phone_hash = v_hash;
   IF FOUND THEN
     NEW.opted_out_at := coalesce(NEW.opted_out_at, s.opted_out_at);
-    IF NEW.do_not_contact_at IS NULL AND s.do_not_contact_at IS NOT NULL THEN
-      NEW.do_not_contact_at := s.do_not_contact_at;
-      NEW.do_not_contact_reason := s.do_not_contact_reason;
-    END IF;
+    NEW.do_not_contact_at := coalesce(NEW.do_not_contact_at, s.do_not_contact_at);
   END IF;
   RETURN NEW;
 END;
@@ -204,19 +232,27 @@ CREATE TRIGGER contacts_suppression_restore BEFORE INSERT OR UPDATE OF phone ON 
   FOR EACH ROW WHEN (NEW.opted_out_at IS NULL OR NEW.do_not_contact_at IS NULL)
   EXECUTE FUNCTION public.contacts_suppression_restore();
 
-ALTER TABLE public.contact_consent_events DROP CONSTRAINT IF EXISTS contact_consent_events_kind_check;
-ALTER TABLE public.contact_consent_events ADD CONSTRAINT contact_consent_events_kind_check CHECK (kind IN (
+-- One statement: a lock timeout leaves the old CHECK, never none.
+ALTER TABLE public.contact_consent_events DROP CONSTRAINT IF EXISTS contact_consent_events_kind_check,
+  ADD CONSTRAINT contact_consent_events_kind_check CHECK (kind IN (
   'marketing_opt_in', 'marketing_opt_in_withdrawn', 'opted_out', 'resubscribed',
   'do_not_contact_set', 'do_not_contact_cleared', 'restored'));
 
 -- 086's, plus: a stamp equal to the kept one on a contact that just took
 -- its number is a restore, not a decision of whoever added the contact.
+DO $guard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint k
+                  WHERE k.conrelid = 'public.contact_consent_events'::regclass AND k.contype = 'c'
+                    AND k.conname = 'contact_consent_events_kind_check' AND pg_get_constraintdef(k.oid) LIKE '%''restored''%') THEN
+    RAISE EXCEPTION '280: contact_consent_events does not allow ''restored'' yet, so contacts_consent_log stays as it is: re-run 280';
+  END IF;
+  EXECUTE $create$
 CREATE OR REPLACE FUNCTION public.contacts_consent_log()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
-AS $$
+AS $log$
 DECLARE
   v_actor  uuid := auth.uid();
   v_source text;
@@ -287,7 +323,9 @@ BEGIN
   END IF;
   RETURN NULL;
 END
-$$;
+$log$
+$create$;
+END $guard$;
 DROP TRIGGER IF EXISTS contacts_consent_log ON public.contacts;
 CREATE TRIGGER contacts_consent_log
   AFTER INSERT OR UPDATE OF marketing_opt_in_at, opted_out_at, do_not_contact_at, phone
@@ -308,13 +346,12 @@ DECLARE
   v_dnc  boolean := OLD.do_not_contact_at IS NOT NULL AND NEW.do_not_contact_at IS NULL;
 BEGIN
   DELETE FROM public.contact_suppressions s
-   WHERE s.account_id = OLD.account_id AND s.phone_hash = v_hash
+   WHERE s.account_id = OLD.account_id AND (s.phone_hash = v_hash OR s.contact_id = OLD.id)
      AND (v_out OR s.opted_out_at IS NULL) AND (v_dnc OR s.do_not_contact_at IS NULL);
   UPDATE public.contact_suppressions s
      SET opted_out_at = CASE WHEN NOT v_out THEN s.opted_out_at END,
-         do_not_contact_at = CASE WHEN NOT v_dnc THEN s.do_not_contact_at END,
-         do_not_contact_reason = CASE WHEN NOT v_dnc THEN s.do_not_contact_reason END
-   WHERE s.account_id = OLD.account_id AND s.phone_hash = v_hash;
+         do_not_contact_at = CASE WHEN NOT v_dnc THEN s.do_not_contact_at END
+   WHERE s.account_id = OLD.account_id AND (s.phone_hash = v_hash OR s.contact_id = OLD.id);
   RETURN NULL;
 END;
 $$;
@@ -414,10 +451,11 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT coalesce(jsonb_agg(public.privacy_strip(to_jsonb(s) - 'phone_hash' - 'deleted_by')), '[]'::jsonb)
+  SELECT coalesce(jsonb_agg(public.privacy_strip(to_jsonb(s) - 'phone_hash' - 'deleted_by' - 'contact_id')), '[]'::jsonb)
     FROM public.contacts c
     JOIN public.contact_suppressions s
-      ON s.account_id = c.account_id AND s.phone_hash = public.contact_suppression_hash(c.account_id, c.phone)
+      ON s.account_id = c.account_id
+     AND (s.phone_hash = public.contact_suppression_hash(c.account_id, c.phone) OR s.contact_id = c.id)
    WHERE c.id = p_contact AND c.account_id = p_account
 $$;
 
@@ -430,10 +468,10 @@ SET search_path = ''
 AS $$
 DECLARE v_n integer;
 BEGIN
-  UPDATE public.contact_suppressions s SET do_not_contact_reason = NULL, deleted_by = NULL, via = 'erase'
+  UPDATE public.contact_suppressions s SET via = 'erase', deleted_by = NULL, contact_id = NULL
     FROM public.contacts c
    WHERE c.id = p_contact AND c.account_id = p_account AND s.account_id = p_account
-     AND s.phone_hash = public.contact_suppression_hash(c.account_id, c.phone);
+     AND (s.phone_hash = public.contact_suppression_hash(c.account_id, c.phone) OR s.contact_id = c.id);
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN jsonb_build_object('counts', jsonb_build_object('contact_suppressions', v_n), 'objects', '[]'::jsonb);
 END;
