@@ -31,6 +31,27 @@ No migration.
   window closes.
 - **Smaller fixes.** A double tap on Send no longer starts a recording, and
   the phone's chat actions strip closes by itself.
+### Release fixes in the database
+
+**Migration required:** apply `263_release_fixes.sql` after 262, as a
+superuser or BYPASSRLS role.
+
+- Taking turns with nobody ticked leaves out people in a department with
+  its own inbox or restricted access, so a sales chat no longer lands in HR.
+- A submission joins a case desk case only when it is the same company's;
+  otherwise it opens its own case and the desk case stays open.
+- A document of an unknown customer is no longer filed on a case of an
+  unknown customer.
+- STOP counts while a reminder is being sent and after a feedback request,
+  and cancels the waiting ones.
+- Switching response times on no longer rings for customers who were
+  already waiting.
+- Document reminders past the first 500 files get their task.
+- Customers approved since they were declined are left out of recycling.
+- Privacy export and erasure find a campaign draft row by the last nine
+  digits of the phone.
+- An SMS backlog no longer holds back WhatsApp automated messages.
+- The reminder template must be approved in the chosen language.
 
 ### Before going live: menu speed, sign-in links, AI check
 

@@ -278,6 +278,16 @@ BEGIN
   c := c || pg_temp.hr_chk('a signed-in user or the service role reached an internal receipt function', r,
                            'ERROR 42501 %/ERROR 42501 %/ERROR 42501 %');
 
+  -- 263: an SMS backlog leaves room for WhatsApp under the limit.
+  UPDATE hr_automsg_outbox SET status = 'cancelled' WHERE account_id = a_acct AND status IN ('queued', 'held', 'failed');
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, status, channel, created_at)
+    SELECT a_acct, v2, k2, 'cv_received', 'cv_ack', 'v263:s' || g || '|sms', 'queued', 'sms', now() - interval '3 hours'
+      FROM generate_series(1, 3) g;
+  INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, status, channel, created_at)
+    VALUES (a_acct, v2, k2, 'cv_received', 'cv_ack', 'v263:w', 'queued', 'whatsapp', now());
+  c := array_append(c, CASE WHEN (SELECT count(*) = 1 FROM hr_automsg_due(2, a_acct) x WHERE x.dedupe_key = 'v263:w')
+    THEN NULL ELSE '263: an SMS backlog starved a WhatsApp message' END);
+
   RAISE EXCEPTION 'verify-hr-automsg-sms rollback' USING ERRCODE = 'P0099';
   EXCEPTION WHEN SQLSTATE 'P0099' THEN
     NULL;

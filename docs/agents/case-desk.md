@@ -124,3 +124,10 @@ package 035a-c. `docs/case-desk.md` is the contract.
   installed 221/222 have them). `data-map.test.ts` reads the registered
   function bodies as well as 221/222. Name a plpgsql record variable in
   221 anything but `r`: its body aliases tables as `r`.
+- **263.** `case_open` gives a desk lead (`desk_customer_id`) a submission
+  only when the names match (`desk_normalise_name`), or, with no customer
+  name, when the contact is linked to that one company; else a separate
+  case. `case_document_files_same_customer` never matches NULL to NULL.
+  `desk_digest_stop` also covers `sending` digests and CSAT requests; the
+  digest template is checked in its language
+  (`desk_digest_template_ok/3`); `desk_doc_tasks_due` skips tasked files.

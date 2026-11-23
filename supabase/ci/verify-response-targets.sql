@@ -273,6 +273,10 @@ BEGIN
   INSERT INTO messages (conversation_id, sender_type, sender_id, content_text)
     VALUES (cv_e, 'agent', u_g1, 'replied');
 
+  n := n + 1;
+  IF ((SELECT x.enabled_at IS NOT NULL FROM response_settings x WHERE x.account_id = a_acct)) IS NOT TRUE THEN failed := array_append(failed, '263: switching on did not stamp enabled_at'::text); END IF;
+  -- 263: the waits below begin before this transaction, so before enabled_at.
+  UPDATE response_settings SET enabled_at = now() - interval '8 days' WHERE account_id = a_acct;
   PERFORM public.response_escalation_sweep();
   -- A: 20 min -> the assignee only.
   n := n + 1; failed := failed || pg_temp.rt_ok(pg_temp.rt_bells(cv_a, 'response_target_missed', u_g1) = 1,

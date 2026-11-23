@@ -410,6 +410,25 @@ BEGIN
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
+  -- 263: nobody ticked leaves out a department with its own inbox.
+  DECLARE t_ct uuid; t_cv uuid; t_j jsonb;
+  BEGIN
+    UPDATE assignment_settings SET limits_enabled = false WHERE account_id = a_acct;
+    INSERT INTO contacts (account_id, user_id, phone, name)
+      VALUES (a_acct, u_a1, '971502630001', 'T263') RETURNING id INTO t_ct;
+    INSERT INTO conversations (account_id, user_id, contact_id)
+      VALUES (a_acct, u_a1, t_ct) RETURNING id INTO t_cv;
+    INSERT INTO account_departments (account_id, department, own_inbox, restricted)
+      VALUES (a_acct, 'sales', true, false)
+      ON CONFLICT (account_id, department) DO UPDATE SET own_inbox = true;
+    t_j := assignment_rotate_assign(a_acct, t_cv, 'tb:263', NULL);
+  n := n + 1;
+  IF (t_j ->> 'reason' = 'nobody_eligible') IS NOT TRUE THEN failed := array_append(failed, '263: with nobody ticked the chat went to a department with its own inbox'::text); END IF;
+    t_j := assignment_rotate_assign(a_acct, t_cv, 'tb:263', ARRAY[u_a1, u_a2, u_a3]);
+  n := n + 1;
+  IF (t_j ->> 'reason' = 'assigned') IS NOT TRUE THEN failed := array_append(failed, '263: a ticked person was left out for their department'::text); END IF;
+  END;
+
   RAISE EXCEPTION USING ERRCODE = 'ZT236', MESSAGE = 'verify-assignment-rotation rollback';
   EXCEPTION WHEN SQLSTATE 'ZT236' THEN
     NULL;

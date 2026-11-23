@@ -136,6 +136,11 @@ BEGIN
     (SELECT count(*) FROM desk_doc_tasks_due(now()) x WHERE x.account_id = a_acct AND x.kind = 'expiring') = 2
     AND (SELECT x.assignee FROM desk_doc_tasks_due(now()) x WHERE x.file_id = f_r1 AND x.kind = 'expiring') = u_agent,
     'a document expiring within 14 days did not raise a task on each case, for its agent');
+  -- 263: a file already tasked for that reason leaves the list.
+  INSERT INTO tasks (account_id, kind, source, source_ref, title)
+    VALUES (a_acct, 'follow_up', 'automation', 'desk_doc:' || f_r1 || ':expiring', 'T263');
+  n := n + 1;
+  IF (NOT EXISTS (SELECT 1 FROM desk_doc_tasks_due(now()) x WHERE x.file_id = f_r1 AND x.kind = 'expiring') AND EXISTS (SELECT 1 FROM desk_doc_tasks_due(now()) x WHERE x.file_id = f_e1 AND x.kind = 'expiring')) IS NOT TRUE THEN failed := array_append(failed, '263: a file already tasked still held a place'::text); END IF;
   UPDATE case_document_files SET expires_on = today - 1 WHERE id = f_r1;
   n := n + 1; failed := failed || pg_temp.av_ok(EXISTS (SELECT 1 FROM desk_doc_tasks_due(now()) x
     WHERE x.file_id = f_r1 AND x.kind = 'expired'), 'an expired document was not reported expired');
