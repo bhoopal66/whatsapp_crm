@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### The AI agent respects opt-outs and does not go quiet unnoticed
+
+No migration.
+- The AI agent never messages a contact marked do not contact or opted
+  out, not even with a hand-off message: the chat goes to a person.
+- A reply that failed to send no longer counts as an answer when the AI
+  reads the thread.
+- When the AI agent fails, or is over its reply limit, the chat is pinned
+  as Important and the bell rings once, instead of nothing happening.
+- Two quick questions inside a flow get one AI reply, not two.
+
 ### Group chats that stay current and never send twice
 
 No migration.

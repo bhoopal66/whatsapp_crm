@@ -301,6 +301,9 @@ rate limiting, campaign-only mode, or a provider error.
 | `skipped_nothing`       | Nothing to answer: no text, AI off, or nothing new.                                               |
 | `error`                 | The dispatch failed.                                                                              |
 
+A contact marked do not contact or opted out gets no bot message at all: the chat goes to a person (`handed_off`), with no hand-off message.
+A failed dispatch or a spent account-wide limit, on a chat the bot answers, pins it as Important and rings the bell once; the bot stays on.
+
 Settings → AI Agents → Overview also shows an **activity card for the last 7 days**:
 replies by tier and model, hand-offs, held drafts, the reasons the bot
 did not reply, and how many routings came from Jev versus the rule.
