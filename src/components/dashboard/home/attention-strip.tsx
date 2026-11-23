@@ -56,8 +56,9 @@ export interface AttentionStripProps {
   tasks: WidgetData<Task[]> | null;
   /** Open cases (the page's; the cases card shares it). Null: the role gets no cases. */
   cases: WidgetData<OpenCases> | null;
-  /** Open missed-call tasks assigned to this person; null without a phone system. */
-  missedCalls: number | null;
+  /** Open missed-call tasks assigned to this person (a null count is
+   *  not known); null without a phone system. */
+  missedCalls: { count: number | null; error: boolean } | null;
   className?: string;
 }
 
@@ -314,8 +315,8 @@ export function AttentionStrip({
       icon: PhoneMissed,
       label: t('missedCalls.label'),
       tone: 'warning',
-      count: missedCalls,
-      error: false,
+      count: missedCalls.count,
+      error: missedCalls.error,
       hint: t('missedCalls.hint'),
     });
   }

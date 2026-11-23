@@ -73,6 +73,9 @@ describe('loadCallsBadge', () => {
       Promise.resolve({ count: 1, error: null }),
       Promise.resolve({ count: null, error: { message: 'x' } })
     );
-    expect(await loadCallsBadge(db, 'u1')).toEqual({ hasPbx: true, missed: 0 });
+    expect(await loadCallsBadge(db, 'u1')).toEqual({
+      hasPbx: true,
+      missed: null,
+    });
   });
 });
