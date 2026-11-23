@@ -11,6 +11,11 @@
 // group's state (`ended: false` — this call did not end it).
 // Account-scoped: a submission of another workspace → 404.
 //
+// A group without a case (the POST could not open it) gets one first, with
+// the body's bank, product and amount; a failure there is a 500 and writes
+// nothing else, so the submission app sends the PATCH again. Only a group
+// with no agent left (an ENDED one) goes on without a case: `case: null`.
+//
 // PATCH also moves the group's case (module 018c): a final status sets
 // its stage (case_apply_submission_status), and since 137 any other
 // status moves the case to the stage of the same name (UNDER_REVIEW ->
@@ -57,6 +62,10 @@ import {
   syncCaseFromSubmission,
   syncWire,
 } from '@/lib/submission-groups/case-sync';
+import {
+  caseErrorText,
+  ensureGroupCase,
+} from '@/lib/submission-groups/open-case';
 import { isFinalStatus } from '@/lib/submission-groups/rules';
 import type {
   SubmissionGroup,
@@ -81,7 +90,7 @@ async function readCase(accountId: string, groupId: string) {
   } catch (err) {
     console.error(
       `[api/v1/submission-groups] case read for group ${groupId}:`,
-      err instanceof Error ? err.message : 'unknown error'
+      caseErrorText(err)
     );
     return null;
   }
@@ -105,7 +114,7 @@ async function applyCaseStatus(
   } catch (err) {
     console.error(
       `[api/v1/submission-groups] case status for group ${groupId}:`,
-      err instanceof Error ? err.message : 'unknown error'
+      caseErrorText(err)
     );
     return false;
   }
@@ -147,6 +156,26 @@ export async function PATCH(request: Request, { params }: Params) {
     const store = submissionGroupStore(ctx.supabase);
     let group = await store.findByRef(ctx.accountId, submissionId.trim());
     if (!group) return fail('not_found', 'Submission group not found', 404);
+
+    // The case the POST could not open: the sync and the status below have
+    // nothing to act on without it.
+    try {
+      const has = await ensureGroupCase(caseStore(ctx.accountId), group.id, {
+        bankCode: sync?.patch.bank,
+        product: sync?.patch.product,
+        amount: sync?.patch.amount,
+      });
+      if (!has)
+        console.warn(
+          `[api/v1/submission-groups] no agent to open the case of group ${group.id} for`
+        );
+    } catch (err) {
+      console.error(
+        `[api/v1/submission-groups] case open for group ${group.id}:`,
+        caseErrorText(err)
+      );
+      return fail('internal', "Failed to open the submission's case", 500);
+    }
 
     // ctx.supabase is the service-role client (requireApiKey).
     let synced: Awaited<ReturnType<typeof syncCaseFromSubmission>> | null =

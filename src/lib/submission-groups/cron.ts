@@ -1,7 +1,8 @@
 /**
  * Submission Groups housekeeping (module 018a), run from the automations
  * cron: pending 'out' rows older than 10 minutes are settled failed (once,
- * for every account), then per account: pending creates older than 2
+ * for every account), then the cases of Compass-created groups that have
+ * none are opened, then per account: pending creates older than 2
  * minutes are finished and the WhatsApp close of ENDED groups is retried.
  * Only once every account has had those, groups due a membership check are
  * read (174), in a pass of their own with a budget of their own: that read
@@ -11,7 +12,10 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { caseStore } from '@/lib/cases/server';
+
 import { customerMembershipFrom } from './membership';
+import { caseErrorText, openGroupCase } from './open-case';
 import type { SubmissionGroupService } from './service';
 import { submissionGroupService, submissionGroupStore } from './server';
 import type { SubmissionGroupStore } from './store';
@@ -21,6 +25,11 @@ export const PENDING_CREATE_AGE_MS = 120_000;
 export const STALE_PENDING_OUT_MS = 600_000;
 /** No new account or group is started after this, so the run ends inside after(). */
 export const CRON_BUDGET_MS = 45_000;
+/**
+ * Missing cases opened per run. A group younger than PENDING_CREATE_AGE_MS
+ * is left to its own POST, whose body names the bank.
+ */
+export const CASE_OPENS_PER_RUN = 20;
 /** Membership reads per account per run. The cron runs every 2 minutes per process. */
 export const MEMBERSHIP_CHECKS_PER_RUN = 10;
 /** No membership read starts after this, counted from the start of the pass. */
@@ -30,6 +39,8 @@ export interface SubmissionGroupsCronResult {
   stalePendingFailed: number;
   /** 211: add-number attempts nobody settled, now failed 'unconfirmed'. */
   staleAddsFailed: number;
+  /** Cases opened for Compass-created groups that had none. */
+  casesOpened: number;
   accounts: number;
   created: number;
   createFailed: number;
@@ -41,6 +52,7 @@ export interface SubmissionGroupsCronResult {
 
 type CronStore = Pick<
   SubmissionGroupStore,
+  | 'listWithoutCase'
   | 'listPendingCreates'
   | 'listUnclosedEnded'
   | 'failStalePending'
@@ -115,6 +127,7 @@ export async function runSubmissionGroupsCron(
     store?: CronStore;
     serviceFor?: (accountId: string) => CronService;
     participantsFor?: (accountId: string) => ParticipantsApi;
+    openCase?: (accountId: string, groupId: string) => Promise<unknown>;
     now?: () => number;
   } = {}
 ): Promise<SubmissionGroupsCronResult> {
@@ -123,6 +136,7 @@ export async function runSubmissionGroupsCron(
   const out: SubmissionGroupsCronResult = {
     stalePendingFailed: 0,
     staleAddsFailed: 0,
+    casesOpened: 0,
     accounts: 0,
     created: 0,
     createFailed: 0,
@@ -137,6 +151,10 @@ export async function runSubmissionGroupsCron(
       deps.serviceFor ?? ((id: string) => submissionGroupService(id, admin));
     const participantsFor =
       deps.participantsFor ?? ((id: string) => createWhapiGroupsApi(admin, id));
+    const openCase =
+      deps.openCase ??
+      ((accountId: string, groupId: string) =>
+        openGroupCase(caseStore(accountId), groupId));
     const overBudget = () => now() - started > CRON_BUDGET_MS;
 
     // First, so a sender that died no longer defers a close below.
@@ -152,6 +170,26 @@ export async function runSubmissionGroupsCron(
       out.staleAddsFailed = await store.sweepAddNumbers(STALE_ADD_SECONDS);
     } catch (err) {
       out.errors.push(`add sweep: ${errText(err)}`);
+    }
+
+    // Before the creates: a new group's welcome message reads its case.
+    // Bank, product and amount stay empty until Compass syncs the case.
+    try {
+      const bare = await store.listWithoutCase(
+        new Date(started - PENDING_CREATE_AGE_MS),
+        { limit: CASE_OPENS_PER_RUN }
+      );
+      for (const g of bare) {
+        if (overBudget()) break;
+        try {
+          await openCase(g.accountId, g.id);
+          out.casesOpened++;
+        } catch (err) {
+          out.errors.push(`${g.id}: case: ${caseErrorText(err)}`);
+        }
+      }
+    } catch (err) {
+      out.errors.push(`cases: ${errText(err)}`);
     }
 
     const pending = await store.listPendingCreates(

@@ -331,6 +331,45 @@ describe('wa_mode (136)', () => {
   });
 });
 
+describe('listWithoutCase (the cron opens the missing case)', () => {
+  it('asks for ACTIVE API-created groups with an agent and no case, newest first', async () => {
+    const filters: unknown[][] = [];
+    const q: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'is', 'not', 'lt', 'order'])
+      q[m] = (...args: unknown[]) => {
+        filters.push([m, ...args]);
+        return q;
+      };
+    q.limit = async (n: number) => {
+      filters.push(['limit', n]);
+      return { data: [{ id: 'g1', account_id: 'A', cases: [] }], error: null };
+    };
+    const store = new SubmissionGroupStore({
+      from: () => q,
+    } as unknown as SupabaseClient);
+    expect(
+      await store.listWithoutCase(new Date('2026-11-23T10:00:00Z'), {
+        limit: 20,
+      })
+    ).toEqual([{ id: 'g1', accountId: 'A' }]);
+    // The embeds and filters PostgREST was asked with when this was written.
+    expect(filters).toEqual([
+      [
+        'select',
+        'id, account_id, cases!cases_group_fkey(id), submission_group_access!inner(id)',
+      ],
+      ['eq', 'status', 'ACTIVE'],
+      ['not', 'created_by_key', 'is', null],
+      ['is', 'cases', null],
+      ['eq', 'submission_group_access.label', 'agent'],
+      ['is', 'submission_group_access.removed_at', null],
+      ['lt', 'created_at', '2026-11-23T10:00:00.000Z'],
+      ['order', 'created_at', { ascending: false }],
+      ['limit', 20],
+    ]);
+  });
+});
+
 describe('openAccessLabel (163 bank, 173 team lead fallback)', () => {
   const store = (role: string | null, rows: Record<string, unknown>[]) => {
     const calls: string[] = [];

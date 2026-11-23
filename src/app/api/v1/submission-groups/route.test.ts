@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CaseStoreError } from '@/lib/cases/store';
 import type { SubmissionGroup } from '@/lib/submission-groups/store';
 
 const m = vi.hoisted(() => ({
@@ -343,13 +344,19 @@ describe('POST /api/v1/submission-groups', () => {
 
   it('still answers 201 with case null when the case cannot be opened', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    m.cases.open.mockRejectedValue(new Error('cases: case_open failed'));
+    m.cases.open.mockRejectedValue(new CaseStoreError('case_open', '57014'));
     const res = await post({ ...body, product: 'Secret product' });
     expect(res.status).toBe(201);
     const { data } = await res.json();
     expect(data.case).toBeNull();
     expect(data.id).toBe('g1');
-    expect(JSON.stringify(err.mock.calls)).not.toContain('Secret product');
+    // Exactly one line: the group, the function and the SQLSTATE.
+    expect(err.mock.calls).toEqual([
+      [
+        '[api/v1/submission-groups] case open for group g1:',
+        'cases: case_open failed (57014)',
+      ],
+    ]);
     err.mockRestore();
   });
 

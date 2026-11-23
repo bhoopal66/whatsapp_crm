@@ -353,7 +353,9 @@ was still in flight; the next call or the cron retries).
 ## The cron
 
 The automations cron (`GET /api/automations/cron`, throttled to every 2
-minutes) retries pending creates older than 2 minutes, fails sends still
+minutes) opens the case of API-created groups that have none (its details
+stay empty until the app syncs them), retries pending creates older than 2
+minutes, fails sends still
 pending after 10 minutes (one sweep over every workspace), and retries
 closes that did not finish, one workspace at a time on that workspace's
 own numbers. It starts no new work after 45 s.

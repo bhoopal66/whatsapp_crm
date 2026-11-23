@@ -34,6 +34,12 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Cron:** the automations cron every 2 minutes (`cron.ts`): pending
   creates, stale sends, close retries. Idle ending is off.
   `verify-submission-groups.sql` asserts the SQL.
+- **Every Compass group gets its case** (`open-case.ts`): POST opens it
+  (never failing the request), PATCH opens a missing one before the sync
+  (a failure is a 500; `NO_AGENT`, an ENDED group, goes on without), and
+  the cron opens it for ACTIVE groups with a `created_by_key`, an agent
+  and no case, once they are 2 minutes old: earlier it would beat the POST
+  that names the bank, and with it the lead of that bank.
 - **PATCH status:** a status the case could not take is a 500 (Compass
   retries), never a swallowed error; the repeat meets an ENDED group and
   re-applies it, which the SQL makes harmless (a case at a final stage is

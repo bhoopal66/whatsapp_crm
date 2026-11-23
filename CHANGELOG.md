@@ -17,6 +17,8 @@ and polish.
 No migration.
 - A status Compass reports that the case could not take now answers an error,
   so Compass sends it again; before, a final status could be lost for good.
+- A submission whose case could not be opened gets it with Compass's next
+  update, or within minutes by itself; before, it stayed without a case.
 
 ### Submission groups: no second WhatsApp group
 

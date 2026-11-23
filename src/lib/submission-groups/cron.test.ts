@@ -7,6 +7,8 @@ vi.mock('./server', () => ({
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { CaseStoreError } from '@/lib/cases/store';
+
 import { runSubmissionGroupsCron } from './cron';
 import type { SubmissionGroup } from './store';
 
@@ -19,6 +21,7 @@ function fakes(o: {
   unclosed?: SubmissionGroup[];
 }) {
   const store = {
+    listWithoutCase: vi.fn().mockResolvedValue([]),
     listPendingCreates: vi.fn().mockResolvedValue(o.pending ?? []),
     listUnclosedEnded: vi.fn().mockResolvedValue(o.unclosed ?? []),
     failStalePending: vi.fn().mockResolvedValue(['9']),
@@ -83,6 +86,7 @@ describe('runSubmissionGroupsCron', () => {
     expect(r).toEqual({
       stalePendingFailed: 1,
       staleAddsFailed: 2,
+      casesOpened: 0,
       accounts: 2,
       membershipChecked: 0,
       created: 1,
@@ -91,6 +95,45 @@ describe('runSubmissionGroupsCron', () => {
       closeFailed: 0,
       errors: [],
     });
+  });
+
+  it('opens the case of each group that has none, one failure apart, before the creates', async () => {
+    const f = fakes({ pending: [g('p1', 'A')] });
+    f.store.listWithoutCase.mockResolvedValue([
+      { id: 'n1', accountId: 'A' },
+      { id: 'n2', accountId: 'B' },
+    ]);
+    const order: string[] = [];
+    const openCase = vi.fn(async (accountId: string, id: string) => {
+      order.push(`open ${accountId} ${id}`);
+      if (id === 'n1') throw new CaseStoreError('case_open', '57014');
+    });
+    const serviceFor = (id: string) => {
+      order.push(`service ${id}`);
+      return f.serviceFor(id);
+    };
+    const r = await runSubmissionGroupsCron(admin, {
+      ...f,
+      serviceFor,
+      openCase,
+      now: () => 1_000_000,
+    });
+    // A younger group is left to its own POST.
+    expect(f.store.listWithoutCase).toHaveBeenCalledWith(
+      new Date(1_000_000 - 120_000),
+      { limit: 20 }
+    );
+    expect(order).toEqual(['open A n1', 'open B n2', 'service A']);
+    expect(r.casesOpened).toBe(1);
+    expect(r.errors).toEqual(['n1: case: cases: case_open failed (57014)']);
+  });
+
+  it('an unreadable list of groups without a case delays no create', async () => {
+    const f = fakes({ pending: [g('p1', 'A')] });
+    f.store.listWithoutCase.mockRejectedValue(new Error('db down'));
+    const r = await runSubmissionGroupsCron(admin, f);
+    expect(r.created).toBe(1);
+    expect(r.errors).toEqual(['cases: db down']);
   });
 
   it('never throws: a failing account or listing is reported and the rest still run', async () => {
