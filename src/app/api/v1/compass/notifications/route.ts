@@ -6,9 +6,10 @@
 //
 // The Taamul Compass integration (migration 056, docs/compass.md).
 // A text update goes only into the customer's live submission group
-// when there is one (migration 170); otherwise it is sent on the Whapi number, into the customer's existing chat
-// without changing who handles it, at most once per idempotency_key —
-// the rules and their reasons are in lib/compass/notify.ts.
+// when there is one (migration 170); otherwise it is sent on the Meta
+// number only, into the customer's existing chat without changing who
+// handles it, at most once per idempotency_key. The rules and their
+// reasons are in lib/compass/notify.ts.
 //
 // Body:
 //   {

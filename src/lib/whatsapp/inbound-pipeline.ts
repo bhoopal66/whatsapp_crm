@@ -1005,8 +1005,8 @@ export async function processMessage(
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation);
 
-  // The customer answered: the customer-reply timer of their open leads
-  // stops and a snoozed lead wakes (cases with no submission group; a
+  // The customer answered: the customer-reply timer of their open cases
+  // without a live WhatsApp group stops and a snoozed one wakes (a
   // group's messages never come through here). After the idempotency
   // boundary, so a replay is not a second answer; before the fan-out cut,
   // because a sender over the rate limit (fanOut: false) still answered.

@@ -24,10 +24,12 @@ and polish.
   its conditions become true later (the bank is filled in afterwards). It
   still fires once. After the migration, rules that missed this way fire on
   the next sweep for cases still overdue or idle.
-- A lead's "customer reply" timer stops when the customer answers in the
-  one-to-one chat; only submission groups did this before.
+- A case without a live WhatsApp group (a lead, a submission opened without
+  one, or one whose group has ended): its "customer reply" timer stops when
+  the customer answers in the one-to-one chat. Only groups did this before.
 - "Customer waiting" is now **Waiting for the customer**, on the cases list,
   its filter and the home page: the flag means we wait for the customer.
+
 ### Compass notifications and cases: five fixes
 
 No migration.
@@ -128,6 +130,7 @@ No migration.
   once; every other call is added quietly.
 - The silence alert still rings during such an outage: a call found this
   way does not count as an event from the PBX.
+
 ### Case documents: a storage hiccup is not a bad document
 
 No migration.
@@ -153,6 +156,7 @@ No migration.
 - A failed database read no longer ends a waiting run: it is tried again,
   at most five times. A run cut off by a restart ends as "interrupted"
   after 30 minutes and is never run again.
+
 ### Phone system: transferred calls and ghost calls
 
 No migration.
@@ -160,6 +164,7 @@ No migration.
   it kept only the first, often the few seconds before the transfer.
 - A ringing report that arrives as the call ends no longer leaves a call
   on screen that never goes away.
+
 ### Submission groups: the whole chat
 
 No migration.
@@ -196,6 +201,7 @@ No migration.
 - Meeting, calendar and task alarms are not delivered more than 30
   minutes late.
 - The pipeline chart shows its error when the stages could not be loaded.
+
 ### Conversation flows that stop, and never repeat a step
 
 No migration.
@@ -214,6 +220,7 @@ No migration.
   answers during it.
 - A flow sends nothing to a customer who opted out or is marked
   do-not-contact: its run ends and no new one starts.
+
 ### Reminders that were missed, and figures without personal chats
 
 **Migration required:** apply
@@ -227,6 +234,7 @@ Additive for the previous build; nothing already late rings on applying it.
 - Team activity and the home dashboard no longer count personal (HR)
   WhatsApp numbers and chats, and the dashboard's response time counts
   only replies by a person, not a bot's or an automation's.
+
 ### Submission groups: later statuses, questions after the end, delivered sends
 
 **Migration required: 267** (apply before the build).
@@ -248,6 +256,7 @@ No migration.
   knows says so instead of "failed".
 - A reaction replaces a colleague's on the same number, as WhatsApp does,
   and is refused when the number that carried the message is gone.
+
 ### Hand over the work of a person who leaves
 
 **Migration required: 266.** Apply `supabase/migrations/266_member_handover.sql`
@@ -272,6 +281,7 @@ the build. Additive for the previous build.
 - Erasing a customer deletes the files they sent in WhatsApp groups.
 - A customer message processed late no longer replaces a newer message
   as the chat's preview.
+
 ### HR automated messages are not sent again after a timeout
 
 No migration. A WhatsApp send that timed out, lost its connection or got a
@@ -290,6 +300,7 @@ on the workspace's model when a smaller or larger one failed), and a draft,
 a translation or an HR draft shows an error instead. OpenAI reasoning models
 now have room for their hidden reasoning besides the reply, so a reply may
 use more tokens on the workspace's key.
+
 ### Contact import and pipeline fixes
 
 No migration.
@@ -305,6 +316,7 @@ No migration.
   deals cannot be loaded it says so with a Try again button.
 - Editing a deal saves only the fields you changed, so it no longer undoes
   a colleague's change, and a board refresh no longer clears what you typed.
+
 ### A person who leaves takes their personal WhatsApp number with them
 
 No migration.
@@ -340,6 +352,7 @@ No migration.
   is refused.
 - Web form: with no known client address the limit is per form, so one
   caller cannot close every form.
+
 ### Files sent in WhatsApp groups can be opened
 
 No migration. A photo, sticker, video, voice note or document somebody sends
@@ -348,6 +361,7 @@ one-to-one chats. On an OpenWA number such a file could never be opened; on a
 Whapi number it stopped opening after about 30 days. Files received before
 this update are not copied, and submission groups still keep Whapi's link.
 The download button saves a document under its own name.
+
 ### The AI agent respects opt-outs and does not go quiet unnoticed
 
 No migration.
@@ -375,6 +389,7 @@ No migration.
 - A team chat channel (or the channel list) that could not be read says
   so with a Retry, instead of looking empty.
 - The team chat badge no longer re-reads whenever anyone reads anything.
+
 ### The AI no longer sees ID, card or account numbers
 
 No migration. Every message the AI reads (the customer's and ours, in
@@ -403,6 +418,7 @@ No migration.
   lets a newer call have the window (at 30 it can be closed by hand). A
   call the browser softphone holds is never treated so, and a hidden tab
   stops polling for calls.
+
 ### Video meetings recover when the video service drops someone
 
 No migration.
@@ -414,6 +430,7 @@ No migration.
 - When the video service could not be reached, the room says so instead of
   blaming the microphone or camera, and offers **Rejoin**.
 - The server log names Cloudflare's reason for a refused call.
+
 ### Campaigns check opt-outs and quiet hours, finish, and never send twice
 
 No migration.
@@ -449,6 +466,7 @@ No migration.
   their visible text now contain it, so voice control finds them.
 - A pipeline card is one button. **Enter opens the deal; Space picks the
   card up**, arrows move it, Space or Enter drops it, Escape cancels.
+
 ### Text colours are easier to read
 
 No migration.
@@ -473,6 +491,7 @@ No migration.
   "No deals" or a bar that never ends.
 - The HR chat list and team chat (channels, unread counts, the open
   channel) read again after the laptop slept or the connection dropped.
+
 ### Fixed: phone events are stored before they are acknowledged
 
 - The Yeastar webhook now answers only once every event of the push is
@@ -495,6 +514,7 @@ No migration.
 - Operators: the retries run in `GET /api/automations/cron`, so that cron
   must be scheduled. `/api/metrics` has `wacrm_inbound_queue_*`
   (`docs/monitoring.md`).
+
 ### Submission groups: nothing lost between Compass and the CRM
 
 No migration.
@@ -523,6 +543,7 @@ No migration.
   (up to 2 hours) rings once when it is back, with the time it was for.
   One already shown or dismissed does not come back.
 - A missed meeting invite rings only if someone is in the meeting now.
+
 ### Inbox on a bad connection
 
 No migration.
@@ -551,12 +572,14 @@ No migration.
 - A save, move or delete that changed nothing (you lost access, or it was
   removed) now says so instead of showing success, a dragged deal goes
   back to its stage, and a bulk delete counts what was really deleted.
+
 ### Server log with times
 
 No migration.
 - Every line of the server log starts with the time and level
   (`LOG_TIMESTAMPS=off` to leave them bare), and a request that fails
   with an unhandled error logs which route it was, without the query.
+
 ### Automations: stopping, opt-outs, Dubai time and failed steps
 
 No migration. What changes for automations already running:
@@ -576,6 +599,7 @@ No migration. What changes for automations already running:
 - **Steps whose save failed** (create deal, update contact, assign to a
   person, close conversation, wait) are now logged as failed and stop
   the run, instead of showing success.
+
 ### Inbound messages keep the contact's name and find the right contact
 
 No migration.
@@ -589,6 +613,7 @@ No migration.
   API's `to` without a country code matches only a contact saved that way.
 - A failed contact lookup is reported as a failure. It used to be read as
   "no such contact" and could create a second contact and chat.
+
 ### Sign-in hardening
 
 No migration.
@@ -603,6 +628,7 @@ No migration.
   the login page. API calls answer 503 until it is back.
 - Automations, flows and quick replies no longer show raw database
   messages when a request fails.
+
 ### The open chat keeps its place
 
 No migration.
@@ -614,6 +640,7 @@ No migration.
   and a resync no longer shows it twice.
 - A chat left open in a hidden tab stays unread until you look at it,
   and a failed "mark as read" is tried again.
+
 ### Screens that catch up after sleep or a dropped connection
 
 No migration.
@@ -676,6 +703,7 @@ No migration.
   and is limited to 20 a minute; an impossible date or a NUL character
   in a field is a clear 400, not an error; the document types list is for
   agents and up.
+
 ### Cases: search, next step and tray fixes
 
 No migration.
@@ -727,6 +755,7 @@ No migration.
   window closes.
 - **Smaller fixes.** A double tap on Send no longer starts a recording, and
   the phone's chat actions strip closes by itself.
+
 ### Release fixes in the database
 
 **Migration required:** apply `263_release_fixes.sql` after 262, as a
@@ -748,6 +777,7 @@ superuser or BYPASSRLS role.
   digits of the phone.
 - An SMS backlog no longer holds back WhatsApp automated messages.
 - The reminder template must be approved in the chosen language.
+
 ### Privacy: erase and retention fixes
 
 **Migration required:** apply `262_privacy_fixes.sql` after 261, as a
@@ -769,6 +799,7 @@ superuser or BYPASSRLS role, before the build. It restates functions of
   them, so the whole erase failed.
 - A case review that kills its run stops after 5 attempts.
 - Docs: an opt-out does not follow an erased customer's number.
+
 ### Safer automatic customer messages
 
 No migration. All of these stay off until an admin switches them on.
@@ -801,6 +832,7 @@ No migration.
   after 1.5 seconds and lets the request through, so a slow database
   cannot hold up a reply.
 - **Web form.** Junk posts no longer use up a form's hourly allowance.
+
 ### A broadcast draft can only be sent once
 
 No migration. Sending a reopened draft now takes the draft first, so two

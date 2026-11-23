@@ -60,7 +60,7 @@ const h = vi.hoisted(() => ({
   // case_csat_capture (migration 246): true when the reply was stored.
   csatRpc: vi.fn(),
   // The contact's open cases without a group.
-  caseRows: null as { id: string }[] | null,
+  caseRows: null as Record<string, unknown>[] | null,
   // case_sla_event_system (migration 124).
   slaRpc: vi.fn(),
 }));
@@ -1530,24 +1530,43 @@ describe('processMessage: onPersistFailure', () => {
   });
 });
 
-// A lead (a case with no group) is answered in this chat: its customer
-// reply timer stops and a snooze ends (case_sla_event_system).
-describe('processMessage — an open lead hears the customer', () => {
+// A case without a live WhatsApp group is answered in this chat: its
+// customer reply timer stops and a snooze ends (case_sla_event_system).
+describe('processMessage — an open case without a group hears the customer', () => {
   const caseReads = () => h.calls.filter((c) => c.table === 'cases');
 
-  it('sends the event to each open case without a group, once', async () => {
-    h.caseRows = [{ id: 'lead-1' }, { id: 'lead-2' }];
+  it('sends the event to each open case this chat answers, once', async () => {
+    h.caseRows = [
+      { id: 'lead', group_id: null, group: null },
+      {
+        id: 'no-whatsapp',
+        group_id: 'g-1',
+        group: { wa_mode: 'none', status: 'ACTIVE' },
+      },
+      {
+        id: 'ended',
+        group_id: 'g-2',
+        group: { wa_mode: 'group', status: 'ENDED' },
+      },
+      // Its own group tells it.
+      {
+        id: 'live-group',
+        group_id: 'g-3',
+        group: { wa_mode: 'group', status: 'ACTIVE' },
+      },
+      // A group that could not be read is not taken for none.
+      { id: 'unknown', group_id: 'g-4', group: null },
+    ];
     await processMessage(message, 'acct-1', 'owner-1', channel);
     expect(caseReads().map((c) => c.filters)).toEqual([
       [
         ['eq', 'account_id', 'acct-1'],
         ['eq', 'contact_id', 'contact-1'],
-        ['is', 'group_id', null],
         ['is', 'closed_at', null],
       ],
     ]);
     expect(h.slaRpc.mock.calls.map(([a]) => a)).toEqual(
-      ['lead-1', 'lead-2'].map((id) => ({
+      ['lead', 'no-whatsapp', 'ended'].map((id) => ({
         p_case: id,
         p_event: 'customer_message',
         p_now: expect.any(String),
