@@ -19,6 +19,10 @@ No migration.
   other one as the screen had loaded it, so a page left open could undo
   another admin's change (and give HR staff the sales areas back). If the
   current settings cannot be read, nothing is saved and the page says so.
+- **Response times**: saving sends only what was changed, and the rest keeps
+  what is stored at that moment. A page left open sent its whole old form,
+  which could switch the feature off and lose another admin's hours. Undoing
+  a change leaves nothing to save.
 
 ### Voice notes: one tap to record, one tap to send
 

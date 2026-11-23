@@ -12,6 +12,7 @@ import {
   endToInput,
   nextInterval,
   parseResponseSettings,
+  responseSettingsDiff,
   splitMinutes,
   validateHours,
   waitLevel,
@@ -231,5 +232,48 @@ describe('form helpers', () => {
         ['07:00', '08:00'],
       ])
     ).toBeNull();
+  });
+});
+
+describe('responseSettingsDiff', () => {
+  const saved = parseResponseSettings({
+    enabled: true,
+    timezone: 'Asia/Dubai',
+    hours: { mon: [['09:00', '18:00']] },
+    target_minutes: 20,
+  });
+
+  it('is empty when nothing changed', () => {
+    expect(responseSettingsDiff(saved, structuredClone(saved))).toEqual({});
+  });
+
+  it('holds only the fields that changed', () => {
+    expect(responseSettingsDiff(saved, { ...saved, targetMinutes: 5 })).toEqual(
+      { targetMinutes: 5 }
+    );
+    expect(responseSettingsDiff(saved, { ...saved, enabled: false })).toEqual({
+      enabled: false,
+    });
+    expect(responseSettingsDiff(saved, { ...saved, timezone: 'UTC' })).toEqual({
+      timezone: 'UTC',
+    });
+  });
+
+  it.each([
+    ['a moved end', { mon: [['09:00', '17:00']] }],
+    ['a closed day', { mon: [] }],
+    ['an opened day', { sun: [['09:00', '12:00']] }],
+    [
+      'a split day',
+      {
+        mon: [
+          ['09:00', '12:00'],
+          ['12:00', '18:00'],
+        ],
+      },
+    ],
+  ])('sends the hours for %s', (_n, day) => {
+    const hours = { ...saved.hours, ...day } as typeof saved.hours;
+    expect(responseSettingsDiff(saved, { ...saved, hours })).toEqual({ hours });
   });
 });
