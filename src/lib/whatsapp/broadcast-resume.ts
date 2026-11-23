@@ -159,6 +159,28 @@ function contactPhone(row: RecipientRow): string | null {
   return rowContact(row)?.phone ?? null;
 }
 
+/** Rows per load: the most PostgREST answers with. */
+const LOAD_PAGE = 1000;
+
+/** Ids per stamp: they travel in the request URL. */
+const STAMP_CHUNK = 100;
+
+async function stampFailed(
+  db: SupabaseClient,
+  ids: string[],
+  reason: string
+): Promise<void> {
+  for (let i = 0; i < ids.length; i += STAMP_CHUNK) {
+    const { error } = await db
+      .from('broadcast_recipients')
+      .update({ status: 'failed', error_message: reason })
+      .in('id', ids.slice(i, i + STAMP_CHUNK));
+    if (error) {
+      console.error('[broadcast-resume] failed stamp:', error.message);
+    }
+  }
+}
+
 /**
  * Build a {@link BroadcastPlan} for the recipients of an existing
  * broadcast that still need sending.
@@ -214,27 +236,22 @@ export async function planBroadcastResume(
   }
 
   const statuses = scopeStatuses(scope);
-  const { data: rawRows, error: recError } = await db
+  // Counted before anything below is stamped: PostgREST answers a load
+  // with at most 1,000 rows, so the rows read say nothing about how many
+  // customers are left.
+  const { count: inScope, error: countError } = await db
     .from('broadcast_recipients')
-    .select(
-      'id, template_params, contact_id, contact:contacts(phone, opted_out_at)'
-    )
+    .select('id', { count: 'exact', head: true })
     .eq('broadcast_id', broadcastId)
     .in('status', statuses)
-    .or(RESENDABLE_FILTER)
-    // Oldest first, so repeated capped passes chew through the backlog
-    // in a stable order instead of re-picking the same slice.
-    .order('created_at', { ascending: true });
-
-  if (recError) {
+    .or(RESENDABLE_FILTER);
+  if (countError || inScope === null) {
     console.error(
-      '[broadcast-resume] recipient load failed:',
-      recError.message
+      '[broadcast-resume] recipient count failed:',
+      countError?.message
     );
     throw new BroadcastError('internal', 'Failed to load recipients', 500);
   }
-
-  const rows = (rawRows ?? []) as RecipientRow[];
 
   // A recipient whose contact has no usable phone can never send. Stamp
   // it failed now: leaving it 'pending' would keep the broadcast in
@@ -246,40 +263,60 @@ export async function planBroadcastResume(
   const sendable: RecipientRow[] = [];
   const unsendable: string[] = [];
   const optedOut: string[] = [];
-  for (const row of rows) {
-    if (rowContact(row)?.opted_out_at) {
-      optedOut.push(row.id);
-      continue;
-    }
-    const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
-    if (isValidE164(sanitized)) sendable.push(row);
-    else unsendable.push(row.id);
-  }
-  if (optedOut.length > 0) {
-    const { error: optOutErr } = await db
+  // Page until the pass is full or the rows run out: a first page of
+  // customers who all opted out is not "nothing left to send".
+  for (
+    let from = 0;
+    sendable.length < RESUME_MAX_PER_REQUEST;
+    from += LOAD_PAGE
+  ) {
+    const { data, error: recError } = await db
       .from('broadcast_recipients')
-      .update({ status: 'failed', error_message: OPTED_OUT_REASON })
-      .in('id', optedOut);
-    // Still left out of the plan; the next pass retries the stamp.
-    if (optOutErr) {
+      .select(
+        'id, template_params, contact_id, contact:contacts(phone, opted_out_at)'
+      )
+      .eq('broadcast_id', broadcastId)
+      .in('status', statuses)
+      .or(RESENDABLE_FILTER)
+      // Oldest first, so repeated capped passes chew through the backlog
+      // in a stable order instead of re-picking the same slice. The id
+      // breaks ties: a campaign's rows share one created_at, and an
+      // unstable order would repeat or skip rows between pages.
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + LOAD_PAGE - 1);
+
+    if (recError) {
       console.error(
-        '[broadcast-resume] opted-out stamp failed:',
-        optOutErr.message
+        '[broadcast-resume] recipient load failed:',
+        recError.message
       );
+      throw new BroadcastError('internal', 'Failed to load recipients', 500);
     }
-  }
-  if (unsendable.length > 0) {
-    await db
-      .from('broadcast_recipients')
-      .update({
-        status: 'failed',
-        error_message: 'No valid phone number on contact',
-      })
-      .in('id', unsendable);
+
+    const rows = (data ?? []) as RecipientRow[];
+    for (const row of rows) {
+      if (rowContact(row)?.opted_out_at) {
+        optedOut.push(row.id);
+        continue;
+      }
+      const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
+      if (isValidE164(sanitized)) sendable.push(row);
+      else unsendable.push(row.id);
+    }
+    if (rows.length < LOAD_PAGE) break;
   }
 
+  // Left out of the plan whatever becomes of the stamps; the next pass
+  // retries one that failed.
+  await stampFailed(db, optedOut, OPTED_OUT_REASON);
+  await stampFailed(db, unsendable, 'No valid phone number on contact');
+
   const slice = sendable.slice(0, RESUME_MAX_PER_REQUEST);
-  const remaining = sendable.length - slice.length;
+  const remaining = Math.max(
+    0,
+    inScope - slice.length - optedOut.length - unsendable.length
+  );
 
   if (slice.length === 0) {
     throw new BroadcastError(

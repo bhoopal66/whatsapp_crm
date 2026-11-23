@@ -363,3 +363,38 @@ describe('finalizing on unreadable counts', () => {
     expect(w.broadcasts[0].status).toBe('sending');
   });
 });
+
+describe('more than 1,000 recipients', () => {
+  it('reports what one load cannot see as remaining', async () => {
+    const w = world(2300);
+    const { plan, remaining } = await resume(fakeDb(w));
+    expect(plan.planned).toHaveLength(1000);
+    expect(remaining).toBe(1300);
+  });
+
+  it('reads on past a first page that all opted out', async () => {
+    const w = world(2300);
+    for (const r of w.broadcast_recipients.slice(0, 1000)) {
+      (r.contact as Row).opted_out_at = '2026-11-22T00:00:00Z';
+    }
+    (w.broadcast_recipients[1000].contact as Row).phone = null;
+    const { plan, remaining, optedOut, unsendable } = await resume(fakeDb(w));
+
+    expect(plan.planned).toHaveLength(1000);
+    expect(plan.planned[0].recipientRowId).toBe('r01001');
+    expect(new Set(plan.planned.map((r) => r.recipientRowId)).size).toBe(1000);
+    expect([optedOut, unsendable, remaining]).toEqual([1000, 1, 299]);
+    expect(statuses(w).filter((s) => s === 'failed')).toHaveLength(1001);
+  });
+
+  it('refuses to plan on an unreadable count', async () => {
+    const w = world(2);
+    let asked = 0;
+    const db = fakeDb(w, {
+      // 1 is the sweep of unconfirmed sends.
+      fail: ({ table }) =>
+        table === 'broadcast_recipients' && ++asked === 2 ? 'timeout' : null,
+    });
+    await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
+  });
+});

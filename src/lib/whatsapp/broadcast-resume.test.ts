@@ -125,11 +125,16 @@ interface PlanWrites {
 function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
   return {
     from(table: string) {
+      let range: [number, number] | [] = [];
       const b: Record<string, unknown> = {
         select: () => b,
         eq: () => b,
         order: () => b,
         or: () => b,
+        range: (from: number, to: number) => {
+          range = [from, to + 1];
+          return b;
+        },
         in: (col: string, vals: unknown) => {
           if (col === 'status') writes.statusFilter = vals;
           if (col === 'id') {
@@ -155,7 +160,13 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
           data: fx.config === undefined ? null : fx.config,
           error: null,
         }),
-        then: (resolve: (r: { data: unknown[]; error: null }) => unknown) => {
+        then: (
+          resolve: (r: {
+            data: unknown[];
+            count?: number;
+            error: null;
+          }) => unknown
+        ) => {
           if (table === 'whatsapp_config') {
             // A LIST since migration 046: an account can connect both a
             // Whapi channel and a Meta number, and channels.ts picks.
@@ -168,7 +179,12 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
             });
           }
           if (table === 'broadcast_recipients') {
-            return resolve({ data: fx.recipients ?? [], error: null });
+            const all = fx.recipients ?? [];
+            return resolve({
+              data: all.slice(...range),
+              count: all.length,
+              error: null,
+            });
           }
           if (table === 'message_templates') {
             // Whapi renders templates locally, so a plan is impossible
