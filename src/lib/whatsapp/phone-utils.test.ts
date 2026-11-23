@@ -4,7 +4,6 @@ import {
   isValidE164,
   normalizePhone,
   phoneVariants,
-  phonesMatch,
   sanitizePhoneForMeta,
 } from "./phone-utils";
 
@@ -33,33 +32,6 @@ describe("normalizePhone", () => {
     for (const s of samples) {
       expect(normalizePhone(s)).toBe(sanitizePhoneForMeta(s));
     }
-  });
-});
-
-describe("phonesMatch", () => {
-  it("returns true for exact digit matches", () => {
-    expect(phonesMatch("+37063949836", "37063949836")).toBe(true);
-  });
-
-  it("matches across trunk-prefix variants by last-8 fallback", () => {
-    // Lithuanian trunk-0 variant. Last 8 digits ("63949836") collide.
-    expect(phonesMatch("370063949836", "37063949836")).toBe(true);
-  });
-
-  it("rejects mismatched numbers", () => {
-    expect(phonesMatch("+37063949836", "+37063949837")).toBe(false);
-  });
-
-  it("rejects very short inputs that would false-positive on tail match", () => {
-    // Only 7 digits — the last-8 fallback is gated to len>=8 on both
-    // sides to avoid declaring "12345" and "67890-12345" a match.
-    expect(phonesMatch("1234567", "1234567")).toBe(true);
-    expect(phonesMatch("1234567", "9991234567")).toBe(false);
-  });
-
-  it("ignores formatting noise on both sides", () => {
-    expect(phonesMatch("+370 6 394 9836", "37063949836")).toBe(true);
-    expect(phonesMatch("(415) 555-1212", "+1 415-555-1212")).toBe(true);
   });
 });
 

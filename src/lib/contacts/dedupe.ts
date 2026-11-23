@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils';
+import { isLocalPhone, phonesMatch } from '@/lib/contacts/phone-match';
+import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 
 /**
  * Contact de-duplication helpers, shared by the WhatsApp webhook, the
@@ -9,8 +10,8 @@ import { normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils';
  * The canonical key is `normalizePhone` (digits-only) — the same form
  * the DB stores in the generated `contacts.phone_normalized` column
  * and enforces unique per account. `phonesMatch` adds trunk-prefix
- * tolerance (last-8-digit match) for the softer "possible duplicate"
- * surfaces.
+ * tolerance, and a last-8-digit match for a row stored without its
+ * country code.
  */
 
 /** Canonical de-dup key for a phone string (digits only). */
@@ -26,11 +27,21 @@ export interface ExistingContact {
   [key: string]: unknown;
 }
 
+/** The contacts could not be read, so whether one exists is unknown. */
+export class ContactLookupError extends Error {
+  constructor(cause: unknown) {
+    super('Contact lookup failed', { cause });
+    this.name = 'ContactLookupError';
+  }
+}
+
 /**
  * Find an existing contact in `accountId` whose phone matches `phone`,
  * or null. Pre-filters in SQL by the last-8-digit suffix (so we don't
  * pull every contact), then applies the strict `phonesMatch` in JS on
  * the small candidate set — the exact approach the webhook has used.
+ * Throws `ContactLookupError` when the read fails: taken for "no such
+ * contact", it made callers create a second contact and chat.
  *
  * The suffix filter runs against the generated `phone_normalized`
  * column (digits only, migration 022), NOT the raw `phone`. A contact
@@ -39,8 +50,10 @@ export interface ExistingContact {
  * then trips the unique index, the race re-lookup misses the same way,
  * and the inbound message is dropped on the floor.
  *
- * An exact digits match always beats a last-8 fuzzy one, and ties go
- * to the oldest row. When a local-format twin ("50 455 5843") and the
+ * An exact digits match always beats a trunk-0 variant, which beats the
+ * last-8 match of a row stored without its country code. Ties go to the
+ * oldest row, except for last-8 matches: two of them are two guesses, so
+ * none is taken. When a local-format twin ("50 455 5843") and the
  * full number ("971 50 455 5843") both exist, heap order used to pick
  * between them per query: one burst of inbound documents split across
  * the two contacts, and every reply on the local twin went to a JID
@@ -64,14 +77,21 @@ export async function findExistingContact(
     .order('id', { ascending: true })
     .like('phone_normalized', `%${suffix}`);
 
-  if (error || !data) return null;
+  if (error) throw new ContactLookupError(error);
 
-  const candidates = data as ExistingContact[];
-  return (
-    candidates.find((c) => normalizePhone(c.phone) === normalized) ??
-    candidates.find((c) => phonesMatch(c.phone, phone)) ??
-    null
-  );
+  const candidates = (data ?? []) as ExistingContact[];
+  const exact = candidates.find((c) => normalizePhone(c.phone) === normalized);
+  if (exact) return exact;
+
+  const matches = candidates.filter((c) => phonesMatch(c.phone, phone));
+  const local = matches.filter((c) => isLocalPhone(c.phone));
+  // `phonesMatch` also accepts a local `phone` against a full stored
+  // number, which would pick the country for the caller: not here.
+  if (!isLocalPhone(phone)) {
+    const variant = matches.find((c) => !isLocalPhone(c.phone));
+    if (variant) return variant;
+  }
+  return local.length === 1 ? local[0] : null;
 }
 
 /**

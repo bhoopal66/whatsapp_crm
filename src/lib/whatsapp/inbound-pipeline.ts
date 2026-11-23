@@ -30,6 +30,7 @@ import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/provider';
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import { shouldRenameContact } from '@/lib/contacts/inbound-name';
 import { reopenClosedConversation } from '@/lib/conversations/reopen';
 import type {
   NormalizedInboundMessage,
@@ -1729,10 +1730,14 @@ export interface ContactOutcome {
   wasCreated: boolean;
 }
 
+/** Wait before the one retry of a failed contact lookup. */
+const LOOKUP_RETRY_MS = 300;
+
 /**
  * Shared with the personal history import, which passes
  * `rename: false`: a name from someone's phone book must not rename a
- * contact the company already has.
+ * contact the company already has. Otherwise a name only fills an empty
+ * one or replaces the bare number (`shouldRenameContact`).
  */
 export async function findOrCreateContact(
   accountId: string,
@@ -1747,19 +1752,31 @@ export async function findOrCreateContact(
   // strict `phonesMatch` in JS on the small candidate set. The same
   // helper backs the manual contact form and CSV import, so all three
   // paths agree on what "same number" means (issue #212).
-  const existingContact = await findExistingContact(
-    supabaseAdmin(),
-    accountId,
-    phone
-  );
+  //
+  // A failed read throws, and the webhook has already answered 200, so
+  // the message would not come again: it is tried once more first.
+  const lookup = () => findExistingContact(supabaseAdmin(), accountId, phone);
+  const existingContact = await lookup().catch(async (err) => {
+    console.error('[inbound] contact lookup failed, retrying:', err);
+    await new Promise((resolve) => setTimeout(resolve, LOOKUP_RETRY_MS));
+    return lookup();
+  });
 
   if (existingContact) {
-    // Update name if it changed
-    if (opts.rename !== false && name && name !== existingContact.name) {
-      await supabaseAdmin()
-        .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
-        .eq('id', existingContact.id);
+    if (
+      opts.rename !== false &&
+      shouldRenameContact(existingContact, phone, name)
+    ) {
+      // Never costs the message.
+      try {
+        const { error } = await supabaseAdmin()
+          .from('contacts')
+          .update({ name, updated_at: new Date().toISOString() })
+          .eq('id', existingContact.id);
+        if (error) throw error;
+      } catch (err) {
+        console.error('[inbound] contact rename failed:', err);
+      }
     }
     return { contact: existingContact, wasCreated: false };
   }

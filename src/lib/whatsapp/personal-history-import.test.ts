@@ -414,6 +414,22 @@ describe('runPersonalHistoryImportTick', () => {
     expect(job(db)).toMatchObject({ status: 'done', messages_imported: 0 });
   });
 
+  it('stops the tick, keeping the chat, when the contact lookup fails', async () => {
+    const db = fakeDb({ whatsapp_config: [configRow()] });
+    listChatsMock.mockResolvedValueOnce([chatSummary('971500000001@c.us', 1)]);
+    contactMock.mockRejectedValueOnce(new Error('Contact lookup failed'));
+
+    await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 60_000,
+      ...noPause,
+    });
+
+    expect(chatRow(db, '971500000001@c.us')).toMatchObject({
+      status: 'pending',
+    });
+    expect(job(db).last_error).toContain('contact lookup');
+  });
+
   it('steps the read limit down after a timeout, then fails the chat after 3 tries', async () => {
     const db = fakeDb({ whatsapp_config: [configRow()] });
     listChatsMock.mockResolvedValueOnce([chatSummary('971500000001@c.us', 1)]);

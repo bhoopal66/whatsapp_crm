@@ -154,6 +154,11 @@ export function ContactForm({
           ? { contact: existing, exact: isExactMatch(existing, value) }
           : null,
       );
+    } catch (err) {
+      // Only a warning ahead of the save; the unique index still refuses
+      // a duplicate.
+      console.error('[contact-form] duplicate check failed:', err);
+      setDupMatch(null);
     } finally {
       setCheckingDup(false);
     }
@@ -242,11 +247,18 @@ export function ContactForm({
       // and, for new contacts, point the user at the existing record.
       if (isUniqueViolation(err)) {
         if (!isEdit && accountId) {
-          const existing = await findExistingContact(
-            supabase,
-            accountId,
-            phoneToSave,
-          );
+          let existing: ExistingContact | null;
+          try {
+            existing = await findExistingContact(
+              supabase,
+              accountId,
+              phoneToSave,
+            );
+          } catch (lookupErr) {
+            console.error('[contact-form] lookup failed:', lookupErr);
+            toast.error(t('toastConflict'));
+            return;
+          }
           if (existing) {
             setDupMatch({ contact: existing, exact: true });
             toast.error(t('toastConflict'));

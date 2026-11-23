@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { createSystemTask } from '@/lib/tasks/system';
-import { phonesMatch } from '@/lib/whatsapp/phone-utils';
+import { phonesMatch } from '@/lib/contacts/phone-match';
 
 import {
   ANSWERED_STATUSES,

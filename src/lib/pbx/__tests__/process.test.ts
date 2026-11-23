@@ -213,6 +213,24 @@ describe('ingestPbxEvent', () => {
     ]);
   });
 
+  it('never matches another country sharing the last 8 digits', async () => {
+    Object.assign(fake.tables.contacts[0], {
+      phone: '966501234567',
+      phone_normalized: '966501234567',
+    });
+    await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+    expect(fake.tables.call_live[0].contact_id).toBeNull();
+  });
+
+  it('matches the one contact saved without its country code', async () => {
+    Object.assign(fake.tables.contacts[0], {
+      phone: '050 123 4567',
+      phone_normalized: '0501234567',
+    });
+    await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+    expect(fake.tables.call_live[0].contact_id).toBe('k1');
+  });
+
   it('never matches a contact of another workspace', async () => {
     fake.tables.contacts = fake.tables.contacts.filter((c) => c.id !== 'k1');
     fake.tables.contacts.push({

@@ -60,9 +60,9 @@ export function decideNewChat(facts: NewChatFacts): NewChatStep {
   const { phone } = facts;
   if (!phone.ok) return { kind: 'invalid-phone', message: phone.error };
 
-  // `findExistingContact` also returns a near match (same last 8
-  // digits, e.g. +91 98 0123 4567 for +971 50 123 4567), which the
-  // contact form only warns about. Here it would send the first message
+  // `findExistingContact` also returns a near match (a row saved
+  // without its country code, same last 8 digits), which the contact
+  // form only warns about. Here it would send the first message
   // to someone else, so only the exact number counts as found.
   const target = normalizeKey(phone.phone);
   const exact = (c: NewChatContact | null | undefined) =>

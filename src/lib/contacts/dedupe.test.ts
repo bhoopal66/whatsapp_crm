@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  ContactLookupError,
   dedupeByPhone,
   findExistingContact,
   isExactMatch,
@@ -111,13 +112,56 @@ describe('findExistingContact', () => {
     expect(hit?.id).toBe('intl');
   });
 
-  it('falls back to the oldest fuzzy match when no row is exact', async () => {
+  it('finds the one contact stored without its country code', async () => {
+    const db = stubDb([
+      { id: 'ksa', phone: '+966 50 455 5843' },
+      { id: 'local', phone: '0504555843' },
+    ]);
+    const hit = await findExistingContact(db, 'acct', '971504555843');
+    expect(hit?.id).toBe('local');
+  });
+
+  it('takes none of several contacts stored without a country code', async () => {
     const db = stubDb([
       { id: 'older', phone: '0504555843' },
       { id: 'newer', phone: '50 455 5843' },
     ]);
+    expect(await findExistingContact(db, 'acct', '971504555843')).toBeNull();
+  });
+
+  it('prefers a trunk-0 variant to an older local row', async () => {
+    const db = stubDb([
+      { id: 'local', phone: '0504555843' },
+      { id: 'trunk', phone: '+971 050 455 5843' },
+    ]);
     const hit = await findExistingContact(db, 'acct', '971504555843');
-    expect(hit?.id).toBe('older');
+    expect(hit?.id).toBe('trunk');
+  });
+
+  it.each(['966501234567', '447501234567'])(
+    'does not take %s for a UAE number with the same last 8 digits',
+    async (phone) => {
+      const db = stubDb([{ id: 'uae', phone: '+971501234567' }]);
+      expect(await findExistingContact(db, 'acct', phone)).toBeNull();
+    }
+  );
+
+  it('does not guess the country of a number given without one', async () => {
+    const db = stubDb([{ id: 'uae', phone: '971504555843' }]);
+    expect(await findExistingContact(db, 'acct', '504555843')).toBeNull();
+  });
+
+  it('throws when the contacts cannot be read', async () => {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      order: () => builder,
+      like: async () => ({ data: null, error: { code: '57014' } }),
+    };
+    const db = { from: () => builder } as unknown as SupabaseClient;
+    await expect(
+      findExistingContact(db, 'acct', '971504555843')
+    ).rejects.toBeInstanceOf(ContactLookupError);
   });
 
   it('suffix-filters on phone_normalized, not the raw phone column', async () => {

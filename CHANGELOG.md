@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Inbound messages keep the contact's name and find the right contact
+
+No migration.
+- An inbound message no longer overwrites a contact's name with the
+  sender's WhatsApp name or number. It only fills an empty name or
+  replaces the contact's own bare number, and never with a number.
+- Two international numbers that share their last 8 digits
+  (+971 50 123 4567 and +966 50 123 4567) are two contacts, for messages,
+  calls and the API. Only a contact saved without its country code is
+  still matched by those digits, and only when it is the one match. The
+  API's `to` without a country code matches only a contact saved that way.
+- A failed contact lookup is reported as a failure. It used to be read as
+  "no such contact" and could create a second contact and chat.
+
 ### Dependencies and repository settings
 
 No migration. Run `npm ci` after pulling.

@@ -667,10 +667,16 @@ export async function handleGroupWebhook(
         console.error('[deal-rooms] opt-out contact lookup failed:', error);
       contactId = pickContactByPhone(rows, variants);
       // Saved in a local form ("0501234567"): the inbound pipeline's
-      // own rule, a last-8-digits match with the exact form first.
-      if (!contactId && !error)
-        contactId =
-          (await findExistingContact(db, accountId, waId))?.id ?? null;
+      // own rule, a last-8-digits match with the exact form first. A
+      // failed lookup must not stop the removal below.
+      if (!contactId && !error) {
+        try {
+          contactId =
+            (await findExistingContact(db, accountId, waId))?.id ?? null;
+        } catch (err) {
+          console.error('[deal-rooms] opt-out contact lookup failed:', err);
+        }
+      }
     }
     // markOptedOut answers false for a failed write and for a contact
     // stamped before alike; only the stamp itself tells them apart.
