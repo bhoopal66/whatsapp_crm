@@ -58,23 +58,17 @@ describe('claimBroadcastDelivery', () => {
       claimDb([{ id: 'bc-1' }], calls),
       'acct-1',
       'bc-1',
-      new Date('2026-08-11T12:00:00Z'),
+      new Date('2026-08-11T12:00:00Z')
     );
 
     expect(ok).toBe(true);
     expect(calls[0].filters).toEqual({ id: 'bc-1', account_id: 'acct-1' });
-    expect(calls[0].update.delivery_locked_at).toBe(
-      '2026-08-11T12:00:00.000Z',
-    );
+    expect(calls[0].update.delivery_locked_at).toBe('2026-08-11T12:00:00.000Z');
   });
 
   it('refuses when another pass already holds the lock', async () => {
     // The UPDATE's WHERE didn't match — someone else got there first.
-    const ok = await claimBroadcastDelivery(
-      claimDb([], []),
-      'acct-1',
-      'bc-1',
-    );
+    const ok = await claimBroadcastDelivery(claimDb([], []), 'acct-1', 'bc-1');
     expect(ok).toBe(false);
   });
 
@@ -84,12 +78,12 @@ describe('claimBroadcastDelivery', () => {
       claimDb([{ id: 'bc-1' }], calls),
       'acct-1',
       'bc-1',
-      new Date('2026-08-11T12:00:00Z'),
+      new Date('2026-08-11T12:00:00Z')
     );
     // 30 minutes before "now" — a pass whose process died is recoverable
     // without touching the database by hand.
     expect(calls[0].or).toBe(
-      'delivery_locked_at.is.null,delivery_locked_at.lt.2026-08-11T11:30:00.000Z',
+      'delivery_locked_at.is.null,delivery_locked_at.lt.2026-08-11T11:30:00.000Z'
     );
   });
 
@@ -135,6 +129,7 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
         select: () => b,
         eq: () => b,
         order: () => b,
+        or: () => b,
         in: (col: string, vals: unknown) => {
           if (col === 'status') writes.statusFilter = vals;
           if (col === 'id') {
@@ -145,6 +140,9 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
           return b;
         },
         update: (row: Record<string, unknown>) => {
+          // The sweep of sends an earlier pass left unconfirmed, which
+          // runs on every plan and matches nothing here.
+          if (!('error_message' in row)) return b;
           writes.failedUpdate = row;
           (writes.updates ??= []).push({ row });
           return b;
@@ -162,7 +160,10 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
             // A LIST since migration 046: an account can connect both a
             // Whapi channel and a Meta number, and channels.ts picks.
             return resolve({
-              data: fx.config === undefined || fx.config === null ? [] : [fx.config],
+              data:
+                fx.config === undefined || fx.config === null
+                  ? []
+                  : [fx.config],
               error: null,
             });
           }
@@ -173,7 +174,10 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
             // Whapi renders templates locally, so a plan is impossible
             // without a row — default the fixture to a usable one and
             // let individual tests override it.
-            return resolve({ data: fx.templates ?? [TEMPLATE_ROW], error: null });
+            return resolve({
+              data: fx.templates ?? [TEMPLATE_ROW],
+              error: null,
+            });
           }
           return resolve({ data: [], error: null });
         },
@@ -218,7 +222,7 @@ function recipient(
   id: string,
   phone: string | null,
   params: unknown = ['A123'],
-  optedOutAt: string | null = null,
+  optedOutAt: string | null = null
 ) {
   return {
     id,
@@ -241,11 +245,11 @@ describe('planBroadcastResume', () => {
             recipient('r2', '+15559876543', ['B456', 'Monday']),
           ],
         },
-        writes,
+        writes
       ),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
 
     expect(writes.statusFilter).toEqual(['pending']);
@@ -283,11 +287,11 @@ describe('planBroadcastResume', () => {
           config: CONFIG,
           recipients: [recipient('r1', '+15551234567')],
         },
-        {},
+        {}
       ),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
   });
@@ -301,11 +305,11 @@ describe('planBroadcastResume', () => {
           config: CONFIG,
           recipients: [recipient('r1', '+15551234567')],
         },
-        failedWrites,
+        failedWrites
       ),
       'acct-1',
       'bc-1',
-      'failed',
+      'failed'
     );
     expect(failedWrites.statusFilter).toEqual(['failed']);
 
@@ -317,11 +321,11 @@ describe('planBroadcastResume', () => {
           config: CONFIG,
           recipients: [recipient('r1', '+15551234567')],
         },
-        allWrites,
+        allWrites
       ),
       'acct-1',
       'bc-1',
-      'all',
+      'all'
     );
     expect(allWrites.statusFilter).toEqual(['pending', 'failed']);
   });
@@ -339,7 +343,7 @@ describe('planBroadcastResume', () => {
       }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.planned.map((p) => p.params)).toEqual([[], []]);
   });
@@ -357,11 +361,11 @@ describe('planBroadcastResume', () => {
             recipient('r3', 'nonsense'),
           ],
         },
-        writes,
+        writes
       ),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
 
     // Left 'pending', these would keep the broadcast in 'sending'
@@ -384,11 +388,11 @@ describe('planBroadcastResume', () => {
             recipient('r2', '+15559876543', ['B456'], '2026-10-08T09:00:00Z'),
           ],
         },
-        writes,
+        writes
       ),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
 
     expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1']);
@@ -406,13 +410,13 @@ describe('planBroadcastResume', () => {
 
   it('caps one pass and reports the leftover', async () => {
     const many = Array.from({ length: RESUME_MAX_PER_REQUEST + 25 }, (_, i) =>
-      recipient(`r${i}`, '+1555000' + String(i).padStart(4, '0')),
+      recipient(`r${i}`, '+1555000' + String(i).padStart(4, '0'))
     );
     const { plan, remaining } = await planBroadcastResume(
       planDb({ broadcast: BROADCAST, config: CONFIG, recipients: many }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.planned).toHaveLength(RESUME_MAX_PER_REQUEST);
     // Surfaced to the caller rather than silently dropped.
@@ -425,8 +429,8 @@ describe('planBroadcastResume', () => {
         planDb({ broadcast: null }),
         'acct-1',
         'bc-1',
-        'pending',
-      ),
+        'pending'
+      )
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -436,8 +440,8 @@ describe('planBroadcastResume', () => {
         planDb({ broadcast: BROADCAST, config: CONFIG, recipients: [] }),
         'acct-1',
         'bc-1',
-        'failed',
-      ),
+        'failed'
+      )
     ).rejects.toBeInstanceOf(BroadcastError);
   });
 
@@ -460,7 +464,7 @@ describe('planBroadcastResume', () => {
       }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.templateRow.language).toBe('en');
   });
@@ -484,13 +488,13 @@ describe('planBroadcastResume — header media (Meta)', () => {
       }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     ).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(BroadcastError);
     expect(err).toMatchObject({ code: 'template_media_missing', status: 400 });
     expect((err as Error).message).toBe(
-      'Template order_update (en_US) has a video header but no media. Add a header media URL to the template in Settings → Templates, then send again.',
+      'Template order_update (en_US) has a video header but no media. Add a header media URL to the template in Settings → Templates, then send again.'
     );
   });
 
@@ -507,7 +511,7 @@ describe('planBroadcastResume — header media (Meta)', () => {
       }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.headerMediaUrl).toBe('https://cdn.example.com/v.mp4');
   });
@@ -522,7 +526,7 @@ describe('planBroadcastResume — header media (Meta)', () => {
       }),
       'acct-1',
       'bc-1',
-      'pending',
+      'pending'
     );
     expect(plan.planned).toHaveLength(1);
   });

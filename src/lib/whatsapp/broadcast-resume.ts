@@ -30,6 +30,10 @@ import {
   ChannelError,
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
+import {
+  RESENDABLE_FILTER,
+  SEND_UNCONFIRMED_REASON,
+} from '@/lib/broadcasts/unconfirmed-send';
 import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
@@ -192,6 +196,23 @@ export async function planBroadcastResume(
     throw new BroadcastError('quiet_hours', quietHoursMessage(quietHours), 400);
   }
 
+  // A row still pending with the write-ahead mark was being sent when an
+  // earlier pass died (the caller holds the lock, so no pass is on it
+  // now). Nobody knows whether the customer got it: never sent again.
+  const { error: unconfirmedErr } = await db
+    .from('broadcast_recipients')
+    .update({ status: 'failed' })
+    .eq('broadcast_id', broadcastId)
+    .eq('status', 'pending')
+    .eq('error_message', SEND_UNCONFIRMED_REASON);
+  if (unconfirmedErr) {
+    console.error(
+      '[broadcast-resume] unconfirmed stamp failed:',
+      unconfirmedErr.message
+    );
+    throw new BroadcastError('internal', 'Failed to load recipients', 500);
+  }
+
   const statuses = scopeStatuses(scope);
   const { data: rawRows, error: recError } = await db
     .from('broadcast_recipients')
@@ -200,6 +221,7 @@ export async function planBroadcastResume(
     )
     .eq('broadcast_id', broadcastId)
     .in('status', statuses)
+    .or(RESENDABLE_FILTER)
     // Oldest first, so repeated capped passes chew through the backlog
     // in a stable order instead of re-picking the same slice.
     .order('created_at', { ascending: true });

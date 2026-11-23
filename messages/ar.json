@@ -1374,6 +1374,7 @@
       "scheduledHintQuiet": "تُسلَّم تلقائيًا عند حلول الموعد، ولا تُرسل أبدًا بين {start} و{end} ({tz}).",
       "sendScheduledNow": "إرسال الآن",
       "retryFailed": "إعادة محاولة الفاشلة ({count})",
+      "mayHaveBeenSent": "ربما تم الإرسال",
       "toastResumeStarted": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية.",
       "toastResumeStartedCapped": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية. سيحتاج {remaining} آخرون إلى تشغيل إضافي.",
       "toastResumeFailed": "تعذر الاستئناف: {error}",

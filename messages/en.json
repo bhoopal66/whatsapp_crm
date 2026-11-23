@@ -1374,6 +1374,7 @@
       "scheduledHintQuiet": "Delivered automatically when the time comes — never between {start} and {end} ({tz}).",
       "sendScheduledNow": "Send now",
       "retryFailed": "Retry failed ({count})",
+      "mayHaveBeenSent": "May have been sent",
       "toastResumeStarted": "Sending {count} recipients in the background.",
       "toastResumeStartedCapped": "Sending {count} recipients in the background. {remaining} more will need another run.",
       "toastResumeFailed": "Could not resume: {error}",

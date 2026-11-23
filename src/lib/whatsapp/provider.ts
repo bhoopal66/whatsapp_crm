@@ -46,6 +46,7 @@ import {
 } from './channels';
 import * as meta from './meta-api';
 import * as openwa from './openwa-api';
+import { TemplateParamError } from './template-send-builder';
 import * as whapi from './whapi-api';
 
 export interface ProviderSendResult {
@@ -761,8 +762,12 @@ export function isChannelLevelFailure(err: unknown): boolean {
  *   - a gateway 5xx, and 408, which is also a timeout.
  *   - any other error: a SyntaxError from a 2xx body that is not JSON,
  *     Meta's network errors (rethrown unwrapped), and the Meta client's
- *     own checks, which throw a plain Error. Those last ones are safe in
- *     fact, but nothing tells them apart from the others.
+ *     own checks on media and interactive sends, which throw a plain
+ *     Error. Those last ones are safe in fact, but nothing tells them
+ *     apart from the others.
+ *
+ * The Meta template builder's own checks are the exception: they throw
+ * TemplateParamError, before any request, so they count as refusals.
  *
  * OpenWA follows the same rule: its 409 ("engine not ready") and 429
  * (pacing) are refusals before anything was sent, while its synthetic
@@ -779,7 +784,7 @@ export function isDefiniteSendRefusal(err: unknown): boolean {
   ) {
     return err.status >= 400 && err.status < 500 && err.status !== 408;
   }
-  return false;
+  return err instanceof TemplateParamError;
 }
 
 /**
