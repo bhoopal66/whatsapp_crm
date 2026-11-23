@@ -93,7 +93,7 @@ describe('POST /api/pbx/yeastar/events/[token]', () => {
     expect(h.after).toHaveLength(0);
   });
 
-  it('answers 200 and processes every event of an array inside after()', async () => {
+  it('answers 200 with every event of an array stored, processed inside after()', async () => {
     const body = JSON.stringify([
       presence('1001'),
       { type: 30008, msg: { extension: '1001', status: 'busy' } },
@@ -101,7 +101,9 @@ describe('POST /api/pbx/yeastar/events/[token]', () => {
     const res = await post(body);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, received: 2 });
-    expect(fake.tables.pbx_events_raw ?? []).toHaveLength(0);
+    // Stored before the answer; nothing applied yet.
+    expect(fake.tables.pbx_events_raw).toHaveLength(2);
+    expect(fake.tables.pbx_presence ?? []).toHaveLength(0);
     await Promise.all(h.after.map((cb) => cb()));
     expect(fake.tables.pbx_events_raw).toHaveLength(2);
     expect(fake.tables.pbx_presence[0]).toMatchObject({
@@ -119,5 +121,82 @@ describe('POST /api/pbx/yeastar/events/[token]', () => {
     expect((await post(body)).status).toBe(403);
     vi.stubEnv('PBX_WEBHOOK_ALLOWED_IPS', '9.9.9.9,1.2.3.4');
     expect((await post(body)).status).toBe(200);
+  });
+});
+
+describe('POST /api/pbx/yeastar/events/[token]: storing before answering', () => {
+  const pair = JSON.stringify([
+    presence('1001'),
+    { type: 30008, msg: { extension: '1001', status: 'busy' } },
+  ]);
+  /** Fails the chosen pbx_events_raw upserts, by call number from 0. */
+  const failUpserts = (
+    when: (n: number) => boolean,
+    error: { message: string; code?: string } = { message: 'down' }
+  ) => {
+    let n = 0;
+    const real = fake.db.from.bind(fake.db);
+    h.db = {
+      rpc: fake.db.rpc.bind(fake.db),
+      from: (table: string) => {
+        const q = real(table);
+        if (table !== 'pbx_events_raw') return q;
+        const upsert = q.upsert.bind(q);
+        q.upsert = ((...a: Parameters<typeof upsert>) =>
+          when(n++)
+            ? { select: async () => ({ data: null, error }) }
+            : upsert(...a)) as unknown as typeof q.upsert;
+        return q;
+      },
+    };
+    return () => n;
+  };
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('tries a frame that failed once more, then answers 200', async () => {
+    const tries = failUpserts((n) => n === 0);
+    expect((await post(pair)).status).toBe(200);
+    expect(tries()).toBe(3);
+    expect(fake.tables.pbx_events_raw).toHaveLength(2);
+    await Promise.all(h.after.map((cb) => cb()));
+    expect(fake.tables.pbx_events_raw.every((r) => r.processed_at)).toBe(true);
+  });
+
+  it('answers 503 when a frame is still not stored, and runs the others', async () => {
+    // Frame 0 stored; frame 1 fails on both tries.
+    failUpserts((n) => n > 0);
+    expect((await post(pair)).status).toBe(503);
+    await Promise.all(h.after.map((cb) => cb()));
+    expect(fake.tables.pbx_events_raw).toHaveLength(1);
+    expect(fake.tables.pbx_presence[0]).toMatchObject({ presence: 'away' });
+
+    // The PBX sends it all again: only the lost frame is new.
+    h.after = [];
+    h.db = fake.db;
+    expect((await post(pair)).status).toBe(200);
+    await Promise.all(h.after.map((cb) => cb()));
+    expect(fake.tables.pbx_events_raw).toHaveLength(2);
+    expect(fake.tables.pbx_presence[0]).toMatchObject({ call_state: 'busy' });
+  });
+
+  it('acknowledges a frame the database can never take: a resend cannot help', async () => {
+    const tries = failUpserts(() => true, { message: 'null', code: '23502' });
+    expect((await post('null')).status).toBe(200);
+    expect(tries()).toBe(1);
+    expect(h.after).toHaveLength(0);
+  });
+
+  it('processes nothing for a redelivered frame', async () => {
+    const body = JSON.stringify(presence('1001'));
+    expect((await post(body)).status).toBe(200);
+    h.after = [];
+    expect((await post(body)).status).toBe(200);
+    expect(h.after).toHaveLength(0);
+    expect(fake.tables.pbx_events_raw).toHaveLength(1);
   });
 });

@@ -23,6 +23,13 @@ No migration.
   "No deals" or a bar that never ends.
 - The HR chat list and team chat (channels, unread counts, the open
   channel) read again after the laptop slept or the connection dropped.
+### Fixed: phone events are stored before they are acknowledged
+
+- The Yeastar webhook now answers only once every event of the push is
+  stored (one short second try), and with 503 when one could not be, so a
+  database hiccup no longer loses a call event the PBX was told had
+  arrived. Processing still happens after the answer. No migration.
+
 
 ### Reminders and meeting invites after sleep
 
