@@ -281,6 +281,67 @@ describe('POST', () => {
     });
   });
 
+  it('gives the echo of an attachment, which has no file, the one sent', async () => {
+    stored().push({
+      id: 'echo',
+      account_id: 'acct-1',
+      group_id: G,
+      wa_message_id: 'wa-media',
+      direction: 'out',
+      sender_user_id: null,
+      sender_name: null,
+      type: 'unsupported',
+      body: null,
+      media: null,
+      status: 'delivered',
+      created_at: new Date().toISOString(),
+    });
+    const res = await post({
+      media: {
+        kind: 'image',
+        url: URL_OK,
+        path: PATH,
+        caption: 'look',
+        filename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(stored()).toHaveLength(1);
+    const want = {
+      sender_user_id: 'agent-1',
+      sender_name: 'Aya',
+      type: 'image',
+      body: 'look',
+      media: { link: URL_SENT, mime_type: 'image/jpeg', filename: 'photo.jpg' },
+      // A receipt that already moved it is not set back.
+      status: 'delivered',
+    };
+    expect(stored()[0]).toMatchObject(want);
+    expect((await res.json()).message).toMatchObject(want);
+  });
+
+  it("leaves the words of a text's echo alone", async () => {
+    stored().push({
+      id: 'echo',
+      account_id: 'acct-1',
+      group_id: G,
+      wa_message_id: 'wa-new',
+      direction: 'out',
+      type: 'text',
+      body: 'hi',
+      media: null,
+      status: 'sent',
+      created_at: new Date().toISOString(),
+    });
+    await post({ text: 'hi' });
+    expect(stored()[0]).toMatchObject({
+      type: 'text',
+      body: 'hi',
+      media: null,
+    });
+  });
+
   it('records a voice note as audio, without a caption', async () => {
     const path = 'account-acct-1/groups/1700000000000-voice.ogg';
     const res = await post({

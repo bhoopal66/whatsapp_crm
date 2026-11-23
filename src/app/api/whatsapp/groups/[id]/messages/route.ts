@@ -8,7 +8,8 @@
 // `chat-media/account-<id>/groups/`, checked by `parseGroupMedia`). At most
 // GROUP_SEND_LIMIT sends a minute per group (anti-ban). The row is
 // written after the gateway accepts; the webhook echo of the same
-// message may win the race, in which case we only attribute it.
+// message may win the race, in which case we attribute it (and give
+// an attachment's the file the echo lacks).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -172,10 +173,22 @@ export async function POST(request: Request, { params }: Params) {
       // The message went out; failing here would invite a resend.
       console.error('[groups] sent message not recorded', insertError);
     } else if ((inserted ?? []).length === 0) {
-      // The webhook echo won the race: only attribute its row.
+      // The webhook echo won the race: attribute its row. An echo of an
+      // attachment carries no file, so it gets ours too, or the sender's
+      // own attachment would read as unavailable for good.
       const { error } = await admin
         .from('whatsapp_group_messages')
-        .update({ sender_user_id: ctx.userId, sender_name: senderName })
+        .update({
+          sender_user_id: ctx.userId,
+          sender_name: senderName,
+          ...(media
+            ? {
+                type: groupMediaRowType(media.kind),
+                body: media.caption,
+                media: groupMediaRowMedia(media),
+              }
+            : {}),
+        })
         .eq('group_id', group.id)
         .eq('wa_message_id', sent.messageId);
       if (error) console.error('[groups] attribution failed', error);
