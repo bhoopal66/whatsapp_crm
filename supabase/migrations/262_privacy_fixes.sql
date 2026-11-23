@@ -28,6 +28,9 @@
 --  6. privacy_retention_problem refuses a missing days or action.
 --  7. case_review_claim fails a run after 5 attempts instead of
 --     reclaiming it for ever.
+--  8. The erase failed whole for anyone in ts_decision_log (append-only,
+--     063), with a memory_acl grant (129) or in a WhatsApp group (114's
+--     wa_id check): each table is now taken out by its own rule.
 --
 -- An opt-out survives an erase only on the anonymised row: the number is
 -- gone, so a re-imported number starts with no opt-out (docs/privacy.md;
@@ -253,13 +256,23 @@ BEGIN
 
     -- Rows keyed by the contact.
     FOR r IN SELECT * FROM (VALUES
-        ('contact_custom_values'), ('contact_notes'), ('contact_tags'), ('ts_decision_log'), ('automation_logs'),
+        ('contact_custom_values'), ('contact_notes'), ('contact_tags'), ('automation_logs'),
         ('automation_pending_executions'), ('flow_runs'), ('journey_files'), ('tasks'), ('callback_requests'),
         ('call_live')) t(tbl) LOOP
       EXECUTE format('DELETE FROM public.%I WHERE contact_id = $1', r.tbl) USING p_contact;
       GET DIAGNOSTICS v_n = ROW_COUNT;
       v_counts := v_counts || jsonb_build_object(r.tbl, v_n);
     END LOOP;
+    -- The safety-check log is append-only (063): a DELETE is refused, so 222
+    -- could not erase anyone the checks had ever read. Its own erase rule
+    -- takes the person out and keeps the decision for the aggregates.
+    PERFORM set_config('ts.erase', 'on', true);
+    UPDATE public.ts_decision_log x
+       SET contact_id = NULL, conversation_id = NULL, message_id = NULL, state_hash = NULL, answers = NULL,
+           answers_purged_at = coalesce(x.answers_purged_at, now())
+     WHERE x.account_id = p_account AND x.contact_id = p_contact;
+    GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('ts_decision_log', v_n);
+    PERFORM set_config('ts.erase', 'off', true);
     UPDATE public.broadcast_recipients x SET template_params = NULL, error_message = NULL WHERE x.contact_id = p_contact;
     GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('broadcast_recipients', v_n);
 
@@ -312,7 +325,10 @@ BEGIN
      WHERE v_digits IS NOT NULL AND x.account_id = p_account AND public.privacy_digits(x.sender_wa_id) = v_digits;
     GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('whatsapp_group_messages', v_n);
     UPDATE public.whatsapp_group_participants x
-       SET wa_id = 'erased-' || left(md5(x.group_id::text || x.wa_id), 12), contact_id = NULL
+       -- Digits only (114's wa_id check refused 222's 'erased-…', so nobody
+       -- in a WhatsApp group could be erased); 000 starts no real number.
+       SET wa_id = '000' || lpad((hashtextextended(x.group_id::text || x.wa_id, 262) & 9223372036854775807)::text, 19, '0'),
+           contact_id = NULL
      WHERE x.account_id = p_account
        AND (x.contact_id = p_contact OR (v_digits IS NOT NULL AND public.privacy_digits(x.wa_id) = v_digits));
     GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('whatsapp_group_participants', v_n);
@@ -331,7 +347,9 @@ BEGIN
     GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('hr_automsg_outbox', v_n);
 
     -- Memory, brain, vault.
-    DELETE FROM public.memory_acl x WHERE x.account_id = p_account AND x.scope_type = 'contact' AND x.scope_id = p_contact;
+    -- Grants are revoked, never removed (129's guard refuses a DELETE).
+    UPDATE public.memory_acl x SET revoked_at = greatest(now(), x.granted_at)
+     WHERE x.account_id = p_account AND x.scope_type = 'contact' AND x.scope_id = p_contact AND x.revoked_at IS NULL;
     GET DIAGNOSTICS v_n = ROW_COUNT; v_counts := v_counts || jsonb_build_object('memory_acl', v_n);
     SELECT count(*)::integer INTO v_n FROM public.memory_items x
      WHERE x.account_id = p_account AND x.scope_type = 'contact' AND x.scope_id = p_contact;

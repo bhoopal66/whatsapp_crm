@@ -103,9 +103,17 @@ describe('PDPL data map', () => {
     expect(missing).toEqual([]);
   });
 
-  it('erases every table it marks delete or anonymise (222 and registered)', () => {
+  it('erases every table it marks delete or anonymise (262 and registered)', () => {
+    // The body that is live: the last migration to define it (262 restates
+    // 222's), not every file that ever did.
+    const defining = readdirSync(DIR)
+      .filter((n) => n.endsWith('.sql'))
+      .sort()
+      .map((f) => readFileSync(join(DIR, f), 'utf8'))
+      .filter((f) => functionBody(f, 'privacy_subject_erase') !== '');
     const sql =
-      readFileSync(join(DIR, '222_privacy_erase.sql'), 'utf8') + ext.erase;
+      functionBody(defining.at(-1) ?? '', 'privacy_subject_erase') + ext.erase;
+    expect(sql).toContain('privacy_objects_unreferenced');
     const missing = Object.entries(PERSONAL)
       .filter(([, e]) => e.erase !== 'retain')
       .map(([t]) => t)

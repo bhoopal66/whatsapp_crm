@@ -307,6 +307,19 @@ BEGIN
     '262-4: a held customer''s deal room was swept');
   PERFORM privacy_legal_hold_set(u_admin, a_acct, c4, false);
 
+  -- Two tables refuse a DELETE (063's append-only log, 129's grants), which
+  -- failed the whole erase: each is taken out by its own rule.
+  INSERT INTO ts_decision_log (account_id, contact_id, conversation_id, check_name, question_set_version, decision, acted, shadow, state_hash, answers)
+  VALUES (a_acct, c4, v4, 'triage', 'qs-262', 'pass', false, false, 'h', '{"a": 1}');
+  INSERT INTO memory_acl (account_id, scope_type, scope_id, user_id, role) VALUES (a_acct, 'contact', c4, u_agent, 'member');
+  -- And one refuses the old pseudonym: a WhatsApp group participant.
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, verify_token, waba_id, status)
+  VALUES (u_owner, a_acct, 'whapi', 'pv-262-ch', 'x', 'x', '971500229999', 'connected') RETURNING id INTO chan;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, participants_count, our_role, created_by)
+  VALUES (a_acct, chan, '120363000000262262@g.us', 'PV group', 2, 'admin', u_owner) RETURNING id INTO chan;
+  INSERT INTO whatsapp_group_participants (group_id, account_id, wa_id, role, contact_id)
+  VALUES (chan, a_acct, '971500221009', 'member', c4), (chan, a_acct, '971500228888', 'member', NULL);
+
   -- 1, 2: what is queued.
   j := privacy_subject_erase(u_admin, a_acct, c4, true);
   n := n + 1; failed := failed || pg_temp.pv_ok((j->>'objects_count')::int = 2, format('262-1: the dry run counts %s files', j->>'objects_count'));
@@ -315,6 +328,19 @@ BEGIN
     j->'objects' = jsonb_build_array(jsonb_build_object('bucket', 'case-files', 'path', format('cases/%s/a.pdf', lost)),
       jsonb_build_object('bucket', 'chat-media', 'path', format('account-%s/own.jpg', a_acct))),
     format('262-1/2: a shared, foreign or repeated file was queued (%s)', j->'objects'));
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    EXISTS (SELECT 1 FROM ts_decision_log t WHERE t.account_id = a_acct AND t.question_set_version = 'qs-262'
+             AND t.contact_id IS NULL AND t.conversation_id IS NULL AND t.state_hash IS NULL AND t.answers IS NULL),
+    '262: the safety-check log still names the erased customer');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    EXISTS (SELECT 1 FROM memory_acl m WHERE m.scope_type = 'contact' AND m.scope_id = c4)
+    AND NOT EXISTS (SELECT 1 FROM memory_acl m WHERE m.scope_type = 'contact' AND m.scope_id = c4 AND m.revoked_at IS NULL),
+    '262: a memory grant on the erased customer is still active');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    NOT EXISTS (SELECT 1 FROM whatsapp_group_participants g WHERE g.group_id = chan AND (g.wa_id = '971500221009' OR g.contact_id = c4))
+    AND (SELECT count(*) FROM whatsapp_group_participants g WHERE g.group_id = chan AND g.wa_id ~ '^000[0-9]{19}$') = 1
+    AND EXISTS (SELECT 1 FROM whatsapp_group_participants g WHERE g.group_id = chan AND g.wa_id = '971500228888'),
+    '262: a WhatsApp group participant was not anonymised, or another one was');
 
   -- 3: the list survives; the retry lists it, re-checks it, and settles.
   q := (j->>'request_id')::bigint;

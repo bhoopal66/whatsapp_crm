@@ -992,7 +992,7 @@ export function ContactsPageInner({
     personalOnly: personalOnlyUserId !== null,
   });
 
-  function applyView(raw: ContactsViewFilters, shared: boolean) {
+  function applyView(raw: ContactsViewFilters, shared = false) {
     const v = fromViewFilters(raw);
     // A view whose tags were all deleted would otherwise show everyone.
     // Only judged once the tag list has loaded.

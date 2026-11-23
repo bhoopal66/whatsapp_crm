@@ -180,9 +180,10 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
   ts_decision_log: {
     link: 'contact',
     class: 'content',
-    erase: 'delete',
+    erase: 'anonymise',
     exported: false,
-    reason: 'hashed safety-check log; already erased with the contact (063)',
+    reason:
+      'hashed safety-check log, append-only: the person is taken out of it (063, 262)',
   },
   notifications: {
     link: 'contact',
@@ -772,9 +773,9 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
   memory_acl: {
     link: 'scope',
     class: 'identifier',
-    erase: 'delete',
+    erase: 'anonymise',
     exported: false,
-    reason: 'staff access grants',
+    reason: 'staff access grants: revoked, the rows stay (129)',
   },
   memory_audit: {
     link: 'scope',

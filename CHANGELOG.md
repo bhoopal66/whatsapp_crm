@@ -127,6 +127,9 @@ superuser or BYPASSRLS role, before the build. It restates functions of
 - A contact whose legal hold was released can be deleted again; one under
   an active hold is refused with a clear message.
 - A retention policy without `days` or `action` is refused.
+- Erase works for a customer the AI safety checks have read and for one
+  in a WhatsApp group: the tables behind both refused what 222 did to
+  them, so the whole erase failed.
 - A case review that kills its run stops after 5 attempts.
 - Docs: an opt-out does not follow an erased customer's number.
 ### Safer automatic customer messages
