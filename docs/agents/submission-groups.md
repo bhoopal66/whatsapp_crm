@@ -70,3 +70,8 @@ submission app. `docs/submission-groups.md` is the contract.
   events, a trigger on a customer message, and the cron's participant
   read (`sg_membership_due`, 6 hours). A hidden `@lid` number never reads
   as absent. `verify-submission-group-membership.sql`.
+- **Adopt before re-creating.** After an unconfirmed create (timeout, 5xx, no
+  id, or a lapsed claim) `createPending` lists the number's groups WHOLE and
+  adopts the one that can only be this submission's; no match in a whole list
+  allows a create, anything else does neither. The count lives in
+  `wa_create_error` (`unconfirmedError`); after 5 only an admin's Retry goes on.

@@ -1692,10 +1692,14 @@ export interface ListGroupsArgs {
   /** 1–500; Whapi's default is 100. */
   count?: number
   offset?: number
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
 }
 
 export interface WhapiGroupPage {
   groups: WhapiGroup[]
+  /** The answer held a groups array; without one nothing was read. */
+  listed: boolean
   /** Rows Whapi returned, parseable or not; decides the last page. */
   rawCount: number
   /** Total groups on the number, when Whapi says. */
@@ -1713,10 +1717,13 @@ export async function listGroups(args: ListGroupsArgs): Promise<WhapiGroupPage> 
       count: count === undefined ? undefined : Math.min(500, Math.max(1, count)),
       offset,
     },
+    timeoutMs: args.timeoutMs,
   })
-  const raw = Array.isArray(data?.groups) ? data.groups : []
+  const listed = Array.isArray(data?.groups)
+  const raw = listed ? (data.groups as unknown[]) : []
   return {
     groups: raw.map(parseWhapiGroup).filter((g): g is WhapiGroup => g !== null),
+    listed,
     rawCount: raw.length,
     total: num(data?.total),
     offset,

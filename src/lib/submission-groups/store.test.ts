@@ -10,6 +10,7 @@ import {
   SubmissionGroupStore,
   toGroup,
 } from './store';
+import type { SubmissionGroup } from './store';
 import { fakeSupabase, type FakeDb } from './test-db';
 
 const failing = (code: string | undefined) =>
@@ -301,7 +302,7 @@ describe('wa_mode (136)', () => {
   const recording = () => {
     const filters: [string, ...unknown[]][] = [];
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'is', 'not', 'lt', 'order'])
+    for (const m of ['select', 'eq', 'is', 'not', 'or', 'lt', 'order'])
       q[m] = (...args: unknown[]) => {
         filters.push([m, ...args]);
         return q;
@@ -317,6 +318,10 @@ describe('wa_mode (136)', () => {
     const { store, filters } = recording();
     await store.listPendingCreates(new Date());
     expect(filters).toContainEqual(['eq', 'wa_mode', 'group']);
+    // A stopped create must not fill the retry list for ever.
+    expect(filters.find((f) => f[0] === 'or')?.[1]).toBe(
+      'wa_create_error.is.null,wa_create_error.not.like.Stopped*'
+    );
   });
 
   it('listUnclosedEnded only lists group rows', async () => {
@@ -368,5 +373,54 @@ describe('openAccessLabel (163 bank, 173 team lead fallback)', () => {
     expect(await store('admin', []).s.openAccessLabel('g1', 'u1')).toBeNull();
     expect(await store('owner', []).s.openAccessLabel('g1', 'u1')).toBeNull();
     expect(await store(null, []).s.openAccessLabel('g1', 'u1')).toBeNull();
+  });
+});
+
+describe('adoptionRivals', () => {
+  const AT = new Date('2026-11-01T10:00:00Z');
+  const row = (o: Record<string, unknown>) => ({
+    account_id: 'a',
+    channel_id: 'c',
+    subject: 'Acme',
+    wa_mode: 'group',
+    wa_group_id: null,
+    ended_at: null,
+    ...o,
+  });
+  const rivals = (rows: Record<string, unknown>[]) =>
+    new SubmissionGroupStore(
+      fakeSupabase({
+        tables: { submission_groups: rows },
+      }) as unknown as SupabaseClient
+    ).adoptionRivals(
+      {
+        id: 'me',
+        accountId: 'a',
+        channelId: 'c',
+        subject: 'Acme',
+        createdAt: AT,
+      } as SubmissionGroup,
+      ['x@g.us', 'y@g.us']
+    );
+
+  it('names the groups others hold and a twin without its group, never itself', async () => {
+    expect(await rivals([row({ id: 'me' })])).toEqual({
+      held: [],
+      twin: false,
+    });
+    expect(
+      await rivals([
+        row({ id: 'me' }),
+        row({ id: 'o', subject: 'Other', wa_group_id: 'x@g.us' }),
+        row({ id: 't' }),
+      ])
+    ).toEqual({ held: ['x@g.us'], twin: true });
+  });
+
+  it('a twin ended before this submission existed is none; one ended since still is', async () => {
+    const ended = (at: string) =>
+      rivals([row({ id: 't', ended_at: at })]).then((r) => r.twin);
+    expect(await ended('2026-11-01T09:00:00Z')).toBe(false);
+    expect(await ended('2026-11-01T11:00:00Z')).toBe(true);
   });
 });

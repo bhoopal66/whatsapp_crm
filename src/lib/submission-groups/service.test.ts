@@ -8,6 +8,9 @@ import {
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
   type SubmissionGroupServiceDeps,
+  MAX_CREATE_ATTEMPTS,
+  unconfirmedCreate,
+  type FoundGroup,
   type GroupMediaSend,
   type GroupStore,
   type GroupsApi,
@@ -100,7 +103,14 @@ class FakeStore implements GroupStore {
   }
   async get(id: string) {
     const g = this.groups.get(id);
-    return g ? { ...g } : null;
+    const until = this.claims.get(id)?.until;
+    return g
+      ? { ...g, waCreateClaimedUntil: until ? new Date(until) : null }
+      : null;
+  }
+  rivals: { held: string[]; twin: boolean } = { held: [], twin: false };
+  async adoptionRivals() {
+    return this.rivals;
   }
   async findByRef(acc: string, ref: string) {
     const g = [...this.groups.values()].find(
@@ -137,7 +147,8 @@ class FakeStore implements GroupStore {
   async releaseCreateClaim(id: string, token: string, error: string | null) {
     if (this.claims.get(id)?.token !== token) return false;
     this.claims.delete(id);
-    this.groups.get(id)!.waCreateError = error;
+    // Like the SQL: no error given keeps the last one.
+    if (error !== null) this.groups.get(id)!.waCreateError = error;
     return true;
   }
   async attachWaGroup(
@@ -366,8 +377,12 @@ class FakeApi implements GroupsApi {
   fetchLinkError: Error | null = null;
   private seq = 0;
   private maybeFail(m: string) {
-    if (this.fail.delete(m)) throw new Error(`${m} failed`);
+    if (!this.fail.delete(m)) return;
+    const err = new Error(`${m} failed`);
+    // A create the gateway refused; `createError` is for any other outcome.
+    throw m === 'createGroup' ? Object.assign(err, { status: 400 }) : err;
   }
+  createError: Error | null = null;
   async createGroup(ch: string, parts: string[], subject: string, key: string) {
     this.calls.push({ method: 'createGroup', args: [ch, parts, subject, key] });
     if (this.hook) {
@@ -376,6 +391,7 @@ class FakeApi implements GroupsApi {
       await h();
     }
     this.maybeFail('createGroup');
+    if (this.createError) throw this.createError;
     const wa = this.byKey.get(key) ?? `wag-${++this.seq}@g.us`;
     this.byKey.set(key, wa);
     return {
@@ -395,6 +411,15 @@ class FakeApi implements GroupsApi {
     this.calls.push({ method: 'addParticipant', args: [ch, wa, phone] });
     if (this.addError) throw this.addError;
     return this.addOutcome;
+  }
+  found: FoundGroup[] | Error = [];
+  async findCreatedGroups(ch: string, subject: string, since: Date) {
+    this.calls.push({
+      method: 'findCreatedGroups',
+      args: [ch, subject, since],
+    });
+    if (this.found instanceof Error) throw this.found;
+    return this.found;
   }
   async getInviteLink(ch: string, wa: string) {
     this.calls.push({ method: 'getInviteLink', args: [ch, wa] });
@@ -678,7 +703,7 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(t.api.of('closeGroup')).toEqual([]);
   });
 
-  it('orphan: a lost claim on a still-pending row closes our group (no idempotency key; the cron recreates)', async () => {
+  it('orphan: a lost claim on a still-pending row keeps our group open, for the new holder to adopt', async () => {
     const s = setup();
     s.api.fail.add('createGroup');
     await expect(s.open()).rejects.toThrow();
@@ -689,13 +714,11 @@ describe('SubmissionGroupService.openForSubmission', () => {
     };
     const r = await s.open();
     expect(s.store.groups.get(g.id)!.waGroupId).toBeNull();
-    expect(s.api.of('closeGroup').map((c) => c.args)).toEqual([
-      [CH, expect.any(String)],
-    ]);
+    expect(s.api.of('closeGroup')).toEqual([]);
     expect(r).toMatchObject({ group: { waGroupId: null } });
   });
 
-  it('orphan: an attach that throws on a still-pending row closes our group', async () => {
+  it('orphan: an attach that throws on a still-pending row keeps our group open, for the next attempt to adopt', async () => {
     const s = setup();
     s.store.attachWaGroup = async () => {
       throw new Error('attach: connection reset');
@@ -703,7 +726,158 @@ describe('SubmissionGroupService.openForSubmission', () => {
     await expect(s.open()).rejects.toThrow(/attach/);
     const [g] = [...s.store.groups.values()];
     expect(g.waGroupId).toBeNull();
-    expect(s.api.of('closeGroup')).toHaveLength(1);
+    expect(s.api.of('closeGroup')).toEqual([]);
+  });
+
+  describe('after an unconfirmed create', () => {
+    const CUSTOMER = '971500000001';
+    /** A row whose first create timed out, seen three minutes later. */
+    async function timedOut() {
+      const t = { ms: Date.now() };
+      const s = setup({ now: () => new Date(t.ms) });
+      s.api.createError = Object.assign(new Error('timed out'), {
+        status: 503,
+      });
+      await expect(s.open()).rejects.toThrow('timed out');
+      const [g] = [...s.store.groups.values()];
+      t.ms += 180_000;
+      const found = (o: Partial<FoundGroup> = {}): FoundGroup => ({
+        waGroupId: 'wag-lost@g.us',
+        createdAt: new Date(g.createdAt.getTime() + 2_000),
+        others: [CUSTOMER],
+        ...o,
+      });
+      const creates = () => s.api.of('createGroup').length;
+      return { ...s, g, t, found, creates };
+    }
+
+    it('counts the attempt in the error; the next one adopts the group instead of making a second', async () => {
+      const s = await timedOut();
+      expect(unconfirmedCreate(s.g.waCreateError)?.attempts).toBe(1);
+      s.api.found = [s.found()];
+      expect(await s.open()).toMatchObject({
+        group: { waGroupId: 'wag-lost@g.us', waCreateError: null },
+        refusedParticipants: [],
+      });
+      expect(s.creates()).toBe(1);
+      expect(s.store.groups.get(s.g.id)!.waGroupId).toBe('wag-lost@g.us');
+      expect(s.api.of('findCreatedGroups')[0].args.slice(0, 2)).toEqual([
+        CH,
+        'Case S-1',
+      ]);
+    });
+
+    it('creates again only once a whole list held no match, and not right after the failure', async () => {
+      const s = await timedOut();
+      s.t.ms -= 120_000;
+      await expect(s.open()).rejects.toThrow(/waiting/);
+      expect(s.creates()).toBe(1);
+      s.t.ms += 120_000;
+      s.api.createError = null;
+      expect(await s.open()).toMatchObject({
+        group: { waGroupId: expect.any(String) },
+      });
+      expect(s.creates()).toBe(2);
+    });
+
+    it('a list that could not be read creates nothing and uses up no attempt', async () => {
+      const s = await timedOut();
+      s.api.found = new Error('list failed');
+      await expect(s.open()).rejects.toThrow('list failed');
+      expect(s.creates()).toBe(1);
+      expect(unconfirmedCreate(s.g.waCreateError)?.attempts).toBe(1);
+      expect(s.store.claims.size).toBe(0);
+    });
+
+    it('neither adopts nor creates when the group may be another', async () => {
+      for (const arrange of [
+        (s: Awaited<ReturnType<typeof timedOut>>) =>
+          void (s.api.found = [s.found(), s.found({ waGroupId: 'b@g.us' })]),
+        (s: Awaited<ReturnType<typeof timedOut>>) => {
+          s.api.found = [s.found()];
+          s.store.rivals = { held: [], twin: true };
+        },
+        (s: Awaited<ReturnType<typeof timedOut>>) =>
+          void (s.api.found = [s.found({ createdAt: null })]),
+        (s: Awaited<ReturnType<typeof timedOut>>) =>
+          void (s.api.found = [
+            s.found({ createdAt: new Date(s.g.createdAt.getTime() - 60_000) }),
+          ]),
+        (s: Awaited<ReturnType<typeof timedOut>>) =>
+          void (s.api.found = [
+            s.found({ others: [CUSTOMER, '971599999999'] }),
+          ]),
+      ]) {
+        const s = await timedOut();
+        arrange(s);
+        await expect(s.open()).rejects.toThrow(/WhatsApp group/);
+        expect(s.store.groups.get(s.g.id)!.waGroupId).toBeNull();
+        expect(s.creates()).toBe(1);
+        expect(unconfirmedCreate(s.g.waCreateError)?.attempts).toBe(2);
+      }
+    });
+
+    it("another submission's group of the same name is not a match", async () => {
+      const s = await timedOut();
+      s.api.createError = null;
+      s.api.found = [s.found()];
+      s.store.rivals = { held: ['wag-lost@g.us'], twin: false };
+      const r = await s.open();
+      expect(r).toMatchObject({ group: { waGroupId: expect.any(String) } });
+      expect(s.store.groups.get(s.g.id)!.waGroupId).not.toBe('wag-lost@g.us');
+    });
+
+    it('a claim that lapsed while creating counts as unconfirmed and is adopted', async () => {
+      const t = { ms: Date.now() };
+      const s = setup({ now: () => new Date(t.ms) });
+      s.store.attachWaGroup = async () => {
+        throw new Error('restart');
+      };
+      await expect(s.open()).rejects.toThrow('restart');
+      const [g] = [...s.store.groups.values()];
+      delete (s.store as Partial<FakeStore>).attachWaGroup;
+      t.ms += 121_000;
+      s.api.found = [
+        { waGroupId: 'wag-lost@g.us', createdAt: new Date(t.ms), others: [] },
+      ];
+      expect(await s.open()).toMatchObject({
+        group: { waGroupId: 'wag-lost@g.us' },
+        // Not among its members: invited, as a refused customer is.
+        refusedParticipants: [CUSTOMER],
+      });
+      expect(s.api.of('createGroup')).toHaveLength(1);
+      expect(s.store.groups.get(g.id)!.waGroupId).toBe('wag-lost@g.us');
+    });
+
+    it('stops after the last attempt with the reason kept; only a person goes on, after the lookup', async () => {
+      const s = await timedOut();
+      for (let n = 2; n <= MAX_CREATE_ATTEMPTS; n++) {
+        await expect(s.open()).rejects.toThrow('timed out');
+        s.t.ms += 180_000;
+      }
+      expect(s.creates()).toBe(MAX_CREATE_ATTEMPTS);
+      expect(s.g.waCreateError).toMatch(
+        /^Stopped after 5 attempts.*timed out$/
+      );
+      expect(await s.open()).toMatchObject({ group: { waGroupId: null } });
+      expect(s.creates()).toBe(MAX_CREATE_ATTEMPTS);
+      const lookups = s.api.of('findCreatedGroups').length;
+      s.api.createError = null;
+      await s.svc.retryOne(s.g.id);
+      expect(s.api.of('findCreatedGroups')).toHaveLength(lookups + 1);
+      expect(s.store.groups.get(s.g.id)!.waGroupId).not.toBeNull();
+    });
+
+    it('a definite refusal is retried as before: no lookup, no count', async () => {
+      const s = setup();
+      s.api.createError = Object.assign(new Error('bad'), { status: 400 });
+      await expect(s.open()).rejects.toThrow('bad');
+      const [g] = [...s.store.groups.values()];
+      expect(g.waCreateError).toBe('bad');
+      s.api.createError = null;
+      await s.open();
+      expect(s.api.of('findCreatedGroups')).toEqual([]);
+    });
   });
 
   it('retryPending finishes groups older than the threshold and reports per group', async () => {

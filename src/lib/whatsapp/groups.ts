@@ -289,6 +289,11 @@ export interface CreateGroupInput {
   name: string;
   /** Phone numbers or wa_ids; normalised here. */
   participants: string[];
+  /**
+   * Longest the Whapi create call itself may take, in place of the paced
+   * limit: giving up early leaves nobody knowing whether a group exists.
+   */
+  createTimeoutMs?: number;
 }
 
 export interface AddOutcome {
@@ -394,7 +399,7 @@ export async function createGroup(
       token: gw.token,
       subject: name,
       participants: first,
-      timeoutMs: callTimeoutMs(input),
+      timeoutMs: input.createTimeoutMs ?? callTimeoutMs(input),
     });
     group = created.group;
     added = created.processed;
@@ -616,6 +621,49 @@ export async function listGroupsWithStatus(
     }
   }
   return { groups, complete };
+}
+
+/** Whapi's largest list page. */
+const FIND_PAGE = 500;
+
+/**
+ * A Whapi number's groups with exactly this name, from a list read WHOLE:
+ * a page that fails or holds no list, a list that ends short of its total,
+ * or one past the cap or the deadline throws. "No match" is read as "no
+ * such group", so it must never come from a partial list.
+ */
+export async function findGroupsNamed(
+  args: TimeBudget & {
+    channel: WhatsAppChannel;
+    name: string;
+    timeoutMs?: number;
+  }
+): Promise<whapi.WhapiGroup[]> {
+  const gw = gatewayFor(args.channel);
+  if (gw.kind !== 'whapi') throw new GroupsUnsupportedError(gw.kind);
+  const name = args.name.trim();
+  const out: whapi.WhapiGroup[] = [];
+  for (
+    let offset = 0;
+    offset < whapi.MAX_GROUPS_PER_SYNC;
+    offset += FIND_PAGE
+  ) {
+    if (!withinBudget(args)) break;
+    const page = await whapi.listGroups({
+      token: gw.token,
+      count: FIND_PAGE,
+      offset,
+      timeoutMs: args.timeoutMs,
+    });
+    if (!page.listed) break;
+    out.push(...page.groups.filter((g) => g.name.trim() === name));
+    const read = offset + page.rawCount;
+    if (page.total !== null ? read >= page.total : page.rawCount < FIND_PAGE)
+      return out;
+    // Short of its own total: the gateway answered a partial list.
+    if (page.rawCount < FIND_PAGE) break;
+  }
+  throw new Error('the list of groups on this number could not be read whole');
 }
 
 export function getGroup(

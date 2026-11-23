@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups: no second WhatsApp group
+
+No migration.
+- When WhatsApp does not confirm that a submission group was made, the next
+  try first looks for it on the number and adopts it, and makes a new one only
+  when the whole list holds none. After 5 unconfirmed tries it stops, with the
+  reason shown, until an admin presses Retry.
+
 ### Reminders and meeting invites after sleep
 
 No migration.

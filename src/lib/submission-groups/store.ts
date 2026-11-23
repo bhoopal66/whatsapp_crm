@@ -45,6 +45,8 @@ export interface SubmissionGroup {
   endedAt: Date | null;
   endReason: string | null;
   waCreateError: string | null;
+  /** The create claim's lease; past = its holder died while creating. Optional like customerMembership. */
+  waCreateClaimedUntil?: Date | null;
   waClosedAt: Date | null;
   waCloseError: string | null;
   /** When the invite link last went out 1:1 to a customer WhatsApp refused to add (118). */
@@ -120,8 +122,11 @@ export interface ConsentAnswer {
   reason?: 'opted_out' | 'do_not_contact';
 }
 
+/** How `wa_create_error` starts once the attempts are used up (service.ts); one word, for the filter. */
+export const CREATE_STOPPED = 'Stopped';
+
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode, customer_name, coordinator_phones, customer_membership, customer_checked_at';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_create_claimed_until, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode, customer_name, coordinator_phones, customer_membership, customer_checked_at';
 
 type Row = Record<string, unknown>;
 
@@ -157,6 +162,7 @@ export function toGroup(r: Row): SubmissionGroup {
     endedAt: date(r.ended_at),
     endReason: str(r.end_reason),
     waCreateError: str(r.wa_create_error),
+    waCreateClaimedUntil: date(r.wa_create_claimed_until),
     waClosedAt: date(r.wa_closed_at),
     waCloseError: str(r.wa_close_error),
     inviteSentAt: date(r.invite_sent_at),
@@ -334,7 +340,45 @@ export class SubmissionGroupStore {
   }
 
   /**
-   * ACTIVE groups still without a WhatsApp group, created before `before` (the cron's retry list). Pass
+   * Before a WhatsApp group found by name is adopted for `group`: which of `waGroupIds` another submission of the
+   * account already holds, and whether another submission on the same number with the same subject has no WhatsApp
+   * group (being created, or lost to an unconfirmed create), so the one found may be that one's.
+   */
+  async adoptionRivals(
+    group: SubmissionGroup,
+    waGroupIds: readonly string[]
+  ): Promise<{ held: string[]; twin: boolean }> {
+    const held = await this.db
+      .from('submission_groups')
+      .select('id, wa_group_id')
+      .eq('account_id', group.accountId)
+      .in('wa_group_id', [...waGroupIds]);
+    if (held.error) throw new Error(`submission_groups: ${held.error.message}`);
+    const twins = await this.db
+      .from('submission_groups')
+      .select('id, ended_at')
+      .eq('account_id', group.accountId)
+      .eq('channel_id', group.channelId ?? '')
+      .eq('subject', group.subject)
+      .eq('wa_mode', 'group')
+      .is('wa_group_id', null);
+    if (twins.error)
+      throw new Error(`submission_groups: ${twins.error.message}`);
+    return {
+      held: ((held.data ?? []) as Row[])
+        .filter((r) => r.id !== group.id)
+        .map((r) => String(r.wa_group_id)),
+      // One ended before this submission existed cannot have made a group after it.
+      twin: ((twins.data ?? []) as Row[]).some((r) => {
+        const ended = date(r.ended_at);
+        return r.id !== group.id && (!ended || ended >= group.createdAt);
+      }),
+    };
+  }
+
+  /**
+   * ACTIVE groups still without a WhatsApp group, created before `before` (the cron's retry list), less those whose
+   * creation was stopped (CREATE_STOPPED), which must not fill the list's limit for ever. Pass
    * `accountId` whenever a per-account Whapi adapter will act on the rows; without it every account's are listed.
    */
   async listPendingCreates(
@@ -348,6 +392,7 @@ export class SubmissionGroupStore {
       .is('wa_group_id', null)
       .not('channel_id', 'is', null)
       .eq('wa_mode', 'group')
+      .or(`wa_create_error.is.null,wa_create_error.not.like.${CREATE_STOPPED}*`)
       .lt('created_at', before.toISOString());
     if (opts.accountId) q = q.eq('account_id', opts.accountId);
     const { data, error } = await q

@@ -12,12 +12,28 @@ import * as groups from '@/lib/whatsapp/groups';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
-import { SubmissionGroupChannelError, type GroupsApi } from './service';
+import {
+  SubmissionGroupChannelError,
+  SubmissionGroupNotAttemptedError,
+  type FoundGroup,
+  type GroupsApi,
+} from './service';
 
 export { SubmissionGroupChannelError };
 
 /** One read gives up here, so a hanging number cannot eat the cron's budget. */
 export const PARTICIPANTS_TIMEOUT_MS = 8_000;
+
+/**
+ * The create call itself. Longer than a paced call (15 s): giving up on it
+ * leaves a group nobody knows about. The lookup, the create, its batches and
+ * the invite link together stay inside the 120 s create lease.
+ */
+export const CREATE_TIMEOUT_MS = 40_000;
+/** One read of the lookup before a retried create. */
+export const LOOKUP_CALL_TIMEOUT_MS = 8_000;
+/** No lookup read starts after this. */
+export const LOOKUP_BUDGET_MS = 20_000;
 
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
@@ -66,12 +82,19 @@ export function createWhapiGroupsApi(
     // Whapi has no idempotency key on group creation; the service's
     // create lease (sg_claim_create) is what keeps this to one call.
     async createGroup(channelId, participants, subject) {
-      const channel = await channelFor(channelId);
+      let channel: WhatsAppChannel;
+      try {
+        channel = await channelFor(channelId);
+      } catch (err) {
+        if (err instanceof SubmissionGroupChannelError) throw err;
+        throw new SubmissionGroupNotAttemptedError(err);
+      }
       const made = await groups.createGroup({
         channel,
         name: subject,
         participants,
         deadline: groups.groupDeadline(),
+        createTimeoutMs: CREATE_TIMEOUT_MS,
       });
       const waGroupId = made.group?.id;
       if (!waGroupId) throw new Error('Whapi created no group');
@@ -91,6 +114,51 @@ export function createWhapiGroupsApi(
         // Best-effort: the group exists, the link can be fetched later.
       }
       return { waGroupId, inviteLink, refused };
+    },
+
+    async findCreatedGroups(channelId, subject, since) {
+      const channel = await channelFor(channelId);
+      const deadline = Date.now() + LOOKUP_BUDGET_MS;
+      const call = { channel, timeoutMs: LOOKUP_CALL_TIMEOUT_MS };
+      const named = await groups.findGroupsNamed({
+        ...call,
+        name: subject,
+        deadline,
+      });
+      const ours = normalizePhone(channel.wabaId ?? '') || null;
+      const found: FoundGroup[] = [];
+      for (const g of named) {
+        if (g.createdAt !== null && g.createdAt * 1000 < since.getTime())
+          continue;
+        if (!groups.withinBudget({ deadline }))
+          throw new Error('the groups with this name could not all be read');
+        let full: groups.Group;
+        try {
+          // The list may leave members out.
+          full = await groups.getGroup({ ...call, groupId: g.id });
+        } catch (err) {
+          if (isGroupGone(err)) continue;
+          throw err;
+        }
+        const creator = full.createdBy?.waId ?? g.createdBy?.waId ?? null;
+        if (full.terminated || (ours && creator && creator !== ours)) continue;
+        const members = full.participants.map((p) => p.waId ?? p.jid);
+        // A group we have left; a hidden id may be our own number.
+        if (
+          ours &&
+          members.length > 0 &&
+          !members.includes(ours) &&
+          !members.some((m) => m.includes('@'))
+        )
+          continue;
+        const createdAt = full.createdAt ?? g.createdAt;
+        found.push({
+          waGroupId: g.id,
+          createdAt: createdAt === null ? null : new Date(createdAt * 1000),
+          others: members.filter((m) => m !== ours),
+        });
+      }
+      return found;
     },
 
     async getParticipants(channelId, waGroupId) {
