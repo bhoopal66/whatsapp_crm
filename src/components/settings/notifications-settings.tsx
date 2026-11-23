@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { BellRing, Moon, Send, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,6 +25,10 @@ import {
   preferencesToSave,
   type PushPreferences,
 } from '@/lib/push/settings';
+import {
+  createPreferenceSaver,
+  type PreferenceSaver,
+} from '@/lib/push/preference-saver';
 import { SettingsPanelHead } from './settings-panel-head';
 import { MessageSoundSetting } from './message-sound-setting';
 
@@ -62,7 +66,6 @@ export function NotificationsSettings() {
   const [prefs, setPrefs] = useState<PushPreferences | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zones = useMemo(
     () => timeZones(prefs?.timeZone ?? null),
     [prefs?.timeZone]
@@ -94,33 +97,41 @@ export function NotificationsSettings() {
     setAttempt((n) => n + 1);
   };
 
-  useEffect(
-    () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    },
-    []
+  const saver = useMemo<PreferenceSaver<PushPreferences>>(
+    () =>
+      createPreferenceSaver({
+        delayMs: SAVE_DELAY_MS,
+        send: async (body, { keepalive }) => {
+          const res = await fetch('/api/push/preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            keepalive,
+          }).catch(() => null);
+          if (res?.ok) toast.success(t('saved'), { id: 'push-prefs' });
+          else toast.error(t('saveFailed'), { id: 'push-prefs' });
+        },
+      }),
+    [t]
   );
+
+  // Leaving within the pause must not lose the last change.
+  useEffect(() => {
+    window.addEventListener('pagehide', saver.flushNow);
+    return () => {
+      window.removeEventListener('pagehide', saver.flushNow);
+      saver.flush();
+    };
+  }, [saver]);
 
   const update = useCallback(
     (next: PushPreferences) => {
       setPrefs(next);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      // Half-filled quiet hours are not sent; an earlier change still is.
       const body = preferencesToSave(next);
-      if (!body) return;
-      saveTimer.current = setTimeout(() => {
-        fetch('/api/push/preferences', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-          .then((res) => {
-            if (res.ok) toast.success(t('saved'), { id: 'push-prefs' });
-            else toast.error(t('saveFailed'), { id: 'push-prefs' });
-          })
-          .catch(() => toast.error(t('saveFailed'), { id: 'push-prefs' }));
-      }, SAVE_DELAY_MS);
+      if (body) saver.schedule(body);
     },
-    [t]
+    [saver]
   );
 
   const toggleDevice = async (on: boolean) => {
