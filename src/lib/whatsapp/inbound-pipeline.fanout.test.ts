@@ -1536,24 +1536,38 @@ describe('processMessage — an open case without a group hears the customer', (
   const caseReads = () => h.calls.filter((c) => c.table === 'cases');
 
   it('sends the event to each open case this chat answers, once', async () => {
+    const group = (over: Record<string, unknown>) => ({
+      wa_mode: 'group',
+      status: 'ACTIVE',
+      wa_group_id: '1203@g.us',
+      wa_closed_at: null,
+      ...over,
+    });
     h.caseRows = [
       { id: 'lead', group_id: null, group: null },
       {
         id: 'no-whatsapp',
         group_id: 'g-1',
-        group: { wa_mode: 'none', status: 'ACTIVE' },
+        group: group({ wa_mode: 'none', wa_group_id: null }),
       },
       {
         id: 'ended',
         group_id: 'g-2',
-        group: { wa_mode: 'group', status: 'ENDED' },
+        group: group({ status: 'ENDED' }),
+      },
+      // Creating it failed, or is still to come.
+      {
+        id: 'not-made',
+        group_id: 'g-5',
+        group: group({ wa_group_id: null }),
+      },
+      {
+        id: 'closed',
+        group_id: 'g-6',
+        group: group({ wa_closed_at: '2026-11-20T09:00:00Z' }),
       },
       // Its own group tells it.
-      {
-        id: 'live-group',
-        group_id: 'g-3',
-        group: { wa_mode: 'group', status: 'ACTIVE' },
-      },
+      { id: 'live-group', group_id: 'g-3', group: group({}) },
       // A group that could not be read is not taken for none.
       { id: 'unknown', group_id: 'g-4', group: null },
     ];
@@ -1566,7 +1580,7 @@ describe('processMessage — an open case without a group hears the customer', (
       ],
     ]);
     expect(h.slaRpc.mock.calls.map(([a]) => a)).toEqual(
-      ['lead', 'no-whatsapp', 'ended'].map((id) => ({
+      ['lead', 'no-whatsapp', 'ended', 'not-made', 'closed'].map((id) => ({
         p_case: id,
         p_event: 'customer_message',
         p_now: expect.any(String),

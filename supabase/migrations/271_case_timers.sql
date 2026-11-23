@@ -57,6 +57,45 @@ COMMENT ON COLUMN public.case_snooze_log.reason IS
 COMMENT ON COLUMN public.cases.snoozed_until IS
   'The case is out of the default inbox until then (NULL: not snoozed). Written only by case_snooze / case_unsnooze and, to end a running snooze, case_sla_apply_event. Migrations 185, 271.';
 
+-- ---------- 1b. Rules: at most one matched and one unmatched run per key ----------
+
+-- 187's index under its own name (a re-run of 187 leaves it alone). One
+-- block: the index is never missing.
+DO $$ BEGIN
+  IF position('matched' IN coalesce(pg_get_indexdef(to_regclass('public.case_rule_runs_key_uq')), '')) = 0 THEN
+    DROP INDEX IF EXISTS public.case_rule_runs_key_uq;
+    CREATE UNIQUE INDEX case_rule_runs_key_uq
+      ON public.case_rule_runs (rule_id, case_id, fire_key, matched) WHERE fire_key IS NOT NULL;
+  END IF;
+END $$;
+
+-- A lock not had in time refused a change above: the functions below would
+-- then write what the tables refuse (every swept rule, every stage change
+-- of a snoozed case). psql goes on after an error, so the session turns
+-- read-only first, as in 130.
+DO $$ BEGIN
+  IF position('matched' IN coalesce(pg_get_indexdef(to_regclass('public.case_rule_runs_key_uq')), '')) = 0
+     OR EXISTS (SELECT 1 FROM pg_attribute
+                 WHERE attrelid = 'public.case_snooze_log'::regclass
+                   AND attname = 'actor_id' AND attnotnull)
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint
+                     WHERE conrelid = 'public.case_snooze_log'::regclass
+                       AND conname = 'case_snooze_log_role_check'
+                       AND position('snoozed_until IS NULL' IN pg_get_constraintdef(oid)) > 0) THEN
+    PERFORM set_config('wacrm.m271_refused', 'yes', false);
+    PERFORM set_config('default_transaction_read_only', 'on', false);
+  ELSE
+    PERFORM set_config('wacrm.m271_refused', '', false);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF current_setting('wacrm.m271_refused', true) <> '' THEN
+    RAISE EXCEPTION '271 did not get its table changes and stopped before its functions (this session is now read-only): reconnect and apply it again'
+      USING ERRCODE = 'object_not_in_prerequisite_state';
+  END IF;
+END $$;
+
 -- ---------- 2. SLA events (124's body, 271 edits marked) ----------
 
 CREATE OR REPLACE FUNCTION public.case_sla_apply_event(p_case uuid, p_event text, p_now timestamptz,
@@ -119,16 +158,6 @@ END;
 $$;
 
 -- ---------- 3. Rules fire once per MATCHED key ----------
-
--- 187's index under its own name (a re-run of 187 leaves it alone). One
--- block: the index is never missing.
-DO $$ BEGIN
-  IF position('matched' IN coalesce(pg_get_indexdef(to_regclass('public.case_rule_runs_key_uq')), '')) = 0 THEN
-    DROP INDEX IF EXISTS public.case_rule_runs_key_uq;
-    CREATE UNIQUE INDEX case_rule_runs_key_uq
-      ON public.case_rule_runs (rule_id, case_id, fire_key, matched) WHERE fire_key IS NOT NULL;
-  END IF;
-END $$;
 
 COMMENT ON TABLE public.case_rule_runs IS
   'One row per rule evaluated by case_rules_fire (matched or not); with a fire_key at most one of each. applied = [{kind, ok, refusal}]. Append-only. Migrations 187, 271.';

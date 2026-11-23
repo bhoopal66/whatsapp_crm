@@ -24,9 +24,10 @@ and polish.
   its conditions become true later (the bank is filled in afterwards). It
   still fires once. After the migration, rules that missed this way fire on
   the next sweep for cases still overdue or idle.
-- A case without a live WhatsApp group (a lead, a submission opened without
-  one, or one whose group has ended): its "customer reply" timer stops when
-  the customer answers in the one-to-one chat. Only groups did this before.
+- A case without a live WhatsApp group (a lead, a submission whose group was
+  not wanted, not made yet, or has ended): its "customer reply" timer stops
+  when the customer answers in the one-to-one chat. Only groups did this
+  before.
 - "Customer waiting" is now **Waiting for the customer**, on the cases list,
   its filter and the home page: the flag means we wait for the customer.
 
