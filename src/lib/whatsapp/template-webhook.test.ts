@@ -156,6 +156,38 @@ describe('handleTemplateWebhookChange — status update', () => {
     expect(calls[0].update?.status).toBe('PENDING');
   });
 
+  it.each(['REINSTATED', 'FLAGGED'])(
+    '%s leaves the template usable (APPROVED)',
+    async (event) => {
+      const { stub, calls } = makeSupabaseStub();
+      await handleTemplateWebhookChange(
+        {
+          field: 'message_template_status_update',
+          value: { event, message_template_id: '1' },
+        },
+        stub,
+        'acct-1',
+      );
+      expect(calls[0].update?.status).toBe('APPROVED');
+    },
+  );
+
+  it('an event that is not a status writes nothing and is logged once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warn.mockClear();
+    const { stub, calls } = makeSupabaseStub();
+    await handleTemplateWebhookChange(
+      {
+        field: 'message_template_status_update',
+        value: { event: 'LIMIT_EXCEEDED', message_template_id: '1' },
+      },
+      stub,
+      'acct-1',
+    );
+    expect(calls).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it('logs and exits when meta_template_id is missing (no UPDATE issued)', async () => {
     const { stub, calls } = makeSupabaseStub();
     await handleTemplateWebhookChange(

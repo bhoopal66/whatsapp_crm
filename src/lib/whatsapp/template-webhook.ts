@@ -127,6 +127,16 @@ async function handleStatusUpdate(
   }
 
   const status = normalizeStatus(value.event)
+  if (!status) {
+    // Not a status (a lock, a limit, something Meta added since): the
+    // stored one still holds.
+    console.warn(
+      '[template-webhook] event is not a template status, stored status kept:',
+      value.event,
+      metaTemplateId,
+    )
+    return
+  }
 
   // Persist the rejection reason on REJECTED — that's the only event
   // where Meta sends a human-readable explanation. Clear it on any

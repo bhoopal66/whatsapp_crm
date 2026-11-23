@@ -23,6 +23,7 @@ import {
   withOverride,
   type BannerOverride,
 } from '@/lib/ai/banner-state';
+import { draftFailure } from '@/lib/ai/pending-draft';
 import type { Conversation } from '@/types';
 import {
   fetchAiAccountStatus,
@@ -211,6 +212,7 @@ export function AiThreadBanner({
     [conversationId, currentUserId, applied, t]
   );
 
+  const draftAt = conversation.ai_pending_draft_at ?? null;
   const actOnDraft = useCallback(
     async (action: 'send' | 'discard', text?: string) => {
       setBusy({
@@ -221,22 +223,44 @@ export function AiThreadBanner({
         const res = await fetch(`/api/ai/pending-draft/${conversationId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(text ? { action, text } : { action }),
+          // Which draft this is: the one on screen, not whichever is
+          // stored by the time the click arrives.
+          body: JSON.stringify({
+            action,
+            draft_at: draftAt,
+            ...(text ? { text } : {}),
+          }),
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
-          toast.error(j?.error ?? t('draftError'));
-          // 409: the draft is already gone (someone else acted on it).
-          if (res.status === 409) applied(DRAFT_CLEARED);
-          return;
+          const failure = draftFailure(res.status, j);
+          switch (failure.kind) {
+            case 'changed':
+              applied(failure.draft);
+              toast.info(t('draftReplaced'));
+              return;
+            case 'maybeSent':
+              applied(DRAFT_CLEARED);
+              toast.warning(t('draftMaybeSent'));
+              return;
+            case 'sentUnsaved':
+              applied(DRAFT_CLEARED);
+              toast.warning(t('draftSentUnsaved'));
+              return;
+            case 'gone':
+              applied(DRAFT_CLEARED);
+              toast.error(failure.error ?? t('draftError'));
+              return;
+            case 'failed':
+              toast.error(failure.error ?? t('draftError'));
+              return;
+            default: {
+              const never: never = failure;
+              return never;
+            }
+          }
         }
         setEditing(null);
-        if (j?.cleared === false) {
-          // A newer draft replaced this one meanwhile; realtime shows it.
-          if (action === 'send') toast.success(t('draftSent'));
-          toast.info(t('draftReplaced'));
-          return;
-        }
         applied(DRAFT_CLEARED);
         toast.success(action === 'send' ? t('draftSent') : t('draftDiscarded'));
       } catch {
@@ -245,7 +269,7 @@ export function AiThreadBanner({
         setBusy(null);
       }
     },
-    [conversationId, applied, t]
+    [conversationId, draftAt, applied, t]
   );
 
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)

@@ -105,6 +105,21 @@ No migration.
   read the screen says so; it listed every call as untouched.
 - **Missed calls and HR tasks** say when only the first 200 tasks are shown.
 
+### AI drafts, templates and groups: no second copies, no lost state
+
+No migration.
+- A held AI draft whose send may have reached the customer (a timeout, a
+  gateway error, a message that could not be saved) is no longer offered
+  again: the banner says it may have been sent and to check the chat. One
+  more click sent it twice.
+- **Send** and **Discard** act on the draft on your screen. When the AI has
+  held a newer one meanwhile, nothing is sent or discarded and the banner
+  shows the newer draft. A tab opened before the update asks for a reload.
+- A template Meta flags or reinstates stays usable, and an event that is
+  not a status changes nothing. Both used to set the template to pending,
+  so every sender refused it until somebody pressed Sync. A template
+  deleted at Meta becomes disabled.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

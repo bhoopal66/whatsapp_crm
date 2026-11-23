@@ -847,6 +847,8 @@
       "draftSent": "Draft sent.",
       "draftDiscarded": "Draft discarded.",
       "draftReplaced": "The AI held a newer draft meanwhile; it is shown now.",
+      "draftMaybeSent": "The draft may have been sent. Check the chat before sending it again.",
+      "draftSentUnsaved": "The draft was sent, but it could not be saved and will not appear in this chat. Do not send it again.",
       "draftError": "Couldn’t act on the AI draft.",
       "outcomeWarning": "AI didn’t answer the last message: {reason}",
       "outcomeDetail": "Details: {detail}",

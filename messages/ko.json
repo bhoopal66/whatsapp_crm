@@ -847,6 +847,8 @@
       "draftSent": "초안을 보냈습니다.",
       "draftDiscarded": "초안을 삭제했습니다.",
       "draftReplaced": "그 사이 AI가 새 초안을 보류했습니다. 지금 표시됩니다.",
+      "draftMaybeSent": "초안이 전송되었을 수 있습니다. 다시 보내기 전에 채팅을 확인하세요.",
+      "draftSentUnsaved": "초안은 전송되었지만 저장하지 못해 이 채팅에 표시되지 않습니다. 다시 보내지 마세요.",
       "draftError": "AI 초안을 처리하지 못했습니다.",
       "outcomeWarning": "AI가 마지막 메시지에 답하지 않았습니다: {reason}",
       "outcomeDetail": "세부 정보: {detail}",
