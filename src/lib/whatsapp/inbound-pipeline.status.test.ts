@@ -462,7 +462,7 @@ describe('handleStatusUpdate — a bot reply WhatsApp refused', () => {
     });
     await expect(
       handleStatusUpdate(status({ status: 'failed' }), ACCOUNT)
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ matched: true, failed: false });
     expect(h.webhook).toHaveBeenCalledTimes(1);
     errored.mockRestore();
   });
@@ -519,5 +519,43 @@ describe('handleStatusUpdate: HR automated-message receipts', () => {
     world({ messages: [{ ...OUTBOUND, sender_type: 'bot' }] });
     await handleStatusUpdate(status({ status: 'read' }), ACCOUNT);
     expect(order).toEqual(['hr', 'webhook']);
+  });
+});
+
+describe('handleStatusUpdate: what it answers', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it.each([
+    ['a message', { messages: [OUTBOUND] }, true],
+    // Found is enough: a repeat receipt moves no row.
+    ['a repeat', { messages: [OUTBOUND], movedIds: [] }, true],
+    ['a recipient', { recipient: { id: 'r-1', status: 'read' } }, true],
+    ['nothing', {}, false],
+  ] as [string, World, boolean][])('%s', async (_name, w, matched) => {
+    world(w);
+    expect(await handleStatusUpdate(status(), ACCOUNT)).toEqual({
+      matched,
+      failed: false,
+    });
+  });
+
+  it.each([
+    ['messages', 'select'],
+    ['messages', 'update'],
+    ['broadcast_recipients', 'select'],
+    ['broadcast_recipients', 'update'],
+  ])('%s %s refused: failed', async (table, op) => {
+    world({
+      messages: [OUTBOUND],
+      recipient: { id: 'r-1', status: 'sent', broadcast_id: 'b-1' },
+    });
+    const respond = h.respond;
+    h.respond = (call) =>
+      call.table === table && call.op === op
+        ? { data: null, error: { code: '57014' } }
+        : respond(call);
+    expect((await handleStatusUpdate(status(), ACCOUNT)).failed).toBe(true);
   });
 });

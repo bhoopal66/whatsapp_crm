@@ -19,6 +19,7 @@ import {
   findOrCreateContact,
   findOrCreatePersonalChat,
 } from './inbound-pipeline';
+import { InboundPersistError } from './inbound-persist-error';
 import { getContactPhone } from './openwa-api';
 
 export interface OwnSend {
@@ -41,7 +42,10 @@ function isoFromSeconds(seconds: string): string {
 export async function persistOwnSend(
   db: SupabaseClient,
   channel: WhatsAppChannel,
-  send: OwnSend
+  send: OwnSend,
+  // 'throw': a contact or chat that could not be resolved throws
+  // `InboundPersistError` instead of being skipped.
+  opts: { onPersistFailure?: 'throw' } = {}
 ): Promise<OwnSendOutcome> {
   const ownerId = channel.isPersonal ? channel.personalUserId : null;
   if (!ownerId) return 'skipped';
@@ -67,14 +71,22 @@ export async function persistOwnSend(
     // must never rename a contact the company already has.
     { rename: false }
   );
-  if (!contact) return 'skipped';
+  if (!contact) {
+    if (opts.onPersistFailure === 'throw')
+      throw new InboundPersistError('contact');
+    return 'skipped';
+  }
   const chat = await findOrCreatePersonalChat(
     db,
     channel.accountId,
     contact.contact.id,
     channel
   );
-  if (!chat) return 'skipped';
+  if (!chat) {
+    if (opts.onPersistFailure === 'throw')
+      throw new InboundPersistError('conversation');
+    return 'skipped';
+  }
   const conversationId = chat.conversation.id as string;
 
   const { data: existing, error: readError } = await db
