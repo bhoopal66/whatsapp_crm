@@ -22,7 +22,8 @@ import {
 // can find its message; then each status goes to migration 226's matcher
 // (by user id with one, else by ref id or number); then each STOP opts its
 // contact out of every channel, as an HR chat's STOP does
-// (`lib/hr/agents/inbound.ts`). One item's failure never stops the others.
+// (`lib/hr/agents/inbound.ts`). One item's failure never stops the others;
+// a STOP that could not be recorded makes the answer 503.
 //
 // Never log the payload, a number, the token or the secret.
 
@@ -154,7 +155,20 @@ export async function POST(request: Request) {
         add('optout_not_found');
         continue;
       }
-      await markOptedOut(db, { accountId: p_account_id, contactId: data });
+      // markOptedOut answers false for "already stamped" and for a failed
+      // write alike; only the contact itself tells them apart.
+      if (
+        !(await markOptedOut(db, { accountId: p_account_id, contactId: data }))
+      ) {
+        const { data: c, error: readError } = await db
+          .from('contacts')
+          .select('opted_out_at')
+          .eq('id', data)
+          .eq('account_id', p_account_id)
+          .maybeSingle();
+        if (readError) throw readError;
+        if (c && !c.opted_out_at) throw new Error('not stamped');
+      }
       const { error: supersedeError } = await db.rpc('hr_agent_supersede', {
         p_account_id,
         p_contact_id: data,
@@ -168,5 +182,9 @@ export async function POST(request: Request) {
   }
 
   if (parsed.ignored > 0) counts.ignored = parsed.ignored;
+  // An incoming text is not stored, so a STOP lost here is lost for good:
+  // ask the gateway to push again. Every step above is idempotent.
+  if (counts.optout_error)
+    return Response.json({ error: 'optout_failed', counts }, { status: 503 });
   return Response.json({ ok: true, counts });
 }

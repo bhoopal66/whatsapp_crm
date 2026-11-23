@@ -4,11 +4,22 @@ const h = vi.hoisted(() => ({
   config: vi.fn(),
   rpc: vi.fn(),
   markOptedOut: vi.fn(),
+  contact: vi.fn(),
 }));
 
 vi.mock('@/lib/hr/automsg/sms-config', () => ({ smsWebhookConfig: h.config }));
 vi.mock('@/lib/automations/admin-client', () => ({
-  supabaseAdmin: () => ({ rpc: h.rpc }),
+  supabaseAdmin: () => ({
+    rpc: h.rpc,
+    from: () => {
+      const q = {
+        select: () => q,
+        eq: () => q,
+        maybeSingle: h.contact,
+      };
+      return q;
+    },
+  }),
 }));
 vi.mock('@/lib/ai/opt-out', () => ({ markOptedOut: h.markOptedOut }));
 
@@ -138,6 +149,42 @@ describe('POST /api/sms/webhook', () => {
       ok: true,
       counts: { recorded: 2, optout_recorded: 1 },
     });
+  });
+
+  it('answers 503 when a STOP could not be recorded, after the rest', async () => {
+    const two = JSON.stringify({
+      sms: [
+        { number: '+971501234567', text: 'STOP' },
+        { number: '+971507654321', text: 'STOP' },
+      ],
+    });
+    let lookups = 0;
+    h.rpc.mockImplementation(async (fn: string) => {
+      if (fn !== 'hr_automsg_sms_contact') return { data: 1, error: null };
+      lookups += 1;
+      return lookups === 1
+        ? { data: null, error: { code: '57014' } }
+        : { data: CONTACT, error: null };
+    });
+    const res = await POST(post(two, { 'x-sms-token': SECRET }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: 'optout_failed',
+      counts: { optout_error: 1, optout_recorded: 1 },
+    });
+  });
+
+  it('tells a failed stamp from a contact already opted out', async () => {
+    h.markOptedOut.mockResolvedValue(false);
+    h.contact.mockResolvedValue({ data: { opted_out_at: null }, error: null });
+    let res = await POST(post(BODY, { 'x-sms-token': SECRET }));
+    expect(res.status).toBe(503);
+    h.contact.mockResolvedValue({
+      data: { opted_out_at: '2026-11-01T00:00:00Z' },
+      error: null,
+    });
+    res = await POST(post(BODY, { 'x-sms-token': SECRET }));
+    expect(res.status).toBe(200);
   });
 
   it('a STOP from someone never texted opts nobody out', async () => {

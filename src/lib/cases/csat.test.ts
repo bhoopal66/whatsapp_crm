@@ -14,6 +14,7 @@ import {
   CSAT_TEMPLATE_BODIES,
   CSAT_TRIGGERS,
   CSAT_REQUEST_STATUSES,
+  CSAT_CLAIM_LIMIT,
   CsatRefusal,
   csatTriggerFor,
   decideCsatSend,
@@ -46,8 +47,23 @@ describe('parseCsatReply', () => {
     ['٣ نجوم', 3, null],
     ['4 من 5', 4, null],
     ['5.', 5, null],
-    ['5 great service', 5, 'great service'],
-    ['5. Fast and clear', 5, 'Fast and clear'],
+    ['5!!', 5, null],
+    ['5 😊👍🏽', 5, null],
+    ['5️⃣', 5, null],
+    ['4 of 5', 4, null],
+    ['5 out of 5 stars', 5, null],
+    ['5 - great', 5, 'great'],
+    ['3: ok', 3, 'ok'],
+    ['3; ok', 3, 'ok'],
+    ['٤؛ جيد', 4, 'جيد'],
+    ['5! thanks', 5, 'thanks'],
+    ['2\ntoo slow\nreally', 2, 'too slow really'],
+    ['4 من 5، جيد', 4, 'جيد'],
+    ['5 stars great', 5, 'great'],
+    ['5 out of 5 great', 5, 'great'],
+    ['5 ⭐ great', 5, 'great'],
+    ['⭐⭐⭐⭐⭐ great service', 5, 'great service'],
+    ['⭐️ ⭐️', 2, null],
     ['2 - too slow', 2, 'too slow'],
     ['4/5 good but slow', 4, 'good but slow'],
     ['5, شكرا', 5, 'شكرا'],
@@ -71,14 +87,31 @@ describe('parseCsatReply', () => {
     'five',
     'hello 5',
     '⭐⭐⭐⭐⭐⭐',
+    // Ordinary messages while a request is open.
+    '5 great service',
+    '5. Fast and clear',
+    '2 years in business',
+    '1. Passport 2. Trade licence',
+    '3 pm call me',
+    '2-3 years',
+    '4 pm',
+    '1) passport',
+    '5 lakh',
+    '3, 4 pm',
+    '4 of 5 documents sent',
+    '٢ سنوات',
+    '5%',
+    '1/5/2026',
+    '1\n2\n3',
+    '⭐⭐⭐ 5',
   ])('not a rating: %j', (text) => {
     expect(parseCsatReply(text)).toBeNull();
   });
 
   it('caps a comment at 1000 characters', () => {
-    const r = parseCsatReply(`4 ${'a'.repeat(1010)}`);
+    const r = parseCsatReply(`4, ${'a'.repeat(1010)}`);
     expect(r?.comment?.length).toBe(1000);
-    expect(parseCsatReply(`4 ${'a'.repeat(2000)}`)).toBeNull();
+    expect(parseCsatReply(`4, ${'a'.repeat(2000)}`)).toBeNull();
   });
 
   it('reads Arabic-Indic digits as ASCII', () => {
@@ -372,6 +405,13 @@ describe('runCaseCsat', () => {
     });
   });
 
+  it('claims at most 5 per pass', async () => {
+    const d = db([]);
+    await runCaseCsat(d, vi.fn());
+    expect(CSAT_CLAIM_LIMIT).toBe(5);
+    expect(d.rpc.mock.calls[0]![1]).toMatchObject({ p_limit: 5 });
+  });
+
   it('never throws', async () => {
     const d = {
       rpc: vi.fn(async () => ({ data: null, error: { code: 'XX' } })),
@@ -396,7 +436,7 @@ describe('noteCsatReply', () => {
   it('sends score and comment, and reports a capture', async () => {
     const rpc = vi.fn(async () => ({ data: true, error: null }));
     expect(
-      await noteCsatReply({ rpc } as never, { ...input, text: '4 good' })
+      await noteCsatReply({ rpc } as never, { ...input, text: '4, good' })
     ).toBe(true);
     expect(rpc).toHaveBeenCalledWith('case_csat_capture', {
       p_account: 'a',
@@ -417,5 +457,22 @@ describe('noteCsatReply', () => {
     expect(
       await noteCsatReply({ rpc: err } as never, { ...input, text: '5' })
     ).toBe(false);
+  });
+});
+
+describe('the inbound pipeline', () => {
+  it('tries a rating only after Flows, and only when no Flow took the message', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/lib/whatsapp/inbound-pipeline.ts'),
+      'utf8'
+    );
+    const flows = src.indexOf('await dispatchInboundToFlows(');
+    const calls = [...src.matchAll(/noteCsatReply\(/g)];
+    expect(calls).toHaveLength(1);
+    expect(flows).toBeGreaterThan(-1);
+    expect(calls[0]!.index).toBeGreaterThan(flows);
+    expect(src).toMatch(
+      /const csatConsumed =\s+!flowConsumed &&\s+!interactiveReplyId &&\s+\(await noteCsatReply\(/
+    );
   });
 });

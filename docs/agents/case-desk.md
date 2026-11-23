@@ -80,7 +80,7 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_queue_alerts_due`: a bank queue's oldest untagged upload ≥ 2 h →
   the second (else the cover), ≥ 4 h or the no-bank queue → the lead;
   `runDeskQueueAlerts` (same cron pass as tray escalation) dedupes on
-  `source_ref desk_queue:<item>:<level>`. `verify-desk-bank-cover.sql`.
+  `source_ref desk_queue:<bank|none>:<level>:<Dubai day>`. `verify-desk-bank-cover.sql`.
 - **Application view (233, design 035 section 5).**
   `desk_application_checklist`: the union of 181's required
   `case_file_spec_rows` over the company's open cases the actor can read
@@ -101,7 +101,9 @@ package 035a-c. `docs/case-desk.md` is the contract.
   sent + digests; stale claims → 'unconfirmed', never resent.
   `runDeskDigests` + `sendDeskDigest` (template on Meta, rendered text on
   Whapi/OpenWA, the chat's own number, never personal) from the
-  automations cron every 5 min. `processMessage` calls `noteDigestStop`
+  automations cron every 5 min, 5 per pass (`DIGEST_CLAIM_LIMIT`); re-checks
+  opt-out/DNC and 204's number limit (`number_daily_limit`) before the
+  gateway. `processMessage` calls `noteDigestStop`
   for a STOP word (`isStopWord`); `desk_digest_stop` opts out only after
   a digest in 30 days. HR's own claim does not count digests (one-way
   cap). `verify-desk-reminder-digest.sql`.

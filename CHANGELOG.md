@@ -70,6 +70,23 @@ superuser or BYPASSRLS role, before the build. It restates functions of
 - A retention policy without `days` or `action` is refused.
 - A case review that kills its run stops after 5 attempts.
 - Docs: an opt-out does not follow an erased customer's number.
+### Safer automatic customer messages
+
+No migration. All of these stay off until an admin switches them on.
+- **Slower sending.** Case rating requests and desk reminders go out at
+  most 5 at a time every 5 minutes, and never past a linked number's
+  daily limit of new chats. A rating request over the limit waits; a
+  reminder over it is not sent, and the next waits for the usual gap.
+- **Opt-outs.** Both check again, right before each message, that the
+  customer has not opted out or been marked do-not-contact.
+- **Rating replies.** Ordinary messages that start with a digit ("2 years
+  in business", "1. Passport", "3 pm call me") are no longer stored as a
+  rating. "5 great" is not one either; "5", "5/5 great" and "5, great"
+  are.
+- **Sorting queue alerts.** At most one task per bank, level and day,
+  instead of a new one each time the next upload becomes the oldest.
+- **SMS STOP.** When a STOP text could not be recorded the SMS webhook
+  now answers 503, so the gateway can send it again.
 
 ### Before going live: menu speed, sign-in links, AI check
 

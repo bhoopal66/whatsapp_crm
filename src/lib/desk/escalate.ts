@@ -67,15 +67,21 @@ export async function runDeskTrayEscalation(
  * Sorting-queue alerts (migration 232): a bank queue's oldest waiting
  * upload past 2 h becomes a follow-up for the second coordinator (else
  * whoever covers), past 4 h for the lead; the no-bank queue goes to the
- * lead. One task per upload and level (`source_ref
- * desk_queue:<item>:<level>`), so a queue that stays old asks again only
- * when it escalates. Never throws.
+ * lead. One task per bank, level and Dubai day (`source_ref
+ * desk_queue:<bank or none>:<level>:<day>`): the SQL names the queue's
+ * current oldest upload, so a key on the upload opened another task and
+ * bell every pass while a backlog was being sorted. Never throws.
  */
 export async function runDeskQueueAlerts(
   db: SupabaseClient,
   store: DeskStore = new DeskStore(db),
-  createTask: typeof createSystemTask = createSystemTask
+  createTask: typeof createSystemTask = createSystemTask,
+  now: () => Date = () => new Date()
 ): Promise<EscalationSummary | null> {
+  // en-CA writes YYYY-MM-DD.
+  const day = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dubai',
+  }).format(now());
   let due: Awaited<ReturnType<DeskStore['queueAlertsDue']>>;
   try {
     due = await store.queueAlertsDue();
@@ -99,11 +105,16 @@ export async function runDeskQueueAlerts(
         accountId: a.accountId,
         kind: 'follow_up',
         source: 'automation',
-        sourceRef: `desk_queue:${a.itemId}:${a.level}`,
+        sourceRef: `desk_queue:${a.bankCode ?? 'none'}:${a.level}:${day}`,
         title: `Uploads are waiting in ${queue}`,
         note: `${a.waiting} waiting; the oldest for ${Math.floor(a.ageMinutes / 60)} h ${a.ageMinutes % 60} min. Open Case desk > Sorting queue.`,
         assignedTo: a.assignee,
-        meta: { desk_queue_bank: a.bankCode, desk_queue_level: a.level },
+        meta: {
+          desk_queue_bank: a.bankCode,
+          desk_queue_level: a.level,
+          desk_queue_oldest_item: a.itemId,
+          desk_queue_waiting: a.waiting,
+        },
       });
       if (r.created) summary.escalated += 1;
     } catch (err) {

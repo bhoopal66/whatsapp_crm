@@ -12,13 +12,18 @@
  *
  * Recorded as a bot message. Mirrors the desk digest sender
  * (`lib/desk/digest-send.ts`), which mirrors the HR automated messages.
- * Like the digest, it does not run Team activity's send checks.
+ * A contact opted out since the claim is refused ('opted_out'). On a
+ * linked device the number's daily limit of new chats applies (migration
+ * 204, as for broadcasts): over it the request is HELD
+ * ('number_daily_limit') and SQL retries it hourly. Team activity's other
+ * send checks are not run.
  *
  * Server-only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { serviceWindowOpen } from '@/lib/compass/meta-template';
+import { checkAutoStartAllowed } from '@/lib/team-activity/auto-guard';
 import {
   loadChannels,
   resolveSendChannel,
@@ -108,10 +113,14 @@ export async function sendCaseCsat(
 
   const { data: contact } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, opted_out_at, do_not_contact_at')
     .eq('id', claim.contactId)
     .eq('account_id', claim.accountId)
     .maybeSingle();
+  // The claim checked this once for its whole batch; a STOP may have
+  // arrived since.
+  if (contact?.opted_out_at || contact?.do_not_contact_at)
+    throw new CsatRefusal('opted_out');
   const sanitized = contact?.phone ? sanitizePhoneForMeta(contact.phone) : '';
   if (!isValidE164(sanitized)) throw new CsatRefusal('invalid_number');
 
@@ -194,6 +203,16 @@ export async function sendCaseCsat(
       ? (await sendTemplate({ channel, to, template: row, bodyParams: params }))
           .messageId
       : (await sendText({ channel, to, text })).messageId;
+
+  // The number's own daily limit of new chats (204): a no-op on Meta,
+  // fails open.
+  const check = await checkAutoStartAllowed(
+    db,
+    claim.accountId,
+    claim.conversationId,
+    channel
+  );
+  if (check.blocked) return { outcome: 'held', reason: 'number_daily_limit' };
 
   let waMessageId = '';
   let refused = false;

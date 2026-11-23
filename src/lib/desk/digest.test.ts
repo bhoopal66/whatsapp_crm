@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  DIGEST_CLAIM_LIMIT,
   DigestRefusal,
   isStopWord,
   noteDigestStop,
@@ -84,6 +85,15 @@ describe('runDeskDigests', () => {
       .filter(([fn]) => fn === 'desk_digest_mark')
       .map(([, a]) => a.p_reason);
     expect(marks).toEqual(['template_rejected', 'Error']);
+  });
+
+  it('claims at most 5 per pass', async () => {
+    const db = fakeDb([]);
+    await runDeskDigests(db as never, vi.fn());
+    expect(DIGEST_CLAIM_LIMIT).toBe(5);
+    expect(
+      db.calls.find(([fn]) => fn === 'desk_digest_claim')![1]
+    ).toMatchObject({ p_limit: 5 });
   });
 
   it('never throws when the database fails', async () => {
