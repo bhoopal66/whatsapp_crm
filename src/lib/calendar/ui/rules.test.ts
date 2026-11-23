@@ -14,9 +14,10 @@ import {
 } from './reminder-chips';
 import { aMeeting, anEvent, aTask } from './test-items';
 
-const detail = (createdBy: string, canEdit: boolean) => ({
+const detail = (createdBy: string, canEdit: boolean, canDelete = canEdit) => ({
   createdBy,
   canEdit,
+  canDelete,
   attendees: [
     { user_id: 'u2', response: 'pending' as const },
     { user_id: 'u3', response: 'accepted' as const },
@@ -58,6 +59,27 @@ describe('popoverActions', () => {
       'u1'
     );
     expect(a.askScope).toBe(true);
+  });
+
+  it("offers Delete, never Edit, for a leaver's event the API lets go", () => {
+    expect(
+      popoverActions(anEvent(), detail('u1', false, true), 'u9')
+    ).toMatchObject({ edit: false, remove: true, askScope: false });
+    // One date or the whole series; an invited admin still answers.
+    expect(
+      popoverActions(
+        anEvent({ recurring: true }),
+        detail('u1', false, true),
+        'u2'
+      )
+    ).toMatchObject({ edit: false, remove: true, askScope: true, rsvp: true });
+    expect(
+      popoverActions(
+        anEvent({ recurring: true }),
+        detail('u1', false, false),
+        'u9'
+      )
+    ).toMatchObject({ remove: false, askScope: false });
   });
 
   it('offers Join on a live meeting and the contact on a task', () => {

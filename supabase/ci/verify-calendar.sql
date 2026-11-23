@@ -507,7 +507,7 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
                        AND meta = jsonb_build_object('event_id', e_u) AND body LIKE 'Starts 02 Apr 2030%')
      OR EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_update' AND user_id = u_dec AND meta->>'event_id' = e_u::text)
      OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_update' AND user_id = u_att AND meta->>'event_id' = e_u::text) THEN
-    failed := array_append(failed, 'calendar_update_event diffs attendees: newcomers invited at the new time, the removed gone and not rung'::text);
+    failed := array_append(failed, 'calendar_update_event diffs attendees: newcomers invited at the new time, the removed gone and rung no calendar_update'::text);
   END IF;
   r := pg_temp.cal_try('authenticated', u_crt, format(
     'SELECT title FROM calendar_update_event(%L, %L, %L)', e_u, ts - interval '1 second', '{"title": "Cal rpc stale"}'));

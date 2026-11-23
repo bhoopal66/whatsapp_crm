@@ -1441,3 +1441,9 @@ jobs:
       # and never who was rung, one taken out loses its badge.
       - name: Verify chat people and mentions
         run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql
+
+      # Migration 278: a moved or cancelled meeting rings its invitees, a
+      # person taken off an event is told, an event that is over rings
+      # nobody, and an owner or admin deletes (never edits) a leaver's event.
+      - name: Verify calendar and meeting bells
+        run: supabase db query --local --file supabase/ci/verify-calendar-meeting-bells.sql

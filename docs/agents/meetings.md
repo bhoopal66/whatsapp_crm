@@ -34,8 +34,13 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   `cancelled` never reopen, `ended_at` is trigger-owned, and entering either
   closes every open participant row. `account_id` and `host_user_id` are
   frozen.
-- **Bell.** An invite inserts a `meeting_invite` notification
-  (`meeting_invitees_notify`, not for yourself); 106 rewrites
+- **Bells.** An invite inserts a `meeting_invite` notification
+  (`meeting_invitees_notify`, 278's body, not for yourself). A scheduled
+  meeting's new time inserts `meeting_update` and its cancellation
+  `meeting_cancelled` (278's `meetings_notify`): to its live invitees, not
+  the actor and not a removed person, and nothing once it has started (an
+  update) or is over (a cancellation). Times are the account's
+  (`calendar_time_label`). 106 rewrites
   `notifications_type_check`, so a later type edits that list from 106.
 - **Network.** STUN only (`MEETING_ICE_SERVERS`); `Permissions-Policy` and the
   CSP `connect-src` (`rtc.live.cloudflare.com`) carry the camera, microphone,
@@ -74,7 +79,7 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   (`lib/meetings/lapse.ts`, the automations cron).
 - **Invite pop-up.** `InviteRinger` (`lib/meetings/invite-ring.ts`, pure)
   turns a realtime `meeting_invite` row into the shell's ringing card
-  (`meeting-invite-card.tsx`): instant meetings (106's "Starting now"
+  (`meeting-invite-card.tsx`): instant meetings ("Starting now", 278's
   body, pinned by a test) and meetings someone is in, nothing else. The
   tone is laid on the audio clock up front and is finite, so a frozen tab
   can't ring on. Not now marks the row read, which is what closes the

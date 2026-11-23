@@ -186,6 +186,7 @@ function PopoverBody({
       ? {
           createdBy: detail.event.created_by,
           canEdit: detail.canEdit,
+          canDelete: detail.canDelete,
           attendees: detail.attendees,
         }
       : null,

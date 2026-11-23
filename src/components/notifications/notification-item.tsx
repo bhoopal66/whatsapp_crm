@@ -87,6 +87,8 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   group_join_request: UsersRound,
   submission_group_message: MessagesSquare,
   meeting_invite: Video,
+  meeting_update: CalendarClock,
+  meeting_cancelled: CalendarX,
   calendar_invite: CalendarDays,
   calendar_update: CalendarClock,
   calendar_cancelled: CalendarX,

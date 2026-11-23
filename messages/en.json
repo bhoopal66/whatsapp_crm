@@ -8192,6 +8192,8 @@
       "team_activity_unlock_request": "Requests to unlock a blocked message",
       "team_activity_unlock_decided": "My unlock requests are decided",
       "meeting_invite": "Meeting invitations",
+      "meeting_update": "A meeting is moved",
+      "meeting_cancelled": "A meeting is cancelled",
       "meeting_reminder": "Meeting reminders",
       "event_reminder": "Calendar reminders",
       "group_join_request": "WhatsApp group join requests",

@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar
+
+**Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
+before the build: the build runs without it, and then offers no admin
+delete. After re-running 106 or 108, run 278 again.
+- A scheduled meeting that is moved or cancelled rings its invitees, with a
+  push they can switch off ("A meeting is moved", "A meeting is
+  cancelled"). Nobody was told before.
+- A meeting invitation gives its time in the workspace's time zone. It was
+  in UTC.
+- Someone taken off an event, or off one date of a repeating one, is told
+  "You are no longer invited".
+- A repeating event that has already started is called "Repeating event",
+  not by its first date. An event that is over rings nobody.
+- Owners and admins can delete an event whose organiser has left, or cancel
+  one of its dates, from the event's pop-up. They can't edit it, and
+  private events stay private.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`

@@ -1,7 +1,8 @@
 // ============================================================
 // /api/calendar/events/[id] — read, change and delete one event
 // (migration 108). Everything runs under the caller's RLS client: an
-// event is edited or deleted by its creator only.
+// event is edited by its creator only, and deleted by its creator, or by
+// an owner or admin once the creator has left (278).
 //
 // A recurring series' `exdates` hold the start instants of occurrences
 // that were removed or moved out into a standalone copy; the reminder
@@ -15,6 +16,7 @@
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { canEditSettings, type AccountRole } from '@/lib/auth/roles';
 import {
   expandEvent,
   fromFloating,
@@ -105,6 +107,26 @@ async function loadEvent(supabase: Db, id: string) {
   return { event: data as unknown as EventRow | null, error };
 }
 
+/**
+ * Whether the caller may delete the event or cancel one of its dates: its
+ * creator, or an owner or admin when the database says the creator has
+ * left and the event is not private (278). Only an admin asks it. An rpc
+ * error, such as the function missing before 278, is a no.
+ */
+async function canDeleteEvent(
+  supabase: Db,
+  ev: EventRow,
+  userId: string,
+  role: AccountRole
+): Promise<boolean> {
+  if (ev.created_by === userId) return true;
+  if (!canEditSettings(role)) return false;
+  const { data, error } = await supabase.rpc('calendar_event_can_remove', {
+    p_event: ev.id,
+  });
+  return !error && data === true;
+}
+
 const sameInstant = (a: string, b: string) => Date.parse(a) === Date.parse(b);
 
 /**
@@ -170,10 +192,10 @@ const excluded = (ev: EventRow, startIso: string) =>
   (ev.exdates ?? []).some((x) => sameInstant(x, startIso));
 
 /** GET → `{ event, attendees: [{ user_id, response, responded_at }],
- *  canEdit }`; 404 when the caller cannot see it. */
+ *  canEdit, canDelete }`; 404 when the caller cannot see it. */
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const { supabase, userId } = await requireCalendarUser();
+    const { supabase, userId, role } = await requireCalendarUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid event id', 400);
 
@@ -181,16 +203,20 @@ export async function GET(_request: Request, { params }: Params) {
     if (error) return readErrorResponse(error);
     if (!event) return jsonError('Event not found', 404);
 
-    const { data: attendees, error: attErr } = await supabase
-      .from('calendar_event_attendees')
-      .select('user_id, response, responded_at')
-      .eq('event_id', id);
+    const [{ data: attendees, error: attErr }, canDelete] = await Promise.all([
+      supabase
+        .from('calendar_event_attendees')
+        .select('user_id, response, responded_at')
+        .eq('event_id', id),
+      canDeleteEvent(supabase, event, userId, role),
+    ]);
     if (attErr) return readErrorResponse(attErr);
 
     return NextResponse.json({
       event,
       attendees: attendees ?? [],
       canEdit: event.created_by === userId,
+      canDelete,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -315,11 +341,11 @@ async function patchOccurrence(
 /**
  * DELETE `?scope=this|all&occurrenceStart=ISO&expectedUpdatedAt=…` →
  * `{ ok: true }`. On a series, scope 'this' excludes one occurrence;
- * otherwise the row goes (its attendees cascade).
+ * otherwise the row goes (its attendees cascade). Who may: `canDelete`.
  */
 export async function DELETE(request: Request, { params }: Params) {
   try {
-    const { supabase, userId } = await requireCalendarUser();
+    const { supabase, userId, role } = await requireCalendarUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid event id', 400);
     const q = new URL(request.url).searchParams;
@@ -338,7 +364,9 @@ export async function DELETE(request: Request, { params }: Params) {
     const { event: ev, error } = await loadEvent(supabase, id);
     if (error) return readErrorResponse(error);
     if (!ev) return jsonError('Event not found', 404);
-    if (ev.created_by !== userId) return jsonError(NOT_ORGANISER, 403);
+    if (!(await canDeleteEvent(supabase, ev, userId, role))) {
+      return jsonError(NOT_ORGANISER, 403);
+    }
 
     if (ev.rrule && scope === 'this') {
       if (!findOccurrence(ev, occurrenceStart!)) {

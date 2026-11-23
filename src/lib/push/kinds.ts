@@ -42,6 +42,8 @@ export const PUSH_KINDS = [
   'team_activity_unlock_request',
   'team_activity_unlock_decided',
   'meeting_invite',
+  'meeting_update',
+  'meeting_cancelled',
   'meeting_reminder',
   'event_reminder',
   'group_join_request',

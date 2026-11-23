@@ -440,13 +440,17 @@ describe('ringNotes', () => {
 });
 
 describe('the body the ring matches', () => {
-  it("R13: is the one migration 106's trigger writes", () => {
-    const sql = readFileSync(
-      join(process.cwd(), 'supabase/migrations/106_meetings.sql'),
-      'utf8'
-    );
-    expect(sql).toContain(`ELSE '${STARTING_NOW_BODY}' END`);
-  });
+  // 278 owns the trigger's body; 106's is what a re-run of 106 brings back.
+  it.each(['106_meetings', '278_calendar_meeting_bells'])(
+    "R13: is the one migration %s's trigger writes",
+    (file) => {
+      const sql = readFileSync(
+        join(process.cwd(), `supabase/migrations/${file}.sql`),
+        'utf8'
+      );
+      expect(sql).toContain(`ELSE '${STARTING_NOW_BODY}' END`);
+    }
+  );
 });
 
 describe('meetingRoomPath', () => {

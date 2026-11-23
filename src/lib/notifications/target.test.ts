@@ -244,25 +244,20 @@ describe('notificationTarget', () => {
     }
   );
 
-  it('meeting_invite opens the meeting', () => {
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'agent'
-      )
-    ).toBe(`/meetings/${ROOM}`);
-    for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+  it.each(['meeting_invite', 'meeting_update', 'meeting_cancelled'])(
+    '%s opens the meeting',
+    (type) => {
       expect(
-        notificationTarget({ type: 'meeting_invite', meta }, 'agent')
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'agent')
+      ).toBe(`/meetings/${ROOM}`);
+      for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+        expect(notificationTarget({ type, meta }, 'agent')).toBeNull();
+      }
+      expect(
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'bank_guest')
       ).toBeNull();
     }
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'bank_guest'
-      )
-    ).toBeNull();
-  });
+  );
 
   it('group_join_request opens the group requests tab', () => {
     expect(
