@@ -15,6 +15,15 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  canEditCustomValues,
+  customFieldNames,
+  customValueChanges,
+  saveCustomValues,
+  settleCustomValues,
+  type CustomValues,
+  type CustomValuesLoad,
+} from '@/lib/contacts/custom-values';
+import {
   dealRows,
   type DealRow,
   type DealRowInput,
@@ -41,11 +50,6 @@ export function SideCard({
   );
 }
 
-interface Field {
-  id: string;
-  field_name: string;
-}
-
 export function DetailsCard({
   contact,
   canEdit,
@@ -60,9 +64,11 @@ export function DetailsCard({
 }) {
   const t = useTranslations('Contacts.detailView');
   const locale = useLocale();
-  const [fields, setFields] = useState<Field[]>([]);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  // Editing waits for both reads: a failed one must not look like "no
+  // values" and be saved over the real ones.
+  const [load, setLoad] = useState<CustomValuesLoad>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  const [draft, setDraft] = useState<CustomValues | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -76,48 +82,48 @@ export function DetailsCard({
         .eq('contact_id', contact.id),
     ]).then(([f, v]) => {
       if (!live) return;
-      setFields((f.data ?? []) as Field[]);
-      setValues(
-        Object.fromEntries(
-          (
-            (v.data ?? []) as {
-              custom_field_id: string;
-              value: string | null;
-            }[]
-          ).map((r) => [r.custom_field_id, r.value ?? ''])
-        )
-      );
+      setLoad(settleCustomValues(f, v));
     });
     return () => {
       live = false;
     };
-  }, [contact.id]);
+  }, [contact.id, attempt]);
 
-  // Delete-then-insert, as the side sheet saves them.
+  const fields = load.status === 'ready' ? load.fields : [];
+  const values = load.status === 'ready' ? load.values : {};
+  const retry = () => {
+    setLoad({ status: 'loading' });
+    setAttempt((n) => n + 1);
+  };
+
+  // Only the changed fields, one write each. A field that did not save
+  // keeps the form open with what was typed; the rest are done.
   const save = async () => {
-    if (!draft) return;
+    if (!draft || load.status !== 'ready') return;
+    const { set, clear } = customValueChanges(values, draft);
+    if (set.length + clear.length === 0) return setDraft(null);
     setSaving(true);
-    const sb = createClient();
-    const rows = Object.entries(draft)
-      .filter(([, v]) => v.trim())
-      .map(([id, v]) => ({
-        contact_id: contact.id,
-        custom_field_id: id,
-        value: v.trim(),
-      }));
-    const del = await sb
-      .from('contact_custom_values')
-      .delete()
-      .eq('contact_id', contact.id);
-    const ins =
-      !del.error && rows.length
-        ? await sb.from('contact_custom_values').insert(rows)
-        : { error: del.error };
-    setSaving(false);
-    if (ins.error) return void toast.error(t('toastCustomFieldsFailed'));
-    setValues(
-      Object.fromEntries(rows.map((r) => [r.custom_field_id, r.value]))
+    const res = await saveCustomValues(
+      createClient(),
+      contact.id,
+      values,
+      draft
     );
+    setSaving(false);
+    setLoad({ status: 'ready', fields, values: res.values });
+    if (res.failed.length > 0)
+      toast.error(
+        t('toastCustomFieldsNotSaved', {
+          names: customFieldNames(fields, res.failed),
+        })
+      );
+    if (res.missing.length > 0)
+      toast.error(
+        t('toastCustomFieldsGone', {
+          names: customFieldNames(fields, res.missing),
+        })
+      );
+    if (res.failed.length + res.missing.length > 0) return;
     setDraft(null);
     toast.success(t('toastCustomFieldsSaved'));
   };
@@ -135,7 +141,7 @@ export function DetailsCard({
     <SideCard
       title={t('tabs.details')}
       action={
-        canEdit && fields.length > 0 && !draft ? (
+        canEditCustomValues(load, canEdit) && !draft ? (
           <Button
             size="xs"
             variant="ghost"
@@ -161,7 +167,15 @@ export function DetailsCard({
         )}
         {!draft && fields.map((f) => row(f.field_name, values[f.id]))}
       </dl>
-      {fields.length === 0 && (
+      {load.status === 'failed' && (
+        <div role="alert" className="mt-2 flex items-center gap-2 text-xs">
+          <p className="text-destructive">{t('customFieldsLoadFailed')}</p>
+          <Button size="xs" variant="outline" onClick={retry}>
+            {t('customFieldsRetry')}
+          </Button>
+        </div>
+      )}
+      {load.status === 'ready' && fields.length === 0 && (
         <p className="text-muted-foreground mt-2 text-xs">
           {t('noCustomFields')}
         </p>

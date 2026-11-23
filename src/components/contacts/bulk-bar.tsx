@@ -27,11 +27,14 @@ export interface ChatTagChoice {
 /**
  * The Contacts bulk bar: sticks to the bottom of the scrolling page,
  * wraps on a narrow screen. Tagging and campaigns are agent-and-up
- * (`canAct`); delete keeps its own confirm dialog in the page.
+ * (`canAct`); delete shows only to those who may delete a customer
+ * (`canDelete`, the customer page's rule) and keeps its own confirm
+ * dialog in the page.
  */
 export function BulkBar({
   count,
   canAct,
+  canDelete,
   tree,
   onClear,
   onDelete,
@@ -40,6 +43,7 @@ export function BulkBar({
 }: {
   count: number;
   canAct: boolean;
+  canDelete: boolean;
   tree: ChatTagTree;
   onClear: () => void;
   onDelete: () => void;
@@ -91,16 +95,18 @@ export function BulkBar({
             {t('addToCampaign')}
           </GatedButton>
         )}
-        <GatedButton
-          variant="destructive"
-          size="sm"
-          canAct={canAct}
-          gateReason="delete contacts"
-          onClick={onDelete}
-        >
-          <Trash2 className="size-4" />
-          {tPage('deleteSelected')}
-        </GatedButton>
+        {canDelete && (
+          <GatedButton
+            variant="destructive"
+            size="sm"
+            canAct={canAct}
+            gateReason="delete contacts"
+            onClick={onDelete}
+          >
+            <Trash2 className="size-4" />
+            {tPage('deleteSelected')}
+          </GatedButton>
+        )}
       </div>
       <ChatTagPickerDialog
         open={tagOpen}
