@@ -39,6 +39,18 @@ DECLARE
   v2       UUID;
   v3       UUID;
   pol      JSONB;
+  c4       UUID;
+  c5       UUID;
+  v4       UUID;
+  r1       UUID;
+  call1    UUID;
+  fold     UUID;
+  chan     UUID;
+  q        BIGINT;
+  pre      TEXT;
+  k4       UUID;
+  vn       UUID;
+  lost     UUID := gen_random_uuid();
   j        JSONB;
   v        TEXT;
   n        INT := 0;
@@ -80,7 +92,7 @@ BEGIN
   INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_agent, c1) RETURNING id INTO v1;
   INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, content_text, media_url)
   VALUES (v1, 'customer', NULL, 'text', 'hello, my passport is attached', NULL),
-         (v1, 'agent', u_agent, 'image', 'here you go', 'https://x.invalid/chat-media/a.jpg');
+         (v1, 'agent', u_agent, 'image', 'here you go', format('https://x.invalid/chat-media/account-%s/a.jpg', a_acct));
   INSERT INTO contact_notes (contact_id, user_id, account_id, note_text) VALUES (c1, u_agent, a_acct, 'prefers Arabic');
 
   -- ---------- 221: export ----------
@@ -147,7 +159,7 @@ BEGIN
   PERFORM privacy_legal_hold_set(u_owner, a_acct, c1, false);
   j := privacy_subject_erase(u_admin, a_acct, c1, false, 'ERASE ' || c1);
   n := n + 1; failed := failed || pg_temp.pv_ok(j->>'mode' = 'erase' AND jsonb_array_length(j->'objects') = 1
-    AND j->'objects'->0->>'url' LIKE '%chat-media%', format('the erase result is wrong (%s)', j::text));
+    AND j->'objects'->0 = jsonb_build_object('bucket', 'chat-media', 'path', format('account-%s/a.jpg', a_acct)), format('the erase result is wrong (%s)', j::text));
   n := n + 1; failed := failed || pg_temp.pv_ok(
     (SELECT count(*) FROM messages WHERE conversation_id = v1) = 0
     AND (SELECT count(*) FROM contact_notes WHERE contact_id = c1) = 0
@@ -237,6 +249,115 @@ BEGIN
     (ai_transfer_basis_get(u_admin, a_acct) -> 'basis' ->> 'require_basis')::boolean
     AND (ai_transfer_basis_get(u_admin, a_acct) ->> 'refused_30_days')::int = 1,
     'ai_transfer_basis_get does not report the requirement');
+
+  -- ---------- 262: files, holds, deletes ----------
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500221009', 'PV files') RETURNING id INTO c4;
+  INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_agent, c4) RETURNING id INTO v4;
+  pre := format('https://old.invalid/chat-media/account-%s/', a_acct);
+  INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, media_url)
+  SELECT v4, 'agent', u_agent, 'image', x FROM unnest(ARRAY[pre || 'own.jpg', pre || 'own.jpg?v=2', pre || 'fwd.jpg',
+    pre || 'tpl.jpg', pre || 'doc.jpg', pre || 'grp.jpg', pre || '../account-x/a.jpg', 'https://gate.invalid/m/1',
+    format('https://x.invalid/chat-media/account-%s/stolen.jpg', b_acct)]) AS x;
+  -- The survivors, at a new origin.
+  INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, media_url)
+  VALUES (v2, 'agent', u_agent, 'image', replace(pre, 'old.', 'new.') || 'fwd.jpg');
+  INSERT INTO message_templates (account_id, user_id, name, body_text, category, header_media_url)
+  VALUES (a_acct, u_agent, 'pv_tpl', 'x', 'Utility', replace(pre, 'old.', 'new.') || 'tpl.jpg');
+  INSERT INTO customer_doc_folders (account_id, contact_id, ref) VALUES (a_acct, c4, 'TC-262001') RETURNING id INTO fold;
+  k4 := case_open_lead(u_agent, a_acct, c4, 'PVB', 'Card', u_agent);
+  -- Kept: filed to a case (no case_document_files row); another
+  -- customer's document on a file of this chat. Removed: an upload whose
+  -- case was deleted since. Never listed: a path of no shape we write.
+  INSERT INTO customer_documents (account_id, contact_id, folder_id, received_at, source, kind, storage_bucket, storage_path, case_id)
+  SELECT a_acct, c4, fold, now(), 'staff_upload', 'image', 'case-files', x.path, x.k
+    FROM (VALUES ('cases/' || k4 || '/kept.pdf', k4), ('cases/' || lost || '/a.pdf', NULL), ('other/' || lost || '/b.pdf', NULL)) AS x(path, k);
+  INSERT INTO customer_doc_folders (account_id, contact_id, ref) VALUES (a_acct, c1, 'TC-262002') RETURNING id INTO fold;
+  INSERT INTO customer_documents (account_id, contact_id, folder_id, received_at, source, kind, media_url)
+  VALUES (a_acct, c1, fold, now(), 'chat', 'image', replace(pre, 'old.', 'new.') || 'doc.jpg');
+  vn := gen_random_uuid();
+  INSERT INTO voice_note_entries (id, account_id, builtin_subject, language, title, source, personalised, storage_path, media_url)
+  SELECT vn, a_acct, 'welcome', 'en', 'pv', 'recording', false, format('account-%s/voice-library/%s.ogg', a_acct, vn),
+         replace(pre, 'old.', 'new.') || 'voice-library/' || vn || '.ogg';
+  INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, media_url)
+  VALUES (v4, 'agent', u_agent, 'audio', pre || 'voice-library/' || vn || '.ogg');
+  INSERT INTO chat_channels (account_id, kind, name, created_by) VALUES (a_acct, 'deal_room', 'pv-room', u_admin) RETURNING id INTO chan;
+  INSERT INTO deal_rooms (account_id, channel_id, contact_id, subject, status) VALUES (a_acct, chan, c4, 'PV room', 'creating') RETURNING id INTO r1;
+  INSERT INTO group_messages (account_id, room_id, direction, status, type, media, body, created_at)
+  VALUES (a_acct, r1, 'out', 'sent', 'image', jsonb_build_object('path', format('account-%s/grp.jpg', a_acct)), 'old line', now() - interval '400 days');
+  INSERT INTO calls (account_id, pbx_call_id, remote_number, direction, started_at, notes)
+  VALUES (a_acct, 'pv-262', '971500221009', 'inbound', now() - interval '400 days', 'secret') RETURNING id INTO call1;
+  INSERT INTO calls (account_id, pbx_call_id, remote_number, direction, started_at, notes)
+  VALUES (a_acct, 'pv-262b', '0500221009', 'inbound', now() - interval '400 days', 'secret'),
+         (a_acct, 'pv-262c', '971555999888', 'inbound', now() - interval '400 days', 'secret');
+
+  -- 4 (and 5): held, then released.
+  PERFORM privacy_legal_hold_set(u_admin, a_acct, c4, true, 'court order');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    pg_temp.pv_try(format('DELETE FROM contacts WHERE id = %L', c4)) LIKE 'ERROR 42501 LEGAL_HOLD:%', '262-5: a held contact was deleted');
+  PERFORM privacy_retention_set(u_admin, a_acct, '{"tables": {"call_records": {"days": 30, "action": "anonymise"}, "deal_room_messages": {"days": 30, "action": "delete"}}}', true);
+  v := pg_temp.pv_try(format('SELECT privacy_retention_sweep(%L)::text', a_acct));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v NOT LIKE 'ERROR%', format('262-4: the sweep failed (%s)', v));
+  n := n + 1; failed := failed || pg_temp.pv_ok((SELECT notes = 'secret' AND erased_at IS NULL FROM calls WHERE id = call1)
+    AND (SELECT notes = 'secret' AND erased_at IS NULL FROM calls WHERE pbx_call_id = 'pv-262b'),
+    '262-4: a held customer''s call, matched by number, was swept');
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (SELECT notes IS NULL AND erased_at IS NOT NULL AND recording_state = 'erased' FROM calls WHERE pbx_call_id = 'pv-262c'),
+    '262-4: the sweep did not anonymise an old call nobody holds');
+  n := n + 1; failed := failed || pg_temp.pv_ok(EXISTS (SELECT 1 FROM group_messages WHERE room_id = r1),
+    '262-4: a held customer''s deal room was swept');
+  PERFORM privacy_legal_hold_set(u_admin, a_acct, c4, false);
+
+  -- 1, 2: what is queued.
+  j := privacy_subject_erase(u_admin, a_acct, c4, true);
+  n := n + 1; failed := failed || pg_temp.pv_ok((j->>'objects_count')::int = 2, format('262-1: the dry run counts %s files', j->>'objects_count'));
+  j := privacy_subject_erase(u_admin, a_acct, c4, false, 'ERASE ' || c4);
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    j->'objects' = jsonb_build_array(jsonb_build_object('bucket', 'case-files', 'path', format('cases/%s/a.pdf', lost)),
+      jsonb_build_object('bucket', 'chat-media', 'path', format('account-%s/own.jpg', a_acct))),
+    format('262-1/2: a shared, foreign or repeated file was queued (%s)', j->'objects'));
+
+  -- 3: the list survives; the retry lists it, re-checks it, and settles.
+  q := (j->>'request_id')::bigint;
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (SELECT detail->'objects_list' = j->'objects' FROM privacy_requests WHERE id = q), '262-3: the file list was not stored');
+  v := pg_temp.pv_try(format('SELECT count(*)::text FROM privacy_erase_objects_pending(100) WHERE request_id = %s', q));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v IS NOT DISTINCT FROM '0', format('262-3: listed before 10 minutes (%s)', v));
+  INSERT INTO privacy_requests (account_id, kind, actor_label, at, detail)
+  VALUES (a_acct, 'erase', 'system:verify', now() - interval '11 minutes', jsonb_build_object('objects_list', j->'objects')) RETURNING id INTO q;
+  v := pg_temp.pv_try(format('SELECT objects::text FROM privacy_erase_objects_pending(100) WHERE request_id = %s', q));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v = (j->'objects')::text, format('262-3: the unfinished erase is not listed (%s)', v));
+  INSERT INTO messages (conversation_id, sender_type, sender_id, content_type, media_url) VALUES (v2, 'agent', u_agent, 'image', pre || 'own.jpg');
+  v := pg_temp.pv_try(format('SELECT objects::text FROM privacy_erase_objects_pending(100) WHERE request_id = %s', q));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v = jsonb_build_array(j->'objects'->0)::text, format('262-3: a file used again was listed for deletion (%s)', v));
+  v := pg_temp.pv_try(format('SELECT privacy_erase_objects_settle(%s, ''[]'')::text', q));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v NOT LIKE 'ERROR%' AND NOT EXISTS (
+    SELECT 1 FROM privacy_requests r WHERE r.kind = 'objects_done' AND r.detail->>'request_id' = q::text AND r.detail->>'objects_state' <> 'done'),
+    format('262-3: settle failed (%s)', v));
+  v := pg_temp.pv_try(format('SELECT count(*)::text FROM privacy_erase_objects_pending(100) WHERE request_id = %s', q));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v = '0', format('262-3: a settled erase is still listed (%s)', v));
+
+  -- 5: a released hold does not block deleting the contact.
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_agent, '971500221010', 'PV once held') RETURNING id INTO c5;
+  PERFORM privacy_legal_hold_set(u_admin, a_acct, c5, true, 'court order');
+  PERFORM privacy_legal_hold_set(u_admin, a_acct, c5, false);
+  v := pg_temp.pv_try(format('DELETE FROM contacts WHERE id = %L', c5));
+  n := n + 1; failed := failed || pg_temp.pv_ok(v = 'ok', format('262-5: a once-held contact cannot be deleted (%s)', v));
+
+  -- 6.
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    privacy_retention_problem('{"tables": {"call_records": {"days": 30}}}') IS NOT NULL
+    AND privacy_retention_problem('{"tables": {"call_records": {"action": "anonymise"}}}') IS NOT NULL
+    AND privacy_retention_problem('{"tables": {"call_records": {"days": 30, "action": "anonymise"}}}') IS NULL,
+    '262-6: a policy without days or action was accepted');
+
+  -- 7: a run whose process died five times is failed, not reclaimed.
+  INSERT INTO case_review_queue (case_id, account_id, state, due_at, claimed_at, attempts)
+  VALUES (k4, a_acct, 'running', now() - interval '1 hour', now() - interval '16 minutes', 5)
+  ON CONFLICT (case_id) DO UPDATE SET state = 'running', due_at = excluded.due_at, claimed_at = excluded.claimed_at, attempts = 5;
+  PERFORM case_review_claim(100);
+  n := n + 1; failed := failed || pg_temp.pv_ok(
+    (SELECT state = 'failed' AND attempts = 5 AND claimed_at IS NULL FROM case_review_queue WHERE case_id = k4),
+    '262-7: a review run that died five times was claimed again');
 
   RAISE EXCEPTION USING ERRCODE = 'ZT221', MESSAGE = 'verify-privacy rollback';
   EXCEPTION WHEN SQLSTATE 'ZT221' THEN

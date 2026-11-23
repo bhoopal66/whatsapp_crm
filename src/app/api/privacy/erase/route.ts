@@ -47,7 +47,11 @@ export async function POST(request: Request) {
 
     let files = { deleted: 0, remaining: 0, skipped: 0 };
     if (result.mode === 'erase' && result.objects.length > 0) {
-      const out = await deleteErasedObjects(admin.storage, result.objects);
+      const out = await deleteErasedObjects(
+        admin.storage,
+        ctx.accountId,
+        result.objects
+      );
       files = {
         deleted: out.deleted,
         remaining: out.remaining.length,

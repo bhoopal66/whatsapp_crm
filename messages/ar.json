@@ -924,6 +924,7 @@
       "toastFailedLoad": "تعذّر تحميل جهات الاتصال",
       "toastFailedDelete": "تعذّر حذف جهة الاتصال",
       "toastDeleted": "تم حذف جهة الاتصال",
+      "toastLegalHold": "لا يمكن حذف عميل خاضع لحجز قانوني. ارفع الحجز أولاً من الإعدادات ثم الخصوصية.",
       "toastBulkFailedDelete": "تعذّر حذف جهات الاتصال",
       "toastBulkDeleted": "تم حذف {count} من جهات الاتصال"
     },

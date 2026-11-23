@@ -62,9 +62,19 @@ What erase does:
 - **Kept as records:** consent and opt-out history, audit trails, the
   legal hold itself.
 - **The contact** stays as "Erased customer" with no name, email or phone,
-  so the kept records keep their reference and their opt-out still holds.
-- **Stored files** are deleted after the database commit. Any that fail
-  are recorded and listed on the screen for a retry.
+  so the kept records keep their reference. Their opt-out stays on that
+  row only. **It does not follow the phone number:** a number imported or
+  added again, or that writes in, becomes a new contact with no opt-out.
+  Keep a do-not-contact list outside the app, or do not re-import it.
+- **Stored files** are deleted after the database commit, and only files
+  of this workspace that nothing kept still uses (a library voice note, a
+  forwarded file, a template header, a case document). The list is stored
+  with the request (262), so the daily job finishes what failed or was
+  interrupted, checking again that the file is still unused. It holds each
+  file's storage path and nothing else; a path can contain the file's own
+  name, which is needed to finish the deletion. The request log is
+  append-only, so the path stays in it, but a settled request is no longer
+  listed for deletion.
 
 Not erased by this request, and to handle outside the app:
 
@@ -97,7 +107,10 @@ sweeps once a day:
 
 - **Preview until applied.** Until you switch **Apply** on, the sweep
   only counts what it would remove and logs that.
-- **Legal holds.** A customer under a legal hold is skipped.
+- **Legal holds.** A customer under a legal hold is skipped: their calls
+  (matched by number too), deal rooms that are theirs or that they are
+  in, and every line of a WhatsApp group they are in. A contact under an
+  active hold cannot be deleted; a released hold does not prevent it.
 - **What can never be swept.** Bank cases, case files, the case's
   WhatsApp group, consent and audit tables are not on the list and
   cannot be added by a setting.
