@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { bearerMatches, metricsToken } from './auth';
+import { collectInboundQueue, readInboundQueueStats } from './inbound-queue';
 import { collectOutbox, parseOutboxStats, readOutboxStats } from './outbox';
 import { collectPosture, postureLogLine, startupPosture } from './posture';
 import { collectProcess } from './process';
@@ -9,6 +10,41 @@ import { Registry } from './registry';
 afterEach(() => vi.restoreAllMocks());
 
 const TOKEN = 'm'.repeat(40);
+
+describe('inbound queue', () => {
+  it('renders the gauges, and only stats_up 0 when unreadable', () => {
+    const r = new Registry();
+    collectInboundQueue(r, {
+      pending: 3,
+      dead: 1,
+      oldestPendingAgeSeconds: 42,
+    });
+    let out = r.render();
+    expect(out).toContain('wacrm_inbound_queue_stats_up 1');
+    expect(out).toContain('wacrm_inbound_queue_pending 3');
+    expect(out).toContain('wacrm_inbound_queue_dead 1');
+    expect(out).toContain('wacrm_inbound_queue_oldest_pending_age_seconds 42');
+    collectInboundQueue(r, null);
+    out = r.render();
+    expect(out).toContain('wacrm_inbound_queue_stats_up 0');
+    expect(out).not.toContain('wacrm_inbound_queue_pending 3');
+  });
+
+  it('answers null for an error, a missing 264 and a slow database', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const db = (answer: () => Promise<unknown>) => ({ rpc: answer }) as never;
+    for (const code of ['57014', 'PGRST202']) {
+      expect(
+        await readInboundQueueStats(
+          db(async () => ({ data: null, error: { code } }))
+        )
+      ).toBeNull();
+    }
+    expect(
+      await readInboundQueueStats(db(() => new Promise(() => {})), 5)
+    ).toBeNull();
+  });
+});
 
 describe('metricsToken / bearerMatches', () => {
   it('is off unset or under 32 characters, logging without the value', () => {

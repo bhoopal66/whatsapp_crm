@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   caseRules: vi.fn(),
   memoryExpire: vi.fn(),
   kbGap: vi.fn(),
+  inboxTick: vi.fn(),
   outboxDrain: vi.fn(),
   outboxPurge: vi.fn(),
   pbx: vi.fn(),
@@ -113,6 +114,9 @@ vi.mock('@/lib/memory/server', () => ({
 vi.mock('@/lib/kb/gap-recompute', () => ({
   runKbGapRecomputePass: h.kbGap,
 }));
+vi.mock('@/lib/whatsapp/inbound-drain', () => ({
+  runInboundQueueTick: h.inboxTick,
+}));
 vi.mock('@/lib/webhooks/outbox', () => ({
   drainWebhookOutbox: h.outboxDrain,
   purgeWebhookOutbox: h.outboxPurge,
@@ -196,6 +200,7 @@ beforeEach(() => {
     .mockResolvedValue({ attempted: 0, results: [], stopped: false });
   h.memoryExpire.mockReset().mockResolvedValue(0);
   h.kbGap.mockReset().mockResolvedValue({ accounts: 0, failed: 0 });
+  h.inboxTick.mockReset().mockResolvedValue(undefined);
   h.outboxDrain.mockReset().mockResolvedValue({ claimed: 0, delivered: 0 });
   h.outboxPurge.mockReset().mockResolvedValue(0);
   h.chatFiles
@@ -876,6 +881,37 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] knowledge-gap recompute failed:',
       'gap boom'
+    );
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — inbound queue piggy-back', () => {
+  it('runs once a minute, after the response; a throw is only logged', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-21T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.inboxTick).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.inboxTick).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-21T09:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.inboxTick).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inboxTick.mockRejectedValueOnce(new Error('queue boom'));
+    vi.setSystemTime(new Date('2026-10-21T09:01:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.inboxTick).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] inbound queue failed:',
+      'queue boom'
     );
     log.mockRestore();
   });

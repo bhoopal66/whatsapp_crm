@@ -1,5 +1,9 @@
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { bearerMatches, metricsToken } from '@/lib/metrics/auth';
+import {
+  collectInboundQueue,
+  readInboundQueueStats,
+} from '@/lib/metrics/inbound-queue';
 import { collectOutbox, readOutboxStats } from '@/lib/metrics/outbox';
 import { collectPosture, startupPosture } from '@/lib/metrics/posture';
 import { collectProcess } from '@/lib/metrics/process';
@@ -35,12 +39,20 @@ export async function GET(request: Request) {
   collectProcess(registry);
   collectPosture(registry, startupPosture());
   let stats = null;
+  let inbound = null;
   try {
-    stats = await readOutboxStats(supabaseAdmin());
+    const db = supabaseAdmin();
+    // Together: each may wait out its timeout.
+    [stats, inbound] = await Promise.all([
+      readOutboxStats(db),
+      readInboundQueueStats(db),
+    ]);
   } catch {
     stats = null;
+    inbound = null;
   }
   collectOutbox(registry, stats);
+  collectInboundQueue(registry, inbound);
 
   return new Response(registry.render(), {
     status: 200,
