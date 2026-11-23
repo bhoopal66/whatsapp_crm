@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Server log with times
+
+No migration.
+- Every line of the server log starts with the time and level
+  (`LOG_TIMESTAMPS=off` to leave them bare), and a request that fails
+  with an unhandled error logs which route it was, without the query.
+
 ### Dependencies and repository settings
 
 No migration. Run `npm ci` after pulling.

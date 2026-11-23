@@ -7,14 +7,30 @@
  * It must never throw: under systemd's Restart=always a throw here would
  * crash-loop the whole CRM over one optional feature.
  *
+ * First of all it puts the time in front of every log line
+ * (`LOG_TIMESTAMPS=off` to leave them bare).
+ *
  * It also starts the web push delivery loop (docs/push.md) in a
  * production server, under the same never-throw rule.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  await stampLogs();
   await reportTypeSafe();
   await reportPosture();
   await startPushDelivery();
+}
+
+/** Production only: a dev console already shows the time it needs. */
+async function stampLogs() {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.LOG_TIMESTAMPS?.trim().toLowerCase() === 'off') return;
+  try {
+    const { installLogTimestamps } = await import('@/lib/log/timestamps');
+    installLogTimestamps();
+  } catch (err) {
+    console.error('[log] timestamps not installed:', err);
+  }
 }
 
 /** Which optional integrations are on, and which run on an untested wire format. */
@@ -96,4 +112,22 @@ async function startPushDelivery() {
       `[push] delivery loop not started: ${err instanceof Error ? err.message : String(err)}`
     );
   }
+}
+
+/**
+ * One line per request that failed with an unhandled error: which route
+ * and how, next to the stack Next prints. Never the query string (it can
+ * carry a name or a number someone searched for).
+ */
+export function onRequestError(
+  err: unknown,
+  request: { path: string; method: string },
+  context: { routePath: string; routeType: string }
+) {
+  const digest = (err as { digest?: unknown } | null)?.digest;
+  console.error(
+    `[request-error] ${request.method} ${request.path.split('?')[0]} (${context.routeType} ${context.routePath})${
+      typeof digest === 'string' ? ` digest ${digest}` : ''
+    }`
+  );
 }

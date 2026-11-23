@@ -97,3 +97,12 @@ format nobody has tested against the real provider:
 Unlike the package, the server does not refuse to start in that case:
 each of those integrations is off until its variables are set on
 purpose, and its docs say what to confirm first.
+
+## Server log
+
+In production every line the server writes starts with the time (UTC,
+ISO 8601) and its level. Set `LOG_TIMESTAMPS=off` when the platform adds
+its own (journald, Docker). A request that fails with an unhandled error
+also writes one `[request-error]` line: method, path without the query
+string, the route and Next's digest (the code a visitor sees on the error
+page).
