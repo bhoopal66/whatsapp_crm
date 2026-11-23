@@ -137,6 +137,10 @@ import {
   type HrListRow,
 } from '@/lib/hr/list-filters';
 import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
+import {
+  conversationListBody,
+  conversationListFoot,
+} from '@/lib/inbox/list-load-state';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
 import {
   chatTagFilterOrGroup,
@@ -1016,6 +1020,12 @@ export function ConversationList({
   const cursorRef = useRef<ConversationCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // The view whose last first page / further page failed to load
+  // (lib/inbox/list-load-state.ts); null again once one arrives.
+  const [failedView, setFailedView] = useState<ListQueryParams | null>(null);
+  const [failedPageView, setFailedPageView] = useState<ListQueryParams | null>(
+    null
+  );
   const loadingMoreRef = useRef(false);
   // Bumped on each successful page so the bottom sentinel re-observes
   // (an IntersectionObserver only reports *changes*; a sentinel still
@@ -1158,6 +1168,8 @@ export function ConversationList({
       setHrPatches({ params: null, byId: new Map() });
       cursorRef.current = snap.cursor;
       setHasMore(snap.cursor !== null);
+      setFailedView(null);
+      setFailedPageView(null);
       setPageCount((n) => n + 1);
       deliveryRef.current += 1;
       handoverRef.current = { key, replaced: conversationsRef.current };
@@ -1232,6 +1244,7 @@ export function ConversationList({
           : await fetchFirstPage();
       } catch {
         if (!cancelled && generation === generationRef.current) {
+          setFailedView(params);
           setLoading(false);
         }
         return;
@@ -1288,12 +1301,13 @@ export function ConversationList({
     if (!cursor || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    const params = listParamsRef.current;
     const origin: InboxListPageOrigin = {
       generation: generationRef.current,
       delivery: deliveryRef.current,
     };
     try {
-      const { data, error } = await conversationsQuery(listParamsRef.current, {
+      const { data, error } = await conversationsQuery(params, {
         cursor,
       });
       if (
@@ -1312,12 +1326,14 @@ export function ConversationList({
       }
       if (error) {
         logFetchError('Failed to fetch more conversations:', error);
+        setFailedPageView(params);
         return;
       }
       const rows = normalizeConversations(data ?? []);
       const next = nextConversationCursor(rows);
       cursorRef.current = next;
       setHasMore(next !== null);
+      setFailedPageView(null);
       setPageCount((n) => n + 1);
       onConversationsLoadedRef.current(rows, { mode: 'append', cursor: next });
     } finally {
@@ -1824,6 +1840,26 @@ export function ConversationList({
     [accountId, viewerId]
   );
 
+  const body = conversationListBody({
+    loading,
+    rowCount: shown.length,
+    failedView,
+    view: listParams,
+  });
+  const foot = conversationListFoot({
+    body,
+    hasMore,
+    loadingMore,
+    failedPageView,
+    view: listParams,
+  });
+  const hasFoot = foot !== 'none';
+  const retryFirstPage = () => {
+    setFailedView(null);
+    setLoading(true);
+    setReloadNonce((n) => n + 1);
+  };
+
   // Infinite scroll: load the next page as the bottom sentinel nears
   // the viewport. Re-created after every page (see `pageCount`) so a
   // sentinel still visible — a short list, or client-side filters that
@@ -1831,7 +1867,7 @@ export function ConversationList({
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !hasFoot || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) void loadMore();
@@ -1846,7 +1882,7 @@ export function ConversationList({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, pageCount, loading, loadMore]);
+  }, [hasFoot, pageCount, loadMore]);
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
@@ -2251,11 +2287,22 @@ export function ConversationList({
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
       <ScrollArea className="min-h-0 flex-1">
-        {loading ? (
+        {body === 'loading' ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
           </div>
-        ) : shown.length === 0 ? (
+        ) : body === 'error' ? (
+          <div className="px-4 py-12 text-center" role="alert">
+            <p className="text-wa-text-secondary text-sm">{t('loadFailed')}</p>
+            <button
+              type="button"
+              onClick={retryFirstPage}
+              className="text-wa-teal mt-2 text-sm font-medium hover:underline"
+            >
+              {t('retry')}
+            </button>
+          </div>
+        ) : body === 'empty' ? (
           <div className="px-4 py-12 text-center">
             <p className="text-wa-text-secondary text-sm">
               {/* An empty Campaign inbox says where the chats went. */}
@@ -2333,13 +2380,27 @@ export function ConversationList({
             ))}
           </div>
         )}
-        {!loading && hasMore && (
+        {hasFoot && (
           <div
             ref={sentinelRef}
-            className="flex items-center justify-center py-4"
+            className="flex items-center justify-center gap-2 px-4 py-4"
             role="status"
             aria-busy={loadingMore}
           >
+            {foot === 'error' && (
+              <>
+                <span className="text-wa-text-secondary text-sm">
+                  {t('loadMoreFailed')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  className="text-wa-teal text-sm font-medium hover:underline"
+                >
+                  {t('retry')}
+                </button>
+              </>
+            )}
             {loadingMore && (
               <div className="border-wa-green h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
             )}

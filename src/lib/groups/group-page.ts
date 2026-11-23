@@ -4,6 +4,7 @@
  * and the add-members / send-invite result summaries. No I/O, so it is
  * tested in node.
  */
+import { isImeKey } from '@/lib/keyboard/ime';
 import { identityIds } from './ui';
 import type { GroupMessageStatus, GroupSettings } from './types';
 
@@ -304,8 +305,9 @@ export function shouldSendOnKey(e: {
   key: string;
   shiftKey: boolean;
   isComposing?: boolean;
+  keyCode?: number;
 }): boolean {
-  return e.key === 'Enter' && !e.shiftKey && !e.isComposing;
+  return e.key === 'Enter' && !e.shiftKey && !isImeKey(e);
 }
 
 // ------------------------------------------------------------

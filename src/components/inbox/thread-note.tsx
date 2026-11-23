@@ -33,6 +33,7 @@ import {
   splitNoteMentions,
   type ConversationNote,
 } from '@/lib/inbox/notes';
+import { isImeKey } from '@/lib/keyboard/ime';
 import { cn } from '@/lib/utils';
 
 export function ThreadNote({
@@ -148,6 +149,7 @@ export function ThreadNote({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
+                if (isImeKey(e.nativeEvent)) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   void saveEdit();
