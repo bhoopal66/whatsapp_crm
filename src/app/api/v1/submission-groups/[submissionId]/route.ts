@@ -153,6 +153,12 @@ export async function PATCH(request: Request, { params }: Params) {
         ? null
         : status;
 
+    // 270: a newer update may have synced between this one's sync and its
+    // status; the SQL then ignores the status.
+    const changedAtArg = sync?.changedAt
+      ? { p_changed_at: sync.changedAt }
+      : {};
+
     const store = submissionGroupStore(ctx.supabase);
     let group = await store.findByRef(ctx.accountId, submissionId.trim());
     if (!group) return fail('not_found', 'Submission group not found', 404);
@@ -216,6 +222,7 @@ export async function PATCH(request: Request, { params }: Params) {
         const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
           p_group: group.id,
           p_status: status,
+          ...changedAtArg,
         });
         if (error) {
           console.error('[api/v1/submission-groups] status note:', error);
@@ -239,6 +246,7 @@ export async function PATCH(request: Request, { params }: Params) {
       const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
         p_group: group.id,
         p_status: status,
+        ...changedAtArg,
       });
       if (error) {
         console.error('[api/v1/submission-groups] status note:', error);

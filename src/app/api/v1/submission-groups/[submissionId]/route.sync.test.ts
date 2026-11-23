@@ -197,6 +197,24 @@ describe('PATCH case sync (migration 134)', () => {
     expect(m.service.endIfDue).not.toHaveBeenCalled();
   });
 
+  it("passes the body's changed_at with the status, ACTIVE or ENDED (270)", async () => {
+    for (const status of ['ACTIVE', 'ENDED'] as const) {
+      m.rpc.mockReset();
+      m.rpc.mockResolvedValueOnce(syncOk({ case_id: 'case-1' }));
+      m.rpc.mockResolvedValueOnce({ data: true, error: null });
+      m.store.findByRef.mockResolvedValueOnce(group({ status }));
+      await patch({
+        status: 'BANK_REVIEW',
+        changed_at: '2026-11-20T10:00:00Z',
+      });
+      expect(m.rpc).toHaveBeenNthCalledWith(2, 'sg_note_submission_status', {
+        p_group: 'g1',
+        p_status: 'BANK_REVIEW',
+        p_changed_at: '2026-11-20T10:00:00.000Z',
+      });
+    }
+  });
+
   it('with a status too, records it and ends through the case path', async () => {
     m.rpc
       .mockResolvedValueOnce(
