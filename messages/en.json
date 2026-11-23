@@ -9742,6 +9742,7 @@
         "document": "Document",
         "sla": "SLA",
         "bank_contact": "Bank contact",
+        "submission_status": "Submission status",
         "group_open": "WhatsApp group opened",
         "group_end": "WhatsApp group ended",
         "conversation_archived": "Conversation archived",

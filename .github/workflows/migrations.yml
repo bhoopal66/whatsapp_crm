@@ -66,6 +66,7 @@ jobs:
       # The default grants a classic Supabase project gives the API
       # roles, which the migrations and verify files assume and the
       # CLI's current image no longer sets (supabase/ci/classic-grants.sql
+
       # says why). Before the first migration, so every object they
       # create gets them, as in production.
       - name: Restore Supabase's classic default grants
@@ -331,6 +332,7 @@ jobs:
       # assignee, else the number's people, else owners and admins.
       - name: Verify push
         run: supabase db query --local --file supabase/ci/verify-push.sql
+
       # Calendar (108): who sees an event is calendar_event_can_view
       # (creator, attendees, the workspace when it is 'workspace', and
       # owner/admin unless 'private'; a bank guest nothing), only the
@@ -491,6 +493,7 @@ jobs:
       # included; only service_role executes the 11 API functions.
       - name: Verify CRM memory
         run: supabase db query --local --file supabase/ci/verify-crm-memory.sql
+
       # Migration 124's case SLA: config is owner/admin only, for a bank
       # of the account and a stage in its list; deadlines are snapshotted
       # at start, due soon in the last 20 % (or due_soon_minutes), overdue
@@ -506,6 +509,7 @@ jobs:
       # deadlocked two concurrent document receipts).
       - name: Verify case SLA
         run: supabase db query --local --file supabase/ci/verify-case-sla.sql
+
       # Migration 125's coordinator inbox: case_inbox lists exactly the
       # cases case_can_read grants (owner/admin all, a lead their team's
       # agents', agent / coordinator their own; nobody else, no other
@@ -517,6 +521,7 @@ jobs:
       # STABLE, writes nothing, service_role only.
       - name: Verify case inbox
         run: supabase db query --local --file supabase/ci/verify-case-inbox.sql
+
       # Migration 126's bank workspaces: access is a live owner / admin of
       # the account, else a reader of an OPEN case of that bank, lapsing
       # the moment the last one closes (posts stay); non-members are
@@ -528,6 +533,7 @@ jobs:
       # bank_ws_posts), the API to service_role only.
       - name: Verify bank workspaces
         run: supabase db query --local --file supabase/ci/verify-bank-workspaces.sql
+
       # Migrations 127-128: the bank dashboard answers owner / admin
       # ('all') and members ('own', exactly the cases they may read) and
       # refuses everyone else (NOT_ALLOWED, after BANK_WS_NOT_FOUND and
@@ -539,6 +545,7 @@ jobs:
       # append-only, the three functions service_role's only.
       - name: Verify bank dashboard
         run: supabase db query --local --file supabase/ci/verify-bank-dashboard.sql
+
       # Migration 133's coordinators: only an owner / admin assigns banks,
       # only to a live agent / team leader, only banks the account has; a
       # chat is shared by agent-and-up staff who can see it, with another
@@ -550,6 +557,7 @@ jobs:
       # unrelated agent), on losing the bank and on deactivation.
       - name: Verify coordinators
         run: supabase db query --local --file supabase/ci/verify-coordinators.sql
+
       # Migrations 161-162's bank coordinators: a live agent / team leader
       # holding a bank is 'coordinator' on every case of it (named agent
       # keeps 'agent'), and case_inbox, bank_ws_cases and the bank
@@ -558,6 +566,7 @@ jobs:
       # holder is a member of the bank's space with no open case there.
       - name: Verify bank coordinator cases
         run: supabase db query --local --file supabase/ci/verify-bank-coordinator-cases.sql
+
       # Migration 142's coordinator WhatsApp numbers: only an owner / admin
       # sets one, only for a live agent / team leader of their active
       # account, only 5-25 digits (RPC and CHECK); blank or NULL clears;
@@ -565,6 +574,7 @@ jobs:
       # don't, and nobody writes it directly.
       - name: Verify coordinator phones
         run: supabase db query --local --file supabase/ci/verify-coordinator-phones.sql
+
       # Migration 120's assistant guard: a pending action is born only
       # through assist_pending_request (20-hex nonce stored as sha256,
       # 300 s life, 5 open per user across accounts); confirm needs the
@@ -972,6 +982,7 @@ jobs:
       # claim_personal_history_import (one lease); privileges.
       - name: Verify personal chats
         run: supabase db query --local --file supabase/ci/verify-personal-chats.sql
+
       # Departments (192): default sales; only owners/admins set one
       # (set_member_department) or a department's switches
       # (set_department_settings); conversations.inbox_department follows
@@ -1374,3 +1385,6 @@ jobs:
       # response time.
       - name: Verify reminders and numbers
         run: supabase db query --local --file supabase/ci/verify-reminders-and-numbers.sql
+
+      - name: Verify submission group fixes
+        run: supabase db query --local --file supabase/ci/verify-sg-fixes.sql

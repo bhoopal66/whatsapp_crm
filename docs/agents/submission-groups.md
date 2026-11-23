@@ -23,7 +23,15 @@ submission app. `docs/submission-groups.md` is the contract.
   unaudited. The list branch also requires live staff (`sg_is_staff`).
 - **Send** writes the `out` row first (`sg_send_begin`, pending), then
   the gateway call, then settles once (`sent` / `blocked` / `failed`);
-  the cron fails pending rows older than 10 minutes.
+  the cron fails pending rows older than 10 minutes. An echo of our own
+  number settles the oldest pending or failed row of 15 minutes with that
+  text or caption (`sg_reconcile_echo`, 267); the gateway's own answer
+  (`sg_settle_send`) corrects a wrong guess between identical sends.
+- **After the end (267).** A later status is stored on the ENDED group
+  and on the case timeline (`case_detail_log`), never moving a closed
+  case. Until WhatsApp is closed, a customer's message rings those on the
+  list at the end (else the case's agent, else the admins) and is unread
+  while that bell is. `verify-sg-fixes.sql`.
 - **Inbound** group messages arrive through `processWhapiGroups` and are
   stored idempotently on `(group_id, wa_message_id)`; they never reach
   `messages`, flows, automations or the AI.

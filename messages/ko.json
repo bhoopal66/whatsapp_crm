@@ -9742,6 +9742,7 @@
         "document": "서류",
         "sla": "SLA",
         "bank_contact": "은행 연락",
+        "submission_status": "제출 상태",
         "group_open": "WhatsApp 그룹 개설",
         "group_end": "WhatsApp 그룹 종료",
         "conversation_archived": "대화 보관됨",

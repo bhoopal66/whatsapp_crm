@@ -62,6 +62,18 @@ Additive for the previous build; nothing already late rings on applying it.
 - Team activity and the home dashboard no longer count personal (HR)
   WhatsApp numbers and chats, and the dashboard's response time counts
   only replies by a person, not a bot's or an automation's.
+### Submission groups: later statuses, questions after the end, delivered sends
+
+**Migration required: 267** (apply before the build).
+- A status Compass sends after a submission's group has ended (a
+  correction, "disbursed" after "approved") is stored on the group and
+  shown on the case timeline. It never reopens or re-decides the case.
+- A customer who writes into a group that has ended but is still open on
+  WhatsApp rings the agent and coordinators who were in it (else the
+  case's agent, else the admins), at most once per 30 minutes, and counts
+  as unread until that notification is read.
+- A message or attachment shown as failed because WhatsApp's answer was
+  lost turns into sent when WhatsApp reports that it went out.
 
 ### Forwarding and reactions that match WhatsApp
 

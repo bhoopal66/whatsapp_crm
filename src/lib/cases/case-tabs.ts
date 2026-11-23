@@ -108,6 +108,7 @@ const TIMELINE_ICONS: Record<string, TimelineIconName> = {
   document: 'FileText',
   sla: 'Timer',
   bank_contact: 'Landmark',
+  submission_status: 'ArrowRightLeft',
   group_open: 'Users',
   group_end: 'UserX',
   conversation_archived: 'Archive',

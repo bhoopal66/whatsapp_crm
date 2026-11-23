@@ -8,15 +8,14 @@
  *
  * Our own sends (fromMe) are never stored: a CRM send is already
  * recorded by `sg_send_begin`, and an echo must not come back as an
- * inbound row. Whapi echoes every send, so a text echo reconciles a send
- * whose own settle never landed (the sender's 202 "sent, not recorded"):
- * when no row of the group carries the echo's id yet and exactly one
- * pending 'out' row of the group, created in the last 15 minutes and not
- * after the echo's own timestamp, has exactly that prefixed text, it is
- * settled 'sent' with the echo's id before the cron would sweep it
- * failed. Two such rows (the same sender resending the same text) are
- * ambiguous and left alone: settling the wrong one would show an unsent
- * message as sent. The sender's own settle, or the cron, decides them.
+ * inbound row. Whapi echoes every send, so an echo settles a send whose
+ * own settle never landed or said failed because the gateway's answer was
+ * lost (`sg_reconcile_echo`, 267): the oldest own row of the group from
+ * the last 15 minutes, pending or failed, with no WhatsApp id, not newer
+ * than the echo, with exactly that prefixed text or caption (its own kind
+ * of attachment first). Of two identical sends the echo may pick the
+ * wrong one; `sg_settle_send`, whose id is the gateway's own answer,
+ * corrects it. An echo without a text or caption is ignored.
  */
 import type { GroupChannel, GroupInboundMessage } from '@/lib/groups/inbound';
 import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
@@ -33,9 +32,7 @@ export type InboundStore = Pick<
   | 'findByWaGroupId'
   | 'contactConsent'
   | 'recordInbound'
-  | 'hasWaMessage'
-  | 'pendingOutMatching'
-  | 'settleSend'
+  | 'reconcileEcho'
   | 'inboundMessageId'
 >;
 
@@ -85,12 +82,9 @@ export interface CaseSlaHook {
   customerMessage(caseId: string): Promise<unknown>;
 }
 
-/** How far back an echo may reconcile a pending send (the cron sweeps at 10 minutes). */
-export const ECHO_RECONCILE_WINDOW_MS = 15 * 60_000;
-
 export interface InboundOutcome {
   recorded: number;
-  /** Echoes of our own sends that settled a pending 'out' row. */
+  /** Echoes of our own sends that settled an 'out' row. */
   reconciled: number;
   duplicates: number;
   failed: number;
@@ -126,7 +120,6 @@ export async function recordSubmissionGroupInbound(
   channel: Pick<GroupChannel, 'id' | 'accountId'>,
   messages: readonly GroupInboundMessage[],
   opts: {
-    now?: () => Date;
     caseSla?: CaseSlaHook;
     customerDocument?: GroupCustomerDocumentHook;
     /** A NEW customer text with a body (183's intake); never changes the counts. */
@@ -143,8 +136,8 @@ export async function recordSubmissionGroupInbound(
   const phones = new Map<string, Promise<string | null>>();
   const caseIds = new Map<string, Promise<string | null>>();
   for (const m of messages) {
-    // A media or empty echo cannot be matched to a send: ignored.
-    if (m.fromMe && (m.type !== 'text' || !m.body)) continue;
+    // An echo without a text or caption cannot be matched to a send: ignored.
+    if (m.fromMe && !m.body) continue;
     try {
       let lookup = groups.get(m.waGroupId);
       if (!lookup) {
@@ -158,8 +151,7 @@ export async function recordSubmissionGroupInbound(
       const group = await lookup;
       if (!group) continue;
       if (m.fromMe) {
-        if (await reconcileEcho(store, group.id, m, opts.now?.() ?? new Date()))
-          out.reconciled++;
+        if (await reconcileEcho(store, group.id, m)) out.reconciled++;
         continue;
       }
       const contactId = group.contactId;
@@ -367,30 +359,20 @@ async function customerMessageSla(
 }
 
 /**
- * Settles the pending send this echo is of; false when there is none, or
- * more than one candidate (the echo is ignored).
+ * Settles the send this echo is of as sent (267): one still pending, or one
+ * settled failed because the gateway's answer was lost. False when none is.
  */
 export async function reconcileEcho(
-  store: Pick<
-    InboundStore,
-    'hasWaMessage' | 'pendingOutMatching' | 'settleSend'
-  >,
+  store: Pick<InboundStore, 'reconcileEcho'>,
   groupId: string,
-  m: GroupInboundMessage,
-  now: Date
+  m: GroupInboundMessage
 ): Promise<boolean> {
-  if (await store.hasWaMessage(groupId, m.id)) return false;
-  const since = new Date(now.getTime() - ECHO_RECONCILE_WINDOW_MS);
-  // WhatsApp timestamps are whole seconds: a row created later in that same second still qualifies.
   const at = Date.parse(m.sentAt);
-  const until = Number.isFinite(at) ? new Date(at + 999) : null;
-  const ids = await store.pendingOutMatching(groupId, m.body!, since, until);
-  if (ids.length !== 1) {
-    if (ids.length > 1)
-      console.warn(
-        `[submission-groups] echo ${m.id} matches several pending sends of group ${groupId}; left to the sender's settle`
-      );
-    return false;
-  }
-  return store.settleSend(ids[0], 'sent', m.id);
+  return store.reconcileEcho({
+    groupId,
+    waMessageId: m.id,
+    type: m.type,
+    text: m.body!,
+    sentAt: Number.isFinite(at) ? new Date(at) : null,
+  });
 }
