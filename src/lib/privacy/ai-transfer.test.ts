@@ -2,11 +2,64 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: vi.fn() }));
 
-import { assertAiTransfer, makeTransferCheck, promptSize } from './ai-transfer';
+import {
+  assertAiTransfer,
+  makeTransferCheck,
+  promptSize,
+  TRANSFER_CHECK_TIMEOUT_MS,
+} from './ai-transfer';
+
+/** A PostgREST call: a thenable builder that takes an abort signal. */
+const answer = (result: unknown) => ({
+  abortSignal: async () => result,
+});
 
 describe('AI transfer check', () => {
+  it('gives up on a slow database and allows the call', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | null = null;
+      const slow = makeTransferCheck(
+        () =>
+          ({
+            rpc: () => ({
+              abortSignal: (s: AbortSignal) => {
+                signal = s;
+                return new Promise((resolve) =>
+                  s.addEventListener('abort', () =>
+                    resolve({ data: null, error: { code: '20' } })
+                  )
+                );
+              },
+            }),
+          }) as never
+      );
+      const timeout = vi
+        .spyOn(AbortSignal, 'timeout')
+        .mockImplementation((ms) => {
+          const c = new AbortController();
+          setTimeout(() => c.abort(), ms);
+          return c.signal;
+        });
+      const pending = slow({
+        accountId: 'a',
+        destination: 'typesafe',
+        purpose: 'triage',
+        model: null,
+        bytes: 1,
+      });
+      await vi.advanceTimersByTimeAsync(TRANSFER_CHECK_TIMEOUT_MS);
+      expect(await pending).toBe(true);
+      expect(signal!.aborted).toBe(true);
+      timeout.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('asks the database and answers its decision', async () => {
-    const rpc = vi.fn(async () => ({ data: false, error: null }));
+    const rpc = vi.fn(() => answer({ data: false, error: null }));
     const check = makeTransferCheck(() => ({ rpc }) as never);
     expect(
       await check({
@@ -31,7 +84,7 @@ describe('AI transfer check', () => {
     const broken = makeTransferCheck(
       () =>
         ({
-          rpc: async () => ({ data: null, error: { code: '42883' } }),
+          rpc: () => answer({ data: null, error: { code: '42883' } }),
         }) as never
     );
     expect(

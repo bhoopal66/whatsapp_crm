@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Before going live: menu speed, sign-in links, AI check
+
+No migration.
+- **Menu speed.** Since the language became per person no screen is built
+  ahead of time any more, so Inbox, Contacts, Dashboard, Team chat,
+  Settings and My worklist would each have waited for the server on every
+  click. The menu, the phone's bottom bar, the HR tabs and the Mine / Team
+  switch load their screens ahead again.
+- **Sign-in links.** A crafted `/login?next=` address could send someone
+  to another website after signing in. It is refused now.
+- **AI privacy check.** The check in front of every AI request gives up
+  after 1.5 seconds and lets the request through, so a slow database
+  cannot hold up a reply.
+- **Web form.** Junk posts no longer use up a form's hourly allowance.
+
 ### Lead source on API broadcasts
 
 No migration. A contact created by `POST /api/v1/broadcasts` gets

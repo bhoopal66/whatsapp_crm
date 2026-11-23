@@ -23,6 +23,12 @@ describe('loginDestination', () => {
       '/\\evil.example',
       'javascript:alert(1)',
       'inbox',
+      // Dot segments that resolve to a protocol-relative path.
+      '/.//evil.example',
+      '/x/..//evil.example',
+      '/%2e//evil.example',
+      '/./\\evil.example',
+      '/.//[',
     ]) {
       expect(loginDestination(params(`next=${encodeURIComponent(next)}`))).toBe(
         '/'

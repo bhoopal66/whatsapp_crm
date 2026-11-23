@@ -27,7 +27,10 @@ export function safeNextPath(next: string | null): string | null {
   try {
     const base = 'https://origin.invalid';
     const url = new URL(next, base);
-    return url.origin === base ? url.pathname + url.search + url.hash : null;
+    // Resolving drops dot segments, so "/.//host" and "/x/..//host" come
+    // out as "//host": check the path that is handed back too.
+    if (url.origin !== base || /^\/[/\\]/.test(url.pathname)) return null;
+    return url.pathname + url.search + url.hash;
   } catch {
     return null;
   }

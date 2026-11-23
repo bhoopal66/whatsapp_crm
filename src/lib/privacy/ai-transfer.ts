@@ -4,8 +4,9 @@
  * and labels, no text) and answers whether it may go. It refuses only
  * while the workspace requires a basis and none complete is on record.
  *
- * Fail open: when the check itself cannot run (the database is down, or
- * 224 is not applied yet) the call goes and the failure is logged. A
+ * Fail open: when the check itself cannot run in time (the database is
+ * down or slow, or 224 is not applied yet) the call goes and the failure
+ * is logged. A
  * refused call surfaces as AiError `transfer_basis_required`, which every
  * AI path already handles (the bot hands off, a route answers an error).
  */
@@ -28,16 +29,25 @@ export interface TransferInput {
 
 export type TransferCheck = (input: TransferInput) => Promise<boolean>;
 
+/**
+ * The longest the check may hold up the call it guards. It sits in front
+ * of every AI and Jev request, outside their own time budgets, and a bot
+ * reply has to finish inside the webhook's 60 s `after()`.
+ */
+export const TRANSFER_CHECK_TIMEOUT_MS = 1_500;
+
 export function makeTransferCheck(db: () => SupabaseClient): TransferCheck {
   return async (input) => {
     try {
-      const { data, error } = await db().rpc('ai_transfer_check', {
-        p_account: input.accountId,
-        p_destination: input.destination,
-        p_purpose: input.purpose,
-        p_model: input.model,
-        p_bytes: Math.max(0, Math.round(input.bytes)),
-      });
+      const { data, error } = await db()
+        .rpc('ai_transfer_check', {
+          p_account: input.accountId,
+          p_destination: input.destination,
+          p_purpose: input.purpose,
+          p_model: input.model,
+          p_bytes: Math.max(0, Math.round(input.bytes)),
+        })
+        .abortSignal(AbortSignal.timeout(TRANSFER_CHECK_TIMEOUT_MS));
       if (error) {
         console.error(
           `[privacy] ai_transfer_check failed (${error.code ?? '-'}); call allowed`

@@ -15,10 +15,11 @@
 // plain statuses.
 //
 // Order: token shape, rate limits (per client IP, per client IP on
-// this form, then per form; fail closed), body type and size, the form lookup, the Origin rule
-// (src/lib/web-form/origin.ts), the honeypot (a bot gets the success
-// answer and nothing is stored), validation, then web_form_submit. It
-// never sends a WhatsApp message.
+// this form; fail closed), body type and size, the form lookup, the
+// Origin rule (src/lib/web-form/origin.ts), the honeypot (a bot gets the
+// success answer and nothing is stored), validation, the form's own rate
+// limit (fail closed too), then web_form_submit. It never sends a
+// WhatsApp message.
 //
 // OPTIONS (the CORS preflight) spends the per-IP bucket before its form
 // lookup, so preflights cannot be used to hammer the database.
@@ -153,9 +154,17 @@ async function rateLimited(
     const byIpForm = await rl.check('webform.ip_token', `${token}|${ip}`);
     if (!byIpForm.allowed) return byIpForm.retryAfterMs;
   }
-  const byForm = await rl.check('webform.token', token);
-  if (!byForm.allowed) return byForm.retryAfterMs;
   return null;
+}
+
+/**
+ * The form's own hourly allowance, spent only by a submission that is
+ * about to be stored: junk (a refused Origin, the honeypot, a bad field)
+ * must not use up the allowance of genuine leads.
+ */
+async function formRateLimited(token: string): Promise<number | null> {
+  const byForm = await limiter().check('webform.token', token);
+  return byForm.allowed ? null : byForm.retryAfterMs;
 }
 
 export async function OPTIONS(request: Request, { params }: Params) {
@@ -228,6 +237,9 @@ export async function POST(request: Request, { params }: Params) {
         ? backToPage(token, `error=${checked.error}`, cors)
         : json(422, { error: checked.error, field: checked.field }, cors);
     }
+
+    const formRetryMs = await formRateLimited(token);
+    if (formRetryMs !== null) return tooMany(formRetryMs);
 
     const outcome = await submitWebForm(supabaseAdmin(), token, checked.value);
     if (outcome.status === 'not_found')
