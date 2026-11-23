@@ -33,6 +33,7 @@ import {
   type CompassSelection,
 } from '@/lib/broadcasts/compass-audience';
 import { buildCsvContactInsert } from '@/lib/broadcasts/csv-contact-insert';
+import { completeCampaign } from '@/lib/broadcasts/draft-send';
 import { partitionRowsByPhone } from '@/lib/contacts/phone-validation';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import {
@@ -155,10 +156,12 @@ interface BroadcastPayload {
    */
   followUpFlowId?: string | null;
   /**
-   * Called as soon as the campaign row exists, before any recipient is
-   * written: from here a failure is resumed from the campaign's page.
+   * Called once the campaign stands: every recipient row exists, or the
+   * incomplete row could not be removed (see `completeCampaign`).
    */
   onCampaignCreated?: (broadcastId: string) => void;
+  /** Sent from a claimed draft: an incomplete campaign row is removed. */
+  fromDraft?: boolean;
 }
 
 export interface BroadcastOutcome {
@@ -1098,8 +1101,6 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         );
       }
 
-      payload.onCampaignCreated?.(broadcast.id);
-
       // ── Step 3: Insert recipient rows ─────────────────────────────
       // Custom values are fetched BEFORE the insert so each row can
       // carry its resolved template params. Those params are what makes
@@ -1113,62 +1114,72 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       // different name, but the column the admin picked is what they
       // saw in the file, so that is what goes out. A Compass slice is
       // indexed the same way, from the rows resolveAudience read.
-      setProgress(20);
-      const customValueIndex = await fetchCustomValueIndex(
-        supabase,
-        contacts.map((c) => c.id)
-      );
-      const csvIndex = indexCsvRowsByPhone(csvRows);
-      const paramsByContact = new Map(
-        contacts.map((contact) => [
-          contact.id,
-          resolveVariables(
-            payload.variables,
-            contact,
-            customValueIndex.get(contact.id),
-            csvValuesForContact(csvIndex, contact)
-          ),
-        ])
-      );
-      const recipientRows = contacts.map((contact) => ({
-        broadcast_id: broadcast.id,
-        contact_id: contact.id,
-        status: 'pending' as const,
-        template_params: paramsByContact.get(contact.id) ?? [],
-      }));
-
-      // A few inserts in flight at once: each is a tunnel round trip,
-      // and they are independent rows.
-      const batches: (typeof recipientRows)[] = [];
-      for (let i = 0; i < recipientRows.length; i += INSERT_BATCH_SIZE) {
-        batches.push(recipientRows.slice(i, i + INSERT_BATCH_SIZE));
-      }
-      for (let i = 0; i < batches.length; i += INSERT_CONCURRENCY) {
-        const results = await Promise.all(
-          batches
-            .slice(i, i + INSERT_CONCURRENCY)
-            .map((batch) => supabase.from('broadcast_recipients').insert(batch))
-        );
-        const failedAt = results.findIndex((r) => r.error);
-        if (failedAt !== -1) {
-          const recipientError = results[failedAt].error!;
-          // Previous impl logged and marched on — the broadcast then ran
-          // with an incomplete recipient set, so webhook status updates
-          // couldn't find some rows and the aggregate counts drifted.
-          // Flip the broadcast to failed so the user sees the problem
-          // immediately, then throw before anything is sent.
-          await supabase
+      await completeCampaign({
+        fromDraft: payload.fromDraft === true,
+        discard: () =>
+          supabase
             .from('broadcasts')
-            .update({
-              status: 'failed',
-              failed_count: contacts.length,
-            })
-            .eq('id', broadcast.id);
-          throw new Error(
-            `Failed to insert recipient batch ${i + failedAt + 1}: ${recipientError.message}`
+            .delete()
+            .eq('id', broadcast.id)
+            .select('id'),
+        markFailed: () =>
+          supabase
+            .from('broadcasts')
+            .update({ status: 'failed', failed_count: contacts.length })
+            .eq('id', broadcast.id),
+        onCampaignCreated: () => payload.onCampaignCreated?.(broadcast.id),
+        prepare: async () => {
+          setProgress(20);
+          const customValueIndex = await fetchCustomValueIndex(
+            supabase,
+            contacts.map((c) => c.id)
           );
-        }
-      }
+          const csvIndex = indexCsvRowsByPhone(csvRows);
+          const paramsByContact = new Map(
+            contacts.map((contact) => [
+              contact.id,
+              resolveVariables(
+                payload.variables,
+                contact,
+                customValueIndex.get(contact.id),
+                csvValuesForContact(csvIndex, contact)
+              ),
+            ])
+          );
+          const recipientRows = contacts.map((contact) => ({
+            broadcast_id: broadcast.id,
+            contact_id: contact.id,
+            status: 'pending' as const,
+            template_params: paramsByContact.get(contact.id) ?? [],
+          }));
+
+          // A few inserts in flight at once: each is a tunnel round trip,
+          // and they are independent rows.
+          const batches: (typeof recipientRows)[] = [];
+          for (let i = 0; i < recipientRows.length; i += INSERT_BATCH_SIZE) {
+            batches.push(recipientRows.slice(i, i + INSERT_BATCH_SIZE));
+          }
+          for (let i = 0; i < batches.length; i += INSERT_CONCURRENCY) {
+            const results = await Promise.all(
+              batches
+                .slice(i, i + INSERT_CONCURRENCY)
+                .map((batch) => supabase.from('broadcast_recipients').insert(batch))
+            );
+            const failedAt = results.findIndex((r) => r.error);
+            if (failedAt !== -1) {
+              const recipientError = results[failedAt].error!;
+              // Previous impl logged and marched on — the broadcast then ran
+              // with an incomplete recipient set, so webhook status updates
+              // couldn't find some rows and the aggregate counts drifted.
+              // Throw before anything is sent: completeCampaign drops the
+              // campaign (from a draft) or flips it to failed.
+              throw new Error(
+                `Failed to insert recipient batch ${i + failedAt + 1}: ${recipientError.message}`
+              );
+            }
+          }
+        },
+      });
 
       // Scheduled: the rows are in place, the cron takes it from here.
       if (sendAt) {

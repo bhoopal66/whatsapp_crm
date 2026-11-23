@@ -195,6 +195,7 @@ function NewBroadcastWizard() {
           quietHours,
           followUpFlowId,
           onCampaignCreated,
+          fromDraft: !!draftId,
         }),
       restore: () => writeDraft(template, null),
     });

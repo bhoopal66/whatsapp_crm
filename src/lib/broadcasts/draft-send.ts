@@ -71,7 +71,7 @@ export interface SendDraftDeps<T> {
   draftId: string | null;
   /** Conditional delete (`status = 'draft'`) returning the deleted rows. */
   claim: (id: string) => PromiseLike<IdRows>;
-  /** Must report the campaign row as soon as it exists. */
+  /** Must report the campaign once it stands (`completeCampaign`). */
   create: (onCampaignCreated: (id: string) => void) => Promise<T>;
   /** Saves the wizard as a new draft (the claimed row is gone). */
   restore: () => Promise<SaveDraftResult>;
@@ -102,4 +102,54 @@ export async function sendReopenedDraft<T>(
     const restored = deps.draftId && !campaignId ? await deps.restore() : null;
     return { kind: 'failed', error, campaignId, restored };
   }
+}
+
+export interface CompleteCampaignDeps<T> {
+  /** Everything until every recipient row exists; nothing is sent in it. */
+  prepare: () => Promise<T>;
+  /** Sent from a claimed draft, whose only copy is now this wizard. */
+  fromDraft: boolean;
+  /** Deletes the campaign row (its recipients cascade), returning it. */
+  discard: () => PromiseLike<IdRows>;
+  /** Marks the campaign row failed. */
+  markFailed: () => PromiseLike<unknown>;
+  onCampaignCreated: () => void;
+}
+
+/**
+ * A campaign is only "created" once every recipient row exists: its page
+ * resumes the rows it has, so a campaign cut short while they were being
+ * written would silently never reach the rest. Cut short, one sent from a
+ * draft is deleted, so the draft can be restored; if that cannot be
+ * confirmed the campaign stands (as failed) and the draft does not come
+ * back beside it, which could send twice.
+ */
+export async function completeCampaign<T>(
+  deps: CompleteCampaignDeps<T>
+): Promise<T> {
+  let out: T;
+  try {
+    out = await deps.prepare();
+  } catch (error) {
+    let discarded = false;
+    if (deps.fromDraft) {
+      try {
+        const { data, error: failed } = await deps.discard();
+        discarded = !failed && !!data?.length;
+      } catch {
+        // Unknown: treated as still there.
+      }
+    }
+    if (!discarded) {
+      try {
+        await deps.markFailed();
+      } catch {
+        // The error below is the one worth showing.
+      }
+      deps.onCampaignCreated();
+    }
+    throw error;
+  }
+  deps.onCampaignCreated();
+  return out;
 }

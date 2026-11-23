@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { saveDraft, sendReopenedDraft, type SaveDraftDeps } from './draft-send';
+import {
+  completeCampaign,
+  saveDraft,
+  sendReopenedDraft,
+  type SaveDraftDeps,
+} from './draft-send';
 
 const row = { data: [{ id: 'd1' }], error: null };
 
@@ -163,5 +168,93 @@ describe('saveDraft', () => {
       id: 'new',
       message: 'no',
     });
+  });
+});
+
+describe('completeCampaign', () => {
+  const run = (over: {
+    prepare?: () => Promise<string>;
+    fromDraft?: boolean;
+    discard?: () => Promise<{
+      data: { id: string }[] | null;
+      error: { message: string } | null;
+    }>;
+  }) => {
+    const calls: string[] = [];
+    const done = completeCampaign({
+      prepare: async () => {
+        calls.push('prepare');
+        return over.prepare ? over.prepare() : 'ok';
+      },
+      fromDraft: over.fromDraft ?? true,
+      discard: async () => {
+        calls.push('discard');
+        return over.discard
+          ? over.discard()
+          : { data: [{ id: 'c1' }], error: null };
+      },
+      markFailed: async () => {
+        calls.push('failed');
+      },
+      onCampaignCreated: () => calls.push('created'),
+    });
+    return { calls, done };
+  };
+  const cut = async () => {
+    throw new Error('batch 3');
+  };
+
+  it('reports the campaign only after every recipient row exists', async () => {
+    const { calls, done } = run({});
+    expect(await done).toBe('ok');
+    expect(calls).toEqual(['prepare', 'created']);
+  });
+
+  it('drops a draft\u2019s campaign cut short, so the draft can come back', async () => {
+    const { calls, done } = run({ prepare: cut });
+    await expect(done).rejects.toThrow('batch 3');
+    expect(calls).toEqual(['prepare', 'discard']);
+  });
+
+  it('keeps the campaign when its removal is not confirmed', async () => {
+    for (const discard of [
+      async () => ({ data: [], error: null }),
+      async () => ({ data: null, error: { message: 'offline' } }),
+      async () => {
+        throw new Error('offline');
+      },
+    ]) {
+      const { calls, done } = run({ prepare: cut, discard });
+      await expect(done).rejects.toThrow('batch 3');
+      expect(calls).toEqual(['prepare', 'discard', 'failed', 'created']);
+    }
+  });
+
+  it('marks an ordinary campaign failed, as before', async () => {
+    const { calls, done } = run({ prepare: cut, fromDraft: false });
+    await expect(done).rejects.toThrow('batch 3');
+    expect(calls).toEqual(['prepare', 'failed', 'created']);
+  });
+
+  it('restores the draft when the recipients could not all be written', async () => {
+    const order: string[] = [];
+    const result = await sendReopenedDraft<string>({
+      draftId: 'd1',
+      claim: async () => row,
+      create: (onCampaignCreated) =>
+        completeCampaign({
+          prepare: cut,
+          fromDraft: true,
+          discard: async () => ({ data: [{ id: 'c1' }], error: null }),
+          markFailed: async () => undefined,
+          onCampaignCreated: () => onCampaignCreated('c1'),
+        }),
+      restore: async () => {
+        order.push('restore');
+        return { kind: 'saved', id: 'd2' };
+      },
+    });
+    expect(result).toMatchObject({ kind: 'failed', campaignId: null });
+    expect(order).toEqual(['restore']);
   });
 });

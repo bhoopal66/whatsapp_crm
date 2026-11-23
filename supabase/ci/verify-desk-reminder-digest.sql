@@ -154,6 +154,22 @@ BEGIN
     (SELECT count(*) FROM desk_digest_claim(t22) x) = 0
     AND (SELECT o.status FROM desk_digest_outbox o WHERE o.id = q) = 'queued',
     'a digest was claimed in quiet hours');
+  -- 263: a row only cancelled (yesterday's) does not use up a small pass. Undone.
+  BEGIN
+    UPDATE desk_digest_outbox o SET local_day = o.local_day - 1, created_at = o.created_at - interval '1 day'
+     WHERE o.id = q;
+    INSERT INTO desk_digest_outbox (account_id, customer_id, contact_id, conversation_id, local_day,
+                                    app_number, summary, pending, created_at)
+    SELECT o.account_id, o.customer_id, o.contact_id, o.conversation_id, o.local_day + 1,
+           o.app_number, o.summary, o.pending, o.created_at + interval '1 day'
+      FROM desk_digest_outbox o WHERE o.id = q;
+    n := n + 1; failed := failed || pg_temp.dg_ok(
+      (SELECT count(*) FROM desk_digest_claim(t10, 1) x) = 1,
+      '263: a digest only cancelled used up a pass of one');
+    RAISE EXCEPTION USING ERRCODE = 'ZD264', MESSAGE = 'undo';
+  EXCEPTION WHEN SQLSTATE 'ZD264' THEN
+    NULL;
+  END;
   SELECT x.* INTO r FROM desk_digest_claim(t10) x WHERE x.id = q;
   n := n + 1; failed := failed || pg_temp.dg_ok(r.template_name = 'desk_digest'
     AND (SELECT o.status FROM desk_digest_outbox o WHERE o.id = q) = 'sending',

@@ -22,12 +22,14 @@
 -- 11. The digest's template was checked in any language.
 -- 12. desk_digest_enqueue: a digest refused by the number's own daily
 --     limit counted towards the gap, though nothing had been sent.
+-- 13. case_csat_claim, desk_digest_claim: at five a pass, held requests
+--     and rows only cancelled took the places of ones that could go.
 --
 -- desk_case_open / case_open_lead need no change: an open lead of the
 -- same contact and bank outside the caller's application is refused
 -- (CASE_CONFLICT), never joined.
 --
--- RESTATES bodies of 130, 203, 231, 233, 234, 236, 237 and 256: apply in
+-- RESTATES bodies of 130, 203, 231, 233, 234, 236, 237, 246 and 256: apply in
 -- order, once. Apply as a superuser or a BYPASSRLS role. Safe to re-run.
 
 SET lock_timeout = '5s';
@@ -876,6 +878,8 @@ DECLARE
   s       public.desk_digest_settings%ROWTYPE;
   ct      public.contacts%ROWTYPE;
   v_sent  integer;
+  v_n     integer := 0;
+  v_max   integer := least(greatest(coalesce(p_limit, 50), 1), 200);
 BEGIN
   -- A claim with no result for 10 minutes may have reached the gateway:
   -- never resent.
@@ -887,8 +891,11 @@ BEGIN
   END IF;
 
   FOR o IN SELECT * FROM public.desk_digest_outbox x WHERE x.status = 'queued' AND x.local_day <= v_today
-            ORDER BY x.created_at LIMIT least(greatest(coalesce(p_limit, 50), 1), 200)
+            -- The limit counts digests claimed, not rows only cancelled
+            -- (yesterday's, opted out): those must not use up a pass.
+            ORDER BY x.created_at LIMIT 500
             FOR UPDATE SKIP LOCKED LOOP
+    EXIT WHEN v_n >= v_max;
     SELECT * INTO s FROM public.desk_digest_settings x WHERE x.account_id = o.account_id;
     IF NOT coalesce(s.enabled, false) OR s.template_name IS NULL
        OR NOT public.desk_digest_template_ok(o.account_id, s.template_name, s.language) THEN
@@ -920,8 +927,96 @@ BEGIN
     UPDATE public.desk_digest_outbox x
        SET status = 'sending', attempts = x.attempts + 1, claimed_at = v_now
      WHERE x.id = o.id;
+    v_n := v_n + 1;
     RETURN QUERY SELECT o.id, o.account_id, o.contact_id, o.conversation_id, o.app_number, o.summary,
                         s.template_name, s.language;
   END LOOP;
 END;
 $function$;
+
+-- ---------- 13. Fresh rating requests before held ones (RESTATES 246) ----------
+
+CREATE OR REPLACE FUNCTION public.case_csat_claim(p_now timestamptz DEFAULT NULL, p_limit integer DEFAULT 50)
+RETURNS TABLE (id uuid, account_id uuid, case_id uuid, trigger text, contact_id uuid, conversation_id uuid,
+               contact_name text, bank_name text, product text, template_name text, language text)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_now   timestamptz := coalesce(p_now, now());
+  v_hour  integer := extract(hour FROM v_now AT TIME ZONE 'Asia/Dubai')::integer;
+  o       public.case_csat_requests%ROWTYPE;
+  s       public.case_csat_settings%ROWTYPE;
+  ct      public.contacts%ROWTYPE;
+  v_bank  text;
+  v_prod  text;
+  v_n     integer := 0;
+  v_max   integer := least(greatest(coalesce(p_limit, 50), 1), 200);
+BEGIN
+  -- A claim with no result for 10 minutes may have reached the gateway:
+  -- never resent.
+  UPDATE public.case_csat_requests x SET status = 'unconfirmed'
+   WHERE x.status = 'sending' AND x.claimed_at < v_now - interval '10 minutes';
+  -- Not sent within 3 days: too late to ask.
+  UPDATE public.case_csat_requests x SET status = 'cancelled', status_reason = 'expired'
+   WHERE x.status IN ('queued', 'held') AND x.created_at < v_now - interval '3 days';
+
+  IF v_hour < 8 OR v_hour >= 21 THEN
+    RETURN;  -- quiet hours everywhere: nothing leaves, the rows wait
+  END IF;
+
+  FOR o IN SELECT * FROM public.case_csat_requests x
+            WHERE x.status = 'queued' OR (x.status = 'held' AND coalesce(x.next_attempt_at, x.created_at) <= v_now)
+            -- Fresh requests first: one held for a template retries every hour
+            -- and, five to a pass, would take every place from the new ones.
+            ORDER BY (x.status = 'held'), x.created_at
+            LIMIT 500
+            FOR UPDATE SKIP LOCKED LOOP
+    EXIT WHEN v_n >= v_max;
+    SELECT * INTO s FROM public.case_csat_settings x WHERE x.account_id = o.account_id;
+    IF NOT coalesce(s.enabled, false)
+       OR (o.trigger = 'submitted' AND NOT s.ask_on_submitted)
+       OR (o.trigger = 'approved' AND NOT s.ask_on_approved) THEN
+      UPDATE public.case_csat_requests x SET status = 'cancelled', status_reason = 'switched_off' WHERE x.id = o.id;
+      CONTINUE;
+    END IF;
+    -- The workspace's own send hours (Dubai): the row waits.
+    CONTINUE WHEN v_hour < s.send_start_hour OR v_hour >= s.send_end_hour;
+    IF o.contact_id IS NULL OR o.conversation_id IS NULL THEN
+      UPDATE public.case_csat_requests x SET status = 'cancelled', status_reason = 'no_chat' WHERE x.id = o.id;
+      CONTINUE;
+    END IF;
+    -- One claimer per person at a time: the per-person count below holds.
+    PERFORM pg_advisory_xact_lock(hashtextextended('case_csat:' || o.contact_id::text, 0));
+    SELECT * INTO ct FROM public.contacts x WHERE x.id = o.contact_id;
+    IF NOT FOUND OR ct.opted_out_at IS NOT NULL OR ct.do_not_contact_at IS NOT NULL THEN
+      UPDATE public.case_csat_requests x SET status = 'cancelled', status_reason = 'opted_out' WHERE x.id = o.id;
+      CONTINUE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.conversations v
+                    WHERE v.id = o.conversation_id AND v.account_id = o.account_id
+                      AND v.contact_id = o.contact_id AND v.personal_owner_id IS NULL) THEN
+      UPDATE public.case_csat_requests x SET status = 'cancelled', status_reason = 'no_chat' WHERE x.id = o.id;
+      CONTINUE;
+    END IF;
+    -- At most one rating request per person per 24 hours: the row waits.
+    CONTINUE WHEN EXISTS (SELECT 1 FROM public.case_csat_requests d
+                           WHERE d.contact_id = o.contact_id AND d.id <> o.id
+                             AND d.status IN ('sending', 'sent', 'unconfirmed')
+                             AND d.claimed_at > v_now - interval '24 hours');
+    SELECT b.name INTO v_bank FROM public.case_banks b WHERE b.account_id = o.account_id AND b.code = o.bank_code;
+    SELECT k.product INTO v_prod FROM public.cases k WHERE k.id = o.case_id;
+    UPDATE public.case_csat_requests x
+       SET status = 'sending', attempts = x.attempts + 1, claimed_at = v_now, status_reason = NULL
+     WHERE x.id = o.id;
+    v_n := v_n + 1;
+    RETURN QUERY SELECT o.id, o.account_id, o.case_id, o.trigger, o.contact_id, o.conversation_id,
+                        ct.name, coalesce(v_bank, o.bank_code), v_prod,
+                        CASE o.trigger WHEN 'approved' THEN s.template_approved ELSE s.template_submitted END,
+                        s.language;
+  END LOOP;
+END;
+$$;

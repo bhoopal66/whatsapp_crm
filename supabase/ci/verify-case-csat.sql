@@ -174,6 +174,17 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cx_ok(
     NOT EXISTS (SELECT 1 FROM case_csat_claim(t10 + interval '10 minutes') x WHERE x.id = q_sub),
     'a held request was retried within the hour');
+  -- 263: at a small limit a fresh request goes before a held one. Undone.
+  BEGIN
+    UPDATE case_csat_requests q SET created_at = t10 - interval '1 hour' WHERE q.id = q_sub;
+    UPDATE case_csat_requests q SET status = 'queued', created_at = t10 WHERE q.id = q_app;
+    SELECT x.* INTO r FROM case_csat_claim(t10 + interval '61 minutes', 1) x;
+    n := n + 1; failed := failed || pg_temp.cx_ok(r.id = q_app,
+      '263: a held request took the place of a fresh one');
+    RAISE EXCEPTION USING ERRCODE = 'ZX263', MESSAGE = 'undo';
+  EXCEPTION WHEN SQLSTATE 'ZX263' THEN
+    NULL;
+  END;
   n := n + 1; failed := failed || pg_temp.cx_ok(
     EXISTS (SELECT 1 FROM case_csat_claim(t10 + interval '61 minutes') x WHERE x.id = q_sub),
     'a held request was not retried after the hour');
