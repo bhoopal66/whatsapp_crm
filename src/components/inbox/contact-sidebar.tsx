@@ -73,6 +73,7 @@ export function ContactSidebar({
   widthClass = 'w-70',
 }: ContactSidebarProps) {
   const tSidebar = useTranslations('Inbox.sidebar');
+  const tNotes = useTranslations('Contacts.detailView.notesTab');
   const tThread = useTranslations('Inbox.messageThread');
 
   const { accountId, user } = useAuth();
@@ -341,6 +342,7 @@ export function ContactSidebar({
                 <Button
                   size="sm"
                   className="bg-wa-green text-wa-green-fg hover:bg-wa-green/90 h-8 w-8 shrink-0 rounded-full p-0"
+                  aria-label={tNotes('save')}
                   onClick={handleAddNote}
                   disabled={!newNote.trim() || addingNote}
                 >

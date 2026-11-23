@@ -3,6 +3,7 @@
 import type { PipelineStage, Profile } from '@/types';
 import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import { dealOwnerProfile } from '@/lib/pipelines/owner';
+import type { useDraggable } from '@dnd-kit/core';
 import { Calendar, Check, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency';
 import type { LeadScore } from '@/lib/pipelines/lead-score';
@@ -18,6 +19,12 @@ interface DealCardProps {
   isOverlay?: boolean;
   /** The lead score; null/absent when off or for a closed deal. */
   score?: LeadScore | null;
+  /** Makes the card its own drag handle: the button carries dnd-kit's
+   *  props, because a focusable wrapper around it would be a button
+   *  inside a button. Absent on a read-only board and in the overlay. */
+  drag?: Pick<ReturnType<typeof useDraggable>, 'attributes' | 'listeners'> & {
+    ref: (el: HTMLElement | null) => void;
+  };
 }
 
 function formatDate(dateStr: string, locale: string) {
@@ -41,6 +48,7 @@ export function DealCard({
   onEdit,
   isOverlay,
   score,
+  drag,
 }: DealCardProps) {
   const t = useTranslations('Pipelines.card');
   const locale = useLocale();
@@ -52,7 +60,15 @@ export function DealCard({
 
   return (
     <button
+      ref={drag?.ref}
+      {...drag?.attributes}
+      {...drag?.listeners}
       type="button"
+      // Space picks the card up and drops it; a browser would also click
+      // the button as the key comes up, opening the deal.
+      onKeyUp={(e) => {
+        if (drag && e.code === 'Space') e.preventDefault();
+      }}
       onClick={(e) => {
         // `onClick` still fires after a non-drag tap because the PointerSensor
         // requires 5px movement before it counts as a drag.
@@ -74,9 +90,9 @@ export function DealCard({
       />
 
       <div className="flex items-start justify-between gap-2">
-        <h4 className="text-foreground flex-1 text-sm leading-snug font-semibold break-words">
+        <span className="text-foreground flex-1 text-sm leading-snug font-semibold break-words">
           {deal.title}
-        </h4>
+        </span>
         {score && <LeadScoreBadge score={score} />}
         {deal.status === 'won' && (
           <span className="bg-primary/15 text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold">

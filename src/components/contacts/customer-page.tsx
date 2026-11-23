@@ -669,7 +669,7 @@ export function CustomerPage({
           {access.addNote && (
             <NoteComposer contactId={contactId} onAdded={addNote} />
           )}
-          <nav className="flex flex-wrap gap-2">
+          <nav aria-label={tl('filtersLabel')} className="flex flex-wrap gap-2">
             {TIMELINE_FILTERS.map((f) => (
               <button
                 key={f}

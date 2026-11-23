@@ -486,7 +486,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           {/* Main navigation: headed groups (nav-items.ts), then Settings
             set apart at the foot — below everything while the groups
             fit, after them once the nav scrolls. */}
-          <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
+          <nav
+            aria-label={t('navLabel')}
+            className="flex flex-1 flex-col overflow-y-auto px-3 py-4"
+          >
             <div className="flex flex-col gap-4">
               {navGroups.map((group) => {
                 const headingId = `${groupIdPrefix}-${group.id}`;

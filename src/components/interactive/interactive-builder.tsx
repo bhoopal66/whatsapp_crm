@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -196,6 +197,7 @@ function ButtonsEditor({
   onChange: (p: InteractiveMessagePayload) => void;
   advanced: boolean;
 }) {
+  const t = useTranslations("Flows.builder.form");
   const buttons = value.buttons;
   const update = (idx: number, patch: Partial<InteractiveButtonsPayload["buttons"][number]>) =>
     onChange({
@@ -247,6 +249,7 @@ function ButtonsEditor({
                 variant="ghost"
                 size="sm"
                 onClick={() => remove(i)}
+                aria-label={t("removeButton", { number: i + 1 })}
                 className="text-destructive hover:bg-destructive-soft hover:text-destructive"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -278,6 +281,7 @@ function ListEditor({
   onChange: (p: InteractiveMessagePayload) => void;
   advanced: boolean;
 }) {
+  const t = useTranslations("Flows.builder.form");
   const sections = value.sections;
   const totalRows = sections.reduce((n, s) => n + s.rows.length, 0);
   const allRowIds = () => sections.flatMap((s) => s.rows.map((r) => r.id));
@@ -356,6 +360,7 @@ function ListEditor({
                 variant="ghost"
                 size="sm"
                 onClick={() => removeSection(sIdx)}
+                aria-label={t("removeSection", { number: sIdx + 1 })}
                 className="text-destructive hover:bg-destructive-soft hover:text-destructive"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -391,6 +396,7 @@ function ListEditor({
                       variant="ghost"
                       size="sm"
                       onClick={() => removeRow(sIdx, rIdx)}
+                      aria-label={t("removeRow", { number: rIdx + 1 })}
                       className="text-destructive hover:bg-destructive-soft hover:text-destructive"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

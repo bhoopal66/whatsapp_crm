@@ -17,7 +17,6 @@ export function CommandBarTrigger() {
     <button
       type="button"
       onClick={openCommandBar}
-      aria-label={t('trigger', { key: mod })}
       aria-keyshortcuts="Control+K Meta+K"
       aria-haspopup="dialog"
       title={t('trigger', { key: mod })}
@@ -27,6 +26,7 @@ export function CommandBarTrigger() {
       <kbd className="border-border bg-muted hidden rounded border px-1.5 py-0.5 font-sans text-xs sm:inline">
         {mod} K
       </kbd>
+      <span className="sr-only">{t('placeholder')}</span>
     </button>
   );
 }

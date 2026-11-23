@@ -224,6 +224,7 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
                 <button
                   type="button"
                   onClick={() => setShowKey((s) => !s)}
+                  aria-label={t(showKey ? 'hideKey' : 'showKey')}
                   className="text-muted-foreground hover:text-foreground absolute end-2 top-1/2 -translate-y-1/2"
                   tabIndex={-1}
                 >

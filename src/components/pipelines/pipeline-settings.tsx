@@ -440,6 +440,7 @@ function SortableStageRow({
   };
 
   const linked = mainTags.find((m) => m.id === stage.auto_chat_tag_id);
+  const tStages = useTranslations('CaseSettings.stages');
 
   return (
     <div
@@ -472,6 +473,7 @@ function SortableStageRow({
           variant="ghost"
           size="icon-xs"
           onClick={onRemove}
+          aria-label={tStages('remove', { stage: stage.name })}
           className="text-muted-foreground hover:text-destructive"
         >
           <Trash2 className="h-3 w-3" />

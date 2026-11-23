@@ -61,9 +61,8 @@ export function Header({ onOpenSidebar }: HeaderProps) {
         <DropdownMenu>
           <DropdownMenuTrigger
             className="hover:bg-muted/70 focus:bg-muted/70 data-popup-open:bg-muted/70 flex items-center gap-2 rounded-md px-1 py-1 transition-colors focus:outline-none sm:gap-3 sm:pe-3 sm:ps-1"
-            aria-label={t('openAccountMenu')}
           >
-            <Avatar className="size-8">
+            <Avatar className="size-8" aria-hidden>
               {profile?.avatar_url ? (
                 <AvatarImage
                   src={profile.avatar_url}
@@ -74,9 +73,10 @@ export function Header({ onOpenSidebar }: HeaderProps) {
                 {initial}
               </AvatarFallback>
             </Avatar>
-            <span className="text-foreground hidden text-sm font-medium sm:inline">
+            <span className="text-foreground sr-only text-sm font-medium sm:not-sr-only">
               {profile?.full_name ?? t('defaultUser')}
             </span>
+            <span className="sr-only">{t('openAccountMenu')}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"

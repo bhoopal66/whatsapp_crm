@@ -1,7 +1,7 @@
 // ============================================================
 // Tremor BarChart [v1.0.0] — vendored from tremorlabs/tremor.
 //
-// Two local adaptations vs the upstream file:
+// Local adaptations vs the upstream file:
 //   1. `cx` (Tremor's `clsx`+`twMerge` helper) is replaced with
 //      our own `cn` from `@/lib/utils`. Aliased locally so the
 //      diff against upstream stays scoped to this `import` line.
@@ -9,6 +9,8 @@
 //      `RiArrowRightSLine` from `@remixicon/react`) are swapped
 //      for `ChevronLeft` / `ChevronRight` from `lucide-react`,
 //      which is already in the project's deps.
+//   3. The legend's <ol> is the scroller, so its children are the
+//      <li>s and nothing else; the arrow buttons are named.
 //
 // Everything else — the chart logic, accessibility behaviour,
 // tooltip / legend / slider implementation — is unchanged from
@@ -24,6 +26,7 @@
 
 import React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { useTranslations } from "next-intl"
 import {
   Bar,
   CartesianGrid,
@@ -163,9 +166,15 @@ interface ScrollButtonProps {
   icon: React.ElementType
   onClick?: () => void
   disabled?: boolean
+  label: string
 }
 
-const ScrollButton = ({ icon, onClick, disabled }: ScrollButtonProps) => {
+const ScrollButton = ({
+  icon,
+  onClick,
+  disabled,
+  label,
+}: ScrollButtonProps) => {
   const Icon = icon
   const [isPressed, setIsPressed] = React.useState(false)
   const intervalRef = React.useRef<NodeJS.Timeout | null>(null)
@@ -197,6 +206,7 @@ const ScrollButton = ({ icon, onClick, disabled }: ScrollButtonProps) => {
           ? "cursor-not-allowed text-muted-foreground"
           : "cursor-pointer text-muted-foreground hover:bg-muted hover:text-foreground",
       )}
+      aria-label={label}
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation()
@@ -216,7 +226,7 @@ const ScrollButton = ({ icon, onClick, disabled }: ScrollButtonProps) => {
   )
 }
 
-interface LegendProps extends React.OlHTMLAttributes<HTMLOListElement> {
+interface LegendProps extends React.HTMLAttributes<HTMLDivElement> {
   categories: string[]
   colors?: AvailableChartColorsKeys[]
   onClickLegendItem?: (category: string, color: string) => void
@@ -229,7 +239,7 @@ type HasScrollProps = {
   right: boolean
 }
 
-const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
+const Legend = React.forwardRef<HTMLDivElement, LegendProps>((props, ref) => {
   const {
     categories,
     colors = AvailableChartColors,
@@ -239,7 +249,8 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
     enableLegendSlider = false,
     ...other
   } = props
-  const scrollableRef = React.useRef<HTMLInputElement>(null)
+  const t = useTranslations("Calendar")
+  const scrollableRef = React.useRef<HTMLOListElement>(null)
   const scrollButtonsRef = React.useRef<HTMLDivElement>(null)
   const [hasScroll, setHasScroll] = React.useState<HasScrollProps | null>(null)
   const [isKeyDowned, setIsKeyDowned] = React.useState<string | null>(null)
@@ -325,12 +336,12 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
   }, [checkScroll, enableLegendSlider])
 
   return (
-    <ol
+    <div
       ref={ref}
       className={cx("relative overflow-hidden", className)}
       {...other}
     >
-      <div
+      <ol
         ref={scrollableRef}
         tabIndex={0}
         className={cx(
@@ -351,7 +362,7 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
             activeLegend={activeLegend}
           />
         ))}
-      </div>
+      </ol>
       {enableLegendSlider && (hasScroll?.right || hasScroll?.left) ? (
         <>
           <div
@@ -363,6 +374,7 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
           >
             <ScrollButton
               icon={ChevronLeft}
+              label={t("prev")}
               onClick={() => {
                 setIsKeyDowned(null)
                 scrollToTest("left")
@@ -371,6 +383,7 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
             />
             <ScrollButton
               icon={ChevronRight}
+              label={t("next")}
               onClick={() => {
                 setIsKeyDowned(null)
                 scrollToTest("right")
@@ -380,7 +393,7 @@ const Legend = React.forwardRef<HTMLOListElement, LegendProps>((props, ref) => {
           </div>
         </>
       ) : null}
-    </ol>
+    </div>
   )
 })
 

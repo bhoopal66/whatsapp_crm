@@ -114,6 +114,8 @@ export function WhatsAppConfig({
   onSaved?: () => void;
 } = {}) {
   const t = useTranslations('Settings.whatsapp');
+  const tMeta = useTranslations('Settings.whatsappMeta');
+  const tMenu = useTranslations('ContextMenu');
   const supabase = createClient();
 
   // whatsapp_config is one row per ACCOUNT, not per user, so every
@@ -685,6 +687,7 @@ export function WhatsAppConfig({
                     type="button"
                     variant="outline"
                     size="icon"
+                    aria-label={tMeta(showToken ? 'hideToken' : 'showToken')}
                     onClick={() => setShowToken((v) => !v)}
                     className="border-border shrink-0 bg-transparent"
                   >
@@ -886,6 +889,7 @@ export function WhatsAppConfig({
                         type="button"
                         variant="outline"
                         size="icon"
+                        aria-label={tMenu('copy')}
                         onClick={() => copy(hook.url)}
                         className="border-border shrink-0 bg-transparent"
                       >

@@ -178,6 +178,7 @@ export default function BroadcastDetailPage() {
   const tStatus = useTranslations('Broadcasts.status');
   // Reuses the contacts list's pager strings rather than duplicating them.
   const tPager = useTranslations('Contacts.page');
+  const tPaging = useTranslations('MeetingRoom.stage');
   const tReply = useTranslations('ReplyClasses');
   const broadcastId = params.id as string;
 
@@ -945,6 +946,7 @@ export default function BroadcastDetailPage() {
               <Button
                 variant="outline"
                 size="icon-sm"
+                aria-label={tPaging('prevPage')}
                 disabled={page === 0}
                 onClick={() => setPage((p) => p - 1)}
                 className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
@@ -957,6 +959,7 @@ export default function BroadcastDetailPage() {
               <Button
                 variant="outline"
                 size="icon-sm"
+                aria-label={tPaging('nextPage')}
                 disabled={page >= totalPages - 1}
                 onClick={() => setPage((p) => p + 1)}
                 className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"

@@ -68,6 +68,7 @@
     "retry": "Try again"
   },
   "Sidebar": {
+    "navLabel": "Sidebar navigation",
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
     "worklist": "My worklist",
@@ -1970,6 +1971,9 @@
         "rowTitlePlaceholder": "Row title (≤24)",
         "addRow": "Add row",
         "addSection": "Add section",
+        "removeButton": "Remove button {number}",
+        "removeRow": "Remove row {number}",
+        "removeSection": "Remove section {number}",
         "ifLabel": "If",
         "capturedVariable": "Captured variable",
         "chatHasTag": "Chat has tag",
@@ -3136,10 +3140,8 @@
       "title": "Appearance",
       "description": "Set the mode and accent colour used across the app. Saved to this device — try it, it changes live.",
       "mode": "Mode",
-      "useMode": "Use {mode} mode",
       "active": "Active",
       "accentColor": "Accent color",
-      "useTheme": "Use {name} theme",
       "language": "Language",
       "languageDescription": "The language of menus and screens. Saved to your profile, so it follows you to every device. Arabic is shown right to left.",
       "languageDefault": "Workspace default ({language})",
@@ -3228,6 +3230,8 @@
       "saveSuccess": "Default currency updated"
     },
     "aiConfig": {
+      "showKey": "Show API key",
+      "hideKey": "Hide API key",
       "description": "Bring your own OpenAI or Anthropic key. Taamul Connect calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
       "adminOnlyConfig": "Only admins and owners can change the AI configuration.",
       "loadFailed": "Failed to load AI configuration",
@@ -6856,6 +6860,7 @@
     "ownerRm": "Owner RM: {name}",
     "call": "Call",
     "whatsappButton": "Open chat",
+    "filtersLabel": "Filter the timeline",
     "filters": {
       "all": "All",
       "calls": "Calls",

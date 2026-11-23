@@ -2230,9 +2230,9 @@ export function MessageThread({
           <div className="bg-wa-panel flex h-20 w-20 items-center justify-center rounded-full">
             <MessageSquare className="text-wa-green h-9 w-9" />
           </div>
-          <h3 className="text-wa-text mt-5 text-lg font-light">
+          <h2 className="text-wa-text mt-5 text-lg font-light">
             {t('selectConversation')}
-          </h3>
+          </h2>
           <p className="text-wa-text-secondary mt-1 text-sm">
             {t('selectConversationHint')}
           </p>

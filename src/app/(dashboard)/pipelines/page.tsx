@@ -577,10 +577,7 @@ export default function PipelinesPage() {
               is already narrowed to their own by RLS. */}
           {selectedOwner && (
             <DropdownMenu>
-              <DropdownMenuTrigger
-                aria-label={t('showing')}
-                className="border-border bg-card text-foreground hover:bg-muted data-[popup-open]:bg-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
-              >
+              <DropdownMenuTrigger className="border-border bg-card text-foreground hover:bg-muted data-[popup-open]:bg-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors">
                 <Users className="text-muted-foreground h-4 w-4" />
                 <span className="text-muted-foreground">{t('showing')}</span>
                 <span className="max-w-40 truncate font-medium">
@@ -616,7 +613,7 @@ export default function PipelinesPage() {
           {scores && (
             <DropdownMenu>
               <DropdownMenuTrigger
-                aria-label={tScore('sortLabel')}
+                aria-label={`${tScore('sortLabel')}: ${tScore(sortByScore ? 'sortByScore' : 'sortDefault')}`}
                 className="border-border bg-card text-foreground hover:bg-muted data-[popup-open]:bg-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
               >
                 <ArrowDownWideNarrow className="text-muted-foreground h-4 w-4" />
@@ -675,9 +672,9 @@ export default function PipelinesPage() {
       {pipelines.length === 0 ? (
         <div className="border-border flex flex-col items-center justify-center rounded-xl border border-dashed py-20">
           <GitBranch className="text-muted-foreground h-12 w-12" />
-          <h3 className="text-foreground mt-4 text-lg font-medium">
+          <h2 className="text-foreground mt-4 text-lg font-medium">
             {t('noPipelinesYet')}
-          </h3>
+          </h2>
           <p className="text-muted-foreground mt-2 text-sm">
             {t('createToStartTracking')}
           </p>

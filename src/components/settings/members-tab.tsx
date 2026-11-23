@@ -178,6 +178,7 @@ export function MembersTab() {
   const tRoles = useTranslations('Settings.roles');
   const tCoord = useTranslations('Coordinators.members');
   const tDept = useTranslations('Settings.departments');
+  const tPeople = useTranslations('Groups.create');
   const { user, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
@@ -1002,6 +1003,9 @@ export function MembersTab() {
                         size="sm"
                         onClick={() => setRemovingMember(member)}
                         disabled={isBusy}
+                        aria-label={tPeople('removeMember', {
+                          name: member.full_name || t('unnamed'),
+                        })}
                         className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
                       >
                         <Trash2 className="size-4" />
