@@ -83,6 +83,7 @@ import {
   pastePlan,
   transferFiles,
 } from '@/lib/chat/file-intake';
+import { postIds } from '@/lib/chat/post-id';
 import { quotePreview } from '@/lib/chat/quotes';
 import { chatRecorderGuard } from '@/lib/chat/recorder-guard';
 import { sensitiveKinds } from '@/lib/kb/sensitive';
@@ -145,6 +146,8 @@ interface VoiceTake {
   url: string;
   durationMs: number;
   uploaded: AttachmentInput | null;
+  /** Names its post (276), so a retry after a lost answer posts it once. */
+  postId: string;
 }
 
 const FORMAT_BUTTONS: {
@@ -362,6 +365,7 @@ export function Composer({
         url,
         durationMs: voiceDurationMs(0, durationMs),
         uploaded: null,
+        postId: crypto.randomUUID(),
       };
       // Sent at once too: it shows while it goes out, and stays, with its
       // own Send, if it does not.
@@ -642,6 +646,17 @@ export function Composer({
     }
   };
 
+  const composed = composeBody(
+    draft.text,
+    draft.picked,
+    chips.map((c) => c.name)
+  );
+  // Emptied: the same words typed again are a new message (post-id.ts).
+  const emptied = !composed.ok && composed.reason === 'empty';
+  useEffect(() => {
+    if (emptied) postIds.forget(storageKey);
+  }, [emptied, storageKey]);
+
   if (!channel) return null;
 
   const changeDraft = (d: ComposerDraft) => {
@@ -665,11 +680,6 @@ export function Composer({
     uploadFiles(files);
   };
 
-  const composed = composeBody(
-    draft.text,
-    draft.picked,
-    chips.map((c) => c.name)
-  );
   const canSend =
     !sending &&
     // A take being encoded goes first: it would find a send under way.
@@ -733,7 +743,14 @@ export function Composer({
         threadRootId,
         replyToId: sentReplyId ?? undefined,
         attachments: chipInputs(chips),
+        clientId: postIds.idFor(storageKey, {
+          body: composed.body,
+          fileIds: chips.map((c) => c.id),
+          replyToId: sentReplyId,
+          threadRootId: threadRootId ?? null,
+        }),
       });
+      postIds.forget(storageKey);
       const left = draftAfterSend(draftRef.current, sentDraft);
       if (left !== draftRef.current) changeDraft(left);
       setChips((c) => chipsAfterSend(c, sentChips));
@@ -775,6 +792,7 @@ export function Composer({
         threadRootId,
         replyToId: reply.target?.id,
         attachments: [voiceAttachment(uploaded, staged.durationMs)],
+        clientId: staged.postId,
       });
       if (!aliveRef.current) return;
       dropTake();

@@ -81,7 +81,7 @@ DECLARE
   att    TEXT := '[{"storage_path":%s,"name":"%s","mime":"%s","bytes":100%s}]';
   uuid_re TEXT := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
   fns    TEXT[] := ARRAY[
-    'public.chat_post_message(uuid,text,uuid,uuid,jsonb,uuid)',
+    'public.chat_post_message(uuid,text,uuid,uuid,jsonb,uuid,uuid)',
     'public.chat_forward_message(uuid,uuid,jsonb)',
     'public.chat_set_typing(uuid,uuid,boolean)',
     'public.chat_mark_voice_played(uuid)',

@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: a message is posted once
+
+**Migration required:** `276_chat_post_once.sql`
+- When the connection dropped as a message was sent, the message could be
+  posted while its author saw an error. Pressing **Send** again posted it
+  a second time and notified everyone twice, or, with files or a voice
+  note, failed although the message was there. Sending it again now shows
+  the message already posted. A changed message is sent as a new one.
+
 ### Team chat: nobody falls out of a direct message
 
 **Migration required:** `273_team_chat_fixes.sql`
