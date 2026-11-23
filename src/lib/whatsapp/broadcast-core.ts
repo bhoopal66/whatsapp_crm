@@ -36,6 +36,7 @@ import {
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
+import { isInQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -131,6 +132,11 @@ export interface BroadcastPlan {
    * template's stored URL.
    */
   headerMediaUrl?: string | null;
+  /**
+   * The campaign's "do not send between" window (migration 053), read
+   * again before every send. Null/undefined: the campaign has none.
+   */
+  quietHours?: QuietHours | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front by validateContactPhone; no row is created. */
   rejected: number;
@@ -143,6 +149,19 @@ export interface BroadcastPlan {
 }
 
 const MAX_RECIPIENTS = 1000;
+
+/** The failure reason stamped on a recipient who opted out. */
+export const OPTED_OUT_REASON = 'Customer opted out of messages';
+
+/**
+ * Why a pass stopped, or a Resume was refused, for quiet hours. The
+ * prefix is what the cron recognises the stop by.
+ */
+export const QUIET_HOURS_STOP_PREFIX = 'Stopped for quiet hours';
+
+export function quietHoursMessage(quiet: QuietHours): string {
+  return `${QUIET_HOURS_STOP_PREFIX}: nothing is sent between ${quiet.start} and ${quiet.end} (${quiet.tz}). Resume after ${quiet.end} to send the rest.`;
+}
 
 /**
  * Contact ids per opted-out lookup: the ids travel in the request URL,
@@ -475,9 +494,42 @@ export async function deliverBroadcast(
   // once per recipient, and the rest stay pending for a Resume once the
   // day turns.
   let dailyLimit: string | null = null;
+  // Set when the pass reached the campaign's quiet hours, or could not
+  // read whether the next customer opted out. Both stop it the same way.
+  let stopped: string | null = null;
   let attempted = 0;
 
   for (const recipient of plan.planned) {
+    // A pass of hundreds of sends outlives the moment it was planned, so
+    // both of these are asked again for every recipient.
+    if (plan.quietHours && isInQuietHours(new Date(), plan.quietHours)) {
+      stopped = quietHoursMessage(plan.quietHours);
+      await db
+        .from('broadcast_recipients')
+        .update({ error_message: stopped })
+        .eq('id', recipient.recipientRowId)
+        .in('status', ['pending', 'failed']);
+      break;
+    }
+    if (recipient.contactId && plan.channel.accountId) {
+      let optedOut: Set<string>;
+      try {
+        optedOut = await optedOutContactIds(db, plan.channel.accountId, [
+          recipient.contactId,
+        ]);
+      } catch {
+        stopped = 'the opt-out check failed';
+        break;
+      }
+      if (optedOut.has(recipient.contactId)) {
+        await db
+          .from('broadcast_recipients')
+          .update({ status: 'failed', error_message: OPTED_OUT_REASON })
+          .eq('id', recipient.recipientRowId);
+        continue;
+      }
+    }
+
     if (
       recipient.contactId &&
       plan.channel.accountId &&
@@ -582,9 +634,9 @@ export async function deliverBroadcast(
       describeSendFailure(channelFailure)
     );
   }
-  if (dailyLimit) {
+  if (dailyLimit ?? stopped) {
     console.warn(
-      `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; ${dailyLimit}`
+      `[broadcast-core] ${plan.broadcastId}: stopped after ${attempted} of ${plan.planned.length} recipients; ${dailyLimit ?? stopped}`
     );
   }
 

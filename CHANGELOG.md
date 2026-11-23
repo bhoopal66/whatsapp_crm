@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Campaigns check opt-outs and quiet hours while they send
+
+No migration.
+- A customer who opts out while a campaign is going out is skipped, and the
+  row says why. If the opt-out cannot be checked, the campaign stops with
+  the rest still pending.
+- A campaign that reaches its quiet hours stops there, with the rest
+  pending for Resume. **Resume, Retry failed and Send now are refused
+  inside the campaign's quiet hours.**
+
 ### Screen readers and keyboard: names for every control
 
 No migration.

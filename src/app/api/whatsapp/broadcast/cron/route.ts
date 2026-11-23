@@ -167,6 +167,12 @@ export async function GET(request: Request) {
         skipped++;
         continue;
       }
+      if (err instanceof BroadcastError && err.code === 'quiet_hours') {
+        // The window began since the check above: the next tick moves
+        // the appointment.
+        skipped++;
+        continue;
+      }
       // Channel / template problems are per-account and won't fix
       // themselves by retrying every minute: mark the campaign failed so
       // it surfaces on the detail page instead of silently re-queuing.
