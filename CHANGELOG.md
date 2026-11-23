@@ -70,7 +70,8 @@ No migration.
   opted out. One already on a campaign's list is marked failed with the
   reason.
 - A broadcast created through the API and cut off by a restart is continued
-  by the broadcast cron, half an hour later. It stayed `sending` until
+  by the broadcast cron, half an hour later, between 08:00 and 21:00 in the
+  workspace's time zone. It stayed `sending` until
   someone pressed Resume. This includes ones already stuck, if they were
   created in the last 7 days.
 - Continuing, resuming or retrying a campaign sends to a customer saved with a

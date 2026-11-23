@@ -423,7 +423,9 @@ a lapsed subscription): delivery stops at the first recipient that hit
 it and the rest stay pending. A campaign interrupted that way, or by a
 restart, is continued automatically by the broadcast cron, at the
 earliest half an hour later and for 7 days after it was created, once
-the number can send again. No recipient is sent to twice, so don't
+the number can send again and only between 08:00 and 21:00 in the
+workspace's time zone (Team activity's; Asia/Dubai when none is saved).
+Sending right after your request is not held to those hours. No recipient is sent to twice, so don't
 create it again. Someone can also resume it from the dashboard at any
 time, which is the only way after the 7 days; the API has no resume.
 `failed` can follow `sent`: WhatsApp can accept a send and report it
