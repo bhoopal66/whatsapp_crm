@@ -1469,3 +1469,6 @@ jobs:
       # what they uploaded, and uploads only into the browser's folders.
       - name: Verify chat media owner
         run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
+
+      - name: Verify team and row rules
+        run: supabase db query --local --file supabase/ci/verify-team-and-row-rules.sql

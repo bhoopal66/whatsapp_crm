@@ -14,6 +14,17 @@ and polish.
 
 ### Security
 
+- **Teams, reactions, notes, deals and unlocks each follow the row they
+  hang from (Migration required: 286).** A team's member row belongs to
+  the team's own workspace and names live staff of it, and everything that
+  asks who a leader leads reads it that way; the same is held on WhatsApp
+  routes, broadcasts and their recipients, contact tags and custom values,
+  and AI knowledge. A person adds, changes or removes only their own
+  reaction. A customer note is edited by its author and deleted by its
+  author or an admin. A deal is linked only to a customer, chat, pipeline
+  and stage the person can see. A spent unlock is given back only while
+  nothing of theirs went into the chat since. Rows that break the team or
+  route rule are kept, counted in a notice and ignored.
 **Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
 works before and after it; apply it as soon as you update.
 - WhatsApp files in Storage (`chat-media`, `flow-media`): a signed-in person
