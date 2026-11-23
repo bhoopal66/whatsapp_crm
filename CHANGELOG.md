@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Reports count true arrivals
+
+**Migration required:** apply `261_report_counting.sql` after 260, as a
+superuser or BYPASSRLS role. No build needed. It restates `funnel_report`
+(254) and `chat_tag_report` (255, 256): apply in order, once.
+- Chat tag report: moving a chat only between sub-tags (Interested ·
+  ADCB to Interested · HSBC) no longer counts as a second arrival at
+  Interested, and a chat seen under two sub-tags counts once.
+- Sales funnel: it reads the Interested tag's log once instead of once
+  per chat, and an unlabelled Meta number shows as unnamed rather than
+  by its account id.
+
 ### Note mentions reach everyone who can open the chat
 
 **Migration required:** apply `260_note_mentions_match_chat.sql` after

@@ -45,9 +45,12 @@ person may open.
   report runs. A main tag's total is the sum over its sub-tags, chats with
   no sub-tag included.
 - **Movement in the period** counts the chats that arrived at each main
-  tag (and sub-tag) inside the period: one per chat per tag and sub-tag,
-  however often it moved away and back. The daily chart counts the same,
-  per day.
+  tag inside the period: a change of main tag, once per chat however
+  often it moved away and back (261). Each arrival is shown under the
+  sub-tag the chat held at its last change at that tag, so the sub-tag
+  rows add up to the tag's arrivals. Moving only the sub-tag
+  (Interested · ADCB to Interested · HSBC) is not an arrival. The daily
+  chart counts main-tag arrivals per day.
 - **Days are in the account's time zone** (the one saved in Team activity
   settings, else the viewer's, else UTC), so "Today" and the daily chart
   agree with the rest of the app. Periods: today, yesterday, the last 7,

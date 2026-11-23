@@ -86,7 +86,9 @@ jobs:
               ('255', to_regclass('public.report_access') is not null),
               ('256', to_regclass('public.broadcast_drafts') is not null),
               ('257', to_regproc('public.contacts_sorted_page') is not null),
-              ('259', to_regproc('public.set_my_language') is not null)
+              ('259', to_regproc('public.set_my_language') is not null),
+              -- 261 drops the per-chat helper 254 created.
+              ('261', to_regproc('public.funnel_report') is not null and to_regproc('public.funnel_chat_reached_tag') is null)
             ) t(m, present) order by m"
 
       - name: Apply the migrations
