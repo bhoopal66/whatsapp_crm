@@ -134,3 +134,33 @@ export function moveHighlight(
   const from = current < 0 ? (delta > 0 ? -1 : 0) : current;
   return (((from + delta) % count) + count) % count;
 }
+
+/** What a key does while the "/" list is open. */
+export type SlashKeyAction =
+  | 'close'
+  | 'up'
+  | 'down'
+  | 'pick'
+  /** Nothing at all: not a send either. */
+  | 'swallow'
+  /** Not the list's key: the box handles it as usual. */
+  | 'pass';
+
+/**
+ * Keys while the list is open. Enter never falls through to a send: with
+ * the list still loading, or nothing matching, "/hi" went to the
+ * customer. Escape closes the list and Enter then sends; Shift+Enter
+ * always makes a new line.
+ */
+export function slashKeyAction(
+  e: { key: string; shiftKey: boolean },
+  list: { loading: boolean; count: number }
+): SlashKeyAction {
+  if (e.key === 'Escape') return 'close';
+  const enter = e.key === 'Enter' && !e.shiftKey;
+  if (list.loading) return enter || e.key === 'Tab' ? 'swallow' : 'pass';
+  if (list.count === 0) return enter ? 'swallow' : 'pass';
+  if (e.key === 'ArrowDown') return 'down';
+  if (e.key === 'ArrowUp') return 'up';
+  return enter || e.key === 'Tab' ? 'pick' : 'pass';
+}

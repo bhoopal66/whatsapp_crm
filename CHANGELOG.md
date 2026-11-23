@@ -12,6 +12,26 @@ and polish.
 
 ## [Unreleased]
 
+### Inbox: notes, "/" replies and the 24-hour block
+
+No migration.
+- **Every chat opens on Reply.** A chat left on Note reopened on Note, so
+  an answer for the customer could be saved as a note nobody sent. Note
+  now lasts only while the chat stays open.
+- **Half-written notes are kept.** Switching chats no longer loses a note:
+  its text and the people mentioned come back when the chat and Note are
+  opened again, until it is saved or someone else signs in.
+- **"/" never goes to the customer by accident.** Enter does nothing while
+  the quick replies are loading or none match; Escape closes the list and
+  Enter then sends. If the list cannot load, it closes by itself.
+- **24-hour block only when certain.** Free text is blocked only where the
+  reply surely goes out on the Meta number, judged as the server does: by
+  the number the customer last wrote to. The countdown follows the same
+  rule. Buttons, lists and library voice notes are refused too once the
+  window closes.
+- **Smaller fixes.** A double tap on Send no longer starts a recording, and
+  the phone's chat actions strip closes by itself.
+
 ### Before going live: menu speed, sign-in links, AI check
 
 No migration.

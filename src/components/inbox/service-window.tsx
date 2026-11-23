@@ -17,6 +17,18 @@ import {
 } from '@/components/ui/tooltip';
 import { describeAgo } from '@/lib/inbox/service-window';
 
+/** Why free text is blocked; the banner and the composer's toast. */
+export function serviceWindowClosedText(
+  t: ReturnType<typeof useTranslations<'ServiceWindow'>>,
+  agoMs: number | null
+): string {
+  if (agoMs === null) return t('closedNever');
+  const ago = describeAgo(agoMs);
+  return ago.unit === 'days'
+    ? t('closedDays', { count: ago.count })
+    : t('closedHours', { count: ago.count });
+}
+
 export function ServiceWindowBanner({
   agoMs,
   onOpenTemplates,
@@ -26,16 +38,7 @@ export function ServiceWindowBanner({
   onOpenTemplates: () => void;
 }) {
   const t = useTranslations('ServiceWindow');
-  let text: string;
-  if (agoMs === null) {
-    text = t('closedNever');
-  } else {
-    const ago = describeAgo(agoMs);
-    text =
-      ago.unit === 'days'
-        ? t('closedDays', { count: ago.count })
-        : t('closedHours', { count: ago.count });
-  }
+  const text = serviceWindowClosedText(t, agoMs);
   return (
     <div
       role="status"

@@ -28,6 +28,8 @@ import {
   NOTE_MAX_LENGTH,
   type MentionCandidate,
 } from '@/lib/inbox/notes';
+import { noteDrafts } from '@/lib/inbox/note-drafts';
+import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { fetchMentionCandidates } from './use-conversation-notes';
 
@@ -45,10 +47,16 @@ export function NoteComposer({
   const t = useTranslations('ChatNotes');
   const listId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [text, setText] = useState('');
-  const [caret, setCaret] = useState(0);
+  // A note left half-written here comes back (lib/inbox/note-drafts).
+  // The thread keys this per login and chat, so reading once is enough.
+  const userId = useAuth().user?.id ?? null;
+  const [parked] = useState(() => noteDrafts.read(userId, conversationId));
+  const [text, setText] = useState(parked?.text ?? '');
+  const [caret, setCaret] = useState(text.length);
   const [saving, setSaving] = useState(false);
-  const [picked, setPicked] = useState<MentionCandidate[]>([]);
+  const [picked, setPicked] = useState<MentionCandidate[]>(
+    parked?.picked ?? []
+  );
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<{
@@ -68,6 +76,10 @@ export function NoteComposer({
   }, [conversationId, active]);
 
   useEffect(() => {
+    noteDrafts.write(userId, conversationId, { text, picked });
+  }, [userId, conversationId, text, picked]);
+
+  useEffect(() => {
     if (active) textareaRef.current?.focus();
   }, [active]);
 
@@ -77,7 +89,9 @@ export function NoteComposer({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [text]);
+    // `active`: a restored note is measured when the box first shows;
+    // hidden, it has no height.
+  }, [text, active]);
 
   const token = activeMentionToken(text, caret);
   const matches = useMemo(
@@ -109,9 +123,13 @@ export function NoteComposer({
   const save = async () => {
     if (saving || !canSaveNote(text)) return;
     setSaving(true);
+    // Out of the parked notes while it saves: coming back to the chat
+    // meanwhile must not offer a note that is already saved.
+    noteDrafts.clear(userId, conversationId);
     const ok = await onSave(text, mentionedIds(text, picked));
     setSaving(false);
     if (!ok) {
+      noteDrafts.restore(userId, conversationId, { text, picked });
       toast.error(t('saveFailed'));
       return;
     }
@@ -185,6 +203,7 @@ export function NoteComposer({
           <textarea
             ref={textareaRef}
             value={text}
+            readOnly={saving}
             rows={1}
             onChange={(e) => {
               setText(e.target.value);

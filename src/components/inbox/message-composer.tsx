@@ -121,9 +121,11 @@ import {
   detectSlashToken,
   matchQuickReplies,
   moveHighlight,
+  slashKeyAction,
 } from '@/lib/inbox/slash-quick-replies';
 import {
   MAX_RECORDING_SECONDS,
+  micTooSoon,
   OPUS_ENCODER_PATH,
   PICKER_ACCEPT,
   PILL_BUTTON,
@@ -203,6 +205,8 @@ interface MessageComposerProps {
   textControl?: Ref<ComposerDraftHandle>;
   /** Meta's 24-hour window has closed: only templates may be sent. */
   freeTextBlocked?: boolean;
+  /** Why, worded for a toast: a dialog covers the thread's banner. */
+  freeTextBlockedText?: string | null;
   /** Told when a recording or staged attachment opens or closes, so
    *  the thread can keep Note mode from hiding a live mic. */
   onBusyChange?: (busy: boolean) => void;
@@ -222,6 +226,9 @@ interface HeldSend {
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
 let parkedFor: string | null = null;
+
+/** The "/" list gives up loading after this long. */
+const SLASH_LOAD_TIMEOUT_MS = 8000;
 
 /**
  * The consent register's answer for the chat's customer, read fresh
@@ -260,6 +267,7 @@ export function MessageComposer({
   contactName,
   textControl,
   freeTextBlocked = false,
+  freeTextBlockedText = null,
   onBusyChange,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
@@ -672,6 +680,9 @@ export function MessageComposer({
     [adjustHeight, setText]
   );
 
+  // When something last went out, for the mic's double-tap guard.
+  const lastSentAtRef = useRef(0);
+
   const handleSend = useCallback(() => {
     // Enter reaches here too, not only the (disabled) Send button: with
     // Meta's window closed nothing free-form may go out.
@@ -692,6 +703,7 @@ export function MessageComposer({
       focus: 'text',
       payload: {
         send: () => {
+          lastSentAtRef.current = Date.now();
           onSend(trimmed, replyToId, origin);
           // Unchanged when there was no check. After one, a restore
           // that landed meanwhile (a failed send's text) must stay.
@@ -877,7 +889,16 @@ export function MessageComposer({
     []
   );
 
+  // Free-form sends whose dialog was open when the window closed: only
+  // their menu items are disabled, so they refuse here too.
+  const refuseBlocked = useCallback(() => {
+    if (!freeTextBlocked) return false;
+    if (freeTextBlockedText) toast.error(freeTextBlockedText);
+    return true;
+  }, [freeTextBlocked, freeTextBlockedText]);
+
   const sendInteractive = useCallback(() => {
+    if (refuseBlocked()) return;
     const result = validateInteractivePayload(interactivePayload);
     if (!result.ok) {
       toast.error(result.error);
@@ -886,7 +907,13 @@ export function MessageComposer({
     onSendInteractive(interactivePayload, replyTo?.id);
     setInteractiveOpen(false);
     onClearReply?.();
-  }, [interactivePayload, onSendInteractive, replyTo?.id, onClearReply]);
+  }, [
+    refuseBlocked,
+    interactivePayload,
+    onSendInteractive,
+    replyTo?.id,
+    onClearReply,
+  ]);
 
   // Persist the current builder payload as a reusable interactive snippet.
   const saveAsQuickReply = useCallback(async () => {
@@ -958,9 +985,18 @@ export function MessageComposer({
   const slashToken = detectSlashToken(text, caret);
   const [slashDismissed, setSlashDismissed] = useState(false);
   if (!slashToken && slashDismissed) setSlashDismissed(false);
-  const slashOpen =
-    !!slashToken && !slashDismissed && !inputsDisabled && !checking;
   const [slashItems, setSlashItems] = useState<QuickReply[] | null>(null);
+  // Nothing could be loaded: the list closes, so Enter sends as usual
+  // instead of waiting for ever. The next "/" tries again.
+  const [slashFailed, setSlashFailed] = useState(false);
+  if (!slashToken && slashFailed) setSlashFailed(false);
+  const slashLoading = slashItems === null;
+  const slashOpen =
+    !!slashToken &&
+    !slashDismissed &&
+    !(slashFailed && slashLoading) &&
+    !inputsDisabled &&
+    !checking;
   const slashQuery = slashToken?.query ?? '';
   const slashMatches = useMemo(
     () =>
@@ -981,15 +1017,19 @@ export function MessageComposer({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/quick-replies', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
+        const res = await fetch('/api/quick-replies', {
+          cache: 'no-store',
+          // Enter waits for this list, so a stalled read counts as failed.
+          signal: AbortSignal.timeout(SLASH_LOAD_TIMEOUT_MS),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
         if (!cancelled) {
-          setSlashItems(
-            res.ok ? ((data.quick_replies as QuickReply[]) ?? []) : []
-          );
+          setSlashItems((data.quick_replies as QuickReply[]) ?? []);
         }
       } catch {
-        if (!cancelled) setSlashItems([]);
+        // A list read earlier stays usable.
+        if (!cancelled) setSlashFailed(true);
       }
     })();
     return () => {
@@ -1030,25 +1070,18 @@ export function MessageComposer({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (slashOpen) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setSlashDismissed(true);
-          return;
-        }
         const count = slashMatches.length;
-        if (count > 0) {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
+        const action = slashKeyAction(e, { loading: slashLoading, count });
+        if (action !== 'pass') {
+          e.preventDefault();
+          if (action === 'close') setSlashDismissed(true);
+          else if (action === 'up' || action === 'down')
             setSlashHighlight((h) =>
-              moveHighlight(h, e.key === 'ArrowDown' ? 1 : -1, count)
+              moveHighlight(h, action === 'down' ? 1 : -1, count)
             );
-            return;
-          }
-          if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-            e.preventDefault();
+          else if (action === 'pick')
             pickSlash(slashMatches[Math.min(slashHighlight, count - 1)]);
-            return;
-          }
+          return;
         }
       }
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -1056,7 +1089,14 @@ export function MessageComposer({
         handleSend();
       }
     },
-    [handleSend, slashOpen, slashMatches, slashHighlight, pickSlash]
+    [
+      handleSend,
+      slashOpen,
+      slashLoading,
+      slashMatches,
+      slashHighlight,
+      pickSlash,
+    ]
   );
 
   // An upload finishes after its chat may have been left: staged then,
@@ -1190,6 +1230,7 @@ export function MessageComposer({
 
   const startRecording = useCallback(async () => {
     if (inputsDisabled || busy || recording) return;
+    if (micTooSoon(lastSentAtRef.current, Date.now())) return;
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof AudioContext === 'undefined'
@@ -1300,6 +1341,7 @@ export function MessageComposer({
           if (draftRef.current !== staged) return;
           // A review dialog can stay open for days.
           if (dropIfExpired(staged)) return;
+          lastSentAtRef.current = Date.now();
           onSendMedia({
             kind: staged.kind,
             mediaUrl: staged.mediaUrl,
@@ -1406,7 +1448,7 @@ export function MessageComposer({
           id={slashListId}
           query={slashToken.query}
           items={slashMatches}
-          loading={slashItems === null}
+          loading={slashLoading}
           highlight={slashHighlight}
           onPick={pickSlash}
           onHighlight={setSlashHighlight}
@@ -1555,7 +1597,7 @@ export function MessageComposer({
               // The placeholder text also surfaces the read-only state.
               title={readOnly ? t('readOnlyTitle') : undefined}
               className={cn(
-                'text-wa-text placeholder:text-wa-text-secondary min-h-10 min-w-0 flex-1 resize-none rounded-lg border-0 bg-transparent py-2.5 pe-1 ps-3 text-base leading-5 outline-none sm:text-[15px]',
+                'text-wa-text placeholder:text-wa-text-secondary min-h-10 min-w-0 flex-1 resize-none rounded-lg border-0 bg-transparent py-2.5 ps-3 pe-1 text-base leading-5 outline-none sm:text-[15px]',
                 readOnly && 'cursor-not-allowed'
               )}
             />
@@ -1672,9 +1714,12 @@ export function MessageComposer({
 
           {/* Mic with an empty box, Send once there is text (or a check
               is running for the text just sent). An attachment has its
-              own Send in the preview that replaces this row. */}
+              own Send in the preview that replaces this row. Keyed apart:
+              sharing one DOM node, the second tap of a double tap on Send
+              started a recording (see `micTooSoon` too). */}
           {text.trim() || checking ? (
             <GatedButton
+              key="send"
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
@@ -1695,6 +1740,7 @@ export function MessageComposer({
             </GatedButton>
           ) : (
             <GatedButton
+              key="mic"
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
@@ -1762,15 +1808,16 @@ export function MessageComposer({
         open={voiceLibraryOpen}
         onOpenChange={setVoiceLibraryOpen}
         conversationId={conversationId}
-        onSend={(note) =>
+        onSend={(note) => {
+          if (refuseBlocked()) return;
           onSendMedia({
             kind: 'audio',
             mediaUrl: note.mediaUrl,
             path: note.path,
             filename: 'voice-note.ogg',
             replyToId: replyTo?.id,
-          })
-        }
+          });
+        }}
       />
     </div>
   );
@@ -1808,7 +1855,7 @@ function MediaDraftPreview({
   // discard, the player (to listen back before sending), send.
   if (draft.kind === 'audio') {
     return (
-      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pe-1.5 ps-1">
+      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg ps-1 pe-1.5">
         <button
           type="button"
           onClick={onDiscard}

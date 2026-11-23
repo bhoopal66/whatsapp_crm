@@ -77,7 +77,7 @@ import {
   lastMessageFromCustomer as newestIsCustomer,
 } from '@/lib/ai/banner-state';
 import { OutreachBanner } from './outreach-banner';
-import { ServiceWindowBanner } from './service-window';
+import { ServiceWindowBanner, serviceWindowClosedText } from './service-window';
 import { BlockedSendCard } from './blocked-send-card';
 import {
   cardFor,
@@ -94,7 +94,7 @@ import { ThreadAutoTagNote } from './thread-auto-tag-note';
 import { ThreadPinNote } from './thread-pin-note';
 import { ThreadNote } from './thread-note';
 import { NoteComposer } from './note-composer';
-import { ComposerModeSwitch, type ComposerMode } from './composer-mode-switch';
+import { ComposerModeSwitch } from './composer-mode-switch';
 import { useConversationNotes } from './use-conversation-notes';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
@@ -122,11 +122,18 @@ import {
   type FailedSend,
   type SendAttempt,
 } from '@/lib/inbox/failed-send';
+import {
+  composerModeFor,
+  type ComposerModeState,
+} from '@/lib/inbox/composer-mode';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
 import {
-  latestCustomerMessageAt,
+  latestCustomerMessage,
+  mayNeedServiceWindow,
+  sendsOverMeta,
   serviceWindowCountdown,
   serviceWindowState,
+  type LastCustomerMessage,
 } from '@/lib/inbox/service-window';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
@@ -582,7 +589,7 @@ export function MessageThread({
   // on precisely the threads that needed it most: a brand-new Whapi
   // conversation has no customer message yet, so it counted as expired
   // and there was no way to send the first one. So the window below is
-  // judged only for a chat whose predicted sending number is Meta, and
+  // judged only for a chat whose reply certainly goes out on Meta, and
   // even there it never blocks templates, which is how a Meta chat's
   // first message goes out.
 
@@ -739,38 +746,33 @@ export function MessageThread({
   ]);
 
   // Meta's 24-hour window (lib/inbox/service-window.ts), for a company
-  // chat whose next reply goes out on the Cloud API number. The last
-  // customer message comes from the loaded page; a page without one asks
-  // for the latest (one row). Until that is known nothing is blocked.
-  // Re-judged each minute (`outreachNow`) and on every new message.
-  const metaThread =
-    !!conversation &&
-    !conversation.personal_owner_id &&
-    !!accountNumbers &&
-    predictSendingNumber(accountNumbers, {
-      channel_id: threadChannelId,
-      send_channel_id: threadPin,
-    })?.provider === 'meta';
-  const loadedLastCustomerAt = useMemo(
-    () => latestCustomerMessageAt(messages, conversationId),
+  // chat whose next reply certainly goes out on the Cloud API number
+  // (`sendsOverMeta`, not `predictSendingNumber`: the latter is a guess
+  // good enough for a warning, not for a block). The last customer
+  // message comes from the loaded page; a page without one asks for the
+  // latest (one row). Until that is known nothing is blocked. Re-judged
+  // each minute (`outreachNow`) and on every new message.
+  const loadedLastCustomer: LastCustomerMessage | null = useMemo(
+    () => latestCustomerMessage(messages, conversationId),
     [messages, conversationId]
   );
   const [lastCustomerLookup, setLastCustomerLookup] = useState<{
     conversationId: string;
-    at: string | null;
+    message: LastCustomerMessage | null;
   } | null>(null);
   const needsLastCustomerLookup =
-    metaThread &&
+    !!conversation &&
+    mayNeedServiceWindow(accountNumbers, conversation) &&
     !loading &&
     !!conversationId &&
-    loadedLastCustomerAt === null &&
+    loadedLastCustomer === null &&
     lastCustomerLookup?.conversationId !== conversationId;
   useEffect(() => {
     if (!needsLastCustomerLookup || !conversationId) return;
     let cancelled = false;
     void createClient()
       .from('messages')
-      .select('created_at')
+      .select('created_at, channel_id, provider')
       .eq('conversation_id', conversationId)
       .eq('sender_type', 'customer')
       .order('created_at', { ascending: false })
@@ -781,25 +783,30 @@ export function MessageThread({
         if (cancelled || error) return;
         setLastCustomerLookup({
           conversationId,
-          at: (data as { created_at?: string } | null)?.created_at ?? null,
+          message: (data as LastCustomerMessage | null) ?? null,
         });
       });
     return () => {
       cancelled = true;
     };
   }, [needsLastCustomerLookup, conversationId]);
-  const lastCustomerAt: string | null | undefined =
-    loadedLastCustomerAt ??
+  const lastCustomer: LastCustomerMessage | null | undefined =
+    loadedLastCustomer ??
     (loading
       ? undefined
       : lastCustomerLookup &&
           lastCustomerLookup.conversationId === conversationId
-        ? lastCustomerLookup.at
+        ? lastCustomerLookup.message
         : undefined);
-  const serviceWindow = metaThread
-    ? serviceWindowState(lastCustomerAt, outreachNow)
-    : null;
+  const serviceWindow =
+    conversation && sendsOverMeta(accountNumbers, conversation, lastCustomer)
+      ? serviceWindowState(
+          lastCustomer ? lastCustomer.created_at : lastCustomer,
+          outreachNow
+        )
+      : null;
   const freeTextBlocked = serviceWindow?.kind === 'closed';
+  const tWindow = useTranslations('ServiceWindow');
   const windowCountdown = serviceWindowCountdown(serviceWindow);
 
   // The standing "use the marketing number" reminder (migration 207):
@@ -1963,17 +1970,19 @@ export function MessageThread({
   // and whether this person may write them (Reply / Note switch).
   const teamNotes = useConversationNotes(conversationId ?? null);
   const mayWriteNotes = !!accountRole && canWriteChatNotes(accountRole);
-  const [composerMode, setComposerMode] = useState<{
-    conversationId: string | null;
-    mode: ComposerMode;
-  }>({ conversationId: null, mode: 'reply' });
+  const [composerMode, setComposerMode] = useState<ComposerModeState>({
+    conversationId: null,
+    mode: 'reply',
+  });
+  // Every chat opens on Reply, however it was opened. Stored while
+  // rendering, so leaving a chat forgets its Note: kept beside the chat
+  // it was for, it reopened with the note box focused and the customer's
+  // answer was saved as a note.
+  const openMode = composerModeFor(composerMode, conversationId ?? null);
+  if (openMode !== composerMode) setComposerMode(openMode);
   // A recording or staged attachment in the reply composer: Note waits.
   const [composerBusy, setComposerBusy] = useState(false);
-  // Every chat opens on Reply.
-  const noteMode =
-    mayWriteNotes &&
-    composerMode.conversationId === (conversationId ?? null) &&
-    composerMode.mode === 'note';
+  const noteMode = mayWriteNotes && openMode.mode === 'note';
 
   // Grouping walks and date-formats every message; only redo it when the
   // messages or notes change, not on every header/dropdown re-render.
@@ -2456,7 +2465,8 @@ export function MessageThread({
           </div>
         )}
         {/* Kept mounted (hidden) in Reply mode, like the composer, so a
-            half-written note survives a switch; keyed per chat. */}
+            half-written note survives a switch; keyed per login and
+            chat (its text is parked per chat meanwhile). */}
         {mayWriteNotes && (
           <div
             className={cn(
@@ -2465,7 +2475,7 @@ export function MessageThread({
             )}
           >
             <NoteComposer
-              key={conversation.id}
+              key={`${viewerId ?? ''}:${conversation.id}`}
               conversationId={conversation.id}
               onSave={teamNotes.add}
               active={noteMode}
@@ -2487,6 +2497,11 @@ export function MessageThread({
             contactName={contact.name || contact.phone || null}
             textControl={composerDraftRef}
             freeTextBlocked={freeTextBlocked}
+            freeTextBlockedText={
+              serviceWindow?.kind === 'closed'
+                ? serviceWindowClosedText(tWindow, serviceWindow.agoMs)
+                : null
+            }
             onBusyChange={setComposerBusy}
           />
         </div>
