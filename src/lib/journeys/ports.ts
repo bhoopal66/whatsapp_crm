@@ -11,7 +11,10 @@ export interface ConsentPort {
    * now claimed by `claimId`) or already claimed by this same `claimId` (a redelivery of the same outbox item).
    */
   claimOptinWelcome(contactId: string, claimId: string): Promise<boolean>;
-  /** Host do-not-contact flag; feeds `StepContext.consent.doNotContact`. Absent: never do-not-contact. */
+  /**
+   * Host do-not-contact flag; feeds `StepContext.consent.doNotContact`, and at delivery drops a MARKETING send. Absent:
+   * never do-not-contact. A read that fails must throw: the send is then not made.
+   */
   doNotContact?(contactId: string): Promise<boolean>;
 }
 
@@ -24,6 +27,8 @@ export interface OutboxItem {
   /** `dropped`: refused at delivery time by the consent re-check (never delivered); `dropReason` says why. */
   status: 'pending' | 'delivered' | 'dropped';
   dropReason?: string;
+  /** When the item was committed. */
+  committedAt?: string;
 }
 
 export type CommitResult = 'ok' | 'duplicate' | 'conflict';

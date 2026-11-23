@@ -153,6 +153,9 @@ No migration.
 - A second message sent through the web form within ten minutes is added
   to the open "New web lead" task. Before, the visitor saw "ok" and it was
   stored nowhere.
+- Journey bot: a marketing message no longer goes to a customer marked
+  "Do not contact", and a message held for quiet hours is dropped when the
+  customer wrote in the night or their journey moved on.
 
 ### Voice notes: one tap to record, one tap to send
 

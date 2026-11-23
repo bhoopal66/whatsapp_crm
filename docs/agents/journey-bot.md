@@ -24,11 +24,15 @@ outside the engine barrel. `docs/journey-bot.md` is the contract.
   and cold starts only). A held send gets `not_before`; the drain skips it and
   its LOG_COST without holding later items, so an opt-out confirmation still
   goes out at night. That SEND+LOG_COST pairing lives in SQL and in the
-  runner: change both.
+  runner: change both. When its hour comes, a held send is dropped if the
+  customer wrote after the commit (`CUSTOMER_WROTE`) or the file left the
+  state the engine stamped on the action (`STATE_CHANGED`; `heldSendOver`).
+  Only a send with `notBefore` is judged: a reply is never held.
 - **Consent.** An opt-out is applied to `contacts.opted_out_at` inside
   `journey_commit` and re-applied idempotently on delivery; a resubscribe
   clears only an older stamp, so the newer decision wins. Delivery re-checks a
-  marketing send against opt-out and opt-in. Below admin, the
+  marketing send against opt-out, do-not-contact (`DO_NOT_CONTACT`) and
+  opt-in; a read that fails leaves it pending. Below admin, the
   `contacts_consent_guard` trigger lets someone who can see the contact only
   **set** a do-not-contact (with a reason) where none exists; moving or
   clearing it is admin-only. Every change lands append-only in

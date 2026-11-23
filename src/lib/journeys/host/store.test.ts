@@ -177,6 +177,7 @@ describe('SupabaseJourneyStore outbox', () => {
           action: send,
           status: 'pending',
           drop_reason: null,
+          committed_at: '2026-10-12T09:00:00.000Z',
         },
         {
           id: 'o2',
@@ -185,18 +186,27 @@ describe('SupabaseJourneyStore outbox', () => {
           action: send,
           status: 'pending',
           drop_reason: 'X',
+          committed_at: '2026-10-12T09:01:00.000Z',
         },
       ],
     });
     const items = await new SupabaseJourneyStore(db).pendingOutbox('f1');
     expect(items).toEqual([
-      { id: 'o1', fileId: 'f1', seq: 1, action: send, status: 'pending' },
+      {
+        id: 'o1',
+        fileId: 'f1',
+        seq: 1,
+        action: send,
+        status: 'pending',
+        committedAt: '2026-10-12T09:00:00.000Z',
+      },
       {
         id: 'o2',
         fileId: 'f1',
         seq: 2,
         action: send,
         status: 'pending',
+        committedAt: '2026-10-12T09:01:00.000Z',
         dropReason: 'X',
       },
     ]);
@@ -204,7 +214,10 @@ describe('SupabaseJourneyStore outbox', () => {
     expect(queries).toEqual([
       [
         ['from', 'journey_outbox'],
-        ['select', 'id, file_id, seq, action, status, drop_reason'],
+        [
+          'select',
+          'id, file_id, seq, action, status, drop_reason, committed_at',
+        ],
         ['eq', 'file_id', 'f1'],
         ['eq', 'status', 'pending'],
         ['await'],

@@ -85,8 +85,15 @@ opt-in). While parked, the bot sends at most one paid message.
 - Every send is checked again at delivery, so a marketing message
   queued before an opt-out is dropped, not sent. The opt-in welcome
   goes to a customer once, ever.
-- **Do-not-contact** (`contacts.do_not_contact_at`) blocks cold starts
-  and calls. An agent who can see the customer can place one, with a
+- A message held for quiet hours (a timer's or a cold start's) is
+  checked once more in the morning: it is dropped when the customer
+  wrote in the meantime, or when the journey has moved to another step.
+  Replies to the customer's own message or tap, and messages an advisor's
+  decision sends, are never held, so this never drops them.
+- **Do-not-contact** (`contacts.do_not_contact_at`) blocks cold starts,
+  calls and every marketing message, one already queued included;
+  utility messages about the customer's own application still go. If it
+  cannot be read, the message is not sent. An agent who can see the customer can place one, with a
   reason; only an admin can change its date or reason, or clear it.
 
 ## Call me back

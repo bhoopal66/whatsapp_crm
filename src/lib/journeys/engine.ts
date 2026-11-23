@@ -89,6 +89,10 @@ export function step(
   const run = new Step(def, f, event, now, ctx);
   run.exec();
   if (run.error) return { file, actions: [], warnings: [], error: run.error };
+  // A held send names the state it was planned for: the drain drops it once the file has left that state. Set here, not
+  // in send(): a transition plans its sends before it enters its target.
+  for (const a of run.actions)
+    if (a.type === 'SEND' && a.notBefore) a.state = run.f.state;
   return { file: run.f, actions: run.actions, warnings: run.warnings };
 }
 

@@ -50,6 +50,7 @@ interface OutboxRow {
   action: Action;
   status: OutboxItem['status'];
   drop_reason: string | null;
+  committed_at: string;
 }
 
 const COMMIT_RESULTS: readonly unknown[] = ['ok', 'duplicate', 'conflict'];
@@ -94,7 +95,7 @@ export class SupabaseJourneyStore implements JourneyStore {
   async pendingOutbox(fileId: string): Promise<OutboxItem[]> {
     const { data, error } = await this.db
       .from('journey_outbox')
-      .select('id, file_id, seq, action, status, drop_reason')
+      .select('id, file_id, seq, action, status, drop_reason, committed_at')
       .eq('file_id', fileId)
       .eq('status', 'pending');
     if (error) throw new JourneyDbError('journey_outbox', error);
@@ -104,6 +105,7 @@ export class SupabaseJourneyStore implements JourneyStore {
       seq: row.seq,
       action: row.action,
       status: row.status,
+      committedAt: row.committed_at,
       ...(row.drop_reason != null ? { dropReason: row.drop_reason } : {}),
     }));
   }
