@@ -21,6 +21,13 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
 - **SLA events from SQL.** The stage-change and document-received events
   fire from the triggers `case_stage_history_sla` and `case_documents_sla`
   (124); don't call them from TS as well.
+- **Timers, snooze, keyed rules (271).** `customer_message` and
+  `stage_change` end a running snooze inside `case_sla_apply_event`
+  (`case_snooze_log.actor_id` may be NULL there). A lead's
+  `customer_message` comes from the 1:1 pipeline
+  (`lead-customer-message.ts`), a group case's from the group's. Only a
+  MATCHED `case_rule_runs` row uses a `fire_key` up. Don't re-apply 124,
+  187 or 214 without 271. `verify-case-timers.sql`.
 - **Sends.** A case reply, take-over and documents request go through the
   group's send path and honour the per-person group send limit
   (`assertUnderGroupSendLimit`). Notes, bank contacts and bank workspaces
