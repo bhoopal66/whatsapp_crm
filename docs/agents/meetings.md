@@ -85,3 +85,10 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   every tab in a call holds a shared busy lock a ring must get past. Only
   the ring lock is ever stolen, to cut off a ring already going: tabs
   stealing the busy lock from each other left a live call unprotected.
+- **A failed publish keeps its transceiver** (`spares`) for the retry, and a
+  null `mid` is never sent: stopping it and adding another leaves the new
+  one with no mid in Chrome. A 410 or two refusals in a row (`sfuRefusal`;
+  the routes pass Cloudflare's 4xx on as `sfuStatus`), a description that
+  throws or a failed rollback rejoins under `admitPullRejoin`, after a
+  heartbeat so a seat moved to another tab is not taken back. The last
+  m-line is never stopped (max-bundle): it goes `inactive`, closed by force.

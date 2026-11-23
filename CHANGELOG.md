@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Video meetings recover when the video service drops someone
+
+No migration.
+- A person whose connection was slow to start could sit in a meeting
+  hearing nobody, with the microphone button failing on every click. The
+  call now rejoins by itself, with the microphone and camera as they were.
+- Someone only listening keeps the call when the last person they receive
+  leaves.
+- When the video service could not be reached, the room says so instead of
+  blaming the microphone or camera, and offers **Rejoin**.
+- The server log names Cloudflare's reason for a refused call.
+
 ### Screen readers and keyboard: names for every control
 
 No migration.
