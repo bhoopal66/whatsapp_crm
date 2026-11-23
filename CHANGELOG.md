@@ -20,6 +20,8 @@ No migration.
   to customers, as "????". A file whose letters are already lost is refused,
   with what to save it as. Contacts import, broadcast lists and AI knowledge
   files.
+- The contacts import takes an Excel file (.xlsx, first sheet) as well as CSV,
+  with the same preview.
 
 ### Calendar
 

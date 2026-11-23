@@ -9,12 +9,15 @@ import {
   type ImportPlan,
   type ImportProblem,
 } from '@/lib/contacts/import-contacts';
-import {
-  readContactCsv,
-  type ParsedContactRow,
-  type ReadContactCsvResult,
+import type {
+  ParsedContactRow,
+  ReadContactCsvResult,
 } from '@/lib/contacts/parse-contact-csv';
-import { readTextFile, TextEncodingError } from '@/lib/csv/decode-text';
+import {
+  CONTACT_FILE_ACCEPT,
+  contactFileProblem,
+  readContactFile,
+} from '@/lib/contacts/read-contact-file';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -207,15 +210,12 @@ export function ImportModal({
     try {
       // A `tags` column is ignored: contact tags are retired, and chat
       // tags belong to a conversation, which an import does not create.
-      parsed = readContactCsv(await readTextFile(selected));
+      parsed = await readContactFile(selected);
     } catch (err) {
       if (run.current !== mine) return;
       reset();
-      toast.error(
-        t(
-          err instanceof TextEncodingError ? 'errorEncoding' : 'errorUnreadable'
-        )
-      );
+      const { key, reason } = contactFileProblem(err);
+      toast.error(t(key, { reason }));
       return;
     }
     if (run.current !== mine) return;
@@ -381,7 +381,7 @@ export function ImportModal({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept={CONTACT_FILE_ACCEPT}
             onChange={handleFileChange}
             className="hidden"
           />

@@ -593,6 +593,14 @@ export async function readXlsxTable(
   bytes: Uint8Array,
   limits?: Partial<XlsxLimits>
 ): Promise<string[][]> {
+  return (await readXlsxFirstSheet(bytes, limits)).rows;
+}
+
+/** readXlsxTable's rows, and the sheet row (from 1) the header is on. */
+export async function readXlsxFirstSheet(
+  bytes: Uint8Array,
+  limits?: Partial<XlsxLimits>
+): Promise<{ rows: string[][]; firstRow: number }> {
   const { read, rels, sheets, sharedStringsPath, budget } = await openWorkbook(
     bytes,
     limits
@@ -628,7 +636,9 @@ export async function readXlsxTable(
   // blank first row would start with []; CSV drops leading blank lines
   // too, and the header must be row 0.
   const start = rows.findIndex((r) => r.some((c) => c.trim() !== ''));
-  return start === -1 ? [] : rows.slice(start);
+  return start === -1
+    ? { rows: [], firstRow: 1 }
+    : { rows: rows.slice(start), firstRow: start + 1 };
 }
 
 /**
