@@ -666,6 +666,8 @@ BEGIN
   c := c || pg_temp.hr_chk('a needs_review row was claimable or cancellable', r, 'lost/ERROR % ALREADY_DECIDED:%');
 
   -- sent + sending + needs_review all count toward the cap (k8: o7 needs_review).
+  -- Claimed today: 16 minutes ago is yesterday just after midnight in Dubai.
+  UPDATE hr_automsg_outbox o SET claimed_at = now() WHERE o.id = o7;
   PERFORM pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_settings_set(NULL, NULL, NULL, NULL, NULL, 1)::text');
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o8));
   c := c || pg_temp.hr_chk('a needs_review row did not count toward the daily cap', r, 'capped');
