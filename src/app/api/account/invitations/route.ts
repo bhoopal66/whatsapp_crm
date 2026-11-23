@@ -7,9 +7,8 @@
 // Both owner and admin only (migration 175; team leaders had a share
 // from 099). The list endpoint is what the Members tab uses to populate
 // the "Pending invitations" section; create is what the "Invite member"
-// dialog calls. RLS holds the same rule, since `redeem_invitation`
-// takes the token's hash and so a readable `token_hash` is a usable
-// link.
+// dialog calls. RLS holds the same rule (migration 287: a link is made
+// only in one's own name, for an assignable role, for at most a year).
 //
 // IMPORTANT: the plaintext token is returned exactly ONCE — in
 // the POST response. We store only the SHA-256 hash on the row,
@@ -29,7 +28,11 @@ import {
   inviteExpiresAt,
   inviteUrl,
 } from "@/lib/auth/invitations";
-import { canInviteMembers, isAccountRole } from "@/lib/auth/roles";
+import {
+  ASSIGNABLE_ROLES,
+  canInviteMembers,
+  isAccountRole,
+} from "@/lib/auth/roles";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -200,10 +203,9 @@ export async function POST(request: Request) {
       | null;
 
     const role = body?.role;
-    if (!isAccountRole(role) || role === "owner") {
-      // The DB CHECK already rejects 'owner', but failing fast
-      // here gives a clearer 400 than the eventual constraint
-      // violation surfaced as a 500.
+    if (!isAccountRole(role) || !(ASSIGNABLE_ROLES as readonly string[]).includes(role)) {
+      // The insert policy (287) refuses owner and bank_guest too, but
+      // failing fast here gives a clearer 400 than its 500.
       return NextResponse.json(
         { error: "'role' must be one of admin, team_leader, agent, viewer" },
         { status: 400 },

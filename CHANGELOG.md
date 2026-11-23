@@ -14,6 +14,13 @@ and polish.
 
 ### Security
 
+- **Rules between admins, invitations and API keys.** **Migration required: 287** (apply it before the build).
+  Only the owner removes an admin. For 7 days after someone else lowers or removes an admin, only the owner of
+  that workspace can set their password or change their details, whichever workspace it is asked from. An
+  invitation and an API key can only be made in one's own name, an invitation lasts at most a year, and an API
+  key is only ever revoked afterwards. An invitation link is now opened by its token, hashed in the database.
+  *After the build is out and no rollback to the previous one is expected*, close the old form:
+  `REVOKE EXECUTE ON FUNCTION public.redeem_invitation(text), public.peek_invitation(text) FROM anon, authenticated;`
 **Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
 works before and after it; apply it as soon as you update.
 - WhatsApp files in Storage (`chat-media`, `flow-media`): a signed-in person

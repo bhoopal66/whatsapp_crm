@@ -70,8 +70,8 @@ export async function GET(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("peek_invitation", {
-    p_token_hash: hashInviteToken(token),
+  const { data, error } = await supabase.rpc("peek_invitation_token", {
+    p_token: token,
   });
 
   if (error) {

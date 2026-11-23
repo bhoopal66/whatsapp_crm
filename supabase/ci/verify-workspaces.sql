@@ -828,12 +828,12 @@ BEGIN
     UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_ag;
     UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_ad3;
 
-    -- 099's policies are gone and 017's two are all that is left.
+    -- 099's policies are gone; 017's select and 287's two are all that is left.
     n := n + 1;
     IF (SELECT string_agg(policyname, ',' ORDER BY policyname) FROM pg_policies
          WHERE schemaname = 'public' AND tablename = 'account_invitations')
-       IS DISTINCT FROM 'account_invitations_modify,account_invitations_select' THEN
-      failed := array_append(failed, 'team leader: account_invitations policies (want only 017''s admin two)'::text);
+       IS DISTINCT FROM 'account_invitations_delete,account_invitations_insert,account_invitations_select' THEN
+      failed := array_append(failed, 'team leader: account_invitations policies (want only the admin select, insert and delete)'::text);
     END IF;
 
     -- A leader adds nobody by email, whatever the role and whoever the

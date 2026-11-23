@@ -88,8 +88,8 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: accountId, error } = await supabase.rpc("redeem_invitation", {
-    p_token_hash: hashInviteToken(token),
+  const { data: accountId, error } = await supabase.rpc("redeem_invitation_token", {
+    p_token: token,
   });
 
   if (error) return rpcErrorToResponse(error);

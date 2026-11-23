@@ -207,3 +207,15 @@ process; an install that does not ping that cron can schedule
 `SELECT public.edge_purge()` with pg_cron every 15 minutes instead.
 Correctness does not depend on it: an unpurged row is dead weight,
 never a wrong answer.
+
+## Invitations and API keys (migration 287)
+
+Both are made only in the name of the signed-in owner or admin who makes
+them. An invitation is for an assignable role, lasts at most 365 days and
+cannot be edited, only deleted. It opens with its token, which the database
+hashes; the stored hash is not a link. The older calls that take the hash
+(`redeem_invitation`, `peek_invitation`) stay callable only until the build
+that uses the token is out; then revoke them from `anon` and
+`authenticated`. An API key can be revoked but not otherwise changed by a
+session, and it keeps working after its maker leaves until someone revokes it
+in Settings → API keys.

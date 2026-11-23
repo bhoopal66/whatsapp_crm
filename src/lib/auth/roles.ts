@@ -130,6 +130,19 @@ export function canManageMembers(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: take someone out of the workspace. An admin is removed
+ * only by the owner (migration 287, `remove_account_member`, which also
+ * refuses someone lowered from admin in the last 7 days).
+ */
+export function canRemoveMember(
+  caller: AccountRole,
+  target: AccountRole
+): boolean {
+  if (!canManageMembers(caller) || target === 'owner') return false;
+  return target !== 'admin' || caller === 'owner';
+}
+
+/**
  * Owner / admin: set the password of someone they strictly outrank in
  * this workspace. An admin sets a team leader's, agent's, viewer's or
  * bank guest's password, never another admin's or the owner's; the owner
