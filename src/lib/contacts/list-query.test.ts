@@ -116,6 +116,7 @@ describe('buildContactListQuery', () => {
     expect(calls).toEqual([
       ['select', CONTACT_LIST_SELECT, { count: 'exact' }],
       ['order', 'created_at', { ascending: false }],
+      ['order', 'id', { ascending: false }],
       [
         'order',
         'created_at',
@@ -156,9 +157,10 @@ describe('buildContactListQuery', () => {
       },
       25
     );
-    expect(calls.slice(1, 3)).toEqual([
+    expect(calls.slice(1, 4)).toEqual([
       ['order', 'name', { ascending: true, nullsFirst: false }],
       ['order', 'created_at', { ascending: false }],
+      ['order', 'id', { ascending: false }],
     ]);
   });
 
@@ -184,7 +186,7 @@ describe('buildContactListQuery', () => {
       { personalOnlyUserId: 'user-1', search: ' ali ', page: 0 },
       25
     );
-    expect(calls.slice(3)).toEqual([
+    expect(calls.slice(4)).toEqual([
       ['range', 0, 24],
       ['eq', 'user_id', 'user-1'],
       ['or', 'name.ilike.%ali%,phone.ilike.%ali%,email.ilike.%ali%'],

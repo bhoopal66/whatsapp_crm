@@ -226,6 +226,10 @@ export const RATE_LIMITS = {
    *  trigger (POST /api/insights/meaning-test), per user: one Jev
    *  request per click, so the same budget as a tag suggestion. */
   meaningTestUser: { limit: 20, windowMs: 60_000 },
+  /** "Suggest a case" on a desk tray document
+   *  (POST /api/desk/tray/[id]/suggest), per user: one Jev request per
+   *  click, the same budget as a tag suggestion. */
+  deskSuggestUser: { limit: 20, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

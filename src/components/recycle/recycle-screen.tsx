@@ -218,7 +218,7 @@ export function RecycleScreen() {
         <label className="text-muted-foreground flex flex-1 flex-col gap-1 text-xs">
           {t('searchLabel')}
           <span className="relative">
-            <Search className="pointer-events-none absolute top-2.5 start-2.5 size-4" />
+            <Search className="pointer-events-none absolute start-2.5 top-2.5 size-4" />
             <Input
               className="ps-8"
               value={search}
@@ -277,14 +277,16 @@ export function RecycleScreen() {
           </Button>
         )}
         <span className="flex-1" />
-        <Button
-          size="sm"
-          disabled={picked.size === 0 || busy}
-          onClick={startCampaign}
-        >
-          <Megaphone data-icon="inline-start" />
-          {t('startCampaign')}
-        </Button>
+        {canEdit && (
+          <Button
+            size="sm"
+            disabled={picked.size === 0 || busy}
+            onClick={startCampaign}
+          >
+            <Megaphone data-icon="inline-start" />
+            {t('startCampaign')}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -295,7 +297,11 @@ export function RecycleScreen() {
           {t('createTasks')}
         </Button>
       </div>
-      <p className="text-muted-foreground -mt-2 text-xs">{t('campaignNote')}</p>
+      {canEdit && (
+        <p className="text-muted-foreground -mt-2 text-xs">
+          {t('campaignNote')}
+        </p>
+      )}
 
       {loading ? (
         <p className="text-muted-foreground py-8 text-center text-sm">

@@ -180,11 +180,25 @@ function countryCodeOf(digits: string): string | null {
 }
 
 /**
+ * Not a dialable number to dress up: a letter or `@` means an id (a
+ * hidden `...@lid` contact, `erased-...`), and a bare UAE 800/600 service
+ * number is national, so no `+` (600 would otherwise read as Malaysia).
+ */
+function isUndressable(raw: string): boolean {
+  if (/[\p{L}@]/u.test(raw)) return true;
+  if (raw.startsWith('+') || raw.replace(/\D/g, '').startsWith('00')) {
+    return false;
+  }
+  return /^(800|600)\d{5,9}$/.test(raw.replace(/[\s\-()]/g, ''));
+}
+
+/**
  * The number as `+<code> <groups>`, or the input trimmed when it cannot
  * be read as an international number (short, local-format, garbage).
  */
 export function formatPhoneDisplay(phone: string | null | undefined): string {
   const raw = (phone ?? '').trim();
+  if (isUndressable(raw)) return raw;
   const digits = internationalDigits(raw);
   if (!digits || digits.length < 8 || digits.length > 15) return raw;
   const code = countryCodeOf(digits);
@@ -205,6 +219,7 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
  */
 export function phoneForCopy(phone: string | null | undefined): string {
   const raw = (phone ?? '').trim();
+  if (isUndressable(raw)) return raw;
   const digits = internationalDigits(raw);
   if (!digits || digits.length < 8 || digits.length > 15) return raw;
   return `+${digits}`;

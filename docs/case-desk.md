@@ -278,8 +278,10 @@ Migration 235 (design 035 D8 and D12).
   (never a company or person name) and names the most likely case with
   how sure it is. It is advice only: nothing is filed, linked, sent or
   changed, and the case is never selected for you. No suggestion when
-  the workspace has no Jev access, the check fails, it is under 60% sure,
-  or two cases are within 10 points of each other.
+  the workspace has no Jev access or its AI safety checks switch
+  (Settings -> AI safety checks) is off, the check fails, it is under
+  60% sure, or two cases are within 10 points of each other. Each person
+  may ask 20 times a minute.
 
 ## Rules held in the database
 

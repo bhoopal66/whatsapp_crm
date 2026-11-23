@@ -28,6 +28,7 @@ import { canEditSettings, canShareSavedViews } from '@/lib/auth/roles';
 import {
   canChangeView,
   cleanViewName,
+  sharedViewFilters,
   sortViews,
   type SavedView,
   type ViewScreen,
@@ -57,7 +58,10 @@ export function SavedViewsMenu({
   current: Record<string, unknown>;
   /** Nothing to save while the screen is unfiltered. */
   hasFilters: boolean;
-  onApply: (filters: Record<string, unknown>) => void;
+  onApply: (
+    filters: Record<string, unknown>,
+    view: { shared: boolean }
+  ) => void;
   triggerClassName?: string;
 }) {
   const t = useTranslations('SavedViews');
@@ -95,14 +99,15 @@ export function SavedViewsMenu({
     }
     if (!me || !accountId) return;
     setBusy(true);
+    const share = shared && mayShare;
     try {
       const view = await createView(createClient(), {
         accountId,
         userId: me,
         screen,
         name: clean,
-        filters: current,
-        shared: shared && mayShare,
+        filters: share ? sharedViewFilters(current) : current,
+        shared: share,
       });
       setName('');
       setShared(false);
@@ -119,7 +124,9 @@ export function SavedViewsMenu({
   async function update(view: SavedView) {
     setBusy(true);
     try {
-      await updateView(createClient(), view.id, { filters: current });
+      await updateView(createClient(), view.id, {
+        filters: view.shared ? sharedViewFilters(current) : current,
+      });
       toast.success(t('updated'));
       await load();
     } catch {
@@ -192,7 +199,7 @@ export function SavedViewsMenu({
                     type="button"
                     onClick={() => {
                       setActiveId(view.id);
-                      onApply(view.filters);
+                      onApply(view.filters, { shared: view.shared });
                       setOpen(false);
                     }}
                     className="flex min-h-9 min-w-0 flex-1 items-center gap-2 px-2 text-start text-sm"
@@ -263,6 +270,11 @@ export function SavedViewsMenu({
                     onCheckedChange={setShared}
                   />
                 </div>
+              ) : null}
+              {mayShare && shared ? (
+                <p className="text-muted-foreground text-xs">
+                  {t('shareNote')}
+                </p>
               ) : null}
               <Button
                 className="w-full"

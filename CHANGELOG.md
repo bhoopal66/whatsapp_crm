@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Contacts, saved views and desk fixes
+
+No migration.
+- **Add to campaign** now shows only to owners and admins, on Contacts
+  and Recycle; below that it led to a page they cannot open.
+- **Contacts list** pages no longer repeat or skip a customer created in
+  the same instant.
+- **Shared views** no longer carry the search text, and applying one no
+  longer changes your own column choice. A view whose chat tag was
+  deleted warns you, and is not applied when none of its tags is left,
+  instead of showing everyone.
+- **Phone numbers** that are really ids (`...@lid`, `erased-...`) show
+  as stored, and UAE 800 / 600 numbers no longer get a `+`.
+- **Desk.** "Suggest a case" needs the workspace's AI safety switch on
+  and is limited to 20 a minute; an impossible date or a NUL character
+  in a field is a clear 400, not an error; the document types list is for
+  agents and up.
+
 ### Menu, HR and worklist fixes
 
 No migration.
