@@ -28,6 +28,8 @@ No migration.
   or let any keyword hit pass.
 - A held AI draft no longer appears on a chat a person took while it was being
   written.
+- Re-indexing a document keeps its old index until the new one is ready, and
+  says the document is not indexed when the new one cannot be written.
 
 ### Cases: timers, snoozes and rules
 

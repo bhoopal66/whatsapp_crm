@@ -2,6 +2,7 @@ import { assertAiTransfer } from '@/lib/privacy/ai-transfer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiConfig } from './types';
 import { chunkText } from './chunk';
+import { KnowledgeIndexError } from './ingest-warning';
 import { redactForProvider } from './redact-input';
 import { embedTexts, toVectorLiteral } from './embeddings';
 
@@ -22,9 +23,10 @@ interface MatchRow {
  * embeddings key — embeds each chunk. Runs under whatever client the
  * caller passes (service-role for ingest routes).
  *
- * Throws on embedding failure so the ingest route can report it; the
- * chunks are only written once embedding (if attempted) succeeds, so a
- * failed embed never leaves half-indexed rows.
+ * Embeds before it deletes, so the old chunks serve meanwhile. Throws on
+ * embedding failure (after storing the chunks lexical-only), and a
+ * `KnowledgeIndexError` when the chunks could not be replaced: the
+ * document is then not indexed, which the routes say (`ingestWarning`).
  */
 export async function ingestDocument(
   db: SupabaseClient,
@@ -35,15 +37,6 @@ export async function ingestDocument(
 ): Promise<void> {
   const chunks = chunkText(content);
 
-  // Replace, don't append — re-ingest must be idempotent.
-  const { error: delErr } = await db
-    .from('ai_knowledge_chunks')
-    .delete()
-    .eq('document_id', documentId);
-  if (delErr) throw delErr;
-
-  if (chunks.length === 0) return;
-
   // Embed if a key is set, but DON'T let an embedding failure stop the
   // chunks from being stored: a failed embed must still leave the
   // document searchable lexically. We record the error and rethrow it
@@ -52,13 +45,23 @@ export async function ingestDocument(
   // search really does still work.
   let embeddings: number[][] | null = null;
   let embedError: unknown = null;
-  if (config.embeddingsApiKey) {
+  if (config.embeddingsApiKey && chunks.length > 0) {
     try {
       embeddings = await embedTexts(config.embeddingsApiKey, chunks);
     } catch (err) {
       embedError = err;
     }
   }
+
+  // Replace, don't append — re-ingest must be idempotent. Only now: the
+  // embeddings take seconds, and the old chunks answer until then.
+  const { error: delErr } = await db
+    .from('ai_knowledge_chunks')
+    .delete()
+    .eq('document_id', documentId);
+  if (delErr) throw new KnowledgeIndexError(delErr.message);
+
+  if (chunks.length === 0) return;
 
   const rows = chunks.map((content, i) => ({
     document_id: documentId,
@@ -69,7 +72,7 @@ export async function ingestDocument(
   }));
 
   const { error: insErr } = await db.from('ai_knowledge_chunks').insert(rows);
-  if (insErr) throw insErr;
+  if (insErr) throw new KnowledgeIndexError(insErr.message);
 
   if (embedError) throw embedError;
 }
