@@ -7,8 +7,8 @@ import {
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import {
+  flattenSteps,
   loadStepsTree,
-  replaceSteps,
   type BuilderStepInput,
 } from '@/lib/automations/steps-tree';
 import {
@@ -168,22 +168,34 @@ export async function PATCH(
     }
   }
 
-  if (Object.keys(update).length > 0) {
-    const { error: updErr } = await admin
-      .from('automations')
-      .update(update)
-      .eq('id', id)
-      .eq('account_id', ctx.accountId);
-    if (updErr)
-      return serverErrorResponse('PATCH /api/automations/[id]', updErr);
-  }
+  // One transaction: the row, its steps (in place by id, so a parked run
+  // still finds its wait) and the check that nobody saved in between.
+  const { data: saved, error: saveErr } = await admin.rpc('automation_save', {
+    p_account_id: ctx.accountId,
+    p_automation_id: id,
+    // Sent by the builder. The list's on/off switch and an older tab send
+    // none and are not checked.
+    p_expected_updated_at:
+      typeof body.updated_at === 'string' ? body.updated_at : null,
+    p_patch: update,
+    p_steps: Array.isArray(body.steps)
+      ? flattenSteps(id, body.steps as BuilderStepInput[], { keepIds: true })
+      : null,
+  });
+  if (saveErr) return serverErrorResponse('PATCH /api/automations/[id]', saveErr);
+  const outcome = saved as { status: string; updated_at?: string } | null;
+  if (outcome?.status === 'not_found')
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (outcome?.status === 'conflict')
+    return NextResponse.json(
+      {
+        error:
+          'Someone else changed this automation since you opened it. Reload the page before saving.',
+      },
+      { status: 409 }
+    );
 
-  if (Array.isArray(body.steps)) {
-    const err = await replaceSteps(id, body.steps as BuilderStepInput[]);
-    if (err) return NextResponse.json({ error: err }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, updated_at: outcome?.updated_at });
 }
 
 export async function DELETE(

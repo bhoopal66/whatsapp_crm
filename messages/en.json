@@ -1771,7 +1771,8 @@
       "toasts": {
         "saved": "Automation saved",
         "created": "Automation created",
-        "saveFailed": "Save failed"
+        "saveFailed": "Save failed",
+        "changedElsewhere": "Someone else changed this automation since you opened it. Your changes are not saved. Reload the page to see the latest version."
       },
       "chatTags": {
         "label": "Chat tag",

@@ -34,6 +34,8 @@ const h = vi.hoisted(() => ({
   automsgDrain: vi.fn(),
   automsgNudges: vi.fn(),
   responseSweep: vi.fn(),
+  interrupted: vi.fn(),
+  claims: [] as unknown[],
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -56,7 +58,7 @@ vi.mock('@/lib/automations/admin-client', () => ({
         eq: () => builder,
         lte: () => builder,
         order: () => builder,
-        update: () => builder,
+        update: (p: unknown) => (h.claims.push(p), builder),
         limit: () =>
           Promise.resolve({
             data: h.dueError ? null : h.due,
@@ -71,6 +73,7 @@ vi.mock('@/lib/automations/admin-client', () => ({
 
 vi.mock('@/lib/automations/engine', () => ({
   resumePendingExecution: h.resume,
+  failInterruptedExecutions: h.interrupted,
 }));
 
 // Real `everyInterval`, stubbed sweep.
@@ -914,6 +917,29 @@ describe('GET /api/automations/cron — inbound queue piggy-back', () => {
       'queue boom'
     );
     log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — waiting automation runs', () => {
+  it('stamps the claim and hands over where and how often', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.claims = [];
+    h.interrupted.mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(console, 'error').mockImplementationOnce(() => {});
+    h.due = [{ id: 'p1', wait_step_id: 'w1', attempts: 2 }];
+    const res = await GET(req());
+    h.due = [];
+    // A failed sweep of interrupted runs does not stop the due ones.
+    expect(res.status).toBe(200);
+    expect(h.interrupted).toHaveBeenCalled();
+    expect(h.claims).toContainEqual({
+      status: 'running',
+      claimed_at: expect.any(String),
+    });
+    expect(h.resume).toHaveBeenCalledWith(
+      expect.objectContaining({ wait_step_id: 'w1', attempts: 2 })
+    );
   });
 });
 

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse, after } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
-import { resumePendingExecution } from '@/lib/automations/engine'
+import { failInterruptedExecutions, resumePendingExecution } from '@/lib/automations/engine'
 import type { AutomationContext } from '@/lib/automations/engine'
 import {
   everyInterval,
@@ -1045,6 +1045,11 @@ export async function GET(request: Request) {
 
 async function drainDueExecutions(): Promise<NextResponse> {
   const admin = supabaseAdmin()
+  try {
+    await failInterruptedExecutions()
+  } catch (err) {
+    console.error('[automations-cron] interrupted sweep failed:', err)
+  }
   const { data: due, error } = await admin
     .from('automation_pending_executions')
     .select('*')
@@ -1060,7 +1065,7 @@ async function drainDueExecutions(): Promise<NextResponse> {
   for (const row of due) {
     const { data: claim } = await admin
       .from('automation_pending_executions')
-      .update({ status: 'running' })
+      .update({ status: 'running', claimed_at: new Date().toISOString() })
       .eq('id', row.id)
       .eq('status', 'pending')
       .select('id')
@@ -1079,6 +1084,8 @@ async function drainDueExecutions(): Promise<NextResponse> {
       parent_step_id: (row.parent_step_id as string | null) ?? null,
       branch: (row.branch as 'yes' | 'no' | null) ?? null,
       next_step_position: row.next_step_position as number,
+      wait_step_id: (row.wait_step_id as string | null) ?? null,
+      attempts: (row.attempts as number | null) ?? 0,
       context: (row.context as AutomationContext) ?? {},
     })
     processed++

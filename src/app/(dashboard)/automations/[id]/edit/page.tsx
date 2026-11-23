@@ -36,6 +36,7 @@ export default function EditAutomationPage({
       if (cancelled) return
       setInitial({
         id: body.automation.id,
+        updated_at: body.automation.updated_at,
         name: body.automation.name ?? "",
         description: body.automation.description ?? "",
         trigger_type: body.automation.trigger_type as AutomationTriggerType,

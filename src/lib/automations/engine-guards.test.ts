@@ -224,10 +224,14 @@ describe('a parked wait', () => {
     h.refuse.add('automations.select:*');
     await resume();
     expect(sends()).toBe(0);
-    expect(h.db.automation_pending_executions[0].status).toBe('failed');
-    expect(log().error_message).toBe(
-      'stopped: the automation could not be loaded'
-    );
+    // Nothing was sent: the next tick tries again (269).
+    expect(h.db.automation_pending_executions[0]).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+      claimed_at: null,
+    });
+    expect(log()).toMatchObject({ status: 'partial' });
+    expect(log().error_message).toBeUndefined();
   });
 
   it('still resumes while the automation is on', async () => {
