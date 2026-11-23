@@ -1062,6 +1062,21 @@
       }
     },
     "importModal": {
+      "planChecking": "جارٍ التحقق من الأرقام الموجودة لديك…",
+      "planFailed": "تعذّر التحقق من الأرقام الموجودة لديك.",
+      "retry": "إعادة المحاولة",
+      "planNew": "جديد: {count}",
+      "planExisting": "موجود مسبقاً: {count}",
+      "planRepeats": "مكرر في الملف: {count}",
+      "problemsTitle": "صفوف لم تُستورد: {count}",
+      "problemLine": "السطر {line}",
+      "problemUnreadable": "تعذّرت القراءة: علامة اقتباس لم تُغلق.",
+      "problemNoPhone": "لا يوجد رقم هاتف.",
+      "problemNotSaved": "تعذّر الحفظ: {reason}",
+      "problemsMore": "+ {count} أخرى",
+      "closeConfirm": "لا يزال الاستيراد جارياً. هل تريد إيقافه؟ ستبقى جهات الاتصال التي تم استيرادها.",
+      "keepImporting": "متابعة الاستيراد",
+      "stopAndClose": "إيقاف وإغلاق",
       "title": "استيراد جهات الاتصال",
       "desc": "ارفع ملف CSV يحتوي على عمود <phoneCode>phone</phoneCode> إلزامي. اختيارياً: <nameCode>name</nameCode> و<emailCode>email</emailCode> و<companyCode>company</companyCode>. تُتجاهل الأعمدة الأخرى، بما فيها <tagsCode>tags</tagsCode>.",
       "uploadDropzone": "انقر لاختيار ملف CSV",
@@ -1159,6 +1174,8 @@
   },
   "Pipelines": {
     "page": {
+      "dealsLoadFailed": "تعذّر تحميل الصفقات.",
+      "retry": "إعادة المحاولة",
       "unknownStage": "مرحلة جديدة",
       "selectPipeline": "اختر مسار المبيعات",
       "noPipelinesYet": "لا توجد مسارات مبيعات بعد",

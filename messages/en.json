@@ -1062,6 +1062,21 @@
       }
     },
     "importModal": {
+      "planChecking": "Checking which numbers you already have…",
+      "planFailed": "Could not check which numbers you already have.",
+      "retry": "Try again",
+      "planNew": "New: {count}",
+      "planExisting": "Already there: {count}",
+      "planRepeats": "Repeated in the file: {count}",
+      "problemsTitle": "Rows not imported: {count}",
+      "problemLine": "Line {line}",
+      "problemUnreadable": "Could not be read: a quote is never closed.",
+      "problemNoPhone": "No phone number.",
+      "problemNotSaved": "Could not be saved: {reason}",
+      "problemsMore": "+ {count} more",
+      "closeConfirm": "The import is still running. Stop it? Contacts already imported stay.",
+      "keepImporting": "Keep importing",
+      "stopAndClose": "Stop and close",
       "title": "Import Contacts",
       "desc": "Upload a CSV with a required <phoneCode>phone</phoneCode> column. Optional: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. Other columns, including <tagsCode>tags</tagsCode>, are ignored.",
       "uploadDropzone": "Click to choose a CSV file",
@@ -1159,6 +1174,8 @@
   },
   "Pipelines": {
     "page": {
+      "dealsLoadFailed": "The deals could not be loaded.",
+      "retry": "Try again",
       "unknownStage": "New stage",
       "selectPipeline": "Select Pipeline",
       "noPipelinesYet": "No pipelines yet",

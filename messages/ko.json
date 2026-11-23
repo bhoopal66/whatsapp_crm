@@ -1062,6 +1062,21 @@
       }
     },
     "importModal": {
+      "planChecking": "이미 있는 번호를 확인하는 중…",
+      "planFailed": "이미 있는 번호를 확인하지 못했습니다.",
+      "retry": "다시 시도",
+      "planNew": "신규: {count}",
+      "planExisting": "이미 있음: {count}",
+      "planRepeats": "파일 내 중복: {count}",
+      "problemsTitle": "가져오지 않은 행: {count}",
+      "problemLine": "{line}번째 줄",
+      "problemUnreadable": "읽을 수 없음: 따옴표가 닫히지 않았습니다.",
+      "problemNoPhone": "전화번호가 없습니다.",
+      "problemNotSaved": "저장하지 못함: {reason}",
+      "problemsMore": "+ {count}개 더",
+      "closeConfirm": "아직 가져오는 중입니다. 중지할까요? 이미 가져온 연락처는 그대로 유지됩니다.",
+      "keepImporting": "계속 가져오기",
+      "stopAndClose": "중지하고 닫기",
       "title": "연락처 가져오기",
       "desc": "필수 <phoneCode>phone</phoneCode> 열이 포함된 CSV를 업로드하세요. 선택 항목: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. <tagsCode>tags</tagsCode>를 포함한 그 밖의 열은 무시됩니다.",
       "uploadDropzone": "클릭하여 CSV 파일 선택",
@@ -1159,6 +1174,8 @@
   },
   "Pipelines": {
     "page": {
+      "dealsLoadFailed": "딜을 불러오지 못했습니다.",
+      "retry": "다시 시도",
       "unknownStage": "새 단계",
       "selectPipeline": "파이프라인 선택",
       "noPipelinesYet": "아직 파이프라인이 없습니다",

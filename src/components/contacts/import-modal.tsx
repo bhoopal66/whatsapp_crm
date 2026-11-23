@@ -4,18 +4,16 @@ import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import {
-  dedupeByPhone,
-  isUniqueViolation,
-  normalizeKey,
-} from '@/lib/contacts/dedupe';
+  insertContacts,
+  planImport,
+  type ImportPlan,
+  type ImportProblem,
+} from '@/lib/contacts/import-contacts';
 import {
-  parseContactCsv,
+  readContactCsv,
   type ParsedContactRow,
+  type ReadContactCsvResult,
 } from '@/lib/contacts/parse-contact-csv';
-import {
-  partitionRowsByPhone,
-  summarizeRejectedPhones,
-} from '@/lib/contacts/phone-validation';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -38,6 +36,47 @@ import {
 import { useTranslations } from 'next-intl';
 
 const PREVIEW_LIMIT = 5;
+/** Rows listed by name; the rest are counted. */
+const PROBLEM_LIMIT = 200;
+
+/** The rows that gave no contact, each with its line and reason. */
+function ProblemList({ problems }: { problems: ImportProblem[] }) {
+  const t = useTranslations('Contacts.importModal');
+  if (problems.length === 0) return null;
+  return (
+    <div className="space-y-1 text-xs">
+      <p className="text-foreground font-medium">
+        {t('problemsTitle', { count: problems.length })}
+      </p>
+      <ul className="border-border divide-border/70 max-h-48 divide-y overflow-y-auto rounded-lg border">
+        {problems.slice(0, PROBLEM_LIMIT).map((p, i) => (
+          <li key={i} className="text-muted-foreground px-3 py-1.5">
+            <span className="text-foreground font-medium">
+              {p.line === null ? '—' : t('problemLine', { line: p.line })}
+            </span>{' '}
+            {p.phone && (
+              <span dir="ltr" className="font-mono">
+                {p.phone}
+              </span>
+            )}{' '}
+            {p.reason === 'unreadable'
+              ? t('problemUnreadable')
+              : p.reason === 'no_phone'
+                ? t('problemNoPhone')
+                : p.reason === 'save'
+                  ? t('problemNotSaved', { reason: p.detail ?? '' })
+                  : p.detail}
+          </li>
+        ))}
+      </ul>
+      {problems.length > PROBLEM_LIMIT && (
+        <p className="text-muted-foreground">
+          {t('problemsMore', { count: problems.length - PROBLEM_LIMIT })}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function truncateFilename(name: string, max = 48): string {
   if (name.length <= max) return name;
@@ -58,11 +97,7 @@ function PreviewCell({
 }) {
   return (
     <span
-      className={cn(
-        'block truncate',
-        maxWidth,
-        mono && 'font-mono text-xs'
-      )}
+      className={cn('block truncate', maxWidth, mono && 'font-mono text-xs')}
       title={value}
     >
       {value}
@@ -93,10 +128,26 @@ export function ImportModal({
   const [result, setResult] = useState<{
     imported: number;
     skipped: number;
-    failed: number;
+    problems: ImportProblem[];
   } | null>(null);
+  // What the file would do; null while it is being worked out.
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
+  const [planFailed, setPlanFailed] = useState(false);
+  const [parsedFile, setParsedFile] = useState<ReadContactCsvResult | null>(
+    null
+  );
+  const [confirmClose, setConfirmClose] = useState(false);
+  // One number per file or import shown; an answer for an older one is
+  // dropped, and an import whose number has passed stops.
+  const run = useRef(0);
 
   function reset() {
+    run.current++;
+    setImporting(false);
+    setPlan(null);
+    setPlanFailed(false);
+    setParsedFile(null);
+    setConfirmClose(false);
     setFile(null);
     setParsedRows([]);
     setHasCompanyColumn(false);
@@ -105,23 +156,68 @@ export function ImportModal({
   }
 
   function handleOpenChange(next: boolean) {
+    if (!next && importing) {
+      setConfirmClose(true);
+      return;
+    }
     if (!next) reset();
     onOpenChange(next);
+  }
+
+  function stopAndClose() {
+    reset();
+    onOpenChange(false);
+  }
+
+  async function makePlan(parsed: ReadContactCsvResult) {
+    const mine = ++run.current;
+    setPlan(null);
+    setPlanFailed(false);
+    if (!accountId) {
+      setPlanFailed(true);
+      return;
+    }
+    try {
+      const next = await planImport(parsed, (chunk) =>
+        supabase
+          .from('contacts')
+          .select('phone_normalized')
+          .eq('account_id', accountId)
+          .in('phone_normalized', chunk)
+      );
+      if (run.current === mine) setPlan(next);
+    } catch (err) {
+      console.error('[import-modal] number check failed:', err);
+      if (run.current === mine) setPlanFailed(true);
+    }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
     if (!selected) return;
 
+    const mine = ++run.current;
     setFile(selected);
     setResult(null);
+    setPlan(null);
+    setPlanFailed(false);
 
     const text = await selected.text();
     // A `tags` column is ignored: contact tags are retired, and chat
     // tags belong to a conversation, which an import does not create.
-    const { rows, hasCompanyColumn: csvHasCompany } = parseContactCsv(text);
+    if (run.current !== mine) return;
+    const parsed = readContactCsv(text);
+    const { rows, hasCompanyColumn: csvHasCompany } = parsed;
+    setParsedFile(parsed);
+    // The same file can be chosen again once it is corrected.
+    e.target.value = '';
 
-    if (rows.length === 0) {
+    // A file of nothing but problem rows still lists them.
+    if (
+      parsed.phoneColumn === null ||
+      rows.length + parsed.badLines.length + parsed.noPhoneLines.length === 0
+    ) {
+      setParsedFile(null);
       toast.error(t('toastNoValidRows'));
       setParsedRows([]);
       setHasCompanyColumn(false);
@@ -130,10 +226,12 @@ export function ImportModal({
 
     setParsedRows(rows);
     setHasCompanyColumn(csvHasCompany);
+    await makePlan(parsed);
   }
 
   async function handleImport() {
-    if (parsedRows.length === 0) return;
+    if (!plan || plan.toInsert.length === 0) return;
+    const mine = ++run.current;
     setImporting(true);
 
     try {
@@ -145,108 +243,44 @@ export function ImportModal({
       if (!accountId)
         throw new Error('Your profile is not linked to an account.');
 
-      let imported = 0;
-      let skipped = 0;
-      let failed = 0;
-
-      // 0) Refuse numbers that can't be a WhatsApp address (no country
-      //    code, too short, scientific notation from a spreadsheet).
-      //    Stored as typed, every send to them reports 'sent' to nobody.
-      //    Valid rows come back normalized, so the de-dupe and existing
-      //    check below compare the digits that will be stored.
-      const { valid, rejected: badPhones } = partitionRowsByPhone(parsedRows);
-      failed += badPhones.length;
-
-      // 1) De-dupe within the file by normalized phone (keep first).
-      const { unique, duplicates: inFileDupes } = dedupeByPhone(valid);
-      skipped += inFileDupes;
-
-      // 2) Skip numbers already in this account. One read of the
-      //    generated `phone_normalized` column (migration 022) → Set.
-      const { data: existingRows } = await supabase
-        .from('contacts')
-        .select('phone_normalized')
-        .eq('account_id', accountId);
-      const existing = new Set(
-        (existingRows ?? [])
-          .map(
-            (r) => (r as { phone_normalized: string | null }).phone_normalized
-          )
-          .filter((p): p is string => !!p)
+      const done = await insertContacts(
+        plan.toInsert,
+        (batch) =>
+          supabase.from('contacts').insert(
+            batch.map((row) => ({
+              user_id: user.id,
+              account_id: accountId,
+              phone: row.phone,
+              name: row.name || null,
+              email: row.email || null,
+              company: row.company || null,
+              // Came from a file (migration 249).
+              lead_source: 'import' as const,
+            }))
+          ),
+        () => run.current !== mine
       );
 
-      const toInsert = unique.filter((row) => {
-        if (existing.has(normalizeKey(row.phone))) {
-          skipped++;
-          return false;
-        }
-        return true;
-      });
-
-      // 3) Batch insert the genuinely-new rows in chunks of 50. The DB
-      //    unique index is the backstop: a 23505 (race, or a format
-      //    that normalizes equal) counts as skipped, not failed.
-      const chunkSize = 50;
-
-      for (let i = 0; i < toInsert.length; i += chunkSize) {
-        const chunk = toInsert.slice(i, i + chunkSize);
-        const rows = chunk.map((row) => ({
-          user_id: user.id,
-          account_id: accountId,
-          phone: row.phone,
-          name: row.name || null,
-          email: row.email || null,
-          company: row.company || null,
-          // Came from a file (migration 249).
-          lead_source: 'import' as const,
-        }));
-
-        const { data, error } = await supabase
-          .from('contacts')
-          .insert(rows)
-          .select('id');
-
-        if (error) {
-          // Retry individually so one bad/duplicate row doesn't sink
-          // the whole chunk.
-          for (let j = 0; j < rows.length; j++) {
-            const row = rows[j];
-            const { error: singleErr } = await supabase
-              .from('contacts')
-              .insert(row);
-
-            if (!singleErr) {
-              imported++;
-            } else if (isUniqueViolation(singleErr)) {
-              skipped++;
-            } else {
-              failed++;
-            }
-          }
-        } else {
-          imported += (data ?? []).length;
-        }
-      }
-
-      setResult({ imported, skipped, failed });
-      if (imported > 0) {
-        toast.success(t('toastImported', { count: imported }));
+      // Also when the person stopped it: those contacts exist now.
+      if (done.imported > 0) {
+        toast.success(t('toastImported', { count: done.imported }));
         onImported();
       }
-      if (skipped > 0) {
-        toast.info(t('toastSkipped', { count: skipped }));
-      }
-      if (failed > 0) {
-        toast.error(t('toastFailed', { count: failed }));
-      }
-      if (badPhones.length > 0) {
-        toast.error(summarizeRejectedPhones(badPhones));
-      }
+      if (run.current !== mine) return;
+      const skipped = plan.alreadyThere + plan.repeats + done.alreadyThere;
+      const problems = [...plan.problems, ...done.failed];
+      setResult({ imported: done.imported, skipped, problems });
+      if (skipped > 0) toast.info(t('toastSkipped', { count: skipped }));
+      if (problems.length > 0)
+        toast.error(t('toastFailed', { count: problems.length }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('toastError');
-      toast.error(message);
+      if (run.current === mine) toast.error(message);
     } finally {
-      setImporting(false);
+      if (run.current === mine) {
+        setImporting(false);
+        setConfirmClose(false);
+      }
     }
   }
 
@@ -258,21 +292,27 @@ export function ImportModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden border-border/80 bg-popover p-0 text-popover-foreground sm:max-w-2xl">
-        <div className="shrink-0 space-y-4 border-b border-border/80 px-6 pt-6 pb-5">
+      <DialogContent className="border-border/80 bg-popover text-popover-foreground flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <div className="border-border/80 shrink-0 space-y-4 border-b px-6 pt-6 pb-5">
           <DialogHeader className="gap-1.5">
-            <DialogTitle className="text-lg text-popover-foreground">
+            <DialogTitle className="text-popover-foreground text-lg">
               {t('title')}
             </DialogTitle>
-            <DialogDescription className="leading-relaxed text-muted-foreground"
+            <DialogDescription
+              className="text-muted-foreground leading-relaxed"
               dangerouslySetInnerHTML={{
                 __html: t.markup('desc', {
-                  phoneCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
-                  nameCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
-                  emailCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
-                  companyCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
-                  tagsCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
-                })
+                  phoneCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  nameCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  emailCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  companyCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                  tagsCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">${chunks}</code>`,
+                }),
               }}
             />
           </DialogHeader>
@@ -280,8 +320,12 @@ export function ImportModal({
           <div
             role="button"
             tabIndex={0}
-            onClick={() => fileInputRef.current?.click()}
+            aria-disabled={importing}
+            onClick={() => {
+              if (!importing) fileInputRef.current?.click();
+            }}
             onKeyDown={(e) => {
+              if (importing) return;
               if (e.key === 'Enter' || e.key === ' ')
                 fileInputRef.current?.click();
             }}
@@ -298,24 +342,24 @@ export function ImportModal({
                   <FileText className="text-primary size-5" />
                 </div>
                 <p
-                  className="max-w-full truncate px-2 text-sm font-medium text-popover-foreground"
+                  className="text-popover-foreground max-w-full truncate px-2 text-sm font-medium"
                   title={file.name}
                 >
                   {truncateFilename(file.name)}
                 </p>
-                <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-xs font-medium">
                   {t('rowsReady', { count: parsedRows.length })}
                 </span>
               </>
             ) : (
               <>
-                <div className="flex size-10 items-center justify-center rounded-lg bg-muted/80 ring-1 ring-border/80 transition-colors group-hover:bg-muted">
-                  <Upload className="size-5 text-muted-foreground group-hover:text-foreground" />
+                <div className="bg-muted/80 ring-border/80 group-hover:bg-muted flex size-10 items-center justify-center rounded-lg ring-1 transition-colors">
+                  <Upload className="text-muted-foreground group-hover:text-foreground size-5" />
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   {t('uploadDropzone')}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {t('uploadHint')}
                 </p>
               </>
@@ -332,60 +376,98 @@ export function ImportModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {parsedFile && !result && (
+            <div className="mb-4 space-y-3" aria-live="polite">
+              {planFailed ? (
+                <div
+                  role="alert"
+                  className="bg-destructive-soft text-destructive flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm"
+                >
+                  <span>{t('planFailed')}</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void makePlan(parsedFile)}
+                  >
+                    {t('retry')}
+                  </Button>
+                </div>
+              ) : plan ? (
+                <p className="text-foreground text-sm">
+                  {t('planNew', { count: plan.toInsert.length })}
+                  {' · '}
+                  {t('planExisting', { count: plan.alreadyThere })}
+                  {plan.repeats > 0 && (
+                    <> · {t('planRepeats', { count: plan.repeats })}</>
+                  )}
+                </p>
+              ) : (
+                parsedRows.length > 0 && (
+                  <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t('planChecking')}
+                  </p>
+                )
+              )}
+              {plan && <ProblemList problems={plan.problems} />}
+            </div>
+          )}
+
           {preview.length > 0 && !result && (
             <div className="space-y-3">
-              <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+              <p className="text-muted-foreground text-xs font-semibold tracking-[0.14em] uppercase">
                 {t('preview', { count: preview.length })}
               </p>
 
-              <div className="overflow-hidden rounded-xl border border-border ring-1 ring-border/50">
+              <div className="border-border ring-border/50 overflow-hidden rounded-xl border ring-1">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[32rem] text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-background/60">
-                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
+                      <tr className="border-border bg-background/60 border-b">
+                        <th className="text-muted-foreground px-3 py-2 text-start font-medium whitespace-nowrap">
                           {t('columns.phone')}
                         </th>
-                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="text-muted-foreground px-3 py-2 text-start font-medium whitespace-nowrap">
                           {t('columns.name')}
                         </th>
-                        <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="text-muted-foreground px-3 py-2 text-start font-medium whitespace-nowrap">
                           {t('columns.email')}
                         </th>
                         {previewHasCompany && (
-                          <th className="px-3 py-2 text-start font-medium whitespace-nowrap text-muted-foreground">
+                          <th className="text-muted-foreground px-3 py-2 text-start font-medium whitespace-nowrap">
                             {t('columns.company')}
                           </th>
                         )}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/70">
+                    <tbody className="divide-border/70 divide-y">
                       {preview.map((row, i) => (
                         <tr
                           key={i}
-                          className="bg-popover/40 transition-colors hover:bg-muted/30"
+                          className="bg-popover/40 hover:bg-muted/30 transition-colors"
                         >
-                          <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                          <td className="text-muted-foreground px-3 py-2 whitespace-nowrap">
                             <PreviewCell
                               value={row.phone}
                               mono
                               maxWidth="max-w-[7.5rem]"
                             />
                           </td>
-                          <td className="px-3 py-2 text-popover-foreground">
+                          <td className="text-popover-foreground px-3 py-2">
                             <PreviewCell
                               value={row.name || '—'}
                               maxWidth="max-w-[8.5rem]"
                             />
                           </td>
-                          <td className="px-3 py-2 text-muted-foreground">
+                          <td className="text-muted-foreground px-3 py-2">
                             <PreviewCell
                               value={row.email || '—'}
                               maxWidth="max-w-[10rem]"
                             />
                           </td>
                           {previewHasCompany && (
-                            <td className="px-3 py-2 text-muted-foreground">
+                            <td className="text-muted-foreground px-3 py-2">
                               <PreviewCell
                                 value={row.company || '—'}
                                 maxWidth="max-w-[7rem]"
@@ -400,7 +482,7 @@ export function ImportModal({
               </div>
 
               {parsedRows.length > PREVIEW_LIMIT && (
-                <p className="text-center text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-center text-xs">
                   {t('moreRows', { count: parsedRows.length - PREVIEW_LIMIT })}
                 </p>
               )}
@@ -408,8 +490,10 @@ export function ImportModal({
           )}
 
           {result && (
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-sm font-medium text-popover-foreground">{t('importComplete')}</p>
+            <div className="border-border bg-background/50 rounded-xl border p-4">
+              <p className="text-popover-foreground text-sm font-medium">
+                {t('importComplete')}
+              </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 {result.imported > 0 && (
                   <div className="text-primary flex items-center gap-1.5 text-sm">
@@ -418,23 +502,54 @@ export function ImportModal({
                   </div>
                 )}
                 {result.skipped > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm text-warning">
+                  <div className="text-warning flex items-center gap-1.5 text-sm">
                     <AlertTriangle className="size-4 shrink-0" />
                     {t('resultSkipped', { count: result.skipped })}
                   </div>
                 )}
-                {result.failed > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm text-destructive">
+                {result.problems.length > 0 && (
+                  <div className="text-destructive flex items-center gap-1.5 text-sm">
                     <XCircle className="size-4 shrink-0" />
-                    {t('resultFailed', { count: result.failed })}
+                    {t('resultFailed', { count: result.problems.length })}
                   </div>
                 )}
+              </div>
+              <div className="mt-3">
+                <ProblemList problems={result.problems} />
               </div>
             </div>
           )}
         </div>
 
-        <DialogFooter className="mt-0 shrink-0 gap-2 border-t border-border/80 bg-background/50 px-6 py-4 sm:justify-end">
+        {confirmClose && importing && (
+          <div
+            role="alertdialog"
+            aria-label={t('closeConfirm')}
+            className="border-border/80 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-6 py-3 text-sm"
+          >
+            <span>{t('closeConfirm')}</span>
+            <span className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmClose(false)}
+              >
+                {t('keepImporting')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={stopAndClose}
+              >
+                {t('stopAndClose')}
+              </Button>
+            </span>
+          </div>
+        )}
+
+        <DialogFooter className="border-border/80 bg-background/50 mt-0 shrink-0 gap-2 border-t px-6 py-4 sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -446,12 +561,12 @@ export function ImportModal({
           {!result && (
             <Button
               type="button"
-              disabled={parsedRows.length === 0 || importing}
+              disabled={!plan || plan.toInsert.length === 0 || importing}
               onClick={handleImport}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {importing && <Loader2 className="size-4 animate-spin" />}
-              {parsedRows.length > 0 ? t('importBtn', { count: parsedRows.length }) : t('importBtn', { count: 0 })}
+              {t('importBtn', { count: plan?.toInsert.length ?? 0 })}
             </Button>
           )}
         </DialogFooter>
