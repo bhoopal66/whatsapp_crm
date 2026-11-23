@@ -1416,6 +1416,31 @@ describe('POST — deal-room group traffic', () => {
     ).toEqual([`msg:${NUMBER}:wamid.G3`]);
   });
 
+  it('answers 503 and gives the group claims back when group traffic fails (TC3)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.handleGroupWebhook.mockRejectedValueOnce(new Error('blip'));
+    const payload = messagesBody({
+      messages: [
+        messagePayload().entry[0].changes[0].value.messages[0],
+        groupMessage('wamid.G1'),
+      ],
+    });
+    (payload.entry[0].changes as unknown[]).push(lifecycleChange);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    // Before the answer: Meta never redelivers a 200.
+    expect(res.status).toBe(503);
+    // The failed change does not stop the next one.
+    expect(groupCalls()).toHaveLength(2);
+    expect(keysOf(h.releaseAccepted)).toEqual([`msg:${NUMBER}:wamid.G1`]);
+    await runAfterCallbacks();
+
+    // The 1:1 message is stored and processed as ever; the group's claim
+    // is never confirmed, so the redelivery is not a duplicate.
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(keysOf(h.confirmAccepted)).toEqual([`msg:${NUMBER}:wamid.ABC`]);
+  });
+
   it('hands nothing over in a request over the IP limit', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     h.screenWebhook.mockImplementation(screenAs(() => 'ip_limited'));

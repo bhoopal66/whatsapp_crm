@@ -220,7 +220,8 @@ async function verifyTokenMatches(provided: string): Promise<boolean> {
  *
  * Meta retries a non-200 with backoff and disables a subscription that
  * fails persistently, so this acknowledges fast and does the work in
- * `after()`, exactly as the Whapi route does. The same rule applies and
+ * `after()`, exactly as the Whapi route does. (Deal-room traffic is the
+ * exception, see `phoneNumberHalf`: it has no queue to be stored in.) The same rule applies and
  * for the same reason (issue #301): work must be *awaited inside*
  * `after()`, never detached, or the runtime can freeze the function the
  * moment the response is sent and drop the callback mid-flight.
@@ -310,8 +311,10 @@ export async function POST(request: Request) {
   // finished with it: 503 so Meta redelivers once it has (then they are
   // duplicates) or its lease has lapsed (then they are processed). No
   // phone work was queued; a template half that verified was, and
-  // replaying it is idempotent, as with the 401 below.
-  if (phone?.inFlight) {
+  // replaying it is idempotent, as with the 401 below. Deal-room traffic
+  // that could not be recorded asks for another delivery the same way: a
+  // 200 is never redelivered, and group events are not in the inbound queue.
+  if (phone?.inFlight || phone?.groupsFailed) {
     return NextResponse.json({ error: 'Retry later' }, { status: 503 });
   }
 
@@ -343,6 +346,11 @@ interface HalfResult {
   /** Edge screening found an event claimed by a delivery in flight. */
   inFlight: boolean;
   /**
+   * Deal-room traffic could not be recorded, so Meta must deliver it
+   * again. `work` still runs: the 1:1 events are stored by then.
+   */
+  groupsFailed: boolean;
+  /**
    * The watch-only health record (188) for the verified WABAs. Never
    * part of `work`, never sets a flag above: it cannot change the answer.
    */
@@ -354,6 +362,7 @@ const NOTHING_TO_DO: HalfResult = {
   unauthorized: false,
   lookupFailed: false,
   inFlight: false,
+  groupsFailed: false,
 };
 
 const LOOKUP_FAILED: HalfResult = {
@@ -583,8 +592,42 @@ async function phoneNumberHalf(
     return { ...NOTHING_TO_DO, inFlight: true };
   }
 
+  // Deal rooms, before the answer and not in `work`: nothing stores group
+  // traffic first, so this is the only moment a failure can still make
+  // Meta deliver it again (TC3). Apart from the 1:1 work, so neither can
+  // cost the other its events. A request over the IP limit processes
+  // nothing, here as for costing.
+  let groupsFailed = false;
+  const groupsDone = new Set<(typeof screened)[number]>();
+  for (const n of screened) {
+    if (n.groups.length === 0 || ipLimited > 0) continue;
+    let ok = true;
+    for (const value of n.groups) {
+      try {
+        await handleGroupWebhook({
+          db: supabaseAdmin(),
+          accountId: n.config.account_id,
+          phoneNumberId: n.config.phone_number_id,
+          accessToken: decrypt(n.config.access_token),
+          value,
+        });
+      } catch (error) {
+        ok = false;
+        console.error('[meta-webhook] group processing failed:', error);
+      }
+    }
+    if (ok) {
+      groupsDone.add(n);
+    } else {
+      groupsFailed = true;
+      // The redelivery must not find this delivery's claims in the way.
+      await releaseAccepted(edgeCtx(), n.groupDecisions);
+    }
+  }
+
   return {
     ...NOTHING_TO_DO,
+    groupsFailed,
     work: async () => {
       if (duplicates + ipLimited > 0) {
         console.warn(
@@ -592,7 +635,7 @@ async function phoneNumberHalf(
         );
       }
       const later: Promise<unknown>[] = [];
-      // Every number's 1:1 events before any deal room or costing.
+      // Every number's 1:1 events before any costing.
       if (record.status === 'recorded') {
         await runDeliveredEvents(edgeCtx(), record.events, later);
       }
@@ -609,26 +652,8 @@ async function phoneNumberHalf(
             console.error('[meta-webhook] processing failed:', error);
           }
         }
-        // Deal rooms, apart from the 1:1 work so neither can cost the
-        // other its events. A request over the IP limit processes
-        // nothing, here as for costing.
-        if (n.groups.length > 0 && ipLimited === 0) {
-          try {
-            const accessToken = decrypt(n.config.access_token);
-            for (const value of n.groups) {
-              await handleGroupWebhook({
-                db: supabaseAdmin(),
-                accountId: n.config.account_id,
-                phoneNumberId: n.config.phone_number_id,
-                accessToken,
-                value,
-              });
-            }
-            persisted.push(...n.groupDecisions);
-          } catch (error) {
-            console.error('[meta-webhook] group processing failed:', error);
-          }
-        }
+        // Already processed, before the answer.
+        if (groupsDone.has(n)) persisted.push(...n.groupDecisions);
         // Costing runs LAST and fails open (migration 051): a rate-card
         // problem must never cost an inbound message its fan-out, and a
         // thrown error here would only be logged anyway — the order is

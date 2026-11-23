@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Deal rooms: nothing lost, nobody left unaware
+
+- A message, STOP, join or receipt that could not be saved because the
+  database was briefly unavailable is asked for again from Meta. It was
+  lost for good. What had been saved the first time is not saved twice, and
+  nobody is told twice.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.
