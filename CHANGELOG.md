@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### HR automated messages are safe to switch on
+
+**Migration required:** `275_hr_automsg_still_true.sql`
+- A queued HR message is cancelled once its reason is gone: an interview
+  invite when the candidate left that stage, a "we haven't heard from
+  you" nudge when the candidate replied or somebody wrote again. Before,
+  one held for quiet hours went out the next morning all the same.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

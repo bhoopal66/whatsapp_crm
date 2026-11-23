@@ -121,3 +121,10 @@ contract.
   Assignee ids are auth user ids; titles carry no names or bodies.
 - **263.** `hr_automsg_due` lets channels take turns under its limit (203's
   order within a channel).
+- **275.** A queued row is re-checked for its reason
+  (`hr_automsg_stale_reason` ↔ `STALE_REASONS`): a stage row while the
+  chat is in that stage, a nudge while the silence in its dedupe key
+  lasts. Otherwise the engine or the claim cancels it, reason in
+  `last_error` (never a hold: it would go out when the chat moves back).
+  Restates 215's row_state, claim and mark: apply in order, once.
+  `verify-hr-automsg-still-true.sql`.

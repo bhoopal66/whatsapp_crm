@@ -17,9 +17,15 @@ import {
   type Channel,
   type HoldReason,
   type OutboxRow,
+  type StaleReason,
 } from './types';
 
-export type MemoryContext = Omit<RowState, 'row' | 'sentToday' | 'channel'> & {
+export type MemoryContext = Omit<
+  RowState,
+  'row' | 'sentToday' | 'channel' | 'stale'
+> & {
+  /** Absent = still true, as the SQL state of a database without 275. */
+  stale?: StaleReason | null;
   /** Absent = 'whatsapp', as the SQL state without a channel. */
   channel?: Channel;
 };
@@ -77,6 +83,7 @@ export class MemoryAutoMsgStore implements AutoMsgStorePort {
       row: { ...r },
       sentToday: this.sentToday(r, this.clock.now()),
       channel: this.ctx.channel ?? 'whatsapp',
+      stale: this.ctx.stale ?? null,
     };
   }
 
@@ -87,15 +94,20 @@ export class MemoryAutoMsgStore implements AutoMsgStorePort {
     r.holdReason = reason;
   }
 
-  async cancel(id: string): Promise<void> {
+  async cancel(id: string, reason?: StaleReason): Promise<void> {
     const r = this.get(id);
     if (!this.undecided(r)) this.refuse();
     r.status = 'cancelled';
+    if (reason) this.errors.set(id, reason);
   }
 
   async claim(id: string, now: Date): Promise<ClaimOutcome> {
     const r = this.get(id);
     if (!this.undecided(r) || r.attempts >= MAX_ATTEMPTS) return 'lost';
+    if (this.ctx.stale) {
+      await this.cancel(id, this.ctx.stale);
+      return 'cancelled';
+    }
     if (this.sentToday(r, now) >= this.ctx.settings.dailyCap) {
       r.status = 'held';
       r.holdReason = 'daily_cap';

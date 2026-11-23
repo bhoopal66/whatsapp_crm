@@ -1399,3 +1399,9 @@ jobs:
       # since the caller read it is not classified.
       - name: Verify case file fixes
         run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
+
+      # Migration 275: a queued HR message is cancelled, with its reason,
+      # once its stage or its silence is over; a chat that moves back
+      # releases nothing.
+      - name: Verify HR automated messages still true
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg-still-true.sql

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { AutoMsgRpcError, PgAutoMsgStore } from './store';
+import { AutoMsgRpcError, PgAutoMsgStore, toRowState } from './store';
 import { DEFAULT_SETTINGS } from './types';
 
 type Result = { data: unknown; error: unknown };
@@ -86,6 +86,7 @@ describe('PgAutoMsgStore.state', () => {
         sentAt: null,
       },
       closed: false,
+      stale: null,
       inbox: 'recruiter',
       personal: false,
       optedOut: false,
@@ -256,5 +257,26 @@ describe('PgAutoMsgStore writes', () => {
       code: 'P0001',
       message: 'already decided',
     });
+  });
+});
+
+describe('migration 275', () => {
+  it('reads `stale`, and an absent or unknown one as still true', () => {
+    expect(toRowState({ row: {}, stale: 'no_longer_waiting' }).stale).toBe(
+      'no_longer_waiting'
+    );
+    expect(toRowState({ row: {} }).stale).toBeNull();
+    expect(toRowState({ row: {}, stale: 'other' }).stale).toBeNull();
+  });
+  it('passes a cancel reason on, and reads a cancelled claim', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: 'cancelled', error: null });
+    const store = new PgAutoMsgStore({ rpc } as never);
+    await store.cancel('r1', 'stage_changed');
+    expect(rpc).toHaveBeenCalledWith('hr_automsg_mark', {
+      p_id: 'r1',
+      p_status: 'cancelled',
+      p_error: 'stage_changed',
+    });
+    expect(await store.claim('r1', new Date(0))).toBe('cancelled');
   });
 });

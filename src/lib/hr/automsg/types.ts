@@ -64,6 +64,15 @@ export const HOLD_REASONS = [
 export type GuardHoldReason = (typeof HOLD_REASONS)[number];
 
 /**
+ * Why a queued message is no longer true (migration 275,
+ * `hr_automsg_stale_reason`): the chat left the stage its invite was for,
+ * or the silence its nudge was about ended. Such a row is cancelled with
+ * this reason, never held: a hold would send it when the chat moves back.
+ */
+export const STALE_REASONS = ['stage_changed', 'no_longer_waiting'] as const;
+export type StaleReason = (typeof STALE_REASONS)[number];
+
+/**
  * Holds the engine sets outside the guards (migration 215): an RCS row
  * while no RCS provider is configured. Never moved to another channel.
  */
@@ -172,6 +181,8 @@ export interface OutboxRow {
 /** What the guards need to know about the contact and conversation at decision time. */
 export interface ContactState {
   closed: boolean;
+  /** The reason the row was queued for is gone; null = it still holds. */
+  stale: StaleReason | null;
   /** Opted out, or a withdrawn auto-message consent. */
   optedOut: boolean;
   /** A granted, not withdrawn, consent record exists. */
