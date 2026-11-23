@@ -6,6 +6,7 @@ import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuth } from '@/hooks/use-auth';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +32,7 @@ import {
   type ResponseSettings,
   type Weekday,
 } from '@/lib/response-times/hours';
+import { readSettings } from '@/lib/settings/read-settings';
 import { SettingsPanelHead } from './settings-panel-head';
 
 function timeZones(current: string): string[] {
@@ -64,38 +66,54 @@ export function ResponseTimesPanel() {
   const [available, setAvailable] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // A failed load keeps the form empty: the defaults must never be
+  // savable over settings that were not read.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!accountId) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/response-times/settings');
-        const body = await res.json().catch(() => ({}));
+        const body = await readSettings('/api/response-times/settings');
         if (cancelled) return;
-        if (!res.ok) throw new Error(String(body?.error ?? res.status));
-        const s = parseResponseSettings(body?.settings);
+        const s = parseResponseSettings(body.settings);
         setForm(s);
         setTargetText(String(s.targetMinutes));
-        setAvailable(body?.available !== false);
+        setAvailable(body.available !== false);
         setDirty(false);
+        setFailed(false);
       } catch {
         if (cancelled) return;
-        toast.error(t('loadFailed'));
-        setForm(DEFAULT_RESPONSE_SETTINGS);
-        setTargetText(String(DEFAULT_RESPONSE_SETTINGS.targetMinutes));
+        setForm(null);
+        setFailed(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [accountId, t]);
+  }, [accountId, attempt]);
 
   const zones = useMemo(
     () => timeZones(form?.timezone ?? DEFAULT_RESPONSE_SETTINGS.timezone),
     [form?.timezone]
   );
 
+  if (failed) {
+    return (
+      <div>
+        <SettingsPanelHead title={t('title')} description={t('description')} />
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      </div>
+    );
+  }
   if (!form) {
     return (
       <div>
