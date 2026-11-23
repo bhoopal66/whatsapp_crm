@@ -52,21 +52,81 @@ export function serviceWindowState(
   return { kind: 'closed', agoMs: Math.max(0, now - at) };
 }
 
+/** What the rule needs of a customer message. */
+export interface LastCustomerMessage {
+  created_at: string;
+  /** The number that carried it; older rows have none. */
+  channel_id?: string | null;
+  provider?: string | null;
+}
+
+/**
+ * Is it certain that a reply here goes out on the Cloud API? Only then
+ * may the window block anything. The server (`resolveSendChannel`,
+ * lib/whatsapp/channels.ts) obeys the pin, then follows the newest
+ * customer message's own number, then its provider, then the chat's
+ * number, then the route and the sender's allocation. The browser does
+ * not load the last two, and `predictSendingNumber` skips the middle
+ * ones, so a chat moved to Meta while the customer last wrote on Whapi
+ * was blocked though the server would have sent it. Anything short of
+ * certain is false.
+ *
+ * `lastCustomer`: undefined when not known yet, null when the customer
+ * never wrote.
+ */
+export function sendsOverMeta(
+  numbers: readonly { id: string; provider: string }[] | null | undefined,
+  conversation: {
+    personal_owner_id?: string | null;
+    channel_id?: string | null;
+    send_channel_id?: string | null;
+  },
+  lastCustomer: LastCustomerMessage | null | undefined
+): boolean {
+  if (!numbers || conversation.personal_owner_id) return false;
+  const isMeta = (id: string | null | undefined) =>
+    !!id && numbers.find((n) => n.id === id)?.provider === 'meta';
+  if (conversation.send_channel_id) return isMeta(conversation.send_channel_id);
+  if (lastCustomer === undefined) return false;
+  if (lastCustomer === null) return isMeta(conversation.channel_id);
+  if (lastCustomer.channel_id) return isMeta(lastCustomer.channel_id);
+  // With no Meta number left the server falls through to another rule.
+  return (
+    lastCustomer.provider === 'meta' &&
+    numbers.some((n) => n.provider === 'meta')
+  );
+}
+
+/**
+ * Whether the last customer message is worth asking for: without a Meta
+ * number, in a personal chat, or pinned elsewhere, the answer is known.
+ */
+export function mayNeedServiceWindow(
+  numbers: readonly { id: string; provider: string }[] | null | undefined,
+  conversation: {
+    personal_owner_id?: string | null;
+    send_channel_id?: string | null;
+  }
+): boolean {
+  if (!numbers || conversation.personal_owner_id) return false;
+  const pin = conversation.send_channel_id;
+  if (pin) return numbers.find((n) => n.id === pin)?.provider === 'meta';
+  return numbers.some((n) => n.provider === 'meta');
+}
+
 /**
  * The newest customer message of `conversationId` among `messages`, or
  * null. Rows of another chat (a page still showing while the next one
  * loads) are ignored.
  */
-export function latestCustomerMessageAt(
-  messages: readonly {
+export function latestCustomerMessage<
+  T extends LastCustomerMessage & {
     conversation_id: string;
     sender_type: string;
-    created_at: string;
-  }[],
-  conversationId: string | null | undefined
-): string | null {
+  },
+>(messages: readonly T[], conversationId: string | null | undefined): T | null {
   if (!conversationId) return null;
-  let best: string | null = null;
+  let best: T | null = null;
   let bestAt = -Infinity;
   for (const m of messages) {
     if (m.conversation_id !== conversationId) continue;
@@ -74,9 +134,20 @@ export function latestCustomerMessageAt(
     const at = Date.parse(m.created_at);
     if (Number.isNaN(at) || at <= bestAt) continue;
     bestAt = at;
-    best = m.created_at;
+    best = m;
   }
   return best;
+}
+
+/** When that message came in, or null. */
+export function latestCustomerMessageAt(
+  messages: readonly (LastCustomerMessage & {
+    conversation_id: string;
+    sender_type: string;
+  })[],
+  conversationId: string | null | undefined
+): string | null {
+  return latestCustomerMessage(messages, conversationId)?.created_at ?? null;
 }
 
 /** "26 h ago" up to 48 hours, then "3 days ago". */

@@ -26,7 +26,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import {
   DropdownMenu,
@@ -146,6 +146,43 @@ export function ThreadHeader({
   const [assignMenuOpen, setAssignMenuOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsId = useId();
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const actionsToggleRef = useRef<HTMLButtonElement>(null);
+  const closeActions = () => setActionsOpen(false);
+  // The "Chat actions" strip is of the chat it was opened in.
+  const [actionsFor, setActionsFor] = useState(conversation.id);
+  if (actionsFor !== conversation.id) {
+    setActionsFor(conversation.id);
+    setActionsOpen(false);
+  }
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const at = e.target as Element | null;
+      if (
+        !at ||
+        actionsRef.current?.contains(at) ||
+        actionsToggleRef.current?.contains(at) ||
+        // A menu or dialog opened from the strip is drawn elsewhere in
+        // the page: hiding its anchor mid-press would move it.
+        at.closest('[role="menu"],[role="listbox"],[role="dialog"]')
+      )
+        return;
+      setActionsOpen(false);
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (actionsRef.current?.contains(document.activeElement))
+        actionsToggleRef.current?.focus();
+      setActionsOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [actionsOpen]);
   const memberLoads = useMemberLoads(assignMenuOpen);
   const { accountRole } = useAuth();
   // The sub-tag's name, which may name the bank to share with.
@@ -469,6 +506,7 @@ export function ThreadHeader({
             room. The buttons stay mounted (their dialogs live inside
             them); the strip is only shown or hidden. */}
           <button
+            ref={actionsToggleRef}
             type="button"
             onClick={() => setActionsOpen((v) => !v)}
             aria-expanded={actionsOpen}
@@ -484,6 +522,7 @@ export function ThreadHeader({
             <MoreVertical className="h-5 w-5" />
           </button>
           <div
+            ref={actionsRef}
             id={actionsId}
             role="group"
             aria-label={t('chatActions')}
@@ -500,28 +539,32 @@ export function ThreadHeader({
                 conversationId={conversation.id}
               />
             )}
-            <ShareToChatButton conversationId={conversation.id} />
-            {/* A follow-up task about this customer and chat. Not for a
+            {/* These open a dialog, so choosing one closes the strip. Only
+              hidden, never unmounted: the dialog lives in its button. */}
+            <div className="contents" onClick={closeActions}>
+              <ShareToChatButton conversationId={conversation.id} />
+              {/* A follow-up task about this customer and chat. Not for a
               share-only coordinator: the task's links must be visible to
               the writer (can_link_task), and a share does not extend
               can_view_contact / can_view_conversation. */}
-            {!shareOnly && (
-              <ChatReminderButton
-                key={`remind-${conversation.id}`}
-                conversationId={conversation.id}
-                contactId={contact.id}
-                customerName={displayName}
-                assignableProfiles={assignableProfiles}
-                currentUserId={currentUserId}
-              />
-            )}
-            {!shareOnly && !personalOwnerId && (
-              <CoordinatorShareButton
-                key={`coord-${conversation.id}`}
-                conversationId={conversation.id}
-                subTagName={subTagName}
-              />
-            )}
+              {!shareOnly && (
+                <ChatReminderButton
+                  key={`remind-${conversation.id}`}
+                  conversationId={conversation.id}
+                  contactId={contact.id}
+                  customerName={displayName}
+                  assignableProfiles={assignableProfiles}
+                  currentUserId={currentUserId}
+                />
+              )}
+              {!shareOnly && !personalOwnerId && (
+                <CoordinatorShareButton
+                  key={`coord-${conversation.id}`}
+                  conversationId={conversation.id}
+                  subTagName={subTagName}
+                />
+              )}
+            </div>
 
             {onRefresh && (
               <span

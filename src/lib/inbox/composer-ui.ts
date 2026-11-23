@@ -36,3 +36,14 @@ export const SEND_BUTTON =
  *  (vendored from opus-recorder into /public). Recording client-side in a
  *  Meta-accepted format means no server ffmpeg / transcode step. */
 export const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
+
+/** How long a mic press is ignored after a send. */
+export const MIC_AFTER_SEND_MS = 400;
+
+/**
+ * The mic takes Send's place once the box empties, so the second tap of
+ * a double tap on Send lands on it: that press starts no recording.
+ */
+export function micTooSoon(lastSentAt: number, now: number): boolean {
+  return now - lastSentAt < MIC_AFTER_SEND_MS;
+}
