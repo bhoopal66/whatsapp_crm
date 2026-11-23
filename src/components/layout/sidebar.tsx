@@ -11,6 +11,10 @@ import { LiveDot } from '@/components/meetings/meeting-status-badge';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
 import { isInCall } from '@/lib/meetings/session/session';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  sumGroupBadge,
+  teamInboxBadgeCount,
+} from '@/components/layout/nav-badges';
 import { useSharedUnreadChats } from '@/components/layout/unread-chats-provider';
 import { useCasesOverdue } from '@/hooks/use-cases-overdue';
 import { useGroupsUnread } from '@/hooks/use-groups-unread';
@@ -48,6 +52,7 @@ import {
   writeCollapsed,
 } from '@/lib/layout/nav-collapse';
 import {
+  canUseTeamView,
   isNavRowActive,
   NAV_PREFETCH,
   visibleBottomNavItems,
@@ -335,6 +340,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     }
   }
 
+  // The team's unread, for people who have the Mine / Team switch.
+  const teamInboxUnread = teamInboxBadgeCount(
+    canUseTeamView('inbox', profileLoading ? null : accountRole, {
+      salesRestricted,
+    }),
+    unreadChats.team
+  );
+
   function renderNavItem(item: NavItem) {
     const isActive = isNavRowActive(item, pathname);
 
@@ -380,6 +393,17 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               )}
             >
               {badge.count > 99 ? '99+' : badge.count}
+            </span>
+          )}
+          {item.href === '/inbox' && teamInboxUnread > 0 && (
+            // Outlined, so it reads as a second figure after the
+            // personal one; no new query (the shared mirror).
+            <span
+              aria-label={t('teamInboxUnread', { count: teamInboxUnread })}
+              title={t('teamInboxUnread', { count: teamInboxUnread })}
+              className="border-primary text-primary flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-xs font-semibold"
+            >
+              {teamInboxUnread > 99 ? '99+' : teamInboxUnread}
             </span>
           )}
         </Link>
@@ -472,6 +496,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 const open =
                   !group.labelKey || isGroupOpen(group.id, collapsed, activeId);
                 const locked = group.id === activeId;
+                // Folded rows hide their badges: the heading sums them
+                // (personal figures only, not the team badge).
+                const foldedTotal = open
+                  ? 0
+                  : sumGroupBadge(
+                      group.items.map((i) => i.href),
+                      (href) => navBadgeFor(href)?.count
+                    );
                 return (
                   <div key={group.id}>
                     {group.labelKey ? (
@@ -485,7 +517,17 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                           title={locked ? t('groupHasCurrentPage') : undefined}
                           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-md px-3 text-start text-xs font-semibold tracking-[0.09em] uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-default disabled:opacity-100"
                         >
-                          <span>{t(group.labelKey)}</span>
+                          <span className="flex-1">{t(group.labelKey)}</span>
+                          {foldedTotal > 0 && (
+                            <span
+                              aria-label={t('groupBadgeTotal', {
+                                count: foldedTotal,
+                              })}
+                              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs font-semibold tracking-normal"
+                            >
+                              {foldedTotal > 99 ? '99+' : foldedTotal}
+                            </span>
+                          )}
                           <ChevronDown
                             aria-hidden="true"
                             className={cn(

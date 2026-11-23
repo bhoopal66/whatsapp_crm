@@ -69,20 +69,21 @@ export function parseWaitingChats(raw: unknown): WaitingChat[] {
 }
 
 /**
- * The waiting customers the caller can see; [] on any error (a database
- * without migration 238 included), so the worklist still renders.
+ * The waiting customers the caller can see; null on any error (a database
+ * without migration 238 included), so the page keeps its last good rows
+ * rather than claiming nobody waits. [] is a good, empty read.
  */
 export async function loadWaitingChats(
   supabase: SupabaseClient,
   limit: number = WAITING_CHATS_LIMIT
-): Promise<WaitingChat[]> {
+): Promise<WaitingChat[] | null> {
   try {
     const { data, error } = await supabase.rpc('worklist_waiting_chats', {
       p_limit: limit,
     });
-    return error ? [] : parseWaitingChats(data);
+    return error ? null : parseWaitingChats(data);
   } catch {
-    return [];
+    return null;
   }
 }
 

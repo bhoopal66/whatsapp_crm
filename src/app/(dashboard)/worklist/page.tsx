@@ -49,10 +49,12 @@ export default function WorklistPage() {
     now: number;
   } | null>(null);
   // Customers waiting for a reply (migration 238), tagged like `loaded`.
+  // `rows` null: never had a good read; a failed refresh keeps the last.
   const [waiting, setWaiting] = useState<{
     accountId: string;
-    rows: WaitingChat[];
+    rows: WaitingChat[] | null;
     now: number;
+    failed: boolean;
   } | null>(null);
   const [filter, setFilter] = useState({ accountId, userId: '' });
   const assignedTo = filter.accountId === accountId ? filter.userId : '';
@@ -80,20 +82,41 @@ export default function WorklistPage() {
     const read = () => {
       const now = Date.now();
       void loadWaitingChats(createClient()).then((rows) => {
-        if (live) setWaiting({ accountId, rows, now });
+        if (!live) return;
+        setWaiting((prev) => {
+          const keep = prev && prev.accountId === accountId ? prev : null;
+          return rows
+            ? { accountId, rows, now, failed: false }
+            : // A blip keeps the last good rows on screen.
+              {
+                accountId,
+                rows: keep?.rows ?? null,
+                now: keep?.now ?? now,
+                failed: true,
+              };
+        });
       });
     };
     read();
-    const timer = setInterval(read, WAITING_REFRESH_MS);
+    // Hidden tabs do not poll; coming back reads once (as /live does).
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') read();
+    }, WAITING_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') read();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       live = false;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [accountId]);
 
   const waitingRows = useMemo(
     () =>
       waiting === null ||
+      waiting.rows === null ||
       waiting.accountId !== accountId ||
       !user ||
       mode === null ||
@@ -147,9 +170,14 @@ export default function WorklistPage() {
           <WaitingCustomers
             rows={waitingRows}
             nameOf={nameOf}
+            failed={
+              waiting?.accountId === accountId &&
+              waiting.failed &&
+              waiting.rows === null
+            }
             now={waiting?.now ?? 0}
             capped={
-              waiting && waiting.rows.length >= WAITING_CHATS_LIMIT
+              waiting?.rows && waiting.rows.length >= WAITING_CHATS_LIMIT
                 ? WAITING_CHATS_LIMIT
                 : null
             }

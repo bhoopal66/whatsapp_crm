@@ -73,6 +73,8 @@
     "settings": "설정",
     "beta": "베타",
     "unreadConversations": "읽지 않은 대화 {count}건",
+    "teamInboxUnread": "팀 받은편지함: 읽지 않음 {count}건",
+    "groupBadgeTotal": "이 그룹에 확인할 항목 {count}건",
     "roleOwner": "소유자",
     "roleAdmin": "관리자",
     "roleAgent": "상담원",

@@ -15,6 +15,7 @@ import { useTranslations } from 'next-intl';
 import { Hourglass, MessageCircleCheck, UserRoundX } from 'lucide-react';
 
 import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
@@ -33,6 +34,8 @@ export interface WaitingCustomersProps {
   now: number;
   /** The load hit the RPC's cap, so older waits may be missing. */
   capped?: number | null;
+  /** The read failed and there has never been a good one. */
+  failed?: boolean;
 }
 
 export function WaitingCustomers({
@@ -40,6 +43,7 @@ export function WaitingCustomers({
   nameOf,
   now,
   capped = null,
+  failed = false,
 }: WaitingCustomersProps) {
   const t = useTranslations('WorklistWaiting');
 
@@ -61,7 +65,9 @@ export function WaitingCustomers({
         <p className="text-muted-foreground w-full text-xs">{t('help')}</p>
       </div>
 
-      {rows === null ? (
+      {rows === null && failed ? (
+        <ErrorState className="min-h-32 p-4" />
+      ) : rows === null ? (
         <p
           role="status"
           className="text-muted-foreground p-6 text-center text-sm"
