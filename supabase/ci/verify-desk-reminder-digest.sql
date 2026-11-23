@@ -219,6 +219,38 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.dg_ok(pg_temp.dg_as('authenticated',
     'SELECT count(*)::text FROM desk_digest_claim()') LIKE 'ERROR 42501', 'authenticated called desk_digest_claim');
 
+  -- 263: a STOP counts while a digest is being sent or after a feedback
+  -- request, and cancels the waiting ones; the template's language.
+  DECLARE t_ct uuid; t_case uuid; t_cv uuid; t_hit boolean; t_ref boolean := false; t_j263 text;
+  BEGIN
+    SELECT k.id INTO t_case FROM cases k WHERE k.account_id = a_acct LIMIT 1;
+    INSERT INTO contacts (account_id, user_id, phone, name)
+      VALUES (a_acct, u_owner, '971502630004', 'T263') RETURNING id INTO t_ct;
+    DELETE FROM case_csat_requests WHERE case_id = t_case;
+    INSERT INTO case_csat_requests (account_id, case_id, trigger, contact_id, stage, status) VALUES
+      (a_acct, t_case, 'submitted', t_ct, 'Submitted', 'sending'),
+      (a_acct, t_case, 'approved', t_ct, 'Approved', 'held');
+    t_hit := desk_digest_stop(a_acct, t_ct);
+  n := n + 1;
+  IF (t_hit AND (SELECT x.opted_out_at IS NOT NULL FROM contacts x WHERE x.id = t_ct) AND (SELECT q.status_reason = 'opted_out' AND q.status = 'cancelled' FROM case_csat_requests q WHERE q.case_id = t_case AND q.trigger = 'approved')) IS NOT TRUE THEN failed := array_append(failed, '263: a STOP after a feedback request was not honoured'::text); END IF;
+    UPDATE desk_digest_outbox o SET status = 'sending', status_reason = NULL, created_at = now()
+     WHERE o.id = (SELECT x.id FROM desk_digest_outbox x WHERE x.account_id = a_acct LIMIT 1)
+     RETURNING o.contact_id INTO t_ct;
+    DELETE FROM desk_digest_outbox o WHERE o.contact_id = t_ct AND o.status <> 'sending';
+    UPDATE contacts SET opted_out_at = NULL WHERE id = t_ct;
+    t_hit := desk_digest_stop(a_acct, t_ct);
+  n := n + 1;
+  IF (t_ct IS NOT NULL AND t_hit) IS NOT TRUE THEN failed := array_append(failed, '263: a STOP during the send was not honoured'::text); END IF;
+    BEGIN
+      PERFORM desk_digest_settings_set(u_owner, a_acct, true, 'desk_digest', 'ar', 10, 2);
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS t_j263 = PG_EXCEPTION_HINT;
+      t_ref := t_j263 = 'TEMPLATE_INVALID';
+    END;
+  n := n + 1;
+  IF (t_ref) IS NOT TRUE THEN failed := array_append(failed, '263: a template approved only in English was accepted in Arabic'::text); END IF;
+  END;
+
   RAISE EXCEPTION USING ERRCODE = 'ZT234', MESSAGE = 'verify-desk-reminder-digest rollback';
   EXCEPTION WHEN SQLSTATE 'ZT234' THEN
     NULL;

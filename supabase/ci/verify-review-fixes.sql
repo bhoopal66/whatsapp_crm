@@ -161,6 +161,12 @@ BEGIN
     jsonb_array_length(j -> 'broadcast_drafts') = 1
       AND j -> 'broadcast_drafts' -> 0 -> 'csv_row' ->> 'name' = 'Draft Person',
     '1: the export lacks the draft''s CSV row (' || j::text || ')');
+  -- 263: the same phone written the local way.
+  UPDATE broadcast_drafts SET state = jsonb_set(state, '{audience,csvContacts,0,phone}', '"0500256001"')
+   WHERE broadcast_id = b_id;
+  j := privacy_broadcast_drafts_export(a_acct, ct);
+  n := n + 1;
+  IF (j -> 'broadcast_drafts' -> 0 -> 'csv_row' ->> 'phone' = '0500256001') IS NOT TRUE THEN failed := array_append(failed, '263: a draft row with a local phone was not matched'::text); END IF;
   j := privacy_broadcast_drafts_erase(a_acct, ct);
   n := n + 1; failed := failed || pg_temp.rf_ok((j -> 'counts' ->> 'broadcast_drafts')::int = 1,
     '1: the erase did not report one draft (' || j::text || ')');
@@ -352,6 +358,16 @@ BEGIN
     (SELECT count(*) FROM conversations cv JOIN contacts c ON c.id = cv.contact_id
       WHERE cv.account_id = a_acct AND c.name LIKE 'RF wait %' AND cv.customer_waiting_since IS NOT NULL) = 501,
     '9: fixture: the 501 chats are not waiting');
+  -- 263: enabled_at NULL counts as 'since now': the backlog rings nobody.
+  DECLARE t_before int; t_after int;
+  BEGIN
+    SELECT count(*) INTO t_before FROM response_escalations e JOIN conversations v ON v.id = e.conversation_id WHERE v.account_id = a_acct;
+    PERFORM response_escalation_sweep();
+    SELECT count(*) INTO t_after FROM response_escalations e JOIN conversations v ON v.id = e.conversation_id WHERE v.account_id = a_acct;
+  n := n + 1;
+  IF (t_before = t_after) IS NOT TRUE THEN failed := array_append(failed, '263: waits from before the switch went on rang'::text); END IF;
+  END;
+  UPDATE response_settings SET enabled_at = now() - interval '8 days' WHERE account_id = a_acct;
   PERFORM public.response_escalation_sweep();
   n := n + 1; failed := failed || pg_temp.rf_ok(EXISTS (
     SELECT 1 FROM notifications x JOIN conversations cv ON cv.id = x.conversation_id

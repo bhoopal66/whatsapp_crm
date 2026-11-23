@@ -6439,7 +6439,7 @@
       "range": "A limit is a whole number from {min} to {max}."
     },
     "picker": {
-      "everyone": "Nobody ticked: everyone takes turns (all live agents and team leaders).",
+      "everyone": "Nobody ticked: all live agents and team leaders take turns, except people in a department with its own inbox or restricted access (HR, for example).",
       "picked": "{count, plural, one {# person takes turns} other {# people take turns}}",
       "pickEveryone": "Use everyone",
       "nobody": "There are no agents or team leaders in this workspace yet."

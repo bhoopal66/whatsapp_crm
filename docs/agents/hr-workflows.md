@@ -115,3 +115,5 @@ contract.
   chats (Hire fast's own scoring, imported), cases needing action and
   pending drafts in the browser from existing reads; no API or migration.
   Assignee ids are auth user ids; titles carry no names or bodies.
+- **263.** `hr_automsg_due` lets channels take turns under its limit (203's
+  order within a channel).

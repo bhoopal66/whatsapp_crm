@@ -202,6 +202,20 @@ BEGIN
     failed := array_append(failed, 'anon may execute a recycling function'::text);
   END IF;
 
+  -- 263: approved since the ending.
+  DECLARE t_u uuid; t_0 int; t_1 int;
+  BEGIN
+    SELECT p.user_id INTO t_u FROM profiles p WHERE p.account_id = a_acct AND p.account_role = 'owner' AND p.is_active LIMIT 1;
+    PERFORM set_config('request.jwt.claims', jsonb_build_object('sub', t_u, 'role', 'authenticated')::text, true);
+    PERFORM set_config('request.jwt.claim.sub', t_u::text, true);
+    SELECT count(*) INTO t_0 FROM recycle_excluded_among(ARRAY[c1], ARRAY[now() - interval '100 days']);
+    INSERT INTO cases (account_id, agent_id, contact_id, stage, outcome, closed_at)
+      VALUES (a_acct, u_agent, c1, 'Closed', 'Approved', now() - interval '50 days');
+    SELECT count(*) INTO t_1 FROM recycle_excluded_among(ARRAY[c1], ARRAY[now() - interval '100 days']);
+  n := n + 1;
+  IF (t_0 = 0 AND t_1 = 1) IS NOT TRUE THEN failed := array_append(failed, '263: a customer approved after the ending was still offered'::text); END IF;
+  END;
+
   RAISE EXCEPTION USING ERRCODE = 'ZT251', MESSAGE = 'verify-recycle rollback';
   EXCEPTION WHEN SQLSTATE 'ZT251' THEN
     NULL;

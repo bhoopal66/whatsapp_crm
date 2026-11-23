@@ -213,6 +213,43 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.ds_check('authenticated called desk_doc_link', 'authenticated',
     format('SELECT x.created::text FROM desk_doc_link(%L, %L, %L, %L) x', u_owner, a_acct, f_r1, k_e), 'ERROR 42501%');
 
+  -- 263: one phone, two companies. The open Maro Trading lead is not the
+  -- case of another company's submission; its own submission takes it.
+  DECLARE t_g uuid[] := '{}'; t_id uuid; t_x record; t_y record; t_z record; t_hint text; t_lead uuid; t_grp text;
+  BEGIN
+    SELECT x.case_id INTO t_lead
+      FROM desk_case_open(a_acct, 'DS-2', NULL, 'ENBD', 'Business account', c_maro, u_agent2, NULL, now()) x;
+    FOREACH t_grp IN ARRAY ARRAY['Other Company LLC', 'MARO  trading'] LOOP
+      INSERT INTO submission_groups (account_id, submission_ref, contact_id, customer_name, wa_mode)
+        VALUES (a_acct, 'T263-' || t_grp, c_maro, t_grp, 'none') RETURNING id INTO t_id;
+      INSERT INTO submission_group_access (account_id, group_id, user_id, label) VALUES (a_acct, t_id, u_agent2, 'agent');
+      t_g := t_g || t_id;
+    END LOOP;
+    SELECT * INTO t_x FROM case_open(t_g[1], 'ENBD', NULL, 'Loan', NULL, NULL);
+  n := n + 1;
+  IF (t_x.created AND t_x.case_id <> t_lead AND (SELECT k.group_id IS NULL AND k.closed_at IS NULL FROM cases k WHERE k.id = t_lead)) IS NOT TRUE THEN failed := array_append(failed, '263: another company''s submission took a desk case'::text); END IF;
+    SELECT * INTO t_y FROM case_open(t_g[2], 'ENBD', NULL, 'Loan', NULL, NULL);
+  n := n + 1;
+  IF (t_y.case_id = t_lead AND NOT t_y.created) IS NOT TRUE THEN failed := array_append(failed, '263: the company''s own submission did not take its desk case'::text); END IF;
+    -- A plain lead (no company) takes any submission, as before.
+    INSERT INTO submission_groups (account_id, submission_ref, contact_id, customer_name, wa_mode)
+      VALUES (a_acct, 'T263-3', c_maro, 'Whoever', 'none') RETURNING id INTO t_id;
+    INSERT INTO cases (account_id, agent_id, contact_id, bank_code, product, stage)
+      VALUES (a_acct, u_agent2, c_maro, 'ENBD', 'Loan', 'Interested') RETURNING id INTO t_lead;
+    SELECT * INTO t_z FROM case_open(t_id, 'ENBD', NULL, 'Loan', NULL, NULL);
+  n := n + 1;
+  IF (t_z.case_id = t_lead AND NOT t_z.created) IS NOT TRUE THEN failed := array_append(failed, '263: a plain lead did not take its submission'::text); END IF;
+    -- Two unknown customers are not the same one.
+    UPDATE customer_documents SET contact_id = NULL WHERE id = d1;
+    UPDATE cases SET contact_id = NULL WHERE id = t_x.case_id;
+    BEGIN
+      INSERT INTO case_document_files (account_id, case_id, customer_document_id) VALUES (a_acct, t_x.case_id, d1);
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS t_hint = PG_EXCEPTION_HINT;
+    END;
+  n := n + 1;
+  IF (t_hint = 'CROSS_CUSTOMER') IS NOT TRUE THEN failed := array_append(failed, '263: a document of an unknown customer joined a case of an unknown customer'::text); END IF;
+  END;
+
   RAISE EXCEPTION USING ERRCODE = 'ZT231', MESSAGE = 'verify-desk-shared-documents rollback';
   EXCEPTION WHEN SQLSTATE 'ZT231' THEN
     NULL;
