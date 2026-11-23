@@ -58,6 +58,18 @@ export interface DealRow {
   outcome: 'won' | 'lost' | null;
 }
 
+/**
+ * A deals read: its rows, or 'failed'. An error is not "no deals".
+ */
+export function dealsFromRead(result: {
+  data: unknown;
+  error: unknown;
+}): DealRowInput[] | 'failed' {
+  return !result.error && Array.isArray(result.data)
+    ? (result.data as DealRowInput[])
+    : 'failed';
+}
+
 /** Open deals first, then the rest, each newest first as read. */
 export function dealRows(
   deals: DealRowInput[],

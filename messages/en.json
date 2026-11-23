@@ -12838,6 +12838,13 @@
     "list": "Items needing action",
     "loading": "Loading worklist...",
     "empty": "Nothing needs action right now.",
+    "partial": "Not shown, because they could not be loaded: {parts}.",
+    "stale": "Could not refresh: {parts}. What you see was loaded earlier.",
+    "parts": {
+      "hr": "HR conversations",
+      "drafts": "agent drafts",
+      "cases": "cases"
+    },
     "unknownPerson": "Unknown person",
     "assignedTo": "Assigned to",
     "anyone": "Anyone",
@@ -12874,6 +12881,7 @@
     "empty": "No customers are waiting for a reply",
     "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
     "teamFailed": "Your team could not be loaded.",
+    "stale": "Could not refresh. What you see was loaded earlier.",
     "emptyOthers": "Nothing else needs action right now.",
     "count": "{count, plural, one {# waiting} other {# waiting}}",
     "unassigned": "Unassigned",

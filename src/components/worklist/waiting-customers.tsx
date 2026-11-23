@@ -25,6 +25,8 @@ import {
   type WaitingChat,
 } from '@/lib/worklist/waiting';
 
+import { LoadNote } from './load-note';
+
 export interface WaitingCustomersProps {
   /** null: still loading. */
   rows: readonly WaitingChat[] | null;
@@ -34,8 +36,11 @@ export interface WaitingCustomersProps {
   now: number;
   /** The load hit the RPC's cap, so older waits may be missing. */
   capped?: number | null;
-  /** The read failed and there has never been a good one. */
+  /** The last read failed: `rows` are old, or null if never read. */
   failed?: boolean;
+  onRetry?: () => void;
+  /** A retry is on its way. */
+  retrying?: boolean;
 }
 
 export function WaitingCustomers({
@@ -44,6 +49,8 @@ export function WaitingCustomers({
   now,
   capped = null,
   failed = false,
+  onRetry,
+  retrying = false,
 }: WaitingCustomersProps) {
   const t = useTranslations('WorklistWaiting');
 
@@ -65,8 +72,11 @@ export function WaitingCustomers({
         <p className="text-muted-foreground w-full text-xs">{t('help')}</p>
       </div>
 
-      {rows === null && failed ? (
-        <ErrorState className="min-h-32 p-4" />
+      {rows !== null && failed && (
+        <LoadNote text={t('stale')} onRetry={onRetry} retrying={retrying} />
+      )}
+      {rows === null && failed && !retrying ? (
+        <ErrorState className="m-4 min-h-32 p-4" onRetry={onRetry} />
       ) : rows === null ? (
         <p
           role="status"

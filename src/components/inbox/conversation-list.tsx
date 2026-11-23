@@ -136,6 +136,7 @@ import {
   type HrListFilters,
   type HrListRow,
 } from '@/lib/hr/list-filters';
+import { startCatchUp } from '@/lib/realtime/catch-up';
 import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import {
   conversationListBody,
@@ -1115,8 +1116,11 @@ export function ConversationList({
         });
       });
     }
-    channel.subscribe();
+    // Rows that moved while the channel was down never arrive: re-read.
+    const live = startCatchUp(() => setReloadNonce((n) => n + 1));
+    channel.subscribe(live.onStatus);
     return () => {
+      live.stop();
       supabase.removeChannel(channel);
       if (hrRefetchTimer.current !== null) {
         clearTimeout(hrRefetchTimer.current);

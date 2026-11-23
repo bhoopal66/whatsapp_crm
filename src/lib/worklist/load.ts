@@ -2,22 +2,24 @@
  * The reads behind "My worklist" (`rank.ts`), all existing ones: the
  * HR reads the hire fast page makes (through the caller's RLS client,
  * so only chats they can already see), the pending agent drafts, and
- * the Cases screen's GET /api/cases. Each source fails on its own: an
- * error, a refusal (403 for a department kept out of the sales areas)
- * or a throw counts as empty, and this never throws.
+ * the Cases screen's GET /api/cases. Each source fails on its own and
+ * is named in `failed`; this never throws. Two answers are an honest
+ * empty rather than a failure: a 403 from the case inbox (a department
+ * kept out of the sales areas) and an HR table that is not there.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { EMPTY_FILTERS, inboxUrl, parseInboxPage } from '@/lib/cases/ui';
 import { HR_TASK_REF_PREFIX } from '@/lib/hr/tasks-view';
 import type { HrInbox } from '@/lib/hr/types';
+import { isMissingTable } from '@/lib/team-activity/db-errors';
 
+import type { WorklistPart, WorklistRead } from './load-state';
 import type {
   WorklistCase,
   WorklistDraft,
   WorklistHrConversation,
   WorklistHrTask,
-  WorklistInputs,
   WorklistRule,
 } from './rank';
 
@@ -45,27 +47,33 @@ function ownerOf(chat: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
+/** The rows; null when the read failed. */
 async function rows(
-  query: PromiseLike<{ data: unknown; error: unknown }>
-): Promise<Row[]> {
+  query: PromiseLike<{ data: unknown; error: { code?: string } | null }>
+): Promise<Row[] | null> {
   try {
     const { data, error } = await query;
-    return !error && Array.isArray(data) ? (data as Row[]) : [];
+    if (error) return isMissingTable(error) ? [] : null;
+    return Array.isArray(data) ? (data as Row[]) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
-async function loadCases(fetchImpl: typeof fetch): Promise<WorklistCase[]> {
+/** The cases; null when the read failed. */
+async function loadCases(
+  fetchImpl: typeof fetch
+): Promise<WorklistCase[] | null> {
   try {
     const res = await fetchImpl(
       inboxUrl(EMPTY_FILTERS, null, WORKLIST_CASE_LIMIT),
       { cache: 'no-store' }
     );
-    if (!res.ok) return [];
+    if (res.status === 403) return [];
+    if (!res.ok) return null;
     return parseInboxPage(await res.json()).rows;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -76,7 +84,7 @@ export async function loadWorklistInputs(
   // `cases: false` skips GET /api/cases, which a department kept out of
   // the sales areas is always refused (migration 192).
   { cases: readCases = true }: { cases?: boolean } = {}
-): Promise<WorklistInputs> {
+): Promise<WorklistRead> {
   const [convs, tasks, rules, drafts, cases] = await Promise.all([
     rows(
       supabase
@@ -112,14 +120,18 @@ export async function loadWorklistInputs(
     ),
     readCases ? loadCases(fetchImpl) : Promise.resolve([]),
   ]);
-  return {
-    hrConversations: convs.map(
+  const failed: WorklistPart[] = [];
+  if (!convs || !tasks || !rules) failed.push('hr');
+  if (!drafts) failed.push('drafts');
+  if (!cases) failed.push('cases');
+  const inputs = {
+    hrConversations: (convs ?? []).map(
       ({ chat, ...r }) =>
         ({ ...r, ownerId: ownerOf(chat) }) as unknown as WorklistHrConversation
     ),
-    hrTasks: tasks as unknown as WorklistHrTask[],
-    hrRules: rules as unknown as WorklistRule[],
-    drafts: drafts.map((d): WorklistDraft => {
+    hrTasks: (tasks ?? []) as unknown as WorklistHrTask[],
+    hrRules: (rules ?? []) as unknown as WorklistRule[],
+    drafts: (drafts ?? []).map((d): WorklistDraft => {
       const hr = one(d.hr);
       return {
         id: String(d.id),
@@ -130,6 +142,7 @@ export async function loadWorklistInputs(
         ownerId: ownerOf(hr?.chat),
       };
     }),
-    cases,
+    cases: cases ?? [],
   };
+  return { inputs, failed };
 }

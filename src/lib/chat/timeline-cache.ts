@@ -249,13 +249,19 @@ function isUnheldEdit(t: TimelineState, e: MessageEvent): boolean {
  * (attachments, reactions, threads) carry over from the held copy until
  * the next details fetch replaces them, so a revisit never flashes them
  * away. The answer of a fetch that overflowed the journal is dropped.
+ *
+ * `keepOlder` (a re-read of an open channel after a gap) keeps the held
+ * messages below the page, so a reader scrolled up to them is not moved,
+ * but only when the page's oldest row is held too: otherwise rows were
+ * missed between the two, and the window starts over.
  */
 export function revalidateTimeline(
   prev: CachedTimeline | undefined,
   channelId: string,
   page: MessagePage,
   now: number,
-  mark: number
+  mark: number,
+  { keepOlder = false }: { keepOlder?: boolean } = {}
 ): CachedTimeline {
   const base =
     prev && prev.timeline.channelId === channelId
@@ -269,10 +275,16 @@ export function revalidateTimeline(
       const old = held.get(m.id);
       return old ? mergeMessage(old, m) : m;
     });
+  rows.sort(compareMessages);
+  const oldest = rows[0];
+  const older =
+    keepOlder && oldest && held.has(oldest.id)
+      ? base.timeline.messages.filter((m) => compareMessages(m, oldest) < 0)
+      : [];
   const fresh: TimelineState = {
     ...base.timeline,
-    messages: rows.sort(compareMessages),
-    hasMoreOlder: page.hasMore,
+    messages: [...older, ...rows],
+    hasMoreOlder: older.length ? base.timeline.hasMoreOlder : page.hasMore,
   };
   return {
     ...endTimelineFetch(base, mark),

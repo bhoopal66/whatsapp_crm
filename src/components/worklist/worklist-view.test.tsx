@@ -189,3 +189,82 @@ describe('WorklistView', () => {
     expect(html).not.toContain('data-testid="worklist-assigned-to"');
   });
 });
+
+describe('WorklistView when a read failed', () => {
+  const notes = (html: string) =>
+    [...html.matchAll(/data-testid="worklist-load-note"/g)].length;
+  const retries = (html: string) => html.split(en.States.retry).length - 1;
+  const onRetry = () => undefined;
+
+  it('shows one error with Retry when nothing could be read', () => {
+    const html = render({
+      mode: 'own',
+      items: [],
+      load: { missing: ['hr', 'drafts', 'cases'], stale: [] },
+      onRetry,
+    });
+    expect(html).toContain(en.States.errorTitle);
+    expect(retries(html)).toBe(1);
+    expect(notes(html)).toBe(0);
+    expect(html).not.toContain('worklist-empty');
+  });
+
+  it('shows loading while that Retry is on its way', () => {
+    const html = render({
+      mode: 'own',
+      items: [],
+      load: { missing: ['hr', 'drafts', 'cases'], stale: [] },
+      onRetry,
+      retrying: true,
+    });
+    expect(html).toContain(en.Worklist.loading);
+    expect(html).not.toContain(en.States.errorTitle);
+  });
+
+  it('names the missing parts and never says nothing needs action', () => {
+    const html = render({
+      mode: 'own',
+      items: [],
+      load: { missing: ['hr', 'cases'], stale: [] },
+      onRetry,
+      emptyLabel: en.WorklistWaiting.emptyOthers,
+    });
+    expect(html).toContain('HR conversations and cases');
+    expect(html).not.toContain('worklist-empty');
+    expect(html).not.toContain('needs action right now');
+    expect(retries(html)).toBe(1);
+  });
+
+  it('keeps the rows beside the notice, with one Retry', () => {
+    const html = render({
+      mode: 'own',
+      load: { missing: ['drafts'], stale: ['cases'] },
+      onRetry,
+    });
+    expect(rowsOf(html)).toHaveLength(ITEMS.length);
+    expect(notes(html)).toBe(2);
+    expect(retries(html)).toBe(1);
+  });
+
+  it('says quietly that old rows could not be refreshed', () => {
+    const html = render({
+      mode: 'own',
+      load: { missing: [], stale: ['cases'] },
+      onRetry,
+    });
+    expect(html).toContain('Could not refresh: cases.');
+    expect(html).toContain('data-tone="quiet"');
+    expect(rowsOf(html)).toHaveLength(ITEMS.length);
+    expect(retries(html)).toBe(1);
+  });
+
+  it('says nothing to a guest, who has no list', () => {
+    const html = render({
+      mode: 'none',
+      items: [],
+      load: { missing: ['hr', 'drafts', 'cases'], stale: [] },
+      onRetry,
+    });
+    expect(html).not.toContain(en.States.errorTitle);
+  });
+});

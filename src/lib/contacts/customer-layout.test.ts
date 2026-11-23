@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { customerAccess } from './customer-access';
-import { dealRows, headerActions, overflowItems } from './customer-layout';
+import {
+  dealRows,
+  dealsFromRead,
+  headerActions,
+  overflowItems,
+} from './customer-layout';
 
 describe('headerActions', () => {
   it('gives a viewer only the WhatsApp chat link', () => {
@@ -29,6 +34,21 @@ describe('headerActions', () => {
       secondary: [],
       menu: [],
     });
+  });
+});
+
+describe('dealsFromRead', () => {
+  it('never takes an error for an empty list', () => {
+    expect(dealsFromRead({ data: null, error: { message: 'timeout' } })).toBe(
+      'failed'
+    );
+    expect(dealsFromRead({ data: [], error: { message: 'x' } })).toBe('failed');
+    expect(dealsFromRead({ data: null, error: null })).toBe('failed');
+  });
+  it('gives the rows of a good read', () => {
+    const rows = [{ id: 'd1', title: 'T', value: 1 }];
+    expect(dealsFromRead({ data: rows, error: null })).toBe(rows);
+    expect(dealsFromRead({ data: [], error: null })).toEqual([]);
   });
 });
 

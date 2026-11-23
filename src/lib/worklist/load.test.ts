@@ -28,24 +28,57 @@ const jsonFetch = (status: number, body: unknown) =>
   ) as unknown as typeof fetch;
 
 describe('loadWorklistInputs', () => {
-  it('a failing HR source and a 403 case inbox each count as empty', async () => {
+  const EMPTY = {
+    hrConversations: [],
+    hrTasks: [],
+    hrRules: [],
+    drafts: [],
+    cases: [],
+  };
+
+  it('names every part that could not be read, never calls it empty', async () => {
     const sb = fakeSupabase({
-      hr_conversations: { data: null, error: { message: 'denied' } },
-      tasks: 'throw',
-      hr_workflow_rules: { data: null, error: { message: 'x' } },
+      hr_conversations: { data: null, error: { message: 'timeout' } },
       hr_agent_drafts: { data: null, error: { message: 'x' } },
+    });
+    const out = await loadWorklistInputs(sb, jsonFetch(500, { error: 'x' }));
+    expect(out).toEqual({ inputs: EMPTY, failed: ['hr', 'drafts', 'cases'] });
+  });
+
+  it('counts the HR part as failed when only its tasks or rule fail', async () => {
+    const ok = jsonFetch(200, { rows: [], nextCursor: null });
+    const tasks = await loadWorklistInputs(
+      fakeSupabase({ tasks: 'throw' }),
+      ok
+    );
+    expect(tasks.failed).toEqual(['hr']);
+    const rules = await loadWorklistInputs(
+      fakeSupabase({ hr_workflow_rules: { data: null, error: {} } }),
+      ok
+    );
+    expect(rules.failed).toEqual(['hr']);
+  });
+
+  it('a fetch that throws is a failed case inbox', async () => {
+    const f = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }) as unknown as typeof fetch;
+    const out = await loadWorklistInputs(fakeSupabase({}), f);
+    expect(out.failed).toEqual(['cases']);
+  });
+
+  it('a 403 case inbox and an HR table that is not there are just empty', async () => {
+    const gone = { data: null, error: { code: 'PGRST205' } };
+    const sb = fakeSupabase({
+      hr_conversations: gone,
+      hr_workflow_rules: gone,
+      hr_agent_drafts: { data: null, error: { code: '42P01' } },
     });
     const f = jsonFetch(403, {
       error: 'Your department does not have access to this',
     });
     const out = await loadWorklistInputs(sb, f);
-    expect(out).toEqual({
-      hrConversations: [],
-      hrTasks: [],
-      hrRules: [],
-      drafts: [],
-      cases: [],
-    });
+    expect(out).toEqual({ inputs: EMPTY, failed: [] });
     expect(
       String((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0])
     ).toMatch(/^\/api\/cases\?.*limit=200/);
@@ -84,7 +117,7 @@ describe('loadWorklistInputs', () => {
       },
     });
     const f = jsonFetch(200, { rows: [], nextCursor: null });
-    const out = await loadWorklistInputs(sb, f);
+    const { inputs: out } = await loadWorklistInputs(sb, f);
     expect(
       out.hrConversations.map((c) => [c.conversation_id, c.ownerId])
     ).toEqual([
@@ -133,7 +166,8 @@ describe('loadWorklistInputs cases option', () => {
     const out = await loadWorklistInputs(fakeSupabase({}), f, Date.now(), {
       cases: false,
     });
-    expect(out.cases).toEqual([]);
+    expect(out.inputs.cases).toEqual([]);
+    expect(out.failed).toEqual([]);
     expect(f).not.toHaveBeenCalled();
   });
 

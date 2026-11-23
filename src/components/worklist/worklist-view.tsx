@@ -10,12 +10,15 @@
  * their own items; team leaders and up get the "Assigned to" filter,
  * with "My team" (the people in the teams they lead, and themselves).
  * The "When" column says the clock behind the ranking in words
- * ("Overdue by 2 h"); the score itself only orders the list.
+ * ("Overdue by 2 h"); the score itself only orders the list. A part
+ * that could not be read is named, with a Retry, and an empty list is
+ * then never called "Nothing needs action".
  */
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { AlarmClock, Clock, Hourglass } from 'lucide-react';
 
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -33,6 +36,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  worklistLoadStatus,
+  type WorklistLoad,
+  type WorklistPart,
+} from '@/lib/worklist/load-state';
+import {
   worklistKindKey,
   worklistReasonLabel,
   type WorklistItem,
@@ -44,6 +52,8 @@ import {
   type WorklistTimingState,
 } from '@/lib/worklist/timing';
 import { cn } from '@/lib/utils';
+
+import { LoadNote } from './load-note';
 
 /** The filter value for anyone (a Select item value cannot be empty). */
 const ANYONE = '__anyone__';
@@ -61,6 +71,12 @@ const TIMING_TONE: Record<WorklistTimingState, string> = {
   due_in: 'text-warning',
   waiting: 'text-foreground',
 };
+
+const PART_KEY = {
+  hr: 'parts.hr',
+  drafts: 'parts.drafts',
+  cases: 'parts.cases',
+} as const satisfies Record<WorklistPart, string>;
 
 export interface WorklistMemberOption {
   /** Auth user id. */
@@ -93,6 +109,11 @@ export interface WorklistViewProps {
    * needs action" (customers are waiting for a reply above it).
    */
   emptyLabel?: string;
+  /** The load behind `items`, for the parts it lacks; null: nothing to say. */
+  load?: Pick<WorklistLoad, 'missing' | 'stale'> | null;
+  onRetry?: () => void;
+  /** A retry is on its way. */
+  retrying?: boolean;
 }
 
 export function WorklistView({
@@ -106,9 +127,16 @@ export function WorklistView({
   noTeam = false,
   now,
   emptyLabel,
+  load = null,
+  onRetry,
+  retrying = false,
 }: WorklistViewProps) {
   const t = useTranslations('Worklist');
   const tAll = useTranslations();
+  const format = useFormatter();
+  const status = load && mode !== 'none' ? worklistLoadStatus(load) : 'ok';
+  const named = (parts: readonly WorklistPart[]) =>
+    format.list(parts.map((p) => t(PART_KEY[p])));
   // A bank guest has nothing to rank; an unknown role is still loading.
   const shown = mode === null ? null : mode === 'none' ? [] : items;
   const filterLabel =
@@ -179,14 +207,33 @@ export function WorklistView({
       )}
 
       <div className="bg-card rounded-lg border">
-        {shown === null ? (
+        {load && status === 'partial' && (
+          <LoadNote
+            tone="error"
+            text={t('partial', { parts: named(load.missing) })}
+            onRetry={onRetry}
+            retrying={retrying}
+          />
+        )}
+        {load && status !== 'ok' && load.stale.length > 0 && (
+          <LoadNote
+            text={t('stale', { parts: named(load.stale) })}
+            // Beside the other note one Retry is enough: it reads every part.
+            onRetry={status === 'stale' ? onRetry : undefined}
+            retrying={retrying}
+          />
+        )}
+        {status === 'failed' && !retrying ? (
+          <ErrorState onRetry={onRetry} className="m-4" />
+        ) : shown === null || status === 'failed' ? (
           <p
             role="status"
             className="text-muted-foreground p-6 text-center text-sm"
           >
             {t('loading')}
           </p>
-        ) : shown.length === 0 ? (
+        ) : shown.length === 0 && status === 'partial' ? null : shown.length ===
+          0 ? (
           <p
             data-testid="worklist-empty"
             className="text-muted-foreground p-6 text-center text-sm"
