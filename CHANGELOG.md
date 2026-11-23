@@ -23,6 +23,9 @@ and polish.
   lost theirs and a returned call looked untouched. When the tasks cannot be
   read the screen says so; it listed every call as untouched.
 - **Missed calls and HR tasks** say when only the first 200 tasks are shown.
+- **My worklist** reads up to 1,000 open cases and says when there are more.
+  It read the first 200 before the person and team filters, so in a large
+  workspace a person's own cases could be missing.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -9,12 +9,22 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { EMPTY_FILTERS, inboxUrl, parseInboxPage } from '@/lib/cases/ui';
+import {
+  EMPTY_FILTERS,
+  appendRows,
+  inboxUrl,
+  parseInboxPage,
+  type InboxRow,
+} from '@/lib/cases/ui';
 import { HR_TASK_REF_PREFIX } from '@/lib/hr/tasks-view';
 import type { HrInbox } from '@/lib/hr/types';
 import { isMissingTable } from '@/lib/team-activity/db-errors';
 
-import type { WorklistPart, WorklistRead } from './load-state';
+import {
+  WORKLIST_CASE_MAX,
+  type WorklistPart,
+  type WorklistRead,
+} from './load-state';
 import type {
   WorklistCase,
   WorklistDraft,
@@ -60,18 +70,36 @@ async function rows(
   }
 }
 
-/** The cases; null when the read failed. */
-async function loadCases(
-  fetchImpl: typeof fetch
-): Promise<WorklistCase[] | null> {
+interface CasesRead {
+  cases: WorklistCase[];
+  /** More cases match than `WORKLIST_CASE_MAX`. */
+  truncated: boolean;
+}
+
+const NO_CASES: CasesRead = { cases: [], truncated: false };
+
+/**
+ * The cases, page by page: the person and team filters run on what is
+ * read here, so a first page alone hid a person's cases behind everyone
+ * else's. Null when any page failed, never a silently shorter list.
+ */
+async function loadCases(fetchImpl: typeof fetch): Promise<CasesRead | null> {
   try {
-    const res = await fetchImpl(
-      inboxUrl(EMPTY_FILTERS, null, WORKLIST_CASE_LIMIT),
-      { cache: 'no-store' }
-    );
-    if (res.status === 403) return [];
-    if (!res.ok) return null;
-    return parseInboxPage(await res.json()).rows;
+    let cases: InboxRow[] = [];
+    let after: string | null = null;
+    for (let read = 0; read < WORKLIST_CASE_MAX; read += WORKLIST_CASE_LIMIT) {
+      const res: Response = await fetchImpl(
+        inboxUrl(EMPTY_FILTERS, after, WORKLIST_CASE_LIMIT),
+        { cache: 'no-store' }
+      );
+      if (res.status === 403 && after === null) return NO_CASES;
+      if (!res.ok) return null;
+      const page = parseInboxPage(await res.json());
+      cases = appendRows(cases, page.rows);
+      after = page.nextCursor;
+      if (after === null) return { cases, truncated: false };
+    }
+    return { cases, truncated: true };
   } catch {
     return null;
   }
@@ -118,7 +146,7 @@ export async function loadWorklistInputs(
         .order('created_at', { ascending: true })
         .limit(DRAFT_LIMIT)
     ),
-    readCases ? loadCases(fetchImpl) : Promise.resolve([]),
+    readCases ? loadCases(fetchImpl) : Promise.resolve(NO_CASES),
   ]);
   const failed: WorklistPart[] = [];
   if (!convs || !tasks || !rules) failed.push('hr');
@@ -142,7 +170,7 @@ export async function loadWorklistInputs(
         ownerId: ownerOf(hr?.chat),
       };
     }),
-    cases: cases ?? [],
+    cases: cases?.cases ?? [],
   };
-  return { inputs, failed };
+  return { inputs, failed, casesTruncated: cases?.truncated ?? false };
 }

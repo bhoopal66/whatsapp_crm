@@ -12952,6 +12952,7 @@
     "empty": "Nothing needs action right now.",
     "partial": "Not shown, because they could not be loaded: {parts}.",
     "stale": "Could not refresh: {parts}. What you see was loaded earlier.",
+    "casesTruncated": "Showing the first {count, number} cases. Any after those are not in this list.",
     "parts": {
       "hr": "HR conversations",
       "drafts": "agent drafts",

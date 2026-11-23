@@ -9,10 +9,15 @@ import type { WorklistInputs } from './rank';
 export const WORKLIST_PARTS = ['hr', 'drafts', 'cases'] as const;
 export type WorklistPart = (typeof WORKLIST_PARTS)[number];
 
+/** The most cases the list reads; past it, it says so. */
+export const WORKLIST_CASE_MAX = 1000;
+
 export interface WorklistRead {
   /** A failed part's rows are empty here; see `mergeWorklistLoad`. */
   inputs: WorklistInputs;
   failed: readonly WorklistPart[];
+  /** More cases exist than were read (`WORKLIST_CASE_MAX`). */
+  casesTruncated: boolean;
 }
 
 export interface WorklistLoad {
@@ -21,6 +26,8 @@ export interface WorklistLoad {
   missing: readonly WorklistPart[];
   /** Failed this time; the rows are from an earlier read. */
   stale: readonly WorklistPart[];
+  /** As in `WorklistRead`, of the cases held here. */
+  casesTruncated: boolean;
 }
 
 /** One read landing on what is held (null: nothing yet). */
@@ -43,6 +50,10 @@ export function mergeWorklistLoad(
     },
     missing: next.failed.filter((p) => !keeps(p)),
     stale: next.failed.filter(keeps),
+    casesTruncated:
+      prev !== null && keeps('cases')
+        ? prev.casesTruncated
+        : next.casesTruncated,
   };
 }
 
