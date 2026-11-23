@@ -358,7 +358,9 @@ stay empty until the app syncs them), retries pending creates older than 2
 minutes, fails sends still
 pending after 10 minutes (one sweep over every workspace), and retries
 closes that did not finish, one workspace at a time on that workspace's
-own numbers. It starts no new work after 45 s.
+own numbers. It starts no new work after 45 s, and leaves a number alone for
+the rest of the run once it fails (network, gateway error, revoked token). A
+close on a disconnected number waits until it is connected again.
 
 ## Consent
 

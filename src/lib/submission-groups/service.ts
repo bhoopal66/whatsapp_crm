@@ -268,6 +268,42 @@ export class SubmissionGroupChannelError extends Error {
   }
 }
 
+/** The group's number is marked disconnected: closeGroup called nothing, and the close waits for it. */
+export class SubmissionGroupNumberDisconnectedError extends Error {
+  override readonly name = 'SubmissionGroupNumberDisconnectedError';
+  constructor(readonly channelId: string) {
+    super(`WhatsApp number ${channelId} is disconnected`);
+  }
+}
+
+/**
+ * The number itself failed (network, timeout, gateway 5xx, revoked token), so its other groups would fail the same
+ * way. A refusal about one group (403, 404, 409…), or a create nobody can settle, says nothing about the number.
+ */
+export function isNumberFailure(err: unknown): boolean {
+  const e = err as { status?: unknown; name?: unknown } | null;
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return true;
+  return typeof e?.status === 'number' && (e.status === 401 || e.status >= 500);
+}
+
+/**
+ * The cron's order of work: rows that have not failed before, then the ones that have, starting from another of
+ * them each run. A number is skipped after one failure, so one group that always fails must not go first each time.
+ */
+export function failedLast<T>(
+  rows: readonly T[],
+  failed: (row: T) => boolean,
+  nowMs: number
+): T[] {
+  const again = rows.filter(failed);
+  const at = again.length ? Math.floor(nowMs / 120_000) % again.length : 0;
+  return [
+    ...rows.filter((r) => !failed(r)),
+    ...again.slice(at),
+    ...again.slice(0, at),
+  ];
+}
+
 /** createGroup failed before the gateway was called, so no group can exist. */
 export class SubmissionGroupNotAttemptedError extends Error {
   override readonly name = 'SubmissionGroupNotAttemptedError';
@@ -327,13 +363,15 @@ export type OpenResult =
       inviteSent: boolean;
     };
 
-/** closeDeferred: ENDED, but closeGroup waits for a pending send or 170's close hold; the next call retries. */
+/** closeDeferred: ENDED, but closeGroup waits for a pending send, 170's close hold or a disconnected number; the next call retries. */
 export type EndResult = {
   ended: boolean;
   reason: string | null;
   closed: boolean;
   closeError: string | null;
   closeDeferred: boolean;
+  /** The close met the number failing (or disconnected), not the group: its other groups can wait. */
+  numberDown?: true;
 };
 
 /**
@@ -501,11 +539,15 @@ export class SubmissionGroupService {
   /**
    * Cron: finishes ACTIVE groups still without a WhatsApp group and older than
    * `olderThanMs` through the same claim/create path. One group's failure is
-   * reported, never thrown, so the rest still run.
+   * reported, never thrown, so the rest still run. Nothing starts once `spent` says so; a number in
+   * `failedChannels` is skipped, and one that fails is added (`isNumberFailure`), its other groups left for the
+   * next run.
    */
   async retryPending(input: {
     accountId: string;
     olderThanMs: number;
+    spent?: () => boolean;
+    failedChannels?: Set<string>;
   }): Promise<{
     attempted: number;
     created: string[];
@@ -519,17 +561,27 @@ export class SubmissionGroupService {
       { accountId: input.accountId }
     );
     const result = {
-      attempted: pending.length,
+      attempted: 0,
       created: [] as string[],
       consentRequired: [] as string[],
       failed: [] as { groupId: string; error: string }[],
     };
-    for (const g of pending) {
+    const failedChannels = input.failedChannels ?? new Set<string>();
+    for (const g of failedLast(
+      pending,
+      (g) => !!g.waCreateError,
+      now.getTime()
+    )) {
+      if (input.spent?.()) break;
+      if (g.channelId && failedChannels.has(g.channelId)) continue;
+      result.attempted++;
       try {
         const out = await this.createPending(g);
         if (out.consentRequired) result.consentRequired.push(g.id);
         else if (out.group.waGroupId !== null) result.created.push(g.id);
       } catch (err) {
+        if (g.channelId && isNumberFailure(err))
+          failedChannels.add(g.channelId);
         result.failed.push({ groupId: g.id, error: errText(err) });
       }
     }
@@ -1551,9 +1603,24 @@ export class SubmissionGroupService {
     try {
       await this.deps.api.closeGroup(group.channelId, group.waGroupId);
     } catch (err) {
+      // Nothing was called: a disconnected number answers 404 for every group, which would read as closed.
+      if (err instanceof SubmissionGroupNumberDisconnectedError)
+        return {
+          ended,
+          reason,
+          ...none,
+          closeDeferred: true,
+          numberDown: true,
+        };
       const msg = errText(err);
       await store.recordWaCloseError(group.id, msg);
-      return { ended, reason, ...none, closeError: msg };
+      return {
+        ended,
+        reason,
+        ...none,
+        closeError: msg,
+        ...(isNumberFailure(err) ? { numberDown: true as const } : {}),
+      };
     }
     await store.markWaClosed(group.id);
     return { ended, reason, ...none, closed: true };

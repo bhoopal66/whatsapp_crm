@@ -12,8 +12,8 @@ import { CaseStoreError } from '@/lib/cases/store';
 import { runSubmissionGroupsCron } from './cron';
 import type { SubmissionGroup } from './store';
 
-const g = (id: string, accountId: string) =>
-  ({ id, accountId }) as SubmissionGroup;
+const g = (id: string, accountId: string, over: object = {}) =>
+  ({ id, accountId, ...over }) as SubmissionGroup;
 const admin = {} as SupabaseClient;
 
 function fakes(o: {
@@ -78,6 +78,8 @@ describe('runSubmissionGroupsCron', () => {
     expect(f.services.get('A')!.retryPending).toHaveBeenCalledWith({
       accountId: 'A',
       olderThanMs: 120_000,
+      spent: expect.any(Function),
+      failedChannels: new Set(),
     });
     expect(f.services.get('A')!.retryPending).toHaveBeenCalledTimes(1);
     expect(f.services.get('B')!.retryPending).not.toHaveBeenCalled();
@@ -134,6 +136,70 @@ describe('runSubmissionGroupsCron', () => {
     const r = await runSubmissionGroupsCron(admin, f);
     expect(r.created).toBe(1);
     expect(r.errors).toEqual(['cases: db down']);
+  });
+
+  it('after one failure on a number, skips its other closes and its membership reads', async () => {
+    const f = fakes({
+      unclosed: [
+        g('e1', 'A', { channelId: 'bad' }),
+        g('e2', 'A', { channelId: 'bad' }),
+        g('e3', 'A', { channelId: 'good' }),
+      ],
+    });
+    f.store.membershipAccounts.mockResolvedValue(['A']);
+    f.store.membershipDue.mockResolvedValue(['m1']);
+    f.store.get.mockResolvedValue(g('m1', 'A', { channelId: 'bad' }));
+    const serviceFor = (id: string) => {
+      const svc = f.serviceFor(id);
+      svc.retryClose.mockImplementation(async (groupId: string) =>
+        groupId === 'e1'
+          ? { closed: false, closeError: 'timed out', numberDown: true }
+          : { closed: true }
+      );
+      return svc;
+    };
+    const getParticipants = vi.fn();
+    const r = await runSubmissionGroupsCron(admin, {
+      ...f,
+      serviceFor,
+      participantsFor: () => ({ getParticipants }),
+    });
+    expect(f.services.get('A')!.retryClose.mock.calls).toEqual([
+      ['e1'],
+      ['e3'],
+    ]);
+    expect(r).toMatchObject({ closed: 1, closeFailed: 1 });
+    expect(getParticipants).not.toHaveBeenCalled();
+  });
+
+  it('a create that found the number failing keeps its closes out of the run', async () => {
+    const f = fakes({
+      pending: [g('p1', 'A')],
+      unclosed: [g('e1', 'A', { channelId: 'bad' })],
+    });
+    const serviceFor = (id: string) => {
+      const svc = f.serviceFor(id);
+      svc.retryPending.mockImplementation(
+        async (input: { failedChannels: Set<string> }) => {
+          input.failedChannels.add('bad');
+          return { attempted: 1, created: [], consentRequired: [], failed: [] };
+        }
+      );
+      return svc;
+    };
+    await runSubmissionGroupsCron(admin, { ...f, serviceFor });
+    expect(f.services.get('A')!.retryClose).not.toHaveBeenCalled();
+  });
+
+  it('a close that failed before goes after the ones that did not', async () => {
+    const f = fakes({
+      unclosed: [g('e1', 'A', { waCloseError: 'boom' }), g('e2', 'A')],
+    });
+    await runSubmissionGroupsCron(admin, f);
+    expect(f.services.get('A')!.retryClose.mock.calls).toEqual([
+      ['e2'],
+      ['e1'],
+    ]);
   });
 
   it('never throws: a failing account or listing is reported and the rest still run', async () => {

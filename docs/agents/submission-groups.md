@@ -32,7 +32,12 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Consent:** opt-out and do-not-contact refuse create and sends; there
   is no opt-in register.
 - **Cron:** the automations cron every 2 minutes (`cron.ts`): pending
-  creates, stale sends, close retries. Idle ending is off.
+  creates, stale sends, close retries. Idle ending is off. One failure of a
+  number (`isNumberFailure`: network, 5xx, 401; never a refusal about one
+  group or an unsettled create) skips it for the run, creates, closes and
+  membership reads alike, and work that failed before goes last and rotates
+  (`failedLast`), so neither a number nor a group starves the rest. A close
+  on a disconnected number is deferred, never asked: its 404 means "closed".
   `verify-submission-groups.sql` asserts the SQL.
 - **Every Compass group gets its case** (`open-case.ts`): POST opens it
   (never failing the request), PATCH opens a missing one before the sync

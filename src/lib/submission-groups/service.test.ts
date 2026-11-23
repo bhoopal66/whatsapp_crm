@@ -14,6 +14,10 @@ import {
   type GroupMediaSend,
   type GroupStore,
   type GroupsApi,
+  failedLast,
+  isNumberFailure,
+  SubmissionGroupCreateUnsettledError,
+  SubmissionGroupNumberDisconnectedError,
 } from './service';
 import type {
   AddNumberBegin,
@@ -901,6 +905,87 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(s.store.groups.get(g.id)!.waGroupId).not.toBeNull();
   });
 
+  describe('one bad number in the cron (retryPending)', () => {
+    /** Three old pending groups: two on the first number, one on another. */
+    const three = async () => {
+      const s = setup();
+      s.api.createError = Object.assign(new Error('bad'), { status: 400 });
+      for (const ref of ['R1', 'R2', 'R3'])
+        await expect(s.open(ref)).rejects.toThrow();
+      s.api.createError = null;
+      const rows = [...s.store.groups.values()];
+      for (const g of rows) {
+        g.createdAt = new Date(Date.now() - 120_000);
+        g.waCreateError = null;
+      }
+      rows[2].channelId = 'other-number';
+      s.api.calls = [];
+      return { s, rows };
+    };
+    const input = { accountId: ACC, olderThanMs: 60_000 };
+
+    it('skips the number after its first connection failure', async () => {
+      const { s, rows } = await three();
+      s.api.createError = Object.assign(new Error('timed out'), {
+        status: 503,
+      });
+      const failedChannels = new Set<string>();
+      const r = await s.svc.retryPending({ ...input, failedChannels });
+      expect(s.api.of('createGroup')).toHaveLength(2);
+      expect(r).toMatchObject({ attempted: 2, created: [] });
+      expect(r.failed.map((f) => f.groupId)).toEqual([rows[0].id, rows[2].id]);
+      expect([...failedChannels]).toEqual([rows[0].channelId, 'other-number']);
+    });
+
+    it('leaves a number that already failed in this run alone', async () => {
+      const { s, rows } = await three();
+      const r = await s.svc.retryPending({
+        ...input,
+        failedChannels: new Set([rows[0].channelId!]),
+      });
+      expect(r).toMatchObject({ attempted: 1, created: [rows[2].id] });
+    });
+
+    it('a refused group says nothing about its number', async () => {
+      const { s } = await three();
+      s.api.createError = Object.assign(new Error('bad'), { status: 400 });
+      const failedChannels = new Set<string>();
+      await s.svc.retryPending({ ...input, failedChannels });
+      expect(s.api.of('createGroup')).toHaveLength(3);
+      expect(failedChannels.size).toBe(0);
+    });
+
+    it('starts nothing once the budget is spent', async () => {
+      const { s } = await three();
+      let left = 1;
+      const r = await s.svc.retryPending({ ...input, spent: () => left-- < 1 });
+      expect(r.attempted).toBe(1);
+      expect(s.api.of('createGroup')).toHaveLength(1);
+    });
+  });
+
+  it('isNumberFailure: the number, not one group, and never an unsettled create', () => {
+    const st = (status: number) => Object.assign(new Error('x'), { status });
+    expect([401, 500, 502, 503].every((n) => isNumberFailure(st(n)))).toBe(
+      true
+    );
+    expect([400, 403, 404, 409, 429].some((n) => isNumberFailure(st(n)))).toBe(
+      false
+    );
+    expect(
+      isNumberFailure(new SubmissionGroupCreateUnsettledError('', true))
+    ).toBe(false);
+    expect(isNumberFailure(new Error('db down'))).toBe(false);
+  });
+
+  it('failedLast: new work first, and another of the failed ones first each run', () => {
+    const rows = ['a!', 'b', 'c!', 'd'];
+    const failed = (r: string) => r.endsWith('!');
+    expect(failedLast(rows, failed, 0)).toEqual(['b', 'd', 'a!', 'c!']);
+    expect(failedLast(rows, failed, 120_000)).toEqual(['b', 'd', 'c!', 'a!']);
+    expect(failedLast([], failed, 0)).toEqual([]);
+  });
+
   it("retryPending leaves another account's pending groups alone", async () => {
     const s = setup();
     s.api.fail.add('createGroup');
@@ -1342,6 +1427,40 @@ describe('SubmissionGroupService.endIfDue / sweep / archive', () => {
     expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
     await s.svc.retryClose(g.id);
     expect(s.api.of('closeGroup')).toHaveLength(1);
+  });
+
+  it('a disconnected number defers the close: not closed, no error recorded', async () => {
+    const s = setup();
+    const g = await opened(s);
+    await s.store.end(g.id, 'MANUAL');
+    const close = vi
+      .spyOn(s.api, 'closeGroup')
+      .mockRejectedValueOnce(new SubmissionGroupNumberDisconnectedError('w1'));
+    expect(await s.svc.retryClose(g.id)).toMatchObject({
+      closed: false,
+      closeError: null,
+      closeDeferred: true,
+      numberDown: true,
+    });
+    const row = s.store.groups.get(g.id)!;
+    expect([row.waClosedAt, row.waCloseError]).toEqual([null, null]);
+    close.mockRestore();
+    expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
+  });
+
+  it('a close says when it was the number that failed', async () => {
+    const s = setup();
+    const g = await opened(s);
+    await s.store.end(g.id, 'MANUAL');
+    const close = vi.spyOn(s.api, 'closeGroup');
+    close.mockRejectedValueOnce(
+      Object.assign(new Error('timed out'), { status: 503 })
+    );
+    expect((await s.svc.retryClose(g.id)).numberDown).toBe(true);
+    close.mockRejectedValueOnce(
+      Object.assign(new Error('not admin'), { status: 403 })
+    );
+    expect((await s.svc.retryClose(g.id)).numberDown).toBeUndefined();
   });
 
   it('not due: nothing ends', async () => {

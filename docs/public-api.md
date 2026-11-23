@@ -590,7 +590,8 @@ On a `whatsapp.mode: "none"` submission a final status ends it and closes
 its case, with nothing to close on WhatsApp: `closed: false`,
 `close_deferred: false`.
 
-`close_deferred: true` means a message was still being sent; the close is
+`close_deferred: true` means a message was still being sent, the group is
+held open for the closing update, or the number is disconnected; the close is
 retried by the next call or the cron. On an already ENDED group nothing is
 recorded and the call reports its state with `ended: false`. `404` for an
 unknown submission.

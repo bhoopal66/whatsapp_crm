@@ -19,6 +19,8 @@ No migration.
   so Compass sends it again; before, a final status could be lost for good.
 - A submission whose case could not be opened gets it with Compass's next
   update, or within minutes by itself; before, it stayed without a case.
+- One broken WhatsApp number no longer holds up the groups of the others, and
+  closing a group waits while its number is disconnected.
 
 ### Submission groups: no second WhatsApp group
 
