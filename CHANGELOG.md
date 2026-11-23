@@ -26,6 +26,8 @@ No migration.
 - With a similarity floor or strict grounding set, a knowledge search that
   fails hands the chat to a person. Before, it counted as "no knowledge base"
   or let any keyword hit pass.
+- A held AI draft no longer appears on a chat a person took while it was being
+  written.
 
 ### Cases: timers, snoozes and rules
 

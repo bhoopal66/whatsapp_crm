@@ -778,6 +778,8 @@ export async function dispatchInboundToAiReply(
      * guardrail's held draft waits on the chat for a person, `error`
      * when the reply itself failed to send.
      *
+     * `heldDraft` is that draft (Send / Edit / Discard in the inbox).
+     *
      * The update applies only while the chat is still the bot's
      * (unpaused, unassigned). When a person took it over since it was
      * read, nothing is overwritten, no bell rings, and the outcome is
@@ -788,7 +790,8 @@ export async function dispatchInboundToAiReply(
       detail: string | null,
       farewell: string | null,
       reasonText: string | null = null,
-      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off'
+      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off',
+      heldDraft: string | null = null
     ): Promise<AiReplyOutcome> => {
       // A pin made during generation: skip only the farewell; the
       // hand-off itself proceeds.
@@ -857,6 +860,14 @@ export async function dispatchInboundToAiReply(
         // on it — assigning the hand-off agent below is not acting.
         ai_attention_at: now,
       };
+      // In the same conditional update: a chat a person took meanwhile
+      // gets neither the hand-off nor the draft, and a draft written for
+      // an older message never replaces the one a newer hold left there
+      // (that hold paused the chat).
+      if (heldDraft) {
+        update.ai_pending_draft = heldDraft;
+        update.ai_pending_draft_at = now;
+      }
       // Only set the assignee when a target is configured AND the thread
       // isn't already owned — never stomp an existing human assignment.
       if (config.handoffAgentId && !conv.assigned_agent_id) {
@@ -1523,30 +1534,14 @@ export async function dispatchInboundToAiReply(
         return handOff('guardrail', guardDetail, config.handoffMessage);
       }
       // A held draft waits on the chat for that person (Send / Edit /
-      // Discard in the inbox banner). A failed write must not stop the
-      // hand-off: the note still quotes the draft.
-      try {
-        const { error: draftErr } = await dbc
-          .from('conversations')
-          .update({
-            ai_pending_draft: text,
-            ai_pending_draft_at: new Date().toISOString(),
-          })
-          .eq('id', conversationId)
-          .eq('account_id', accountId);
-        if (draftErr) throw new Error(draftErr.message);
-      } catch (err) {
-        console.error('[ai auto-reply] held draft not stored:', {
-          conversationId,
-          error: errorMessage(err),
-        });
-      }
+      // Discard in the inbox banner), written by the hand-off itself.
       return handOff(
         'guardrail',
         guardDetail,
         config.handoffMessage,
         null,
-        'held_for_review'
+        'held_for_review',
+        text
       );
     }
 

@@ -273,7 +273,8 @@ vi.mock('./admin-client', () => ({
           // So are the held-draft write and the "nobody answered" flag.
           const flag = Object.keys(payload).join() === 'ai_attention_at';
           const resume = payload.ai_autoreply_disabled === false;
-          const draft = 'ai_pending_draft' in payload;
+          const draft =
+            'ai_pending_draft' in payload && !('ai_handoff_reason' in payload);
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
           else if (draft) h.state.drafts.push(payload);
@@ -287,7 +288,10 @@ vi.mock('./admin-client', () => ({
             const hit = filters.every(
               ([col, v]) => col === 'id' || (row[col] ?? null) === v
             );
-            if (handoff && hit) h.state.updatePayload = payload;
+            if (handoff && hit) {
+              h.state.updatePayload = payload;
+              if ('ai_pending_draft' in payload) h.state.drafts.push(payload);
+            }
             if (flag && hit) {
               h.state.flags.push(payload);
               // The next flag write finds the stamp, as the row would.
@@ -2398,8 +2402,20 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(lastOutcome()).toBe('held_for_review');
   });
 
-  it('a failed draft write does not stop the hand-off', async () => {
-    h.state.draftError = 'column missing';
+  it.each([
+    ['assigned', { assigned_agent_id: 'u-9' }],
+    ['paused', { ai_autoreply_disabled: true }],
+  ])('a chat a person %s meanwhile gets no held draft', async (_n, live) => {
+    h.state.convLive = { ...h.state.conv, ...live };
+    h.runGuardrailGate.mockResolvedValue(
+      held('held (approval)', { retryable: false })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.drafts).toEqual([]);
+    expect(h.state.updatePayload).toBeNull();
+  });
+
+  it('the held draft is written with the hand-off, in one update', async () => {
     h.runGuardrailGate.mockResolvedValue(
       held('held (approval)', { retryable: false })
     );
@@ -2407,6 +2423,7 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(h.state.updatePayload).toMatchObject({
       ai_handoff_reason: 'guardrail',
       ai_autoreply_disabled: true,
+      ai_pending_draft: expect.any(String),
     });
     expect(sentTexts()).toEqual([HANDOFF_MSG]);
     expect(lastOutcome()).toBe('held_for_review');
