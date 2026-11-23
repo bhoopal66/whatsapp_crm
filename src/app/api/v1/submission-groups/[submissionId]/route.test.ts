@@ -219,7 +219,7 @@ describe('a status sent for a closed case', () => {
       closedAt: new Date('2026-11-20T08:00:00Z'),
     });
 
-  it.each(['ACTIVE', 'ENDED'])(
+  it.each(['ACTIVE', 'ENDED'] as const)(
     'on an %s group is 200 with case_status_applied false, logged once',
     async (status) => {
       m.store.findByRef.mockResolvedValue(group({ status }));
