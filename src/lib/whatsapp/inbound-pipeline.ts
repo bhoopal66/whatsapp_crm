@@ -1356,6 +1356,8 @@ export async function processMessage(
       accountId,
       triggerType,
       contactId: contactRecord.id,
+      // A message step may answer even an opted-out contact here.
+      customerJustWrote: true,
       context: {
         message_text: inboundText,
         conversation_id: conversation.id,

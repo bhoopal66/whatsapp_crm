@@ -27,6 +27,7 @@ import { engineSendText, engineSendTemplate, engineSendInteractive } from './cha
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { automationPoolKey, rotateAssign } from '@/lib/assignment/rotation'
+import { isInTimeRange } from './schedule'
 import {
   clipTeamChatBody,
   describeTeamChatPostError,
@@ -73,6 +74,13 @@ export interface DispatchInput {
   triggerType: AutomationTriggerType
   contactId?: string | null
   context?: AutomationContext
+  /** The customer's own inbound message is being handled right now. Set
+   *  ONLY by the inbound pipeline: it lets a message step answer a
+   *  contact who opted out, because they just wrote. Absent (a tag
+   *  change, a manual POST, a resumed wait) an opted-out contact is sent
+   *  nothing. Not part of `context`, which is caller-supplied and is
+   *  stored with a parked wait. */
+  customerJustWrote?: boolean
 }
 
 /**
@@ -202,10 +210,20 @@ export async function resumePendingExecution(pending: {
     .from('automations')
     .select('*')
     .eq('id', pending.automation_id)
-    .single()
+    .maybeSingle()
 
-  if (error || !automation) {
-    console.error('[automations] resume: missing automation', pending.automation_id, error)
+  if (error) {
+    console.error('[automations] resume: automation load failed', pending.automation_id, error)
+    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
+    await markPending(pending.id, 'failed')
+    return
+  }
+  // Switched off (or deleted) while this run was parked: whoever is
+  // waiting gets nothing more. Neither status CHECK (006) allows
+  // 'cancelled', so the row settles as 'failed' (it did not run) and the
+  // log stays 'partial' with the reason.
+  if (!(automation as Automation | null)?.is_active) {
+    await finalizeLog(pending.log_id, 'partial', STOPPED_SWITCHED_OFF)
     await markPending(pending.id, 'failed')
     return
   }
@@ -220,6 +238,8 @@ export async function resumePendingExecution(pending: {
       startPosition: pending.next_step_position,
       logId: pending.log_id,
       triggerEvent: 'resumed_wait',
+      // However short the wait, this is no longer a direct answer.
+      customerJustWrote: false,
     })
     await markPending(pending.id, 'done')
   } catch (err) {
@@ -275,6 +295,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
     startPosition: 0,
     logId: log.id,
     triggerEvent: input.triggerType,
+    customerJustWrote: input.customerJustWrote === true,
   })
 
   // Atomic counter update via the SQL function from migration 007.
@@ -298,6 +319,8 @@ interface ExecuteArgs {
   startPosition: number
   logId: string | null
   triggerEvent: string
+  /** See DispatchInput.customerJustWrote. */
+  customerJustWrote: boolean
 }
 
 async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
@@ -338,7 +361,7 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
-      await db.from('automation_pending_executions').insert({
+      const { error: waitErr } = await db.from('automation_pending_executions').insert({
         automation_id: args.automation.id,
         // Tenancy: account_id required NOT NULL post-017.
         account_id: args.automation.account_id,
@@ -352,6 +375,19 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         run_at: new Date(Date.now() + ms).toISOString(),
         status: 'pending',
       })
+      if (waitErr) {
+        console.error('[automations] wait insert failed:', args.automation.id, waitErr)
+        // Nothing is parked, so nothing will resume: a failed step.
+        errorMessage = 'wait: the wait could not be saved'
+        results.push({
+          step_id: step.id,
+          step_type: step.step_type,
+          status: 'failed',
+          detail: errorMessage,
+        })
+        status = 'failed'
+        break
+      }
       results.push({
         step_id: step.id,
         step_type: step.step_type,
@@ -381,6 +417,17 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
           branch: taken ? 'yes' : 'no',
           startPosition: 0,
           logId: args.logId,
+        })
+        continue
+      }
+
+      const skipReason = await optOutSkipReason(step, args)
+      if (skipReason) {
+        results.push({
+          step_id: step.id,
+          step_type: step.step_type,
+          status: 'skipped',
+          detail: skipReason,
         })
         continue
       }
@@ -611,13 +658,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       }
       const agentId = cfg.agent_id
       if (!agentId) return 'no agent resolved'
-      const { data: assigned } = await db
+      const { data: assigned, error: assignErr } = await db
         .from('conversations')
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
         .is('personal_owner_id', null)
         .select('id')
+      failOnWriteError(assignErr, 'assign_conversation: the chat could not be assigned')
       return assigned?.length ? `assigned to ${agentId}` : 'no chat to assign'
     }
 
@@ -637,24 +685,26 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         }
         // Defense in depth: the service-role client bypasses RLS, so confirm
         // the field definition belongs to this account before writing.
-        const { data: field } = await db
+        const { data: field, error: fieldErr } = await db
           .from('custom_fields')
           .select('id')
           .eq('id', customFieldId)
           .eq('account_id', args.automation.account_id)
           .maybeSingle()
+        failOnWriteError(fieldErr, 'update_contact_field: the custom field could not be read')
         if (!field) {
           return `field ${cfg.field} not writable from automations`
         }
         // Upsert on the table's UNIQUE(contact_id, custom_field_id) so repeated
         // runs overwrite rather than duplicate. Tenancy is enforced above and,
         // for the contact side, by the entry-point ownership guard.
-        await db
+        const { error: valueErr } = await db
           .from('contact_custom_values')
           .upsert(
             { contact_id: args.contactId, custom_field_id: customFieldId, value },
             { onConflict: 'contact_id,custom_field_id' },
           )
+        failOnWriteError(valueErr, 'update_contact_field: the contact could not be saved')
         return `custom field updated`
       }
 
@@ -665,11 +715,12 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // Defense in depth: scope the service-role write to the account so
       // a future caller that skips the entry-point ownership guard still
       // cannot write across tenants.
-      await db
+      const { error: contactErr } = await db
         .from('contacts')
         .update({ [cfg.field]: value, updated_at: new Date().toISOString() })
         .eq('id', args.contactId)
         .eq('account_id', args.automation.account_id)
+      failOnWriteError(contactErr, 'update_contact_field: the contact could not be saved')
       return `${cfg.field} updated`
     }
 
@@ -690,7 +741,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // 080), or the chat's agent cannot see it. Without an owner
       // (pre-080 database, no conversation) it stays the automation's.
       const owner = await resolveAutomationDealOwner(args)
-      await db.from('deals').insert({
+      const { error: dealErr } = await db.from('deals').insert({
         // Tenancy is the automation's account; user_id is the deal's
         // owner (resolved above), else the automation's author.
         account_id: args.automation.account_id,
@@ -704,6 +755,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         currency: acct?.default_currency ?? 'USD',
         status: 'open',
       })
+      failOnWriteError(dealErr, 'create_deal: the deal could not be saved')
       return 'deal created'
     }
 
@@ -738,12 +790,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
 
     case 'close_conversation': {
       if (!args.contactId) throw new Error('close_conversation needs a contact')
-      await db
+      const { error: closeErr } = await db
         .from('conversations')
         .update({ status: 'closed', updated_at: new Date().toISOString() })
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
         .is('personal_owner_id', null)
+      failOnWriteError(closeErr, 'close_conversation: the chat could not be closed')
       return 'conversation closed'
     }
 
@@ -814,6 +867,56 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
  *  retired with contact tags; stored automations may still carry them. */
 const RETIRED_STEP_TYPES: ReadonlySet<string> = new Set(['add_tag', 'remove_tag'])
 const RETIRED_CONDITION_SUBJECTS: ReadonlySet<string> = new Set(['tag_presence'])
+
+/** Every step that sends the customer a message. A new one joins this
+ *  list, or it messages customers who opted out. */
+const MESSAGE_STEP_TYPES: ReadonlySet<string> = new Set([
+  'send_message',
+  'send_buttons',
+  'send_list',
+  'send_template',
+])
+
+/** The log's `error_message` when a parked wait is not resumed. */
+const STOPPED_SWITCHED_OFF = 'stopped: the automation was switched off'
+
+/** The log detail of a message step not sent to an opted-out contact. */
+const SKIPPED_OPTED_OUT = 'skipped: the customer opted out'
+
+/**
+ * Why a message step must not run, or null to run it. A contact with
+ * `opted_out_at` gets a message only as a direct answer to what they
+ * just wrote. A flag that cannot be read counts as opted out.
+ */
+async function optOutSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (args.customerJustWrote || !MESSAGE_STEP_TYPES.has(step.step_type)) return null
+  // The step itself fails on a missing contact.
+  if (!args.contactId) return null
+  const { data, error } = await supabaseAdmin()
+    .from('contacts')
+    .select('opted_out_at')
+    .eq('id', args.contactId)
+    .eq('account_id', args.automation.account_id)
+    .maybeSingle()
+  if (error) {
+    console.error('[automations] opt-out read failed, not sending:', args.automation.id, error)
+    return 'skipped: could not check whether the customer opted out'
+  }
+  // What the sender itself says of a contact it cannot find.
+  if (!data) throw new Error('contact not found for this account')
+  return (data as { opted_out_at?: string | null }).opted_out_at ? SKIPPED_OPTED_OUT : null
+}
+
+/** Fails the step with a short reason; the database's own text only goes
+ *  to the server log. */
+function failOnWriteError(error: unknown, reason: string): void {
+  if (!error) return
+  console.error(`[automations] ${reason}:`, error)
+  throw new Error(reason)
+}
 
 /** How many chat_tag_set dispatches deep a run may be and still dispatch. */
 export const MAX_CHAT_TAG_CHAIN_DEPTH = 3
@@ -1065,19 +1168,9 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       return text.toLowerCase().includes((cfg.value ?? '').toLowerCase())
     }
     case 'time_of_day': {
-      // operand form "HH:mm-HH:mm" — true if now is within that window
-      // (supports over-midnight ranges like "18:00-09:00").
-      const [from, to] = (cfg.operand ?? '').split('-')
-      if (!from || !to) return false
-      const now = new Date()
-      const mins = now.getHours() * 60 + now.getMinutes()
-      const parse = (s: string) => {
-        const [h, m] = s.split(':').map(Number)
-        return (h || 0) * 60 + (m || 0)
-      }
-      const f = parse(from)
-      const t = parse(to)
-      return f <= t ? mins >= f && mins < t : mins >= f || mins < t
+      // The wall clock of AUTOMATION_TIME_ZONE, never the server's (UTC
+      // in production).
+      return isInTimeRange(cfg.operand, new Date())
     }
     default:
       return false

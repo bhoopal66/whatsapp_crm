@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import ar from '../../../messages/ar.json';
+import en from '../../../messages/en.json';
+import ko from '../../../messages/ko.json';
 import {
+  AUTOMATION_TIME_ZONE,
   buildSchedule,
   DEFAULT_SCHEDULE,
   formatTimeRange,
+  isInTimeRange,
   parseSchedule,
   parseTimeRange,
   type SchedulePreset,
@@ -111,5 +116,42 @@ describe('time ranges', () => {
   it('formats back to the stored shape', () => {
     expect(formatTimeRange({ from: '18:00', to: '09:00' })).toBe('18:00-09:00');
     expect(formatTimeRange(parseTimeRange('7:05-8:10')!)).toBe('07:05-08:10');
+  });
+});
+
+describe('isInTimeRange', () => {
+  const at = (iso: string, operand: string, tz?: string) =>
+    isInTimeRange(operand, new Date(iso), tz);
+
+  it('reads the Dubai wall clock by default, start in and end out', () => {
+    expect(at('2026-01-15T05:00:00Z', '09:00-18:00')).toBe(true);
+    expect(at('2026-01-15T04:59:00Z', '09:00-18:00')).toBe(false);
+    expect(at('2026-01-15T14:00:00Z', '09:00-18:00')).toBe(false);
+  });
+
+  it('wraps an overnight window', () => {
+    expect(at('2026-01-15T14:00:00Z', '18:00-09:00')).toBe(true);
+    expect(at('2026-01-15T22:00:00Z', '18:00-09:00')).toBe(true);
+    expect(at('2026-01-15T05:00:00Z', '18:00-09:00')).toBe(false);
+  });
+
+  it('follows daylight saving in a zone that has it', () => {
+    const tz = 'Europe/London';
+    expect(at('2026-01-15T08:30:00Z', '09:00-18:00', tz)).toBe(false);
+    expect(at('2026-07-15T08:30:00Z', '09:00-18:00', tz)).toBe(true);
+  });
+
+  it('an empty or unreadable window is never in', () => {
+    expect(at('2026-01-15T05:00:00Z', '09:00-09:00')).toBe(false);
+    expect(at('2026-01-15T05:00:00Z', '')).toBe(false);
+    expect(isInTimeRange(undefined, new Date())).toBe(false);
+  });
+
+  it('the builder hint names the zone in every language', () => {
+    for (const m of [en, ar, ko]) {
+      expect(m.Automations.builder.config.timeRangeHint).toContain(
+        AUTOMATION_TIME_ZONE
+      );
+    }
   });
 });

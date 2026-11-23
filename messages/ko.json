@@ -1801,7 +1801,7 @@
         "conditionTextPlaceholder": "this text",
         "timeFrom": "From",
         "timeUntil": "Until",
-        "timeRangeHint": "Uses the server's clock. A window such as 18:00 until 09:00 runs past midnight.",
+        "timeRangeHint": "Uses Dubai time (Asia/Dubai). A window such as 18:00 until 09:00 runs past midnight.",
         "timeRangeInvalid": "The saved value \"{value}\" is not a time window. Pick times to replace it.",
         "placeholderContact": "이름 / 이메일 / 회사",
         "urlLabel": "URL",

@@ -699,6 +699,14 @@ describe('processMessage — journey bot', () => {
     });
   });
 
+  it('tells every automation it dispatches that the customer just wrote', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.automations).toHaveBeenCalled();
+    for (const [input] of h.automations.mock.calls) {
+      expect(input).toMatchObject({ customerJustWrote: true });
+    }
+  });
+
   it('never dispatches intent_match while meaning triggers are off', async () => {
     h.meaningOn = false;
     await processMessage(message, 'acct-1', 'owner-1', channel);

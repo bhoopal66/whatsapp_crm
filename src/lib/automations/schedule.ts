@@ -7,9 +7,10 @@
 //   documents as "every day at"). Presets write ordinary cron; anything
 //   that is not a preset stays editable as raw text ("custom").
 // - A `time_of_day` condition keeps `operand` as "HH:mm-HH:mm", the
-//   window engine.ts's evaluateCondition reads (over-midnight ranges
+//   window `isInTimeRange` reads for the engine (over-midnight ranges
 //   like "18:00-09:00" included).
 
+import { localMinutes } from '@/lib/broadcasts/quiet-hours';
 import { formatClock, parseClock } from '@/lib/time-of-day';
 
 export type ScheduleMode = 'daily' | 'weekdays' | 'hourly' | 'custom';
@@ -97,4 +98,34 @@ export function parseTimeRange(
 
 export function formatTimeRange(range: TimeRange): string {
   return `${range.from}-${range.to}`;
+}
+
+/** The zone a `time_of_day` window is read in. Automations have no zone
+ *  setting of their own, and staff set the hours in Dubai time. The
+ *  builder's `timeRangeHint` names it: change one, change both. */
+export const AUTOMATION_TIME_ZONE = 'Asia/Dubai';
+
+/**
+ * Whether the wall clock in `tz` is inside a `time_of_day` operand at
+ * `now`: start inclusive, end exclusive, an over-midnight window wraps.
+ * A window that ends when it starts is empty, not the whole day, so
+ * this is not `isInQuietHours`.
+ */
+export function isInTimeRange(
+  operand: string | null | undefined,
+  now: Date,
+  tz: string = AUTOMATION_TIME_ZONE
+): boolean {
+  const [from, to] = (operand ?? '').split('-');
+  if (!from || !to) return false;
+  const toMinutes = (s: string) => {
+    const [h, m] = s.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const start = toMinutes(from);
+  const end = toMinutes(to);
+  const mins = localMinutes(now, tz);
+  return start <= end
+    ? mins >= start && mins < end
+    : mins >= start || mins < end;
 }

@@ -18,6 +18,25 @@ No migration.
 - Every line of the server log starts with the time and level
   (`LOG_TIMESTAMPS=off` to leave them bare), and a request that fails
   with an unhandled error logs which route it was, without the query.
+### Automations: stopping, opt-outs, Dubai time and failed steps
+
+No migration. What changes for automations already running:
+- **Switching an automation off now stops the people waiting in it.**
+  When a Wait comes due and the automation is off or deleted, nothing
+  runs and the log says "stopped: the automation was switched off".
+  Switching it back on before the wait ends lets them continue.
+- **Opted-out customers** get no automation message (text, template,
+  buttons, list) unless it directly answers the message they just wrote.
+  After a Wait, a tag, or a trigger posted to the API the message is
+  skipped, the log says why, and the other steps run. If the opt-out
+  cannot be read, nothing is sent.
+- **"The time is within a window"** now means Dubai time. It used the
+  server's clock (UTC in production), so 09:00-18:00 really ran 13:00 to
+  22:00 in Dubai. If you shifted your hours to make up for that, set them
+  back.
+- **Steps whose save failed** (create deal, update contact, assign to a
+  person, close conversation, wait) are now logged as failed and stop
+  the run, instead of showing success.
 
 ### Dependencies and repository settings
 
