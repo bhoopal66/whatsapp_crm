@@ -232,7 +232,10 @@ describe('message', () => {
     await run(
       'whapi',
       'message',
-      messagePayload({ ...MESSAGE, text: 'a\u0000b \ud83d c' })
+      messagePayload({
+        ...(MESSAGE as object),
+        text: 'a\u0000b \ud83d c',
+      } as typeof MESSAGE)
     );
     expect(h.processMessage.mock.calls.at(-1)![0]).toMatchObject({
       text: 'ab \ufffd c',
