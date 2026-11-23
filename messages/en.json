@@ -7433,7 +7433,8 @@
         "invalidDateTime": "That date and time don't exist in this time zone.",
         "durationInvalid": "Pick a duration.",
         "startInPast": "That time has already passed.",
-        "saveFailed": "Couldn't save the meeting."
+        "saveFailed": "Couldn't save the meeting.",
+        "savedPartly": "The meeting was saved, but the invited people were not all updated. Check the list and try again."
       },
       "durationCustom": "Custom duration in minutes",
       "minutesUnit": "min",

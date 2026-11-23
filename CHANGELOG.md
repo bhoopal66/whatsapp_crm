@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar
+
+- Moving a meeting and adding people in one save now invites them to the new
+  time, not the old one. If the people part fails after the meeting was
+  saved, the dialog says so and reloads.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`
