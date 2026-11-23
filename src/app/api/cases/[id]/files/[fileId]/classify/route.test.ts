@@ -89,6 +89,33 @@ describe('POST files/[fileId]/classify', () => {
     });
   });
 
+  it('passes moveFrom on, and answers what the file is filed as without it', async () => {
+    m.classify.mockRejectedValueOnce(
+      new CaseFilesRefusedError('ALREADY_FILED_AS', 'visa')
+    );
+    const body = { docKey: 'passport' };
+    const res = await post(body);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'ALREADY_FILED_AS',
+      filedAs: 'visa',
+    });
+    await post({ ...body, moveFrom: 'visa' });
+    expect(m.classify.mock.calls.map(([a]) => a.moveFrom)).toEqual([
+      undefined,
+      'visa',
+    ]);
+  });
+
+  it('passes reuse on', async () => {
+    await post({ docKey: 'passport' });
+    await post({ docKey: 'passport', reuse: true });
+    expect(m.classify.mock.calls.map(([a]) => a.reuse)).toEqual([
+      undefined,
+      true,
+    ]);
+  });
+
   it('is 401 unauthenticated', async () => {
     m.getCurrentAccount.mockRejectedValue(new UnauthorizedError());
     expect((await post({ docKey: 'passport' })).status).toBe(401);

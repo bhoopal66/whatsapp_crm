@@ -402,7 +402,20 @@ bank's required documents with default values.
 **Attaching a file.** A customer's WhatsApp document, or a staff upload,
 is attached to one of the case's required documents
 (`/api/cases/[id]/files`, `/files/attach`, `/files/[fileId]/classify`). Each
-attach is a new version; nothing is deleted.
+attach is a new version; nothing is deleted. A file that already counts as
+another document is refused (409 `ALREADY_FILED_AS`, `filedAs`) unless the
+request names that document in `moveFrom`: it would go missing.
+
+**Using a replaced version again (270).** Staff can bring a replaced
+(`superseded`) version back: it becomes the newest version and replaces the
+current one once its checks pass. Its checks run first; one that would fail
+them is refused (409 `REUSE_WOULD_FAIL`, `failedChecks`) and nothing
+changes. A file changed by somebody else meanwhile is read and decided on
+again, then refused with 409 `CHECK_MISMATCH` if it changed once more. The
+request says `reuse: true`: a file somebody else already used again is
+answered as it stands and not checked again, as is a move already made; a
+file that is not replaced is refused (409 `FILE_STATE`). With no expiry date
+given, the one it was filed with counts.
 
 **Checks.** Every attached version is checked automatically: type and file
 signature, size, a readable PDF and its page count, photo resolution (at

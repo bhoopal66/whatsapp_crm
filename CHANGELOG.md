@@ -39,6 +39,25 @@ No migration.
   not: a second tap while it opened left the microphone on, and after a
   few recordings Safari refused another.
 
+### Case files: a replaced document can come back
+
+- A document replaced by mistake can be used again: open a document's
+  versions on the case's Documents tab and choose "Use this one again".
+  It becomes the newest version and is checked again; the current one
+  stays until it passes.
+- A file already filed as one document is no longer moved silently when it
+  is attached or uploaded again as another: the screen says what it is
+  filed as and offers "Move it here".
+- An earlier version that would fail its checks now (it expires too soon,
+  say) is not used: the screen says which check, and the current file and
+  the assembled case file stay.
+- Two people filing one file as two documents at the same moment: the
+  second is told what it was just filed as.
+
+**Migration required: 270.** Apply
+`supabase/migrations/270_case_file_fixes.sql` (after 181) before the new
+build. The previous build keeps working on it.
+
 ### An alert when the site is down
 
 No migration. `.github/workflows/uptime.yml` checks the site from outside

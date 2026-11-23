@@ -37,11 +37,14 @@ import {
   buildState,
   caseFileErrorKey,
   checkFailureKey,
+  filedElsewhere,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
   parseCaseFiles,
   parseDownloadUrl,
+  reuseBody,
+  reuseFailures,
   shortHash,
   uploadProblem,
   validExpiry,
@@ -190,6 +193,7 @@ export function CaseFilesSection({
               label={labelOf(row.spec.docKey)}
               canAct={canAct}
               caseId={caseId}
+              settle={settle}
               onAttach={() => setDialog({ kind: 'attach', spec: row.spec })}
               onUpload={() => setDialog({ kind: 'upload', spec: row.spec })}
             />
@@ -214,6 +218,7 @@ export function CaseFilesSection({
           contactId={contactId}
           spec={dialog.spec}
           label={labelOf(dialog.spec.docKey)}
+          labelOf={labelOf}
           onClose={() => setDialog(null)}
           settle={settle}
         />
@@ -223,6 +228,7 @@ export function CaseFilesSection({
           caseId={caseId}
           spec={dialog.spec}
           label={labelOf(dialog.spec.docKey)}
+          labelOf={labelOf}
           onClose={() => setDialog(null)}
           settle={settle}
         />
@@ -236,6 +242,7 @@ function DocRow({
   label,
   canAct,
   caseId,
+  settle,
   onAttach,
   onUpload,
 }: {
@@ -243,11 +250,13 @@ function DocRow({
   label: string;
   canAct: boolean;
   caseId: string;
+  settle: (r: Reply, success: string | null) => boolean;
   onAttach: () => void;
   onUpload: () => void;
 }) {
   const t = useTranslations('CaseFiles');
   const [open, setOpen] = useState(false);
+  const [reuse, setReuse] = useState<CaseFileView | null>(null);
   const { current, history } = row;
   const versions = history.length + (current ? 1 : 0);
 
@@ -330,9 +339,22 @@ function DocRow({
       {open && history.length > 0 && (
         <ul className="bg-card-2 space-y-1 rounded-md border p-2">
           {history.map((f) => (
-            <HistoryLine key={f.id} file={f} />
+            <HistoryLine
+              key={f.id}
+              file={f}
+              onReuse={canAct && reuseBody(f) ? () => setReuse(f) : null}
+            />
           ))}
         </ul>
+      )}
+      {reuse && (
+        <ReuseDialog
+          caseId={caseId}
+          file={reuse}
+          label={label}
+          onClose={() => setReuse(null)}
+          settle={settle}
+        />
       )}
     </li>
   );
@@ -485,21 +507,97 @@ function BuildCard({
   );
 }
 
-function HistoryLine({ file }: { file: CaseFileView }) {
+function HistoryLine({
+  file,
+  onReuse,
+}: {
+  file: CaseFileView;
+  onReuse: (() => void) | null;
+}) {
   const t = useTranslations('CaseFiles');
   const when = useWhen();
   return (
-    <li className="text-muted-foreground text-xs break-all">
-      {[
-        file.version !== null ? t('version', { n: file.version }) : null,
-        file.renamedName ?? file.originalName ?? t('unnamed'),
-        t(`status.${file.status}`),
-        formatFileSize(file.sizeBytes),
-        when(file.registeredAt),
-      ]
-        .filter(Boolean)
-        .join(' · ')}
+    <li className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs break-all">
+      <span className="min-w-0 flex-1">
+        {[
+          file.version !== null ? t('version', { n: file.version }) : null,
+          file.renamedName ?? file.originalName ?? t('unnamed'),
+          t(`status.${file.status}`),
+          formatFileSize(file.sizeBytes),
+          when(file.registeredAt),
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+      {onReuse && (
+        <Button size="sm" variant="ghost" onClick={onReuse}>
+          {t('useAgain')}
+        </Button>
+      )}
     </li>
+  );
+}
+
+/** Confirms bringing a replaced version back as the newest one (270). */
+function ReuseDialog({
+  caseId,
+  file,
+  label,
+  onClose,
+  settle,
+}: {
+  caseId: string;
+  file: CaseFileView;
+  label: string;
+  onClose: () => void;
+  settle: (r: Reply, success: string | null) => boolean;
+}) {
+  const t = useTranslations('CaseFiles');
+  const [busy, setBusy] = useState(false);
+  const [failing, setFailing] = useState<string[]>([]);
+
+  const submit = async () => {
+    const body = reuseBody(file);
+    if (!body) return;
+    setBusy(true);
+    const r = await sendCaseRequest(
+      `/api/cases/${caseId}/files/${file.id}/classify`,
+      'POST',
+      body
+    );
+    setBusy(false);
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (failures.length) return;
+    const result = (r.json as { result?: { status?: unknown } } | null)?.result;
+    const failed = r.ok && result?.status === 'failed';
+    if (failed) toast.error(t('checkedFailed', { label }));
+    if (settle(r, failed ? null : t('usedAgain', { label }))) onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('useAgainTitle', { label })}</DialogTitle>
+          <DialogDescription>
+            {t('useAgainBody', {
+              name: file.renamedName ?? file.originalName ?? t('unnamed'),
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <WouldFailAlert failing={failing} />
+        <DialogFooter>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {t('cancel')}
+          </Button>
+          <Button disabled={busy} onClick={() => void submit()}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            {t('useAgain')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -660,11 +758,45 @@ function ExpiryField({
   );
 }
 
+/** Says which document a refused file is filed as; the button then moves it. */
+function FiledAsAlert({ type }: { type: string | null }) {
+  const t = useTranslations('CaseFiles');
+  if (type === null) return null;
+  return (
+    <p
+      role="alert"
+      className="bg-warning-soft text-warning rounded-md px-3 py-2 text-start text-sm"
+    >
+      {t('filedAs', { type })}
+    </p>
+  );
+}
+
+/** Says which checks an earlier version would fail, so it was not used. */
+function WouldFailAlert({ failing }: { failing: string[] }) {
+  const t = useTranslations('CaseFiles');
+  if (failing.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="bg-destructive-soft text-destructive rounded-md px-3 py-2 text-start text-sm"
+    >
+      <p>{t('reuseWouldFail')}</p>
+      <ul className="list-disc ps-5">
+        {failing.map((key) => (
+          <li key={key}>{t(key)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function AttachDialog({
   caseId,
   contactId,
   spec,
   label,
+  labelOf,
   onClose,
   settle,
 }: {
@@ -672,6 +804,7 @@ function AttachDialog({
   contactId: string | null;
   spec: CaseFileSpecView;
   label: string;
+  labelOf: (docKey: string) => string;
   onClose: () => void;
   settle: (r: Reply, success: string | null) => boolean;
 }) {
@@ -682,6 +815,9 @@ function AttachDialog({
   const [picked, setPicked] = useState<string | null>(null);
   const [expiresOn, setExpiresOn] = useState('');
   const [busy, setBusy] = useState(false);
+  // Set by a refusal: the next submit moves the file from this document.
+  const [filedAs, setFiledAs] = useState<string | null>(null);
+  const [failing, setFailing] = useState<string[]>([]);
 
   useEffect(() => {
     if (!contactId) return;
@@ -712,9 +848,15 @@ function AttachDialog({
         customerDocumentId: picked,
         docKey: spec.docKey,
         ...(expiresOn ? { expiresOn } : {}),
+        ...(filedAs ? { moveFrom: filedAs } : {}),
       }
     );
     setBusy(false);
+    const elsewhere = filedElsewhere(r.status, r.json);
+    setFiledAs(elsewhere);
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (elsewhere || failures.length) return;
     if (settle(r, t('attached', { label }))) onClose();
   };
 
@@ -751,7 +893,12 @@ function AttachDialog({
                   type="button"
                   role="radio"
                   aria-checked={picked === d.id}
-                  onClick={() => setPicked(d.id)}
+                  disabled={busy}
+                  onClick={() => {
+                    setPicked(d.id);
+                    setFiledAs(null);
+                    setFailing([]);
+                  }}
                   className={cn(
                     'bg-card-2 hover:bg-muted w-full rounded-md border px-3 py-2 text-start',
                     picked === d.id && 'border-primary ring-primary/30 ring-2'
@@ -776,6 +923,8 @@ function AttachDialog({
           value={expiresOn}
           onChange={setExpiresOn}
         />
+        <FiledAsAlert type={filedAs && labelOf(filedAs)} />
+        <WouldFailAlert failing={failing} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -785,7 +934,7 @@ function AttachDialog({
             onClick={() => void submit()}
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
-            {t('attachConfirm')}
+            {filedAs ? t('moveConfirm') : t('attachConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -797,12 +946,14 @@ function UploadDialog({
   caseId,
   spec,
   label,
+  labelOf,
   onClose,
   settle,
 }: {
   caseId: string;
   spec: CaseFileSpecView;
   label: string;
+  labelOf: (docKey: string) => string;
   onClose: () => void;
   settle: (r: Reply, success: string | null) => boolean;
 }) {
@@ -810,6 +961,9 @@ function UploadDialog({
   const [file, setFile] = useState<File | null>(null);
   const [expiresOn, setExpiresOn] = useState('');
   const [busy, setBusy] = useState(false);
+  // Set by a refusal: the next submit moves the file from this document.
+  const [filedAs, setFiledAs] = useState<string | null>(null);
+  const [failing, setFailing] = useState<string[]>([]);
   const problem = file ? uploadProblem(file) : null;
 
   const submit = async () => {
@@ -818,9 +972,15 @@ function UploadDialog({
     form.append('file', file);
     form.append('docKey', spec.docKey);
     if (expiresOn) form.append('expiresOn', expiresOn);
+    if (filedAs) form.append('moveFrom', filedAs);
     setBusy(true);
     const r = await sendForm(`/api/cases/${caseId}/files`, form);
     setBusy(false);
+    const elsewhere = filedElsewhere(r.status, r.json);
+    setFiledAs(elsewhere);
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (elsewhere || failures.length) return;
     if (settle(r, t('uploaded', { label }))) onClose();
   };
 
@@ -837,8 +997,13 @@ function UploadDialog({
             id="case-file-upload"
             type="file"
             accept={CASE_FILE_ACCEPT}
+            disabled={busy}
             aria-invalid={problem !== null}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setFiledAs(null);
+              setFailing([]);
+            }}
           />
           {problem && (
             <p role="alert" className="text-destructive text-xs">
@@ -852,6 +1017,8 @@ function UploadDialog({
           value={expiresOn}
           onChange={setExpiresOn}
         />
+        <FiledAsAlert type={filedAs && labelOf(filedAs)} />
+        <WouldFailAlert failing={failing} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -863,7 +1030,7 @@ function UploadDialog({
             onClick={() => void submit()}
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
-            {t('uploadConfirm')}
+            {filedAs ? t('moveConfirm') : t('uploadConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

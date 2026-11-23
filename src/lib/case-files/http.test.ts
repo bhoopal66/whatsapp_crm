@@ -14,6 +14,7 @@ import {
   parseUploadForm,
   requireFileId,
 } from './http';
+import type { Check } from './checks';
 import {
   CASE_FILES_REFUSALS,
   CaseFilesRefusedError,
@@ -46,6 +47,8 @@ const EXPECTED: Record<CaseFilesRefusal, number> = {
   MIME_NOT_ALLOWED: 422,
   FILE_TOO_LARGE: 413,
   STORAGE_UNAVAILABLE: 503,
+  ALREADY_FILED_AS: 409,
+  REUSE_WOULD_FAIL: 409,
 };
 
 function thrown(f: () => unknown): CaseHttpError {
@@ -83,6 +86,35 @@ describe('refusal table', () => {
 });
 
 describe('caseFilesErrorResponse', () => {
+  it('names the document a file is already filed as, on that refusal only', async () => {
+    const res = caseFilesErrorResponse(
+      new CaseFilesRefusedError('ALREADY_FILED_AS', 'trade_licence'),
+      't'
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'The file is already filed as another document',
+      code: 'ALREADY_FILED_AS',
+      filedAs: 'trade_licence',
+    });
+    const failedChecks: Check[] = [
+      { name: 'expiry', ok: false, detail: 'expiring' },
+    ];
+    const reuse = caseFilesErrorResponse(
+      new CaseFilesRefusedError('REUSE_WOULD_FAIL', undefined, failedChecks),
+      't'
+    );
+    expect(await reuse.json()).toMatchObject({
+      code: 'REUSE_WOULD_FAIL',
+      failedChecks,
+    });
+    const other = caseFilesErrorResponse(
+      new CaseFilesRefusedError('CASE_CLOSED'),
+      't'
+    );
+    expect(await other.json()).not.toHaveProperty('filedAs');
+  });
+
   it('answers 500 for a store failure, logging fn and SQLSTATE only', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = caseFilesErrorResponse(
@@ -219,6 +251,44 @@ describe('parseUploadForm', () => {
     f.set('file', file());
     f.set('expiresOn', 'tomorrow');
     expect(thrown(() => parseUploadForm(f)).status).toBe(422);
+  });
+});
+
+describe('moveFrom', () => {
+  it.each(['passport', '', null, undefined])(
+    'is the document named, or absent (%s)',
+    (moveFrom) => {
+      const expected = moveFrom ? { moveFrom } : {};
+      const common = { docKey: 'x', expiresOn: null, ...expected };
+      const body = { customerDocumentId: DOC, docKey: 'x', moveFrom };
+      expect(parseClassifyBody(body)).toEqual(common);
+      expect(parseAttachBody(body)).toEqual({
+        customerDocumentId: DOC,
+        ...common,
+      });
+      const f = new FormData();
+      f.set('file', new File([new Uint8Array([1])], 'a.pdf'));
+      if (typeof moveFrom === 'string') f.set('moveFrom', moveFrom);
+      expect(parseUploadForm(f).moveFrom).toBe(moveFrom || undefined);
+    }
+  );
+
+  it('is refused when it is not a document key', () => {
+    expect(() => parseClassifyBody({ docKey: 'x', moveFrom: true })).toThrow();
+  });
+});
+
+describe('reuse', () => {
+  it('is there only when true, and refused when it is not a boolean', () => {
+    const base = { docKey: 'x', expiresOn: null };
+    expect(parseClassifyBody({ docKey: 'x', reuse: true })).toEqual({
+      ...base,
+      reuse: true,
+    });
+    for (const reuse of [undefined, null, false])
+      expect(parseClassifyBody({ docKey: 'x', reuse })).toStrictEqual(base);
+    const bad = () => parseClassifyBody({ docKey: 'x', reuse: 'true' });
+    expect(thrown(bad).status).toBe(422);
   });
 });
 

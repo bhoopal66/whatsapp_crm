@@ -21,7 +21,7 @@ import {
 } from '@/lib/cases/http';
 import { CustomerDocumentRecordError } from '@/lib/customer-docs/record';
 
-import { isRealDate } from './checks';
+import { isRealDate, type Check } from './checks';
 import {
   CaseFilesRefusedError,
   CaseFilesStoreError,
@@ -86,6 +86,14 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     status: 503,
     text: 'The file store did not answer. Try again in a moment',
   },
+  ALREADY_FILED_AS: {
+    status: 409,
+    text: 'The file is already filed as another document',
+  },
+  REUSE_WOULD_FAIL: {
+    status: 409,
+    text: 'That earlier version would fail its checks now',
+  },
 };
 
 /**
@@ -109,9 +117,21 @@ const RECORD_REFUSAL_HTTP: Readonly<
   },
 };
 
-export function refusalResponse(code: CaseFilesRefusal): NextResponse {
+export function refusalResponse(
+  code: CaseFilesRefusal,
+  filedAs?: string,
+  failedChecks?: readonly Check[]
+): NextResponse {
   const { status, text } = CASE_FILES_REFUSAL_HTTP[code];
-  return NextResponse.json({ error: text, code }, { status });
+  return NextResponse.json(
+    {
+      error: text,
+      code,
+      ...(filedAs !== undefined ? { filedAs } : {}),
+      ...(failedChecks !== undefined ? { failedChecks } : {}),
+    },
+    { status }
+  );
 }
 
 /** Any error a case-files route can meet, as a response. */
@@ -119,7 +139,8 @@ export function caseFilesErrorResponse(
   err: unknown,
   route: string
 ): NextResponse {
-  if (err instanceof CaseFilesRefusedError) return refusalResponse(err.reason);
+  if (err instanceof CaseFilesRefusedError)
+    return refusalResponse(err.reason, err.filedAs, err.failedChecks);
   if (err instanceof CustomerDocumentRecordError) {
     const r = err.hint ? RECORD_REFUSAL_HTTP[err.hint] : undefined;
     if (r)
@@ -181,28 +202,47 @@ function expiresOnOf(value: unknown): string | null {
   return value;
 }
 
-/** POST files/attach: `{ customerDocumentId, docKey, expiresOn? }`. */
+/** The `moveFrom` key, only when a document was named. */
+function moveFromOf(value: unknown): { moveFrom?: string } {
+  const moveFrom = docKeyOf(value, false);
+  return moveFrom === null ? {} : { moveFrom };
+}
+
+/** The `reuse` key, only when true. */
+function reuseOf(value: unknown): { reuse?: true } {
+  if (value === undefined || value === null || value === false) return {};
+  if (value !== true) throw refused('VALIDATION_FAILED');
+  return { reuse: true };
+}
+
+/** POST files/attach: `{ customerDocumentId, docKey, expiresOn?, moveFrom? }`. */
 export function parseAttachBody(body: Record<string, unknown>): {
   customerDocumentId: string;
   docKey: string;
   expiresOn: string | null;
+  moveFrom?: string;
 } {
   if (!isUuid(body.customerDocumentId)) throw refused('VALIDATION_FAILED');
   return {
     customerDocumentId: body.customerDocumentId,
     docKey: docKeyOf(body.docKey, true)!,
     expiresOn: expiresOnOf(body.expiresOn),
+    ...moveFromOf(body.moveFrom),
   };
 }
 
-/** POST files/[fileId]/classify: `{ docKey, expiresOn? }`. */
+/** POST files/[fileId]/classify: `{ docKey, expiresOn?, moveFrom?, reuse? }`. */
 export function parseClassifyBody(body: Record<string, unknown>): {
   docKey: string;
   expiresOn: string | null;
+  moveFrom?: string;
+  reuse?: true;
 } {
   return {
     docKey: docKeyOf(body.docKey, true)!,
     expiresOn: expiresOnOf(body.expiresOn),
+    ...moveFromOf(body.moveFrom),
+    ...reuseOf(body.reuse),
   };
 }
 
@@ -215,6 +255,7 @@ export function parseUploadForm(form: FormData | null): {
   file: File;
   docKey: string | null;
   expiresOn: string | null;
+  moveFrom?: string;
 } {
   const file = form?.get('file');
   if (!(file instanceof File)) throw new CaseHttpError(400, 'file is required');
@@ -222,6 +263,7 @@ export function parseUploadForm(form: FormData | null): {
     file,
     docKey: docKeyOf(form!.get('docKey'), false),
     expiresOn: expiresOnOf(form!.get('expiresOn')),
+    ...moveFromOf(form!.get('moveFrom')),
   };
 }
 

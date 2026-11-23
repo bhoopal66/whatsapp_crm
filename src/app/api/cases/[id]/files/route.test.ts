@@ -154,6 +154,24 @@ describe('POST files (upload)', () => {
     expect(arg.file.bytes.byteLength).toBe(4);
   });
 
+  it('passes moveFrom on, and answers what the file is filed as without it', async () => {
+    m.uploadStaffFile.mockRejectedValueOnce(
+      new CaseFilesRefusedError('ALREADY_FILED_AS', 'visa')
+    );
+    const fields = { file: pdf(), docKey: 'passport' };
+    const res = await POST(uploadRequest(fields), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'ALREADY_FILED_AS',
+      filedAs: 'visa',
+    });
+    await POST(uploadRequest({ ...fields, moveFrom: 'visa' }), ctx);
+    expect(m.uploadStaffFile.mock.calls.map(([a]) => a.moveFrom)).toEqual([
+      undefined,
+      'visa',
+    ]);
+  });
+
   it('is 413 above 15 MiB of Content-Length, without reading the body', async () => {
     const { request, formData } = fakeRequest({
       'content-length': String(15 * 1024 * 1024 + 1),

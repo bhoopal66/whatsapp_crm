@@ -223,6 +223,22 @@ export function buildCaseFilesView(data: CaseFilesData): CaseFilesView {
   return { ready: data.ready, rows, unclassified };
 }
 
+/**
+ * The classify body that brings a replaced version back (270); null when it
+ * is not one. `reuse` holds the server to that: on a stale screen the same
+ * classify would re-check a file that counts by now.
+ */
+export function reuseBody(
+  file: CaseFileView
+): { docKey: string; reuse: true; expiresOn?: string } | null {
+  if (file.status !== 'superseded' || file.docKey === null) return null;
+  return {
+    docKey: file.docKey,
+    reuse: true,
+    ...(file.expiresOn ? { expiresOn: file.expiresOn } : {}),
+  };
+}
+
 const KNOWN_DETAILS = new Set([
   'too_large',
   'low_resolution',
@@ -297,6 +313,9 @@ const ERROR_CODES = new Set([
   'VALIDATION_FAILED',
   'MIME_NOT_ALLOWED',
   'FILE_INVALID',
+  'ALREADY_FILED_AS',
+  'REUSE_WOULD_FAIL',
+  'STORAGE_UNAVAILABLE',
 ]);
 
 /** The `CaseFiles` catalogue key for a refusal; `errors.generic` if unknown. */
@@ -306,6 +325,35 @@ export function caseFileErrorKey(status: number, code: unknown): string {
   if (status === 403) return 'errors.NOT_ALLOWED';
   if (status === 413) return 'errors.FILE_TOO_LARGE';
   return 'errors.generic';
+}
+
+/**
+ * The document a refused file is already filed as, which the dialog names
+ * before it offers the move; null for any other answer.
+ */
+export function filedElsewhere(status: number, json: unknown): string | null {
+  const j = obj(json);
+  return status === 409 && j?.code === 'ALREADY_FILED_AS'
+    ? str(j.filedAs)
+    : null;
+}
+
+/**
+ * The catalogue keys of the checks an earlier version would fail now
+ * (REUSE_WOULD_FAIL), which the dialog lists; empty for any other answer.
+ */
+export function reuseFailures(status: number, json: unknown): string[] {
+  const j = obj(json);
+  if (status !== 409 || j?.code !== 'REUSE_WOULD_FAIL') return [];
+  return (Array.isArray(j.failedChecks) ? j.failedChecks : [])
+    .map(obj)
+    .map((c) =>
+      checkFailureKey({
+        name: str(c?.name) ?? '',
+        ok: false,
+        detail: str(c?.detail),
+      })
+    );
 }
 
 /** YYYY-MM-DD or empty: the optional expiry field's value. */
