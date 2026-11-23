@@ -29,6 +29,7 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   supabaseAdmin: () => fakeSupabase(mocks.admin),
 }));
 
+import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
 import { GET, POST } from './route';
@@ -245,6 +246,34 @@ describe('POST', () => {
     const res = await post({ text: 'hi' });
     expect(res.status).toBe(429);
     expect(stored()).toHaveLength(0);
+  });
+
+  it.each([
+    ['a timeout', new WhapiError('timed out', 503)],
+    ['a gateway 5xx', new WhapiError('bad gateway', 502)],
+    ['an OpenWA 5xx', new OpenWAError('boom', 500)],
+    ['an answer that is not JSON', new SyntaxError('Unexpected token <')],
+  ])('says %s may have been sent, whatever was sent', async (_what, err) => {
+    mocks.sendGroupText.mockRejectedValue(err);
+    mocks.sendGroupMedia.mockRejectedValue(err);
+    const media = { kind: 'image', url: URL_OK, path: PATH };
+    for (const body of [{ text: 'hi' }, { media }]) {
+      const res = await post(body);
+      expect(res.status).toBe(502);
+      expect((await res.json()).code).toBe('send_unconfirmed');
+    }
+    expect(stored()).toHaveLength(0);
+  });
+
+  it('keeps the code of a certain refusal', async () => {
+    for (const [status, code] of [
+      [401, 'channel_disconnected'],
+      [403, 'not_admin'],
+      [400, 'invalid_request'],
+    ] as const) {
+      mocks.sendGroupText.mockRejectedValue(new WhapiError('no', status));
+      expect((await (await post({ text: 'hi' })).json()).code).toBe(code);
+    }
   });
 
   const PATH = 'account-acct-1/groups/1700000000000-photo.jpg';

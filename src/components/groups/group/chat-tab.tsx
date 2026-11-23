@@ -4,8 +4,10 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -22,17 +24,30 @@ import {
   groupMediaRowType,
 } from '@/lib/groups/outbound-media';
 import { markGroupRead } from '@/lib/groups/mark-read';
+import {
+  arrivedUnconfirmed,
+  groupSendAnswerKind,
+  unconfirmedSends,
+} from '@/lib/groups/unconfirmed-sends';
+import { thrownSendKind } from '@/lib/inbox/failed-send';
 import { createClient } from '@/lib/supabase/client';
 
 import type { GroupTabProps } from '../group-page';
 import { GroupMessageLog, type GroupChatMessage as Msg } from './message-log';
+import { UnconfirmedSendFooter } from './unconfirmed-send';
 
 const PAGE = 50;
+
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
 
 /** One group's chat log, live, with a composer for our number. */
 export function ChatTab({ groupId, detail }: GroupTabProps) {
   const t = useTranslations('Groups.page');
+  const tFailed = useTranslations('Inbox.failedSend');
   const { user, profile } = useAuth();
+  const userId = user?.id ?? null;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -151,11 +166,67 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     }
   };
 
+  // Sends that may be in the group: kept across tabs and groups.
+  const allUnconfirmed = useSyncExternalStore(
+    unconfirmedSends.subscribe,
+    unconfirmedSends.get,
+    unconfirmedSends.get
+  );
+  const unconfirmed = useMemo(
+    () => allUnconfirmed.filter((u) => u.groupId === groupId),
+    [allUnconfirmed, groupId]
+  );
+  useEffect(() => {
+    if (userId) unconfirmedSends.claim(userId);
+  }, [userId]);
+  // One that turns up in the log is settled: its real row shows instead.
+  useEffect(() => {
+    unconfirmedSends.remove(
+      arrivedUnconfirmed(unconfirmed, groupId, messages, userId)
+    );
+  }, [unconfirmed, groupId, messages, userId]);
+  const shown = useMemo(
+    () =>
+      mergeMessages(
+        messages,
+        unconfirmed.map((u) => u.message as Msg)
+      ),
+    [messages, unconfirmed]
+  );
+
+  const unconfirmedFooter = (m: Msg) => {
+    const row = unconfirmed.find((u) => u.message.id === m.id);
+    if (!row) return null;
+    const words = m.body?.trim();
+    return (
+      <UnconfirmedSendFooter
+        onCopy={words ? () => void copy(words) : undefined}
+        // Its upload stays: the message in the group may link to it.
+        onDiscard={() => unconfirmedSends.remove([row])}
+      />
+    );
+  };
+
+  const copy = async (words: string) => {
+    try {
+      await navigator.clipboard.writeText(words);
+      toast.success(tFailed('copied'));
+    } catch {
+      toast.error(tFailed('copyFailed'));
+    }
+  };
+
+  const reread = () => {
+    void load()
+      .then((r) => setMessages((m) => mergeMessages(m, r.messages)))
+      .catch(() => undefined);
+  };
+
   /**
    * One send into the group, shown at once as an optimistic bubble.
-   * False when nothing went out (the composer gives the text back, or
-   * deletes the upload); true once WhatsApp has it, even if the row was
-   * not recorded (a resend would duplicate).
+   * False when nothing certainly went out (the composer gives the text
+   * or the attachment back); true once WhatsApp has it, or may have it:
+   * a resend could then put it in the group twice.
    */
   const post = async (
     payload: { text: string } | { media: GroupMediaSendPayload },
@@ -176,6 +247,18 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     };
     stickRef.current = true;
     setMessages((m) => mergeMessages(m, [optimistic]));
+    // It may be in the group: never offered again, only looked for.
+    const keepUnconfirmed = (): true => {
+      setMessages((m) => m.filter((x) => x.id !== tempId));
+      unconfirmedSends.add(userId, {
+        groupId,
+        message: optimistic,
+        knownIds: new Set(messages.map((m) => m.id)),
+      });
+      reread();
+      return true;
+    };
+    const offlineBefore = isOffline();
     try {
       const res = await fetch(`/api/whatsapp/groups/${groupId}/messages`, {
         method: 'POST',
@@ -187,6 +270,10 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         code?: string;
       } | null;
       if (!res.ok) {
+        if (groupSendAnswerKind(res.status, json?.code) === 'maybe') {
+          toast.error(t('reasons.send_unconfirmed'));
+          return keepUnconfirmed();
+        }
         setMessages((m) => m.filter((x) => x.id !== tempId));
         toast.error(t(`reasons.${reasonKey(json?.code)}`));
         return false;
@@ -198,9 +285,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         setMessages((m) =>
           m.map((x) => (x.id === tempId ? { ...x, status: 'sent' } : x))
         );
-        void load()
-          .then((r) => setMessages((m) => mergeMessages(m, r.messages)))
-          .catch(() => undefined);
+        reread();
         return true;
       }
       // The realtime echo may already have delivered the real row.
@@ -212,8 +297,15 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
       );
       return true;
     } catch {
+      // No answer. Only a device that was offline throughout is certain.
+      if (thrownSendKind(offlineBefore, isOffline()) === 'maybe') {
+        toast.error(t('reasons.send_unconfirmed'), {
+          description: tFailed('noAnswer'),
+        });
+        return keepUnconfirmed();
+      }
       setMessages((m) => m.filter((x) => x.id !== tempId));
-      toast.error(t('reasons.unknown'));
+      toast.error(tFailed('offline'));
       return false;
     }
   };
@@ -252,7 +344,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
             {t('chat.loadFailed')}
           </p>
         )}
-        {!loading && !failed && messages.length === 0 && (
+        {!loading && !failed && shown.length === 0 && (
           <p className="text-muted-foreground py-8 text-center text-sm">
             {t('chat.empty')}
           </p>
@@ -269,7 +361,11 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
             </Button>
           </div>
         )}
-        <GroupMessageLog messages={messages} currentUserId={user?.id ?? null} />
+        <GroupMessageLog
+          messages={shown}
+          currentUserId={userId}
+          footer={unconfirmedFooter}
+        />
       </div>
 
       <GroupComposer
