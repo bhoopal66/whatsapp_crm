@@ -12,6 +12,25 @@ and polish.
 
 ## [Unreleased]
 
+### Conversation flows that stop, and never repeat a step
+
+No migration.
+- A flow whose menu cannot be sent ends instead of swallowing the
+  customer's next messages.
+- Switching a flow off stops the runs in progress at the customer's next
+  message.
+- Two quick messages no longer send the next step, or a repeated menu,
+  twice. While one message's steps are still going out, another message
+  in the same flow is not answered by the flow.
+- A message to another of your numbers is no longer taken as an answer to
+  the menu a flow sent from this one (a tap on that menu still is).
+- A hand-off keeps the person already on the chat, skips someone who has
+  left, and rings the admins when the chat could not be updated.
+- The timeout sweep reads every run, and keeps the run of a customer who
+  answers during it.
+- A flow sends nothing to a customer who opted out or is marked
+  do-not-contact: its run ends and no new one starts.
+
 ### Forwarding and reactions that match WhatsApp
 
 No migration.

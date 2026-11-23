@@ -44,6 +44,7 @@ import {
   engineSendMedia,
   engineSendText,
 } from './channel-send';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import { sendsMenusAsText } from '@/lib/whatsapp/channels';
 import { decideFallback, resolveFallbackPolicy } from './fallback';
 import {
@@ -331,6 +332,29 @@ async function loadAllNodes(
     map.set(row.node_key, row);
   }
   return map;
+}
+
+/**
+ * Whether a flow may message this contact: 'ok', 'refused' (opted out or
+ * do-not-contact), or 'unknown' when the flags could not be read, which
+ * sends nothing. A contact that is not there is the sender's to report.
+ */
+async function flowConsent(
+  db: AdminClient,
+  accountId: string,
+  contactId: string
+): Promise<'ok' | 'refused' | 'unknown'> {
+  const { data, error } = await db
+    .from('contacts')
+    .select('opted_out_at, do_not_contact_at')
+    .eq('id', contactId)
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) {
+    console.error('[flows] opt-out read failed, not sending:', error.message);
+    return 'unknown';
+  }
+  return consentRefusal(data) ? 'refused' : 'ok';
 }
 
 async function logEvent(
@@ -1192,6 +1216,17 @@ export async function dispatchInboundToFlows(
       if (!runFlow || runFlow.status === 'active') {
         // One SELECT for the whole flow's nodes — advance loop is now
         // in-memory. See loadAllNodes.
+        const consent = await flowConsent(db, input.accountId, input.contactId);
+        if (consent !== 'ok') {
+          if (consent === 'refused') {
+            await endRun(db, activeRun.id, 'failed', 'customer_opted_out');
+          }
+          return {
+            consumed: false,
+            flow_run_id: activeRun.id,
+            outcome: 'no_match',
+          };
+        }
         const nodes = await loadAllNodes(db, activeRun.flow_id);
         return await handleReplyForActiveRun(db, activeRun, input, nodes);
       }
@@ -1588,6 +1623,9 @@ async function startNewRun(
   /** Campaign-started runs only (migration 054). */
   seed?: { broadcastId: string; vars: Record<string, string> }
 ): Promise<DispatchInboundResult> {
+  if ((await flowConsent(db, input.accountId, input.contactId)) !== 'ok') {
+    return { consumed: false, outcome: 'no_match' };
+  }
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
