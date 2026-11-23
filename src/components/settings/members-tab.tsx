@@ -94,6 +94,7 @@ import {
   type HandoverPerson,
   type WorkCounts,
 } from '@/lib/auth/member-handover';
+import { parseMadeKeys, type MadeKey } from '@/lib/api-keys/made-by';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import {
@@ -104,6 +105,7 @@ import {
   canHavePersonalWhatsapp,
   canManageMembers,
   canViewAllCalls,
+  hasMinRole,
   isBankGuest,
   type AccountRole,
   type AssignableRole,
@@ -122,11 +124,21 @@ import { CoordinatorBanksDialog } from './coordinator-banks-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
 import { MemberDetailsDialog } from './member-details-dialog';
-import { MemberHandoverDialog, useWorkText } from './member-handover-dialog';
+import {
+  MemberHandoverDialog,
+  RevokableKey,
+  useWorkText,
+} from './member-handover-dialog';
 import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { filterMembers, inactiveLast } from './member-search';
 import { ROLE_META } from './role-meta';
+
+/** What a person holds: work counts and the live API keys they made. */
+interface Held {
+  counts: WorkCounts;
+  keys: MadeKey[];
+}
 
 interface Member {
   user_id: string;
@@ -219,7 +231,25 @@ export function MembersTab() {
     new Map()
   );
   // What the person about to be removed holds.
-  const [removingWork, setRemovingWork] = useState<WorkCounts | null>(null);
+  const [removingWork, setRemovingWork] = useState<Held | null>(null);
+  // Live API keys whose maker is gone or no longer an admin.
+  const [leftKeys, setLeftKeys] = useState<MadeKey[]>([]);
+  const keysByMaker = useMemo(() => {
+    const out = new Map<string, MadeKey[]>();
+    for (const k of leftKeys) {
+      if (!k.createdBy) continue;
+      out.set(k.createdBy, [...(out.get(k.createdBy) ?? []), k]);
+    }
+    return out;
+  }, [leftKeys]);
+  // Keys nobody on the roster made: the maker left the workspace.
+  const strayKeys = useMemo(
+    () =>
+      leftKeys.filter(
+        (k) => !k.createdBy || !members.some((m) => m.user_id === k.createdBy)
+      ),
+    [leftKeys, members]
+  );
   const [memberQuery, setMemberQuery] = useState('');
   const shownMembers = useMemo(
     () =>
@@ -237,28 +267,34 @@ export function MembersTab() {
       const res = await fetch('/api/account/members/left-work', {
         cache: 'no-store',
       });
-      if (res.ok) setLeftWork(leftWorkByPerson(await res.json()));
+      if (res.ok) {
+        const body = await res.json();
+        setLeftWork(leftWorkByPerson(body));
+        setLeftKeys(parseMadeKeys(body?.keys) ?? []);
+      }
     } catch {
       // The roster stands without it.
     }
   }, []);
 
-  const workOf = useCallback(
-    async (userId: string): Promise<WorkCounts | null> => {
-      try {
-        const res = await fetch(`/api/account/members/${userId}/handover`, {
-          cache: 'no-store',
-        });
-        if (!res.ok) return null;
-        return parseWorkCounts(
-          ((await res.json()) as { counts?: unknown }).counts
-        );
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
+  const workOf = useCallback(async (userId: string): Promise<Held | null> => {
+    try {
+      const res = await fetch(`/api/account/members/${userId}/handover`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        counts?: unknown;
+        keys?: unknown;
+      };
+      return {
+        counts: parseWorkCounts(body.counts),
+        keys: parseMadeKeys(body.keys) ?? [],
+      };
+    } catch {
+      return null;
+    }
+  }, []);
 
   const loadEverything = useCallback(async () => {
     try {
@@ -311,8 +347,8 @@ export function MembersTab() {
     setRemovingWork(null);
     if (!removingId) return;
     let off = false;
-    void workOf(removingId).then((counts) => {
-      if (!off) setRemovingWork(counts);
+    void workOf(removingId).then((held) => {
+      if (!off) setRemovingWork(held);
     });
     return () => {
       off = true;
@@ -365,6 +401,14 @@ export function MembersTab() {
           role: tRoles(nextRole),
         })
       );
+      if (hasMinRole(previousRole, 'admin') && !hasMinRole(nextRole, 'admin')) {
+        // The keys they made stay live until somebody revokes them.
+        void loadLeftWork();
+        const held = await workOf(member.user_id);
+        if (held && held.keys.length > 0) {
+          setHandoverMember({ ...member, role: nextRole });
+        }
+      }
     } catch (err) {
       // Same revert on network failure.
       setMembers((prev) =>
@@ -532,7 +576,9 @@ export function MembersTab() {
       if (!active) {
         // Their work stays theirs until somebody moves it.
         const held = await workOf(member.user_id);
-        if (held && workTotal(held) > 0) setHandoverMember(member);
+        if (held && (workTotal(held.counts) > 0 || held.keys.length > 0)) {
+          setHandoverMember(member);
+        }
       }
     } catch (err) {
       console.error('[MembersTab] set active error:', err);
@@ -824,6 +870,13 @@ export function MembersTab() {
                       })}
                     </p>
                   )}
+                  {keysByMaker.has(member.user_id) && (
+                    <p className="text-warning text-xs">
+                      {tHandover('holdsKeys', {
+                        count: keysByMaker.get(member.user_id)!.length,
+                      })}
+                    </p>
+                  )}
 
                   {/* Actions cluster. On mobile this is its own row
                       below the identity block; on desktop it sits
@@ -1047,7 +1100,8 @@ export function MembersTab() {
                       )}
 
                     {/* What someone who left still holds, to a colleague. */}
-                    {isInactive && leftWork.has(member.user_id) && (
+                    {((isInactive && leftWork.has(member.user_id)) ||
+                      keysByMaker.has(member.user_id)) && (
                       <Tooltip>
                         <TooltipTrigger
                           render={
@@ -1305,6 +1359,26 @@ export function MembersTab() {
         }}
       />
 
+      {strayKeys.length > 0 && (
+        <div className="border-border bg-card mt-4 space-y-2 rounded-lg border p-4">
+          <p className="text-sm font-medium">
+            {tHandover('strayTitle', { count: strayKeys.length })}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {tHandover('strayHint')}
+          </p>
+          <ul className="space-y-2">
+            {strayKeys.map((k) => (
+              <RevokableKey
+                key={k.id}
+                apiKey={k}
+                onRevoked={() => void loadLeftWork()}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
       <MemberHandoverDialog
         from={handoverMember ? handoverPerson(handoverMember) : null}
         people={members.map(handoverPerson)}
@@ -1378,26 +1452,39 @@ export function MembersTab() {
               })}
             </DialogDescription>
           </DialogHeader>
-          {removingMember && removingWork && workTotal(removingWork) > 0 && (
-            <div className="bg-warning-soft text-warning space-y-2 rounded-md p-3 text-sm">
-              <p>
-                {tHandover('removeWarning', {
-                  name: removingMember.full_name || t('unnamed'),
-                  what: workText(removingWork),
-                })}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setHandoverMember(removingMember);
-                  setRemovingMember(null);
-                }}
-              >
-                {tHandover('button')}
-              </Button>
-            </div>
-          )}
+          {removingMember &&
+            removingWork &&
+            (workTotal(removingWork.counts) > 0 ||
+              removingWork.keys.length > 0) && (
+              <div className="bg-warning-soft text-warning space-y-2 rounded-md p-3 text-sm">
+                {workTotal(removingWork.counts) > 0 && (
+                  <p>
+                    {tHandover('removeWarning', {
+                      name: removingMember.full_name || t('unnamed'),
+                      what: workText(removingWork.counts),
+                    })}
+                  </p>
+                )}
+                {removingWork.keys.length > 0 && (
+                  <p>
+                    {tHandover('removeKeysWarning', {
+                      name: removingMember.full_name || t('unnamed'),
+                      count: removingWork.keys.length,
+                    })}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setHandoverMember(removingMember);
+                    setRemovingMember(null);
+                  }}
+                >
+                  {tHandover('button')}
+                </Button>
+              </div>
+            )}
           <DialogFooter className="bg-popover border-border">
             <Button
               variant="outline"

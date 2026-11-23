@@ -2494,7 +2494,20 @@
         "failed": "Could not hand over the work. Try again.",
         "later": "Not now",
         "removeWarning": "{name} still holds {what}. Removing them leaves that work with nobody: hand it over first.",
-        "noPeople": "There is nobody else to hand the work to."
+        "noPeople": "There is nobody else to hand the work to.",
+        "holdsKeys": "Made {count, plural, one {# API key} other {# API keys}} still live",
+        "keysTitle": "{count, plural, one {# API key} other {# API keys}} made by this person",
+        "keysHint": "Nothing is revoked automatically: an integration may be running on a key. Revoke the ones nobody needs.",
+        "keyLastUsed": "Last used {date}",
+        "keyNeverUsed": "Never used",
+        "revoke": "Revoke",
+        "revokeConfirm": "Revoke the key \"{name}\"? Anything using it stops working at once.",
+        "revoked": "Key \"{name}\" revoked.",
+        "revokeFailed": "Could not revoke the key. Try again.",
+        "keysUnreadable": "The API keys could not be read.",
+        "removeKeysWarning": "{name} made {count, plural, one {# API key} other {# API keys}} that stay live after they are removed: revoke the ones nobody needs.",
+        "strayTitle": "{count, plural, one {# API key} other {# API keys}} with no admin behind {count, plural, one {it} other {them}}",
+        "strayHint": "Made by someone who is no longer in this workspace. They keep working until revoked."
       }
     },
     "invite": {

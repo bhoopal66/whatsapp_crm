@@ -35,6 +35,9 @@ and polish.
   moving it to another one. **Migration required: 284.** No setting to
   change and no screen changes. `supabase/ci/verify-chat-integrity.sql`.
 
+- **API keys of someone who left.** When a person is deactivated, removed or no longer an admin, the hand-over
+  screens (and a card under the roster for keys whose maker is no longer in the workspace) list the API keys they
+  made, with Revoke. Nothing is revoked by itself: an integration may run on a key. No migration.
 - **Rules between admins, invitations and API keys.** **Migration required: 287** (apply it before the build).
   Only the owner removes an admin. For 7 days after someone else lowers or removes an admin, only the owner of
   that workspace can set their password or change their details, whichever workspace it is asked from. An

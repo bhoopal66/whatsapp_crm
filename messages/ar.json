@@ -2494,7 +2494,20 @@
         "failed": "تعذّر تسليم العمل. حاول مرة أخرى.",
         "later": "ليس الآن",
         "removeWarning": "لا يزال لدى {name} {what}. إزالته تترك هذا العمل بلا صاحب: سلّمه أولاً.",
-        "noPeople": "لا يوجد شخص آخر لتسليم العمل إليه."
+        "noPeople": "لا يوجد شخص آخر لتسليم العمل إليه.",
+        "holdsKeys": "أنشأ {count, plural, one {مفتاح API واحدًا} two {مفتاحَي API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} ما زال فعالًا",
+        "keysTitle": "{count, plural, one {مفتاح API واحد} two {مفتاحا API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} أنشأها هذا الشخص",
+        "keysHint": "لا يُلغى شيء تلقائيًا: قد يعمل تكامل ما بمفتاح. ألغِ المفاتيح التي لا يحتاجها أحد.",
+        "keyLastUsed": "آخر استخدام {date}",
+        "keyNeverUsed": "لم يُستخدم قط",
+        "revoke": "إلغاء",
+        "revokeConfirm": "إلغاء المفتاح \"{name}\"؟ سيتوقف كل ما يستخدمه فورًا.",
+        "revoked": "أُلغي المفتاح \"{name}\".",
+        "revokeFailed": "تعذّر إلغاء المفتاح. حاول مرة أخرى.",
+        "keysUnreadable": "تعذّرت قراءة مفاتيح API.",
+        "removeKeysWarning": "أنشأ {name} {count, plural, one {مفتاح API واحدًا} two {مفتاحَي API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} تبقى فعالة بعد إزالته: ألغِ ما لا يحتاجه أحد.",
+        "strayTitle": "{count, plural, one {مفتاح API واحد} two {مفتاحا API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} بلا مسؤول وراءها",
+        "strayHint": "أنشأها شخص لم يعد في مساحة العمل هذه. تبقى تعمل حتى تُلغى."
       }
     },
     "invite": {
