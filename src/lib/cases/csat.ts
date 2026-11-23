@@ -420,6 +420,8 @@ export interface CsatClaim {
   product: string | null;
   templateName: string;
   language: string;
+  /** The claim's own time: case_csat_handoff and _mark act only for it. */
+  claimedAt: string;
 }
 
 export type CsatSendResult =
@@ -429,7 +431,17 @@ export type CsatSendResult =
       providerMessageId: string | null;
       messageId: string | null;
     }
-  | { outcome: 'held'; reason: string };
+  /** Nothing was sent; SQL retries it hourly. */
+  | { outcome: 'held'; reason: string }
+  /** The gateway may have it (a timeout, a 5xx): never resent. */
+  | {
+      outcome: 'unconfirmed';
+      via: 'template' | 'text';
+      messageId: string | null;
+      reason: string;
+    }
+  /** The claim was lost before the gateway: nothing sent, nothing marked. */
+  | { outcome: 'lost' };
 
 export type CsatSender = (
   db: SupabaseClient,
@@ -441,6 +453,14 @@ export interface CsatDrainSummary {
   sent: number;
   held: number;
   failed: number;
+  unconfirmed: number;
+}
+
+/** Migration 281 is not applied yet (PostgREST, then Postgres). */
+export function csatFunctionMissing(
+  error: { code?: string } | null | undefined
+): boolean {
+  return error?.code === 'PGRST202' || error?.code === '42883';
 }
 
 /**
@@ -451,19 +471,28 @@ export const CSAT_CLAIM_LIMIT = 5;
 
 /**
  * Claim what may go now (SQL re-checks everything) and send each once. A
- * send that throws is marked failed with a code (a CsatRefusal) or the
- * error's name, never its text; a claim never marked turns
- * 'unconfirmed' in SQL and is never resent. Never throws.
+ * CsatRefusal (certainly not sent) is marked failed with its code, never an
+ * error's text. Anything else the sender throws is left unmarked, as is a
+ * lost process: ten minutes later SQL puts a claim that never reached the
+ * gateway back in the queue and marks one that may have 'unconfirmed',
+ * never resent. Never throws.
  */
 export async function runCaseCsat(
   db: SupabaseClient,
   send: CsatSender,
   now: () => Date = () => new Date()
 ): Promise<CsatDrainSummary | null> {
-  const summary: CsatDrainSummary = { claimed: 0, sent: 0, held: 0, failed: 0 };
+  const summary: CsatDrainSummary = {
+    claimed: 0,
+    sent: 0,
+    held: 0,
+    failed: 0,
+    unconfirmed: 0,
+  };
+  const claimedAt = now().toISOString();
   try {
     const c = await db.rpc('case_csat_claim', {
-      p_now: now().toISOString(),
+      p_now: claimedAt,
       p_limit: CSAT_CLAIM_LIMIT,
     });
     if (c.error) throw c.error;
@@ -490,9 +519,10 @@ export async function runCaseCsat(
               : CSAT_DEFAULTS.templateSubmitted)
         ),
         language: String(r.language ?? 'en'),
+        claimedAt,
       };
       let args: {
-        p_outcome: 'sent' | 'failed' | 'held';
+        p_outcome: 'sent' | 'failed' | 'held' | 'unconfirmed';
         p_via: string | null;
         p_provider_message_id: string | null;
         p_message_id: string | null;
@@ -500,6 +530,7 @@ export async function runCaseCsat(
       };
       try {
         const res = await send(db, claim);
+        if (res.outcome === 'lost') continue;
         args =
           res.outcome === 'sent'
             ? {
@@ -510,35 +541,46 @@ export async function runCaseCsat(
                 p_reason: null,
               }
             : {
-                p_outcome: 'held',
-                p_via: null,
+                p_outcome: res.outcome,
+                p_via: res.outcome === 'unconfirmed' ? res.via : null,
                 p_provider_message_id: null,
-                p_message_id: null,
+                p_message_id:
+                  res.outcome === 'unconfirmed' ? res.messageId : null,
                 p_reason: res.reason,
               };
       } catch (err) {
+        if (!(err instanceof CsatRefusal)) {
+          console.error(
+            `[cases] csat send broke off: ${err instanceof Error ? err.name : typeof err}`
+          );
+          continue;
+        }
         args = {
           p_outcome: 'failed',
           p_via: null,
           p_provider_message_id: null,
           p_message_id: null,
-          p_reason:
-            err instanceof CsatRefusal
-              ? err.code
-              : err instanceof Error
-                ? err.name.toLowerCase()
-                : 'error',
+          p_reason: err.code,
         };
       }
-      const m = await db.rpc('case_csat_mark', {
+      const mark = {
         p_id: claim.id,
         ...args,
         p_now: now().toISOString(),
+      };
+      let m = await db.rpc('case_csat_mark', {
+        ...mark,
+        p_claimed_at: claimedAt,
       });
+      // Before 281: the old form, which knows no 'unconfirmed' (its claim
+      // turns an unmarked row into that).
+      if (csatFunctionMissing(m.error) && args.p_outcome !== 'unconfirmed')
+        m = await db.rpc('case_csat_mark', mark);
       if (m.error)
         console.error('[cases] csat mark failed', m.error.code ?? '');
       if (args.p_outcome === 'sent') summary.sent += 1;
       else if (args.p_outcome === 'held') summary.held += 1;
+      else if (args.p_outcome === 'unconfirmed') summary.unconfirmed += 1;
       else summary.failed += 1;
     }
     return summary;
@@ -555,30 +597,46 @@ export async function runCaseCsat(
 /**
  * Records a rating reply. Costs nothing unless the text parses as a
  * rating; then one call, which answers false when the workspace has CSAT
- * off or no request is open for the person. True when this message was
- * stored as the answer (the caller treats it as consumed). Never throws.
+ * off, no request is open in this chat, or something else was said to the
+ * customer since it went out and they did not quote it (281).
+ *
+ * True when the message is nothing but the stored rating: the caller
+ * treats it as consumed. A rating with a comment ("1, please call me") is
+ * stored too, but is not consumed: somebody must still answer it. Never
+ * throws.
  */
 export async function noteCsatReply(
   db: Pick<SupabaseClient, 'rpc'>,
   input: {
     accountId: string;
     contactId: string;
+    conversationId: string;
     messageRowId: string | null;
+    /** The message it quotes, when we hold it. */
+    quotedRowId: string | null;
     text: string | null | undefined;
   }
 ): Promise<boolean> {
   const reply = parseCsatReply(input.text);
   if (!reply) return false;
+  const args = {
+    p_account: input.accountId,
+    p_contact: input.contactId,
+    p_message: input.messageRowId,
+    p_score: reply.score,
+    p_comment: reply.comment,
+  };
   try {
-    const { data, error } = await db.rpc('case_csat_capture', {
-      p_account: input.accountId,
-      p_contact: input.contactId,
-      p_message: input.messageRowId,
-      p_score: reply.score,
-      p_comment: reply.comment,
+    let res = await db.rpc('case_csat_capture', {
+      ...args,
+      p_conversation: input.conversationId,
+      p_quoted: input.quotedRowId,
     });
-    if (error) return false;
-    return data === true;
+    // Before 281: 246's form, which compares neither.
+    if (csatFunctionMissing(res.error))
+      res = await db.rpc('case_csat_capture', args);
+    if (res.error) return false;
+    return res.data === true && reply.comment === null;
   } catch {
     return false;
   }

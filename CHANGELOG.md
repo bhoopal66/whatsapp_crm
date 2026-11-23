@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Case satisfaction
+
+**Migration required: 281** (`281_csat_fixes.sql`, after 263). Apply it
+before switching the rating requests on; the app works without it.
+- A rating request is no longer sent when the case moved back: an approval
+  that was corrected, or a case back before submission or closed without
+  one, cancels its request.
+- A "3" that answers a staff question is no longer stored as a rating. It
+  counts only in the chat the request went to, when nothing else was said
+  there since, or when the customer quoted the request.
+- A rating with a comment ("1, please call me") is stored and still reaches
+  the automations, the AI and the team.
+- A request whose sending was interrupted before it left goes back to the
+  queue; one that timed out is recorded as unconfirmed, with its message,
+  and a reply to it counts. Neither is asked twice.
+
 ### Team chat
 
 - In a thread, and on a phone, the text box has a row of its own above the

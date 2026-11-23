@@ -19,6 +19,12 @@
  * ('number_daily_limit') and SQL retries it hourly. Team activity's other
  * send checks are not run.
  *
+ * The row is stamped (case_csat_handoff, 281) as the last thing before the
+ * gateway. After it, only a definite refusal is a CsatRefusal ('failed'):
+ * a timeout, a 5xx or a lost connection may have delivered the request, so
+ * it is 'unconfirmed', with its message in the chat (no provider id, shown
+ * as still sending) so that a reply to it counts.
+ *
  * Server-only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -26,6 +32,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { serviceWindowOpen } from '@/lib/compass/meta-template';
 import { checkAutoStartAllowed } from '@/lib/team-activity/auto-guard';
 import {
+  ChannelError,
   loadChannels,
   resolveSendChannel,
   type WhatsAppChannel,
@@ -36,7 +43,11 @@ import {
   phoneVariants,
   sanitizePhoneForMeta,
 } from '@/lib/whatsapp/phone-utils';
-import { sendTemplate, sendText } from '@/lib/whatsapp/provider';
+import {
+  isDefiniteSendRefusal,
+  sendTemplate,
+  sendText,
+} from '@/lib/whatsapp/provider';
 import {
   renderTemplateBody,
   resolveTemplateRow,
@@ -44,6 +55,7 @@ import {
 
 import {
   buildCsatText,
+  csatFunctionMissing,
   csatParams,
   CsatRefusal,
   decideCsatSend,
@@ -104,6 +116,77 @@ function lookupFailed(table: string, code: string | undefined): CsatSendResult {
   return { outcome: 'held', reason: 'lookup_failed' };
 }
 
+/**
+ * Stamps the row as handed over. Null: go ahead (also before 281, which has
+ * no stamp). A failed stamp is tried once more, then held: case_csat_mark
+ * takes a stamp whose answer was lost back.
+ */
+async function handOff(
+  db: SupabaseClient,
+  claim: CsatClaim
+): Promise<CsatSendResult | null> {
+  for (let i = 0; ; i++) {
+    const { data, error } = await db.rpc('case_csat_handoff', {
+      p_id: claim.id,
+      p_claimed_at: claim.claimedAt,
+    });
+    if (!error) return data === true ? null : { outcome: 'lost' };
+    if (csatFunctionMissing(error)) return null;
+    if (i > 0) return lookupFailed('handoff', error.code);
+  }
+}
+
+/** The request in the chat, and the chat's preview. Never throws. */
+async function recordMessage(
+  db: SupabaseClient,
+  claim: CsatClaim,
+  channel: WhatsAppChannel,
+  sent: {
+    via: 'template' | 'text';
+    body: string;
+    waMessageId: string | null;
+    status: 'sent' | 'sending';
+  }
+): Promise<string | null> {
+  try {
+    const { data: msg, error: msgError } = await db
+      .from('messages')
+      .insert({
+        conversation_id: claim.conversationId,
+        sender_type: 'bot',
+        content_type: sent.via,
+        content_text: sent.body,
+        template_name: sent.via === 'template' ? claim.templateName : null,
+        message_id: sent.waMessageId,
+        status: sent.status,
+        provider: channel.provider,
+        channel_id: channel.id,
+      })
+      .select('id')
+      .single();
+    if (msgError)
+      console.error('[cases] csat message not saved', msgError.code ?? '');
+    const messageId = msg ? String(msg.id) : null;
+    const now = new Date().toISOString();
+    try {
+      await db
+        .from('conversations')
+        .update({
+          last_message_text: sent.body,
+          last_message_at: now,
+          updated_at: now,
+        })
+        .eq('id', claim.conversationId)
+        .eq('account_id', claim.accountId);
+    } catch {
+      // The preview only.
+    }
+    return messageId;
+  } catch {
+    return null;
+  }
+}
+
 export async function sendCaseCsat(
   db: SupabaseClient,
   claim: CsatClaim
@@ -133,14 +216,22 @@ export async function sendCaseCsat(
   const sanitized = contact?.phone ? sanitizePhoneForMeta(contact.phone) : '';
   if (!isValidE164(sanitized)) throw new CsatRefusal('invalid_number');
 
-  const channel = await chatChannel(
-    db,
-    claim.accountId,
-    claim.conversationId,
-    (conv.send_channel_id as string | null) ??
-      (conv.channel_id as string | null) ??
-      null
-  );
+  let channel: WhatsAppChannel;
+  try {
+    channel = await chatChannel(
+      db,
+      claim.accountId,
+      claim.conversationId,
+      (conv.send_channel_id as string | null) ??
+        (conv.channel_id as string | null) ??
+        null
+    );
+  } catch (err) {
+    if (!(err instanceof ChannelError)) throw err;
+    if (err.code === 'channel_lookup_failed')
+      return lookupFailed('channels', err.code);
+    throw new CsatRefusal(err.code);
+  }
   if (channel.isPersonal) throw new CsatRefusal('personal_number');
 
   const input = {
@@ -223,6 +314,10 @@ export async function sendCaseCsat(
   );
   if (check.blocked) return { outcome: 'held', reason: 'number_daily_limit' };
 
+  const lost = await handOff(db, claim);
+  if (lost) return lost;
+
+  const via = decision === 'template' ? 'template' : 'text';
   let waMessageId = '';
   let refused = false;
   for (const v of phoneVariants(sanitized)) {
@@ -231,55 +326,37 @@ export async function sendCaseCsat(
       refused = false;
       break;
     } catch (err) {
+      if (!isDefiniteSendRefusal(err)) {
+        // It may have been delivered: no other variant, never resent.
+        const reason = err instanceof Error ? err.name.toLowerCase() : 'error';
+        const messageId = await recordMessage(db, claim, channel, {
+          via,
+          body,
+          waMessageId: null,
+          status: 'sending',
+        });
+        return { outcome: 'unconfirmed', via, messageId, reason };
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      if (!isRecipientNotAllowedError(msg)) throw err;
+      if (!isRecipientNotAllowedError(msg))
+        throw new CsatRefusal(
+          err instanceof Error ? err.name.toLowerCase() : 'error'
+        );
       refused = true;
     }
   }
   if (refused) throw new CsatRefusal('invalid_number');
 
-  const via = decision === 'template' ? 'template' : 'text';
   // The gateway has the message: nothing below may turn it into a failure.
-  try {
-    const { data: msg, error: msgError } = await db
-      .from('messages')
-      .insert({
-        conversation_id: claim.conversationId,
-        sender_type: 'bot',
-        content_type: via,
-        content_text: body,
-        template_name: via === 'template' ? claim.templateName : null,
-        message_id: waMessageId,
-        status: 'sent',
-        provider: channel.provider,
-        channel_id: channel.id,
-      })
-      .select('id')
-      .single();
-    if (msgError)
-      console.error('[cases] csat message not saved', msgError.code ?? '');
-    const now = new Date().toISOString();
-    await db
-      .from('conversations')
-      .update({
-        last_message_text: body,
-        last_message_at: now,
-        updated_at: now,
-      })
-      .eq('id', claim.conversationId)
-      .eq('account_id', claim.accountId);
-    return {
-      outcome: 'sent',
+  return {
+    outcome: 'sent',
+    via,
+    providerMessageId: waMessageId,
+    messageId: await recordMessage(db, claim, channel, {
       via,
-      providerMessageId: waMessageId,
-      messageId: msg ? String(msg.id) : null,
-    };
-  } catch {
-    return {
-      outcome: 'sent',
-      via,
-      providerMessageId: waMessageId,
-      messageId: null,
-    };
-  }
+      body,
+      waMessageId,
+      status: 'sent',
+    }),
+  };
 }
