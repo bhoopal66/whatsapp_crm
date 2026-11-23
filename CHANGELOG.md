@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system: transferred calls and ghost calls
+
+No migration.
+- A transferred call keeps the recording of its longest answered part;
+  it kept only the first, often the few seconds before the transfer.
+- A ringing report that arrives as the call ends no longer leaves a call
+  on screen that never goes away.
+
 ### Push notifications that stay with the right person
 
 No migration.

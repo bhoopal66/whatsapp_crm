@@ -179,6 +179,19 @@ export interface MergeOptions {
   existingExtension?: string | null;
 }
 
+/**
+ * The recording a call with several legs stores: the longest answered
+ * leg's (the earliest of equals, in any arrival order), else null.
+ */
+export function longestAnsweredRecording(legs: CallLeg[]): string | null {
+  let best: CallLeg | null = null;
+  for (const l of [...legs].sort(byStart)) {
+    if (!l.recording || !ANSWERED_STATUSES.has(l.status)) continue;
+    if (!best || l.talk_seconds > best.talk_seconds) best = l;
+  }
+  return best?.recording ?? null;
+}
+
 const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
