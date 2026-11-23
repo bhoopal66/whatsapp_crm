@@ -11,6 +11,7 @@ import type {
   Channel,
   HoldReason,
   OutboxRow,
+  StaleReason,
   StoredTemplate,
   TemplateKind,
 } from './types';
@@ -21,6 +22,8 @@ export type { OutboxRow, StoredTemplate } from './types';
 export interface RowState {
   row: OutboxRow;
   closed: boolean;
+  /** Migration 275; null = still true, or a database without it. */
+  stale: StaleReason | null;
   inbox: 'recruiter' | 'dept' | null;
   /** A personal-number chat (migration 191): never sent on. */
   personal: boolean;
@@ -38,13 +41,14 @@ export interface RowState {
   channel: Channel;
 }
 
-export type ClaimOutcome = 'claimed' | 'capped' | 'lost';
+export type ClaimOutcome = 'claimed' | 'capped' | 'cancelled' | 'lost';
 
 export interface AutoMsgStorePort {
   state(id: string): Promise<RowState | null>;
   hold(id: string, reason: HoldReason): Promise<void>;
-  cancel(id: string): Promise<void>;
-  /** Claim before send: 'claimed' = this caller sends; 'capped' = held daily_cap; 'lost' = do not send. */
+  /** `reason` is kept on the row (migration 275). */
+  cancel(id: string, reason?: StaleReason): Promise<void>;
+  /** Claim before send: 'claimed' = this caller sends; 'capped' = held daily_cap; 'cancelled' = no longer true (275); 'lost' = do not send. */
   claim(id: string, now: Date): Promise<ClaimOutcome>;
   markSent(
     id: string,

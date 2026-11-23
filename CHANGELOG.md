@@ -120,6 +120,19 @@ No migration.
   so every sender refused it until somebody pressed Sync. A template
   deleted at Meta becomes disabled.
 
+### HR automated messages are safe to switch on
+
+**Migration required:** `275_hr_automsg_still_true.sql`
+- A queued HR message is cancelled once its reason is gone: an interview
+  invite when the candidate left that stage, a "we haven't heard from
+  you" nudge when the candidate replied or somebody wrote again. Before,
+  one held for quiet hours went out the next morning all the same.
+- "STOP" written in a closed HR chat, or in the department inbox, is now
+  recorded; a stamp that fails is tried again and reported in the log.
+- A second message sent through the web form within ten minutes is added
+  to the open "New web lead" task. Before, the visitor saw "ok" and it was
+  stored nowhere.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

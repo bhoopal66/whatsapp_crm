@@ -255,6 +255,26 @@ describe('processRow', () => {
     expect(store.rows.get('r1')).toMatchObject({ claimState: 'unconfirmed' });
   });
 
+  it('no longer true -> cancelled with its reason, nothing claimed', async () => {
+    const { ctx, store, sent, deps } = rig();
+    ctx.stale = 'stage_changed';
+    store.add(row('r1'));
+    const claim = vi.spyOn(store, 'claim');
+    expect(await processRow(row('r1'), deps)).toBe('cancelled');
+    expect(store.rows.get('r1')!.status).toBe('cancelled');
+    expect(store.errors.get('r1')).toBe('stage_changed');
+    expect(claim).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a reply between the state and the claim -> cancelled by the claim', async () => {
+    const { store, sent, deps } = rig();
+    store.add(row('r1'));
+    vi.spyOn(store, 'claim').mockResolvedValue('cancelled');
+    expect(await processRow(row('r1'), deps)).toBe('cancelled');
+    expect(sent).toHaveLength(0);
+  });
+
   it('closed or opted out -> cancelled', async () => {
     for (const k of ['closed', 'optedOut'] as const) {
       const { ctx, store, sent, deps } = rig();

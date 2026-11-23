@@ -6,10 +6,44 @@
  *
  * Never throws. Drafts only: nothing here sends a message.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { isOptOut } from './guardrails';
 import { runHrAgents } from './server';
+
+/**
+ * `markOptedOut` answers false both for "already stamped" and for "the
+ * write failed": read the stamp to tell them apart, try once more, and
+ * say so when a STOP could not be recorded.
+ */
+async function stampOptOut(
+  db: SupabaseClient,
+  who: { accountId: string; contactId: string }
+): Promise<void> {
+  if (await markOptedOut(db, who)) return;
+  if (await isStamped(db, who)) return;
+  if (await markOptedOut(db, who)) return;
+  if (await isStamped(db, who)) return;
+  console.error(
+    `[hr agents] OPT-OUT NOT RECORDED for contact ${who.contactId}: the customer asked to stop and may still be messaged`
+  );
+}
+
+async function isStamped(
+  db: SupabaseClient,
+  who: { accountId: string; contactId: string }
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('contacts')
+    .select('opted_out_at')
+    .eq('id', who.contactId)
+    .eq('account_id', who.accountId)
+    .maybeSingle();
+  if (error) return false;
+  return (data as { opted_out_at: string | null } | null)?.opted_out_at != null;
+}
 
 export async function handleHrInboundMessage(args: {
   accountId: string;
@@ -32,14 +66,11 @@ export async function handleHrInboundMessage(args: {
       inbox: string;
       closed_at: string | null;
     } | null;
-    if (
-      !row ||
-      row.account_id !== args.accountId ||
-      row.inbox !== 'recruiter' ||
-      row.closed_at
-    ) {
-      return;
-    }
+    if (!row || row.account_id !== args.accountId) return;
+    // A STOP counts in a closed chat and in the department inbox too: the
+    // stamp is the contact's, and their other chats read it.
+    const optOut = isOptOut(args.text);
+    if (!optOut && (row.inbox !== 'recruiter' || row.closed_at)) return;
 
     const { data: setting, error: settingError } = await db
       .from('hr_agent_settings')
@@ -51,7 +82,7 @@ export async function handleHrInboundMessage(args: {
     const orchestratorOn =
       (setting as { enabled: boolean } | null)?.enabled === true;
 
-    if (isOptOut(args.text)) {
+    if (optOut) {
       // An opt-out is honoured only once the account uses agents or
       // automated messages; with both off this hook changes nothing.
       let active = orchestratorOn;
@@ -63,7 +94,7 @@ export async function handleHrInboundMessage(args: {
         active = data === true;
       }
       if (!active) return;
-      await markOptedOut(db, {
+      await stampOptOut(db, {
         accountId: args.accountId,
         contactId: args.contactId,
       });

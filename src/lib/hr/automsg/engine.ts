@@ -5,8 +5,9 @@
  *
  *   a) older than MAX_HELD_HOURS -> cancelled, never sent late;
  *   b) no state -> lost; a personal-number chat -> cancelled;
- *   c) the pure guards: closed / opted out -> cancelled, any other reason
- *      -> held (no write when already held for that reason);
+ *   c) the pure guards: closed / opted out / no longer true (275) ->
+ *      cancelled, any other reason -> held (no write when already held
+ *      for that reason);
  *   d) the claim is the lock: a lost claim sends nothing;
  *   e) render and send; a send throw -> failed (retried) only when nothing
  *      can have been sent, failed_terminal when the failure cannot pass on
@@ -110,6 +111,7 @@ export async function processRow(
     template: st.template,
     state: {
       closed: st.closed,
+      stale: st.stale,
       optedOut: st.optedOut,
       consent: st.consent,
       lastInboundAt: st.lastInboundAt,
@@ -120,6 +122,10 @@ export async function processRow(
     duplicate: false,
   });
   if (!d.allow) {
+    if (d.hold === null) {
+      await store.cancel(row.id, d.cancel);
+      return 'cancelled';
+    }
     if (d.hold === 'closed' || d.hold === 'opted_out') {
       await store.cancel(row.id);
       return 'cancelled';
@@ -147,6 +153,7 @@ export async function processRow(
   const claim = await store.claim(row.id, now);
   if (claim === 'lost') return 'lost';
   if (claim === 'capped') return 'capped';
+  if (claim === 'cancelled') return 'cancelled';
 
   const params = {
     name: sanitizeParam(st.contactName, NAME_FALLBACK),
