@@ -7,12 +7,12 @@ import { HR_TABS, hrLandingPath, visibleHrTabs } from '@/lib/hr/tabs';
 import {
   BOTTOM_NAV_ITEMS,
   NAV_GROUPS,
+  NAV_PREFETCH,
   TEAM_VIEW_ITEMS,
   canUseTeamView,
   isNavItemActive,
   isNavItemVisible,
   isNavRowActive,
-  navPrefetch,
   visibleBottomNavItems,
   visibleNavGroups,
   visibleNavItems,
@@ -510,9 +510,8 @@ describe('nav model', () => {
     }
   });
 
-  // A guarded route is dynamic, so only a full prefetch saves the click
-  // its round trip. A row marked guarded with no guard (or a guard the
-  // row does not know about) drifts the prefetch away from the route.
+  // A row marked guarded with no guard (or a guard the row does not know
+  // about) says the wrong thing about who may open the route.
   it("marks a row guarded exactly when its route's layout guards it", () => {
     const appDir = join(process.cwd(), 'src', 'app', '(dashboard)');
     for (const item of ALL_ITEMS) {
@@ -538,44 +537,30 @@ describe('nav model', () => {
   );
 });
 
-describe('navPrefetch', () => {
-  it('fully prefetches the guarded routes and leaves the rest on auto', () => {
-    const full = ALL_ITEMS.filter((item) => navPrefetch(item) === true).map(
-      (item) => item.href
+describe('NAV_PREFETCH', () => {
+  // Next's `auto` prefetches a dynamic route only down to the dashboard's
+  // loading boundary, so each click would wait out a round trip. Screens
+  // stay dynamic while the language is read from a cookie on every
+  // request; if that ever stops, this comment and NAV_PREFETCH go too.
+  it('fully prefetches, because reading the language makes every screen dynamic', () => {
+    expect(NAV_PREFETCH).toBe(true);
+    const request = readFileSync(
+      join(process.cwd(), 'src', 'i18n', 'request.ts'),
+      'utf8'
     );
-    expect(full.sort()).toEqual(
-      [
-        '/automations',
-        '/banks',
-        '/brain',
-        '/digest',
-        '/broadcasts',
-        '/calendar',
-        '/calls',
-        '/calls/recordings',
-        '/cases',
-        '/compass',
-        '/desk',
-        '/recycle',
-        '/reports/funnel',
-        '/reports/tags',
-        '/flows',
-        '/groups',
-        '/hr',
-        '/journeys',
-        '/live',
-        '/meetings',
-        '/my-activity',
-        '/opendesk',
-        '/submission-groups',
-        '/team-activity',
-        '/team-contacts',
-        '/team-inbox',
-      ].sort()
+    expect(request).toMatch(/await cookies\(\)/);
+  });
+
+  it.each([
+    ['components/layout/sidebar.tsx', 1],
+    ['components/layout/mobile-tab-bar.tsx', 1],
+    ['components/layout/team-view-switch.tsx', 2],
+    ['components/hr/hr-tabs.tsx', 1],
+  ])('is on every navigation row of %s', (file, count) => {
+    const source = readFileSync(join(process.cwd(), 'src', file), 'utf8');
+    expect(source.match(/prefetch=\{NAV_PREFETCH\}/g) ?? []).toHaveLength(
+      count
     );
-    for (const item of ALL_ITEMS) {
-      if (!item.guarded) expect(navPrefetch(item), item.href).toBeNull();
-    }
   });
 });
 

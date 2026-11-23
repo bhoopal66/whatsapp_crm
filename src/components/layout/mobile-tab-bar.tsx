@@ -8,7 +8,12 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { isBankGuest } from '@/lib/auth/roles';
 import { MOBILE_TAB_HREFS } from '@/lib/layout/focus-trap';
-import { NAV_GROUPS, isNavItemActive, isNavItemVisible } from './nav-items';
+import {
+  NAV_GROUPS,
+  NAV_PREFETCH,
+  isNavItemActive,
+  isNavItemVisible,
+} from './nav-items';
 import { useSharedUnreadChats } from './unread-chats-provider';
 
 /**
@@ -49,6 +54,7 @@ export function MobileTabBar({ onOpenMenu }: { onOpenMenu: () => void }) {
           <Link
             key={item.href}
             href={item.href}
+            prefetch={NAV_PREFETCH}
             aria-current={active ? 'page' : undefined}
             className={cn(
               base,

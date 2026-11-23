@@ -120,10 +120,8 @@ export interface NavItem {
   hr?: HrNavGate;
   /**
    * The route's own layout guards it on the server (one of the
-   * `*OnlyLayout` gates in components/auth/admin-only-layout). Reading
-   * the session there makes the route dynamic, so the default `auto`
-   * prefetch stops at the dashboard's loading boundary and the click
-   * waits out a round trip; see {@link navPrefetch}.
+   * `*OnlyLayout` gates in components/auth/admin-only-layout), so the
+   * row is not the only thing keeping people out.
    */
   guarded?: boolean;
   /**
@@ -629,15 +627,17 @@ export function isNavRowActive(item: NavItem, pathname: string): boolean {
 }
 
 /**
- * The sidebar row's `<Link prefetch>`. A {@link NavItem.guarded} route is
- * dynamic, so `auto` prefetches only down to the dashboard's loading
- * boundary and the click still waits out the RSC round trip (~0.4–0.7 s
- * through the tunnel). `true` prefetches it fully and the router holds
- * it for `staleTimes.static` (next.config.ts), guard answer included;
- * the rows are rendered only for a role that may open them, and RLS is
- * what keeps the data from a demoted user. Every other row is a static
- * route that `auto` already prefetches fully: null keeps the default.
+ * The `<Link prefetch>` of every navigation row (the sidebar, the phone's
+ * bottom bar, the HR tabs, the Mine / Team switch).
+ *
+ * Every screen is dynamic: the language became per person (migration
+ * 259), so i18n/request.ts reads a cookie and nothing is prerendered any
+ * more, /inbox, /contacts and /dashboard included. For a dynamic route
+ * `auto` prefetches only down to the dashboard's loading boundary and the
+ * click still waits out the RSC round trip (~0.4–0.7 s through the
+ * tunnel). `true` prefetches it fully and the router holds it for
+ * `staleTimes.static` (next.config.ts), a guard's answer included; the
+ * rows are rendered only for a role that may open them, and RLS is what
+ * keeps the data from a demoted user.
  */
-export function navPrefetch(item: NavItem): true | null {
-  return item.guarded ? true : null;
-}
+export const NAV_PREFETCH = true;

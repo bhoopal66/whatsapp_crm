@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { useHrCounts } from '@/hooks/use-hr-counts';
 import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
-import { isNavItemActive } from '@/components/layout/nav-items';
+import { NAV_PREFETCH, isNavItemActive } from '@/components/layout/nav-items';
 import { hasHrAccess } from '@/lib/hr/access';
 import { visibleHrTabs } from '@/lib/hr/tabs';
 import type { HrCounts } from '@/lib/hr/types';
@@ -61,6 +61,7 @@ export function HrTabs() {
             <li key={tab.href} className="shrink-0">
               <Link
                 href={tab.href}
+                prefetch={NAV_PREFETCH}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'focus-visible:ring-ring flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none',

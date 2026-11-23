@@ -49,7 +49,7 @@ import {
 } from '@/lib/layout/nav-collapse';
 import {
   isNavRowActive,
-  navPrefetch,
+  NAV_PREFETCH,
   visibleBottomNavItems,
   visibleNavGroups,
   type NavItem,
@@ -345,7 +345,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <li key={item.href}>
         <Link
           href={item.href}
-          prefetch={navPrefetch(item)}
+          prefetch={NAV_PREFETCH}
           aria-current={isActive ? 'page' : undefined}
           className={cn(
             // Taller on mobile so fingers can hit the row reliably (≥44px);

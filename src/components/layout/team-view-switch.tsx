@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { useSharedUnreadChats } from '@/components/layout/unread-chats-provider';
 import { cn } from '@/lib/utils';
-import { TEAM_VIEW_ITEMS, canUseTeamView } from './nav-items';
+import { NAV_PREFETCH, TEAM_VIEW_ITEMS, canUseTeamView } from './nav-items';
 
 const PERSONAL_HREF = { inbox: '/inbox', contacts: '/contacts' } as const;
 
@@ -54,6 +54,7 @@ export function TeamViewSwitch({
     >
       <Link
         href={PERSONAL_HREF[screen]}
+        prefetch={NAV_PREFETCH}
         aria-current={teamView ? undefined : 'page'}
         className={cn(segment, teamView ? off : on)}
       >
@@ -61,6 +62,7 @@ export function TeamViewSwitch({
       </Link>
       <Link
         href={TEAM_VIEW_ITEMS[screen].href}
+        prefetch={NAV_PREFETCH}
         aria-current={teamView ? 'page' : undefined}
         className={cn(segment, teamView ? on : off)}
       >
