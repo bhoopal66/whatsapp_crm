@@ -8,7 +8,18 @@
  * `timeoutMs` (2 s), so it can never hold sign-out hostage. `all` (the
  * "sign out everywhere" path) also deletes every device the person
  * registered, not only this one.
+ *
+ * A session that ends without a sign-out (expired, revoked, another
+ * person signing in) calls `releasePushOnSessionChange` instead: the
+ * same release, but the person's choice for this device is kept, so
+ * `repair.ts` turns it back on when they sign in again.
  */
+
+import {
+  readPushEnabledBy,
+  releaseOnSessionChange,
+  writePushEnabledBy,
+} from './repair';
 
 export interface PushSubscriptionLike {
   endpoint: string;
@@ -24,11 +35,22 @@ export interface PushSignOutDeps {
 
 export const PUSH_SIGN_OUT_TIMEOUT_MS = 2_000;
 
+let lastRelease: Promise<void> = Promise.resolve();
+
+/** The latest release, settled once the browser has let go (or failed to). */
+export function pendingPushRelease(): Promise<void> {
+  return lastRelease;
+}
+
 export async function releasePushOnSignOut(
-  { all = false }: { all?: boolean } = {},
+  {
+    all = false,
+    keepChoice = false,
+  }: { all?: boolean; keepChoice?: boolean } = {},
   deps: PushSignOutDeps = browserPushDeps(),
   timeoutMs = PUSH_SIGN_OUT_TIMEOUT_MS
 ): Promise<void> {
+  if (!keepChoice) writePushEnabledBy(null);
   const work = (async () => {
     const sub = await deps.getSubscription().catch(() => null);
     // Server first, while the session is still good; the browser-side
@@ -39,6 +61,7 @@ export async function releasePushOnSignOut(
     }
     if (sub) await sub.unsubscribe().catch(() => false);
   })().catch(() => undefined);
+  lastRelease = work;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
@@ -59,6 +82,15 @@ export async function signOutReleasingPush<R>(
 ): Promise<R> {
   await releasePushOnSignOut(opts, deps);
   return signOut();
+}
+
+/** An open tab saw its session end, or become another person's. */
+export async function releasePushOnSessionChange(
+  nextUserId: string | null,
+  deps?: PushSignOutDeps
+): Promise<void> {
+  if (!releaseOnSessionChange(readPushEnabledBy(), nextUserId)) return;
+  await releasePushOnSignOut({ keepChoice: true }, deps);
 }
 
 /** The real browser: the root service worker's push subscription. */

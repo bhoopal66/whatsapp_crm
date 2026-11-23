@@ -44,7 +44,10 @@ import {
   noteSessionUser,
   shouldReloadOnPageShow,
 } from "@/lib/session-cache";
-import { signOutReleasingPush } from "@/lib/push/sign-out";
+import {
+  releasePushOnSessionChange,
+  signOutReleasingPush,
+} from "@/lib/push/sign-out";
 import { isLocale, syncLocaleCookie, type Locale } from "@/i18n/locales";
 
 interface Profile {
@@ -719,6 +722,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (noteSessionUser(currentUser?.id ?? null)) {
         clearClientCache();
         sweepBrowserStorage();
+        // Nothing of the person who was here may keep showing on this
+        // screen. Best effort: the dashboard's repair settles the rest.
+        void releasePushOnSessionChange(currentUser?.id ?? null);
       }
       setUser(currentUser);
 
