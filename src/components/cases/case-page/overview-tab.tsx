@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
-import type { CaseTabProps } from '@/lib/cases/case-page';
+import { caseLocks, type CaseTabProps } from '@/lib/cases/case-page';
 import {
   nextStep,
   parseLastMessage,
@@ -56,7 +56,17 @@ export function OverviewTab({ caseId, detail }: CaseTabProps) {
     parseLastMessage
   );
   const docs = docsRes.data;
-  const step = nextStep(detail.case, detail.stages, docs);
+  // An answer that is not a checklist is as unknown as a failed read.
+  const docsFailed = !docs && (docsRes.failed || docsRes.loadedAt > 0);
+  const step = nextStep(
+    detail.case,
+    detail.stages,
+    docs ?? (docsFailed ? 'failed' : 'loading'),
+    {
+      canWrite: detail.permissions.canWrite,
+      stageLocked: caseLocks(detail).stage,
+    }
+  );
   const last = lastRes.data;
 
   const sections: React.ReactNode[] = [];
@@ -165,7 +175,7 @@ export function OverviewTab({ caseId, detail }: CaseTabProps) {
       <CsatScore caseId={detail.case.id} />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card title={t('overview.docsTitle')} icon={FileText}>
-          {docsRes.failed && !docs ? (
+          {docsFailed ? (
             <p className="text-muted-foreground text-sm">
               {t('overview.docsFailed')}
             </p>
@@ -212,15 +222,29 @@ export function OverviewTab({ caseId, detail }: CaseTabProps) {
         </Card>
 
         <Card title={t('overview.nextTitle')} icon={ArrowRight}>
-          <p className="text-sm font-medium">
-            {step.kind === 'closed'
-              ? t('overview.nextClosed')
-              : step.kind === 'documents'
-                ? t('overview.nextDocuments', { count: step.missing })
-                : step.kind === 'move'
-                  ? t('overview.nextMove', { stage: step.stage })
-                  : t('overview.nextNone')}
-          </p>
+          {step.kind === 'loading' ? (
+            <p className="text-muted-foreground text-sm" aria-busy="true">
+              {t('tabLoading')}
+            </p>
+          ) : step.kind === 'docsFailed' ? (
+            <p className="text-muted-foreground text-sm">
+              {t('overview.nextDocsFailed')}
+            </p>
+          ) : (
+            <p className="text-sm font-medium">
+              {step.kind === 'closed'
+                ? t('overview.nextClosed')
+                : step.kind === 'documents'
+                  ? t('overview.nextDocuments', { count: step.missing })
+                  : step.kind === 'move'
+                    ? t('overview.nextMove', { stage: step.stage })
+                    : step.kind === 'locked'
+                      ? t('overview.nextLocked')
+                      : step.kind === 'readOnly'
+                        ? t('overview.nextReadOnly')
+                        : t('overview.nextNone')}
+            </p>
+          )}
           {step.kind === 'documents' && step.rejected > 0 && (
             <p className="text-muted-foreground text-sm">
               {t('overview.nextRejected', { count: step.rejected })}

@@ -33,6 +33,7 @@ import {
   SnoozedControl,
 } from '@/components/cases/case-views-menu';
 import { CsatAverages } from '@/components/cases/csat-averages';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,10 +63,16 @@ import { useAuth } from '@/hooks/use-auth';
 import { useLedTeam } from '@/hooks/use-led-team';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
 import {
-  CASES_TEAM_PARAM,
-  mergeTeamPages,
-  teamInboxUrls,
-} from '@/lib/cases/team-view';
+  commitDraft,
+  initialInboxUrl,
+  inboxUrlSearch,
+  reconcileInboxUrl,
+  settleInboxUrl,
+  typeDraft,
+  writeFilters,
+  type InboxUrlState,
+} from '@/lib/cases/inbox-url';
+import { mergeTeamPages, teamInboxUrls } from '@/lib/cases/team-view';
 import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
   activeFilterCount,
@@ -73,8 +80,6 @@ import {
   caseStatusView,
   contactPersonLine,
   EMPTY_FILTERS,
-  filtersFromSearch,
-  filtersToSearch,
   formatAed,
   stageFilterOptions,
   inboxUrl,
@@ -92,10 +97,15 @@ import {
   type InboxRow,
   type InboxSlaState,
 } from '@/lib/cases/ui';
-import { readSearchQuery, SEARCH_MAX_LENGTH } from '@/lib/cases/search';
+import { SEARCH_MAX_LENGTH } from '@/lib/cases/search';
 import type { CasePriority } from '@/lib/cases/types';
 import { relativeActivity } from '@/lib/groups/ui';
 import { cn } from '@/lib/utils';
+
+/** A pause in typing this long commits the search. */
+const SEARCH_PAUSE_MS = 400;
+/** A write to the URL is read back long before this. */
+const URL_SETTLE_MS = 2000;
 
 /** The Select's value for "no filter" (an item value cannot be empty). */
 const ALL = '__all__';
@@ -159,33 +169,72 @@ function useCaseBanks(): CaseBankOption[] | null {
 /** /cases — the coordinator inbox (module 019). */
 export function CasesInbox() {
   const t = useTranslations('Cases');
-  const router = useRouter();
   const pathname = usePathname();
-  const search = useSearchParams();
-  const filters = useMemo(
-    () => filtersFromSearch((k) => search.get(k)),
-    [search]
+  const search = useSearchParams().toString();
+  // What the person asked for last, kept in step with the URL. Adjusted
+  // during render, so an outside change (Back, a link) shows at once.
+  const [held, setHeld] = useState(() => initialInboxUrl(search));
+  const url = reconcileInboxUrl(held, search);
+  if (url !== held) setHeld(url);
+  // The same value for handlers and timers, whose closures may be older
+  // than the last change.
+  const latest = useRef(held);
+  useEffect(() => {
+    latest.current = reconcileInboxUrl(latest.current, search);
+  }, [search]);
+
+  const apply = useCallback(
+    (next: InboxUrlState) => {
+      const prev = latest.current;
+      if (next === prev) return;
+      latest.current = next;
+      setHeld(next);
+      // Not router.replace: that asks the server for the page (~700 ms)
+      // before the URL moves, and the list is fetched here anyway.
+      if (next.own.length > prev.own.length) {
+        const qs = inboxUrlSearch(next);
+        window.history.replaceState(null, '', qs ? `?${qs}` : pathname);
+      }
+    },
+    [pathname]
   );
+  useEffect(() => {
+    if (held.own.length === 0) return;
+    const id = setTimeout(
+      () => apply(settleInboxUrl(latest.current)),
+      URL_SETTLE_MS
+    );
+    return () => clearTimeout(id);
+  }, [held.own, apply]);
+
+  const { filters, draft } = url;
+  useEffect(() => {
+    const id = setTimeout(
+      () => apply(commitDraft(latest.current)),
+      SEARCH_PAUSE_MS
+    );
+    return () => clearTimeout(id);
+  }, [draft, apply]);
+  const searchBox: SearchBoxProps = {
+    draft,
+    onType: (v) => apply(typeDraft(latest.current, v)),
+    onCommit: () => apply(commitDraft(latest.current)),
+  };
+
   // "My team" (team leader and up): the cases of the people in the teams
   // they lead, and their own. A filter over what the inbox already
   // returns them; kept in the URL beside the API filters, never sent.
   const team = useLedTeam();
-  const teamView = team.canLead && search.get(CASES_TEAM_PARAM) === '1';
+  const teamView = team.canLead && url.team;
   const teamIds = teamView ? team.ids : null;
-  const replaceUrl = (next: InboxFilters, withTeam: boolean) => {
-    const qs = new URLSearchParams(filtersToSearch(next));
-    if (withTeam) qs.set(CASES_TEAM_PARAM, '1');
-    const str = qs.toString();
-    router.replace(str ? `${pathname}?${str}` : pathname, { scroll: false });
-  };
   // A change that names the agent (clearing the filters, applying a saved
   // view) leaves "My team"; any other filter change keeps it.
   const setFilters = (next: Partial<InboxFilters>) =>
-    replaceUrl({ ...filters, ...next }, teamView && !('agent' in next));
+    apply(writeFilters(latest.current, next));
   const setAgent = (value: string | null) =>
     value === MY_TEAM
-      ? replaceUrl({ ...filters, agent: null }, true)
-      : replaceUrl({ ...filters, agent: value }, false);
+      ? apply(writeFilters(latest.current, { agent: null }, true))
+      : apply(writeFilters(latest.current, { agent: value }));
 
   const banks = useCaseBanks();
   const { members, nameOf } = useWorkspaceMembers();
@@ -202,13 +251,22 @@ export function CasesInbox() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const seq = useRef(0);
+  // The list request in flight. A newer one aborts it: a search scans
+  // many pages, and the server should not finish one nobody waits for.
+  const inFlight = useRef<AbortController | null>(null);
+  const begin = () => {
+    inFlight.current?.abort();
+    inFlight.current = new AbortController();
+    return { mine: ++seq.current, signal: inFlight.current.signal };
+  };
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   const apiUrl = inboxUrl(filters, null);
   const load = useCallback(async (url: string) => {
-    const mine = ++seq.current;
+    const { mine, signal } = begin();
     setLoaded(null);
     try {
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal });
       if (res.status === 422) {
         if (mine === seq.current)
           setLoaded({ rows: [], next: null, error: 'invalid' });
@@ -228,11 +286,11 @@ export function CasesInbox() {
   const teamKey = teamIds ? teamInboxUrls(filters, teamIds).join('\n') : null;
   const loadTeam = useCallback(
     async (urls: string[]) => {
-      const mine = ++seq.current;
+      const { mine, signal } = begin();
       setLoaded(null);
       try {
         const answers = await Promise.all(
-          urls.map((url) => fetch(url, { cache: 'no-store' }))
+          urls.map((url) => fetch(url, { cache: 'no-store', signal }))
         );
         if (answers.some((res) => res.status === 422)) {
           if (mine === seq.current)
@@ -263,7 +321,7 @@ export function CasesInbox() {
     if (teamView) {
       // Wait for the roster rather than flash everyone's cases.
       if (teamKey === null) {
-        seq.current++;
+        begin();
         setLoaded(null);
       } else void loadTeam(teamKey.split('\n'));
       return;
@@ -280,6 +338,7 @@ export function CasesInbox() {
     try {
       const res = await fetch(inboxUrl(filters, loaded.next), {
         cache: 'no-store',
+        signal: inFlight.current?.signal,
       });
       if (!res.ok) throw new Error(String(res.status));
       const page = parseInboxPage(await res.json());
@@ -302,6 +361,19 @@ export function CasesInbox() {
 
   const narrowed = activeFilterCount(filters) + (teamView ? 1 : 0);
   const now = new Date();
+  const loadMoreButton = loaded?.next ? (
+    <div className="flex justify-center">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={loadingMore}
+        onClick={() => void loadMore()}
+      >
+        {loadingMore && <Loader2 className="size-4 animate-spin" aria-hidden />}
+        {t('loadMore')}
+      </Button>
+    </div>
+  ) : null;
 
   return (
     <div className="w-full space-y-4">
@@ -329,7 +401,10 @@ export function CasesInbox() {
         </div>
       </div>
 
+      <SearchBox {...searchBox} className="md:hidden" />
+
       <FilterBar
+        searchBox={searchBox}
         className={cn(filtersOpen ? 'block' : 'hidden', 'md:block')}
         filters={filters}
         setFilters={setFilters}
@@ -348,7 +423,9 @@ export function CasesInbox() {
         </p>
       )}
 
-      {!loaded ? (
+      {teamView && team.failed ? (
+        <ErrorState message={t('team.loadFailed')} onRetry={team.retry} />
+      ) : !loaded ? (
         <ul className="space-y-2" aria-hidden>
           {[0, 1, 2, 3].map((i) => (
             <li
@@ -385,11 +462,21 @@ export function CasesInbox() {
             <Briefcase className="size-5" aria-hidden />
           </span>
           <p className="font-semibold">
-            {narrowed > 0 ? t('noMatchesTitle') : t('emptyTitle')}
+            {loaded.next
+              ? t('noMatchesYetTitle')
+              : narrowed > 0
+                ? t('noMatchesTitle')
+                : t('emptyTitle')}
           </p>
           <p className="text-muted-foreground max-w-md text-sm">
-            {narrowed > 0 ? t('noMatchesBody') : t('emptyBody')}
+            {loaded.next
+              ? t('noMatchesYetBody')
+              : narrowed > 0
+                ? t('noMatchesBody')
+                : t('emptyBody')}
           </p>
+          {/* A search reads a bounded number of pages at a time. */}
+          {loadMoreButton}
           {narrowed > 0 && (
             <Button
               variant="outline"
@@ -413,21 +500,7 @@ export function CasesInbox() {
               {t('team.truncated')}
             </p>
           )}
-          {loaded.next && (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore && (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                )}
-                {t('loadMore')}
-              </Button>
-            </div>
-          )}
+          {loadMoreButton}
         </>
       )}
       <CsatAverages />
@@ -515,8 +588,47 @@ function Toggle({
   );
 }
 
+interface SearchBoxProps {
+  draft: string;
+  onType: (value: string) => void;
+  onCommit: () => void;
+}
+
+/** The text reaches the URL on blur, Enter or a pause in typing. */
+function SearchBox({
+  draft,
+  onType,
+  onCommit,
+  className,
+}: SearchBoxProps & { className?: string }) {
+  const t = useTranslations('Cases');
+  return (
+    <div className={cn('relative', className)}>
+      <Search
+        className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2"
+        aria-hidden
+      />
+      <Input
+        type="search"
+        inputMode="search"
+        maxLength={SEARCH_MAX_LENGTH}
+        aria-label={t('search.label')}
+        placeholder={t('search.placeholder')}
+        className="ps-8"
+        value={draft}
+        onChange={(e) => onType(e.target.value)}
+        onBlur={onCommit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onCommit();
+        }}
+      />
+    </div>
+  );
+}
+
 function FilterBar({
   className,
+  searchBox,
   filters: f,
   setFilters,
   banks,
@@ -528,6 +640,7 @@ function FilterBar({
   rows,
 }: {
   className?: string;
+  searchBox: SearchBoxProps;
   filters: InboxFilters;
   setFilters: (next: Partial<InboxFilters>) => void;
   banks: CaseBankOption[];
@@ -550,27 +663,6 @@ function FilterBar({
     setDaysSeen(urlDays);
     setDaysDraft(urlDays);
   }
-  // The search text being typed; it reaches the URL on blur or Enter, or
-  // after a short pause, so each keystroke is not a request.
-  const urlQ = f.q ?? '';
-  const [qDraft, setQDraft] = useState(urlQ);
-  const [qSeen, setQSeen] = useState(urlQ);
-  if (qSeen !== urlQ) {
-    setQSeen(urlQ);
-    setQDraft(urlQ);
-  }
-  const commitQ = () => {
-    const q = readSearchQuery(qDraft);
-    if (q !== f.q) setFilters({ q });
-  };
-  useEffect(() => {
-    const id = setTimeout(() => {
-      const q = readSearchQuery(qDraft);
-      if (q !== f.q) setFilters({ q });
-    }, 400);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qDraft]);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreCount = moreFiltersCount(f);
 
@@ -588,26 +680,11 @@ function FilterBar({
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 basis-64">
-          <Search
-            className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            inputMode="search"
-            maxLength={SEARCH_MAX_LENGTH}
-            aria-label={t('search.label')}
-            placeholder={t('search.placeholder')}
-            className="ps-8"
-            value={qDraft}
-            onChange={(e) => setQDraft(e.target.value)}
-            onBlur={commitQ}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitQ();
-            }}
-          />
-        </div>
+        {/* On phones the box stands above the list, outside this bar. */}
+        <SearchBox
+          {...searchBox}
+          className="hidden min-w-0 flex-1 basis-64 md:block"
+        />
         <Button
           variant="outline"
           size="sm"

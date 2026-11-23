@@ -32,6 +32,17 @@ describe('contactNames', () => {
     ]);
   });
 
+  it('asks in lists of at most 100 ids', async () => {
+    const d = db([]);
+    const ids = Array.from({ length: 250 }, (_, i) => `k${i}`);
+    await contactNames(d.client, ACCOUNT_ID, ids);
+    const lists = d
+      .queriesOf('contacts')
+      .map((q) => q.filters.find((f) => f[0] === 'in')![2] as string[]);
+    expect(lists.map((l) => l.length)).toEqual([100, 100, 50]);
+    expect(lists.flat()).toEqual(ids);
+  });
+
   it('asks nothing when no row has a contact', async () => {
     const d = db([]);
     expect((await contactNames(d.client, ACCOUNT_ID, [null])).size).toBe(0);

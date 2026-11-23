@@ -172,31 +172,39 @@ function TrayCard({
   const file = async () => {
     if (!picked) return;
     setBusy(true);
-    const r = await deskApi.trayFile(
-      item.trayId,
-      picked.caseId,
-      mustConfirm ? confirm : null
-    );
-    setBusy(false);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
+    // Busy until the list has been read again, so a finished item cannot
+    // be filed or dismissed a second time meanwhile.
+    try {
+      const r = await deskApi.trayFile(
+        item.trayId,
+        picked.caseId,
+        mustConfirm ? confirm : null
+      );
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(
+        t('tray.filed', { caseNumber: r.data.caseNumber ?? picked.caseId })
+      );
+      await onDone();
+    } finally {
+      setBusy(false);
     }
-    toast.success(
-      t('tray.filed', { caseNumber: r.data.caseNumber ?? picked.caseId })
-    );
-    await onDone();
   };
   const dismiss = async () => {
     setBusy(true);
-    const r = await deskApi.trayDismiss(item.trayId, reason);
-    setBusy(false);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
+    try {
+      const r = await deskApi.trayDismiss(item.trayId, reason);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(t('tray.dismissed'));
+      await onDone();
+    } finally {
+      setBusy(false);
     }
-    toast.success(t('tray.dismissed'));
-    await onDone();
   };
 
   return (

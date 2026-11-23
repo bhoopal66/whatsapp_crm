@@ -9099,6 +9099,7 @@
     },
     "team": {
       "myTeam": "내 팀",
+      "loadFailed": "팀을 불러오지 못했습니다.",
       "noTeam": "아직 이끄는 팀이 없어 내 팀에는 본인 케이스만 표시됩니다.",
       "truncated": "사람별로 처음 200건만 표시합니다. 나머지를 보려면 필터를 좁히세요."
     },
@@ -9136,6 +9137,8 @@
     "emptyTitle": "아직 케이스가 없습니다",
     "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
     "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
+    "noMatchesYetTitle": "아직 일치하는 항목이 없습니다",
+    "noMatchesYetBody": "목록의 일부만 검색했습니다. 더 불러와 계속 검색하세요.",
     "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요.",
     "leadChip": "리드",
     "search": {
@@ -9414,6 +9417,9 @@
       "nextRejected": "{count, plural, one {# document was} other {# documents were}} rejected and needs replacing.",
       "nextMove": "Move the case to {stage} when it is ready",
       "nextMoveHint": "Use Move stage above once the bank has what it needs.",
+      "nextDocsFailed": "서류 목록을 불러오지 못해 다음 단계를 제안하지 않습니다.",
+      "nextLocked": "이 케이스의 단계는 Compass에서 관리합니다. 여기서 이동할 것이 없습니다.",
+      "nextReadOnly": "이 케이스를 볼 수는 있지만 이동할 수는 없습니다.",
       "nextNone": "No further move is available from this stage.",
       "lastTitle": "Customer's last message",
       "lastFailed": "The last message could not be loaded.",
@@ -12835,6 +12841,7 @@
     "loading": "Loading waiting customers...",
     "empty": "No customers are waiting for a reply",
     "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
+    "teamFailed": "팀을 불러오지 못했습니다.",
     "emptyOthers": "Nothing else needs action right now.",
     "count": "{count, plural, one {# waiting} other {# waiting}}",
     "unassigned": "Unassigned",

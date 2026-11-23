@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { canLeadTeam } from '@/lib/auth/roles';
 import {
   cachedQuery,
+  invalidateCached,
   REFERENCE_CACHE_TTL_MS,
   teamRosterCacheKey,
 } from '@/lib/client-cache';
+import { ledTeamIds } from '@/lib/cases/team-view';
 import { createClient } from '@/lib/supabase/client';
 
 export interface LedTeam {
@@ -17,10 +19,13 @@ export interface LedTeam {
   /**
    * Auth user ids of the people in the teams the viewer leads (044's
    * `teams.leader_user_id` / `team_members`, the active workspace by
-   * RLS), plus the viewer. null while loading or for someone who
-   * cannot lead.
+   * RLS), plus the viewer. null while loading, after a failed read, or
+   * for someone who cannot lead.
    */
   ids: readonly string[] | null;
+  /** The roster could not be read: say so and offer `retry`. */
+  failed: boolean;
+  retry: () => void;
 }
 
 /**
@@ -35,8 +40,13 @@ export function useLedTeam(): LedTeam {
   const leaderId = canLead ? (user?.id ?? null) : null;
   const [loaded, setLoaded] = useState<{
     key: string;
-    ids: readonly string[];
+    ids: readonly string[] | null;
   } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setLoaded(null);
+    setAttempt((n) => n + 1);
+  }, []);
   const key = leaderId && accountId ? `${accountId}:${leaderId}` : null;
 
   useEffect(() => {
@@ -61,19 +71,22 @@ export function useLedTeam(): LedTeam {
           return out;
         }
       ).catch(() => null);
+      // The other users of this key cache a failure as null; drop it, or
+      // Retry would be answered with it for the rest of the TTL.
+      if (found === null) invalidateCached(teamRosterCacheKey(leaderId));
       if (!live) return;
-      setLoaded({
-        key,
-        ids: [leaderId, ...[...(found ?? [])].filter((id) => id !== leaderId)],
-      });
+      setLoaded({ key, ids: ledTeamIds(leaderId, found) });
     })();
     return () => {
       live = false;
     };
-  }, [leaderId, key]);
+  }, [leaderId, key, attempt]);
 
+  const current = loaded && loaded.key === key ? loaded : null;
   return {
     canLead,
-    ids: loaded && loaded.key === key ? loaded.ids : null,
+    ids: current?.ids ?? null,
+    failed: current !== null && current.ids === null,
+    retry,
   };
 }

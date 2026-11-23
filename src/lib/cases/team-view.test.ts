@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { mergeTeamPages, teamInboxUrls, TEAM_PAGE_LIMIT } from './team-view';
+import {
+  ledTeamIds,
+  mergeTeamPages,
+  teamInboxUrls,
+  TEAM_PAGE_LIMIT,
+} from './team-view';
 import { EMPTY_FILTERS, parseInboxPage, type InboxRow } from './ui';
 
 const NOW = new Date('2026-11-22T12:00:00Z');
@@ -82,5 +87,19 @@ describe('mergeTeamPages', () => {
       rows: [],
       truncated: false,
     });
+  });
+});
+
+describe('ledTeamIds', () => {
+  it('lists the leader once, then the team', () => {
+    expect(ledTeamIds('me', new Set(['a', 'me', 'b']))).toEqual([
+      'me',
+      'a',
+      'b',
+    ]);
+    expect(ledTeamIds('me', new Set())).toEqual(['me']);
+  });
+  it('is null, not a team of one, when the roster could not be read', () => {
+    expect(ledTeamIds('me', null)).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { DeskWorklistCard } from '@/components/desk/desk-worklist-card';
 import { WaitingCustomers } from '@/components/worklist/waiting-customers';
 import {
@@ -59,6 +60,7 @@ export default function WorklistPage() {
   const [filter, setFilter] = useState({ accountId, userId: '' });
   const assignedTo = filter.accountId === accountId ? filter.userId : '';
   const teamView = assignedTo === WORKLIST_MY_TEAM && team.canLead;
+  const teamFailed = teamView && team.failed;
   // null while the profile loads: not the same as a guest's empty list.
   const mode = accountRole === null ? null : worklistMode(accountRole);
 
@@ -171,9 +173,10 @@ export default function WorklistPage() {
             rows={waitingRows}
             nameOf={nameOf}
             failed={
-              waiting?.accountId === accountId &&
-              waiting.failed &&
-              waiting.rows === null
+              teamFailed ||
+              (waiting?.accountId === accountId &&
+                waiting.failed &&
+                waiting.rows === null)
             }
             now={waiting?.now ?? 0}
             capped={
@@ -185,8 +188,16 @@ export default function WorklistPage() {
         </div>
       )}
       <DeskWorklistCard />
+      {teamFailed && (
+        <ErrorState
+          message={tWaiting('teamFailed')}
+          onRetry={team.retry}
+          className="mx-auto mb-4 w-full max-w-6xl"
+        />
+      )}
       <WorklistView
-        items={items}
+        // Not loading: the error above says why there is nothing.
+        items={teamFailed ? [] : items}
         mode={mode}
         nameOf={nameOf}
         assignedTo={assignedTo}
@@ -197,9 +208,11 @@ export default function WorklistPage() {
         now={loaded?.now ?? 0}
         // Never "Nothing needs action" while customers wait above it.
         emptyLabel={
-          waitingRows && waitingRows.length > 0
-            ? tWaiting('emptyOthers')
-            : undefined
+          teamFailed
+            ? tWaiting('teamFailed')
+            : waitingRows && waitingRows.length > 0
+              ? tWaiting('emptyOthers')
+              : undefined
         }
       />
     </>

@@ -9,6 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { idChunks } from './chunks';
 import { CaseStoreError } from './store';
 
 export async function contactNames(
@@ -20,16 +21,16 @@ export async function contactNames(
   const ids = [
     ...new Set(contactIds.filter((id): id is string => id !== null)),
   ];
-  if (ids.length === 0) return out;
-
-  const { data, error } = await db
-    .from('contacts')
-    .select('id, name')
-    .eq('account_id', accountId)
-    .in('id', ids);
-  if (error) throw new CaseStoreError('contacts', error.code ?? null);
-  for (const r of (data ?? []) as Record<string, unknown>[])
-    if (typeof r.name === 'string' && r.name.trim() !== '')
-      out.set(String(r.id), r.name);
+  for (const chunk of idChunks(ids)) {
+    const { data, error } = await db
+      .from('contacts')
+      .select('id, name')
+      .eq('account_id', accountId)
+      .in('id', chunk);
+    if (error) throw new CaseStoreError('contacts', error.code ?? null);
+    for (const r of (data ?? []) as Record<string, unknown>[])
+      if (typeof r.name === 'string' && r.name.trim() !== '')
+        out.set(String(r.id), r.name);
+  }
   return out;
 }

@@ -57,6 +57,31 @@ describe('submissionStatuses', () => {
     ]);
   });
 
+  it('asks for both in lists of at most 100 ids', async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `c${i}`);
+    const inList = (q: Query) =>
+      q.filters.find((f) => f[0] === 'in')![2] as string[];
+    const d = new FakeClient(
+      'db',
+      [],
+      {},
+      {
+        cases: (q) => ({
+          data: inList(q).map((id) => ({ id, group_id: `g-${id}` })),
+        }),
+        submission_groups: (q) => ({
+          data: inList(q).map((id) => ({ id, submission_status: 'SENT' })),
+        }),
+      }
+    );
+    const m = await submissionStatuses(d.client, ACCOUNT_ID, ids);
+    for (const table of ['cases', 'submission_groups'])
+      expect(d.queriesOf(table).map((q) => inList(q).length)).toEqual([
+        100, 100, 50,
+      ]);
+    expect(m.size).toBe(250);
+  });
+
   it('asks nothing for no cases, and skips the groups when all are leads', async () => {
     const none = db();
     expect((await submissionStatuses(none.client, ACCOUNT_ID, [])).size).toBe(

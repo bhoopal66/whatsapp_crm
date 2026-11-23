@@ -7,7 +7,10 @@ import { reviewCase, runCaseReviewTick, type ReviewDeps } from './review';
 const CASE = '11111111-1111-4111-8111-111111111111';
 const ACC = '22222222-2222-4222-8222-222222222222';
 
-function fakeDb(opts: { enabled?: boolean; model?: boolean } = {}) {
+function fakeDb(
+  opts: { enabled?: boolean; model?: boolean; queued?: number } = {}
+) {
+  let queued = opts.queued ?? 1;
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const tables: Record<string, unknown[]> = {
     case_documents: [{ doc_key: 'passport', status: 'received' }],
@@ -67,7 +70,11 @@ function fakeDb(opts: { enabled?: boolean; model?: boolean } = {}) {
       if (fn === 'case_review_draft_create')
         return { data: [{ draft_id: 'dr1', created: true }], error: null };
       if (fn === 'case_review_claim')
-        return { data: [{ case_id: CASE, account_id: ACC }], error: null };
+        return {
+          // A claimed case is not due again.
+          data: queued-- > 0 ? [{ case_id: CASE, account_id: ACC }] : [],
+          error: null,
+        };
       return { data: null, error: null };
     }),
     from: (t: string) => query(t),
@@ -196,5 +203,29 @@ describe('runCaseReviewTick', () => {
       p_ok: true,
       p_error: null,
     });
+  });
+
+  it('claims one case at a time, up to the limit', async () => {
+    const { db, calls } = fakeDb({ queued: 5 });
+    expect((await runCaseReviewTick(deps(db), 3)).claimed).toBe(3);
+    const claims = calls.filter((c) => c.fn === 'case_review_claim');
+    expect(claims.map((c) => c.args.p_limit)).toEqual([1, 1, 1]);
+  });
+
+  it('starts no new case after 40 seconds', async () => {
+    const { db, calls } = fakeDb({ queued: 5 });
+    const start = Date.parse('2026-11-21T08:00:00Z');
+    // Every settled case took 25 seconds.
+    const now = () =>
+      new Date(
+        start +
+          calls.filter((c) => c.fn === 'case_review_finish').length * 25_000
+      );
+    expect(await runCaseReviewTick(deps(db, { now }))).toEqual({
+      claimed: 2,
+      drafted: 2,
+      failed: 0,
+    });
+    expect(calls.filter((c) => c.fn === 'case_review_claim')).toHaveLength(2);
   });
 });
