@@ -158,7 +158,7 @@ BEGIN
   END IF;
   r := pg_temp.md_auth(u_adm, u_adm) || ' | ' || pg_temp.md_auth(u_own, u_own);
   n := n + 1;
-  IF r <> 'ERROR 22023: Change your own name and email in Settings → Profile. | ERROR 22023: Change your own name and email in Settings → Profile.' THEN
+  IF r <> 'ERROR 22023: Change your own name in Settings → Profile. Another owner or admin changes your login email. | ERROR 22023: Change your own name in Settings → Profile. Another owner or admin changes your login email.' THEN
     failed := array_append(failed, ('an admin or the owner for themselves (want 22023 twice): ' || r)::text);
   END IF;
   r := pg_temp.md_auth(u_adm, u_own) || ' | ' || pg_temp.md_auth(u_adm, u_adm2);
