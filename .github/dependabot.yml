@@ -56,6 +56,13 @@ updates:
       # TypeScript 7 is the native compiler: needs the whole toolchain.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # React Flow 13 replaces the node-change API the flow editor is built
+      # on: by hand, with the editor tried (2026-11-23).
+      - dependency-name: "@xyflow/react"
+        update-types: ["version-update:semver-major"]
+      # unpdf 2 needs Node 24; the app runs on Node 22 (2026-11-23).
+      - dependency-name: unpdf
+        update-types: ["version-update:semver-major"]
 
   # The MCP server is a package of its own with its own lockfile.
   - package-ecosystem: npm
