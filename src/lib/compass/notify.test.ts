@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const resolveSendChannel = vi.fn();
 const findExistingContact = vi.fn();
 const resolveConversationByPhone = vi.fn();
+const sendCoreLoads = vi.fn();
 const sendMessageToConversation = vi.fn();
 
 vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
@@ -23,20 +24,30 @@ vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => {
     await importOriginal<typeof import('@/lib/whatsapp/send-message')>();
   return {
     ...actual,
-    sendMessageToConversation: (...args: unknown[]) =>
-      sendMessageToConversation(...args),
+    // The core's own order: its reads, the hook, then the gateway.
+    sendMessageToConversation: async (...args: unknown[]) => {
+      await sendCoreLoads();
+      await (args[2] as SendMessageParams).beforeGateway?.();
+      return sendMessageToConversation(...args);
+    },
   };
 });
 
 import {
-  DELIVERY_UNCONFIRMED,
-  isClaimRetryable,
   NotifyError,
   parseNotificationRequest,
   sendCompassNotification,
-  STALE_CLAIM_MS,
+  serializeNotification,
 } from './notify';
-import { SendMessageError } from '@/lib/whatsapp/send-message';
+import {
+  DELIVERY_UNCONFIRMED,
+  isClaimRetryable,
+  STALE_CLAIM_MS,
+} from './notification-status';
+import {
+  SendMessageError,
+  type SendMessageParams,
+} from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
 import { ContactLookupError } from '@/lib/contacts/dedupe';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
@@ -54,6 +65,8 @@ type Row = Record<string, unknown>;
 function makeDb(
   seed: {
     contacts?: Row[];
+    /** The CRM's own `contacts` rows. */
+    crmContacts?: Row[];
     notifications?: Row[];
     conversations?: Row[];
     groups?: Row[];
@@ -73,6 +86,7 @@ function makeDb(
 ) {
   const tables: Record<string, Row[]> = {
     compass_contacts: seed.contacts ?? [],
+    contacts: seed.crmContacts ?? [],
     compass_notifications: seed.notifications ?? [],
     conversations: seed.conversations ?? [],
     submission_groups: seed.groups ?? [],
@@ -168,6 +182,11 @@ function makeDb(
           filters.push((r) => (r[k] ?? null) !== v);
           return builder;
         },
+        like: (k: string, pattern: string) => {
+          const end = pattern.replace(/^%/, '');
+          filters.push((r) => String(r[k]).endsWith(end));
+          return builder;
+        },
         order: (k: string, o?: { ascending?: boolean }) => {
           if (o?.ascending === false) sortDesc = k;
           return builder;
@@ -241,6 +260,7 @@ beforeEach(() => {
     contactCreated: false,
     conversationCreated: false,
   });
+  sendCoreLoads.mockReset();
   sendMessageToConversation.mockReset().mockResolvedValue({
     messageId: 'msg-1',
     whatsappMessageId: 'wa-1',
@@ -345,6 +365,44 @@ describe('isClaimRetryable', () => {
   });
 });
 
+describe('serializeNotification', () => {
+  const row = (over: Row) => ({
+    id: 'n-1',
+    idempotency_key: 'k',
+    status: 'sending',
+    error_code: DELIVERY_UNCONFIRMED,
+    error_message: 'not confirmed',
+    updated_at: new Date().toISOString(),
+    ...over,
+  });
+  const stale = new Date(Date.now() - STALE_CLAIM_MS - 1000).toISOString();
+
+  it('shows a marked send in flight as plain sending', () => {
+    expect(serializeNotification(row({}))).toMatchObject({
+      status: 'sending',
+      error: null,
+    });
+  });
+  it.each(['sending', 'failed'])(
+    'shows a stale marked row stored as %s as failed, unconfirmed',
+    (status) => {
+      expect(
+        serializeNotification(row({ status, updated_at: stale }))
+      ).toMatchObject({
+        status: 'failed',
+        error: { code: DELIVERY_UNCONFIRMED, message: 'not confirmed' },
+      });
+    }
+  );
+  it('leaves a stale claim that was never handed over as sending', () => {
+    expect(
+      serializeNotification(
+        row({ error_code: null, error_message: null, updated_at: stale })
+      )
+    ).toMatchObject({ status: 'sending', error: null });
+  });
+});
+
 describe('sendCompassNotification', () => {
   it('sends on Meta only, as the Compass template to a customer who never wrote, without renaming or pausing flows', async () => {
     const { db, tables } = makeDb();
@@ -382,6 +440,7 @@ describe('sendCompassNotification', () => {
       provider: 'meta',
       requireProvider: true,
       pauseActiveFlows: false,
+      beforeGateway: expect.any(Function),
     });
     // No sender_id: nothing attributes the chat to a person.
     expect(params).not.toHaveProperty('senderUserId');
@@ -658,6 +717,67 @@ describe('sendCompassNotification', () => {
     }
   );
 
+  describe('an opt-out on any contact the phone matches', () => {
+    const crm = (id: string, phone: string, over: Row = {}): Row => ({
+      id,
+      account_id: 'acct',
+      phone,
+      phone_normalized: phone.replace(/\D/g, ''),
+      ...over,
+    });
+    const optedOut = { opted_out_at: '2026-11-01T00:00:00Z' };
+    const exact = crm('full', '971501234567');
+
+    it.each<[string, Row | null, Row[]]>([
+      [
+        'the older local-format twin of the exact match',
+        exact,
+        [crm('twin', '050 123 4567', optedOut), exact],
+      ],
+      [
+        'one of two local-format rows, where no contact is picked',
+        null,
+        [
+          crm('a', '0501234567'),
+          crm('b', '50 123 4567', {
+            do_not_contact_at: '2026-11-01T00:00:00Z',
+          }),
+        ],
+      ],
+    ])('refuses: %s', async (_label, found, crmContacts) => {
+      const { db, tables } = makeDb({ crmContacts });
+      findExistingContact.mockResolvedValue(found);
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'customer_opted_out', status: 422 });
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0].status).toBe('failed');
+    });
+
+    it("sends past another person's opt-out, in this account or another", async () => {
+      const { db } = makeDb({
+        crmContacts: [
+          exact,
+          // The same last eight digits, in Saudi Arabia.
+          crm('ksa', '966501234567', optedOut),
+          crm('other', '0501234567', { ...optedOut, account_id: 'acct-2' }),
+        ],
+      });
+      findExistingContact.mockResolvedValue(exact);
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    });
+
+    it('refuses, retryable, when the matches cannot be read', async () => {
+      const { db } = makeDb({ failReads: ['contacts'] });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    });
+  });
+
   it('refuses, retryable and sending nothing, when the contact cannot be read', async () => {
     const { db, tables } = makeDb();
     findExistingContact.mockRejectedValue(new ContactLookupError('down'));
@@ -684,6 +804,7 @@ describe('sendCompassNotification', () => {
     expect([...touched].sort()).toEqual([
       'assignment_settings',
       'compass_notifications',
+      'contacts',
       'conversations',
       'message_templates',
       'messages',
@@ -850,6 +971,24 @@ describe('sendCompassNotification', () => {
     await sendCompassNotification(db, 'acct', baseRequest());
     expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ['a refusal', new SendMessageError('meta_not_connected', 'x', 409)],
+    ['a failed read', new SendMessageError('internal', 'x', 500)],
+    ['an unknown error', new Error('fetch failed')],
+  ])(
+    'keeps the key usable when the send core stops before the gateway: %s',
+    async (_label, err) => {
+      const { db, tables } = makeDb();
+      sendCoreLoads.mockRejectedValueOnce(err);
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toBe(err);
+      expect(tables.compass_notifications[0].status).toBe('failed');
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    }
+  );
 
   it('retries the sent record once', async () => {
     let fails = 1;
@@ -1282,6 +1421,21 @@ describe('sendCompassNotification into a submission group (170)', () => {
     expect(groupSender).not.toHaveBeenCalled();
     expect(sendMessageToConversation).not.toHaveBeenCalled();
     expect(tables.compass_notifications[0].status).toBe('failed');
+  });
+
+  it('answers 503 and sends nothing when the contact cannot be read', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    findExistingContact.mockRejectedValue(new ContactLookupError('down'));
+    const groupSender = vi.fn();
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest(), { groupSender })
+    ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+    expect(groupSender).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: 'contact_lookup_failed',
+    });
   });
 
   it('treats a duplicate that was sent as sent', async () => {

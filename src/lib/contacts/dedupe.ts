@@ -95,6 +95,36 @@ export async function findExistingContact(
 }
 
 /**
+ * Every contact in `accountId` that may be `phone`'s owner: the read
+ * `findExistingContact` picks one row from, filtered by `phonesMatch`
+ * and nothing more, so the twins and the double local matches it passes
+ * over are here too. For a question that any of them can answer, such
+ * as an opt-out. Throws `ContactLookupError` when the read fails.
+ */
+export async function findMatchingContacts(
+  db: SupabaseClient,
+  accountId: string,
+  phone: string
+): Promise<ExistingContact[]> {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return [];
+
+  const suffix = normalized.length >= 8 ? normalized.slice(-8) : normalized;
+
+  const { data, error } = await db
+    .from('contacts')
+    .select('*')
+    .eq('account_id', accountId)
+    .like('phone_normalized', `%${suffix}`);
+
+  if (error) throw new ContactLookupError(error);
+
+  return ((data ?? []) as ExistingContact[]).filter((c) =>
+    phonesMatch(c.phone, phone)
+  );
+}
+
+/**
  * True when an existing contact is an *exact* normalized match for
  * `phone` (vs only a fuzzy trunk-variant match). The form hard-blocks
  * exact matches but only warns on fuzzy ones.
