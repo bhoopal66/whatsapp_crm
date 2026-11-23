@@ -26,6 +26,9 @@ No migration.
   not a status changes nothing. Both used to set the template to pending,
   so every sender refused it until somebody pressed Sync. A template
   deleted at Meta becomes disabled.
+- A WhatsApp group whose gateway answers without its people keeps the
+  people it had. They were all removed and put back by the next good
+  answer, which made staff an admin had removed managers again.
 
 ### Voice notes: one tap to record, one tap to send
 
