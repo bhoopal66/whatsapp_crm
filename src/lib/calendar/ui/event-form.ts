@@ -91,6 +91,12 @@ export type FormErrorKey =
 export type FormErrors = Partial<Record<FormField, FormErrorKey>>;
 
 export const DEFAULT_REMINDERS = [10];
+/** All-day: 09:00 the day before (offsets count back from local midnight). */
+export const ALL_DAY_DEFAULT_REMINDERS = [900];
+
+function sameReminders(a: readonly number[], b: readonly number[]) {
+  return a.length === b.length && a.every((m, i) => m === b[i]);
+}
 const HOUR_MS = 3_600_000;
 
 /** The wall-clock date of an instant in a zone. */
@@ -130,7 +136,7 @@ function base(
     attendees: [],
     color: 'blue',
     visibility: 'attendees',
-    reminders: [...DEFAULT_REMINDERS],
+    reminders: [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)],
   };
 }
 
@@ -205,11 +211,19 @@ export function withAllDay(
   allDay: boolean
 ): EventFormValues {
   if (v.allDay === allDay) return v;
-  if (allDay) return { ...v, allDay };
+  // The default reminder follows the switch only while it is untouched.
+  const reminders = sameReminders(
+    v.reminders,
+    allDay ? DEFAULT_REMINDERS : ALL_DAY_DEFAULT_REMINDERS
+  )
+    ? [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)]
+    : v.reminders;
+  if (allDay) return { ...v, allDay, reminders };
   // A timed event on the last day: same day, an hour long.
   return {
     ...v,
     allDay,
+    reminders,
     endDate: v.startDate,
     startTime: v.startTime || '09:00',
     endTime: v.endTime > v.startTime ? v.endTime : v.startTime,

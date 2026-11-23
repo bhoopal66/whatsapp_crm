@@ -8299,7 +8299,10 @@
       "atStart": "시작 시",
       "minutes": "{count}분",
       "hours": "{count}시간",
-      "days": "{count}일"
+      "days": "{count}일",
+      "atMidnight": "자정",
+      "dayBefore": "전날 {time}",
+      "daysBefore": "{count}일 전 {time}"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {매일} other {#일마다}}",
