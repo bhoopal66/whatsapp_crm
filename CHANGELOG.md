@@ -42,6 +42,16 @@ No migration.
   Settings → Profile (My WhatsApp) for its holder, whatever their role. It
   opened nothing for anyone who could not edit settings.
 
+### Customers
+
+- **Migration required: 280** (`280_contact_delete.sql`, apply after 262 and before the build; re-run it after any re-run of 086).
+- A customer who opted out or must not be contacted stays so after being deleted or erased: when the number is added again, by anyone or by an import, the stamp comes back. An admin lifting it lifts it for good.
+- A customer with an open case, an open deal room or an active submission group can no longer be deleted.
+- The delete dialog says what is deleted with the customer (chats, open
+  tasks, deal rooms) and what is kept without them (deals, documents,
+  cases), and why a customer cannot be deleted. Deleting several leaves the
+  blocked ones out, named with their reason, and deletes the rest.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
