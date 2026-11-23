@@ -63,8 +63,8 @@ works before and after it; apply it as soon as you update.
 
 **Migration required: 288** (`288_login_email_guard.sql`), with the build.
 - A login's email is changed only by an owner or admin, in Settings →
-  Members. The sign-in service also let a person change their own; cases and
-  submission groups are given to the login that holds an address.
+  Members, whatever the sign-in service is set up to confirm by itself: cases
+  and submission groups are given to the login that holds an address.
 
 ### Case satisfaction
 

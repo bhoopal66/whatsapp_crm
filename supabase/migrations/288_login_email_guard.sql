@@ -3,11 +3,11 @@
 -- administrator, through the app
 --
 -- The profile screen shows one's own email read-only (167: an
--- administrator changes it), but the sign-in service let any signed-in
--- person change it, at once, for every install that confirms addresses by
--- itself. The address decides more than the sign-in: cases and submission
--- groups that arrive with a colleague's email are given to the login that
--- holds it (sg_staff_by_email, 115).
+-- administrator changes it), but the sign-in service takes a signed-in
+-- person's own request too, and whether it asks for a confirmation depends
+-- on its version and settings. The address decides more than the sign-in:
+-- cases and submission groups that arrive with a colleague's email are
+-- given to the login that holds it (sg_staff_by_email, 115).
 --
 -- A BEFORE UPDATE trigger on auth.users refuses a changed email unless the
 -- app's server asked for exactly that change in the last two minutes
