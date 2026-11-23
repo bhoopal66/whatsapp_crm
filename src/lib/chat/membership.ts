@@ -157,19 +157,22 @@ export function canRemoveMember(
   );
 }
 
-export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';
+export type LeaveBlock = 'notMember' | 'dmPair' | 'lastMember' | 'lastAdmin';
 
 /**
  * Why the viewer cannot leave; null when they can. Archiving blocks
  * nothing here: chat_leave_channel (087) has no archived check, unlike
  * adds and role changes, so leaving is the one membership change an
  * archived channel takes (a private one cannot then be rejoined until
- * it is unarchived).
+ * it is unarchived). `dmPair` (273): a DM opened by two people stays with
+ * both, so the panel shows no Leave there.
  */
 export function leaveBlock(
-  c: Pick<ChannelCtx, 'kind' | 'myRole'> & Roster & { userId: string }
+  c: Pick<ChannelCtx, 'kind' | 'myRole'> &
+    Roster & { userId: string; dmMemberIds: readonly string[] }
 ): LeaveBlock | null {
   if (!c.myRole) return 'notMember';
+  if (c.kind === 'dm' && c.dmMemberIds.length === 2) return 'dmPair';
   const me = c.userId.toLowerCase();
   if (c.kind === 'dm' && !c.members.some((m) => m.userId.toLowerCase() !== me))
     return 'lastMember';

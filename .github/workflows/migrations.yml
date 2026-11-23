@@ -1399,3 +1399,9 @@ jobs:
       # since the caller read it is not classified.
       - name: Verify case file fixes
         run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
+
+      # Migration 273: a DM between two people cannot be left, and
+      # reopening a DM brings back everyone named, never a deactivated
+      # person or a pair the DM rules block.
+      - name: Verify team chat fixes
+        run: supabase db query --local --file supabase/ci/verify-team-chat-fixes.sql

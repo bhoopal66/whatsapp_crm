@@ -42,6 +42,7 @@ export type ChatErrorKey =
   | 'dmSize'
   | 'lastAdmin'
   | 'lastMember'
+  | 'dmPair'
   | 'pinLimit'
   | 'reasonRequired'
   | 'threadInvalid'
@@ -147,6 +148,7 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     [/2 to 8 members/i, 'dmSize'],
     [/last admin/i, 'lastAdmin'],
     [/last member/i, 'lastMember'],
+    [/DM between two people cannot be left/i, 'dmPair'],
     [/at most 100 pins/i, 'pinLimit'],
     [/attachment/i, 'attachmentInvalid'],
     [/reason of at least 5 characters|a reason is required/i, 'reasonRequired'],

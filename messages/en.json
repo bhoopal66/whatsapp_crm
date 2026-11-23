@@ -5717,6 +5717,7 @@
       "dmSize": "A direct message has 2 to 8 people.",
       "lastAdmin": "A channel needs at least one admin.",
       "lastMember": "The last member can't leave the channel.",
+      "dmPair": "A direct message between two people can't be left.",
       "pinLimit": "A channel can have at most 100 pins.",
       "reasonRequired": "Give a reason of at least 5 characters.",
       "threadInvalid": "You can't reply in that thread.",

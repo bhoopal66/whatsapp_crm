@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: nobody falls out of a direct message
+
+**Migration required:** `273_team_chat_fixes.sql`
+- A direct message between two people can no longer be left. The other
+  side kept writing as normal and the one who had left heard nothing.
+  People who had left one are back in it, with what they missed unread. A
+  direct message of three or more people can still be left; opening it
+  again with the same people brings everyone back.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

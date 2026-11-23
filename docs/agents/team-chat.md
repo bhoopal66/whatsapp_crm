@@ -16,6 +16,9 @@ only). `docs/internal-chat.md` is the contract.
   not deleted); the refusal phrase "direct messages between these
   people are turned off" is what `lib/chat/errors.ts` keys on.
   `verify-chat-dm-rules.sql`.
+- **DM membership (273).** A DM whose `dm_key` names two people cannot be
+  left (`leaveBlock` hides the button), and `chat_open_dm` re-inserts every
+  named member of an existing DM. `verify-team-chat-fixes.sql`.
 - **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
   to the service role; every write is a SECURITY DEFINER `chat_*` function the
   browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is
