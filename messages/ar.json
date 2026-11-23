@@ -2911,6 +2911,8 @@
       "makeDefault": "جعله الافتراضي",
       "madeDefault": "أصبح {name} الرقم الافتراضي",
       "chatCount": "{count} {count, plural, =1 {محادثة} other {محادثات}}",
+      "chatCountUnknown": "تعذّر عدّ المحادثات",
+      "removeChatsUnknown": "تعذّر عدّ المحادثات على هذا الرقم.",
       "rename": "إعادة تسمية",
       "renamed": "تمت إعادة التسمية إلى {name}",
       "saveName": "حفظ الاسم",

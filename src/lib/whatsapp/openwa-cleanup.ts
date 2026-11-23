@@ -21,6 +21,7 @@ import {
   openwaAdminApiKey,
   revokeKey,
 } from './openwa-api';
+import { promoteOldestToPrimary } from './personal-numbers';
 
 /**
  * A connect left unlinked this long is abandoned. Well past the dialog's
@@ -225,7 +226,8 @@ export async function sweepAbandonedOpenWASessions(
     if (deleted && deleted.length > 0) {
       summary.removed++;
       console.log(`${tag}: abandoned connect removed`);
-      await ensurePrimary(admin, row.account_id, tag);
+      // It may have been the default (the first number is inserted so).
+      await promoteOldestToPrimary(admin, row.account_id);
     }
   }
   return summary;
@@ -323,37 +325,6 @@ async function touch(
     .eq('account_id', row.account_id)
     .is('connected_at', null);
   if (error) console.error(`${tag}: requeue failed:`, error.message);
-}
-
-/**
- * The first number an account connects is inserted as its primary, so
- * an abandoned one can be. Same rule as the Disconnect routes: never
- * leave the remaining numbers without a fallback. Best effort.
- */
-async function ensurePrimary(
-  admin: SupabaseClient,
-  accountId: string,
-  tag: string
-): Promise<void> {
-  const { data: rest, error } = await admin
-    .from('whatsapp_config')
-    .select('id, is_primary, created_at')
-    .eq('account_id', accountId)
-    .order('created_at', { ascending: true });
-  if (error) {
-    console.error(`${tag}: primary check failed:`, error.message);
-    return;
-  }
-  const rows = (rest ?? []) as Array<{ id: string; is_primary: boolean }>;
-  if (rows.length === 0 || rows.some((r) => r.is_primary)) return;
-  const { error: promoteError } = await admin
-    .from('whatsapp_config')
-    .update({ is_primary: true })
-    .eq('id', rows[0].id)
-    .eq('account_id', accountId);
-  if (promoteError) {
-    console.error(`${tag}: primary promotion failed:`, promoteError.message);
-  }
 }
 
 function errText(e: unknown): string {

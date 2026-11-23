@@ -90,8 +90,11 @@ every ≤5 min from the automation cron and `GET
 /api/whatsapp/health/cron`). `nextHealth` flips only on AUTH (connected)
 or QR/ERROR/401/403/404/402 (disconnected); LAUNCH/INIT/NOT_INIT,
 unknown states, 5xx and timeouts change nothing, so a Whapi blip pages
-nobody. A transition notifies owners and admins (`channel_disconnected`
-/ `channel_reconnected`), and Compass answers `whapi_not_connected`
+nobody. OpenWA `disconnected` is down only once consecutive probes at
+least ~5 minutes apart agree (`confirmDisconnected`, in-process): the
+gateway resets every session to it on each boot. A transition notifies
+owners and admins (`channel_disconnected` / `channel_reconnected`), or for
+a personal number (190) its active holder alone, and Compass answers `whapi_not_connected`
 while the number is disconnected. The probe must never wake a stopped
 channel.
 

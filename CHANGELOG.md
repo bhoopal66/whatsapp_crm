@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### WhatsApp numbers
+
+No migration.
+- A restart of the OpenWA gateway is no longer announced as "logged out, scan
+  the QR" for every number. A number the gateway calls disconnected is
+  reported, and marked disconnected, only when it still is five minutes later.
+- A personal number going down, or coming back, is told to the person whose
+  number it is, with where to re-link it (Settings → Profile → My WhatsApp),
+  and no longer to the owners and admins.
+- When an abandoned QR connect is cleaned up, a personal number is never
+  picked as the account's new default number; a shared one is.
+- Settings → Numbers, and the question before disconnecting a number, say when
+  its chats could not be counted. They showed 0.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
