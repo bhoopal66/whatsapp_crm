@@ -107,3 +107,5 @@ tools, case SLA, case inbox, bank workspaces, bank dashboard and CRM
 memory (`verify-assistant-safety.sql` … `verify-crm-memory.sql`).
 Team chat 156–160 add five more (`verify-chat-messaging-v2.sql` …
 `verify-chat-moderation.sql`).
+
+- 286: `team_activity_release_unlock` gives an unlock back only while no message of the requester exists in that chat since `used_at`; the functions that read the roster join `team_members` on the account.

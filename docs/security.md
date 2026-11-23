@@ -244,3 +244,17 @@ that uses the token is out; then revoke them from `anon` and
 `authenticated`. An API key can be revoked but not otherwise changed by a
 session, and it keeps working after its maker leaves until someone revokes it
 in Settings → API keys.
+## A row belongs to its parent's account (migration 286)
+
+- A table that carries its own `account_id` beside a parent id ties the
+  two with a composite foreign key or a restrictive policy:
+  `team_members`, `whatsapp_channel_members`, `whatsapp_channel_teams`,
+  `whatsapp_routes`, `broadcast_recipients`, `broadcasts`,
+  `contact_tags`, `contact_custom_values`, `ai_knowledge_chunks`.
+- A function that reads `team_members` through a team joins on
+  `account_id` too; `verify-team-and-row-rules.sql` reads every body.
+- `team_members` has ONE foreign key to `teams`, the composite one: a
+  second would make PostgREST's `teams(team_members(...))` ambiguous.
+- A session writes only its own reaction, edits only its own customer
+  note (an admin may delete one), and links a deal only to rows it can
+  read (`deals_link_guard`).

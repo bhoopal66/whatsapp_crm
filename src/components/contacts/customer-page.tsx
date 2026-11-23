@@ -450,6 +450,11 @@ export function CustomerPage({
         : v
     );
 
+  // 286: the author, or an admin. The database decides.
+  const mayDeleteNote = (id: string) =>
+    (!!accountRole && hasMinRole(accountRole, 'admin')) ||
+    !!timeline?.rows.notes.some((n) => n.id === id && n.user_id === user?.id);
+
   const deleteNote = async (id: string) => {
     if (!window.confirm(td('confirmDeleteNote'))) return;
     const res = await deleteRows(createClient(), 'contact_notes', [id]);
@@ -566,7 +571,7 @@ export function CustomerPage({
                 {h.details.map((d) => ` · ${say(d)}`).join('')}
               </span>
             </p>
-            {e.kind === 'note' && access.addNote && (
+            {e.kind === 'note' && access.addNote && mayDeleteNote(e.id) && (
               <button
                 type="button"
                 onClick={() => void deleteNote(e.id)}

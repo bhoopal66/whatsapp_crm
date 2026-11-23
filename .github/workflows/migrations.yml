@@ -1490,3 +1490,5 @@ jobs:
       # API keys are made only in one's own name.
       - name: Verify the admin rules
         run: supabase db query --local --file supabase/ci/verify-admin-rules.sql
+      - name: Verify team and row rules
+        run: supabase db query --local --file supabase/ci/verify-team-and-row-rules.sql
