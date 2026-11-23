@@ -12109,6 +12109,7 @@
     "uploadConfirm": "업로드",
     "filedAs": "이 파일은 이미 {type}(으)로 분류되어 있습니다. 여기로 옮기면 {type} 문서가 없어집니다.",
     "moveConfirm": "여기로 옮기기",
+    "reuseWouldFail": "지금은 검사를 통과하지 못하는 이전 버전이어서 아무것도 변경하지 않았습니다:",
     "expiresOn": "만료일 (선택)",
     "expiryHint": "만료 검사에 쓰입니다. 문서가 최소 {days}일 동안 유효해야 합니다.",
     "expiryInvalid": "올바른 만료일을 입력하세요.",
@@ -12177,6 +12178,8 @@
       "MIME_NOT_ALLOWED": "PDF, JPEG 또는 PNG 파일을 업로드하세요.",
       "FILE_INVALID": "여기에서 사용할 수 없는 파일입니다.",
       "ALREADY_FILED_AS": "이 파일은 이미 다른 문서로 분류되어 있습니다. 새로 고친 뒤 다시 시도하세요.",
+      "REUSE_WOULD_FAIL": "지금은 검사를 통과하지 못하는 이전 버전이어서 아무것도 변경하지 않았습니다.",
+      "STORAGE_UNAVAILABLE": "파일 저장소가 응답하지 않습니다. 잠시 후 다시 시도하세요.",
       "generic": "문제가 발생했습니다. 다시 시도하세요."
     }
   },

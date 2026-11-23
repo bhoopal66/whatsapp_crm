@@ -14,6 +14,7 @@ import {
   parseUploadForm,
   requireFileId,
 } from './http';
+import type { Check } from './checks';
 import {
   CASE_FILES_REFUSALS,
   CaseFilesRefusedError,
@@ -47,6 +48,7 @@ const EXPECTED: Record<CaseFilesRefusal, number> = {
   FILE_TOO_LARGE: 413,
   STORAGE_UNAVAILABLE: 503,
   ALREADY_FILED_AS: 409,
+  REUSE_WOULD_FAIL: 409,
 };
 
 function thrown(f: () => unknown): CaseHttpError {
@@ -94,6 +96,17 @@ describe('caseFilesErrorResponse', () => {
       error: 'The file is already filed as another document',
       code: 'ALREADY_FILED_AS',
       filedAs: 'trade_licence',
+    });
+    const failedChecks: Check[] = [
+      { name: 'expiry', ok: false, detail: 'expiring' },
+    ];
+    const reuse = caseFilesErrorResponse(
+      new CaseFilesRefusedError('REUSE_WOULD_FAIL', undefined, failedChecks),
+      't'
+    );
+    expect(await reuse.json()).toMatchObject({
+      code: 'REUSE_WOULD_FAIL',
+      failedChecks,
     });
     const other = caseFilesErrorResponse(
       new CaseFilesRefusedError('CASE_CLOSED'),
@@ -241,29 +254,28 @@ describe('parseUploadForm', () => {
   });
 });
 
-describe('move', () => {
-  it.each([true, 'true', 1, false, undefined])(
-    'is read from a JSON body only when it is true (%s)',
-    (move) => {
-      const expected = move === true ? { move: true } : {};
+describe('moveFrom', () => {
+  it.each(['passport', '', null, undefined])(
+    'is the document named, or absent (%s)',
+    (moveFrom) => {
+      const expected = moveFrom ? { moveFrom } : {};
       const common = { docKey: 'x', expiresOn: null, ...expected };
-      expect(parseClassifyBody({ docKey: 'x', move })).toEqual(common);
-      const body = { customerDocumentId: DOC, docKey: 'x', move };
-      const attach = parseAttachBody(body);
-      expect(attach).toEqual({ customerDocumentId: DOC, ...common });
-      expect('move' in attach).toBe(move === true);
+      const body = { customerDocumentId: DOC, docKey: 'x', moveFrom };
+      expect(parseClassifyBody(body)).toEqual(common);
+      expect(parseAttachBody(body)).toEqual({
+        customerDocumentId: DOC,
+        ...common,
+      });
+      const f = new FormData();
+      f.set('file', new File([new Uint8Array([1])], 'a.pdf'));
+      if (typeof moveFrom === 'string') f.set('moveFrom', moveFrom);
+      expect(parseUploadForm(f).moveFrom).toBe(moveFrom || undefined);
     }
   );
 
-  it.each(['true', 'false', '1', ''])(
-    "is read from the form only when it is 'true' ('%s')",
-    (move) => {
-      const f = new FormData();
-      f.set('file', new File([new Uint8Array([1])], 'a.pdf'));
-      f.set('move', move);
-      expect('move' in parseUploadForm(f)).toBe(move === 'true');
-    }
-  );
+  it('is refused when it is not a document key', () => {
+    expect(() => parseClassifyBody({ docKey: 'x', moveFrom: true })).toThrow();
+  });
 });
 
 describe('requireFileId', () => {

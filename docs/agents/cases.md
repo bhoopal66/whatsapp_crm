@@ -103,3 +103,12 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `extractPdfPages` (no OCR; under 40 characters a page = scanned).
   `case_review_draft_create` is idempotent on input_hash and supersedes
   the pending draft. `verify-case-review.sql`.
+- **Case file reuse (270).** A superseded file goes back only to
+  `pending_checks`, by a person, as a new version and a new `classify_seq`
+  (the guard). SQL does not know whether it will pass: `classifyAndCheck`
+  runs the checks before it classifies (`REUSE_WOULD_FAIL`), since a failed
+  newest version un-readies the case. A file that counts as another document
+  needs `moveFrom` to name it (`ALREADY_FILED_AS`). Classify takes the
+  `classify_seq` and status the caller read (`CHECK_MISMATCH`); a retry
+  re-reads and re-decides, never re-sends. 270 restates 181's guard and
+  classify: never re-apply 181 without 270 after it.

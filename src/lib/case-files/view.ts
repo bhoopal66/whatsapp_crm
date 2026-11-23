@@ -309,6 +309,8 @@ const ERROR_CODES = new Set([
   'MIME_NOT_ALLOWED',
   'FILE_INVALID',
   'ALREADY_FILED_AS',
+  'REUSE_WOULD_FAIL',
+  'STORAGE_UNAVAILABLE',
 ]);
 
 /** The `CaseFiles` catalogue key for a refusal; `errors.generic` if unknown. */
@@ -329,6 +331,24 @@ export function filedElsewhere(status: number, json: unknown): string | null {
   return status === 409 && j?.code === 'ALREADY_FILED_AS'
     ? str(j.filedAs)
     : null;
+}
+
+/**
+ * The catalogue keys of the checks an earlier version would fail now
+ * (REUSE_WOULD_FAIL), which the dialog lists; empty for any other answer.
+ */
+export function reuseFailures(status: number, json: unknown): string[] {
+  const j = obj(json);
+  if (status !== 409 || j?.code !== 'REUSE_WOULD_FAIL') return [];
+  return (Array.isArray(j.failedChecks) ? j.failedChecks : [])
+    .map(obj)
+    .map((c) =>
+      checkFailureKey({
+        name: str(c?.name) ?? '',
+        ok: false,
+        detail: str(c?.detail),
+      })
+    );
 }
 
 /** YYYY-MM-DD or empty: the optional expiry field's value. */

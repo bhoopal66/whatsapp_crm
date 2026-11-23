@@ -89,7 +89,7 @@ describe('POST files/[fileId]/classify', () => {
     });
   });
 
-  it('passes move on, and answers what the file is filed as without it', async () => {
+  it('passes moveFrom on, and answers what the file is filed as without it', async () => {
     m.classify.mockRejectedValueOnce(
       new CaseFilesRefusedError('ALREADY_FILED_AS', 'visa')
     );
@@ -100,10 +100,10 @@ describe('POST files/[fileId]/classify', () => {
       code: 'ALREADY_FILED_AS',
       filedAs: 'visa',
     });
-    await post({ ...body, move: true });
-    expect(m.classify.mock.calls.map(([a]) => a.move)).toEqual([
+    await post({ ...body, moveFrom: 'visa' });
+    expect(m.classify.mock.calls.map(([a]) => a.moveFrom)).toEqual([
       undefined,
-      true,
+      'visa',
     ]);
   });
 

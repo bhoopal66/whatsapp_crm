@@ -12109,6 +12109,7 @@
     "uploadConfirm": "Upload",
     "filedAs": "This file is already filed as {type}. Moving it here leaves {type} missing.",
     "moveConfirm": "Move it here",
+    "reuseWouldFail": "This is an earlier version that would fail its checks now, so nothing was changed:",
     "expiresOn": "Expiry date (optional)",
     "expiryHint": "Used by the expiry check: the document must stay valid for at least {days} days.",
     "expiryInvalid": "Enter a valid expiry date.",
@@ -12177,6 +12178,8 @@
       "MIME_NOT_ALLOWED": "Upload a PDF, JPEG or PNG file.",
       "FILE_INVALID": "That file cannot be used here.",
       "ALREADY_FILED_AS": "This file is already filed as another document. Reload and try again.",
+      "REUSE_WOULD_FAIL": "This is an earlier version that would fail its checks now, so nothing was changed.",
+      "STORAGE_UNAVAILABLE": "The file store did not answer. Try again in a moment.",
       "generic": "Something went wrong. Try again."
     }
   },

@@ -21,6 +21,7 @@ import {
   uploadProblem,
   validExpiry,
   reuseBody,
+  reuseFailures,
   type CaseFileView,
 } from './view';
 
@@ -440,5 +441,26 @@ describe('reuseBody (270)', () => {
     for (const status of ['passed', 'failed', 'pending_checks'] as const)
       expect(reuseBody(file({ status }))).toBeNull();
     expect(reuseBody(file({ docKey: null }))).toBeNull();
+  });
+});
+
+describe('reuseFailures', () => {
+  const body = {
+    code: 'REUSE_WOULD_FAIL',
+    failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }, 7],
+  };
+  it('is the failed checks in plain words, for that refusal only', () => {
+    expect(reuseFailures(409, body)).toEqual([
+      'checks.detail.expiring',
+      'checks.other',
+    ]);
+    expect(reuseFailures(409, { ...body, code: 'FILE_STATE' })).toEqual([]);
+    expect(reuseFailures(200, body)).toEqual([]);
+    expect(reuseFailures(0, null)).toEqual([]);
+  });
+  it('and a store that did not answer have a message', () => {
+    expect(caseFileErrorKey(503, 'STORAGE_UNAVAILABLE')).toBe(
+      'errors.STORAGE_UNAVAILABLE'
+    );
   });
 });

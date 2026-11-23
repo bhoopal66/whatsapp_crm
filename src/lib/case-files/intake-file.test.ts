@@ -599,23 +599,23 @@ describe('a file already filed as another document', () => {
     return {
       f,
       st,
-      classify: (docKey: string, move?: boolean) =>
+      classify: (docKey: string, moveFrom?: string) =>
         classifyAndCheck({
           ...common,
           fileId: FILE,
           docKey,
-          move,
+          moveFrom,
           today: '2026-11-10',
         }),
-      attach: (docKey: string, move?: boolean) =>
+      attach: (docKey: string, moveFrom?: string) =>
         attachCustomerDocument({
           ...common,
           caseId: CASE,
           customerDocumentId: DOC,
           docKey,
-          move,
+          moveFrom,
         }),
-      upload: (docKey: string | null, move?: boolean) =>
+      upload: (docKey: string | null, moveFrom?: string) =>
         uploadStaffFile({
           ...common,
           caseId: CASE,
@@ -623,7 +623,7 @@ describe('a file already filed as another document', () => {
           contactId: 'k1',
           file: { bytes: pdf, mime: 'application/pdf', originalName: 'a.pdf' },
           docKey,
-          move,
+          moveFrom,
         }),
     };
   };
@@ -666,10 +666,10 @@ describe('a file already filed as another document', () => {
   });
 
   it.each(['classify', 'attach', 'upload'] as const)(
-    'is moved by %s with move',
+    'is moved by %s when moveFrom names it',
     async (how) => {
       const { f, ...act } = await setup();
-      await act[how]('visa', true);
+      await act[how]('visa', 'passport');
       expect(f.rpcNames()).toContain('case_document_file_classify');
       expect(f.rpcNames()).toContain('case_document_file_check_result');
     }
@@ -692,5 +692,131 @@ describe('a file already filed as another document', () => {
     const { f, classify } = await setup({ status, doc_key });
     await classify('visa');
     expect(f.rpcNames()).toContain('case_document_file_classify');
+  });
+});
+
+describe('a replaced file that would fail its checks', () => {
+  it('is refused, naming the checks, with nothing classified', async () => {
+    const f = fakeAdmin(
+      { case_file_spec_rows: ok([{ ...specRow, min_valid_days: 180 }]) },
+      {
+        case_document_files: { [FILE]: { ...fileRow, status: 'superseded' } },
+        customer_documents: { [DOC]: docRow() },
+      }
+    );
+    await expect(
+      classifyAndCheck({
+        admin: f.admin,
+        actor: ACTOR,
+        fileId: FILE,
+        docKey: 'passport',
+        expiresOn: '2026-12-01',
+        today: '2026-11-10',
+        read: { kind: 'bytes', bytes: await pdfBytes() },
+        deps: { storage: fakeStorage({}).storage, clock },
+      })
+    ).rejects.toMatchObject({
+      reason: 'REUSE_WOULD_FAIL',
+      failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }],
+    });
+    expect(f.rpcNames()).toEqual(['case_file_spec_rows']);
+  });
+});
+
+describe('a file that changed since it was read', () => {
+  const run = async (
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    over: { docKey: string; moveFrom?: string; gone?: boolean }
+  ) => {
+    const files: Record<string, unknown> = {
+      [FILE]: { ...fileRow, ...before },
+    };
+    const spec = ['passport', 'visa', 'bank'].map((doc_key) => ({
+      ...specRow,
+      doc_key,
+    }));
+    const f = fakeAdmin(
+      {
+        case_file_spec_rows: ok(spec),
+        case_document_file_classify: [
+          () => {
+            files[FILE] = { ...fileRow, ...after };
+            return refuse('CHECK_MISMATCH')({});
+          },
+          cls,
+        ],
+        case_document_file_check_result: ok('passed'),
+      },
+      { case_document_files: files, customer_documents: { [DOC]: docRow() } }
+    );
+    const { gone, ...args } = over;
+    const result = classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      ...args,
+      today: '2026-11-10',
+      read: gone
+        ? { kind: 'unreadable' }
+        : { kind: 'bytes', bytes: await pdfBytes() },
+      deps: { storage: fakeStorage({}).storage, clock },
+    });
+    const outcome = await result.catch((e: unknown) => e);
+    const sent = f.calls.filter((c) => c.fn === 'case_document_file_classify');
+    return { outcome, sent: sent.map((c) => c.args) };
+  };
+
+  it('classified by someone else as another document: refused, not moved', async () => {
+    const { outcome, sent } = await run(
+      { status: 'unclassified', doc_key: null, classify_seq: 0 },
+      { status: 'pending_checks', doc_key: 'passport', classify_seq: 1 },
+      { docKey: 'visa' }
+    );
+    expect(outcome).toMatchObject({
+      reason: 'ALREADY_FILED_AS',
+      filedAs: 'passport',
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      p_expect_seq: 0,
+      p_expect_status: 'unclassified',
+    });
+  });
+
+  it('replaced, with its bytes gone: refused, not a failed newest version', async () => {
+    const { outcome, sent } = await run(
+      { status: 'passed' },
+      { status: 'superseded' },
+      { docKey: 'passport', gone: true }
+    );
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('moveFrom names the document it no longer is: refused with the new one', async () => {
+    const { outcome, sent } = await run(
+      { doc_key: 'passport' },
+      { doc_key: 'bank', classify_seq: 2 },
+      { docKey: 'visa', moveFrom: 'passport' }
+    );
+    expect(outcome).toMatchObject({
+      reason: 'ALREADY_FILED_AS',
+      filedAs: 'bank',
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('is classified as it is now when that is still allowed', async () => {
+    const { outcome, sent } = await run(
+      { status: 'pending_checks' },
+      { status: 'passed', classify_seq: 4 },
+      { docKey: 'passport' }
+    );
+    expect(outcome).toMatchObject({ status: 'passed', classifySeq: 7 });
+    expect(sent[1]).toMatchObject({
+      p_expect_seq: 4,
+      p_expect_status: 'passed',
+    });
   });
 });

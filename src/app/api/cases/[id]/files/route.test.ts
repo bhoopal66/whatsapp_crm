@@ -154,7 +154,7 @@ describe('POST files (upload)', () => {
     expect(arg.file.bytes.byteLength).toBe(4);
   });
 
-  it('passes move on, and answers what the file is filed as without it', async () => {
+  it('passes moveFrom on, and answers what the file is filed as without it', async () => {
     m.uploadStaffFile.mockRejectedValueOnce(
       new CaseFilesRefusedError('ALREADY_FILED_AS', 'visa')
     );
@@ -165,10 +165,10 @@ describe('POST files (upload)', () => {
       code: 'ALREADY_FILED_AS',
       filedAs: 'visa',
     });
-    await POST(uploadRequest({ ...fields, move: 'true' }), ctx);
-    expect(m.uploadStaffFile.mock.calls.map(([a]) => a.move)).toEqual([
+    await POST(uploadRequest({ ...fields, moveFrom: 'visa' }), ctx);
+    expect(m.uploadStaffFile.mock.calls.map(([a]) => a.moveFrom)).toEqual([
       undefined,
-      true,
+      'visa',
     ]);
   });
 

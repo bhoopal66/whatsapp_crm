@@ -21,11 +21,14 @@ and polish.
 - A file already filed as one document is no longer moved silently when it
   is attached or uploaded again as another: the screen says what it is
   filed as and offers "Move it here".
-- Of two updates of one submission sent at the same time, the older one
-  no longer leaves its status on the submission group.
+- An earlier version that would fail its checks now (it expires too soon,
+  say) is not used: the screen says which check, and the current file and
+  the assembled case file stay.
+- Two people filing one file as two documents at the same moment: the
+  second is told what it was just filed as.
 
 **Migration required: 270.** Apply
-`supabase/migrations/270_case_file_fixes.sql` (after 267) before the new
+`supabase/migrations/270_case_file_fixes.sql` (after 181) before the new
 build. The previous build keeps working on it.
 
 ### An alert when the site is down

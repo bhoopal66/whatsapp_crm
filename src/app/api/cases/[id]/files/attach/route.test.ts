@@ -70,7 +70,7 @@ describe('POST files/attach', () => {
     });
   });
 
-  it('passes move on, and answers what the file is filed as without it', async () => {
+  it('passes moveFrom on, and answers what the file is filed as without it', async () => {
     m.attach.mockRejectedValueOnce(
       new CaseFilesRefusedError('ALREADY_FILED_AS', 'visa')
     );
@@ -81,8 +81,8 @@ describe('POST files/attach', () => {
       code: 'ALREADY_FILED_AS',
       filedAs: 'visa',
     });
-    await post({ ...body, move: true });
-    expect(m.attach.mock.calls.map(([a]) => a.move)).toEqual([undefined, true]);
+    await post({ ...body, moveFrom: 'visa' });
+    expect(m.attach.mock.calls.map(([a]) => a.moveFrom)).toEqual([undefined, 'visa']);
   });
 
   it('is 401 unauthenticated', async () => {

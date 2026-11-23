@@ -15,7 +15,9 @@
  *     'readable' check. Storage that did not answer is not a verdict on the
  *     document: STORAGE_UNAVAILABLE (503) before anything is classified.
  *     A file that counts as another document is refused (ALREADY_FILED_AS)
- *     unless the caller says `move`: that document would go missing.
+ *     unless `moveFrom` names that document: it would go missing. A replaced
+ *     file that would fail its checks is refused (REUSE_WOULD_FAIL): as the
+ *     newest version it would undo the case's readiness.
  *
  * TENANCY: the caller (a route) has already checked the case belongs to
  * the actor's active account. Every function takes its I/O as arguments
@@ -38,6 +40,7 @@ import {
   sanitizeOriginalName,
   sha256Hex,
   type Check,
+  type CheckOutcome,
   type CaseFileMime,
 } from './checks';
 import { dubaiDay } from './day';
@@ -79,15 +82,22 @@ const RETRY_CODES = new Set(['40P01', '40001']);
  * deadlock (40P01) or a serialization failure (40001). Each RPC is its own
  * autocommit transaction, so a retry repeats nothing committed.
  */
-export async function retryOnConflict<T>(step: () => Promise<T>): Promise<T> {
+export async function retryOnConflict<T>(
+  step: () => Promise<T>,
+  also: (err: unknown) => boolean = () => false
+): Promise<T> {
   try {
     return await step();
   } catch (err) {
     const code = (err as { code?: unknown } | null)?.code;
-    if (typeof code !== 'string' || !RETRY_CODES.has(code)) throw err;
+    if (!(typeof code === 'string' && RETRY_CODES.has(code)) && !also(err))
+      throw err;
     return step();
   }
 }
+
+const isChangedSinceRead = (err: unknown) =>
+  err instanceof CaseFilesRefusedError && err.reason === 'CHECK_MISMATCH';
 
 function assertExpiresOn(expiresOn: string | null | undefined): void {
   if (expiresOn !== undefined && expiresOn !== null && !isRealDate(expiresOn))
@@ -147,8 +157,8 @@ export async function classifyAndCheck(input: {
   expiresOn?: string | null;
   /** YYYY-MM-DD, the day the expiry rule counts from. */
   today: string;
-  /** File it here even though it is filed as another document. */
-  move?: boolean;
+  /** The document it is filed as, which it may be moved from. */
+  moveFrom?: string | null;
   /** Already read by the caller (`readCaseFile`); else read here. */
   read?: DocumentRead;
   deps: CaseFilesDeps;
@@ -158,55 +168,66 @@ export async function classifyAndCheck(input: {
   assertExpiresOn(expiresOn);
   const store = new CaseFilesStore(admin);
 
-  // Reads first: a failure here leaves the file as it was, not pending.
-  const file = await loadFile(store, fileId);
-  if (
-    !input.move &&
-    file.docKey !== null &&
-    file.docKey !== docKey &&
-    (file.status === 'passed' || file.status === 'pending_checks')
-  )
-    throw new CaseFilesRefusedError('ALREADY_FILED_AS', file.docKey);
-  const [doc, spec] = await Promise.all([
-    store.getDocument(file.customerDocumentId),
-    store.specRows(file.caseId),
-  ]);
-  const row = spec.find((s) => s.docKey === docKey) ?? null;
+  let read = input.read;
+  // Reads, decides, then classifies the row as it was read: a file that
+  // changed meanwhile is read and decided on again, once.
+  const attempt = async () => {
+    // Reads first: a failure here leaves the file as it was, not pending.
+    const file = await loadFile(store, fileId);
+    if (
+      file.docKey !== null &&
+      file.docKey !== docKey &&
+      file.docKey !== input.moveFrom &&
+      (file.status === 'passed' || file.status === 'pending_checks')
+    )
+      throw new CaseFilesRefusedError('ALREADY_FILED_AS', file.docKey);
+    const [doc, spec] = await Promise.all([
+      store.getDocument(file.customerDocumentId),
+      store.specRows(file.caseId),
+    ]);
+    const row = spec.find((s) => s.docKey === docKey) ?? null;
 
-  const read: DocumentRead =
-    input.read ??
-    (doc ? await readDocument(doc, deps) : { kind: 'unreadable' });
-  if (read.kind === 'unavailable')
-    throw new CaseFilesRefusedError('STORAGE_UNAVAILABLE');
-  // A replaced file comes back only with its bytes (270): an erased one
-  // would become a failed newest version and undo the case's readiness.
-  if (file.status === 'superseded' && read.kind !== 'bytes')
-    throw new CaseFilesRefusedError('FILE_STATE');
+    read ??= doc ? await readDocument(doc, deps) : { kind: 'unreadable' };
+    if (read.kind === 'unavailable')
+      throw new CaseFilesRefusedError('STORAGE_UNAVAILABLE');
+    // A replaced file comes back only with its bytes, and only to pass
+    // (270): a failed newest version would undo the case's readiness.
+    const superseded = file.status === 'superseded';
+    if (superseded && read.kind !== 'bytes')
+      throw new CaseFilesRefusedError('FILE_STATE');
 
-  const cls = await retryOnConflict(() =>
-    store.classify(actor, fileId, docKey)
-  );
+    const out: CheckOutcome =
+      read.kind === 'bytes'
+        ? await runChecks(
+            read.bytes,
+            doc?.mime ?? '',
+            row
+              ? {
+                  maxMb: row.maxMb ?? DEFAULT_MAX_MB,
+                  allowedMime: row.allowedMime ?? CASE_FILE_MIME,
+                  minValidDays: row.minValidDays,
+                }
+              : null,
+            { today: input.today, expiresOn }
+          )
+        : {
+            ok: false,
+            checks: [
+              { name: 'readable', ok: false, detail: 'storage read failed' },
+            ],
+            pages: null,
+          };
+    if (superseded && !out.ok)
+      throw new CaseFilesRefusedError(
+        'REUSE_WOULD_FAIL',
+        undefined,
+        out.checks.filter((c) => !c.ok)
+      );
 
-  let checks: Check[];
-  let pages: number | null = null;
-  if (read.kind !== 'bytes') {
-    checks = [{ name: 'readable', ok: false, detail: 'storage read failed' }];
-  } else {
-    const out = await runChecks(
-      read.bytes,
-      doc?.mime ?? '',
-      row
-        ? {
-            maxMb: row.maxMb ?? DEFAULT_MAX_MB,
-            allowedMime: row.allowedMime ?? CASE_FILE_MIME,
-            minValidDays: row.minValidDays,
-          }
-        : null,
-      { today: input.today, expiresOn }
-    );
-    checks = out.checks;
-    pages = out.pages;
-  }
+    return { out, cls: await store.classify(actor, fileId, docKey, file) };
+  };
+  const { out, cls } = await retryOnConflict(attempt, isChangedSinceRead);
+  const { checks, pages } = out;
 
   const status = await retryOnConflict(() =>
     store.postCheckResult(
@@ -228,7 +249,7 @@ export async function attachCustomerDocument(input: {
   customerDocumentId: string;
   docKey: string;
   expiresOn?: string | null;
-  move?: boolean;
+  moveFrom?: string | null;
   deps: CaseFilesDeps;
 }): Promise<CaseFile> {
   assertExpiresOn(input.expiresOn);
@@ -244,7 +265,7 @@ export async function attachCustomerDocument(input: {
     fileId,
     docKey: input.docKey,
     expiresOn: input.expiresOn,
-    move: input.move,
+    moveFrom: input.moveFrom,
     today: today(input.deps.clock ?? (() => new Date())),
     deps: input.deps,
   });
@@ -261,7 +282,7 @@ export async function uploadStaffFile(input: {
   file: { bytes: Uint8Array; mime: string; originalName: string };
   docKey?: string | null;
   expiresOn?: string | null;
-  move?: boolean;
+  moveFrom?: string | null;
   deps: CaseFilesDeps;
 }): Promise<CaseFile> {
   const { admin, actor, caseId, deps } = input;
@@ -321,7 +342,7 @@ export async function uploadStaffFile(input: {
       fileId,
       docKey: input.docKey,
       expiresOn: input.expiresOn,
-      move: input.move,
+      moveFrom: input.moveFrom,
       today: today(clock),
       deps,
     });

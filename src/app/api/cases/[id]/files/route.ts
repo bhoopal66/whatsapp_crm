@@ -6,8 +6,8 @@
 //        every required document has a passed file; the file spec merged
 //        with the checklist.
 //   POST multipart/form-data `file` (PDF / JPEG / PNG, <= 10 MB), optional
-//        `docKey`, optional `expiresOn` (YYYY-MM-DD), optional `move`
-//        ('true': from another document) -> 201 `{ file }`.
+//        `docKey`, optional `expiresOn` (YYYY-MM-DD), optional `moveFrom`
+//        (the document it is filed as) -> 201 `{ file }`.
 //        A Content-Length above 15 MB is 413 before the body is read.
 //        181 decides who may upload (403 NOT_ALLOWED).
 //
@@ -62,7 +62,7 @@ export async function POST(request: Request, { params }: Params) {
     if (declaredTooLarge(request)) throw refused('FILE_TOO_LARGE');
     if (!c.contactId) throw refused('NO_CONTACT');
 
-    const { file, docKey, expiresOn, move } = parseUploadForm(
+    const { file, docKey, expiresOn, moveFrom } = parseUploadForm(
       await request.formData().catch(() => null)
     );
     if (file.size > MAX_UPLOAD_BYTES) throw refused('FILE_TOO_LARGE');
@@ -81,7 +81,7 @@ export async function POST(request: Request, { params }: Params) {
       },
       docKey,
       expiresOn,
-      move,
+      moveFrom,
       deps: { storage: admin.storage },
     });
     return NextResponse.json({ file: created }, { status: 201 });

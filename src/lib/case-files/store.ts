@@ -47,8 +47,10 @@ export type CaseFilesIntakeRefusal =
   | 'VALIDATION_FAILED'
   // Storage did not answer: nothing was classified, try again.
   | 'STORAGE_UNAVAILABLE'
-  // The file already counts as another document; `move` says to go on.
-  | 'ALREADY_FILED_AS';
+  // The file already counts as another document; `moveFrom` names it to go on.
+  | 'ALREADY_FILED_AS'
+  // A replaced file that would fail its checks now: it stays replaced.
+  | 'REUSE_WOULD_FAIL';
 
 /** Refused in TypeScript by the case-file assembly (assembly.ts). */
 export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE';
@@ -63,7 +65,9 @@ export class CaseFilesRefusedError extends Error {
   constructor(
     readonly reason: CaseFilesRefusal,
     /** ALREADY_FILED_AS: the doc key the file is filed as. */
-    readonly filedAs?: string
+    readonly filedAs?: string,
+    /** REUSE_WOULD_FAIL: the checks that failed. */
+    readonly failedChecks?: readonly Check[]
   ) {
     super(`case files refused: ${reason}`);
   }
@@ -324,17 +328,23 @@ export class CaseFilesStore {
     return id;
   }
 
-  /** A NULL actor is the system intake, as in `register`. */
+  /**
+   * A NULL actor is the system intake, as in `register`. `asRead` is the
+   * row the caller decided on: CHECK_MISMATCH when it changed since (270).
+   */
   async classify(
     actor: string | null,
     fileId: string,
-    docKey: string
+    docKey: string,
+    asRead: Pick<CaseFile, 'classifySeq' | 'status'>
   ): Promise<ClassifyResult> {
     const row = rows(
       await this.rpc('case_document_file_classify', {
         p_actor: actor,
         p_file: fileId,
         p_doc_key: docKey,
+        p_expect_seq: asRead.classifySeq,
+        p_expect_status: asRead.status,
       })
     )[0];
     if (!row)

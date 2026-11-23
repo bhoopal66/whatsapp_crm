@@ -44,6 +44,7 @@ import {
   parseCaseFiles,
   parseDownloadUrl,
   reuseBody,
+  reuseFailures,
   shortHash,
   uploadProblem,
   validExpiry,
@@ -553,6 +554,7 @@ function ReuseDialog({
 }) {
   const t = useTranslations('CaseFiles');
   const [busy, setBusy] = useState(false);
+  const [failing, setFailing] = useState<string[]>([]);
 
   const submit = async () => {
     const body = reuseBody(file);
@@ -564,6 +566,9 @@ function ReuseDialog({
       body
     );
     setBusy(false);
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (failures.length) return;
     const result = (r.json as { result?: { status?: unknown } } | null)?.result;
     const failed = r.ok && result?.status === 'failed';
     if (failed) toast.error(t('checkedFailed', { label }));
@@ -581,6 +586,7 @@ function ReuseDialog({
             })}
           </DialogDescription>
         </DialogHeader>
+        <WouldFailAlert failing={failing} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -766,6 +772,25 @@ function FiledAsAlert({ type }: { type: string | null }) {
   );
 }
 
+/** Says which checks an earlier version would fail, so it was not used. */
+function WouldFailAlert({ failing }: { failing: string[] }) {
+  const t = useTranslations('CaseFiles');
+  if (failing.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="bg-destructive-soft text-destructive rounded-md px-3 py-2 text-start text-sm"
+    >
+      <p>{t('reuseWouldFail')}</p>
+      <ul className="list-disc ps-5">
+        {failing.map((key) => (
+          <li key={key}>{t(key)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function AttachDialog({
   caseId,
   contactId,
@@ -792,6 +817,7 @@ function AttachDialog({
   const [busy, setBusy] = useState(false);
   // Set by a refusal: the next submit moves the file from this document.
   const [filedAs, setFiledAs] = useState<string | null>(null);
+  const [failing, setFailing] = useState<string[]>([]);
 
   useEffect(() => {
     if (!contactId) return;
@@ -822,13 +848,15 @@ function AttachDialog({
         customerDocumentId: picked,
         docKey: spec.docKey,
         ...(expiresOn ? { expiresOn } : {}),
-        ...(filedAs ? { move: true } : {}),
+        ...(filedAs ? { moveFrom: filedAs } : {}),
       }
     );
     setBusy(false);
     const elsewhere = filedElsewhere(r.status, r.json);
     setFiledAs(elsewhere);
-    if (elsewhere) return;
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (elsewhere || failures.length) return;
     if (settle(r, t('attached', { label }))) onClose();
   };
 
@@ -869,6 +897,7 @@ function AttachDialog({
                   onClick={() => {
                     setPicked(d.id);
                     setFiledAs(null);
+                    setFailing([]);
                   }}
                   className={cn(
                     'bg-card-2 hover:bg-muted w-full rounded-md border px-3 py-2 text-start',
@@ -895,6 +924,7 @@ function AttachDialog({
           onChange={setExpiresOn}
         />
         <FiledAsAlert type={filedAs && labelOf(filedAs)} />
+        <WouldFailAlert failing={failing} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -933,6 +963,7 @@ function UploadDialog({
   const [busy, setBusy] = useState(false);
   // Set by a refusal: the next submit moves the file from this document.
   const [filedAs, setFiledAs] = useState<string | null>(null);
+  const [failing, setFailing] = useState<string[]>([]);
   const problem = file ? uploadProblem(file) : null;
 
   const submit = async () => {
@@ -941,13 +972,15 @@ function UploadDialog({
     form.append('file', file);
     form.append('docKey', spec.docKey);
     if (expiresOn) form.append('expiresOn', expiresOn);
-    if (filedAs) form.append('move', 'true');
+    if (filedAs) form.append('moveFrom', filedAs);
     setBusy(true);
     const r = await sendForm(`/api/cases/${caseId}/files`, form);
     setBusy(false);
     const elsewhere = filedElsewhere(r.status, r.json);
     setFiledAs(elsewhere);
-    if (elsewhere) return;
+    const failures = reuseFailures(r.status, r.json);
+    setFailing(failures);
+    if (elsewhere || failures.length) return;
     if (settle(r, t('uploaded', { label }))) onClose();
   };
 
@@ -969,6 +1002,7 @@ function UploadDialog({
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
               setFiledAs(null);
+              setFailing([]);
             }}
           />
           {problem && (
@@ -984,6 +1018,7 @@ function UploadDialog({
           onChange={setExpiresOn}
         />
         <FiledAsAlert type={filedAs && labelOf(filedAs)} />
+        <WouldFailAlert failing={failing} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
