@@ -15,6 +15,13 @@ updates:
       supabase:
         patterns:
           - "@supabase/*"
+      # One version across the family: a single package alone breaks npm ci.
+      fullcalendar:
+        patterns:
+          - "@fullcalendar/*"
+        update-types:
+          - minor
+          - patch
       production:
         dependency-type: production
         update-types:
@@ -37,6 +44,14 @@ updates:
       # 10: "contextOrFilename.getFilename is not a function" (2026-11-23).
       - dependency-name: eslint
         update-types: ["version-update:semver-major"]
+      # FullCalendar 7 is a rewrite of its API and styles: by hand.
+      - dependency-name: "@fullcalendar/*"
+        update-types: ["version-update:semver-major"]
+      # The safety layer's wire format is pinned and tested against it.
+      - dependency-name: "@typesafe-ai/sdk"
+      # TypeScript 7 is the native compiler: needs the whole toolchain.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   # The MCP server is a package of its own with its own lockfile.
   - package-ecosystem: npm
@@ -54,6 +69,11 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions in .github/workflows/. Catches setup-node /
   # checkout version bumps that keep the CI matrix healthy.
