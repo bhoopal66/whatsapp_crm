@@ -11,6 +11,7 @@ import path from 'node:path';
 //                      of the test is that these must survive onto whatever
 //                      response the middleware returns — including redirects.
 let mockUser: { id: string } | null = null;
+let mockError: { name: string; status: number } | null = null;
 let refreshedCookies: Array<{
   name: string;
   value: string;
@@ -31,7 +32,7 @@ vi.mock('@supabase/ssr', () => ({
       // pushes the new cookies through setAll() before resolving.
       getUser: async () => {
         if (refreshedCookies.length) opts.cookies.setAll(refreshedCookies);
-        return { data: { user: mockUser } };
+        return { data: { user: mockUser }, error: mockError };
       },
     },
   }),
@@ -44,6 +45,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
   mockUser = null;
+  mockError = null;
   refreshedCookies = [];
 });
 
@@ -178,5 +180,49 @@ describe('middleware — /api/whatsapp session gate', () => {
       new NextRequest('https://app.test/api/whatsapp/meta/webhook')
     );
     expect(res.status).toBe(200);
+  });
+});
+
+describe('middleware — the auth service does not answer', () => {
+  const BLIP = { name: 'AuthRetryableFetchError', status: 0 };
+  const request = (url: string, cookie = 'sb-wacrm-auth-token=base64-x') =>
+    new NextRequest(`https://app.test${url}`, { headers: { cookie } });
+
+  it('lets a page through for someone holding a session cookie', async () => {
+    mockError = BLIP;
+    const chunked = 'sb-wacrm-auth-token.0=base64-x';
+    for (const res of [
+      await middleware(request('/inbox')),
+      await middleware(request('/inbox', chunked)),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get('location')).toBeNull();
+    }
+  });
+
+  it('answers the gated API 503, not 401', async () => {
+    mockError = BLIP;
+    const res = await middleware(request('/api/whatsapp/broadcast'));
+    expect(res.status).toBe(503);
+    expect(typeof (await res.json()).error).toBe('string');
+  });
+
+  it('still redirects without a session cookie', async () => {
+    mockError = BLIP;
+    const other = 'sb-wacrm-auth-token-code-verifier=x';
+    const res = await middleware(request('/inbox', other));
+    expect(res.headers.get('location')).toContain('/login');
+    const api = await middleware(request('/api/whatsapp/broadcast', other));
+    expect(api.status).toBe(401);
+  });
+
+  it('still redirects on a real refusal, cookie or not', async () => {
+    for (const status of [400, 401, 403]) {
+      mockError = { name: 'AuthApiError', status };
+      const res = await middleware(request('/inbox'));
+      expect(res.headers.get('location')).toContain('/login');
+      const api = await middleware(request('/api/whatsapp/broadcast'));
+      expect(api.status).toBe(401);
+    }
   });
 });

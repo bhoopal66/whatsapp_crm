@@ -11,6 +11,7 @@ import {
   type AccountContext,
 } from '@/lib/auth/account';
 import { MemoryStoreError, type MemoryScope } from './store';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,7 +34,11 @@ export const memoryBadRequest = (message: string) =>
 export function memoryErrorResponse(err: unknown): NextResponse {
   if (err instanceof MemoryHttpError)
     return NextResponse.json({ error: err.message }, { status: err.status });
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AuthUnavailableError
+  )
     return NextResponse.json({ error: err.message }, { status: err.status });
   if (err instanceof MemoryStoreError)
     console.error('[memory] store failure:', err.fn, err.code);

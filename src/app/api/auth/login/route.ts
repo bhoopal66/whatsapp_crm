@@ -33,8 +33,14 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { edgeAuthGuards } from '@/lib/auth/edge-guards';
-import { admitAdmin, clientIp, settleAdmin } from '@/lib/edge';
+import { authErrorResponse as json } from '@/lib/auth/auth-error-response';
+import {
+  checkPassword,
+  classifySignInError,
+  isJsonRequest,
+  MAX_PASSWORD_LENGTH,
+  type SignInOutcome,
+} from '@/lib/auth/password-check';
 import { isLocale, LOCALE_COOKIE, LOCALE_COOKIE_OPTIONS } from '@/i18n/locales';
 import { pickActiveProfile } from '@/lib/auth/active-profile';
 import { createClient } from '@/lib/supabase/server';
@@ -48,50 +54,44 @@ const MESSAGES = {
   unavailable: 'Sign-in is temporarily unavailable',
 } as const;
 
-type SignInOutcome = 'ok' | 'invalid' | 'banned' | 'throttled' | 'unavailable';
-
 export async function POST(request: Request) {
   const creds = await readCredentials(request);
   if (!creds) return json(400, MESSAGES.badRequest);
   const { email, password } = creds;
-  const user = email.toLowerCase();
-  const ip = clientIp(request.headers) ?? `unknown:${user}`;
-  const guards = edgeAuthGuards();
 
-  try {
-    const refused = await admitAdmin(guards, { ip, userId: user });
-    if (refused) {
-      return refused.status === 423
-        ? json(423, MESSAGES.locked, refused.retryAfterMs)
-        : json(429, MESSAGES.throttled, refused.retryAfterMs);
-    }
-  } catch (err) {
-    console.error('[POST /api/auth/login] lockout store failed:', err);
-    return json(503, MESSAGES.unavailable);
+  let signedIn: { supabase: SupabaseClient; userId: string | null } | null =
+    null;
+  const check = await checkPassword({
+    headers: request.headers,
+    email,
+    label: 'POST /api/auth/login',
+    attempt: async (user) => {
+      const result = await signIn(user, password);
+      if (result.supabase) {
+        signedIn = { supabase: result.supabase, userId: result.userId };
+      }
+      return result.outcome;
+    },
+  });
+  switch (check.outcome) {
+    case 'locked':
+      return json(423, MESSAGES.locked, check.retryAfterMs);
+    case 'rate_limited':
+      return json(429, MESSAGES.throttled, check.retryAfterMs);
+    case 'throttled':
+      return json(429, MESSAGES.throttled, 1000);
+    case 'unavailable':
+      return json(503, MESSAGES.unavailable);
+    case 'banned':
+      return json(403, MESSAGES.deactivated);
+    case 'invalid':
+      return json(401, MESSAGES.invalid);
   }
-
-  // GoTrue gets the same string the lockout keys on. It lowercases with
-  // Go's simple case mapping, JavaScript with the full one, so a raw
-  // `admİn@…` reached the user `admin@…` under a lockout key of its own
-  // and every such variant bought another set of guesses.
-  const { outcome, supabase, userId } = await signIn(user, password);
-  if (outcome === 'throttled') return json(429, MESSAGES.throttled, 1000);
-  if (outcome === 'unavailable') return json(503, MESSAGES.unavailable);
-
-  const authOk = outcome === 'ok';
-  try {
-    await settleAdmin(guards, { ip, userId: user, authOk });
-  } catch (err) {
-    console.error('[POST /api/auth/login] lockout store failed:', err);
-    // The password was right and the session is set: failing to clear
-    // the pair only leaves its old failures counting until they age
-    // out, which is stricter, never looser. A failure that could not be
-    // counted fails closed.
-    if (!authOk) return json(503, MESSAGES.unavailable);
-  }
-
-  if (outcome === 'banned') return json(403, MESSAGES.deactivated);
-  if (!authOk) return json(401, MESSAGES.invalid);
+  // Read through a call: TypeScript does not see the closure's write.
+  const { supabase, userId } = (() => signedIn)() ?? {
+    supabase: null,
+    userId: null,
+  };
   if (supabase && userId) await applySavedLanguage(supabase, userId);
   return NextResponse.json({ ok: true });
 }
@@ -116,7 +116,10 @@ async function applySavedLanguage(
       .eq('user_id', userId);
     if (error) return;
     const row = pickActiveProfile(
-      (data ?? []) as { is_active?: boolean | null; preferred_language?: unknown }[]
+      (data ?? []) as {
+        is_active?: boolean | null;
+        preferred_language?: unknown;
+      }[]
     );
     if (!row || !('preferred_language' in row)) return;
     const store = await cookies();
@@ -135,15 +138,19 @@ async function readCredentials(
 ): Promise<{ email: string; password: string } | null> {
   // JSON only: a cross-site form cannot send it without a preflight,
   // which keeps another site from signing a visitor in (login CSRF).
-  const type = request.headers.get('content-type') ?? '';
-  if (!type.toLowerCase().startsWith('application/json')) return null;
+  if (!isJsonRequest(request)) return null;
   const body = (await request.json().catch(() => null)) as {
     email?: unknown;
     password?: unknown;
   } | null;
   const email = typeof body?.email === 'string' ? body.email.trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
-  if (!email || email.length > 320 || !password || password.length > 1024) {
+  if (
+    !email ||
+    email.length > 320 ||
+    !password ||
+    password.length > MAX_PASSWORD_LENGTH
+  ) {
     return null;
   }
   return { email, password };
@@ -172,36 +179,4 @@ async function signIn(
     console.error('[POST /api/auth/login] sign-in failed:', err);
     return { outcome: 'unavailable', supabase: null, userId: null };
   }
-}
-
-/**
- * GoTrue's answer → what it means here. A ban is checked before the
- * password, so it proves nothing about the password and counts as a
- * failure. No HTTP status (a network error), 5xx, or GoTrue's own rate
- * limit is not the caller's failure.
- */
-function classifySignInError(error: {
-  code?: string;
-  status?: number;
-}): Exclude<SignInOutcome, 'ok'> {
-  if (error.code === 'user_banned') return 'banned';
-  if (error.code === 'over_request_rate_limit' || error.status === 429) {
-    return 'throttled';
-  }
-  const status = error.status;
-  if (typeof status !== 'number' || status === 0 || status >= 500) {
-    return 'unavailable';
-  }
-  return 'invalid';
-}
-
-function json(status: number, error: string, retryAfterMs?: number) {
-  if (retryAfterMs === undefined) {
-    return NextResponse.json({ error }, { status });
-  }
-  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
-  return NextResponse.json(
-    { error, retryAfterSeconds },
-    { status, headers: { 'Retry-After': String(retryAfterSeconds) } }
-  );
 }

@@ -1,6 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable'
 import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { contentSecurityPolicy } from '@/lib/csp'
@@ -65,7 +69,22 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+  // The auth service did not answer, for someone who holds a session
+  // cookie: that is not a sign-out, so neither the redirect to /login nor
+  // the 401 below applies. The page goes through (server guards and RLS
+  // still decide; no user is loaded here either way). auth-js keeps the
+  // cookie on a retryable failure, so the next request simply works.
+  const sessionUnknown =
+    !user &&
+    isAuthUnavailable(authError) &&
+    request.cookies.getAll().some(
+      ({ name, value }) =>
+        // The whole cookie, or the first of its chunks (".0", ".1", …).
+        value !== '' &&
+        (name === AUTH_COOKIE_NAME || name === `${AUTH_COOKIE_NAME}.0`)
+    )
 
   // getUser() transparently refreshes an expired access token, which
   // ROTATES the refresh token and writes the new cookies onto
@@ -163,7 +182,7 @@ export async function middleware(request: NextRequest) {
     // Reports (migrations 254-255): /reports, /reports/tags, /reports/funnel.
     '/reports',
   ]
-  if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
+  if (!user && !sessionUnknown && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     // Remember the deep link: after signing in, the login page sends
@@ -187,7 +206,9 @@ export async function middleware(request: NextRequest) {
       request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron' &&
       request.nextUrl.pathname !== '/api/whatsapp/health/cron') {
     return withRefreshedCookies(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      sessionUnknown
+        ? authUnavailableResponse()
+        : NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )
   }
 

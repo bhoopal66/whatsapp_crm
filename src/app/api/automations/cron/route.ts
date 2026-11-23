@@ -40,6 +40,7 @@ import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
 import { ConfirmationGate } from '@/lib/assist/confirm'
 import { RateLimiter } from '@/lib/assist/rate'
+import { serverErrorResponse } from '@/lib/api/server-error';
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -1021,7 +1022,7 @@ async function drainDueExecutions(): Promise<NextResponse> {
     .order('run_at', { ascending: true })
     .limit(50)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return serverErrorResponse('GET /api/automations/cron', error)
   if (!due || due.length === 0) return NextResponse.json({ processed: 0 })
 
   let processed = 0

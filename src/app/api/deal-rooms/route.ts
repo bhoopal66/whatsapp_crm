@@ -10,6 +10,10 @@ import { createDealRoom, parseCreateBody } from '@/lib/deal-rooms/create';
 import { listRooms, parseRoomScope } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
 import { ChannelError } from '@/lib/whatsapp/channels';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /** Asking Meta for the group is a gateway round trip. */
 export const maxDuration = 60;
@@ -83,7 +87,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
     const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) throw new AuthUnavailableError();
     if (!auth.user) throw new UnauthorizedError();
     const rooms = await listRooms(supabase, parsed.scope);
     return NextResponse.json(

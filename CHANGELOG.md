@@ -50,6 +50,20 @@ No migration.
   API's `to` without a country code matches only a contact saved that way.
 - A failed contact lookup is reported as a failure. It used to be read as
   "no such contact" and could create a second contact and chat.
+### Sign-in hardening
+
+No migration.
+- "Forgot password" tells people to ask an administrator, who sets a new
+  password in Settings → Members. It used to promise an email that could
+  not arrive.
+- Your email in Settings → Profile is read-only; an administrator changes
+  it in Settings → Members.
+- Changing your own password goes through the server: the sign-in lockout
+  counts wrong guesses, and your other devices are signed out.
+- A short outage of the auth service no longer sends signed-in people to
+  the login page. API calls answer 503 until it is back.
+- Automations, flows and quick replies no longer show raw database
+  messages when a request fails.
 
 ### Dependencies and repository settings
 

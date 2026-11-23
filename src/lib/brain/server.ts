@@ -22,6 +22,7 @@ import type { IngestDeps } from './ingest';
 import { SupabaseBrainPageStore } from './pages';
 import type { SearchDeps } from './search';
 import { BrainError, SupabaseBrainStore, SupabaseCosineIndex } from './store';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 export function brainDeps(): IngestDeps & SearchDeps {
   const admin = supabaseAdmin();
@@ -97,7 +98,11 @@ export function brainErrorResponse(err: unknown, route: string): NextResponse {
   const tag = `[brain] ${route}`;
   if (err instanceof BrainHttpError || err instanceof CaseHttpError)
     return NextResponse.json({ error: err.message }, { status: err.status });
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AuthUnavailableError
+  )
     return toErrorResponse(err);
   if (err instanceof BrainError && err.reason !== null) {
     const status =

@@ -16,6 +16,11 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 export async function GET() {
   // Admin+ to READ as well as write: this is an admin-only screen, and
@@ -29,7 +34,9 @@ export async function GET() {
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) return authUnavailableResponse();
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -38,7 +45,7 @@ export async function GET() {
     .select('*')
     .order('created_at', { ascending: false });
   if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('GET /api/automations', error);
   return NextResponse.json({ automations: data ?? [] });
 }
 
@@ -55,7 +62,9 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) return authUnavailableResponse();
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -157,10 +166,7 @@ export async function POST(request: Request) {
     .single();
 
   if (insertErr || !automation) {
-    return NextResponse.json(
-      { error: insertErr?.message ?? 'insert failed' },
-      { status: 500 }
-    );
+    return serverErrorResponse('POST /api/automations', insertErr);
   }
 
   if (effectiveSteps && effectiveSteps.length > 0) {

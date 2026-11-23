@@ -4,6 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/provider'
 import { loadChannels, primaryChannel } from '@/lib/whatsapp/channels'
 import { mediaResponseHeaders } from '@/lib/whatsapp/media-headers'
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 export async function GET(
   request: Request,
@@ -25,6 +29,7 @@ export async function GET(
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
+    if (isAuthUnavailable(authError)) return authUnavailableResponse()
 
     if (authError || !user) {
       return NextResponse.json(

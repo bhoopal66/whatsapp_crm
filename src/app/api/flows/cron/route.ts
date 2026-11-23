@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { resolveFallbackPolicy } from '@/lib/flows/fallback'
+import { serverErrorResponse } from '@/lib/api/server-error';
 
 /**
  * Sweep abandoned active flow runs.
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error('[flows-cron] active-run scan failed:', error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return serverErrorResponse('GET /api/flows/cron', error)
   }
   if (!runs?.length) return NextResponse.json({ swept: 0 })
 

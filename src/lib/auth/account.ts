@@ -30,6 +30,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { pickActiveProfile } from "./active-profile";
+import { AuthUnavailableError, isAuthUnavailable } from "./auth-unavailable";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 import {
   isSalesRestricted,
@@ -73,7 +74,11 @@ export class ForbiddenError extends Error {
  * server internals out of the wire.
  */
 export function toErrorResponse(err: unknown): NextResponse {
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AuthUnavailableError
+  ) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
   console.error("[toErrorResponse] uncategorized error:", err);
@@ -109,6 +114,8 @@ export interface AccountContext {
  * Resolve the caller's user + account + role in one round trip.
  *
  * Throws `UnauthorizedError` if there's no Supabase session.
+ * Throws `AuthUnavailableError` (503) if the auth service did not
+ * answer or the profile could not be read: neither says who this is.
  * Throws `ForbiddenError` if the profile is missing account
  * fields (shouldn't happen post-017 migration; defensive guard
  * against profile rows that pre-date the backfill or were
@@ -124,6 +131,12 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     data: { user },
     error: userErr,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(userErr)) {
+    // No answer from the auth service: that says nothing about the
+    // session, so never a 401 (which signs people out).
+    console.error("[getCurrentAccount] auth service unavailable:", userErr);
+    throw new AuthUnavailableError();
+  }
   if (userErr || !user) {
     throw new UnauthorizedError();
   }
@@ -153,8 +166,9 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   );
 
   if (error) {
+    // A read that failed is not a refusal: 503, so the caller retries.
     console.error("[getCurrentAccount] profile fetch error:", error);
-    throw new ForbiddenError("Could not load account context");
+    throw new AuthUnavailableError("Could not load account context");
   }
   if (data?.deactivated_at) {
     // Migration 069. RLS already refuses this caller everything; say

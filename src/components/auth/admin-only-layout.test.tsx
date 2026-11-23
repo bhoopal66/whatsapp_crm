@@ -433,3 +433,23 @@ describe('ReportsLandingLayout', () => {
     await expect(page).rejects.toThrow('REDIRECT:/login');
   });
 });
+
+describe('an auth outage', () => {
+  it('reaches the error boundary instead of /login', async () => {
+    const { AuthUnavailableError } = await import('@/lib/auth/auth-unavailable');
+    const outage = new AuthUnavailableError();
+    mocks.redirect.mockClear();
+    mocks.getCurrentAccount.mockRejectedValue(outage);
+    for (const Layout of [
+      AdminOnlyLayout,
+      CallReviewerLayout,
+      HrAccessLayout,
+      ReportsLandingLayout,
+      SalesOnlyLayout,
+      StaffOnlyLayout,
+    ]) {
+      await expect(Layout({ children: null })).rejects.toBe(outage);
+    }
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+});

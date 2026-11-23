@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { validateFlowForActivation } from '@/lib/flows/validate'
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * POST /api/flows/[id]/activate
@@ -37,7 +42,9 @@ export async function POST(
   const supabase = await createClient()
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser()
+  if (isAuthUnavailable(authError)) return authUnavailableResponse()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -113,7 +120,7 @@ export async function POST(
     .select()
     .maybeSingle()
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return serverErrorResponse('POST /api/flows/[id]/activate', error)
   }
   return NextResponse.json({ flow: updated })
 }

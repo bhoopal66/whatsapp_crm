@@ -29,7 +29,9 @@ contract; `verify-edge-security.sql` asserts the SQL.
 - **Sign-in** posts JSON to `POST /api/auth/login` (any other content type is
   a 400). `admitAdmin` checks the lock (423) and the `admin.ip` / `admin.user`
   limits (429, **fail closed**) before GoTrue; `settleAdmin` then counts the
-  failure or clears the pair. The lockout guards this route only.
+  failure or clears the pair. `POST /api/account/password` (a person
+  changing their own password) runs the same check: both go through
+  `checkPassword` in `lib/auth/password-check.ts`.
 - **API keys.** `requireApiKey` locks per client IP before the key lookup and
   answers the ordinary 429 `rate_limited`; it fails open, and is off when no
   client IP is known.

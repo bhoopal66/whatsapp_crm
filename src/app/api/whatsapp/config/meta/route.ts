@@ -12,6 +12,10 @@ import {
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
 import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * Connect a Meta WhatsApp Cloud API number, alongside the Whapi channel.
@@ -105,7 +109,9 @@ export async function GET() {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) return authUnavailableResponse();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -180,7 +186,9 @@ export async function POST(request: Request) {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) return authUnavailableResponse();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -475,7 +483,9 @@ export async function DELETE() {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) return authUnavailableResponse();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

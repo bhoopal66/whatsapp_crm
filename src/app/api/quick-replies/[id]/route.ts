@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { serverErrorResponse } from '@/lib/api/server-error';
 
 // Update / delete a single quick reply. Quick replies are account-
 // shared, so every mutation is scoped by `account_id` (the service-role
@@ -77,7 +78,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('account_id', ctx.accountId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return serverErrorResponse('PATCH /api/quick-replies/[id]', error)
   return NextResponse.json({ ok: true })
 }
 
@@ -98,6 +99,6 @@ export async function DELETE(
     .delete()
     .eq('id', id)
     .eq('account_id', ctx.accountId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return serverErrorResponse('DELETE /api/quick-replies/[id]', error)
   return NextResponse.json({ ok: true })
 }

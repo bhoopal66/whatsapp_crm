@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 export async function POST(
   _request: Request,
@@ -23,7 +28,9 @@ export async function POST(
   const supabase = await createClient()
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser()
+  if (isAuthUnavailable(authError)) return authUnavailableResponse()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = supabaseAdmin()
@@ -33,7 +40,7 @@ export async function POST(
     .eq('id', id)
     .eq('account_id', ctx.accountId)
     .maybeSingle()
-  if (origErr) return NextResponse.json({ error: origErr.message }, { status: 500 })
+  if (origErr) return serverErrorResponse('POST /api/automations/[id]/duplicate', origErr)
   if (!original) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const { data: copy, error: copyErr } = await admin
@@ -52,7 +59,7 @@ export async function POST(
     .select()
     .single()
   if (copyErr || !copy) {
-    return NextResponse.json({ error: copyErr?.message ?? 'copy failed' }, { status: 500 })
+    return serverErrorResponse('POST /api/automations/[id]/duplicate', copyErr)
   }
 
   const { data: steps } = await admin
@@ -81,7 +88,7 @@ export async function POST(
       position: row.position,
     }))
     const { error: insErr } = await admin.from('automation_steps').insert(rows)
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+    if (insErr) return serverErrorResponse('POST /api/automations/[id]/duplicate', insErr)
   }
 
   return NextResponse.json({ automation: copy }, { status: 201 })

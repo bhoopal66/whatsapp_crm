@@ -14,6 +14,7 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components';
 import { submitMessageTemplate, MetaError } from '@/lib/whatsapp/meta-api';
 import { loadChannels } from '@/lib/whatsapp/channels';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
  * POST /api/whatsapp/templates/submit — save a message template.
@@ -251,7 +252,7 @@ export async function POST(request: Request) {
     // Auth failures map to 401/403 before the generic 500 branch —
     // reporting "you aren't an admin" as a template save failure would
     // send the user chasing the wrong problem.
-    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError || error instanceof AuthUnavailableError) {
       return toErrorResponse(error);
     }
     console.error('Error saving template:', error);
