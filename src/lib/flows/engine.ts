@@ -1235,6 +1235,19 @@ async function handleReplyForActiveRun(
   nodes: Map<string, FlowNodeRow>
 ): Promise<DispatchInboundResult> {
   const { message } = input;
+  // A run belongs to the chat it runs in: what the customer writes to
+  // another of our numbers is not an answer to this one's menu, unless
+  // it is a tap on that very menu.
+  if (run.conversation_id && run.conversation_id !== input.conversationId) {
+    const node = run.current_node_key ? nodes.get(run.current_node_key) : null;
+    if (
+      !node ||
+      message.kind !== 'interactive_reply' ||
+      !matchReplyId(node, message.reply_id)
+    ) {
+      return { consumed: false, flow_run_id: run.id, outcome: 'no_match' };
+    }
+  }
   // Note: we intentionally do NOT persist the raw customer text. A
   // `collect_input` prompt that asks "what's your card number?" would
   // otherwise leave the PAN sitting in flow_run_events.payload forever,
