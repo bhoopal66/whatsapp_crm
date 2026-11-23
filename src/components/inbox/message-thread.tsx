@@ -1673,8 +1673,10 @@ export function MessageThread({
         }
       };
 
-      // Optimistic update — shows the message immediately with "sending" status
-      onNewMessage(message);
+      // Optimistic update — shows the message immediately with "sending"
+      // status. Only in its own chat: a voice note's upload can end after
+      // the person moved on, and it is still sent to the chat it is for.
+      if (conversationIdRef.current === conversationId) onNewMessage(message);
 
       let res: Response;
       let payload: unknown;
@@ -1871,7 +1873,8 @@ export function MessageThread({
         created_at: new Date().toISOString(),
         reply_to_message_id: payload.replyToId,
       };
-      setReplyTo(null);
+      // Not another chat's quote: see the voice note in `deliver`.
+      if (conversationIdRef.current === conversation.id) setReplyTo(null);
 
       await deliver({
         message: optimisticMsg,

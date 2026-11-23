@@ -230,6 +230,33 @@ describe('composer guards', () => {
     expect(box).toContain('micTooSoon(lastSentAtRef.current');
   });
 
+  it('sends a voice note to the chat it was recorded in, and no other', () => {
+    const box = source('message-composer');
+    // Its own chat's send, captured when Send is pressed.
+    expect(box).toContain(
+      'const send = { deliver: onSendMedia, replyToId: replyTo?.id };'
+    );
+    expect(box).toContain('meta.send.deliver({');
+    expect(box).toContain('if (parkedFor !== meta.owner) removeStaged(path);');
+    // A recording never runs on under the next chat.
+    expect(box).toContain(
+      'useLayoutEffect(() => () => leaveTake(), [conversationId, leaveTake]);'
+    );
+    // Refused with Meta's window closed, and kept.
+    expect(box).toMatch(
+      /const sendRecording = useCallback\(\(\) => \{[\s\S]{0,120}if \(refuseBlocked\(\)\) \{\s*listenFirst\(\);\s*return;/
+    );
+    // Another login's kept recording is not offered.
+    expect(box).toContain('unsentTake?.meta.owner === userId');
+    const thread = source('message-thread');
+    expect(thread).toContain(
+      'if (conversationIdRef.current === conversationId) onNewMessage(message);'
+    );
+    expect(thread).toContain(
+      'if (conversationIdRef.current === conversation.id) setReplyTo(null);'
+    );
+  });
+
   it('closes the header strip on a switch, an action, outside, Escape', () => {
     const header = source('thread-header');
     expect(header).toContain('if (actionsFor !== conversation.id)');

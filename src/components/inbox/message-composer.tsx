@@ -65,6 +65,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 import {
   reportComposeCheckOutcome,
   requestComposeCheck,
@@ -96,7 +97,11 @@ import {
 } from '@/lib/storage/staged-media';
 import { ReplyQuote } from './reply-quote';
 import { VoiceNotePlayer } from './voice-note-player';
-import { VoiceRecordingBar } from './voice-recording-bar';
+import {
+  VoiceFailedStrip,
+  VoiceRecordingBar,
+  VoiceWorkStrip,
+} from './voice-recording-bar';
 import { useTranslations } from 'next-intl';
 import { translateDraft } from '@/lib/translate/client';
 import {
@@ -128,11 +133,11 @@ import {
 import {
   MAX_RECORDING_SECONDS,
   micTooSoon,
-  OPUS_ENCODER_PATH,
   PICKER_ACCEPT,
   PILL_BUTTON,
   SEND_BUTTON,
 } from '@/lib/inbox/composer-ui';
+import type { MicProblem, RecordedTake } from '@/lib/media/take-recorder';
 import { ComposeCheckDialog } from './compose-check-dialog';
 
 /** Media content types an agent can send from the composer. */
@@ -219,6 +224,26 @@ interface HeldSend {
   send: () => void;
 }
 
+/** What a recording carries from the mic press to its file. */
+interface VoiceMeta {
+  /** The chat it was started in: the only one it can go to. */
+  chatId: string;
+  /** `parkedFor` when it was started. */
+  owner: string | null;
+  contactName: string | null;
+  /** Set by Send: that chat's own send, and the quote it answers. */
+  send: {
+    deliver: (payload: SendMediaPayload) => void;
+    replyToId?: string;
+  } | null;
+}
+
+/** A recording whose upload failed, kept to be tried again. */
+interface UnsentTake {
+  file: File;
+  meta: VoiceMeta;
+}
+
 /**
  * Drafts (typed text, a staged attachment and its caption, the reply
  * quote) parked by a chat switch, by conversation id. Module-level so they
@@ -286,6 +311,7 @@ export function MessageComposer({
   onBusyChange,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
+  const tVoice = useTranslations('Inbox.voice');
   const tCheck = useTranslations('ComposeCheck');
   const tMenu = useTranslations('ComposerMenu');
 
@@ -628,17 +654,26 @@ export function MessageComposer({
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
 
-  // Voice recording state. The recorder encodes Ogg/Opus in-browser
-  // (opus-recorder) so there's no server-side transcode.
-  const [recording, setRecording] = useState(false);
-  const composerBusy = recording || !!draft;
-  useEffect(() => {
-    onBusyChange?.(composerBusy);
-  }, [composerBusy, onBusyChange]);
-  const [recordSeconds, setRecordSeconds] = useState(0);
-  const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  const cancelledRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Voice notes: the recorder itself is further down (useVoiceRecorder).
+  // `voiceWork` is the chat whose recording is being sent or made ready;
+  // `unsentTakes` the recordings whose upload failed, by chat.
+  const [voiceWork, setVoiceWork] = useState<{
+    chatId: string;
+    kind: 'send' | 'review';
+  } | null>(null);
+  const [unsentTakes, setUnsentTakes] = useState<Record<string, UnsentTake>>(
+    {}
+  );
+  const unsentTake = unsentTakes[conversationId];
+  // Kept by one login, never shown to another in the same tab.
+  const unsentHere = unsentTake?.meta.owner === userId ? unsentTake : null;
+  const dropUnsentTake = useCallback((chatId: string) => {
+    setUnsentTakes((all) => {
+      const rest = { ...all };
+      delete rest[chatId];
+      return rest;
+    });
+  }, []);
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
@@ -650,25 +685,11 @@ export function MessageComposer({
   // stay usable. Whapi and OpenWA have no window.
   const inputsDisabled = readOnly || freeTextBlocked;
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  // Tear down any live recording + timer on unmount so a mid-record
-  // navigation doesn't leak the mic, and GC a staged-but-unsent
-  // attachment so it doesn't orphan in the bucket.
+  // GC a staged-but-unsent attachment on unmount so it doesn't orphan in
+  // the bucket. (The recorder frees the mic by itself.)
   useEffect(() => {
-    return () => {
-      clearTimer();
-      cancelledRef.current = true;
-      // stop() releases the mic stream + audio context inside opus-recorder.
-      void recorderRef.current?.stop().catch(() => {});
-      removeStaged(draftRef.current?.path);
-    };
-  }, [clearTimer, removeStaged]);
+    return () => removeStaged(draftRef.current?.path);
+  }, [removeStaged]);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -1197,120 +1218,178 @@ export function MessageComposer({
     [stageUpload]
   );
 
-  // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
+  // ---- Voice note (client-side Ogg/Opus, no server transcode) ---------
 
-  // The encoded Ogg/Opus file from opus-recorder → upload as an audio
-  // draft. WhatsApp renders Ogg/Opus as a playable voice note.
-  const finalizeRecording = useCallback(
-    async (
-      bytes: Uint8Array,
-      startedIn: string | null,
-      owner: string | null
-    ) => {
-      // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
-      // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
-      const file = new File(
-        [bytes as unknown as BlobPart],
-        `voice-${Date.now()}.ogg`,
-        {
-          type: 'audio/ogg',
-        }
-      );
-      if (file.size === 0) return; // cancelled / empty take
-      if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        toast.error('Recording is too long (over 16 MB).');
-        return;
-      }
+  // A finished recording: uploaded, then sent or staged to be listened
+  // to. Send is that chat's own send, captured when it was pressed, so
+  // it reaches that chat however soon the person moves on.
+  const uploadTake = useCallback(
+    async ({ file, meta }: UnsentTake) => {
       setBusy(true);
+      setVoiceWork({
+        chatId: meta.chatId,
+        kind: meta.send ? 'send' : 'review',
+      });
+      const name = meta.contactName ?? tVoice('thisCustomer');
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
           file,
           { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
-        landUpload(startedIn, owner, {
-          kind: 'audio',
-          mediaUrl: publicUrl,
-          path,
-          filename: file.name,
-          caption: '',
-        });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Upload failed.');
+        if (meta.send) {
+          // Another login has the tab: nobody may send it any more.
+          if (parkedFor !== meta.owner) removeStaged(path);
+          else {
+            lastSentAtRef.current = Date.now();
+            meta.send.deliver({
+              kind: 'audio',
+              mediaUrl: publicUrl,
+              path,
+              replyToId: meta.send.replyToId,
+            });
+          }
+        } else {
+          landUpload(meta.chatId, meta.owner, {
+            kind: 'audio',
+            mediaUrl: publicUrl,
+            path,
+            filename: file.name,
+            caption: '',
+          });
+          if (openChatRef.current !== meta.chatId && parkedFor === meta.owner)
+            toast.info(tVoice('waiting', { name }));
+        }
+      } catch {
+        setUnsentTakes((all) => ({ ...all, [meta.chatId]: { file, meta } }));
+        if (openChatRef.current !== meta.chatId)
+          toast.error(
+            tVoice(
+              openChatRef.current === null ? 'notSentLeft' : 'notSentElsewhere',
+              { name }
+            )
+          );
       } finally {
         setBusy(false);
+        setVoiceWork((w) => (w?.chatId === meta.chatId ? null : w));
       }
     },
-    [landUpload]
+    [landUpload, removeStaged, tVoice]
   );
 
-  const startRecording = useCallback(async () => {
-    if (inputsDisabled || busy || recording) return;
+  const handleTake = useCallback(
+    (take: RecordedTake<VoiceMeta>) => {
+      // Uint8Array is a valid BlobPart at runtime; the cast sidesteps the
+      // lib.dom ArrayBufferLike-vs-ArrayBuffer generic mismatch.
+      const file = new File(
+        [take.bytes as unknown as BlobPart],
+        `voice-${Date.now()}.ogg`,
+        { type: 'audio/ogg' }
+      );
+      if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
+        setVoiceWork(null);
+        toast.error(tVoice('tooLarge'));
+        return;
+      }
+      void uploadTake({ file, meta: take.meta });
+    },
+    [uploadTake, tVoice]
+  );
+
+  const handleMicProblem = useCallback(
+    (problem: MicProblem) => {
+      setVoiceWork(null);
+      toast.error(tVoice(`problem.${problem}`));
+    },
+    [tVoice]
+  );
+
+  const {
+    phase: voicePhase,
+    seconds: recordSeconds,
+    start: startTake,
+    finish: finishTake,
+    cancel: cancelRecording,
+    leave: leaveTake,
+    getLevelSource,
+  } = useVoiceRecorder<VoiceMeta>({
+    maxSeconds: MAX_RECORDING_SECONDS,
+    onTake: handleTake,
+    onProblem: handleMicProblem,
+  });
+  const recording = voicePhase === 'starting' || voicePhase === 'recording';
+
+  // The box comes back one line high: give it its text's height again.
+  useEffect(() => {
+    if (!recording && !draft) adjustHeight();
+  }, [recording, draft, adjustHeight]);
+
+  const voiceWorkHere = voiceWork?.chatId === conversationId ? voiceWork : null;
+  const composerBusy = recording || !!draft || !!voiceWorkHere || !!unsentHere;
+  useEffect(() => {
+    onBusyChange?.(composerBusy);
+  }, [composerBusy, onBusyChange]);
+
+  const startRecording = useCallback(() => {
+    if (readOnly || busy || refuseBlocked()) return;
     if (micTooSoon(lastSentAtRef.current, Date.now())) return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof AudioContext === 'undefined'
-    ) {
-      toast.error("Voice recording isn't supported in this browser.");
+    void startTake({
+      chatId: conversationId,
+      owner: parkedFor,
+      contactName: contactName ?? null,
+      send: null,
+    });
+  }, [readOnly, busy, refuseBlocked, startTake, conversationId, contactName]);
+
+  const listenFirst = useCallback(() => {
+    if (finishTake('review'))
+      setVoiceWork({ chatId: conversationId, kind: 'review' });
+  }, [finishTake, conversationId]);
+
+  const sendRecording = useCallback(() => {
+    // Meta's window closed while speaking: refused, and kept to listen to.
+    if (refuseBlocked()) {
+      listenFirst();
       return;
     }
-    try {
-      // Lazy-load the encoder (≈400 KB worker) only when the user records,
-      // keeping it out of the main bundle.
-      const { default: Recorder } = await import('opus-recorder');
-      const recorder = new Recorder({
-        encoderPath: OPUS_ENCODER_PATH,
-        numberOfChannels: 1,
-        encoderApplication: 2048, // VOIP — tuned for speech
-        encoderSampleRate: 48000,
-        streamPages: false, // one callback with the complete file on stop
-      });
-      cancelledRef.current = false;
-      // The voice note is the chat's it was started in, wherever it stops.
-      const startedIn = openChatRef.current;
-      const owner = parkedFor;
-      recorder.ondataavailable = (bytes) => {
-        if (cancelledRef.current) return;
-        void finalizeRecording(bytes, startedIn, owner);
-      };
-      recorderRef.current = recorder;
-      await recorder.start();
-      setRecording(true);
-      setRecordSeconds(0);
-      timerRef.current = setInterval(
-        () => setRecordSeconds((s) => s + 1),
-        1000
-      );
-    } catch {
-      void recorderRef.current?.stop().catch(() => {});
-      recorderRef.current = null;
-      toast.error('Microphone access denied or unavailable.');
-    }
-  }, [inputsDisabled, busy, recording, finalizeRecording]);
+    const send = { deliver: onSendMedia, replyToId: replyTo?.id };
+    if (!finishTake('send', { send })) return;
+    lastSentAtRef.current = Date.now();
+    setVoiceWork({ chatId: conversationId, kind: 'send' });
+    onClearReply?.();
+  }, [
+    refuseBlocked,
+    listenFirst,
+    onSendMedia,
+    replyTo?.id,
+    finishTake,
+    conversationId,
+    onClearReply,
+  ]);
 
-  // The live meter taps the recorder's own graph.
-  const getLevelSource = useCallback(() => recorderRef.current, []);
+  const retryUnsent = useCallback(() => {
+    if (!unsentHere || busy) return;
+    const { file, meta } = unsentHere;
+    if (meta.send && refuseBlocked()) return;
+    dropUnsentTake(meta.chatId);
+    void uploadTake({
+      file,
+      meta: meta.send
+        ? { ...meta, send: { ...meta.send, deliver: onSendMedia } }
+        : meta,
+    });
+  }, [
+    unsentHere,
+    busy,
+    refuseBlocked,
+    dropUnsentTake,
+    uploadTake,
+    onSendMedia,
+  ]);
 
-  const stopRecording = useCallback(() => {
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
-
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, [clearTimer]);
-
-  // Auto-stop at the cap so a forgotten recording can't blow the
-  // upload size limit.
-  useEffect(() => {
-    if (recording && recordSeconds >= MAX_RECORDING_SECONDS) {
-      stopRecording();
-    }
-  }, [recording, recordSeconds, stopRecording]);
+  // A recording is its chat's. Left running, its Send would stand under
+  // the next chat: leaving the chat ends the take, which waits there.
+  useLayoutEffect(() => () => leaveTake(), [conversationId, leaveTake]);
 
   // ---- Draft send / discard -----------------------------------------
 
@@ -1450,6 +1529,15 @@ export function MessageComposer({
       busy: translating,
       hidden: !showTranslate,
     },
+    {
+      // The mic button is Send while the box holds text: this always
+      // records. Beside the saved ones, so the two are told apart.
+      id: 'record-voice',
+      icon: Mic,
+      label: tVoice('record'),
+      onSelect: startRecording,
+      disabled: freeTextBlocked || busy || checking || voicePhase !== 'idle',
+    },
     voiceLibraryItem,
     // ---- Add new More menu items above this line ----
   ];
@@ -1537,6 +1625,16 @@ export function MessageComposer({
         </div>
       )}
 
+      {unsentHere && (
+        <VoiceFailedStrip
+          // Listened to first, it would replace what is staged now.
+          disabled={busy || (!!draft && !unsentHere.meta.send)}
+          onRetry={retryUnsent}
+          onDiscard={() => dropUnsentTake(conversationId)}
+        />
+      )}
+      {voiceWorkHere && <VoiceWorkStrip kind={voiceWorkHere.kind} />}
+
       {draft ? (
         <MediaDraftPreview
           draft={draft}
@@ -1554,10 +1652,12 @@ export function MessageComposer({
         <VoiceRecordingBar
           seconds={recordSeconds}
           maxSeconds={MAX_RECORDING_SECONDS}
+          starting={voicePhase === 'starting'}
           getLevelSource={getLevelSource}
           onCancel={cancelRecording}
-          onStop={stopRecording}
-          stopClassName={SEND_BUTTON}
+          onStop={listenFirst}
+          onSend={sendRecording}
+          buttonClassName={SEND_BUTTON}
         />
       ) : (
         // WhatsApp-like row: More (+) | the text box with attach and AI
@@ -1760,10 +1860,15 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              disabled={inputsDisabled || busy}
-              onClick={() => void startRecording()}
-              title={readOnly ? undefined : t('voiceNote')}
-              aria-label={t('voiceNote')}
+              disabled={inputsDisabled || busy || voicePhase !== 'idle'}
+              onClick={startRecording}
+              title={
+                readOnly
+                  ? undefined
+                  : ((freeTextBlocked ? freeTextBlockedText : null) ??
+                    tVoice('record'))
+              }
+              aria-label={tVoice('record')}
               className={SEND_BUTTON}
             >
               <Mic className="h-[18px] w-[18px]" />
@@ -1824,6 +1929,10 @@ export function MessageComposer({
         open={voiceLibraryOpen}
         onOpenChange={setVoiceLibraryOpen}
         conversationId={conversationId}
+        onRecord={() => {
+          setVoiceLibraryOpen(false);
+          startRecording();
+        }}
         onSend={(note) => {
           if (refuseBlocked()) return;
           onSendMedia({
@@ -1867,6 +1976,7 @@ function MediaDraftPreview({
   onSend: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tVoice = useTranslations('Inbox.voice');
   // A voice note is one row, like the recording bar it replaces:
   // discard, the player (to listen back before sending), send.
   if (draft.kind === 'audio') {
@@ -1875,8 +1985,8 @@ function MediaDraftPreview({
         <button
           type="button"
           onClick={onDiscard}
-          aria-label={t('removeAttachment')}
-          title={t('removeAttachment')}
+          aria-label={tVoice('discardRecording')}
+          title={tVoice('discardRecording')}
           className="text-wa-icon hover:bg-destructive-soft hover:text-destructive focus-visible:ring-destructive/50 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2"
         >
           <Trash2 className="h-5 w-5" />
@@ -1885,6 +1995,7 @@ function MediaDraftPreview({
           src={draft.mediaUrl}
           seed={draft.path ?? draft.filename}
           tone="in"
+          badge={false}
           className="w-auto min-w-0 flex-1"
         />
         <GatedButton
@@ -1893,6 +2004,8 @@ function MediaDraftPreview({
           gateReason="send messages"
           disabled={busy}
           onClick={onSend}
+          aria-label={tVoice('sendVoice')}
+          title={readOnly ? undefined : tVoice('sendVoice')}
           className={SEND_BUTTON}
         >
           <Send className="h-[18px] w-[18px]" />

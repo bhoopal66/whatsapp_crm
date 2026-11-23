@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AudioLines,
   Loader2,
@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -38,12 +39,9 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 import { canAddVoiceNotes } from '@/lib/auth/roles';
-import {
-  MAX_RECORDING_SECONDS,
-  OPUS_ENCODER_PATH,
-  SEND_BUTTON,
-} from '@/lib/inbox/composer-ui';
+import { MAX_RECORDING_SECONDS, SEND_BUTTON } from '@/lib/inbox/composer-ui';
 import { cn } from '@/lib/utils';
 import {
   DEFAULT_TTS_VOICE,
@@ -91,9 +89,9 @@ export interface VoiceLibrarySend {
 type Method = 'record' | 'tts';
 
 /**
- * The composer's More-menu entry that opens the library. Disabled while
- * only templates may be sent (Meta's closed window): a voice note is a
- * free-form message.
+ * The composer's More-menu entry that opens the saved voice notes, beside
+ * its "Record a voice note". Disabled while only templates may be sent
+ * (Meta's closed window): a voice note is a free-form message.
  */
 export function useVoiceLibraryMenuItem(
   onOpen: () => void,
@@ -121,11 +119,14 @@ export function VoiceLibraryPicker({
   onOpenChange,
   conversationId,
   onSend,
+  onRecord,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   conversationId: string;
   onSend: (note: VoiceLibrarySend) => void;
+  /** Close this and record one for the open chat instead. */
+  onRecord: () => void;
 }) {
   const t = useTranslations('VoiceLibrary');
   const { user, accountRole } = useAuth();
@@ -189,7 +190,16 @@ export function VoiceLibraryPicker({
       <DialogContent className="flex max-h-[90dvh] flex-col gap-3 sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('title')}</DialogTitle>
+          <DialogDescription>{t('intro')}</DialogDescription>
         </DialogHeader>
+        <Button
+          variant="outline"
+          onClick={onRecord}
+          className="h-auto min-h-9 justify-start py-2 whitespace-normal"
+        >
+          <Mic className="h-4 w-4 shrink-0" aria-hidden />
+          {t('recordForChat')}
+        </Button>
 
         {loadError ? (
           <div className="space-y-2 text-sm">
@@ -567,6 +577,7 @@ function AddEntryForm({
   onAdded: (entry: VoiceEntryRow) => void;
 }) {
   const t = useTranslations('VoiceLibrary');
+  const tVoice = useTranslations('Inbox.voice');
   const [newSubject, setNewSubject] = useState('');
   const [addingSubject, setAddingSubject] = useState(false);
   const [title, setTitle] = useState('');
@@ -576,37 +587,34 @@ function AddEntryForm({
   const [voice, setVoice] = useState<TtsVoice>(DEFAULT_TTS_VOICE);
   const [saving, setSaving] = useState(false);
 
-  // ---- Recording: the composer's recorder pieces (opus-recorder,
-  // Ogg/Opus in the browser, and its recording bar).
-  const [recording, setRecording] = useState(false);
-  const [seconds, setSeconds] = useState(0);
+  // ---- Recording, as in the composer. Stopped, it waits here for Save.
   const [take, setTake] = useState<{
     bytes: Uint8Array;
     url: string;
     seconds: number;
   } | null>(null);
-  const recorderRef = useRef<import('opus-recorder').default | null>(null);
-  const cancelledRef = useRef(false);
-  const secondsRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const clearTimer = () => {
-    if (timerRef.current !== null) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const stopRecording = useCallback(() => {
-    clearTimer();
-    setRecording(false);
-    void recorderRef.current?.stop().catch(() => {});
-  }, []);
-
-  const cancelRecording = useCallback(() => {
-    cancelledRef.current = true;
-    stopRecording();
-  }, [stopRecording]);
+  const {
+    phase,
+    seconds,
+    start,
+    finish,
+    cancel: cancelRecording,
+    getLevelSource,
+  } = useVoiceRecorder<object>({
+    maxSeconds: MAX_RECORDING_SECONDS,
+    onTake: ({ bytes, durationMs }) => {
+      const blob = new Blob([bytes as unknown as BlobPart], {
+        type: 'audio/ogg',
+      });
+      setTake({
+        bytes,
+        url: URL.createObjectURL(blob),
+        seconds: Math.round(durationMs / 1000),
+      });
+    },
+    onProblem: (problem) => toast.error(tVoice(`problem.${problem}`)),
+  });
+  const recording = phase !== 'idle';
 
   // Leaving the tab or closing the dialog releases the mic.
   useEffect(() => {
@@ -614,70 +622,15 @@ function AddEntryForm({
   }, [open, cancelRecording]);
   useEffect(
     () => () => {
-      cancelledRef.current = true;
-      clearTimer();
-      void recorderRef.current?.stop().catch(() => {});
-    },
-    []
-  );
-  useEffect(() => {
-    if (recording && seconds >= MAX_RECORDING_SECONDS) stopRecording();
-  }, [recording, seconds, stopRecording]);
-  useEffect(
-    () => () => {
       if (take) URL.revokeObjectURL(take.url);
     },
     [take]
   );
 
-  const startRecording = async () => {
-    if (recording) return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof AudioContext === 'undefined'
-    ) {
-      toast.error(t('recordUnsupported'));
-      return;
-    }
-    try {
-      const { default: Recorder } = await import('opus-recorder');
-      const recorder = new Recorder({
-        encoderPath: OPUS_ENCODER_PATH,
-        numberOfChannels: 1,
-        encoderApplication: 2048,
-        encoderSampleRate: 48000,
-        streamPages: false,
-      });
-      cancelledRef.current = false;
-      recorder.ondataavailable = (bytes) => {
-        if (cancelledRef.current || bytes.byteLength === 0) return;
-        const blob = new Blob([bytes as unknown as BlobPart], {
-          type: 'audio/ogg',
-        });
-        setTake({
-          bytes,
-          url: URL.createObjectURL(blob),
-          seconds: secondsRef.current,
-        });
-      };
-      recorderRef.current = recorder;
-      await recorder.start();
-      setTake(null);
-      setRecording(true);
-      setSeconds(0);
-      secondsRef.current = 0;
-      timerRef.current = setInterval(() => {
-        secondsRef.current += 1;
-        setSeconds(secondsRef.current);
-      }, 1000);
-    } catch {
-      void recorderRef.current?.stop().catch(() => {});
-      recorderRef.current = null;
-      toast.error(t('micDenied'));
-    }
+  const startRecording = () => {
+    setTake(null);
+    void start({});
   };
-
-  const getLevelSource = useCallback(() => recorderRef.current, []);
 
   // ---- Subject
   const addSubject = async () => {
@@ -848,10 +801,11 @@ function AddEntryForm({
           <VoiceRecordingBar
             seconds={seconds}
             maxSeconds={MAX_RECORDING_SECONDS}
+            starting={phase === 'starting'}
             getLevelSource={getLevelSource}
             onCancel={cancelRecording}
-            onStop={stopRecording}
-            stopClassName={SEND_BUTTON}
+            onStop={() => finish('review')}
+            buttonClassName={SEND_BUTTON}
           />
         ) : take ? (
           <div className="space-y-2">
@@ -861,17 +815,13 @@ function AddEntryForm({
               tone="chat"
               knownDuration={take.seconds}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void startRecording()}
-            >
+            <Button variant="outline" size="sm" onClick={startRecording}>
               <RotateCcw className="h-4 w-4" aria-hidden />
               {t('recordAgain')}
             </Button>
           </div>
         ) : (
-          <Button variant="outline" onClick={() => void startRecording()}>
+          <Button variant="outline" onClick={startRecording}>
             <Mic className="h-4 w-4" aria-hidden />
             {t('startRecording')}
           </Button>

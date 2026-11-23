@@ -1,11 +1,15 @@
 # Voice library
 
-A workspace library of ready voice notes: a welcome, the documents a bank
-needs, a missing-documents reminder, a status update, in English, Hindi,
-Arabic or Urdu. An agent picks one from the composer's **More** menu and
-it goes out as an ordinary voice message, through the normal send path:
-team-activity limits, opt-out and the Meta 24-hour window apply as for
-any send.
+A workspace library of ready voice notes, **Saved voice notes** in the
+app: a welcome, the documents a bank needs, a missing-documents reminder,
+a status update, in English, Hindi, Arabic or Urdu. An agent picks one
+from the composer's **More** menu and it goes out as an ordinary voice
+message, through the normal send path: team-activity limits, opt-out and
+the Meta 24-hour window apply as for any send.
+
+A voice note for one customer is not saved here: tap the microphone (or
+**More → Record a voice note**), speak, and tap **Send**, or **Listen
+first** to hear it before it goes.
 
 ## Entries
 

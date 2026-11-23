@@ -29,6 +29,8 @@ declare module 'opus-recorder' {
     readonly sourceNode?: AudioNode;
     start(): Promise<void>;
     stop(): Promise<void>;
+    /** Frees the mic and closes the AudioContext, which stop() leaves open. */
+    close(): Promise<void>;
     /** Browser support probe exposed as a static on the class. */
     static isRecordingSupported(): boolean;
   }

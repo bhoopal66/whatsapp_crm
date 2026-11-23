@@ -12,6 +12,30 @@ and polish.
 
 ## [Unreleased]
 
+### Voice notes: one tap to record, one tap to send
+
+No migration.
+- Tap the microphone, speak, tap **Send**. **Listen first** stops the
+  recording to hear it before it goes. Before, it took "Stop and attach"
+  and then a second Send, beside a microphone that was only a picture.
+- The same in WhatsApp groups and submission groups, which now have the
+  microphone beside the box, and in team chat.
+- The **More** menu has **Record a voice note** and, apart from it,
+  **Saved voice notes** (it was called "Voice notes"): the ready-made ones
+  everyone can send. Its window says so, and leads back to recording one
+  for this customer only.
+- A voice note goes only to the chat it was recorded in. Leaving the chat
+  while recording stops it and keeps it there; leaving after Send does not
+  stop it. Before, the recording ran on under the next chat.
+- A recording that could not be uploaded is kept, with **Try again**. It
+  was lost.
+- When the microphone does not open, the message says why (blocked, none
+  found, in use by another program) and what to do; while it opens, the
+  screen says so.
+- The microphone and its audio are closed after every recording. They were
+  not: a second tap while it opened left the microphone on, and after a
+  few recordings Safari refused another.
+
 ### An alert when the site is down
 
 No migration. `.github/workflows/uptime.yml` checks the site from outside
