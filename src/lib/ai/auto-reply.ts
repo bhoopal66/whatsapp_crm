@@ -381,6 +381,43 @@ export async function dispatchInboundToAiReply(
     await record(outcome, detail);
     return 'skipped';
   };
+  // Set once the chat is known to be the bot's to answer: from then on a
+  // failure or a throttle leaves the customer with no answer and nobody
+  // told, so those exits flag the chat.
+  let botsChat = false;
+  /**
+   * Pin the chat as Important (migration 078) and ring the bell, once
+   * until a person acts: nothing happens when it is already flagged, or
+   * a person has taken the chat or paused the bot. The bot stays on.
+   * Best-effort, never throws.
+   */
+  const flagUnanswered = async (reasonClause: string) => {
+    if (!botsChat || !db) return;
+    try {
+      const { data, error } = await db
+        .from('conversations')
+        .update({ ai_attention_at: new Date().toISOString() })
+        .eq('id', conversationId)
+        .eq('ai_autoreply_disabled', false)
+        .is('assigned_agent_id', null)
+        .is('ai_attention_at', null)
+        .select('id');
+      if (error) throw new Error(error.message);
+      if (!Array.isArray(data) || data.length === 0) return;
+      await notifyHandoff(db, {
+        accountId,
+        conversationId,
+        contactId,
+        recipientId: null,
+        reasonClause,
+      });
+    } catch (err) {
+      console.error('[ai auto-reply] unanswered chat not flagged:', {
+        conversationId,
+        error: errorMessage(err),
+      });
+    }
+  };
 
   try {
     db = supabaseAdmin();
@@ -558,6 +595,7 @@ export async function dispatchInboundToAiReply(
     if (config.autoReplyCampaignOnly && !conv.campaign_broadcast_id) {
       return skip('skipped_campaign_only');
     }
+    botsChat = true;
 
     // Bursts get one reply. A customer types "hi", then "I need a loan"
     // two seconds later; each inbound gets its own dispatch, and both
@@ -867,6 +905,7 @@ export async function dispatchInboundToAiReply(
         // service role, or the migration not applied. Log it loudly: a
         // silent return makes "auto-reply never fires" undiagnosable.
         console.error('[ai auto-reply] claim_ai_reply_slot failed:', claimErr);
+        await flagUnanswered(UNANSWERED_ERROR);
         return skip('error', `claim_ai_reply_slot failed: ${claimErr.message}`);
       }
       if (claimed !== true) {
@@ -967,6 +1006,10 @@ export async function dispatchInboundToAiReply(
     if (!acctLimit.success) {
       console.warn(
         `[ai auto-reply] account ${accountId} hit the per-account rate limit — skipping this inbound.`
+      );
+      await flagUnanswered(
+        'The AI agent reached its reply limit for the minute and did not ' +
+          'answer. It is still on for this chat.'
       );
       return skip(
         'skipped_rate_limited',
@@ -1464,11 +1507,16 @@ export async function dispatchInboundToAiReply(
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err);
     await record('error', errorMessage(err));
+    await flagUnanswered(UNANSWERED_ERROR);
     return 'skipped';
   } finally {
     if (shadowWork.length) await Promise.allSettled(shadowWork);
   }
 }
+
+/** The bell text when a dispatch failed; the error itself is recorded. */
+const UNANSWERED_ERROR =
+  'The AI agent failed and did not answer. It is still on for this chat.';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

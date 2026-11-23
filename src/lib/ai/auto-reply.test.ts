@@ -55,6 +55,12 @@ const h = vi.hoisted(() => ({
     } | null,
     /** Fail every contacts read with this message. */
     contactError: null as string | null,
+    /** Fail the reply-slot claim with this message. */
+    claimError: null as string | null,
+    /** "Nobody answered" flags that landed (`ai_attention_at` alone). */
+    flags: [] as Record<string, unknown>[],
+    /** What the flag write does when it fails. */
+    flagFailure: null as 'error' | 'throw' | null,
     /** Rows the auto-resume compare-and-set updates. */
     resumeRows: [] as { id: string }[],
     resumes: [] as Record<string, unknown>[],
@@ -241,13 +247,15 @@ vi.mock('./admin-client', () => ({
         update: (payload: Record<string, unknown>) => {
           // recordOutcome's write is kept apart from the hand-off update.
           // So is auto-resume's compare-and-set.
-          // So is the held-draft write.
+          // So are the held-draft write and the "nobody answered" flag.
+          const flag = Object.keys(payload).join() === 'ai_attention_at';
           const resume = payload.ai_autoreply_disabled === false;
           const draft = 'ai_pending_draft' in payload;
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
           else if (draft) h.state.drafts.push(payload);
-          const handoff = !('ai_last_outcome' in payload) && !resume && !draft;
+          const handoff =
+            !('ai_last_outcome' in payload) && !resume && !draft && !flag;
           // The hand-off update lands only where its filters match the
           // row as it is now (`convLive`, else `conv`).
           const filters: [string, unknown][] = [];
@@ -257,6 +265,11 @@ vi.mock('./admin-client', () => ({
               ([col, v]) => col === 'id' || (row[col] ?? null) === v
             );
             if (handoff && hit) h.state.updatePayload = payload;
+            if (flag && hit) {
+              h.state.flags.push(payload);
+              // The next flag write finds the stamp, as the row would.
+              h.state.conv = { ...h.state.conv, ...payload };
+            }
             return hit;
           };
           const result = () => ({
@@ -275,11 +288,20 @@ vi.mock('./admin-client', () => ({
               return chain;
             },
             select: () => {
+              if (flag && h.state.flagFailure === 'throw') {
+                throw new Error('connection reset');
+              }
+              if (flag && h.state.flagFailure === 'error') {
+                return Promise.resolve({
+                  data: null,
+                  error: { message: 'timeout' },
+                });
+              }
               const hit = apply();
               return Promise.resolve({
                 data: resume
                   ? h.state.resumeRows
-                  : handoff && hit
+                  : (handoff || flag) && hit
                     ? [{ id: 'conv-1' }]
                     : [],
                 error: null,
@@ -299,7 +321,11 @@ vi.mock('./admin-client', () => ({
     },
     rpc: (name: string, args: unknown) => {
       h.state.rpcCalls.push({ name, args });
-      return Promise.resolve({ data: h.state.claim, error: null });
+      return Promise.resolve(
+        h.state.claimError
+          ? { data: null, error: { message: h.state.claimError } }
+          : { data: h.state.claim, error: null }
+      );
     },
   }),
 }));
@@ -397,6 +423,9 @@ beforeEach(() => {
   h.state.profiles = [];
   h.state.contact = null;
   h.state.contactError = null;
+  h.state.claimError = null;
+  h.state.flags = [];
+  h.state.flagFailure = null;
   h.state.resumeRows = [];
   h.state.resumes = [];
   h.state.drafts = [];
@@ -2987,4 +3016,102 @@ describe('dispatchInboundToAiReply — contacts who must not be messaged', () =>
     expect(h.engineSendText).not.toHaveBeenCalled();
     expect(h.state.outcomes[0]).toMatchObject({ ai_last_outcome: 'error' });
   });
+});
+
+describe('dispatchInboundToAiReply — a customer left unanswered is flagged', () => {
+  const bells = () =>
+    h.state.inserts.filter((i) => i.table === 'notifications');
+  const spendAccountLimit = () => {
+    for (let i = 0; i < RATE_LIMITS.aiAutoReplyAccount.limit; i++) {
+      checkRateLimit('ai-autoreply:acct-1', RATE_LIMITS.aiAutoReplyAccount);
+    }
+  };
+  // The thread read is not caught inside the dispatch.
+  const failDispatch = () =>
+    h.buildConversationContext.mockRejectedValue(new Error('db down'));
+  beforeEach(() => {
+    h.state.profiles = [
+      {
+        user_id: 'owner-1',
+        account_id: 'acct-1',
+        account_role: 'owner',
+        deactivated_at: null,
+      },
+    ];
+  });
+
+  const SILENCES: [string, string, () => void][] = [
+    ['the dispatch failed', 'error', failDispatch],
+    ['the account limit is spent', 'skipped_rate_limited', spendAccountLimit],
+    [
+      'the reply slot could not be claimed',
+      'error',
+      () => {
+        h.state.claimError = 'permission denied';
+      },
+    ],
+  ];
+
+  it.each(SILENCES)('flags once when %s', async (_why, outcome, arrange) => {
+    arrange();
+    for (let i = 0; i < 2; i++) {
+      h.state.convReads = 0;
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    }
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      outcome,
+      outcome,
+    ]);
+    expect(h.state.flags).toHaveLength(1);
+    expect(bells()).toHaveLength(1);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    // The chat stays the bot's.
+    expect(h.state.updatePayload).toBeNull();
+  });
+
+  it.each(SILENCES)(
+    'leaves a chat a person took alone when %s',
+    async (_why, _outcome, arrange) => {
+      for (const taken of [
+        { assigned_agent_id: 'agent-1' },
+        { ai_autoreply_disabled: true },
+      ]) {
+        arrange();
+        h.state.convReads = 0;
+        h.state.convLive = { ...h.state.conv, ...taken };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      }
+      expect(h.state.flags).toEqual([]);
+      expect(bells()).toEqual([]);
+    }
+  );
+
+  it('flags nothing while the chat is not known to be the bot’s', async () => {
+    // Not a campaign chat: the bot would not have answered it anyway.
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyCampaignOnly: true }));
+    failDispatch();
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    // Failed before the chat was read.
+    h.loadAiConfig.mockResolvedValue(aiConfig());
+    h.resolveChannelForSurface.mockRejectedValue(new Error('db down'));
+    h.state.convReads = 0;
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      'skipped_campaign_only',
+      'error',
+    ]);
+    expect(h.state.flags).toEqual([]);
+    expect(bells()).toEqual([]);
+  });
+
+  it.each(['error', 'throw'] as const)(
+    'never throws when the flag write fails (%s)',
+    async (failure) => {
+      h.state.flagFailure = failure;
+      failDispatch();
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(bells()).toEqual([]);
+      expect(h.state.outcomes).toHaveLength(1);
+    }
+  );
 });
