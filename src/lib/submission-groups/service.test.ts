@@ -18,6 +18,7 @@ import {
   isNumberFailure,
   SubmissionGroupCreateUnsettledError,
   SubmissionGroupNumberDisconnectedError,
+  unconfirmedError,
 } from './service';
 import type {
   AddNumberBegin,
@@ -28,6 +29,7 @@ import type {
   SgOutMedia,
   SubmissionGroup,
 } from './store';
+import { createRefusedText } from './wa-errors';
 
 const ACC = 'acc-1';
 const CH = 'ch-1';
@@ -646,6 +648,39 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(await s.open()).toMatchObject({ consentRequired: true });
     expect(s.api.of('createGroup')).toHaveLength(1);
     expect(s.store.claims.size).toBe(0);
+  });
+
+  it('a waiting create refused by consent says why, and is created once it changes', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    g.waCreateError = null;
+    s.consent.answer = { allowed: false, phone: '1', reason: 'opted_out' };
+    expect(await s.svc.retryOne(g.id)).toMatchObject({ consentRequired: true });
+    expect(g.waCreateError).toBe(createRefusedText('opted_out'));
+    expect(s.api.of('createGroup')).toHaveLength(1);
+    s.api.fail.delete('createGroup');
+    s.consent.answer = { allowed: true, phone: '+971500000001' };
+    expect(await s.svc.retryOne(g.id)).toMatchObject({
+      consentRequired: false,
+      group: { waGroupId: expect.any(String) },
+    });
+  });
+
+  it('a consent refusal keeps the unconfirmed count in front of its reason', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    const prior = { attempts: 3, at: new Date('2026-11-20T10:00:00.000Z') };
+    g.waCreateError = unconfirmedError(prior, 'timed out');
+    s.consent.answer = { allowed: false, phone: '1', reason: 'do_not_contact' };
+    expect(await s.open()).toMatchObject({ consentRequired: true });
+    expect(g.waCreateError).toBe(
+      unconfirmedError(prior, createRefusedText('do_not_contact'))
+    );
+    expect(s.api.of('createGroup')).toHaveLength(1);
   });
 
   it('claim held by another caller: no gateway call, the pending group is returned; after expiry one more create', async () => {

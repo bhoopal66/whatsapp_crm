@@ -71,6 +71,7 @@ import type {
   SystemSendRefusal,
   WaMode,
 } from './store';
+import { createRefusedText } from './wa-errors';
 
 /** 210: what a staff member can attach; 'voice' is a recorded voice note. */
 export type SgAttachmentKind = 'image' | 'video' | 'document' | 'voice';
@@ -685,7 +686,13 @@ export class SubmissionGroupService {
       // Re-checked by the claim holder before every createGroup: a pending group's row says nothing about consent now.
       const consent = await this.deps.consent(contactId);
       if (!consent.allowed || !consent.phone) {
-        await this.releaseClaimQuietly(group.id, token, null);
+        // The reason is what the page shows and offers Retry for; an unconfirmed count stays in front of it.
+        const why = createRefusedText(consent.reason);
+        await this.releaseClaimQuietly(
+          group.id,
+          token,
+          prior ? unconfirmedError(prior, why) : why
+        );
         return { consentRequired: true };
       }
       // The customer, then the coordinator numbers. A 142 row's list is already deduped, capped and holds the

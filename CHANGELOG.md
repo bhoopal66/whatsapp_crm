@@ -42,6 +42,9 @@ No migration.
 - Closing a group takes out the members WhatsApp hides too. When someone
   could not be removed, the group is not recorded as closed, its number
   stays in, and the page says how many are left; the cron tries again.
+- A group waiting to be created for a customer who opted out, or is marked
+  do-not-contact, says so instead of showing "being created" for ever.
+  Retry works once that changes.
 
 ### Push notifications that stay with the right person
 
