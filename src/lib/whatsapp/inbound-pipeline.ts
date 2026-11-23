@@ -42,6 +42,10 @@ import { settleBroadcastAfterLateFailure } from '@/lib/whatsapp/broadcast-core';
 import { buildHandoffSummary } from '@/lib/ai/handoff';
 import { buildConversationContext } from '@/lib/ai/context';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
+import {
+  InboundPersistError,
+  type InboundPersistStage,
+} from '@/lib/whatsapp/inbound-persist-error';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
@@ -163,6 +167,13 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci;
 }
 
+export interface StatusUpdateResult {
+  /** A message or a campaign recipient of this account carries the id. */
+  matched: boolean;
+  /** A read or write failed, so the receipt may not be applied. */
+  failed: boolean;
+}
+
 export async function handleStatusUpdate(
   status: NormalizedStatus,
   // The account whose credentials authenticated this callback. Every
@@ -172,7 +183,7 @@ export async function handleStatusUpdate(
   // delivery ticks (or fire its webhooks) by posting that account's
   // message ids. Optional only for older callers.
   accountId?: string
-) {
+): Promise<StatusUpdateResult> {
   // 1) Mirror onto messages. The normaliser has already mapped the
   //    gateway's vocabulary onto the CRM's, and
   //    MESSAGE_STATUS_PREDECESSORS keeps the write forward-only and
@@ -198,6 +209,7 @@ export async function handleStatusUpdate(
   // arrived after a later one, moves nothing — and so tells no webhook
   // subscriber anything and hands no thread over.
   let moved: StatusMessageRow[] = [];
+  let failed = Boolean(msgLookupErr);
   const predecessors = MESSAGE_STATUS_PREDECESSORS[status.status] ?? [];
   if (rows.length > 0 && predecessors.length > 0) {
     const { data: updated, error: msgErr } = await supabaseAdmin()
@@ -210,6 +222,7 @@ export async function handleStatusUpdate(
       .in('status', [...predecessors])
       .select('id');
     if (msgErr) {
+      failed = true;
       console.error('Error updating message status:', msgErr);
     } else {
       const movedIds = new Set(
@@ -248,6 +261,7 @@ export async function handleStatusUpdate(
     RECIPIENT_STATUS_PREDECESSORS[status.status] ?? [];
 
   if (recFetchErr) {
+    failed = true;
     console.error('Error fetching broadcast recipient:', recFetchErr);
   } else if (
     recipient &&
@@ -283,6 +297,7 @@ export async function handleStatusUpdate(
       .select('id');
 
     if (recUpdateErr) {
+      failed = true;
       console.error('Error updating broadcast recipient status:', recUpdateErr);
     } else if (
       status.status === 'failed' &&
@@ -336,6 +351,8 @@ export async function handleStatusUpdate(
       );
     }
   }
+
+  return { matched: rows.length > 0 || Boolean(recipient), failed };
 }
 
 interface StatusMessageRow {
@@ -674,6 +691,13 @@ export interface ProcessMessageOptions {
    * and the conversation does exist.
    */
   fanOut?: boolean;
+  /**
+   * 'throw': a message that could not be stored throws
+   * `InboundPersistError`, so a durable caller retries it. Only before the
+   * idempotency boundary; after it nothing changes. Default: the failure is
+   * logged and swallowed.
+   */
+  onPersistFailure?: 'throw';
 }
 
 export async function processMessage(
@@ -698,6 +722,11 @@ export async function processMessage(
   later?: Promise<unknown>[],
   options: ProcessMessageOptions = {}
 ) {
+  // Before the idempotency boundary only: the message is not in the inbox.
+  const notStored = (stage: InboundPersistStage, code?: string) => {
+    if (options.onPersistFailure === 'throw')
+      throw new InboundPersistError(stage, code ?? null);
+  };
   const mirrorMedia = channel.mirrorInboundMedia;
   const senderPhone = normalizePhone(message.from);
   // Whapi carries the sender's WhatsApp display name on the message
@@ -713,7 +742,7 @@ export async function processMessage(
     senderPhone,
     contactName
   );
-  if (!contactOutcome) return;
+  if (!contactOutcome) return notStored('contact');
   const contactRecord = contactOutcome.contact;
 
   // Find or create conversation
@@ -732,7 +761,7 @@ export async function processMessage(
         contactRecord.id,
         channel.id
       );
-  if (!convResult) return;
+  if (!convResult) return notStored('conversation');
   const conversation = convResult.conversation;
 
   // Emit conversation.created as soon as the thread is opened — BEFORE
@@ -881,7 +910,7 @@ export async function processMessage(
 
   if (msgError) {
     console.error('Error inserting message:', msgError);
-    return;
+    return notStored('message', msgError.code);
   }
 
   // Replayed delivery: the message already exists, so acknowledge it as a

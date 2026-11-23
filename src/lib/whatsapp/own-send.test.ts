@@ -202,3 +202,16 @@ describe('persistOwnSend', () => {
     expect(state.updates).toHaveLength(0);
   });
 });
+
+describe('persistOwnSend: onPersistFailure', () => {
+  it.each([
+    ['contact', h.findOrCreateContact],
+    ['conversation', h.findOrCreatePersonalChat],
+  ])('no %s: skipped, or thrown when asked to', async (stage, mock) => {
+    mock.mockResolvedValue(null);
+    expect(await persistOwnSend(fakeDb(), CHANNEL, SEND)).toBe('skipped');
+    await expect(
+      persistOwnSend(fakeDb(), CHANNEL, SEND, { onPersistFailure: 'throw' })
+    ).rejects.toMatchObject({ name: 'InboundPersistError', stage });
+  });
+});

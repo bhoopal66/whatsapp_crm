@@ -1344,3 +1344,12 @@ jobs:
       # inherits the choice; only `authenticated` may execute the RPC.
       - name: Verify preferred language
         run: supabase db query --local --file supabase/ci/verify-preferred-language.sql
+
+      # Migration 264: the durable webhook inbox. Record leases; a
+      # redelivery takes over a waiting or dead row but never a leased or
+      # done one; claim respects lease and back-off; eight attempts then
+      # dead, which rings owners and admins once; a receipt with no
+      # message is tried three times; done empties the payload; purge
+      # ages; RLS forced, functions service role only.
+      - name: Verify webhook inbox
+        run: supabase db query --local --file supabase/ci/verify-webhook-inbox.sql

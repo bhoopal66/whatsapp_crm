@@ -26,6 +26,8 @@ const h = vi.hoisted(() => ({
   meaningOn: true,
   /** null = the usual existing row; [] = no chat yet (creates one). */
   convRows: null as unknown[] | null,
+  /** A `table:op` the database refuses. */
+  refuse: null as string | null,
   assignee: null as string | null,
   engagedAt: null as string | null,
   assignFromCalls: vi.fn(),
@@ -60,6 +62,9 @@ const h = vi.hoisted(() => ({
 }));
 
 function respond(call: Call): Result {
+  if (h.refuse === `${call.table}:${call.op}`) {
+    return { data: null, error: { code: '57014', message: 'timeout' } };
+  }
   if (call.table === 'conversations' && call.op === 'select') {
     if (h.convRows) return { data: h.convRows, error: null };
     return {
@@ -1464,5 +1469,53 @@ describe('processMessage — personal chats (migration 191)', () => {
       channel_id: 'ch-1',
       personal_owner_id: 'person-1',
     });
+  });
+});
+
+// Durable inbound (264): the queue's processor asks for a throw, so a
+// message that was not stored is retried instead of settled.
+describe('processMessage: onPersistFailure', () => {
+  const run = (opts?: { onPersistFailure: 'throw' }) =>
+    processMessage(message, 'acct-1', 'owner-1', channel, undefined, opts);
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    h.refuse = null;
+    h.convRows = null;
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['conversations:select', 'conversation', null],
+    ['messages:upsert', 'message', '57014'],
+  ])('%s refused: throws only when asked to', async (refuse, stage, code) => {
+    h.refuse = refuse;
+    await expect(run()).resolves.toBeUndefined();
+    await expect(run({ onPersistFailure: 'throw' })).rejects.toMatchObject({
+      name: 'InboundPersistError',
+      stage,
+      code,
+    });
+    expect(h.rpcs).toEqual([]);
+    expect(h.flows).not.toHaveBeenCalled();
+  });
+
+  it('a retry that finds the message stored repeats no side effect', async () => {
+    h.upsertRows = [];
+    await expect(run({ onPersistFailure: 'throw' })).resolves.toBeUndefined();
+    expect(h.rpcs).toEqual([]);
+    for (const fn of [h.flows, h.automations, h.ai, h.webhook, h.watch]) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a failure after the boundary does not throw', async () => {
+    h.upsertRows = [{ id: 'row-1' }];
+    h.refuse = 'conversations:update';
+    await expect(run({ onPersistFailure: 'throw' })).resolves.toBeUndefined();
+    expect(h.rpcs).toContain('bump_conversation_on_inbound');
   });
 });
