@@ -1111,10 +1111,17 @@ export async function dispatchInboundToFlows(
           outcome: 'duplicate_inbound_ignored',
         };
       }
-      // One SELECT for the whole flow's nodes — advance loop is now
-      // in-memory. See loadAllNodes.
-      const nodes = await loadAllNodes(db, activeRun.flow_id);
-      return handleReplyForActiveRun(db, activeRun, input, nodes);
+      // Switched off (draft or archived) since the run started: the run
+      // stops here and the message is dispatched as if there were none.
+      // A flow that could not be read is not a flow switched off.
+      const runFlow = await loadFlow(db, activeRun.flow_id);
+      if (!runFlow || runFlow.status === 'active') {
+        // One SELECT for the whole flow's nodes — advance loop is now
+        // in-memory. See loadAllNodes.
+        const nodes = await loadAllNodes(db, activeRun.flow_id);
+        return await handleReplyForActiveRun(db, activeRun, input, nodes);
+      }
+      await endRun(db, activeRun.id, 'failed', 'flow_switched_off');
     }
 
     // No active run. A first reply to a campaign that names a follow-up
