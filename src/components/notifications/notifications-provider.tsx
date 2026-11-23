@@ -23,33 +23,48 @@ import type { Notification } from '@/types';
 import type { NotificationRowPlan } from '@/lib/notifications/target';
 import {
   INITIAL_NOTIFICATIONS_STATE,
+  NOTIFICATIONS_PAGE,
   changeFromPayload,
+  loadDepth,
+  markAllBound,
   notificationsReducer,
+  olderCursor,
+  olderThan,
+  pageOf,
   unreadCount,
   type NotificationChange,
   type NotificationsAction,
+  type NotificationsState,
 } from '@/lib/notifications/store';
-
-/** How many of the latest rows the bell and the page list. */
-const WINDOW = 100;
 
 /**
  * Every workspace's rows, as the badge counts them: RLS shows the
  * reader's rows in each workspace where they are live (083's
  * my_live_account_ids()), so this list, "Mark all as read" and the
- * realtime handler all cover the same rows.
+ * realtime handler all cover the same rows. The newest `limit`, or those
+ * older than `after`.
  */
-async function fetchWindow() {
-  const [list, unreadTotal] = await Promise.all([
-    createClient()
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(WINDOW),
+async function fetchPage(limit: number, after?: Notification) {
+  let query = createClient()
+    .from('notifications')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit + 1);
+  if (after) query = query.or(olderThan(after));
+  const { data, error } = await query;
+  if (error) throw error;
+  return pageOf((data ?? []) as Notification[], limit);
+}
+
+/** The newest rows, as deep as `state` is, and the unread total. */
+async function fetchWindow(state: NotificationsState) {
+  const { olderPages } = state;
+  const [page, unreadTotal] = await Promise.all([
+    fetchPage(loadDepth(state)),
     fetchUnreadCount(),
   ]);
-  if (list.error) throw list.error;
-  return { rows: (list.data ?? []) as Notification[], unreadTotal };
+  return { ...page, unreadTotal, olderPages };
 }
 
 /**
@@ -68,18 +83,24 @@ async function fetchUnreadCount(): Promise<number> {
 }
 
 interface NotificationsContextValue {
-  /** The latest rows, newest first; null until first loaded. */
+  /** The rows loaded, newest first; null until first loaded. */
   notifications: Notification[] | null;
+  /** There are rows older than those. */
+  hasOlder: boolean;
   /** Every unread row, in the list or not (the badge). */
   unread: number;
   /** The last load's failure, cleared by the next load. */
   error: string | null;
   /** A load is in flight. */
   loading: boolean;
+  loadingOlder: boolean;
   markingAll: boolean;
   /** Fetch the latest rows. Realtime keeps them current afterwards. */
   load: () => Promise<void>;
+  /** Fetch the page after the last row. */
+  loadOlder: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
+  /** Everything up to the newest row loaded; nothing before a list is. */
   markAllRead: () => Promise<void>;
   /** A row's click: mark it read and open its screen. */
   openNotification: (
@@ -115,6 +136,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   // Only the latest load may land: an older one would roll the list back.
   const loadSeq = useRef(0);
@@ -123,11 +145,17 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const listenersRef = useRef(new Set<(change: NotificationChange) => void>());
   const statusListenersRef = useRef(new Set<(status: string) => void>());
 
+  // The state a read that is about to start should match.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const window = await fetchWindow();
+      const window = await fetchWindow(stateRef.current);
       if (seq !== loadSeq.current) return;
       setError(null);
       dispatch({ type: 'loaded', ...window });
@@ -138,10 +166,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  const listLoadedRef = useRef(false);
-  useEffect(() => {
-    listLoadedRef.current = state.rows !== null;
-  }, [state.rows]);
+  const loadOlder = useCallback(async () => {
+    const after = olderCursor(state);
+    // A page read while everything is being marked read could land unread.
+    if (!after || loading || loadingOlder || markingAll) return;
+    setLoadingOlder(true);
+    try {
+      const page = await fetchPage(NOTIFICATIONS_PAGE, after);
+      dispatch({ type: 'olderLoaded', after: after.id, ...page });
+    } catch {
+      toast.error(t('loadOlderFailed'));
+    }
+    setLoadingOlder(false);
+  }, [state, loading, loadingOlder, markingAll, t]);
 
   // Realtime — new notifications appear and count without a refresh, and
   // a "mark all read" fired from another tab/device stays in sync here.
@@ -161,8 +198,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const live = startLiveRead({
       read: async () => {
         const seq = loadSeq.current;
-        const action: NotificationsAction = listLoadedRef.current
-          ? { type: 'loaded', ...(await fetchWindow()) }
+        const held = stateRef.current;
+        const action: NotificationsAction = held.rows
+          ? { type: 'loaded', ...(await fetchWindow(held)) }
           : { type: 'count', unread: await fetchUnreadCount() };
         return { seq, action };
       },
@@ -220,20 +258,23 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
 
   const markAllRead = useCallback(async () => {
-    if (unreadCount(state) === 0) return;
+    const upTo = markAllBound(state);
+    // See loadOlder: the two never run together.
+    if (!upTo || loadingOlder) return;
     setMarkingAll(true);
     const now = new Date().toISOString();
-    dispatch({ type: 'markAllRead', at: now });
+    dispatch({ type: 'markAllRead', at: now, upTo });
     const { error: updateErr } = await createClient()
       .from('notifications')
       .update({ read_at: now })
+      .lte('created_at', upTo)
       .is('read_at', null);
     setMarkingAll(false);
     if (updateErr) {
       toast.error(t('markAllReadFailed'));
       void load();
     }
-  }, [state, load, t]);
+  }, [state, loadingOlder, load, t]);
 
   // Every type's screen, gated by the reader's role in the row's own
   // workspace: notificationRow in lib/notifications/target.ts.
@@ -283,11 +324,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<NotificationsContextValue>(
     () => ({
       notifications: state.rows,
+      hasOlder: state.hasOlder,
       unread: unreadCount(state),
       error,
       loading,
+      loadingOlder,
       markingAll,
       load,
+      loadOlder,
       markRead,
       markAllRead,
       openNotification,
@@ -298,8 +342,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       state,
       error,
       loading,
+      loadingOlder,
       markingAll,
       load,
+      loadOlder,
       markRead,
       markAllRead,
       openNotification,

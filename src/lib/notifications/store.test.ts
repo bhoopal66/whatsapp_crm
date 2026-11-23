@@ -4,8 +4,16 @@ import type { Notification } from '@/types';
 
 import {
   INITIAL_NOTIFICATIONS_STATE,
+  MAX_RELOAD,
+  NOTIFICATIONS_PAGE,
   changeFromPayload,
+  compareTimes,
+  loadDepth,
+  markAllBound,
   notificationsReducer as reduce,
+  olderCursor,
+  olderThan,
+  pageOf,
   unreadCount,
   type NotificationsState,
 } from './store';
@@ -27,9 +35,13 @@ function loaded(): NotificationsState {
   return reduce(INITIAL_NOTIFICATIONS_STATE, {
     type: 'loaded',
     rows: [row('a'), row('b'), row('c', true)],
+    hasOlder: true,
     unreadTotal: 5,
+    olderPages: 0,
   });
 }
+
+const ids = (state: NotificationsState) => state.rows?.map((n) => n.id);
 
 describe('before the list is loaded', () => {
   const counted = reduce(INITIAL_NOTIFICATIONS_STATE, {
@@ -101,7 +113,11 @@ describe('once the list is loaded', () => {
   });
 
   it('marks every row read, the ones outside the window too', () => {
-    const state = reduce(loaded(), { type: 'markAllRead', at: AT });
+    const state = reduce(loaded(), {
+      type: 'markAllRead',
+      at: AT,
+      upTo: markAllBound(loaded())!,
+    });
     expect(unreadCount(state)).toBe(0);
     expect(state.rows?.every((n) => n.read_at)).toBe(true);
     // The echoes of that write leave it at zero.
@@ -120,10 +136,211 @@ describe('once the list is loaded', () => {
     const state = reduce(INITIAL_NOTIFICATIONS_STATE, {
       type: 'loaded',
       rows: [row('a'), row('b')],
+      hasOlder: false,
       unreadTotal: 1,
+      olderPages: 0,
     });
     expect(state.outsideUnread).toBe(0);
     expect(unreadCount(state)).toBe(2);
+  });
+});
+
+describe('older pages', () => {
+  const older = (state: NotificationsState, after = 'c') =>
+    reduce(state, {
+      type: 'olderLoaded',
+      after,
+      rows: [row('d'), row('e'), row('f', true)],
+      hasOlder: true,
+    });
+  const reload = (asked: NotificationsState, rows: Notification[]) =>
+    ({
+      type: 'loaded',
+      rows,
+      hasOlder: true,
+      unreadTotal: 5,
+      olderPages: asked.olderPages,
+    }) as const;
+
+  it('go under the list, and leave the total as it was', () => {
+    const state = older(loaded());
+    expect(ids(state)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    // Two of the three unread rows outside are in the list now.
+    expect(state.outsideUnread).toBe(1);
+    expect(unreadCount(state)).toBe(5);
+  });
+
+  it('bring a row already listed only once', () => {
+    // An event's row is at the front whatever its time.
+    const state = older(reduce(loaded(), { type: 'insert', row: row('d') }));
+    expect(ids(state)).toEqual(['d', 'a', 'b', 'c', 'e', 'f']);
+    expect(state.outsideUnread).toBe(2);
+  });
+
+  it('are dropped when the list no longer ends where they begin', () => {
+    const gone = reduce(loaded(), { type: 'delete', row: { id: 'c' } });
+    expect(older(gone)).toBe(gone);
+    expect(older(INITIAL_NOTIFICATIONS_STATE)).toBe(
+      INITIAL_NOTIFICATIONS_STATE
+    );
+    // Asked for twice: the second answer is the same page.
+    const once = older(loaded());
+    expect(older(once)).toBe(once);
+  });
+
+  it('say whether more follow', () => {
+    expect(olderCursor(loaded())?.id).toBe('c');
+    const end = reduce(loaded(), {
+      type: 'olderLoaded',
+      after: 'c',
+      rows: [],
+      hasOlder: false,
+    });
+    expect(olderCursor(end)).toBeNull();
+    expect(olderCursor(INITIAL_NOTIFICATIONS_STATE)).toBeNull();
+  });
+
+  it('continue from the last row, whatever was put at the front', () => {
+    const state = reduce(loaded(), {
+      type: 'insert',
+      row: { ...row('late'), created_at: '2020-01-01T00:00:00Z' },
+    });
+    expect(olderCursor(state)?.id).toBe('c');
+  });
+
+  it('stay when a reload that was asked for before them lands', () => {
+    const asked = loaded();
+    const state = reduce(
+      older(asked),
+      reload(asked, [row('n'), row('a'), row('b')])
+    );
+    expect(ids(state)).toEqual(['n', 'a', 'b', 'c', 'd', 'e', 'f']);
+    expect(unreadCount(state)).toBe(5);
+  });
+
+  it('keep the end they reached when that reload lands', () => {
+    const asked = loaded();
+    const end = reduce(asked, {
+      type: 'olderLoaded',
+      after: 'c',
+      rows: [row('d')],
+      hasOlder: false,
+    });
+    expect(
+      reduce(end, reload(asked, [row('a'), row('b'), row('c')])).hasOlder
+    ).toBe(false);
+  });
+
+  it('go when a reload no longer reaches them: the list has no hole', () => {
+    const asked = loaded();
+    const state = reduce(older(asked), reload(asked, [row('y'), row('z')]));
+    expect(ids(state)).toEqual(['y', 'z']);
+    expect(state.hasOlder).toBe(true);
+  });
+
+  it('are the reload’s own when it was asked for after them', () => {
+    // A row deleted meanwhile must not come back, nor a stale unread one.
+    const asked = older(loaded());
+    const state = reduce(asked, reload(asked, [row('a'), row('d', true)]));
+    expect(ids(state)).toEqual(['a', 'd']);
+    expect(state.olderPages).toBe(1);
+  });
+});
+
+describe('how deep a reload goes', () => {
+  const deep = (n: number, olderPages: number): NotificationsState => ({
+    rows: Array.from({ length: n }, (_, i) => row(String(i))),
+    outsideUnread: 0,
+    hasOlder: true,
+    olderPages,
+  });
+
+  it('is one page until an older one was asked for', () => {
+    expect(loadDepth(INITIAL_NOTIFICATIONS_STATE)).toBe(NOTIFICATIONS_PAGE);
+    expect(loadDepth(deep(130, 0))).toBe(NOTIFICATIONS_PAGE);
+  });
+
+  it('is the whole list after that, within what PostgREST answers', () => {
+    expect(loadDepth(deep(230, 2))).toBe(230);
+    expect(loadDepth(deep(3, 1))).toBe(NOTIFICATIONS_PAGE);
+    expect(loadDepth(deep(1200, 11))).toBe(MAX_RELOAD);
+  });
+
+  it('reads one row more to know whether older ones follow', () => {
+    const read = [row('a'), row('b'), row('c')];
+    expect(pageOf(read, 2)).toEqual({ rows: read.slice(0, 2), hasOlder: true });
+    expect(pageOf(read, 3)).toEqual({ rows: read, hasOlder: false });
+  });
+});
+
+describe('the older filter', () => {
+  it("is the row's own time string, with the id deciding a tie", () => {
+    expect(
+      olderThan({ id: 'x', created_at: '2026-10-27T10:00:00.123456+00:00' })
+    ).toBe(
+      'created_at.lt."2026-10-27T10:00:00.123456+00:00",and(created_at.eq."2026-10-27T10:00:00.123456+00:00",id.lt.x)'
+    );
+  });
+});
+
+describe('compareTimes', () => {
+  it.each([
+    ['2026-10-27T10:00:00.123456+00:00', '2026-10-27T10:00:00.123457+00:00'],
+    ['2026-10-27T10:00:00+00:00', '2026-10-27T10:00:00.000001+00:00'],
+    ['2026-10-27T10:00:00.12+00:00', '2026-10-27T10:00:00.1203+00:00'],
+    ['2026-10-27T10:00:00Z', '2026-10-27T10:00:00.5Z'],
+    ['2026-10-27T13:00:00.9+04:00', '2026-10-27T10:00:00+00:00'],
+  ])('%s is before %s', (a, b) => {
+    expect(compareTimes(a, b)).toBeLessThan(0);
+    expect(compareTimes(b, a)).toBeGreaterThan(0);
+    expect(compareTimes(a, a)).toBe(0);
+  });
+});
+
+describe('mark all as read', () => {
+  const at = (id: string, created_at: string) => ({ ...row(id), created_at });
+  const first = '2026-10-27T10:00:00.123456+00:00';
+  const next = '2026-10-27T10:00:00.123457+00:00';
+  const list = (...rows: Notification[]) =>
+    reduce(INITIAL_NOTIFICATIONS_STATE, {
+      type: 'loaded',
+      rows,
+      hasOlder: true,
+      unreadTotal: rows.length + 2,
+      olderPages: 0,
+    });
+
+  it('covers up to the newest row listed, wherever it is', () => {
+    expect(markAllBound(list(at('a', first), at('b', next)))).toBe(next);
+    expect(markAllBound(list(at('b', next), at('a', first)))).toBe(next);
+  });
+
+  it('does nothing before a list is loaded, or with nothing unread', () => {
+    const counted = reduce(INITIAL_NOTIFICATIONS_STATE, {
+      type: 'count',
+      unread: 4,
+    });
+    expect(markAllBound(counted)).toBeNull();
+    const read = reduce(INITIAL_NOTIFICATIONS_STATE, {
+      type: 'loaded',
+      rows: [row('a', true)],
+      hasOlder: false,
+      unreadTotal: 0,
+      olderPages: 0,
+    });
+    expect(markAllBound(read)).toBeNull();
+    // Unread only in the rows not loaded: still something to mark.
+    expect(markAllBound({ ...read, outsideUnread: 1 })).not.toBeNull();
+  });
+
+  it('leaves a newer row unread, and reads the older ones not listed', () => {
+    const before = list(at('a', first));
+    const upTo = markAllBound(before)!;
+    const arrived = reduce(before, { type: 'insert', row: at('n', next) });
+    const state = reduce(arrived, { type: 'markAllRead', at: AT, upTo });
+    expect(state.rows?.map((n) => n.read_at)).toEqual([undefined, AT]);
+    expect(state.outsideUnread).toBe(0);
+    expect(state.hasOlder).toBe(true);
   });
 });
 

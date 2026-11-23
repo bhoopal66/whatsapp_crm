@@ -31,6 +31,12 @@ No migration.
   it did not load. It showed nobody as having one. When the open chats cannot
   be read, it says "not available" instead of 0, and the **Assign** menu shows
   no figures and asks again the next time it opens.
+- **Notifications**: the page has **Load older**. An unread notification past
+  the newest 100 was counted on the bell and could not be opened anywhere.
+- **Mark all as read** stops at the newest notification on the screen. One
+  that arrived as it was clicked was marked read without being seen. Older
+  ones not loaded are still marked, and the button says so; it waits until
+  the list has loaded.
 
 ### Voice notes: one tap to record, one tap to send
 
