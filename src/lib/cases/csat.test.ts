@@ -104,6 +104,12 @@ describe('parseCsatReply', () => {
     '1/5/2026',
     '1\n2\n3',
     '⭐⭐⭐ 5',
+    '1- Passport 2- Licence',
+    '1 - Passport 2 - Licence',
+    '2-year visa',
+    '5- great',
+    '1: passport 2: licence',
+    '1, passport\n2. licence',
   ])('not a rating: %j', (text) => {
     expect(parseCsatReply(text)).toBeNull();
   });

@@ -109,16 +109,17 @@ is stored and after Flows:
     accepted), optionally with `/5`, `out of 5`, `of 5`, `من 5`,
     `stars`, `نجوم` or star emoji, and nothing after it but punctuation
     or emoji;
-  - that, then a **separator** (comma, dash, colon, semicolon,
-    exclamation mark or new line) and a comment that does not start with
-    a digit: `2 - too slow`;
+  - that, then a **separator** (comma, colon, semicolon, exclamation
+    mark, new line, or a dash with a space before it) and a comment that
+    neither starts with a digit nor goes on as a numbered list:
+    `2 - too slow`;
   - `5/5`, `5 out of 5` or `5 stars`, a space and a comment;
   - 1 to 5 star emoji, alone or with a comment after a space.
 
   The comment keeps up to 1000 characters. A digit followed by only a
   space, a full stop or a closing bracket and then words is **not** a
-  rating: `5 great`, `2 years in business`, `1. Passport`, `3 pm call
-  me`, `2-3 years`.
+  rating: `5 great`, `2 years in business`, `1. Passport`, `1- Passport`,
+  `2-year visa`, `3 pm call me`, `2-3 years`.
 - Text that is not a rating costs nothing. A rating costs one database
   call, which stores it only when CSAT is on and the person has a request
   **sent within the reply window** (default 7 days) and not yet
@@ -131,10 +132,6 @@ is stored and after Flows:
   reply. Relationship triggers and the `message.received` webhook still
   fire. A sender over the webhook rate limit is not captured.
 - No thank-you message is sent.
-
-A list typed with dashes ("1- Passport") or a word like "2-year visa"
-while a request is open still reads as a rating with a comment. The 7-day
-window and the once-per-request rule keep that rare.
 
 ## Showing it
 

@@ -117,7 +117,7 @@ const RE_WHOLE = new RegExp(
   'iu'
 );
 const RE_SEPARATED = new RegExp(
-  `^([1-5])(?: ?(?:${EXPLICIT}|${OUT_OF})){0,2} ?[,،\\-–—:;؛!\\n][,،\\-–—:;؛!\\s]*((?![\\p{N}\\s,،\\-–—:;؛!])[\\s\\S]+)$`,
+  `^([1-5])(?: ?(?:${EXPLICIT}|${OUT_OF})){0,2}(?: ?[,،:;؛!\\n]| [\\-–—])[,،\\-–—:;؛!\\s]*((?![\\p{N}\\s,،\\-–—:;؛!])[\\s\\S]+)$`,
   'iu'
 );
 const RE_EXPLICIT = new RegExp(
@@ -129,6 +129,10 @@ const RE_STARS = new RegExp(
   'u'
 );
 
+// A second numbered item in what would be the comment: the message is a
+// typed list ("1 - Passport 2 - Licence"), not a rating.
+const LIST_ITEM = /(?:^|\s)\p{N}\s?[-–—.):]\s/u;
+
 /**
  * A rating reply, read strictly: while a request is open the message is
  * consumed and stored against an agent, so "2 years in business" or "1.
@@ -136,8 +140,10 @@ const RE_STARS = new RegExp(
  *  (a) the whole message: one digit 1-5 (ASCII or Arabic-Indic) with an
  *      optional "/5", "out of 5", "of 5", "من 5", "stars" / نجوم or star
  *      emoji, then only punctuation, emoji and space;
- *  (b) that, then a separator (comma, dash, colon, semicolon,
- *      exclamation, new line) and a comment not starting with a digit;
+ *  (b) that, then a separator (comma, colon, semicolon, exclamation, new
+ *      line, or a dash with a space before it: "2-year visa" and
+ *      "1- Passport" are not ratings) and a comment that neither starts
+ *      with a digit nor goes on as a numbered list;
  *  (c) an explicit form ("5/5", "5 out of 5", "5 stars"), a space and a
  *      comment;
  *  (d) 1-5 star emoji alone, or with a comment after a space.
@@ -167,6 +173,7 @@ export function parseCsatReply(
     if (!m) return null;
     score = Number(m[1]);
     rest = m[2];
+    if (rest && LIST_ITEM.test(rest)) return null;
   }
   const comment = (rest ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_REPLY);
   return {

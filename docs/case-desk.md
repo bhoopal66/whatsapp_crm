@@ -238,7 +238,7 @@ application number and `{{2}}` for what is missing, for example:
 - At most 5 reminders go out per 5-minute pass. On a Whapi or OpenWA
   number the number's daily limit of new chats applies (Team activity's
   limit for automatic senders): over it the reminder fails with
-  `number_daily_limit` and the next one queues after the gap days. Opt-out and
+  `number_daily_limit` and may queue again the next day (263). Opt-out and
   do-not-contact are checked again right before each send (`opted_out`).
 - Whether a reminder is a transactional message is for legal sign-off
   (design section 8). HR automated messages do not yet count reminders

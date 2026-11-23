@@ -190,7 +190,9 @@ BEGIN
     CREATE FUNCTION public.privacy_zz229_erase(p_account uuid, p_contact uuid)
     RETURNS jsonb LANGUAGE sql AS $body$
       SELECT jsonb_build_object('counts', jsonb_build_object('zz229', 7),
-                                'objects', jsonb_build_array(jsonb_build_object('bucket', 'zz', 'path', 'zz/1')))
+                                'objects', jsonb_build_array(
+                                  jsonb_build_object('bucket', 'zz', 'path', 'account-' || p_account || '/zz/1'),
+                                  jsonb_build_object('bucket', 'zz', 'path', 'zz/1')))
     $body$
   $fn$;
   INSERT INTO privacy_extensions (name, export_fn, erase_fn, added_in)
@@ -202,8 +204,11 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.dc_ok(
     EXISTS (SELECT 1 FROM desk_customer_contacts l WHERE l.customer_id = cu1 AND l.contact_id = c1)
     AND (SELECT x.name FROM contacts x WHERE x.id = c1) = 'Erased customer'
-    AND j->'objects' @> '[{"bucket": "zz", "path": "zz/1"}]'::jsonb,
+    AND j->'objects' @> jsonb_build_array(jsonb_build_object('bucket', 'zz', 'path', 'account-' || a_acct || '/zz/1')),
     'an erasure dropped the company link, kept the name, or lost a registered object');
+  -- 262: a registered erase cannot queue a file outside the workspace's folder.
+  n := n + 1; failed := failed || pg_temp.dc_ok(NOT (j->'objects' @> '[{"bucket": "zz", "path": "zz/1"}]'::jsonb),
+    '262: a registered erase queued a file outside the workspace''s own folder');
   n := n + 1; failed := failed || pg_temp.dc_check('a registry name in a bad shape was stored', NULL,
     'INSERT INTO privacy_extensions (name, export_fn, added_in) VALUES (''Bad name'', ''privacy_x'', ''x'')',
     'ERROR 23514%');

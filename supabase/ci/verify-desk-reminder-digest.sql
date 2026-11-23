@@ -136,6 +136,18 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.dg_ok(
     (SELECT count(*) FROM desk_digest_outbox o WHERE o.customer_id = cu_kite) = 1,
     'a second digest was queued within the gap');
+  -- 263: one the number's own daily limit held back sent nothing, so it
+  -- does not count towards the gap. Undone: the checks below need the row.
+  BEGIN
+    UPDATE desk_digest_outbox o SET status = 'failed', status_reason = 'number_daily_limit' WHERE o.id = q;
+    PERFORM desk_digest_enqueue(t10 + interval '1 day');
+    n := n + 1; failed := failed || pg_temp.dg_ok(
+      (SELECT count(*) FROM desk_digest_outbox o WHERE o.customer_id = cu_kite) = 2,
+      '263: a digest held back by the number''s limit still counted towards the gap');
+    RAISE EXCEPTION USING ERRCODE = 'ZD263', MESSAGE = 'undo';
+  EXCEPTION WHEN SQLSTATE 'ZD263' THEN
+    NULL;
+  END;
 
   -- ---------- 3. claim: quiet hours, then send ----------
   n := n + 1; failed := failed || pg_temp.dg_ok(

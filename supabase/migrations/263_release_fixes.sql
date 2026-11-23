@@ -20,6 +20,8 @@
 --  9. An index for conversation_notes_sync_bells.
 -- 10. hr_automsg_due: an SMS backlog starved WhatsApp rows.
 -- 11. The digest's template was checked in any language.
+-- 12. desk_digest_enqueue: a digest refused by the number's own daily
+--     limit counted towards the gap, though nothing had been sent.
 --
 -- desk_case_open / case_open_lead need no change: an open lead of the
 -- same contact and bank outside the caller's application is refused
@@ -825,6 +827,9 @@ BEGIN
          -- Not again within gap_days of the last digest ...
          AND NOT EXISTS (SELECT 1 FROM public.desk_digest_outbox o
                           WHERE o.customer_id = d.id AND o.status <> 'cancelled'
+                            -- Held back by the number's own limit: nothing
+                            -- reached the customer, so the next day may ask.
+                            AND NOT (o.status = 'failed' AND o.status_reason = 'number_daily_limit')
                             AND o.local_day > v_today - s.gap_days)
          -- ... nor of the last document any of its people sent.
          AND NOT EXISTS (SELECT 1 FROM public.customer_documents cd
