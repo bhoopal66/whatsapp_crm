@@ -245,7 +245,6 @@ describe('recordSubmissionGroupInbound', () => {
       const caseSla = hook();
       await recordSubmissionGroupInbound(fakeStore(), channel, [echo()], {
         caseSla,
-        now: () => NOW,
       });
       await recordSubmissionGroupInbound(
         fakeStore({ recordInbound: vi.fn(async () => false) }),
