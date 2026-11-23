@@ -221,6 +221,27 @@ describe('PUT', () => {
     expect(managerIds()).toEqual([CREATOR, U1].sort());
   });
 
+  it('drops a manager who was deactivated since, instead of refusing', async () => {
+    mocks.admin.tables.profiles.find((p) => p.user_id === U1)!.deactivated_at =
+      '2026-11-01T00:00:00Z';
+    const res = await put({ userIds: [U1, U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+    const { managers } = (await res.json()) as {
+      managers: { userId: string }[];
+    };
+    expect(managers.map((m) => m.userId)).not.toContain(U1);
+  });
+
+  it('keeps a deactivated creator, who is always one', async () => {
+    mocks.admin.tables.profiles.find(
+      (p) => p.user_id === CREATOR
+    )!.deactivated_at = '2026-11-01T00:00:00Z';
+    const res = await put({ userIds: [CREATOR, U1, U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U1, U2].sort());
+  });
+
   it('refuses a deactivated person', async () => {
     mocks.admin.tables.profiles[2].deactivated_at = '2026-10-01T00:00:00Z';
     const res = await put({ userIds: [U2] });
