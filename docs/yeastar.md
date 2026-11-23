@@ -431,7 +431,8 @@ rings the outcome reminders (where outcomes are mandatory, at most
 200 a run; see **The wrap-up** below) and the silence alert (section
 6), then
 fetches pending recordings, dials due call-backs, retries events that
-failed to process (three times each), purges old rows, deletes
+failed to process or were interrupted (three times each; one over an
+hour old only records its call, with no task or bell), purges old rows, deletes
 recordings past the workspace's retention period (section 3; up to
 1,000 a run, oldest calls first), and deletes recording audio that no
 live recording points to any more (left by an erasure or a retention

@@ -1,6 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { dialDueCallbacks, type CallbacksSummary } from './callbacks';
+import {
+  dueForRetry,
+  LATE_AFTER_MS,
+  retryDecision,
+  retryStateRow,
+  type RetryDecision,
+} from './event-retry';
 import { checkPbxSilence, type SilenceSummary } from './health';
 import { processStoredPbxEvent } from './process';
 import {
@@ -14,6 +21,7 @@ import {
   STALE_SWEEP_INTERVAL_MS,
   type StaleCallsSummary,
 } from './stale-calls';
+import { parseYeastarEvent } from './yeastar/events';
 
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
@@ -37,16 +45,63 @@ type Row = Record<string, unknown>;
 const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
+interface PendingEvent {
+  id: unknown;
+  connection_id: string;
+  payload: unknown;
+  received_at: string;
+  error: string | null;
+  attempts: number | null;
+}
+
 export interface RetrySummary {
   retried: number;
   recovered: number;
+  /** Stamped processed without a run: too old, or superseded. */
+  skipped: number;
+}
+
+/** Parses a pending row and reads the row it would overwrite. */
+async function decideRetry(
+  db: SupabaseClient,
+  row: PendingEvent,
+  nowMs: number
+): Promise<RetryDecision> {
+  const frame = row.payload;
+  const parsed =
+    typeof frame === 'string' || (typeof frame === 'object' && frame !== null)
+      ? parseYeastarEvent(frame)
+      : null;
+  const event = parsed?.ok ? parsed.event : null;
+  const state = retryStateRow(event);
+  let stateUpdatedAt: string | null = null;
+  if (state) {
+    const { data, error } = await db
+      .from(state.table)
+      .select('updated_at')
+      .eq('connection_id', row.connection_id)
+      .eq(state.column, state.value)
+      .maybeSingle();
+    if (error) throw new Error(`${state.table} read failed: ${error.message}`);
+    const at = (data as Row | null)?.updated_at;
+    stateUpdatedAt = typeof at === 'string' ? at : null;
+  }
+  return retryDecision({
+    event,
+    receivedAt: row.received_at,
+    stateUpdatedAt,
+    nowMs,
+  });
 }
 
 /**
- * Re-runs stored events whose processing failed (`processed_at` NULL,
- * `error` set), at most MAX_EVENT_ATTEMPTS times each. A row is claimed
- * by bumping `attempts` from the value read, so overlapping runs never
- * process it twice in one round.
+ * Re-runs stored events never stamped processed: those that failed
+ * (`error` set) and those interrupted before their stamp (no error, past
+ * INTERRUPTED_AFTER_MS), at most MAX_EVENT_ATTEMPTS times each. Rows
+ * under LATE_AFTER_MS old come first, so a backlog of older ones never
+ * starves them. A row is claimed by bumping `attempts` from the value
+ * read, so overlapping runs never process it twice in one round. What an
+ * old event may still do is event-retry.ts's decision.
  */
 export async function retryFailedPbxEvents(input: {
   db: SupabaseClient;
@@ -55,18 +110,29 @@ export async function retryFailedPbxEvents(input: {
   now?: () => number;
 }): Promise<RetrySummary> {
   const { db, limit = 50, deadline, now = Date.now } = input;
-  const { data, error } = await db
-    .from('pbx_events_raw')
-    .select('id, connection_id, payload, received_at, attempts')
-    .is('processed_at', null)
-    .not('error', 'is', null)
-    .lt('attempts', MAX_EVENT_ATTEMPTS)
-    .order('received_at', { ascending: true })
-    .limit(limit);
-  if (error) throw new Error(`pbx_events_raw read failed: ${error.message}`);
-  const summary: RetrySummary = { retried: 0, recovered: 0 };
-  for (const row of (data ?? []) as Row[]) {
+  const nowMs = now();
+  const cutoff = new Date(nowMs - LATE_AFTER_MS).toISOString();
+  const read = async (age: 'gte' | 'lt', max: number) => {
+    const { data, error } = await db
+      .from('pbx_events_raw')
+      .select('id, connection_id, payload, received_at, error, attempts')
+      .is('processed_at', null)
+      .lt('attempts', MAX_EVENT_ATTEMPTS)
+      [age]('received_at', cutoff)
+      .order('received_at', { ascending: true })
+      .limit(max);
+    if (error) throw new Error(`pbx_events_raw read failed: ${error.message}`);
+    return (data ?? []) as PendingEvent[];
+  };
+  const rows = (await read('gte', limit)).filter((r) => dueForRetry(r, nowMs));
+  if (rows.length < limit) {
+    rows.push(...(await read('lt', limit - rows.length)));
+  }
+  const summary: RetrySummary = { retried: 0, recovered: 0, skipped: 0 };
+  for (const row of rows) {
     if (deadline !== undefined && now() >= deadline) break;
+    // Judged before the claim: a failed read spends no attempt.
+    const decision = await decideRetry(db, row, now());
     const attempts = Number(row.attempts ?? 0);
     const claim = await db
       .from('pbx_events_raw')
@@ -79,13 +145,29 @@ export async function retryFailedPbxEvents(input: {
       throw new Error(`pbx_events_raw claim failed: ${claim.error.message}`);
     }
     if (!((claim.data ?? []) as unknown[]).length) continue;
+    if (!decision.run) {
+      const stamp = await db
+        .from('pbx_events_raw')
+        .update({
+          processed_at: new Date(now()).toISOString(),
+          error: decision.reason,
+        })
+        .eq('id', row.id)
+        .is('processed_at', null);
+      if (stamp.error) {
+        throw new Error(`pbx_events_raw stamp failed: ${stamp.error.message}`);
+      }
+      summary.skipped++;
+      continue;
+    }
     summary.retried++;
     const out = await processStoredPbxEvent({
       db,
-      connectionId: String(row.connection_id),
+      connectionId: row.connection_id,
       rawId: row.id,
       frame: row.payload,
-      receivedAt: String(row.received_at),
+      receivedAt: row.received_at,
+      late: decision.late,
     });
     if (!out.error) summary.recovered++;
   }

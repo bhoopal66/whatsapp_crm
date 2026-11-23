@@ -91,7 +91,7 @@ function fakeDb(
   });
   const from = vi.fn(() => ({ remove }));
   const query: Record<string, unknown> = {};
-  for (const m of ['select', 'is', 'not', 'lt', 'order']) {
+  for (const m of ['select', 'is', 'not', 'lt', 'gte', 'order']) {
     query[m] = () => query;
   }
   query.limit = async () => ({ data: [], error: null });

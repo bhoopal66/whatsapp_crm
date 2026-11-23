@@ -52,6 +52,9 @@ No migration.
   try first looks for it on the number and adopts it, and makes a new one only
   when the whole list holds none. After 5 unconfirmed tries it stops, with the
   reason shown, until an admin presses Retry.
+- A phone event whose processing was interrupted (a restart) is retried.
+  An old one never rings, opens a task or changes a current status: past
+  an hour it only completes the call's record.
 
 ### Reminders and meeting invites after sleep
 

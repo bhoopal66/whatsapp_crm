@@ -14,6 +14,7 @@ import {
   type MergedCall,
 } from './call-legs';
 import { settleCallbackCall } from './callbacks';
+import { isAllBye } from './event-retry';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
 import { missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
@@ -289,19 +290,28 @@ export interface StoredEventInput {
   receivedAt: string;
   via?: PbxEventPath;
   historical?: boolean;
+  /**
+   * A retry too late to act on (event-retry.ts): a call end writes the
+   * calls row and clears its screen pop, an all-hung-up frame clears the
+   * pop, and nothing else runs: no call-back, task or bell, nor the
+   * connection's clock. Unlike `historical`, a failure keeps the row.
+   */
+  late?: boolean;
 }
 
 /**
  * Runs a frame already stored in pbx_events_raw and stamps the outcome
  * on its row. `ingestPbxEvent` calls it after the insert; the retry
- * sweep (housekeeping.ts) calls it for a row that failed, because a
- * second ingest of the same frame would be skipped as a duplicate.
+ * sweep (housekeeping.ts) calls it for a row that failed or was
+ * interrupted, because a second ingest of the same frame would be
+ * skipped as a duplicate.
  */
 export async function processStoredPbxEvent(
   input: StoredEventInput
 ): Promise<IngestResult> {
   const { db, connectionId, rawId, frame, receivedAt, via } = input;
   const historical = input.historical === true;
+  const late = input.late === true;
   let kind: YeastarEvent['kind'] | undefined;
   let failure: string | null = null;
   let conn: { account_id: string; status: string } | null = null;
@@ -327,6 +337,7 @@ export async function processStoredPbxEvent(
         connectionAccountId: conn.account_id,
         receivedAt,
         historical,
+        late,
       };
       await dispatch(ctx, parsed.event);
     }
@@ -368,7 +379,7 @@ export async function processStoredPbxEvent(
     console.warn(`[pbx] event ${rawId} on ${connectionId}: ${failure}`);
   // A historical frame says nothing about the link now (nor does the
   // retry sweep's, which passes no `via`): the clock and status stay.
-  if (conn && !historical) {
+  if (conn && !historical && !late) {
     // A delivery proves the push works; a refused API login stays shown.
     // An older stamp (a retry, a late delivery) leaves the clock and its
     // path as they are (104's pbx_connections_event_clock trigger).
@@ -396,11 +407,20 @@ interface Ctx {
   receivedAt: string;
   /** IngestInput.historical: a past call end, without live side effects. */
   historical?: boolean;
+  /** StoredEventInput.late: a retry that only records what ended. */
+  late?: boolean;
 }
 
 async function dispatch(ctx: Ctx, event: YeastarEvent): Promise<void> {
   // Past presence, ringing or registration would overwrite the present.
   if (ctx.historical && event.kind !== 'call_end') return;
+  if (
+    ctx.late &&
+    event.kind !== 'call_end' &&
+    !(event.kind === 'call_state' && isAllBye(event))
+  ) {
+    return;
+  }
   switch (event.kind) {
     case 'call_state':
       return onCallState(ctx, event);
@@ -652,9 +672,7 @@ const withRang = (meta: Row, rang: string[]): Row =>
 /** 30011: the screen pop (call_live) and a non-final calls row. */
 async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   if (ev.members.length === 0) return;
-  if (ev.members.every((m) => m.status.toUpperCase() === 'BYE')) {
-    return deleteLive(ctx, ev.callId);
-  }
+  if (isAllBye(ev)) return deleteLive(ctx, ev.callId);
   const existing = await readCall(ctx, ev.callId);
   // Ended already (a late or re-sent frame): never reopen it.
   if (existing && !LIVE.includes(existing.status as CallStatus)) return;
@@ -1177,6 +1195,8 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   // close, no bell: the call is hours old and was handled without the CRM.
   if (ctx.historical) return;
   await deleteLive(ctx, ev.callId);
+  // Retried over an hour on: recorded, but nobody is asked to act on it.
+  if (ctx.late) return;
   // A call the cron placed for a call-back settles its request.
   await settleCallbackCall(ctx.db, {
     accountId: ws.accountId,

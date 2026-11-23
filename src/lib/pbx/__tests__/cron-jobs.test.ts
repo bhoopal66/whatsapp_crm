@@ -309,6 +309,36 @@ describe('fetchPendingRecordings', () => {
     expect(pastRetention({}, 1, now)).toBe(false);
   });
 
+  it('keeps what a call end wrote to meta during the download', async () => {
+    const downloadDuring = async (answer: () => Response) => {
+      fake = createFakeDb({ calls: [call('k1')] });
+      const out = await fetchPendingRecordings({
+        db: fake.db,
+        apiFor: handle({ recordingDownloadUrl: async () => 'https://pbx/x' }),
+        fetch: async () => {
+          Object.assign(fake.tables.calls[0], {
+            meta: { cdr_legs: ['leg'] },
+            updated_at: 'k1-later',
+          });
+          return answer();
+        },
+      });
+      return { out, row: fake.tables.calls[0] };
+    };
+    const ok = await downloadDuring(audio);
+    expect(ok.out).toMatchObject({ fetched: 1, failed: 0 });
+    expect(ok.row).toMatchObject({
+      recording_state: 'fetched',
+      meta: { cdr_legs: ['leg'], announcement_basis: 'pbx_prompt' },
+    });
+    const bad = await downloadDuring(() => new Response('', { status: 500 }));
+    expect(bad.out).toMatchObject({ fetched: 0, failed: 1 });
+    expect(bad.row).toMatchObject({
+      recording_state: 'pending',
+      meta: { cdr_legs: ['leg'], recording_attempts: 1 },
+    });
+  });
+
   it('skips a connection in auth backoff', async () => {
     fake = createFakeDb({ calls: [call('k1')] });
     const out = await fetchPendingRecordings({
@@ -762,47 +792,207 @@ describe('releaseStaleCallbacks', () => {
 });
 
 describe('retryFailedPbxEvents', () => {
-  it('claims each failed event, at most three attempts', async () => {
+  const ago = (ms: number) => new Date(DAY - ms).toISOString();
+  const MIN = 60_000;
+  const raw = (id: number, ageMs: number, r: Row = {}): Row => ({
+    id,
+    connection_id: 'c1',
+    payload: { type: 1 },
+    received_at: ago(ageMs),
+    processed_at: null,
+    error: null,
+    attempts: 0,
+    ...r,
+  });
+  const setup = (events: Row[], tables: Record<string, Row[]> = {}) => {
     fake = createFakeDb({
       pbx_connections: [{ id: 'c1', account_id: A, status: 'connected' }],
-      pbx_events_raw: [
+      pbx_extensions: [
         {
-          id: 1,
           connection_id: 'c1',
-          payload: { type: 1 },
-          received_at: '1',
-          processed_at: null,
-          error: 'boom',
-          attempts: 2,
+          extension: '1001',
+          account_id: A,
+          user_id: 'u1',
+          presence_monitor: true,
+        },
+      ],
+      profiles: [
+        {
+          user_id: 'u1',
+          account_id: A,
+          account_role: 'agent',
+          deactivated_at: null,
+        },
+      ],
+      pbx_events_raw: events,
+      ...tables,
+    });
+  };
+  const retry = (limit?: number) =>
+    retryFailedPbxEvents({ db: fake.db, now: () => DAY, limit });
+  const ring = (status: string) => ({
+    type: 30011,
+    msg: {
+      call_id: 'K1',
+      members: [
+        {
+          inbound: {
+            from: '0501234567',
+            to: '043334444',
+            channel_id: 'in-1',
+            member_status: 'RING',
+          },
         },
         {
-          id: 2,
-          connection_id: 'c1',
-          payload: { type: 1 },
-          received_at: '2',
-          processed_at: null,
-          error: 'boom',
-          attempts: 3,
+          extension: {
+            number: '1001',
+            channel_id: 'ch-1001',
+            member_status: status,
+          },
         },
+      ].map((m) =>
+        status === 'BYE' && m.inbound
+          ? { inbound: { ...m.inbound, member_status: 'BYE' } }
+          : m
+      ),
+    },
+  });
+  // Dubai wall clock: DAY is 14:00 there.
+  const missed = (time: string) => ({
+    type: 30012,
+    msg: {
+      call_id: 'K1',
+      uid: 'U1',
+      type: 'Inbound',
+      call_from: '0501234567',
+      call_to: '1001',
+      time_start: `2026-10-12 ${time}`,
+      call_duration: 30,
+      talk_duration: 0,
+      status: 'NO ANSWER',
+    },
+  });
+
+  it('claims each failed or interrupted event, at most three attempts', async () => {
+    setup([
+      raw(1, 1_000, { error: 'boom', attempts: 2 }),
+      raw(2, 1_000, { error: 'boom', attempts: 3 }),
+      // Interrupted before its stamp; the next may still be running.
+      raw(3, 3 * MIN),
+      raw(4, MIN),
+    ]);
+    expect(await retry()).toMatchObject({ retried: 2, recovered: 2 });
+    expect(fake.tables.pbx_events_raw.map((r) => r.attempts)).toEqual([
+      3, 3, 1, 0,
+    ]);
+    expect(fake.tables.pbx_events_raw[2].processed_at).not.toBeNull();
+    expect(await retry()).toMatchObject({ retried: 0 });
+  });
+
+  it('takes events under an hour old before a backlog of older ones', async () => {
+    setup([
+      raw(1, 90 * MIN, { payload: ring('RING') }),
+      raw(2, 80 * MIN, { payload: ring('RING') }),
+      raw(3, 5 * MIN),
+    ]);
+    await retry(2);
+    expect(fake.tables.pbx_events_raw.map((r) => r.attempts)).toEqual([
+      1, 0, 1,
+    ]);
+  });
+
+  it('files an interrupted missed call once', async () => {
+    setup([raw(1, 5 * MIN, { payload: missed('13:54:00') })]);
+    await retry();
+    expect(fake.tables.tasks).toHaveLength(1);
+    expect(fake.tables.notifications).toHaveLength(1);
+    // Stored again, as the second run of one whose stamp was lost.
+    Object.assign(fake.tables.pbx_events_raw[0], { processed_at: null });
+    await retry();
+    expect(fake.tables.tasks).toHaveLength(1);
+    expect(fake.tables.notifications).toHaveLength(1);
+  });
+
+  it('only records a call that ended over an hour ago', async () => {
+    setup(
+      [
+        raw(1, 90 * MIN, { payload: missed('12:29:00') }),
+        // A historical ingest (CDR import) interrupted: received just now.
+        raw(2, 3 * MIN, {
+          payload: {
+            ...missed('11:00:00'),
+            msg: { ...missed('11:00:00').msg, call_id: 'K2', uid: 'U2' },
+          },
+        }),
+      ],
+      {
+        call_live: [
+          { connection_id: 'c1', pbx_call_id: 'K1', ringing_user_ids: [] },
+        ],
+      }
+    );
+    expect(await retry()).toMatchObject({ retried: 2, recovered: 2 });
+    expect(fake.tables.calls.map((c) => [c.pbx_call_id, c.status])).toEqual([
+      ['K2', 'no_answer'],
+      ['K1', 'no_answer'],
+    ]);
+    expect(fake.tables.call_live).toEqual([]);
+    expect(fake.tables.tasks ?? []).toEqual([]);
+    expect(fake.tables.notifications ?? []).toEqual([]);
+    expect(fake.tables.pbx_connections[0].last_event_at).toBeUndefined();
+  });
+
+  it('keeps a late call end that failed for the next attempt', async () => {
+    setup([raw(1, 90 * MIN, { payload: missed('12:29:00') })]);
+    fake.fail('calls', 'upsert', { message: 'down' });
+    expect(await retry()).toMatchObject({ retried: 1, recovered: 0 });
+    expect(fake.tables.pbx_events_raw[0]).toMatchObject({
+      processed_at: null,
+      attempts: 1,
+    });
+    expect(await retry()).toMatchObject({ retried: 1, recovered: 1 });
+  });
+
+  it('stamps an old ring without ringing anyone', async () => {
+    setup([raw(1, 3 * MIN, { payload: ring('RING') })]);
+    expect(await retry()).toMatchObject({ retried: 0, skipped: 1 });
+    expect(fake.tables.call_live ?? []).toEqual([]);
+    expect(fake.tables.pbx_events_raw[0]).toMatchObject({
+      processed_at: new Date(DAY).toISOString(),
+      error: expect.stringContaining('not retried'),
+    });
+  });
+
+  it('never turns an answered call back to ringing', async () => {
+    setup([raw(1, 30_000, { error: 'boom', payload: ring('RING') })], {
+      call_live: [
         {
-          id: 3,
           connection_id: 'c1',
-          payload: { type: 1 },
-          received_at: '3',
-          processed_at: null,
-          error: null,
-          attempts: 0,
+          pbx_call_id: 'K1',
+          state: 'answered',
+          updated_at: ago(20_000),
         },
       ],
     });
-    expect(await retryFailedPbxEvents({ db: fake.db })).toMatchObject({
-      retried: 1,
+    expect(await retry()).toMatchObject({ retried: 0, skipped: 1 });
+    expect(fake.tables.call_live[0].state).toBe('answered');
+  });
+
+  it('clears the screen pop of a call that hung up, however old', async () => {
+    setup([raw(1, 90 * MIN, { payload: ring('BYE') })], {
+      call_live: [
+        { connection_id: 'c1', pbx_call_id: 'K1', updated_at: ago(0) },
+      ],
     });
-    expect(fake.tables.pbx_events_raw.map((r) => r.attempts)).toEqual([
-      3, 3, 0,
-    ]);
-    expect(await retryFailedPbxEvents({ db: fake.db })).toMatchObject({
-      retried: 0,
-    });
+    expect(await retry()).toMatchObject({ recovered: 1 });
+    expect(fake.tables.call_live).toEqual([]);
+    expect(fake.tables.pbx_connections[0].last_event_at).toBeUndefined();
+  });
+
+  it('spends no attempt when the row it would overwrite cannot be read', async () => {
+    setup([raw(1, 30_000, { error: 'boom', payload: ring('ANSWER') })]);
+    fake.fail('call_live', 'select', { message: 'down' });
+    await expect(retry()).rejects.toThrow('call_live read failed');
+    expect(fake.tables.pbx_events_raw[0].attempts).toBe(0);
   });
 });
