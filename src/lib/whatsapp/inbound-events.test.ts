@@ -58,6 +58,8 @@ vi.mock('@/lib/flows/admin-client', () => ({
     from: () => {
       const b = {
         select: () => b,
+        is: () => b,
+        limit: async () => ownerReply,
         eq: (col: string, v: unknown) => {
           h.configFilters[col] = v;
           return b;
@@ -68,6 +70,8 @@ vi.mock('@/lib/flows/admin-client', () => ({
     },
   }),
 }));
+
+let ownerReply: { data: unknown; error: unknown };
 
 import {
   groupMessagePayload,
@@ -123,6 +127,41 @@ const run = (
 
 const DONE = { outcome: 'done' };
 const PERSONAL = { is_personal: true };
+
+beforeEach(() => {
+  ownerReply = { data: [{ id: 'p1' }], error: null };
+});
+
+describe('a personal number whose owner left', () => {
+  it('drops every kind queued for it, logging each kind once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    ownerReply = { data: [], error: null };
+    for (let i = 0; i < 2; i++) {
+      for (const [kind, payload] of [
+        ['message', messagePayload(MESSAGE)],
+        ['status', statusPayload(STATUS)],
+        ['own_send', ownSendPayload(OWN)],
+      ] as const) {
+        expect(await run('openwa', kind, payload, PERSONAL)).toEqual(DONE);
+      }
+    }
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(h.persistOwnSend).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/secret|9715|mine/);
+    warn.mockRestore();
+  });
+
+  it('is retried, not dropped, when the owner cannot be read', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    ownerReply = { data: null, error: { code: '57014' } };
+    expect(
+      await run('openwa', 'message', messagePayload(MESSAGE), PERSONAL)
+    ).toMatchObject({ outcome: 'failed' });
+    spy.mockRestore();
+  });
+});
 
 beforeEach(() => {
   vi.resetAllMocks();

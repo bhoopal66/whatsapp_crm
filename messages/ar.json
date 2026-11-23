@@ -2352,6 +2352,7 @@
         "remove": "إزالة صلاحية WhatsApp الخاص",
         "allowedToast": "يمكن لـ {name} الآن ربط WhatsApp الخاص به",
         "removedToast": "أُزيلت صلاحية WhatsApp الخاص من {name}",
+        "notDisconnected": "تعذّر فصل رقم واتساب الشخصي الخاص بـ {name} بالكامل. لن يُسجَّل أي شيء منه بعد الآن؛ احذف جلسته من لوحة تحكم OpenWA.",
         "numberExists": "افصل WhatsApp الخاص به أولاً",
         "notEligible": "لا يمكن أن يكون لهذا العضو رقم WhatsApp شخصي",
         "failed": "تعذر تحديث العضو"

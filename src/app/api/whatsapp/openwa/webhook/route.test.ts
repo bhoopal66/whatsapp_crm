@@ -26,6 +26,10 @@ const h = vi.hoisted(() => ({
   applyGroupEvents: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   lookups: [] as Record<string, unknown>[],
+  ownerReply: { data: [{ id: 'p1' }], error: null } as {
+    data: unknown;
+    error: unknown;
+  },
   state: {
     configs: [] as Record<string, unknown>[],
     failLookup: false,
@@ -88,6 +92,9 @@ vi.mock('@supabase/supabase-js', () => ({
       let rows = [...h.state.configs];
       const b: Record<string, unknown> = {
         select: () => b,
+        is: () => b,
+        // Only `profiles` (the owner of a personal number) is limited.
+        limit: async () => h.ownerReply,
         eq: (col: string, val: unknown) => {
           filters[col] = val;
           rows = rows.filter((r) => r[col] === val);
@@ -472,6 +479,48 @@ describe('OpenWA webhook: own sends (message.sent)', () => {
     await runAfter();
     expect(h.persistOwnSend).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it.each([
+    ['message', () => messageEvent() as unknown],
+    ['own send', sentEvent],
+  ])(
+    'records no %s once the owner of a personal number is gone',
+    async (_kind, make) => {
+      h.state.configs = [{ ...CONFIG, is_personal: true }];
+      h.ownerReply = { data: [], error: null };
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const rpc = vi.spyOn(h.inbox, 'rpc');
+      const res = await post(make());
+      h.ownerReply = { data: [{ id: 'p1' }], error: null };
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ status: 'ignored' });
+      // Neither a replay claim nor a queue row.
+      expect(rpc).not.toHaveBeenCalled();
+      expect(h.processMessage).not.toHaveBeenCalled();
+      expect(h.persistOwnSend).not.toHaveBeenCalled();
+      rpc.mockRestore();
+      spy.mockRestore();
+    }
+  );
+
+  it('keeps recording a company number whose connector is gone', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: false }];
+    h.ownerReply = { data: [], error: null };
+    await post(messageEvent());
+    h.ownerReply = { data: [{ id: 'p1' }], error: null };
+    await runAfter();
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for a redelivery when the owner cannot be read', async () => {
+    h.state.configs = [{ ...CONFIG, is_personal: true }];
+    h.ownerReply = { data: null, error: { code: '57014' } };
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post(sentEvent());
+    h.ownerReply = { data: [{ id: 'p1' }], error: null };
+    expect(res.status).toBe(503);
     spy.mockRestore();
   });
 

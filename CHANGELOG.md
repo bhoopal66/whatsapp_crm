@@ -68,6 +68,24 @@ No migration.
   deals cannot be loaded it says so with a Try again button.
 - Editing a deal saves only the fields you changed, so it no longer undoes
   a colleague's change, and a board refresh no longer clears what you typed.
+### A person who leaves takes their personal WhatsApp number with them
+
+No migration.
+- Deactivating or removing a member disconnects their personal WhatsApp
+  number in that workspace. If the OpenWA server does not answer, the
+  person is still deactivated and the admin is told to finish there.
+- Nothing from a personal number is recorded once its owner is
+  deactivated or no longer a member: messages, receipts, what they type
+  on the phone and the history import. Company numbers are not affected,
+  and reactivating someone reconnects nothing.
+
+### A failing chat-history import no longer holds up the others
+
+No migration.
+- A personal number's import stopped by an error waits five minutes
+  before its next try, so other people's imports run meanwhile.
+- A chat the database refuses three times is left out and the import
+  finishes; characters the database cannot store are removed.
 
 ### Limits on what reaches a customer's group, and on uploads
 

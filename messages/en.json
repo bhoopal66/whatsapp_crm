@@ -2352,6 +2352,7 @@
         "remove": "Remove own WhatsApp permission",
         "allowedToast": "{name} can now connect their own WhatsApp",
         "removedToast": "Removed own WhatsApp permission from {name}",
+        "notDisconnected": "{name}’s personal WhatsApp number could not be fully disconnected. Nothing more from it is recorded; remove its session in the OpenWA dashboard.",
         "numberExists": "Disconnect their WhatsApp first",
         "notEligible": "This member cannot have a personal WhatsApp number",
         "failed": "Failed to update member"

@@ -42,7 +42,9 @@ import {
   type OpenWAChatSummary,
   type OpenWAHistoryMessage,
 } from './openwa-api';
+import { isLiveMember } from './personal-owner';
 import { normalizePhone } from './phone-utils';
+import { sanitizePayload } from './webhook-inbox';
 
 // ============================================================
 // Mapping (pure)
@@ -206,6 +208,13 @@ interface ImportChatRow {
 /** Stops the tick; the message is recorded on the job. */
 class StopTick extends Error {}
 
+/**
+ * The database refused one chat's contact, chat or rows. That may be the
+ * database's fault or this chat's, so it stops the tick, but a chat it
+ * keeps happening to is given up on after MAX_ATTEMPTS.
+ */
+class ChatDbError extends StopTick {}
+
 function errorText(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);
   return text.slice(0, 500);
@@ -299,7 +308,8 @@ async function enqueue(admin: SupabaseClient): Promise<number> {
  * always released.
  */
 /**
- * How long a job paused on a disconnected number steps aside. The claim
+ * How long a job paused on a disconnected number, or stopped by an error,
+ * steps aside. The claim
  * takes the oldest open job, paused ones included, one per tick: with
  * the lease released at once, a number logged out for hours was claimed
  * every minute and every newer job (a person who just linked) waited
@@ -369,7 +379,8 @@ export async function runPersonalHistoryImportTick(
   }
 
   // Always release the lease, with whatever progress was made; a job
-  // paused on a disconnected number keeps it a while so the next job in
+  // paused on a disconnected number or stopped by an error keeps it a
+  // while so the next job in
   // line gets the following ticks (PAUSED_RETRY_MS).
   const patch: Record<string, unknown> = {
     status: state.status,
@@ -377,7 +388,7 @@ export async function runPersonalHistoryImportTick(
     chats_done: state.chatsDone,
     messages_imported: state.messagesImported,
     lease_until:
-      state.status === 'paused'
+      state.status === 'paused' || state.lastError
         ? new Date(now() + PAUSED_RETRY_MS).toISOString()
         : null,
     updated_at: new Date(now()).toISOString(),
@@ -437,6 +448,22 @@ async function work(
     channel.provider !== 'openwa' ||
     channel.status !== 'connected'
   ) {
+    state.status = 'paused';
+    return;
+  }
+
+  // The owner left: read nothing more of their phone.
+  let ownerLive: boolean;
+  try {
+    ownerLive = await isLiveMember(
+      admin,
+      job.account_id,
+      channel.personalUserId
+    );
+  } catch (err) {
+    throw new StopTick(`owner: ${errorText(err)}`);
+  }
+  if (!ownerLive) {
     state.status = 'paused';
     return;
   }
@@ -521,7 +548,7 @@ async function listInto(
     if (rows.length > 0) {
       const { error } = await admin
         .from('personal_history_import_chats')
-        .upsert(rows, {
+        .upsert(sanitizePayload(rows) as typeof rows, {
           onConflict: 'config_id,chat_id',
           ignoreDuplicates: true,
         });
@@ -592,7 +619,8 @@ async function importChat(
       deep: true,
       timeoutMs: args.timeoutMs,
     });
-    const rows = history
+    // Postgres refuses U+0000 and half surrogates in any text.
+    const rows = (sanitizePayload(history) as OpenWAHistoryMessage[])
       .map((m) =>
         historyMessageToRow(m, {
           ownerId: args.ownerId,
@@ -610,24 +638,23 @@ async function importChat(
         chat.name || phone,
         { rename: false }
       ).catch((err) => {
-        // The database's fault, not this chat's: without StopTick the
-        // chat would be marked failed for good.
-        throw new StopTick(`contact lookup: ${errorText(err)}`);
+        // Perhaps the database's fault, not this chat's: stops the tick.
+        throw new ChatDbError(`contact lookup: ${errorText(err)}`);
       });
-      if (!contact) throw new StopTick(`contact for ${chat.chat_id}`);
+      if (!contact) throw new ChatDbError('contact not resolved');
       const conv = await findOrCreatePersonalChat(
         admin,
         job.account_id,
         contact.contact.id,
         channel
       );
-      if (!conv) throw new StopTick(`personal chat for ${chat.chat_id}`);
+      if (!conv) throw new ChatDbError('personal chat not resolved');
       for (let i = 0; i < rows.length; i += ROW_BATCH) {
         const { data, error } = await admin.rpc('import_history_rows', {
           p_conversation_id: conv.conversation.id,
           p_rows: rows.slice(i, i + ROW_BATCH),
         });
-        if (error) throw new StopTick(`import rows: ${error.message}`);
+        if (error) throw new ChatDbError(`import rows: ${error.message}`);
         imported += typeof data === 'number' ? data : 0;
       }
     }
@@ -642,6 +669,18 @@ async function importChat(
     ctx.result.chatsDone++;
     ctx.result.messagesImported += imported;
   } catch (err) {
+    if (err instanceof ChatDbError) {
+      const attempts = (chat.attempts ?? 0) + 1;
+      const giveUp = attempts >= MAX_ATTEMPTS;
+      await updateChat(admin, job.config_id, chat.chat_id, {
+        ...(giveUp ? { status: 'failed' } : {}),
+        attempts,
+        last_error: err.message,
+      });
+      if (!giveUp) throw err;
+      state.chatsDone++;
+      return;
+    }
     if (err instanceof StopTick || (await numberIsDown(err, channel)))
       throw err;
     const attempts = (chat.attempts ?? 0) + 1;
