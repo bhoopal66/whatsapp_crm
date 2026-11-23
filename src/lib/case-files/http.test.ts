@@ -46,6 +46,7 @@ const EXPECTED: Record<CaseFilesRefusal, number> = {
   MIME_NOT_ALLOWED: 422,
   FILE_TOO_LARGE: 413,
   STORAGE_UNAVAILABLE: 503,
+  ALREADY_FILED_AS: 409,
 };
 
 function thrown(f: () => unknown): CaseHttpError {
@@ -83,6 +84,24 @@ describe('refusal table', () => {
 });
 
 describe('caseFilesErrorResponse', () => {
+  it('names the document a file is already filed as, on that refusal only', async () => {
+    const res = caseFilesErrorResponse(
+      new CaseFilesRefusedError('ALREADY_FILED_AS', 'trade_licence'),
+      't'
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'The file is already filed as another document',
+      code: 'ALREADY_FILED_AS',
+      filedAs: 'trade_licence',
+    });
+    const other = caseFilesErrorResponse(
+      new CaseFilesRefusedError('CASE_CLOSED'),
+      't'
+    );
+    expect(await other.json()).not.toHaveProperty('filedAs');
+  });
+
   it('answers 500 for a store failure, logging fn and SQLSTATE only', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = caseFilesErrorResponse(
@@ -220,6 +239,31 @@ describe('parseUploadForm', () => {
     f.set('expiresOn', 'tomorrow');
     expect(thrown(() => parseUploadForm(f)).status).toBe(422);
   });
+});
+
+describe('move', () => {
+  it.each([true, 'true', 1, false, undefined])(
+    'is read from a JSON body only when it is true (%s)',
+    (move) => {
+      const expected = move === true ? { move: true } : {};
+      const common = { docKey: 'x', expiresOn: null, ...expected };
+      expect(parseClassifyBody({ docKey: 'x', move })).toEqual(common);
+      const body = { customerDocumentId: DOC, docKey: 'x', move };
+      const attach = parseAttachBody(body);
+      expect(attach).toEqual({ customerDocumentId: DOC, ...common });
+      expect('move' in attach).toBe(move === true);
+    }
+  );
+
+  it.each(['true', 'false', '1', ''])(
+    "is read from the form only when it is 'true' ('%s')",
+    (move) => {
+      const f = new FormData();
+      f.set('file', new File([new Uint8Array([1])], 'a.pdf'));
+      f.set('move', move);
+      expect('move' in parseUploadForm(f)).toBe(move === 'true');
+    }
+  );
 });
 
 describe('requireFileId', () => {

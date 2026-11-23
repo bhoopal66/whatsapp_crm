@@ -3,7 +3,7 @@
 // the case's files under a document key and run its checks
 // (migration 181).
 //
-//   body `{ docKey: string, expiresOn?: 'YYYY-MM-DD' }`
+//   body `{ docKey: string, expiresOn?: 'YYYY-MM-DD', move?: true }`
 //   200 `{ result: { fileId, status: 'passed' | 'failed', classifySeq,
 //        version, renamedName, checks, pages } }`
 //   404 FILE_NOT_FOUND for an unknown file and for another case's file
@@ -39,7 +39,9 @@ export async function POST(request: Request, { params }: Params) {
     const { id, fileId: rawFileId } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
     const fileId = requireFileId(rawFileId);
-    const { docKey, expiresOn } = parseClassifyBody(await readObject(request));
+    const { docKey, expiresOn, move } = parseClassifyBody(
+      await readObject(request)
+    );
 
     const admin = supabaseAdmin();
     const file = await new CaseFilesStore(admin).getFile(fileId);
@@ -51,6 +53,7 @@ export async function POST(request: Request, { params }: Params) {
       fileId,
       docKey,
       expiresOn,
+      move,
       today: dubaiDay(new Date()),
       deps: { storage: admin.storage },
     });

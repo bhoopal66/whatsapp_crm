@@ -86,6 +86,10 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     status: 503,
     text: 'The file store did not answer. Try again in a moment',
   },
+  ALREADY_FILED_AS: {
+    status: 409,
+    text: 'The file is already filed as another document',
+  },
 };
 
 /**
@@ -109,9 +113,15 @@ const RECORD_REFUSAL_HTTP: Readonly<
   },
 };
 
-export function refusalResponse(code: CaseFilesRefusal): NextResponse {
+export function refusalResponse(
+  code: CaseFilesRefusal,
+  filedAs?: string
+): NextResponse {
   const { status, text } = CASE_FILES_REFUSAL_HTTP[code];
-  return NextResponse.json({ error: text, code }, { status });
+  return NextResponse.json(
+    { error: text, code, ...(filedAs !== undefined ? { filedAs } : {}) },
+    { status }
+  );
 }
 
 /** Any error a case-files route can meet, as a response. */
@@ -119,7 +129,8 @@ export function caseFilesErrorResponse(
   err: unknown,
   route: string
 ): NextResponse {
-  if (err instanceof CaseFilesRefusedError) return refusalResponse(err.reason);
+  if (err instanceof CaseFilesRefusedError)
+    return refusalResponse(err.reason, err.filedAs);
   if (err instanceof CustomerDocumentRecordError) {
     const r = err.hint ? RECORD_REFUSAL_HTTP[err.hint] : undefined;
     if (r)
@@ -181,28 +192,36 @@ function expiresOnOf(value: unknown): string | null {
   return value;
 }
 
-/** POST files/attach: `{ customerDocumentId, docKey, expiresOn? }`. */
+/** The `move` key, only when it was asked for. */
+const moveOf = (asked: boolean): { move?: true } =>
+  asked ? { move: true } : {};
+
+/** POST files/attach: `{ customerDocumentId, docKey, expiresOn?, move? }`. */
 export function parseAttachBody(body: Record<string, unknown>): {
   customerDocumentId: string;
   docKey: string;
   expiresOn: string | null;
+  move?: true;
 } {
   if (!isUuid(body.customerDocumentId)) throw refused('VALIDATION_FAILED');
   return {
     customerDocumentId: body.customerDocumentId,
     docKey: docKeyOf(body.docKey, true)!,
     expiresOn: expiresOnOf(body.expiresOn),
+    ...moveOf(body.move === true),
   };
 }
 
-/** POST files/[fileId]/classify: `{ docKey, expiresOn? }`. */
+/** POST files/[fileId]/classify: `{ docKey, expiresOn?, move? }`. */
 export function parseClassifyBody(body: Record<string, unknown>): {
   docKey: string;
   expiresOn: string | null;
+  move?: true;
 } {
   return {
     docKey: docKeyOf(body.docKey, true)!,
     expiresOn: expiresOnOf(body.expiresOn),
+    ...moveOf(body.move === true),
   };
 }
 
@@ -215,6 +234,7 @@ export function parseUploadForm(form: FormData | null): {
   file: File;
   docKey: string | null;
   expiresOn: string | null;
+  move?: true;
 } {
   const file = form?.get('file');
   if (!(file instanceof File)) throw new CaseHttpError(400, 'file is required');
@@ -222,6 +242,7 @@ export function parseUploadForm(form: FormData | null): {
     file,
     docKey: docKeyOf(form!.get('docKey'), false),
     expiresOn: expiresOnOf(form!.get('expiresOn')),
+    ...moveOf(form!.get('move') === 'true'),
   };
 }
 

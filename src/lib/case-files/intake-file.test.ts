@@ -566,3 +566,131 @@ describe('classifyAndCheck on a superseded file (270)', () => {
     expect((await result).status).toBe('failed');
   });
 });
+
+describe('a file already filed as another document', () => {
+  const setup = async (over: Record<string, unknown> = {}) => {
+    const spec = [specRow, { ...specRow, doc_key: 'visa', position: 2 }];
+    const f = fakeAdmin(
+      {
+        case_document_file_can_register: ok(true),
+        customer_documents_record_internal: ok([
+          { document_id: DOC, ref: 'r' },
+        ]),
+        case_document_file_register: ok(FILE),
+        case_file_spec_rows: ok(spec),
+        case_document_file_classify: cls,
+        case_document_file_check_result: ok('passed'),
+      },
+      {
+        case_document_files: { [FILE]: { ...fileRow, ...over } },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const pdf = await pdfBytes();
+    const st = fakeStorage({ objects: { 'case-files/a.pdf': pdf } });
+    const deps = { storage: st.storage, clock };
+    const common = { admin: f.admin, actor: ACTOR, deps };
+    return {
+      f,
+      st,
+      classify: (docKey: string, move?: boolean) =>
+        classifyAndCheck({
+          ...common,
+          fileId: FILE,
+          docKey,
+          move,
+          today: '2026-11-10',
+        }),
+      attach: (docKey: string, move?: boolean) =>
+        attachCustomerDocument({
+          ...common,
+          caseId: CASE,
+          customerDocumentId: DOC,
+          docKey,
+          move,
+        }),
+      upload: (docKey: string | null, move?: boolean) =>
+        uploadStaffFile({
+          ...common,
+          caseId: CASE,
+          accountId: 'acc',
+          contactId: 'k1',
+          file: { bytes: pdf, mime: 'application/pdf', originalName: 'a.pdf' },
+          docKey,
+          move,
+        }),
+    };
+  };
+  const refusal = {
+    name: 'CaseFilesRefusedError',
+    reason: 'ALREADY_FILED_AS',
+    filedAs: 'passport',
+  };
+
+  it.each(['passed', 'pending_checks'])(
+    'is refused when %s, naming it, with nothing read, classified or checked',
+    async (status) => {
+      const { f, st, classify } = await setup({ status });
+      await expect(classify('visa')).rejects.toMatchObject(refusal);
+      expect(f.rpcNames()).toEqual([]);
+      expect(st.downloads).toEqual([]);
+    }
+  );
+
+  it('is refused on attach, which has only registered it', async () => {
+    const { f, attach } = await setup();
+    await expect(attach('visa')).rejects.toMatchObject(refusal);
+    expect(f.rpcNames()).toEqual(['case_document_file_register']);
+  });
+
+  it('is refused on upload of the same bytes, which has only registered it', async () => {
+    const { f, upload } = await setup();
+    await expect(upload('visa')).rejects.toMatchObject(refusal);
+    expect(f.rpcNames()).toEqual([
+      'case_document_file_can_register',
+      'customer_documents_record_internal',
+      'case_document_file_register',
+    ]);
+  });
+
+  it('is not refused on an upload that picks no document', async () => {
+    const { f, upload } = await setup();
+    await expect(upload(null)).resolves.toMatchObject({ id: FILE });
+    expect(f.rpcNames()).not.toContain('case_document_file_classify');
+  });
+
+  it.each(['classify', 'attach', 'upload'] as const)(
+    'is moved by %s with move',
+    async (how) => {
+      const { f, ...act } = await setup();
+      await act[how]('visa', true);
+      expect(f.rpcNames()).toContain('case_document_file_classify');
+      expect(f.rpcNames()).toContain('case_document_file_check_result');
+    }
+  );
+
+  it.each(['passed', 'pending_checks', 'superseded'])(
+    'the same document is allowed when %s',
+    async (status) => {
+      const { f, classify } = await setup({ status });
+      await classify('passport');
+      expect(f.rpcNames()).toContain('case_document_file_classify');
+    }
+  );
+
+  it.each([
+    ['failed', 'passport'],
+    ['superseded', 'passport'],
+    ['unclassified', null],
+  ])('another document is allowed when %s', async (status, doc_key) => {
+    const { f, classify } = await setup({ status, doc_key });
+    await classify('visa');
+    expect(f.rpcNames()).toContain('case_document_file_classify');
+  });
+});

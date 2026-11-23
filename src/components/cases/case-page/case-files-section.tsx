@@ -37,6 +37,7 @@ import {
   buildState,
   caseFileErrorKey,
   checkFailureKey,
+  filedElsewhere,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
@@ -216,6 +217,7 @@ export function CaseFilesSection({
           contactId={contactId}
           spec={dialog.spec}
           label={labelOf(dialog.spec.docKey)}
+          labelOf={labelOf}
           onClose={() => setDialog(null)}
           settle={settle}
         />
@@ -225,6 +227,7 @@ export function CaseFilesSection({
           caseId={caseId}
           spec={dialog.spec}
           label={labelOf(dialog.spec.docKey)}
+          labelOf={labelOf}
           onClose={() => setDialog(null)}
           settle={settle}
         />
@@ -749,11 +752,26 @@ function ExpiryField({
   );
 }
 
+/** Says which document a refused file is filed as; the button then moves it. */
+function FiledAsAlert({ type }: { type: string | null }) {
+  const t = useTranslations('CaseFiles');
+  if (type === null) return null;
+  return (
+    <p
+      role="alert"
+      className="bg-warning-soft text-warning rounded-md px-3 py-2 text-start text-sm"
+    >
+      {t('filedAs', { type })}
+    </p>
+  );
+}
+
 function AttachDialog({
   caseId,
   contactId,
   spec,
   label,
+  labelOf,
   onClose,
   settle,
 }: {
@@ -761,6 +779,7 @@ function AttachDialog({
   contactId: string | null;
   spec: CaseFileSpecView;
   label: string;
+  labelOf: (docKey: string) => string;
   onClose: () => void;
   settle: (r: Reply, success: string | null) => boolean;
 }) {
@@ -771,6 +790,8 @@ function AttachDialog({
   const [picked, setPicked] = useState<string | null>(null);
   const [expiresOn, setExpiresOn] = useState('');
   const [busy, setBusy] = useState(false);
+  // Set by a refusal: the next submit moves the file from this document.
+  const [filedAs, setFiledAs] = useState<string | null>(null);
 
   useEffect(() => {
     if (!contactId) return;
@@ -801,9 +822,13 @@ function AttachDialog({
         customerDocumentId: picked,
         docKey: spec.docKey,
         ...(expiresOn ? { expiresOn } : {}),
+        ...(filedAs ? { move: true } : {}),
       }
     );
     setBusy(false);
+    const elsewhere = filedElsewhere(r.status, r.json);
+    setFiledAs(elsewhere);
+    if (elsewhere) return;
     if (settle(r, t('attached', { label }))) onClose();
   };
 
@@ -840,7 +865,11 @@ function AttachDialog({
                   type="button"
                   role="radio"
                   aria-checked={picked === d.id}
-                  onClick={() => setPicked(d.id)}
+                  disabled={busy}
+                  onClick={() => {
+                    setPicked(d.id);
+                    setFiledAs(null);
+                  }}
                   className={cn(
                     'bg-card-2 hover:bg-muted w-full rounded-md border px-3 py-2 text-start',
                     picked === d.id && 'border-primary ring-primary/30 ring-2'
@@ -865,6 +894,7 @@ function AttachDialog({
           value={expiresOn}
           onChange={setExpiresOn}
         />
+        <FiledAsAlert type={filedAs && labelOf(filedAs)} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -874,7 +904,7 @@ function AttachDialog({
             onClick={() => void submit()}
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
-            {t('attachConfirm')}
+            {filedAs ? t('moveConfirm') : t('attachConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -886,12 +916,14 @@ function UploadDialog({
   caseId,
   spec,
   label,
+  labelOf,
   onClose,
   settle,
 }: {
   caseId: string;
   spec: CaseFileSpecView;
   label: string;
+  labelOf: (docKey: string) => string;
   onClose: () => void;
   settle: (r: Reply, success: string | null) => boolean;
 }) {
@@ -899,6 +931,8 @@ function UploadDialog({
   const [file, setFile] = useState<File | null>(null);
   const [expiresOn, setExpiresOn] = useState('');
   const [busy, setBusy] = useState(false);
+  // Set by a refusal: the next submit moves the file from this document.
+  const [filedAs, setFiledAs] = useState<string | null>(null);
   const problem = file ? uploadProblem(file) : null;
 
   const submit = async () => {
@@ -907,9 +941,13 @@ function UploadDialog({
     form.append('file', file);
     form.append('docKey', spec.docKey);
     if (expiresOn) form.append('expiresOn', expiresOn);
+    if (filedAs) form.append('move', 'true');
     setBusy(true);
     const r = await sendForm(`/api/cases/${caseId}/files`, form);
     setBusy(false);
+    const elsewhere = filedElsewhere(r.status, r.json);
+    setFiledAs(elsewhere);
+    if (elsewhere) return;
     if (settle(r, t('uploaded', { label }))) onClose();
   };
 
@@ -926,8 +964,12 @@ function UploadDialog({
             id="case-file-upload"
             type="file"
             accept={CASE_FILE_ACCEPT}
+            disabled={busy}
             aria-invalid={problem !== null}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setFiledAs(null);
+            }}
           />
           {problem && (
             <p role="alert" className="text-destructive text-xs">
@@ -941,6 +983,7 @@ function UploadDialog({
           value={expiresOn}
           onChange={setExpiresOn}
         />
+        <FiledAsAlert type={filedAs && labelOf(filedAs)} />
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('cancel')}
@@ -952,7 +995,7 @@ function UploadDialog({
             onClick={() => void submit()}
           >
             {busy && <Loader2 className="size-4 animate-spin" />}
-            {t('uploadConfirm')}
+            {filedAs ? t('moveConfirm') : t('uploadConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

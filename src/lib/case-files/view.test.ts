@@ -11,6 +11,7 @@ import {
   caseFileErrorKey,
   checkFailureKey,
   checkFailures,
+  filedElsewhere,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
@@ -310,6 +311,27 @@ describe('caseFileErrorKey', () => {
     expect(caseFileErrorKey(413, null)).toBe('errors.FILE_TOO_LARGE');
     expect(caseFileErrorKey(500, 'SOMETHING')).toBe('errors.generic');
     expect(caseFileErrorKey(0, undefined)).toBe('errors.generic');
+  });
+});
+
+describe('filedElsewhere', () => {
+  const body = { error: 'x', code: 'ALREADY_FILED_AS', filedAs: 'passport' };
+  it('is the document named by the ALREADY_FILED_AS refusal', () => {
+    expect(filedElsewhere(409, body)).toBe('passport');
+  });
+  it.each([
+    [200, body],
+    [409, { ...body, code: 'FILE_STATE' }],
+    [409, { ...body, filedAs: undefined }],
+    [409, { ...body, filedAs: 7 }],
+    [0, null],
+  ])('is null for any other answer (%s)', (status, json) => {
+    expect(filedElsewhere(status, json)).toBeNull();
+  });
+  it('a refusal that names none is the generic toast', () => {
+    expect(caseFileErrorKey(409, 'ALREADY_FILED_AS')).toBe(
+      'errors.ALREADY_FILED_AS'
+    );
   });
 });
 

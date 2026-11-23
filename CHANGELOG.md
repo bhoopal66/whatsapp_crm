@@ -18,6 +18,9 @@ and polish.
   versions on the case's Documents tab and choose "Use this one again".
   It becomes the newest version and is checked again; the current one
   stays until it passes.
+- A file already filed as one document is no longer moved silently when it
+  is attached or uploaded again as another: the screen says what it is
+  filed as and offers "Move it here".
 - Of two updates of one submission sent at the same time, the older one
   no longer leaves its status on the submission group.
 

@@ -12107,6 +12107,8 @@
     "uploadTooLarge": "This file is larger than 10 MB.",
     "uploadWrongType": "Pick a PDF, JPEG or PNG file.",
     "uploadConfirm": "Upload",
+    "filedAs": "This file is already filed as {type}. Moving it here leaves {type} missing.",
+    "moveConfirm": "Move it here",
     "expiresOn": "Expiry date (optional)",
     "expiryHint": "Used by the expiry check: the document must stay valid for at least {days} days.",
     "expiryInvalid": "Enter a valid expiry date.",
@@ -12174,6 +12176,7 @@
       "VALIDATION_FAILED": "That request is not valid.",
       "MIME_NOT_ALLOWED": "Upload a PDF, JPEG or PNG file.",
       "FILE_INVALID": "That file cannot be used here.",
+      "ALREADY_FILED_AS": "This file is already filed as another document. Reload and try again.",
       "generic": "Something went wrong. Try again."
     }
   },

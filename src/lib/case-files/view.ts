@@ -308,6 +308,7 @@ const ERROR_CODES = new Set([
   'VALIDATION_FAILED',
   'MIME_NOT_ALLOWED',
   'FILE_INVALID',
+  'ALREADY_FILED_AS',
 ]);
 
 /** The `CaseFiles` catalogue key for a refusal; `errors.generic` if unknown. */
@@ -317,6 +318,17 @@ export function caseFileErrorKey(status: number, code: unknown): string {
   if (status === 403) return 'errors.NOT_ALLOWED';
   if (status === 413) return 'errors.FILE_TOO_LARGE';
   return 'errors.generic';
+}
+
+/**
+ * The document a refused file is already filed as, which the dialog names
+ * before it offers the move; null for any other answer.
+ */
+export function filedElsewhere(status: number, json: unknown): string | null {
+  const j = obj(json);
+  return status === 409 && j?.code === 'ALREADY_FILED_AS'
+    ? str(j.filedAs)
+    : null;
 }
 
 /** YYYY-MM-DD or empty: the optional expiry field's value. */

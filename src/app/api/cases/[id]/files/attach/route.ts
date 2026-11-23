@@ -3,7 +3,8 @@
 // already sent onto the case as a file, classified and checked
 // (migration 181).
 //
-//   body `{ customerDocumentId: uuid, docKey: string, expiresOn?: 'YYYY-MM-DD' }`
+//   body `{ customerDocumentId: uuid, docKey: string,
+//   expiresOn?: 'YYYY-MM-DD', move?: true }`
 //   201 `{ file }` (CaseFile); refusals `{ error, code }`
 //   (lib/case-files/http.ts). 181 decides who may attach and whether the
 //   document fits the case.
@@ -29,7 +30,7 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
-    const { customerDocumentId, docKey, expiresOn } = parseAttachBody(
+    const { customerDocumentId, docKey, expiresOn, move } = parseAttachBody(
       await readObject(request)
     );
     const admin = supabaseAdmin();
@@ -40,6 +41,7 @@ export async function POST(request: Request, { params }: Params) {
       customerDocumentId,
       docKey,
       expiresOn,
+      move,
       deps: { storage: admin.storage },
     });
     return NextResponse.json({ file }, { status: 201 });

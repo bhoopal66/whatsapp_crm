@@ -46,7 +46,9 @@ export type CaseFilesIntakeRefusal =
   | 'FILE_TOO_LARGE'
   | 'VALIDATION_FAILED'
   // Storage did not answer: nothing was classified, try again.
-  | 'STORAGE_UNAVAILABLE';
+  | 'STORAGE_UNAVAILABLE'
+  // The file already counts as another document; `move` says to go on.
+  | 'ALREADY_FILED_AS';
 
 /** Refused in TypeScript by the case-file assembly (assembly.ts). */
 export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE';
@@ -58,7 +60,11 @@ export type CaseFilesRefusal =
 
 export class CaseFilesRefusedError extends Error {
   override readonly name = 'CaseFilesRefusedError';
-  constructor(readonly reason: CaseFilesRefusal) {
+  constructor(
+    readonly reason: CaseFilesRefusal,
+    /** ALREADY_FILED_AS: the doc key the file is filed as. */
+    readonly filedAs?: string
+  ) {
     super(`case files refused: ${reason}`);
   }
 }

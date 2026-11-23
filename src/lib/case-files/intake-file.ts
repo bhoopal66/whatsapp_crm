@@ -14,6 +14,8 @@
  *     A file is never left pending: unreadable bytes post a failed
  *     'readable' check. Storage that did not answer is not a verdict on the
  *     document: STORAGE_UNAVAILABLE (503) before anything is classified.
+ *     A file that counts as another document is refused (ALREADY_FILED_AS)
+ *     unless the caller says `move`: that document would go missing.
  *
  * TENANCY: the caller (a route) has already checked the case belongs to
  * the actor's active account. Every function takes its I/O as arguments
@@ -145,6 +147,8 @@ export async function classifyAndCheck(input: {
   expiresOn?: string | null;
   /** YYYY-MM-DD, the day the expiry rule counts from. */
   today: string;
+  /** File it here even though it is filed as another document. */
+  move?: boolean;
   /** Already read by the caller (`readCaseFile`); else read here. */
   read?: DocumentRead;
   deps: CaseFilesDeps;
@@ -156,6 +160,13 @@ export async function classifyAndCheck(input: {
 
   // Reads first: a failure here leaves the file as it was, not pending.
   const file = await loadFile(store, fileId);
+  if (
+    !input.move &&
+    file.docKey !== null &&
+    file.docKey !== docKey &&
+    (file.status === 'passed' || file.status === 'pending_checks')
+  )
+    throw new CaseFilesRefusedError('ALREADY_FILED_AS', file.docKey);
   const [doc, spec] = await Promise.all([
     store.getDocument(file.customerDocumentId),
     store.specRows(file.caseId),
@@ -217,6 +228,7 @@ export async function attachCustomerDocument(input: {
   customerDocumentId: string;
   docKey: string;
   expiresOn?: string | null;
+  move?: boolean;
   deps: CaseFilesDeps;
 }): Promise<CaseFile> {
   assertExpiresOn(input.expiresOn);
@@ -232,6 +244,7 @@ export async function attachCustomerDocument(input: {
     fileId,
     docKey: input.docKey,
     expiresOn: input.expiresOn,
+    move: input.move,
     today: today(input.deps.clock ?? (() => new Date())),
     deps: input.deps,
   });
@@ -248,6 +261,7 @@ export async function uploadStaffFile(input: {
   file: { bytes: Uint8Array; mime: string; originalName: string };
   docKey?: string | null;
   expiresOn?: string | null;
+  move?: boolean;
   deps: CaseFilesDeps;
 }): Promise<CaseFile> {
   const { admin, actor, caseId, deps } = input;
@@ -307,6 +321,7 @@ export async function uploadStaffFile(input: {
       fileId,
       docKey: input.docKey,
       expiresOn: input.expiresOn,
+      move: input.move,
       today: today(clock),
       deps,
     });
