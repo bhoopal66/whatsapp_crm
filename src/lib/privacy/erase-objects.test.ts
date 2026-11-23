@@ -110,3 +110,42 @@ describe('deleteErasedObjects', () => {
     expect(out.remaining).toHaveLength(1);
   });
 });
+
+describe('retryErasedObjects pages (282)', () => {
+  it('takes page after page, and a list that fails again once', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const A = '00000000-0000-4000-8000-000000000001';
+    let queue = Array.from({ length: 12 }, (_, i) => i + 1);
+    const settled: number[] = [];
+    const left = await retryErasedObjects({
+      storage: {
+        from: () => ({
+          // Request 3's file can never be deleted.
+          remove: async (paths: string[]) => ({
+            error: paths[0]!.endsWith('/3.jpg') ? 'no' : null,
+          }),
+        }),
+      },
+      rpc: async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'privacy_erase_objects_settle') {
+          const id = Number(args!.p_request);
+          settled.push(id);
+          queue = queue.filter((x) => x !== id);
+          if ((args!.p_remaining as unknown[]).length) queue.push(id);
+          return { data: null, error: null };
+        }
+        return {
+          data: queue.slice(0, Number(args!.p_limit)).map((id) => ({
+            account_id: A,
+            request_id: id,
+            objects: [{ bucket: 'chat-media', path: `account-${A}/${id}.jpg` }],
+          })),
+          error: null,
+        };
+      },
+    });
+    expect(left).toBe(false);
+    expect(settled).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(queue).toEqual([3]);
+  });
+});

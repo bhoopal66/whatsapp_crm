@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Privacy
+
+- **Migration required: 282** (`282_retention_fixes.sql`), before the
+  build. Applying it deletes nothing.
+- Automatic retention now also deletes the files of the messages it
+  removes or blanks, unless something else still uses them.
+- Retention works in small batches and continues by itself, so a first
+  Apply on years of data no longer fails as a whole. A failed run rings
+  the owners once a day, is tried again, and Settings → Privacy shows
+  the last run's outcome.
+
 ### Team chat
 
 - In a thread, and on a phone, the text box has a row of its own above the

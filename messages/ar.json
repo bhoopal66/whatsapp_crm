@@ -8226,6 +8226,7 @@
       "channel_reconnected": "عودة اتصال رقم WhatsApp",
       "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",
       "meta_number_alert": "تدهور حالة رقم Meta",
+      "retention_failed": "فشل الحذف التلقائي للبيانات (مدة الاحتفاظ)",
       "pbx_connection_silent": "صمت نظام الهاتف",
       "pbx_connection_restored": "عودة نظام الهاتف",
       "team_activity_alert": "تنبيهات نشاط الفريق",
@@ -13492,7 +13493,11 @@
       },
       "apply": "تطبيق: التنظيف اليومي يحذف ويُفرغ",
       "dryRun": "معاينة فقط: التنظيف اليومي يحصي ولا يغيّر شيئاً",
-      "saved": "تم حفظ إعدادات الاحتفاظ"
+      "saved": "تم حفظ إعدادات الاحتفاظ",
+      "lastDryRun": "آخر تشغيل {at}: معاينة. سيحذف أو يُفرغ {rows, plural, one {# صف} other {# صفوف}} و{files, plural, one {# ملف} other {# ملفات}}.",
+      "lastApply": "آخر تشغيل {at}: حُذف أو أُفرغ {rows, plural, one {# صف} other {# صفوف}}، و{files, plural, one {# ملف} other {# ملفات}} في انتظار الحذف.",
+      "lastMore": "ما زال هناك المزيد؛ يستمر تلقائياً.",
+      "lastFailed": "فشل آخر تشغيل {at} ({code}). تُعاد المحاولة تلقائياً، وقد أُبلغ المالكون."
     },
     "ai": {
       "title": "إرسال نص العميل إلى مزوّدي الذكاء الاصطناعي",

@@ -35,7 +35,7 @@ import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { runPersonalHistoryImportTick } from '@/lib/whatsapp/personal-history-import'
 import { runStagedMediaSweep } from '@/lib/storage/staged-media-sweep'
-import { runRetentionSweeps } from '@/lib/privacy/retention'
+import { retentionRunner } from '@/lib/privacy/retention'
 import { runCaseReviewTick } from '@/lib/case-review/review'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
@@ -279,17 +279,18 @@ function scheduleCaseReview() {
 
 /**
  * PDPL retention (migration 223): each workspace's own policy, a dry run
- * until the workspace applies it. Once a day per process, inside after();
- * a failure is only logged and the next day's run sweeps again.
+ * until the workspace applies it. Once a day per process, inside after(),
+ * in slices within a time budget: what is left goes on at the next tick,
+ * and a failure is tried again instead of spending the day (282).
  */
-const retentionSweepDue = everyInterval(24 * 60 * 60_000)
+const retention = retentionRunner()
 
 function scheduleRetentionSweep() {
   try {
-    if (!retentionSweepDue()) return
+    if (!retention.due()) return
     after(async () => {
       try {
-        await runRetentionSweeps(supabaseAdmin())
+        await retention.run(supabaseAdmin())
       } catch (err) {
         console.error(
           '[automations-cron] retention sweep failed:',

@@ -453,4 +453,10 @@ describe('notificationRow', () => {
       otherWorkspace: null,
     });
   });
+
+  it('retention_failed opens Privacy for owners and admins (282)', () => {
+    const n = { type: 'retention_failed' } as never;
+    expect(notificationTarget(n, 'owner')).toBe('/settings?tab=privacy');
+    expect(notificationTarget(n, 'agent')).toBeNull();
+  });
 });

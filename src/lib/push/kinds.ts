@@ -36,6 +36,7 @@ export const PUSH_KINDS = [
   'channel_reconnected',
   'inbound_message_failed',
   'meta_number_alert',
+  'retention_failed',
   'pbx_connection_silent',
   'pbx_connection_restored',
   'team_activity_alert',
