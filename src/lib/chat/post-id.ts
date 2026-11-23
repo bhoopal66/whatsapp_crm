@@ -19,14 +19,19 @@ export interface PostContent {
 
 export interface PostIds {
   /** The id this draft's send carries. `draftKey` is the draft's storage key. */
-  idFor(draftKey: string, content: PostContent): string;
+  idFor(draftKey: string, content: PostContent): string | undefined;
   /** Posted, or emptied: the next send from here is a new message. */
   forget(draftKey: string): void;
 }
 
-export function createPostIds(
-  newId: () => string = () => crypto.randomUUID()
-): PostIds {
+/**
+ * A fresh id, or none: `randomUUID` is missing outside a secure context
+ * (plain http on a LAN), where a post goes out without one.
+ */
+export const newPostId = (): string | undefined =>
+  globalThis.crypto?.randomUUID?.();
+
+export function createPostIds(newId = newPostId): PostIds {
   const kept = new Map<string, { content: string; id: string }>();
   return {
     idFor(draftKey, c) {
@@ -39,7 +44,7 @@ export function createPostIds(
       const known = kept.get(draftKey);
       if (known?.content === content) return known.id;
       const id = newId();
-      kept.set(draftKey, { content, id });
+      if (id) kept.set(draftKey, { content, id });
       return id;
     },
     forget: (draftKey) => void kept.delete(draftKey),

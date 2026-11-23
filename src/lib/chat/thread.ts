@@ -39,6 +39,9 @@ import { toChatMessage, type ChatMessage, type MessagePage } from './types';
 /** Replies read at once; a longer thread opens on its latest ones. */
 export const REPLY_LIMIT = 200;
 
+/** How long after a failed catch-up read the thread tries once more. */
+export const CATCH_UP_RETRY_MS = 4000;
+
 export type ThreadDetails = Parameters<typeof applyTimelineDetails>[2];
 type Cursor = Pick<ChatMessage, 'createdAt' | 'id'>;
 
@@ -267,6 +270,9 @@ export function createThreadStore(
     fail: (err: unknown) => unknown;
     pending: number;
     landed: number;
+    /** The latest read that failed quietly, and its one retry. */
+    missed: number;
+    again?: ReturnType<typeof setTimeout>;
   } | null = null;
 
   const set = (next: ThreadView) => {
@@ -292,8 +298,18 @@ export function createThreadStore(
     }
   }
 
-  /** The whole thread, again. Once it shows, a failure is quiet and the next gap tries again. */
-  async function load() {
+  /** A failed catch-up read, once more, unless one begun after it has landed. */
+  function readAgain(me: NonNullable<typeof shown>, mark: number) {
+    me.missed = Math.max(me.missed, mark);
+    clearTimeout(me.again);
+    me.again = setTimeout(() => {
+      if (me !== shown || view.phase !== 'ready') return;
+      if (me.landed < me.missed) void load(true);
+    }, CATCH_UP_RETRY_MS);
+  }
+
+  /** The whole thread, again. Once it shows, a failure is quiet and tried once more. */
+  async function load(retry = false) {
     const me = shown;
     if (!me) return;
     const marks = openMarks();
@@ -321,8 +337,12 @@ export function createThreadStore(
       void fillIn(messages.map((m) => m.id).filter((id) => !known.has(id)));
     } catch (err) {
       patchBoth((e) => end(e, marks));
+      if (me !== shown) return;
       // Another read under way may still show it.
-      if (me !== shown || view.phase !== 'loading' || me.pending > 1) return;
+      if (view.phase !== 'loading' || me.pending > 1) {
+        if (!retry) readAgain(me, marks.rows);
+        return;
+      }
       set({ ...view, phase: 'failed' });
       me.fail(err);
     } finally {
@@ -340,11 +360,17 @@ export function createThreadStore(
     },
     /** On screen until the returned stop is called. */
     show(fail: (err: unknown) => unknown) {
-      const me = { fail, pending: 0, landed: 0 };
+      const me: NonNullable<typeof shown> = {
+        fail,
+        pending: 0,
+        landed: 0,
+        missed: 0,
+      };
       shown = me;
       void load();
       return () => {
         if (shown === me) shown = null;
+        clearTimeout(me.again);
       };
     },
     /** Events were missed. */
