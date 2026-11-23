@@ -33,21 +33,22 @@ import { toast } from 'sonner';
 import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
   AlertTriangle,
+  ArrowRightLeft,
   Headphones,
   KeyRound,
-  Loader2,
   Landmark,
-  Smartphone,
+  Loader2,
   Mail,
   MailX,
   Plus,
   Search,
+  Smartphone,
   Trash2,
-  X,
   UserCheck,
   UserPen,
   UserX,
   UsersRound,
+  X,
 } from 'lucide-react';
 
 import {
@@ -86,6 +87,13 @@ import {
   toDepartment,
   type Department,
 } from '@/lib/auth/departments';
+import {
+  leftWorkByPerson,
+  parseWorkCounts,
+  workTotal,
+  type HandoverPerson,
+  type WorkCounts,
+} from '@/lib/auth/member-handover';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import {
@@ -113,6 +121,7 @@ import { CoordinatorBanksDialog } from './coordinator-banks-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
 import { MemberDetailsDialog } from './member-details-dialog';
+import { MemberHandoverDialog, useWorkText } from './member-handover-dialog';
 import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { filterMembers, inactiveLast } from './member-search';
@@ -179,6 +188,8 @@ export function MembersTab() {
   const tCoord = useTranslations('Coordinators.members');
   const tDept = useTranslations('Settings.departments');
   const tPeople = useTranslations('Groups.create');
+  const tHandover = useTranslations('Settings.members.handover');
+  const workText = useWorkText();
   const { user, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
@@ -201,6 +212,13 @@ export function MembersTab() {
   const [editingBanks, setEditingBanks] = useState<Member | null>(null);
   const [passwordMember, setPasswordMember] = useState<Member | null>(null);
   const [detailsMember, setDetailsMember] = useState<Member | null>(null);
+  const [handoverMember, setHandoverMember] = useState<Member | null>(null);
+  // What people who left still hold (266); a failed read costs the hints.
+  const [leftWork, setLeftWork] = useState<ReadonlyMap<string, WorkCounts>>(
+    new Map()
+  );
+  // What the person about to be removed holds.
+  const [removingWork, setRemovingWork] = useState<WorkCounts | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
   const shownMembers = useMemo(
     () =>
@@ -211,6 +229,34 @@ export function MembersTab() {
   );
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
+  );
+
+  const loadLeftWork = useCallback(async () => {
+    try {
+      const res = await fetch('/api/account/members/left-work', {
+        cache: 'no-store',
+      });
+      if (res.ok) setLeftWork(leftWorkByPerson(await res.json()));
+    } catch {
+      // The roster stands without it.
+    }
+  }, []);
+
+  const workOf = useCallback(
+    async (userId: string): Promise<WorkCounts | null> => {
+      try {
+        const res = await fetch(`/api/account/members/${userId}/handover`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return null;
+        return parseWorkCounts(
+          ((await res.json()) as { counts?: unknown }).counts
+        );
+      } catch {
+        return null;
+      }
+    },
+    []
   );
 
   const loadEverything = useCallback(async () => {
@@ -255,7 +301,29 @@ export function MembersTab() {
 
   useEffect(() => {
     void loadEverything();
-  }, [loadEverything]);
+    void loadLeftWork();
+  }, [loadEverything, loadLeftWork]);
+
+  // Removing someone leaves what they hold with nobody: say so first.
+  const removingId = removingMember?.user_id;
+  useEffect(() => {
+    setRemovingWork(null);
+    if (!removingId) return;
+    let off = false;
+    void workOf(removingId).then((counts) => {
+      if (!off) setRemovingWork(counts);
+    });
+    return () => {
+      off = true;
+    };
+  }, [removingId, workOf]);
+
+  const handoverPerson = (m: Member): HandoverPerson => ({
+    user_id: m.user_id,
+    name: m.full_name || t('unnamed'),
+    role: m.role,
+    deactivated_at: m.deactivated_at,
+  });
 
   async function handleRoleChange(member: Member, nextRole: AccountRole) {
     if (member.role === nextRole) return;
@@ -459,6 +527,12 @@ export function MembersTab() {
       );
       await warnPersonalNumber(res, name);
       setDeactivatingMember(null);
+      void loadLeftWork();
+      if (!active) {
+        // Their work stays theirs until somebody moves it.
+        const held = await workOf(member.user_id);
+        if (held && workTotal(held) > 0) setHandoverMember(member);
+      }
     } catch (err) {
       console.error('[MembersTab] set active error:', err);
       toast.error('Could not reach the server');
@@ -742,6 +816,13 @@ export function MembersTab() {
                         })
                       : t('joined', { date: fmtDate(member.joined_at) })}
                   </div>
+                  {isInactive && leftWork.has(member.user_id) && (
+                    <p className="text-warning text-xs">
+                      {tHandover('holds', {
+                        what: workText(leftWork.get(member.user_id)!),
+                      })}
+                    </p>
+                  )}
 
                   {/* Actions cluster. On mobile this is its own row
                       below the identity block; on desktop it sits
@@ -963,6 +1044,26 @@ export function MembersTab() {
                           </TooltipContent>
                         </Tooltip>
                       )}
+
+                    {/* What someone who left still holds, to a colleague. */}
+                    {isInactive && leftWork.has(member.user_id) && (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label={tHandover('button')}
+                              onClick={() => setHandoverMember(member)}
+                              disabled={isBusy}
+                            >
+                              <ArrowRightLeft className="size-4" />
+                            </Button>
+                          }
+                        />
+                        <TooltipContent>{tHandover('button')}</TooltipContent>
+                      </Tooltip>
+                    )}
 
                     {/* Deactivate / reactivate. Same gate as Remove: the
                         owner can't be deactivated (someone must be able
@@ -1201,6 +1302,13 @@ export function MembersTab() {
         }}
       />
 
+      <MemberHandoverDialog
+        from={handoverMember ? handoverPerson(handoverMember) : null}
+        people={members.map(handoverPerson)}
+        onClose={() => setHandoverMember(null)}
+        onMoved={() => void loadLeftWork()}
+      />
+
       <Dialog
         open={deactivatingMember !== null}
         onOpenChange={(open) => {
@@ -1267,6 +1375,26 @@ export function MembersTab() {
               })}
             </DialogDescription>
           </DialogHeader>
+          {removingMember && removingWork && workTotal(removingWork) > 0 && (
+            <div className="bg-warning-soft text-warning space-y-2 rounded-md p-3 text-sm">
+              <p>
+                {tHandover('removeWarning', {
+                  name: removingMember.full_name || t('unnamed'),
+                  what: workText(removingWork),
+                })}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setHandoverMember(removingMember);
+                  setRemovingMember(null);
+                }}
+              >
+                {tHandover('button')}
+              </Button>
+            </div>
+          )}
           <DialogFooter className="bg-popover border-border">
             <Button
               variant="outline"
