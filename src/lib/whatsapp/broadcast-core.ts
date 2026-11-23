@@ -310,8 +310,11 @@ export async function createBroadcast(
       firstRejection ??= checked.error;
       continue;
     }
+    // Stored only on a contact this call creates (migration 249), as the
+    // wizard's CSV audience does (csv-contact-insert.ts).
     const { id } = await findOrCreateContact(db, accountId, auditUserId, {
       phone: checked.normalized,
+      lead_source: 'broadcast',
     });
     resolved.push({
       contactId: id,

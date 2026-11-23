@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Lead source on API broadcasts
+
+No migration. A contact created by `POST /api/v1/broadcasts` gets
+`lead_source` `broadcast`, as the wizard's CSV audience already did.
+Contacts created by `POST /api/v1/contacts` without a `lead_source`, and
+by `POST /api/v1/messages`, keep none, so a later ad referral can still
+fill it.
+
 ### Reports count true arrivals
 
 **Migration required:** apply `261_report_counting.sql` after 260, as a

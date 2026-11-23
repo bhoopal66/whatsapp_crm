@@ -370,7 +370,9 @@ saved in an older format). A number that fails it is dropped and
 counted as `rejected`, and no contact is created for it; accepted
 numbers are sent in normalized form (digits only, with the country
 code, a trunk `0` after it removed). If every recipient is rejected the
-call is `400 bad_request` and the message names the first problem.
+call is `400 bad_request` and the message names the first problem. A
+contact this call creates gets `lead_source` `broadcast`; an existing
+contact's is left as it is.
 
 A recipient whose contact opted out of messages (`opted_out_at` set) is
 skipped: it is not sent to and is counted in neither `accepted` nor

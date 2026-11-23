@@ -293,6 +293,7 @@ describe('createBroadcast recipient numbers', () => {
     expect(findOrCreateContact).toHaveBeenCalledTimes(1);
     expect(findOrCreateContact).toHaveBeenCalledWith(db, 'acc', 'user', {
       phone: '971501234567',
+      lead_source: 'broadcast',
     });
     expect(plan.planned).toEqual([
       {
