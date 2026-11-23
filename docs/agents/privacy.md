@@ -54,10 +54,15 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
 - **Deleting a customer (280).** A stamped number that leaves a contact
   (delete, number change, erase) is kept in `contact_suppressions`; insert
   or a change to that number restores the stamps with one `restored`
-  consent event; lifting a stamp clears the kept one. `contact_open_work`
+  consent event; lifting a stamp clears the kept one. Never the
+  do-not-contact reason. A number change writes `contact_id`, so going back
+  to that number keeps nothing for the one undone, and a lift, the export
+  and the erase reach the numbers left before; a row two contacts wrote has
+  none (one's lift must not lift a stranger's). `contact_open_work`
   refuses a signed-in person's delete (ZC280, HINT `HAS_OPEN_WORK`, DETAIL
   the counts); the service role, no-user statements and an account deletion
-  pass. 280 restates 086's `contacts_consent_log`: re-run 280 after 086.
+  pass. 280 restates 086's `contacts_consent_log`: re-run 280 after 086; it
+  refuses while the `kind` CHECK lacks `restored`.
   `verify-contact-delete.sql`. App side: `lib/contacts/delete-preview.ts`
   (dialog, reasons) and `delete-contacts.ts` (a refused bulk delete retries
   each id); the only way a screen deletes a contact.

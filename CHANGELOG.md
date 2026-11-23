@@ -80,8 +80,8 @@ No migration.
 
 ### Customers
 
-- **Migration required: 280** (`280_contact_delete.sql`, apply after 262 and before the build; re-run it after any re-run of 086).
-- A customer who opted out or must not be contacted stays so after being deleted or erased: when the number is added again, by anyone or by an import, the stamp comes back. An admin lifting it lifts it for good.
+- **Migration required: 280** (`280_contact_delete.sql`, apply after 262, with ON_ERROR_STOP, and before the build; re-run it after any re-run of 086).
+- A customer who opted out or must not be contacted stays so after being deleted or erased: when the number is added again, by anyone or by an import, the stamp comes back. An admin lifting it lifts it for good, also on a number the customer had before. The do-not-contact reason is not kept, and correcting a mistyped number leaves nobody else opted out.
 - A customer with an open case, an open deal room or an active submission group can no longer be deleted.
 - The delete dialog says what is deleted with the customer (chats, open
   tasks, deal rooms) and what is kept without them (deals, documents,

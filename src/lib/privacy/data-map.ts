@@ -95,7 +95,7 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     class: 'identifier',
     erase: 'anonymise',
     reason:
-      'opt-outs of numbers whose contact is gone, by keyed hash: the erase drops the reason and keeps the hash and dates',
+      'opt-outs of numbers whose contact is gone, by keyed hash, and of numbers a contact left (contact_id): the erase drops who deleted it and whose it was, and keeps the hash and dates',
     exported: true,
   },
   conversations: {
