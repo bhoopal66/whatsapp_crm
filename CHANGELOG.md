@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### The open chat keeps its place
+
+No migration.
+- The open chat no longer jumps to the bottom on every status change in
+  any chat. It scrolls only when opened, on your own send, or when you
+  are already at the newest messages; otherwise a button counts what
+  arrived below.
+- A message still being sent stays on screen when another one arrives,
+  and a resync no longer shows it twice.
+- A chat left open in a hidden tab stays unread until you look at it,
+  and a failed "mark as read" is tried again.
+
 ### Dependencies and repository settings
 
 No migration. Run `npm ci` after pulling.

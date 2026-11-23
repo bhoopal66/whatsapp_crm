@@ -569,6 +569,7 @@
       "selectConversation": "اختر محادثة",
       "selectConversationHint": "اختر محادثة من اليمين لبدء المراسلة",
       "unreadMessages": "{count, plural, one {# رسالة غير مقروءة} other {# رسائل غير مقروءة}}",
+      "newMessagesBelow": "{count, plural, one {# رسالة جديدة} other {# رسائل جديدة}}",
       "today": "اليوم",
       "yesterday": "أمس",
       "numberDisconnected": "رقم WhatsApp هذا ({name}) غير متصل — ستفشل الردود منه. يجب على مسؤول إعادة ربطه (الإعدادات ← WhatsApp).",

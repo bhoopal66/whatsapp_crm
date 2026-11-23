@@ -26,6 +26,12 @@ import {
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
 import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
+import { appendInsertedMessage, patchMessage } from '@/lib/inbox/optimistic';
+import {
+  unreadAfterInsert,
+  unreadAfterUpdate,
+  zeroUnreadOf,
+} from '@/lib/inbox/read-state';
 import {
   applyActiveAvatars,
   applyFullRow,
@@ -607,15 +613,8 @@ export function InboxPageInner({
           activeConversation &&
           newMsg.conversation_id === activeConversation.id
         ) {
-          setMessages((prev) => {
-            // Avoid duplicates
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            // Replace optimistic message if it exists
-            const withoutOptimistic = prev.filter(
-              (m) => !m.id.startsWith('temp-')
-            );
-            return [...withoutOptimistic, newMsg];
-          });
+          // In place of the one optimistic bubble it is, if any.
+          setMessages((prev) => appendInsertedMessage(prev, newMsg, user?.id));
         }
 
         // Update conversation list preview. We need to know *synchronously*
@@ -631,10 +630,10 @@ export function InboxPageInner({
                     ...c,
                     last_message_text: newMsg.content_text ?? '',
                     last_message_at: newMsg.created_at,
-                    unread_count:
-                      activeConversation?.id === newMsg.conversation_id
-                        ? 0
-                        : c.unread_count + 1,
+                    unread_count: unreadAfterInsert(c.unread_count, newMsg, {
+                      isOpen: activeConversation?.id === newMsg.conversation_id,
+                      visible: document.visibilityState === 'visible',
+                    }),
                   }
                 : c
             )
@@ -650,10 +649,9 @@ export function InboxPageInner({
       }
 
       if (event.eventType === 'UPDATE') {
-        // Update message status
-        setMessages((prev) =>
-          prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
-        );
+        // Update message status. An update in another chat hands back the
+        // same array, so the open thread does not move.
+        setMessages((prev) => patchMessage(prev, newMsg.id, newMsg));
       }
     },
     [activeConversation, hydrateConversation, accountId, user?.id]
@@ -709,7 +707,9 @@ export function InboxPageInner({
           // suppress the incoming unread_count — the user is reading it
           // RIGHT NOW, so any positive value would just flicker the badge
           // back on for the ~100ms it takes for the reset effect's server
-          // UPDATE to round-trip. Non-active convs take the value as-is.
+          // UPDATE to round-trip. Non-active convs take the value as-is,
+          // and so does the open one while this tab is hidden: nobody is
+          // reading it (lib/inbox/read-state.ts).
           const isActive = activeConversation?.id === conv.id;
           setConversations((prev) =>
             prev.map((c) =>
@@ -717,7 +717,10 @@ export function InboxPageInner({
                 ? {
                     ...c,
                     ...conv,
-                    unread_count: isActive ? 0 : conv.unread_count,
+                    unread_count: unreadAfterUpdate(conv.unread_count, {
+                      isOpen: isActive,
+                      visible: document.visibilityState === 'visible',
+                    }),
                   }
                 : c
             )
@@ -844,6 +847,19 @@ export function InboxPageInner({
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [resyncSince]);
+
+  // Back on screen: the open chat is being read again, so its badge goes
+  // at once. MessageThread sends the server reset.
+  const openChatId = activeConversation?.id;
+  useEffect(() => {
+    if (!openChatId) return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      setConversations((prev) => zeroUnreadOf(prev, openChatId));
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [openChatId]);
 
   /**
    * Manual refresh trigger for the thread-header refresh button.
@@ -1010,9 +1026,25 @@ export function InboxPageInner({
         return;
       }
       if (load.mode === 'delta') {
-        setConversations((prev) =>
-          mergeConversationDelta(prev, loaded, listCursorRef.current)
-        );
+        const visible = document.visibilityState === 'visible';
+        setConversations((prev) => {
+          const merged = mergeConversationDelta(
+            prev,
+            loaded,
+            listCursorRef.current
+          );
+          return visible
+            ? zeroUnreadOf(merged, activeConversation?.id)
+            : merged;
+        });
+        // A count bumped while events were lost reaches the open chat
+        // too, or nothing would reset it.
+        setActiveChat((prev) => {
+          const row = prev && loaded.find((c) => c.id === prev.row.id);
+          return row && row.unread_count !== prev.row.unread_count
+            ? patchActiveChat(prev, row.id, { unread_count: row.unread_count })
+            : prev;
+        });
         return;
       }
       listCursorRef.current = load.cursor;
@@ -1050,10 +1082,9 @@ export function InboxPageInner({
         // does — the user just deep-linked into this conv, treat that the
         // same as a click. Leaves activeConversation.unread_count alone so
         // the MessageThread reset effect still fires the server UPDATE.
-        if (match.unread_count > 0) {
-          setConversations((prev) =>
-            prev.map((c) => (c.id === match.id ? { ...c, unread_count: 0 } : c))
-          );
+        // Not in a background tab, which MessageThread leaves unread too.
+        if (document.visibilityState === 'visible') {
+          setConversations((prev) => zeroUnreadOf(prev, match.id));
         }
       }
     },
@@ -1174,9 +1205,7 @@ export function InboxPageInner({
 
   const handleUpdateMessage = useCallback(
     (id: string, updates: Partial<Message>) => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, ...updates } : m))
-      );
+      setMessages((prev) => patchMessage(prev, id, updates));
     },
     []
   );

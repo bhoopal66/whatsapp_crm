@@ -1,6 +1,11 @@
 import type { Conversation, Message, MessageReaction } from '@/types';
 import { UNASSIGNED, type AssigneeFilter } from '@/lib/inbox/conversations';
 import { needsAttention } from '@/lib/inbox/attention';
+import {
+  isTempId,
+  pageWithUnsettled,
+  unsettledTemps,
+} from '@/lib/inbox/optimistic';
 
 /**
  * Keyset pagination for the Inbox — the conversation list and the open
@@ -336,9 +341,9 @@ export function prependOlderMessages(
  * - Held messages take the fetched values (status ticks missed while
  *   the tab was away).
  * - New messages are appended in created_at order.
- * - Optimistic `temp-` bubbles survive only while still `sending`; a
- *   sent/failed temp is exactly what the old full reload discarded, and
- *   a sent one's real row is in the page.
+ * - Optimistic `temp-` bubbles survive only while unsettled: still
+ *   `sending`, or sent with their row not here yet (`unsettledTemps`).
+ *   A failed one is exactly what the old full reload discarded.
  * - `gap` is set when the page is full and shares nothing with what we
  *   hold — more arrived than one page, so the caller should replace the
  *   thread with the page rather than stitch across a hole.
@@ -346,7 +351,8 @@ export function prependOlderMessages(
 export function mergeLatestMessages(
   existing: Message[],
   latestChrono: Message[],
-  pageSize: number = MESSAGE_PAGE_SIZE
+  pageSize: number = MESSAGE_PAGE_SIZE,
+  viewerId: string | null = null
 ): { messages: Message[]; gap: boolean } {
   const persisted = existing.filter((m) => !m.id.startsWith('temp-'));
   const fetchedIds = new Set(latestChrono.map((m) => m.id));
@@ -360,15 +366,19 @@ export function mergeLatestMessages(
       oldestFetched === null ||
       oldestFetched >= newestHeld
     ) {
-      return { messages: latestChrono, gap: true };
+      return {
+        messages: pageWithUnsettled(existing, latestChrono, viewerId),
+        gap: true,
+      };
     }
   }
 
   const byId = new Map(latestChrono.map((m) => [m.id, m]));
+  const unsettled = new Set(unsettledTemps(existing, latestChrono, viewerId));
   const merged: Message[] = [];
   for (const m of existing) {
-    if (m.id.startsWith('temp-')) {
-      if (m.status === 'sending') merged.push(m);
+    if (isTempId(m.id)) {
+      if (unsettled.has(m)) merged.push(m);
       continue;
     }
     const f = byId.get(m.id);
