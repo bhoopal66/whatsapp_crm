@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   BroadcastError,
   assertHeaderMedia,
+  CONSENT_FAILURE_REASONS,
   OPTED_OUT_REASON,
   quietHoursMessage,
   type BroadcastPlan,
@@ -37,6 +38,10 @@ import {
 import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
+import {
+  consentRefusal,
+  type ConsentRefusal,
+} from '@/lib/whatsapp/send-origin';
 
 /** Which recipients a resume pass picks up. */
 export type ResumeScope = 'pending' | 'failed' | 'all';
@@ -163,9 +168,9 @@ export interface ResumePlan {
    */
   unsendable: number;
   /**
-   * In-scope rows whose customer has since asked not to be messaged
-   * (`contacts.opted_out_at`, migration 076). Left out of the plan and
-   * stamped 'failed' with {@link OPTED_OUT_REASON}.
+   * In-scope rows whose customer has since opted out (migration 076) or
+   * been marked do-not-contact (086). Left out of the plan and stamped
+   * 'failed' with {@link CONSENT_FAILURE_REASONS}.
    */
   optedOut: number;
 }
@@ -175,6 +180,7 @@ export { OPTED_OUT_REASON };
 interface RecipientContact {
   phone?: string | null;
   opted_out_at?: string | null;
+  do_not_contact_at?: string | null;
 }
 
 interface RecipientRow {
@@ -300,7 +306,10 @@ export async function planBroadcastResume(
   // failed with the reason, which also settles the broadcast's status.
   const sendable: RecipientRow[] = [];
   const unsendable: string[] = [];
-  const optedOut: string[] = [];
+  const refused: Record<ConsentRefusal, string[]> = {
+    opted_out: [],
+    do_not_contact: [],
+  };
   // Page until the pass is full or the rows run out: a first page of
   // customers who all opted out is not "nothing left to send".
   for (
@@ -311,7 +320,7 @@ export async function planBroadcastResume(
     const { data, error: recError } = await db
       .from('broadcast_recipients')
       .select(
-        'id, template_params, contact_id, contact:contacts(phone, opted_out_at)'
+        'id, template_params, contact_id, contact:contacts(phone, opted_out_at, do_not_contact_at)'
       )
       .eq('broadcast_id', broadcastId)
       .in('status', statuses)
@@ -334,8 +343,9 @@ export async function planBroadcastResume(
 
     const rows = (data ?? []) as RecipientRow[];
     for (const row of rows) {
-      if (rowContact(row)?.opted_out_at) {
-        optedOut.push(row.id);
+      const refusal = consentRefusal(rowContact(row));
+      if (refusal) {
+        refused[refusal].push(row.id);
         continue;
       }
       const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
@@ -347,13 +357,16 @@ export async function planBroadcastResume(
 
   // Left out of the plan whatever becomes of the stamps; the next pass
   // retries one that failed.
-  await stampFailed(db, optedOut, OPTED_OUT_REASON);
+  for (const refusal of ['opted_out', 'do_not_contact'] as const) {
+    await stampFailed(db, refused[refusal], CONSENT_FAILURE_REASONS[refusal]);
+  }
+  const optedOut = refused.opted_out.length + refused.do_not_contact.length;
   await stampFailed(db, unsendable, 'No valid phone number on contact');
 
   const slice = sendable.slice(0, RESUME_MAX_PER_REQUEST);
   const remaining = Math.max(
     0,
-    inScope - slice.length - optedOut.length - unsendable.length
+    inScope - slice.length - optedOut - unsendable.length
   );
 
   if (slice.length === 0) {
@@ -437,14 +450,14 @@ export async function planBroadcastResume(
         : [],
     })),
     rejected: 0,
-    skippedOptedOut: optedOut.length,
+    skippedOptedOut: optedOut,
   };
 
   return {
     plan,
     remaining,
     unsendable: unsendable.length,
-    optedOut: optedOut.length,
+    optedOut,
   };
 }
 

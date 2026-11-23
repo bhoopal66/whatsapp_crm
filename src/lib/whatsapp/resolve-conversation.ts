@@ -46,25 +46,11 @@ export interface ResolveConversationOptions {
 }
 
 /**
- * Find or create the contact + conversation for `phone` within
- * `accountId`. Throws `SendMessageError` (shared with the send core,
- * so the route maps one error family) on a bad phone, a missing
- * WhatsApp config, or a DB failure.
- *
- * An existing contact is found by the last-8 match below, whatever
- * shape its number was saved in. A new one is held to the rule every
- * other entry point uses (`validateContactPhone`): the E.164 check
- * alone let "501230043" and "+9710501234567" become contacts here,
- * each send was 'sent' to a JID that is nobody, and the customer's
- * real inbound later attached itself to that row.
+ * The digits a contact is looked up by for `phone`, and the entry rule's
+ * answer for it. Throws the 400 of a number that must not be looked up
+ * at all.
  */
-export async function resolveConversationByPhone(
-  db: SupabaseClient,
-  accountId: string,
-  phone: string,
-  name?: string | null,
-  { renameExisting = true }: ResolveConversationOptions = {}
-): Promise<ResolvedConversation> {
+export function contactLookupNumber(phone: string) {
   const sanitized = sanitizePhoneForMeta(phone);
   if (!isValidE164(sanitized)) {
     throw new SendMessageError(
@@ -84,6 +70,37 @@ export async function resolveConversationByPhone(
   ) {
     throw new SendMessageError('bad_request', checked.error, 400);
   }
+  // Look up by the number the rule reads, not the typed digits: a
+  // trunk 0 inside the last eight ("+961 03 123 456" types 03123456,
+  // the number is 9613123456) otherwise misses the real contact and
+  // the last-8 match lands on an unrelated one that shares the typed
+  // tail (971503123456) — and the send goes to that person. A number
+  // the rule refuses keeps the raw digits, so a legacy "501230043"
+  // row is still found.
+  return { checked, number: checked.ok ? checked.normalized : sanitized };
+}
+
+/**
+ * Find or create the contact + conversation for `phone` within
+ * `accountId`. Throws `SendMessageError` (shared with the send core,
+ * so the route maps one error family) on a bad phone, a missing
+ * WhatsApp config, or a DB failure.
+ *
+ * An existing contact is found by the last-8 match below, whatever
+ * shape its number was saved in. A new one is held to the rule every
+ * other entry point uses (`validateContactPhone`): the E.164 check
+ * alone let "501230043" and "+9710501234567" become contacts here,
+ * each send was 'sent' to a JID that is nobody, and the customer's
+ * real inbound later attached itself to that row.
+ */
+export async function resolveConversationByPhone(
+  db: SupabaseClient,
+  accountId: string,
+  phone: string,
+  name?: string | null,
+  { renameExisting = true }: ResolveConversationOptions = {}
+): Promise<ResolvedConversation> {
+  const { checked, number } = contactLookupNumber(phone);
 
   // Fail fast (and create nothing) when the account has no WhatsApp
   // connected — the same error the send would raise anyway.
@@ -125,18 +142,7 @@ export async function resolveConversationByPhone(
   let contactId: string;
   let contactCreated = false;
 
-  // Look up by the number the rule reads, not the typed digits: a
-  // trunk 0 inside the last eight ("+961 03 123 456" types 03123456,
-  // the number is 9613123456) otherwise misses the real contact and
-  // the last-8 match lands on an unrelated one that shares the typed
-  // tail (971503123456) — and the send goes to that person. A number
-  // the rule refuses keeps the raw digits, so a legacy "501230043"
-  // row is still found.
-  const existing = await findExistingContact(
-    db,
-    accountId,
-    checked.ok ? checked.normalized : sanitized
-  );
+  const existing = await findExistingContact(db, accountId, number);
   if (existing) {
     contactId = existing.id;
     if (renameExisting && name && name !== existing.name) {

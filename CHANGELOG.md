@@ -52,6 +52,29 @@ No migration.
   cases), and why a customer cannot be deleted. Deleting several leaves the
   blocked ones out, named with their reason, and deletes the rest.
 
+### Public API
+
+No migration.
+- A valid key is answered `503 unavailable` with `Retry-After` while the
+  database does not answer. It was `401`, and five in a row locked the
+  integration's IP out for 15 minutes.
+- **Integrators:** `POST /api/v1/messages` now answers `422
+  customer_opted_out`, and sends nothing, when the customer opted out or is
+  marked do-not-contact, on this contact or on another one with the same
+  number. It used to send.
+- `POST /api/v1/messages` answers `503 unavailable` instead of `500` when
+  the contacts cannot be read.
+- Broadcasts skip customers marked do-not-contact, as they skip those who
+  opted out. One already on a campaign's list is marked failed with the
+  reason.
+- A broadcast created through the API and cut off by a restart is continued
+  by the broadcast cron, half an hour later. It stayed `sending` until
+  someone pressed Resume. This includes ones already stuck, if they were
+  created in the last 7 days.
+- MCP server: a request that gets no answer in 30 seconds, or an unreadable
+  one, is reported as "may have gone through" instead of hanging or
+  returning nothing. `Retry-After` is passed on for 503 as well as 429.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it

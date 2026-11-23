@@ -1,6 +1,8 @@
-// A scheduled campaign whose pass ended with recipients still pending is
-// continued by a later tick. The real claim, planner and delivery run
+// A scheduled or API campaign whose pass ended with recipients still
+// pending is continued by a later tick. The real claim, planner and delivery run
 // against a stateful fake; only the gateway is mocked.
+
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -54,6 +56,8 @@ function world(sizes: number[], broadcast: Row = {}, provider = 'meta') {
       account_id: 'acct-1',
       status: 'sending',
       scheduled_at: ago(DAY),
+      audience_filter: { type: 'all' },
+      created_at: ago(2 * DAY),
       updated_at: ago(31 * MIN - b * 1000),
       delivery_locked_at: null,
       quiet_hours: null,
@@ -229,6 +233,81 @@ describe('continuing a scheduled campaign', () => {
       'failed',
       'sent',
     ]);
+  });
+});
+
+describe('continuing a campaign the API created', () => {
+  /** What `create_broadcast_with_recipients` leaves in the row. */
+  const api = (row: Row = {}) => ({
+    scheduled_at: null,
+    audience_filter: null,
+    created_at: ago(31 * MIN),
+    ...row,
+  });
+
+  it('takes one whose lock is stale, once', async () => {
+    const w = use(world([2], api({ delivery_locked_at: ago(31 * MIN) })));
+    expect(await tick()).toMatchObject({ started: 1 });
+    expect(await tick()).toMatchObject({ started: 0 });
+    await runPasses();
+    expect(h.send).toHaveBeenCalledTimes(2);
+    expect(w.broadcasts[0].status).toBe('sent');
+    expect(await tick()).toMatchObject({ started: 0, skipped: 0 });
+  });
+
+  it('takes one whose request never took the lock', async () => {
+    use(world([1], api()));
+    expect(await tick()).toMatchObject({ started: 1 });
+  });
+
+  it('starts one pass for two ticks at once', async () => {
+    use(world([2], api()));
+    const ticks = await Promise.all([tick(), tick()]);
+    expect(ticks.map((t) => t.started).sort()).toEqual([0, 1]);
+    expect(h.afterCallbacks).toHaveLength(1);
+  });
+
+  it.each([
+    ['whose lock is fresh', () => ({ delivery_locked_at: ago(29 * MIN) })],
+    ['with no lock, created just now', () => ({ created_at: ago(29 * MIN) })],
+    ['from the wizard', () => ({ audience_filter: { type: 'all' } })],
+    ['older than 7 days', () => ({ created_at: ago(7 * DAY + MIN) })],
+  ])('leaves one %s alone', async (_name, row) => {
+    use(world([1], api(row())));
+    expect(await tick()).toMatchObject({ started: 0, skipped: 0 });
+    expect(h.afterCallbacks).toHaveLength(0);
+  });
+
+  it('only the API leaves audience_filter null', () => {
+    const read = (p: string) => readFileSync(p, 'utf8');
+    const sources = (readdirSync('src', { recursive: true }) as string[])
+      .filter((p) => /\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p))
+      .map((p) => `src/${p}`);
+
+    expect(
+      sources.filter((p) =>
+        read(p).includes("'create_broadcast_with_recipients'")
+      )
+    ).toEqual(['src/lib/whatsapp/broadcast-core.ts']);
+    const writers = readdirSync('supabase/migrations').filter((f) =>
+      read(`supabase/migrations/${f}`)
+        .replace(/--.*$/gm, '')
+        .includes('audience_filter')
+    );
+    expect(writers).toEqual(['001_initial_schema.sql']); // the column itself
+
+    const wizard = 'src/hooks/use-broadcast-sending.ts';
+    const draft = 'src/app/(dashboard)/broadcasts/new/page.tsx';
+    expect(
+      sources
+        .filter((p) => /from\('broadcasts'\)\s*\.insert\(/.test(read(p)))
+        .sort()
+    ).toEqual([draft, wizard]);
+    expect(read(wizard)).toMatch(
+      /from\('broadcasts'\)\s*\.insert\(\{[^;]*\baudience_filter: \{[^;]*\bstatus: sendAt/
+    );
+    expect(read(draft)).toMatch(/const fields = \{[^;]*\baudience_filter: \{/);
+    expect(read(draft)).toMatch(/\.insert\(\{\s*\.\.\.fields,/);
   });
 });
 

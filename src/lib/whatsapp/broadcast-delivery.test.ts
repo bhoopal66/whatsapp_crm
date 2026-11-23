@@ -172,6 +172,37 @@ describe('opt-out during a pass', () => {
   });
 });
 
+describe('do-not-contact', () => {
+  const DNC = 'Customer is marked do-not-contact';
+
+  it('skips a customer marked after the plan was built', async () => {
+    const w = world(2);
+    w.contacts[1].do_not_contact_at = '2026-11-23T08:00:01Z';
+    await deliverBroadcast(fakeDb(w), planFor(w));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients[1]).toMatchObject({
+      status: 'failed',
+      error_message: DNC,
+    });
+  });
+
+  it('leaves them out of a resume', async () => {
+    const w = world(3);
+    (w.broadcast_recipients[0].contact as Row).opted_out_at = '2026';
+    (w.broadcast_recipients[1].contact as Row).do_not_contact_at = '2026';
+    const { plan, remaining, optedOut } = await resume(fakeDb(w));
+
+    expect(plan.planned.map((r) => r.recipientRowId)).toEqual(['r00002']);
+    expect([optedOut, plan.skippedOptedOut, remaining]).toEqual([2, 2, 0]);
+    expect(w.broadcast_recipients.map((r) => r.error_message)).toEqual([
+      OPTED_OUT_REASON,
+      DNC,
+      null,
+    ]);
+  });
+});
+
 describe('quiet hours', () => {
   it('stops a pass they begin in, resumable', async () => {
     const w = world(3);

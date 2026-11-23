@@ -32,12 +32,12 @@ vi.mock('@/lib/flows/admin-client', () => ({
             order: () => ({
               limit: () => Promise.resolve({ data: h.due, error: null }),
             }),
-            // Unfinished campaigns: cron-continue.test.ts.
-            gte: () => ({
-              or: () => ({
-                order: () => ({
-                  limit: () => Promise.resolve({ data: [], error: null }),
-                }),
+          }),
+          // Unfinished campaigns: cron-continue.test.ts.
+          or: () => ({
+            or: () => ({
+              order: () => ({
+                limit: () => Promise.resolve({ data: [], error: null }),
               }),
             }),
           }),

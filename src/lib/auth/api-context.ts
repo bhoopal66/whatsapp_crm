@@ -33,7 +33,12 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { lookupKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
 import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
-import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
+import {
+  forbidden,
+  rateLimited,
+  unauthorized,
+  unavailable,
+} from '@/lib/api/v1/respond';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { edgeAuthGuards } from '@/lib/auth/edge-guards';
 import { clientIp, consoleLogger, ipKey } from '@/lib/edge';
@@ -77,6 +82,7 @@ function extractKey(request: Request): string | null {
  *   403 forbidden    — valid key without the required scope
  *   429 rate_limited — per-key budget exhausted, or this client IP is
  *                      locked out for presenting bad keys
+ *   503 unavailable  — the key could not be looked up
  *
  * On success, bumps `last_used_at` (fire-and-forget) and returns the
  * account context.
@@ -105,7 +111,12 @@ export async function requireApiKey(
     key: row,
     archived,
     archivedKeyId,
+    unavailable: lookupFailed,
   } = await lookupKeyByHash(hashApiKey(presented));
+  // A database that does not answer says nothing about the key, so this
+  // is neither a 401 nor a bad key: five of those in a row would lock an
+  // integration's IP out for 15 minutes over a blip.
+  if (lookupFailed) throw unavailable();
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
