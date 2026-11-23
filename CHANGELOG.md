@@ -33,6 +33,15 @@ before switching the rating requests on; the app works without it.
 - In a thread, and on a phone, the text box has a row of its own above the
   buttons. It was too narrow to read what you typed.
 
+### Attachments
+
+No migration.
+- An attachment on a Meta number that could not be copied (over 16 MB, or a
+  short fault) opens from the chat: the CRM asks Meta for it again. It was
+  stored with a link that dies within minutes.
+- A file a customer sent is shown in the page only when its type is one that
+  cannot run; anything else is a download.
+
 ### WhatsApp numbers
 
 No migration.

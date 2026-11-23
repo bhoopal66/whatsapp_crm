@@ -15,6 +15,8 @@ describe('mediaResponseHeaders', () => {
     for (const type of [
       'text/html',
       'image/svg+xml',
+      'image/x-anything+xml',
+      'audio/x+xml',
       'application/pdf',
       'application/xhtml+xml',
       'text/html; charset=utf-8',
@@ -25,6 +27,20 @@ describe('mediaResponseHeaders', () => {
       expect(h['Content-Disposition'], String(type)).toBe('attachment');
       expect(h['X-Content-Type-Options']).toBe('nosniff');
     }
+  });
+
+  it('names only types that cannot run; the rest is plain bytes', () => {
+    const typeOf = (t: string) => mediaResponseHeaders(t)['Content-Type'];
+    for (const type of [
+      'application/pdf',
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ])
+      expect(typeOf(type)).toBe(type);
+    for (const type of ['text/html', 'image/svg+xml', 'application/xhtml+xml'])
+      expect(typeOf(type)).toBe('application/octet-stream');
+    expect(typeOf('audio/ogg; codecs=opus')).toBe('audio/ogg');
   });
 
   it('never lets a shared cache store it', () => {

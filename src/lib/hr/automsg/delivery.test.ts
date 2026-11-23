@@ -105,7 +105,7 @@ describe('recordHrDelivery', () => {
         at: AT,
         rows: BOT,
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     h.rpc.mockRejectedValueOnce(new Error('down'));
     await expect(
       recordHrDelivery({
@@ -114,7 +114,7 @@ describe('recordHrDelivery', () => {
         at: AT,
         rows: BOT,
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(log).toHaveBeenCalledTimes(2);
     log.mockRestore();
   });

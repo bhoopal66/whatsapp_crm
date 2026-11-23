@@ -112,24 +112,32 @@ describe('resolveInboundMediaUrl', () => {
     ).resolves.toBeNull();
   });
 
-  it('keeps the gateway link for Whapi and Meta when the mirror fails', async () => {
-    h.mirrorInboundMedia.mockResolvedValue(null);
+  // Meta's own link needs a token and dies within minutes, the file stays
+  // for weeks: our proxy asks for a fresh link. Whapi's works as it is.
+  const FALLBACK = [
+    ['whapi', GATEWAY_URL],
+    ['meta', '/api/whatsapp/media/media-1'],
+  ] as const;
 
-    for (const provider of ['whapi', 'meta'] as const) {
+  it.each(FALLBACK)(
+    'when the mirror fails, a %s attachment gets %s',
+    async (provider, link) => {
+      h.mirrorInboundMedia.mockResolvedValue(null);
       await expect(
         resolveInboundMediaUrl(message, channel(provider), {
           accountId: 'acct-1',
         })
-      ).resolves.toBe(GATEWAY_URL);
+      ).resolves.toBe(link);
     }
-  });
+  );
 
-  it('does not mirror Whapi or Meta media for an opted-out account', async () => {
-    for (const provider of ['whapi', 'meta'] as const) {
+  it.each(FALLBACK)(
+    'does not mirror %s media for an opted-out account',
+    async (provider, link) => {
       await expect(
         resolveInboundMediaUrl(message, channel(provider), null)
-      ).resolves.toBe(GATEWAY_URL);
+      ).resolves.toBe(link);
+      expect(h.mirrorInboundMedia).not.toHaveBeenCalled();
     }
-    expect(h.mirrorInboundMedia).not.toHaveBeenCalled();
-  });
+  );
 });
