@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
+import { useAuth } from '@/hooks/use-auth';
 import { useHrCounts } from '@/hooks/use-hr-counts';
 import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
 import { NAV_PREFETCH, isNavItemActive } from '@/components/layout/nav-items';
@@ -39,7 +40,8 @@ export function HrTabs() {
   const pathname = usePathname();
   const roles = useHrTeamNav();
   const counts = useHrCounts(!!roles && hasHrAccess(roles));
-  const tabs = visibleHrTabs(roles);
+  const { accountRole, profileLoading } = useAuth();
+  const tabs = visibleHrTabs(roles, profileLoading ? null : accountRole);
 
   if (tabs.length === 0) return null;
 

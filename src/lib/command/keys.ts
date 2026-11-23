@@ -4,7 +4,8 @@
  */
 
 export interface KeyInfo {
-  key: string;
+  /** Chrome's autofill dispatches a keydown that has none. */
+  key?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
@@ -16,7 +17,7 @@ export interface KeyInfo {
 /** Ctrl+K (Cmd+K on a Mac), with no other modifier. */
 export function isOpenShortcut(e: KeyInfo): boolean {
   return (
-    e.key.toLowerCase() === 'k' &&
+    e.key?.toLowerCase() === 'k' &&
     (e.ctrlKey || e.metaKey) &&
     !(e.ctrlKey && e.metaKey) &&
     !e.altKey &&
@@ -30,14 +31,23 @@ export interface TargetInfo {
   tagName?: string;
   isContentEditable?: boolean;
   role?: string | null;
+  /**
+   * The target sits inside an open menu or list (MENU_SELECTOR), where a
+   * letter is type-ahead.
+   */
+  insideMenu?: boolean;
 }
+
+/** Where a letter key moves the selection instead of being a shortcut. */
+export const MENU_SELECTOR =
+  '[role="menu"],[role="menuitem"],[role="listbox"],[role="option"],[role="combobox"]';
 
 const TEXT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 /** Typing somewhere: single-key shortcuts must stay out of the way. */
 export function isTypingTarget(t: TargetInfo | null | undefined): boolean {
   if (!t) return false;
-  if (t.isContentEditable) return true;
+  if (t.isContentEditable || t.insideMenu) return true;
   if (t.tagName && TEXT_TAGS.has(t.tagName.toUpperCase())) return true;
   return (
     t.role === 'textbox' || t.role === 'combobox' || t.role === 'searchbox'
@@ -91,7 +101,7 @@ export function stepShortcut(
   if (e.key === '?') return { state: IDLE_CHORD, action: { type: 'help' } };
   if (e.shiftKey) return none;
 
-  const key = e.key.toLowerCase();
+  const key = e.key?.toLowerCase() ?? '';
   const waiting =
     state.pendingAt !== null && now - state.pendingAt <= CHORD_TIMEOUT_MS;
   if (waiting) {

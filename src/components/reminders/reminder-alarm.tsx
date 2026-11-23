@@ -424,7 +424,7 @@ export function ReminderAlarmStack({
   return (
     <div
       data-reminder-alarms
-      className="fixed top-[68px] end-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:top-auto max-sm:end-3 max-sm:bottom-3 max-sm:start-3 max-sm:w-auto max-sm:max-w-none"
+      className="fixed top-[68px] end-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:top-auto max-sm:end-3 max-sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))] max-sm:start-3 max-sm:w-auto max-sm:max-w-none"
     >
       {shown.map((alarm) => (
         <div key={alarm.id}>{renderCard(alarm)}</div>

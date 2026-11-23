@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useBrainNav } from '@/hooks/use-brain-nav';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
+import { useReportNav } from '@/hooks/use-report-nav';
 import {
   chatHref,
   COMMAND_SEARCH_DEBOUNCE_MS,
@@ -29,6 +30,7 @@ import {
   IDLE_CHORD,
   isOpenShortcut,
   isTypingTarget,
+  MENU_SELECTOR,
   stepShortcut,
   type ChordState,
 } from '@/lib/command/keys';
@@ -80,6 +82,7 @@ export function CommandBar() {
   const callsNav = useCallsNav();
   const brainOn = useBrainNav();
   const hrRoles = useHrTeamNav();
+  const reportKeys = useReportNav();
 
   const role = profileLoading ? null : accountRole;
   const entries = useMemo(
@@ -93,11 +96,20 @@ export function CommandBar() {
             salesRestricted,
             callReviewer: reviewsAllCalls,
             hrRoles,
+            reportKeys,
           },
         },
         salesRestricted
       ),
-    [role, callsNav.visible, brainOn, salesRestricted, reviewsAllCalls, hrRoles]
+    [
+      role,
+      callsNav.visible,
+      brainOn,
+      salesRestricted,
+      reviewsAllCalls,
+      hrRoles,
+      reportKeys,
+    ]
   );
   const pageHrefs = useMemo(
     () =>
@@ -151,6 +163,7 @@ export function CommandBar() {
         tagName: el?.tagName,
         isContentEditable: el?.isContentEditable,
         role: el?.getAttribute?.('role'),
+        insideMenu: !!el?.closest?.(MENU_SELECTOR),
       }),
       dialogOpen: isOpen || isHelp || anotherDialogIsOpen(),
     });

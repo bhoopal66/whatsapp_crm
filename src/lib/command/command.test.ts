@@ -62,6 +62,17 @@ describe('open shortcut', () => {
       false
     );
     expect(isOpenShortcut(key('j', { ctrlKey: true }))).toBe(false);
+    // Chrome's autofill dispatches a keydown with no key.
+    expect(
+      isOpenShortcut({ ...key('k', { ctrlKey: true }), key: undefined })
+    ).toBe(false);
+    expect(
+      stepShortcut(IDLE_CHORD, { ...key('g'), key: undefined }, 0, {
+        allowedHrefs: new Set(),
+        typing: false,
+        dialogOpen: false,
+      }).action
+    ).toBeNull();
   });
 });
 
@@ -74,6 +85,8 @@ describe('typing targets', () => {
       true
     );
     expect(isTypingTarget({ tagName: 'DIV', role: 'textbox' })).toBe(true);
+    // Type-ahead in an open menu or list is typing too.
+    expect(isTypingTarget({ tagName: 'DIV', insideMenu: true })).toBe(true);
     expect(isTypingTarget({ tagName: 'BODY' })).toBe(false);
     expect(isTypingTarget(null)).toBe(false);
   });

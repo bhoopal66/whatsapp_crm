@@ -158,7 +158,10 @@ describe('ReminderAlarmStack', () => {
     const html = render([alarm(), meetingAlarm(), eventAlarm()], 2);
     expect(html).toContain('+2 more');
     expect(html).toContain('top-[68px] end-4 z-[56]');
-    expect(html).toContain('max-sm:bottom-3');
+    // On a phone, above the bottom tab bar (3.5rem), not under it.
+    expect(html).toContain(
+      'max-sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))]'
+    );
   });
 
   it('has no count line with nothing hidden, and nothing when empty', () => {

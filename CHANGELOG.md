@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Menu, HR and worklist fixes
+
+No migration.
+- **HR.** Owners and admins always get every HR tab; if the HR roles
+  cannot be read, `/hr` says so and offers Retry instead of staying on
+  "Opening…".
+- **Menu badges.** A folded group shows the total of its badges, and
+  people with the Team inbox see its unread count on the Inbox row again.
+- **My worklist.** A failed refresh keeps the customers on screen instead
+  of saying nobody is waiting, and a hidden tab no longer polls.
+- **Ctrl+K** lists a report the owner granted you, and letters typed in
+  an open menu no longer jump to another screen.
+- **Phone.** The call window, the meeting "Rejoin" card and the reminder
+  card sit above the new bottom bar.
+
 ### Inbox: notes, "/" replies and the 24-hour block
 
 No migration.

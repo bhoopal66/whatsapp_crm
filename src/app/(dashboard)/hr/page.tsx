@@ -4,7 +4,9 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
-import { useHrTeamNav } from '@/hooks/use-hr-team-nav';
+import { ErrorState } from '@/components/dashboard/error-state';
+import { useAuth } from '@/hooks/use-auth';
+import { useHrRolesState } from '@/hooks/use-hr-team-nav';
 import { hrLandingPath } from '@/lib/hr/tabs';
 
 /**
@@ -15,12 +17,17 @@ import { hrLandingPath } from '@/lib/hr/tabs';
 export default function HrHomePage() {
   const t = useTranslations('HrTabs');
   const router = useRouter();
-  const roles = useHrTeamNav();
-  const target = hrLandingPath(roles);
+  const { accountRole, profileLoading } = useAuth();
+  const { roles, failed, retry } = useHrRolesState();
+  const target = hrLandingPath(roles, profileLoading ? null : accountRole);
 
   useEffect(() => {
     if (target) router.replace(target);
   }, [target, router]);
+
+  // Without the roles there is nowhere to send them: say so and let them
+  // ask again, rather than "Opening…" for ever.
+  if (!target && failed) return <ErrorState onRetry={retry} />;
 
   return (
     <p role="status" className="text-muted-foreground p-6 text-sm">

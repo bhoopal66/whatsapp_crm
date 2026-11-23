@@ -600,7 +600,9 @@ function Panel() {
             : 'bg-card text-card-foreground border',
           mobile
             ? cn(
-                'inset-x-0 bottom-0 w-full',
+                // Above the phone's bottom tab bar (mobile-tab-bar.tsx),
+                // which is there below `lg`; this is the `sm` layout.
+                'inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] w-full',
                 !minimized && 'max-h-[85dvh] rounded-t-2xl'
               )
             : cn(

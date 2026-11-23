@@ -1,4 +1,5 @@
 import { hrGateOpen, type HrNavGate } from '@/components/layout/nav-items';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import type { HrRoles } from '@/lib/hr/types';
 
 /**
@@ -29,12 +30,24 @@ export const HR_TABS: readonly HrTab[] = [
   },
 ];
 
-/** The tabs `roles` may open (none while the roles are unknown). */
-export function visibleHrTabs(roles: HrRoles | null): HrTab[] {
+/**
+ * The tabs this person may open (none while the roles are unknown).
+ * Owners and admins get every tab by their account role, as the sidebar
+ * row does (`isNavItemVisible`): with the roles read failed they would
+ * otherwise have no way into any HR screen.
+ */
+export function visibleHrTabs(
+  roles: HrRoles | null,
+  accountRole: AccountRole | null = null
+): HrTab[] {
+  if (accountRole && hasMinRole(accountRole, 'admin')) return [...HR_TABS];
   return HR_TABS.filter((tab) => hrGateOpen(tab.gate, roles));
 }
 
 /** Where /hr itself goes: the first tab this person may open, or null. */
-export function hrLandingPath(roles: HrRoles | null): string | null {
-  return visibleHrTabs(roles)[0]?.href ?? null;
+export function hrLandingPath(
+  roles: HrRoles | null,
+  accountRole: AccountRole | null = null
+): string | null {
+  return visibleHrTabs(roles, accountRole)[0]?.href ?? null;
 }
