@@ -1356,8 +1356,14 @@
       "toastDraftSaved": "초안이 저장되었습니다",
       "toastScheduled": "{when}에 발송하도록 예약되었습니다.",
       "toastDraftCannotOpen": "This draft cannot be opened.",
-      "toastDraftTemplateGone": "The draft's template is no longer available. Choose another one.",
-      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again."
+      "toastDraftTemplateGone": "초안의 템플릿을 더 이상 사용할 수 없거나 승인되지 않았습니다. 다른 템플릿을 선택하세요.",
+      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again.",
+      "toastDraftGone": "이 초안은 이미 발송되었거나 삭제되었습니다.",
+      "toastDraftClaimFailed": "발송을 시작하지 못했으며 아무것도 발송되지 않았습니다. 다시 시도하세요. ({error})",
+      "toastDraftRestored": "아무것도 발송되지 않았습니다. 초안을 다시 저장했습니다.",
+      "toastDraftNotRestored": "아무것도 발송되지 않았지만 초안을 다시 저장하지 못했습니다. 이 페이지를 열어 두고 초안으로 저장을 사용하세요.",
+      "toastDraftCampaignExists": "캠페인이 이미 생성되었습니다. 이 페이지에서 계속하세요.",
+      "toastDraftSchedulePast": "저장된 예약 시간({when})이 지나 제거되었습니다. 새 시간을 선택하지 않으면 발송 즉시 전송됩니다."
     },
     "wizard": {
       "next": "다음",

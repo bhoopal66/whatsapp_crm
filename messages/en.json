@@ -1356,8 +1356,14 @@
       "toastDraftSaved": "Draft saved",
       "toastScheduled": "Broadcast scheduled for {when}.",
       "toastDraftCannotOpen": "This draft cannot be opened.",
-      "toastDraftTemplateGone": "The draft's template is no longer available. Choose another one.",
-      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again."
+      "toastDraftTemplateGone": "The draft's template is no longer available or not approved. Choose another one.",
+      "toastDraftCsvDropped": "The uploaded list was too large to keep in the draft. Upload it again.",
+      "toastDraftGone": "This draft was already sent or deleted.",
+      "toastDraftClaimFailed": "Could not start the send, so nothing was sent. Try again. ({error})",
+      "toastDraftRestored": "Nothing was sent. Your draft was saved again.",
+      "toastDraftNotRestored": "Nothing was sent, but the draft could not be saved again. Keep this page open and use Save as Draft.",
+      "toastDraftCampaignExists": "The campaign was already created. Continue it from this page.",
+      "toastDraftSchedulePast": "The saved schedule ({when}) is in the past and was removed. Pick a new time, or the broadcast goes out as soon as you send it."
     },
     "wizard": {
       "next": "Next",

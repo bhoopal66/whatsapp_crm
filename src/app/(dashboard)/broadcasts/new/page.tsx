@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -20,9 +20,15 @@ import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
 import {
   deserializeDraft,
   draftResumeStep,
-  reopenedScheduledAt,
+  findDraftTemplate,
+  reopenedSchedule,
   serializeDraft,
 } from '@/lib/broadcasts/draft-state';
+import {
+  saveDraft,
+  sendReopenedDraft,
+  type SaveDraftResult,
+} from '@/lib/broadcasts/draft-send';
 import { readContactsAudience } from '@/lib/broadcasts/audience-handoff';
 import { readRecycleAudience } from '@/lib/recycle/handoff';
 import { Check } from 'lucide-react';
@@ -67,8 +73,12 @@ function NewBroadcastWizard() {
   const [quietHours, setQuietHours] = useState<QuietHours | null>(null);
   const [followUpFlowId, setFollowUpFlowId] = useState<string | null>(null);
   // Track D U14: the draft row this wizard continues, so "Save draft"
-  // updates it and a send removes it.
+  // updates it and a send claims (deletes) it first.
   const [draftId, setDraftId] = useState<string | null>(draftParam);
+  // One save or send at a time: the claim and the insert run before
+  // `isProcessing` disables the buttons, and a double click would lose
+  // its own claim or leave two drafts.
+  const busyRef = useRef(false);
 
   // Reopen a saved draft: restore the whole wizard state and land on the
   // furthest step whose input exists.
@@ -105,14 +115,7 @@ function NewBroadcastWizard() {
       }
       let found: MessageTemplate | null = null;
       if (state.template) {
-        const { data: tpl } = await supabase
-          .from('message_templates')
-          .select('*')
-          .eq('name', state.template.name)
-          .eq('language', state.template.language)
-          .limit(1)
-          .maybeSingle();
-        found = (tpl as MessageTemplate | null) ?? null;
+        found = await findDraftTemplate(supabase, state.template);
         if (!found) toast.error(t('toastDraftTemplateGone'));
       }
       if (cancelled) return;
@@ -121,7 +124,18 @@ function NewBroadcastWizard() {
       setVariables(state.variables);
       setHeaderMediaUrl(state.headerMediaUrl);
       setName(state.name || data?.name || '');
-      setScheduledAt(reopenedScheduledAt(state.scheduledAt));
+      const schedule = reopenedSchedule(state.scheduledAt);
+      setScheduledAt(schedule.at);
+      if (schedule.dropped) {
+        // Without it the send button means "now": say so for longer than
+        // an ordinary toast.
+        toast.warning(
+          t('toastDraftSchedulePast', {
+            when: schedule.dropped.toLocaleString(),
+          }),
+          { duration: 20_000 }
+        );
+      }
       setQuietHours(state.quietHours);
       setFollowUpFlowId(state.followUpFlowId);
       if (state.csvDropped) toast.message(t('toastDraftCsvDropped'));
@@ -134,85 +148,118 @@ function NewBroadcastWizard() {
   }, [draftParam]);
 
   async function handleSend() {
-    if (!template) return;
-
+    if (!template || busyRef.current) return;
+    busyRef.current = true;
     try {
-      const { broadcastId, scheduledFor } = await createAndSendBroadcast({
-        name,
-        template,
-        audience: {
-          type: audience.type,
-          chatTagIds: audience.chatTagIds,
-          customField: audience.customField,
-          csvContacts: audience.csvContacts,
-          csvColumns: audience.csvColumns,
-          // Not `compassSample`: that is the preview row, and the send
-          // re-reads the whole slice from this selection.
-          compass: audience.compass,
-          excludeChatTagIds: audience.excludeChatTagIds,
-          skipRecentDays: audience.skipRecentDays,
-          chatTagMatch: audience.chatTagMatch,
-          bankCodes: audience.bankCodes,
-          bankSource: audience.bankSource,
-          leadSources: audience.leadSources,
-        },
-        // Only this template's variables: mappings made for another
-        // template earlier in the wizard would shift the values.
-        variables: pickTemplateVariables(variables, template.body_text),
-        headerMediaUrl,
-        scheduledAt,
-        quietHours,
-        followUpFlowId,
-      });
-      // The real campaign exists now: the draft it came from is spent
-      // (deleted, so the list never shows both). Best-effort.
-      if (draftId) {
-        await createClient()
+      await sendCampaign(template);
+    } finally {
+      busyRef.current = false;
+    }
+  }
+
+  async function sendCampaign(template: MessageTemplate) {
+    const result = await sendReopenedDraft({
+      draftId,
+      claim: (id) =>
+        createClient()
           .from('broadcasts')
           .delete()
-          .eq('id', draftId)
-          .eq('status', 'draft');
+          .eq('id', id)
+          .eq('status', 'draft')
+          .select('id'),
+      create: (onCampaignCreated) =>
+        createAndSendBroadcast({
+          name,
+          template,
+          audience: {
+            type: audience.type,
+            chatTagIds: audience.chatTagIds,
+            customField: audience.customField,
+            csvContacts: audience.csvContacts,
+            csvColumns: audience.csvColumns,
+            // Not `compassSample`: that is the preview row, and the send
+            // re-reads the whole slice from this selection.
+            compass: audience.compass,
+            excludeChatTagIds: audience.excludeChatTagIds,
+            skipRecentDays: audience.skipRecentDays,
+            chatTagMatch: audience.chatTagMatch,
+            bankCodes: audience.bankCodes,
+            bankSource: audience.bankSource,
+            leadSources: audience.leadSources,
+          },
+          // Only this template's variables: mappings made for another
+          // template earlier in the wizard would shift the values.
+          variables: pickTemplateVariables(variables, template.body_text),
+          headerMediaUrl,
+          scheduledAt,
+          quietHours,
+          followUpFlowId,
+          onCampaignCreated,
+        }),
+      restore: () => writeDraft(template, null),
+    });
+
+    switch (result.kind) {
+      case 'sent': {
+        const { broadcastId, scheduledFor } = result.outcome;
+        if (scheduledFor) {
+          toast.success(
+            t('toastScheduled', { when: scheduledFor.toLocaleString() })
+          );
+        }
+        router.push(`/broadcasts/${broadcastId}`);
+        return;
       }
-      if (scheduledFor) {
-        toast.success(
-          t('toastScheduled', { when: scheduledFor.toLocaleString() })
+      // `draftId` stays set in both: clearing it would let the next
+      // click send the wizard unclaimed.
+      case 'claim_lost':
+        toast.error(t('toastDraftGone'));
+        return;
+      case 'claim_failed':
+        toast.error(t('toastDraftClaimFailed', { error: result.message }));
+        return;
+      case 'failed': {
+        // Previously swallowed with console.error — the wizard would
+        // just no-op, leaving the user confused. Surface the reason.
+        const { error, campaignId, restored } = result;
+        console.error('Broadcast failed:', error);
+        toast.error(
+          error instanceof Error ? error.message : 'Broadcast failed'
         );
+        if (!draftId) return;
+        if (campaignId) {
+          // The draft is spent: continue from the campaign, where a
+          // second click resumes it instead of sending it again.
+          toast.message(t('toastDraftCampaignExists'));
+          router.push(`/broadcasts/${campaignId}`);
+          return;
+        }
+        // This tab alone claimed the draft, so it may go on without one.
+        setDraftId(restored && restored.kind !== 'gone' ? restored.id : null);
+        if (restored?.kind === 'saved') toast.message(t('toastDraftRestored'));
+        else toast.error(t('toastDraftNotRestored'));
       }
-      router.push(`/broadcasts/${broadcastId}`);
-    } catch (err) {
-      // Previously swallowed with console.error — the wizard would
-      // just no-op, leaving the user confused. Surface the reason.
-      const message = err instanceof Error ? err.message : 'Broadcast failed';
-      console.error('Broadcast failed:', err);
-      toast.error(message);
     }
   }
 
   /**
-   * Writes (or, when this wizard was opened from a draft, updates) a
-   * draft broadcast row — no recipients, no sending. The whole wizard
-   * state goes into `broadcast_drafts.state` (migration 256, admin-only)
-   * so "Open draft" on the list brings the person back to exactly here.
-   * A send deletes the draft broadcasts row, which cascades the state.
+   * Writes (or, given an id, updates) a draft broadcast row — no
+   * recipients, no sending. The whole wizard state goes into
+   * `broadcast_drafts.state` (migration 256, admin-only) so "Open draft"
+   * on the list brings the person back to exactly here. A send deletes
+   * the draft broadcasts row, which cascades the state.
    */
-  async function handleSaveDraft() {
-    if (!template || !name.trim()) {
-      toast.error(t('toastGiveName'));
-      return;
-    }
+  async function writeDraft(
+    template: MessageTemplate,
+    id: string | null
+  ): Promise<SaveDraftResult> {
     const supabase = createClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
     const user = session?.user;
-    if (!user) {
-      toast.error(t('toastNotSignedIn'));
-      return;
-    }
-    if (!accountId) {
-      toast.error(t('toastNotLinked'));
-      return;
-    }
+    if (!user) return { kind: 'failed', id, message: t('toastNotSignedIn') };
+    if (!accountId) return { kind: 'failed', id, message: t('toastNotLinked') };
 
     const draftState = serializeDraft({
       template,
@@ -243,62 +290,69 @@ function NewBroadcastWizard() {
       quiet_hours: quietHours,
       follow_up_flow_id: followUpFlowId,
     };
-    let savedId = draftId;
-    if (draftId) {
-      const { error } = await supabase
-        .from('broadcasts')
-        .update(fields)
-        .eq('id', draftId)
-        .eq('status', 'draft');
-      if (error) {
-        toast.error(t('toastFailedDraft', { error: error.message }));
-        return;
-      }
-    } else {
-      const { data: inserted, error } = await supabase
-        .from('broadcasts')
-        .insert({
-          ...fields,
-          user_id: user.id,
-          account_id: accountId,
-          status: 'draft',
-          total_recipients: 0,
-          sent_count: 0,
-          delivered_count: 0,
-          read_count: 0,
-          replied_count: 0,
-          failed_count: 0,
-        })
-        .select('id')
-        .single();
-      if (error || !inserted) {
-        toast.error(
-          t('toastFailedDraft', { error: error?.message ?? 'no row' })
-        );
-        return;
-      }
-      savedId = inserted.id as string;
-      // A retry after a failed state write updates this row, not a new one.
-      setDraftId(savedId);
-    }
+    return saveDraft({
+      draftId: id,
+      update: (draft) =>
+        supabase
+          .from('broadcasts')
+          .update(fields)
+          .eq('id', draft)
+          .eq('status', 'draft')
+          .select('id'),
+      insert: () =>
+        supabase
+          .from('broadcasts')
+          .insert({
+            ...fields,
+            user_id: user.id,
+            account_id: accountId,
+            status: 'draft',
+            total_recipients: 0,
+            sent_count: 0,
+            delivered_count: 0,
+            read_count: 0,
+            replied_count: 0,
+            failed_count: 0,
+          })
+          .select('id')
+          .single(),
+      saveState: (draft) =>
+        supabase.from('broadcast_drafts').upsert(
+          {
+            broadcast_id: draft,
+            account_id: accountId,
+            state: draftState,
+            updated_by: user.id,
+          },
+          { onConflict: 'broadcast_id' }
+        ),
+    });
+  }
 
-    const { error: stateError } = await supabase
-      .from('broadcast_drafts')
-      .upsert(
-        {
-          broadcast_id: savedId,
-          account_id: accountId,
-          state: draftState,
-          updated_by: user.id,
-        },
-        { onConflict: 'broadcast_id' }
-      );
-    if (stateError) {
-      toast.error(t('toastFailedDraft', { error: stateError.message }));
+  async function handleSaveDraft() {
+    if (!template || !name.trim()) {
+      toast.error(t('toastGiveName'));
       return;
     }
-    toast.success(t('toastDraftSaved'));
-    router.push('/broadcasts');
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      const result = await writeDraft(template, draftId);
+      if (result.kind === 'gone') {
+        toast.error(t('toastDraftGone'));
+        return;
+      }
+      // A retry after a failed state write updates this row, not a new one.
+      setDraftId(result.id);
+      if (result.kind === 'failed') {
+        toast.error(t('toastFailedDraft', { error: result.message }));
+        return;
+      }
+      toast.success(t('toastDraftSaved'));
+      router.push('/broadcasts');
+    } finally {
+      busyRef.current = false;
+    }
   }
 
   return (

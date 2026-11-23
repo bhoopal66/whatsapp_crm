@@ -5,6 +5,8 @@ import {
   deserializeDraft,
   draftResumeStep,
   embeddedDraftVersion,
+  findDraftTemplate,
+  reopenedSchedule,
   reopenedScheduledAt,
   serializeDraft,
   type DraftInput,
@@ -128,5 +130,62 @@ describe('embeddedDraftVersion', () => {
     expect(embeddedDraftVersion({ v: null })).toBeNull();
     expect(embeddedDraftVersion([{ v: '1' }])).toBeNull();
     expect(embeddedDraftVersion({})).toBeNull();
+  });
+});
+
+describe('reopenedSchedule', () => {
+  const now = new Date('2026-11-23T08:00:00Z');
+
+  it('names a past schedule as dropped, so the page can say so', () => {
+    expect(reopenedSchedule('2026-11-22T08:00:00.000Z', now)).toEqual({
+      at: null,
+      dropped: new Date('2026-11-22T08:00:00.000Z'),
+    });
+  });
+
+  it('drops nothing for a future or missing schedule', () => {
+    expect(reopenedSchedule('2026-11-24T08:00:00.000Z', now)).toEqual({
+      at: new Date('2026-11-24T08:00:00.000Z'),
+      dropped: null,
+    });
+    expect(reopenedSchedule(null, now)).toEqual({ at: null, dropped: null });
+  });
+});
+
+describe('findDraftTemplate', () => {
+  function fakeClient(rows: Record<string, unknown>[]) {
+    let out = [...rows];
+    const orders: string[] = [];
+    const q = {
+      select: () => q,
+      eq: (col: string, v: unknown) => {
+        out = out.filter((r) => r[col] === v);
+        return q;
+      },
+      order: (col: string) => {
+        orders.push(col);
+        return q;
+      },
+      limit: async (n: number) => ({ data: out.slice(0, n), error: null }),
+    };
+    return { client: { from: () => q } as never, orders };
+  }
+  const ref = { name: 'promo', language: 'en' };
+
+  it('skips a template that is no longer approved', async () => {
+    const { client } = fakeClient([
+      { id: '1', ...ref, status: 'PAUSED' },
+      { id: '2', ...ref, status: 'REJECTED' },
+    ]);
+    expect(await findDraftTemplate(client, ref)).toBeNull();
+  });
+
+  it('returns the approved one, in a fixed order', async () => {
+    const { client, orders } = fakeClient([
+      { id: '1', ...ref, status: 'PAUSED' },
+      { id: '2', ...ref, status: 'APPROVED' },
+    ]);
+    expect(await findDraftTemplate(client, ref)).toMatchObject({ id: '2' });
+    expect(orders).toEqual(['created_at', 'id']);
   });
 });

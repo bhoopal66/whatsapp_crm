@@ -154,6 +154,11 @@ interface BroadcastPayload {
    * 054). Persisted on the row; the inbound pipeline reads it.
    */
   followUpFlowId?: string | null;
+  /**
+   * Called as soon as the campaign row exists, before any recipient is
+   * written: from here a failure is resumed from the campaign's page.
+   */
+  onCampaignCreated?: (broadcastId: string) => void;
 }
 
 export interface BroadcastOutcome {
@@ -1092,6 +1097,8 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           `Failed to create broadcast: ${broadcastError?.message ?? 'unknown error'}`
         );
       }
+
+      payload.onCampaignCreated?.(broadcast.id);
 
       // ── Step 3: Insert recipient rows ─────────────────────────────
       // Custom values are fetched BEFORE the insert so each row can

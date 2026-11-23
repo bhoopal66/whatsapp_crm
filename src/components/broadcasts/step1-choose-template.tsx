@@ -6,6 +6,7 @@ import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Loader2, FileText, ArrowRight, Plus } from 'lucide-react';
+import { SENDABLE_TEMPLATE_STATUS } from '@/lib/broadcasts/draft-state';
 import { templatesSettingsHref } from '@/lib/broadcasts/return-path';
 import { useTranslations } from 'next-intl';
 
@@ -38,7 +39,7 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         const { data, error: fetchError } = await supabase
           .from('message_templates')
           .select('*')
-          .eq('status', 'APPROVED')
+          .eq('status', SENDABLE_TEMPLATE_STATUS)
           .order('created_at', { ascending: false });
 
         if (fetchError) throw fetchError;
