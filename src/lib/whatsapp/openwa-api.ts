@@ -238,14 +238,14 @@ export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
       signal: AbortSignal.timeout(timeoutMs ?? OPENWA_TIMEOUT_MS),
     });
   } catch (err) {
-    // DNS, refused socket, timeout. The outcome of a send is unknown,
-    // which is exactly what a 5xx tells `isDefiniteSendRefusal`.
+    // DNS, refused socket, timeout. A 5xx leaves a send's outcome unknown;
+    // the cause tells `isDefiniteSendRefusal` which of them it was.
     const reason = err instanceof Error ? err.message : String(err);
     const failed = new OpenWAError(`OpenWA request failed: ${reason}`, 503, {
       route,
     });
     // Tells our own 503 from the gateway's, and a refused connection from a
-    // timeout (lib/hr/automsg/failure.ts).
+    // timeout (`neverConnected`).
     failed.cause = err;
     throw failed;
   }

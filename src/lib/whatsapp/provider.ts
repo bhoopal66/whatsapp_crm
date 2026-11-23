@@ -46,6 +46,7 @@ import {
 } from './channels';
 import * as meta from './meta-api';
 import * as openwa from './openwa-api';
+import { neverConnected } from './never-connected';
 import { TemplateParamError } from './template-send-builder';
 import * as whapi from './whapi-api';
 
@@ -747,21 +748,23 @@ export function isChannelLevelFailure(err: unknown): boolean {
  * True only when a failed send certainly did not go out: the gateway
  * answered with a 4xx refusal (a Whapi 401/403/404/402, a Meta error
  * code), or the Whapi client refused it before making a request (a
- * missing token or link is a WhapiError 401/400). Sending it again
- * cannot reach the customer twice.
+ * missing token or link is a WhapiError 401/400), or the connection to
+ * the gateway never opened (`neverConnected`: DNS, a refused connection,
+ * a certificate), on any of the three. Sending it again cannot reach the
+ * customer twice.
  *
  * Everything else leaves open whether the message was delivered, so it
  * is false:
  *
  *   - the synthetic statuses the clients give a missing answer: Whapi's
- *     503 for a network error or a timeout, Meta's 504 for a timeout.
+ *     503 for a lost connection or a timeout, Meta's 504 for a timeout.
  *     The gateway may have sent the message before we stopped waiting,
  *     which is likely for media, since it fetches the link first.
  *   - Whapi's 502 for "accepted but returned no message id", where the
  *     message certainly went out.
  *   - a gateway 5xx, and 408, which is also a timeout.
  *   - any other error: a SyntaxError from a 2xx body that is not JSON,
- *     Meta's network errors (rethrown unwrapped), and the Meta client's
+ *     Meta's lost connections (rethrown unwrapped), and the Meta client's
  *     own checks on media and interactive sends, which throw a plain
  *     Error. Those last ones are safe in fact, but nothing tells them
  *     apart from the others.
@@ -771,12 +774,13 @@ export function isChannelLevelFailure(err: unknown): boolean {
  *
  * OpenWA follows the same rule: its 409 ("engine not ready") and 429
  * (pacing) are refusals before anything was sent, while its synthetic
- * 503 (network error, timeout) and 502 (no message id) are not.
+ * 503 (lost connection, timeout) and 502 (no message id) are not.
  *
  * A retry decision reads this. Read off the raw error, never the
  * `describeSendFailure` wording.
  */
 export function isDefiniteSendRefusal(err: unknown): boolean {
+  if (neverConnected(err)) return true;
   if (
     err instanceof whapi.WhapiError ||
     err instanceof meta.MetaError ||

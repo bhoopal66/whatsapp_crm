@@ -279,6 +279,82 @@ describe('isDefiniteSendRefusal', () => {
     expect(isDefiniteSendRefusal(thrown)).toBe(true);
   });
 
+  describe('a connection that never opened, on every gateway', () => {
+    const socket = (code: string, syscall?: string) =>
+      Object.assign(new Error(code), { code, syscall });
+    const fetchFailed = (cause: Error) =>
+      new TypeError('fetch failed', { cause });
+    // What each client throws when fetch rejects with `cause`.
+    const thrownBy = (cause: Error): Error[] => [
+      fetchFailed(cause),
+      Object.assign(new WhapiError('Whapi request failed', 503), {
+        cause: fetchFailed(cause),
+      }),
+      Object.assign(new OpenWAError('OpenWA request failed', 503), {
+        cause: fetchFailed(cause),
+      }),
+    ];
+
+    it.each([
+      ['ENOTFOUND', 'getaddrinfo'],
+      ['EAI_AGAIN', 'getaddrinfo'],
+      ['ECONNREFUSED', 'connect'],
+      ['EHOSTUNREACH', 'connect'],
+      ['ENETUNREACH', 'connect'],
+      ['ETIMEDOUT', 'connect'],
+      ['UND_ERR_CONNECT_TIMEOUT', undefined],
+      ['CERT_HAS_EXPIRED', undefined],
+      ['DEPTH_ZERO_SELF_SIGNED_CERT', undefined],
+      ['SELF_SIGNED_CERT_IN_CHAIN', undefined],
+      ['UNABLE_TO_VERIFY_LEAF_SIGNATURE', undefined],
+      ['ERR_TLS_CERT_ALTNAME_INVALID', undefined],
+    ])('%s (%s) sent nothing', (code, syscall) => {
+      for (const err of thrownBy(socket(code, syscall))) {
+        expect(isDefiniteSendRefusal(err), err.message).toBe(true);
+      }
+    });
+
+    it.each([
+      ['ECONNRESET', 'read'],
+      ['EPIPE', 'write'],
+      ['UND_ERR_SOCKET', undefined],
+      ['UND_ERR_HEADERS_TIMEOUT', undefined],
+      // A route lost under an open connection is reported by the read.
+      ['EHOSTUNREACH', 'read'],
+      ['ENETUNREACH', 'write'],
+      ['ETIMEDOUT', 'read'],
+    ])('%s (%s) may have been sent', (code, syscall) => {
+      for (const err of thrownBy(socket(code, syscall))) {
+        expect(isDefiniteSendRefusal(err), err.message).toBe(false);
+      }
+    });
+
+    it('needs every address tried to have refused', () => {
+      const many = (...causes: Error[]) =>
+        fetchFailed(new AggregateError(causes));
+      const refused = socket('ECONNREFUSED', 'connect');
+      expect(
+        isDefiniteSendRefusal(many(refused, socket('ENETUNREACH', 'connect')))
+      ).toBe(true);
+      expect(
+        isDefiniteSendRefusal(many(refused, socket('ECONNRESET', 'read')))
+      ).toBe(false);
+    });
+
+    it('holds for a real fetch to a closed port', async () => {
+      const { createServer } = await import('node:net');
+      const server = createServer();
+      await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+      const { port } = server.address() as { port: number };
+      await new Promise((done) => server.close(done));
+      const err = await fetch(`http://127.0.0.1:${port}/`, {
+        method: 'POST',
+        body: 'x',
+      }).catch((e: unknown) => e);
+      expect(isDefiniteSendRefusal(err)).toBe(true);
+    });
+  });
+
   it('is false for anything that is not a gateway answer', () => {
     // A 2xx whose body is not JSON makes `response.json()` throw.
     expect(
