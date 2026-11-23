@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Phone
+
+No migration.
+- Call recordings: a number search finds the call however it is typed
+  (`050 123 4567`, `00971 50…`, `+971…`, Arabic digits). Arabic digits were
+  refused, and a leading 0 found nothing.
+- A customer saved with a differently written number (spaces, a leading 0,
+  no country code) is recognised when their number is typed: they can be a
+  transfer target, and do-not-contact counts for them.
+- A voicemail the phone system does not send answers after 10 seconds
+  instead of hanging, and closing the player stops the download.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`

@@ -42,6 +42,10 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`). The
   `calls_guard` trigger strips number, file and meta for every writer, late
   PBX events included.
+- **Numbers.** `contacts.phone_normalized` is only the typed digits (022, no
+  country code added), so a contact is found by number with
+  `storedPhoneCandidates` (national and `00` forms too), never by `phone`.
+  A number search goes through `numberSearchTerm` (`phone.ts`).
 - **Call-backs** (`callback_requests`, written by the journey sink, which
   gives a do-not-contact customer a task instead; hours restated untested) are
   dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts, never
