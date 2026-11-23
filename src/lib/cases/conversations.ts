@@ -82,6 +82,12 @@ export interface SentMessage {
   waMessageId: string;
 }
 
+/** 210's attachment: an upload the route has checked is the caller's own. */
+export type CaseReplyMedia = Omit<
+  Parameters<SubmissionGroupService['sendMediaFromCrm']>[0],
+  'groupId' | 'userId'
+>;
+
 export interface TakeOverResult extends SentMessage {
   logId: string;
   templateVersion: string;
@@ -91,7 +97,10 @@ export interface CaseConversationsDeps {
   /** Service role. */
   db: SupabaseClient;
   store: Pick<CaseStore, 'get' | 'role' | 'viewCases'>;
-  groups: Pick<SubmissionGroupService, 'sendFromCrm' | 'viewArchive'>;
+  groups: Pick<
+    SubmissionGroupService,
+    'sendFromCrm' | 'sendMediaFromCrm' | 'viewArchive'
+  >;
   handover?: { template: HandoverTemplate; allowDraftTemplate?: boolean };
 }
 
@@ -140,14 +149,33 @@ export class CaseConversations {
     caseId: string,
     text: string
   ): Promise<SentMessage> {
-    const { store, groups } = this.deps;
+    const groupId = await this.writableGroup(actor, caseId);
+    return this.deps.groups.sendFromCrm({ groupId, userId: actor, text });
+  }
+
+  /** An attachment (a voice note, a file), through 115's same guarded send. */
+  async replyMedia(
+    actor: string,
+    caseId: string,
+    media: CaseReplyMedia
+  ): Promise<SentMessage> {
+    const groupId = await this.writableGroup(actor, caseId);
+    return this.deps.groups.sendMediaFromCrm({
+      ...media,
+      groupId,
+      userId: actor,
+    });
+  }
+
+  private async writableGroup(actor: string, caseId: string): Promise<string> {
+    const { store } = this.deps;
     if (!canWriteCase(await store.role(caseId, actor)))
       throw new CaseRefusedError('NOT_ALLOWED');
     const kase = await store.get(caseId);
     if (!kase) throw new CaseRefusedError('CASE_NOT_FOUND');
     // 130: a lead has no group to send into.
     if (!kase.groupId) throw new CaseRefusedError('GROUP_NOT_FOUND');
-    return groups.sendFromCrm({ groupId: kase.groupId, userId: actor, text });
+    return kase.groupId;
   }
 
   async takeOver(

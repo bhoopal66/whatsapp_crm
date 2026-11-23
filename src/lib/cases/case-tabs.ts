@@ -244,6 +244,28 @@ export function shouldRestoreText(status: number): boolean {
 }
 
 /**
+ * Whether the composer lets go of what it sent. A text: unless it is
+ * given back (`shouldRestoreText`). A file: whenever a stored message may
+ * point at it, so it is neither sent twice nor deleted under one: sent, a
+ * consent block (its row is kept), or an answer that leaves it open,
+ * unless the conversation read since (`stored`, null when it could not be
+ * read) has no row of it.
+ */
+export function composerDone(answer: {
+  status: number;
+  code: unknown;
+  media: boolean;
+  stored: boolean | null;
+}): boolean {
+  const { status, code, media, stored } = answer;
+  if (status >= 200 && status < 300) return true;
+  if (!media) return !shouldRestoreText(status);
+  if (code === 'SEND_BLOCKED') return true;
+  if (status >= 400 && status < 500) return false;
+  return stored ?? true;
+}
+
+/**
  * What the Conversation tab shows once read: a lead (no group row) and a
  * submission opened without a WhatsApp group (136, `waMode: 'none'`) get
  * an explanation and no composer; otherwise the group's messages.

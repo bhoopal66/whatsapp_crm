@@ -672,6 +672,8 @@ export function Composer({
   );
   const canSend =
     !sending &&
+    // A take being encoded goes first: it would find a send under way.
+    voicePhase === 'idle' &&
     chipsReady(chips) &&
     (composed.ok || composed.reason === 'bodyLength');
 
@@ -781,6 +783,11 @@ export function Composer({
       onPosted?.(id);
     } catch (err) {
       const key = chatErrorKey(err);
+      // Left since: nothing here can show it any more.
+      if (!aliveRef.current) {
+        toast.error(tVoice('notSent'));
+        return;
+      }
       // The object is gone after all: the retry uploads it again.
       if (key === 'attachmentMissing')
         setTake((cur) =>

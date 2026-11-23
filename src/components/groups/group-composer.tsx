@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type Ref,
 } from 'react';
 import { useTranslations } from 'next-intl';
@@ -58,6 +59,7 @@ import {
   type GroupPickerKind,
 } from '@/lib/groups/composer';
 import { shouldSendOnKey } from '@/lib/groups/group-page';
+import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import {
   GROUP_MEDIA_CAPTION_MAX,
   GROUP_MEDIA_FOLDER,
@@ -76,6 +78,10 @@ const BUCKET = 'chat-media';
 const TEXT_MAX = 4096;
 
 export interface GroupComposerProps {
+  /** The chat, for a voice note kept until it can be uploaded. */
+  chatKey: string;
+  /** Who is signed in: the only one it is kept for. */
+  userId: string | null;
   /** Sends text; false when it was not sent (the text comes back). */
   onSendText: (text: string) => Promise<boolean>;
   /**
@@ -99,6 +105,9 @@ interface VoiceFile {
   deliver: SendMedia | null;
 }
 
+/** Recordings whose upload failed, by chat. */
+const unsentVoices = createUnsentTakes<VoiceFile>();
+
 /** Best effort: an upload nobody will send is removed from the bucket. */
 function removeUpload(path: string | undefined) {
   if (path) void deleteAccountMedia(BUCKET, path).catch(() => {});
@@ -111,6 +120,8 @@ function removeUpload(path: string | undefined) {
  * into `chat-media` under `account-<id>/groups/`, never `staged/`.
  */
 export function GroupComposer({
+  chatKey,
+  userId,
   onSendText,
   onSendMedia,
   disabled = false,
@@ -138,7 +149,12 @@ export function GroupComposer({
 
   // A recording being sent or made ready, and one whose upload failed.
   const [voiceWork, setVoiceWork] = useState<'send' | 'review' | null>(null);
-  const [unsentVoice, setUnsentVoice] = useState<VoiceFile | null>(null);
+  useLayoutEffect(() => unsentVoices.claim(userId), [userId]);
+  const unsentVoice = useSyncExternalStore(
+    unsentVoices.subscribe,
+    () => unsentVoices.get(userId, chatKey),
+    () => null
+  );
   const mountedRef = useRef(true);
   const lastSentAtRef = useRef(0);
 
@@ -267,10 +283,10 @@ export function GroupComposer({
       try {
         staged = await upload('voice', voice.file);
       } catch {
-        if (mountedRef.current) {
-          setUnsentVoice(voice);
-          setVoiceWork(null);
-        } else if (voice.deliver) toast.error(tv('notSent'));
+        // Kept for this chat, which says so; elsewhere a notice does.
+        const kept = unsentVoices.put(userId, chatKey, voice);
+        if (mountedRef.current) setVoiceWork(null);
+        else if (kept) toast.error(tv('notSent'));
         return;
       } finally {
         if (mountedRef.current) setBusy(false);
@@ -284,7 +300,7 @@ export function GroupComposer({
       await sendUploaded(staged, voice.deliver);
       if (mountedRef.current) setVoiceWork(null);
     },
-    [upload, land, sendUploaded, tv]
+    [upload, land, sendUploaded, tv, userId, chatKey]
   );
 
   const {
@@ -326,6 +342,12 @@ export function GroupComposer({
   const startRecording = () => {
     if (disabled || busy) return;
     if (micTooSoon(lastSentAtRef.current, Date.now())) return;
+    // One recording waits per chat, and nothing staged is replaced: what
+    // is there goes first.
+    if (unsentVoice || draftRef.current) {
+      toast.info(tv(unsentVoice ? 'keptFirst' : 'draftFirst'));
+      return;
+    }
     void startTake({ deliver: null });
   };
 
@@ -346,7 +368,7 @@ export function GroupComposer({
 
   const retryVoice = () => {
     if (!unsentVoice || busy || disabled) return;
-    setUnsentVoice(null);
+    unsentVoices.remove(chatKey);
     void sendOrStageVoice({
       file: unsentVoice.file,
       deliver: unsentVoice.deliver && onSendMedia,
@@ -428,14 +450,30 @@ export function GroupComposer({
       {unsentVoice && (
         <VoiceFailedStrip
           // Listened to first, it would replace what is staged now.
-          disabled={busy || disabled || (!!draft && !unsentVoice.deliver)}
+          disabled={
+            busy ||
+            disabled ||
+            voicePhase !== 'idle' ||
+            (!!draft && !unsentVoice.deliver)
+          }
           onRetry={retryVoice}
-          onDiscard={() => setUnsentVoice(null)}
+          onDiscard={() => unsentVoices.remove(chatKey)}
         />
       )}
       {voiceWork && <VoiceWorkStrip kind={voiceWork} />}
 
-      {draft ? (
+      {recording ? (
+        <VoiceRecordingBar
+          seconds={recordSeconds}
+          maxSeconds={MAX_RECORDING_SECONDS}
+          starting={voicePhase === 'starting'}
+          getLevelSource={getLevelSource}
+          onCancel={cancelRecording}
+          onStop={listenFirst}
+          onSend={sendRecording}
+          buttonClassName={SEND_BUTTON}
+        />
+      ) : draft ? (
         <GroupDraftPreview
           draft={draft}
           busy={busy || sending || disabled}
@@ -447,22 +485,11 @@ export function GroupComposer({
           onSend={() => void sendDraft()}
           t={t}
         />
-      ) : recording ? (
-        <VoiceRecordingBar
-          seconds={recordSeconds}
-          maxSeconds={MAX_RECORDING_SECONDS}
-          starting={voicePhase === 'starting'}
-          getLevelSource={getLevelSource}
-          onCancel={cancelRecording}
-          onStop={listenFirst}
-          onSend={sendRecording}
-          buttonClassName={SEND_BUTTON}
-        />
       ) : (
         <div className="flex items-end gap-1">
           <DropdownMenu>
             <DropdownMenuTrigger
-              disabled={disabled || busy}
+              disabled={disabled || busy || voicePhase !== 'idle'}
               title={t('attachMedia')}
               aria-label={t('attachMedia')}
               className={TOOL_BUTTON}

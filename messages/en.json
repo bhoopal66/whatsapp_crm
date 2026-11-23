@@ -717,7 +717,6 @@
       "tryAgain": "Try again",
       "waiting": "The recording stopped when you left the chat. It is waiting in the chat with {name}.",
       "notSentElsewhere": "Your voice note to {name} was not sent: it could not be uploaded. Open the chat to try again.",
-      "notSentLeft": "Your voice note to {name} was not sent: it could not be uploaded.",
       "notSent": "Your voice note was not sent: it could not be uploaded.",
       "thisCustomer": "this customer",
       "tooLarge": "The recording is too long to send.",
@@ -728,7 +727,9 @@
         "inUse": "Another program is using the microphone. Close it, then try again.",
         "failed": "The microphone could not be started. Reload the page and try again.",
         "lost": "The recording could not be saved. Record it again."
-      }
+      },
+      "keptFirst": "Send or discard the voice note that is waiting first.",
+      "draftFirst": "Send or remove the attachment that is waiting first."
     },
     "sender": {
       "me": "{name} (you)",
@@ -9813,7 +9814,6 @@
       "placeholder": "Write a message",
       "cannotSend": "Your role on this case cannot send messages.",
       "send": {
-        "button": "Send",
         "sent": "Message sent",
         "sentNotRecorded": "Sent to WhatsApp, but not recorded in the CRM yet. Don't send it again.",
         "optedOut": "Not sent: the customer has opted out of messages.",

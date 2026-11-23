@@ -179,9 +179,19 @@ describe('TakeRecorder', () => {
     expect(await started).toBe(false);
     await h.flush();
     expect(h.made[0].micOpen).toBe(false);
-    expect(h.made[0].closed).toBe(1);
+    expect(h.made[0].closed).toBeGreaterThan(0);
     expect(h.takes).toEqual([]);
     expect(h.problems).toEqual([]);
+  });
+
+  it('cancelled with the mic open but the encoder never ready: freed', async () => {
+    const h = setup();
+    void h.rec.start({ chat: 'a' });
+    await h.flush();
+    h.made[0].micOpen = true;
+    h.rec.cancel();
+    await h.flush();
+    expect(h.made[0].micOpen).toBe(false);
   });
 
   it('cancelled while the encoder loads: the mic is never asked for', async () => {
@@ -276,6 +286,18 @@ describe('TakeRecorder', () => {
       expect(h.problems).toEqual(['lost']);
       expect(h.made[0].closed).toBe(1);
     });
+
+    it('does not send a file that comes after it was said to be lost', async () => {
+      const h = setup();
+      await h.open();
+      h.made[0].hang = true;
+      h.wait(3000);
+      h.rec.finish('send');
+      await vi.advanceTimersByTimeAsync(STOP_TIMEOUT_MS);
+      expect(h.problems).toEqual(['lost']);
+      h.made[0].ondataavailable?.(new Uint8Array([1]));
+      expect(h.takes).toEqual([]);
+    });
   });
 
   describe('leaving the chat', () => {
@@ -334,6 +356,28 @@ describe('TakeRecorder', () => {
       h.rec.dispose();
       await h.flush();
       expect(h.takes).toEqual([]);
+    });
+
+    // Back on a phone: the chat is left and its composer goes with it.
+    it('left and then gone: kept where it can be parked', async () => {
+      const h = setup();
+      await h.open();
+      h.wait(3000);
+      h.rec.leave();
+      h.rec.dispose(true);
+      await h.flush();
+      expect(h.takes.map((t) => t.intent)).toEqual(['review']);
+      expect(h.made[0].micOpen).toBe(false);
+    });
+
+    it('never keeps one nobody stopped', async () => {
+      const h = setup();
+      await h.open();
+      h.wait(3000);
+      h.rec.dispose(true);
+      await h.flush();
+      expect(h.takes).toEqual([]);
+      expect(h.made[0].micOpen).toBe(false);
     });
 
     it('still sends one that was sent', async () => {

@@ -1873,8 +1873,9 @@ export function MessageThread({
         created_at: new Date().toISOString(),
         reply_to_message_id: payload.replyToId,
       };
-      // Not another chat's quote: see the voice note in `deliver`.
-      if (conversationIdRef.current === conversation.id) setReplyTo(null);
+      // Its own quote only: a voice note is sent once it is uploaded, and
+      // by then another message, or another chat's, may be quoted.
+      setReplyTo((r) => (r && r.id !== payload.replyToId ? r : null));
 
       await deliver({
         message: optimisticMsg,

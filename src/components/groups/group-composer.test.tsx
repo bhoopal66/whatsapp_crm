@@ -19,6 +19,8 @@ function render(props: Partial<React.ComponentProps<typeof GroupComposer>>) {
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
       <GroupComposer
+        chatKey="group:g"
+        userId="u"
         onSendText={async () => true}
         onSendMedia={async () => true}
         placeholder="Type a message"

@@ -237,7 +237,9 @@ describe('composer guards', () => {
       'const send = { deliver: onSendMedia, replyToId: replyTo?.id };'
     );
     expect(box).toContain('meta.send.deliver({');
-    expect(box).toContain('if (parkedFor !== meta.owner) removeStaged(path);');
+    expect(box).toMatch(
+      /if \(await anotherLogin\(meta\.owner\)\) \{\s*removeStaged\(path\);\s*\} else if \(meta\.send\) \{/
+    );
     // A recording never runs on under the next chat.
     expect(box).toContain(
       'useLayoutEffect(() => () => leaveTake(), [conversationId, leaveTake]);'
@@ -247,13 +249,16 @@ describe('composer guards', () => {
       /const sendRecording = useCallback\(\(\) => \{[\s\S]{0,120}if \(refuseBlocked\(\)\) \{\s*listenFirst\(\);\s*return;/
     );
     // Another login's kept recording is not offered.
-    expect(box).toContain('unsentTake?.meta.owner === userId');
+    expect(box).toContain('unsentTakes.get(userId, conversationId)');
+    // The live mic's own controls are never hidden behind a draft.
+    expect(box).toMatch(/\{recording \? \([\s\S]{0,700}\) : draft \? \(/);
+    expect(box).toContain('if (unsentHere || draftRef.current) {');
     const thread = source('message-thread');
     expect(thread).toContain(
       'if (conversationIdRef.current === conversationId) onNewMessage(message);'
     );
     expect(thread).toContain(
-      'if (conversationIdRef.current === conversation.id) setReplyTo(null);'
+      'setReplyTo((r) => (r && r.id !== payload.replyToId ? r : null));'
     );
   });
 

@@ -9,6 +9,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
+  useSyncExternalStore,
   KeyboardEvent,
   type Ref,
   type SetStateAction,
@@ -137,6 +138,7 @@ import {
   PILL_BUTTON,
   SEND_BUTTON,
 } from '@/lib/inbox/composer-ui';
+import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import type { MicProblem, RecordedTake } from '@/lib/media/take-recorder';
 import { ComposeCheckDialog } from './compose-check-dialog';
 
@@ -253,6 +255,30 @@ interface UnsentTake {
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
 let parkedFor: string | null = null;
+
+/**
+ * Told the chat when an upload is parked for it: the person can be back
+ * in it by then, with no switch left to take the parked draft.
+ */
+const parkedListeners = new Set<(conversationId: string) => void>();
+
+/** Recordings whose upload failed, by chat. */
+const unsentTakes = createUnsentTakes<UnsentTake>();
+
+/**
+ * Whether somebody else signed in to this tab since: what `owner` sent
+ * must not go out under their name. Nobody (a session that could not be
+ * read) is not somebody else; the send then fails as any would.
+ */
+async function anotherLogin(owner: string | null): Promise<boolean> {
+  try {
+    const { data } = await createClient().auth.getSession();
+    const now = data.session?.user.id;
+    return !!now && now !== owner;
+  } catch {
+    return false;
+  }
+}
 
 /** A failed send's words back as its chat's draft, if there is no newer. */
 export function parkUnsentText(
@@ -555,6 +581,7 @@ export function MessageComposer({
 
   const userId = useAuth().user?.id ?? null;
   useLayoutEffect(() => {
+    unsentTakes.claim(userId);
     if (!userId || parkedFor === userId) return;
     // Nothing can restore a parked attachment after the clear, so delete
     // its object first. The delete runs as the newly signed-in user and
@@ -565,6 +592,33 @@ export function MessageComposer({
     for (const a of clearParkedDrafts(parkedDrafts)) removeStaged(a.path);
     parkedFor = userId;
   }, [userId, removeStaged]);
+
+  // Puts back what is parked for `chatId`: its text into a box holding
+  // `boxText`, its attachment unless one is staged, its quote.
+  const restoreParked = useCallback(
+    (chatId: string, boxText: string, staged: boolean) => {
+      const parked = takeParkedDraft(parkedDrafts, chatId, boxText, staged);
+      if (!parked) return;
+      if (parked.text.trim())
+        setBox((b) =>
+          restoreBox(b, parked.text, parked.origin as SendOrigin | null)
+        );
+      if (parked.attachment) {
+        // Parked longer than the server's sweep age (a tab left open for
+        // weeks): the object may be gone, and staging it would send a dead
+        // link. Taken out of the stash either way; deleted, best effort.
+        if (isExpiredStagedMedia(parked.attachment.path)) {
+          removeStaged(parked.attachment.path);
+          toast.warning(tRef.current('attachmentExpired'));
+        } else {
+          draftRef.current = parked.attachment;
+          setDraft(parked.attachment);
+        }
+      }
+      if (parked.reply) restoreReplyRef.current?.(parked.reply);
+    },
+    [removeStaged]
+  );
 
   // On a chat switch: park what the composer holds for the chat just
   // left (settling a check or dialog of it), empty the box, unstage the
@@ -585,31 +639,23 @@ export function MessageComposer({
     shownRef.current = conversationId;
     const boxCleared = effects.some((e) => e.type === 'clearBox');
     const unstaged = effects.some((e) => e.type === 'clearAttachment');
-    const parked = takeParkedDraft(
-      parkedDrafts,
+    restoreParked(
       conversationId,
       boxCleared ? '' : boxRef.current.text,
       !unstaged && draftRef.current !== null
     );
-    if (!parked) return;
-    if (parked.text.trim())
-      setBox((b) =>
-        restoreBox(b, parked.text, parked.origin as SendOrigin | null)
-      );
-    if (parked.attachment) {
-      // Parked longer than the server's sweep age (a tab left open for
-      // weeks): the object may be gone, and staging it would send a dead
-      // link. Taken out of the stash either way; deleted, best effort.
-      if (isExpiredStagedMedia(parked.attachment.path)) {
-        removeStaged(parked.attachment.path);
-        toast.warning(tRef.current('attachmentExpired'));
-      } else {
-        draftRef.current = parked.attachment;
-        setDraft(parked.attachment);
-      }
-    }
-    if (parked.reply) restoreReplyRef.current?.(parked.reply);
-  }, [conversationId, dispatchCheck, removeStaged]);
+  }, [conversationId, dispatchCheck, restoreParked]);
+  // An upload parked for this chat after it was opened again.
+  useEffect(() => {
+    const onParked = (chatId: string) => {
+      if (chatId === openChatRef.current)
+        restoreParked(chatId, boxRef.current.text, draftRef.current !== null);
+    };
+    parkedListeners.add(onParked);
+    return () => {
+      parkedListeners.delete(onParked);
+    };
+  }, [restoreParked]);
   // Leaving the inbox parks the draft the same way, so coming back to
   // the chat (the stash lives as long as the tab) puts it back. Declared
   // before the unmount cleanup below: a parked attachment is unstaged
@@ -656,24 +702,16 @@ export function MessageComposer({
 
   // Voice notes: the recorder itself is further down (useVoiceRecorder).
   // `voiceWork` is the chat whose recording is being sent or made ready;
-  // `unsentTakes` the recordings whose upload failed, by chat.
+  // `unsentHere` this chat's recording whose upload failed.
   const [voiceWork, setVoiceWork] = useState<{
     chatId: string;
     kind: 'send' | 'review';
   } | null>(null);
-  const [unsentTakes, setUnsentTakes] = useState<Record<string, UnsentTake>>(
-    {}
+  const unsentHere = useSyncExternalStore(
+    unsentTakes.subscribe,
+    () => unsentTakes.get(userId, conversationId),
+    () => null
   );
-  const unsentTake = unsentTakes[conversationId];
-  // Kept by one login, never shown to another in the same tab.
-  const unsentHere = unsentTake?.meta.owner === userId ? unsentTake : null;
-  const dropUnsentTake = useCallback((chatId: string) => {
-    setUnsentTakes((all) => {
-      const rest = { ...all };
-      delete rest[chatId];
-      return rest;
-    });
-  }, []);
 
   // Viewers (read-only role) can browse the inbox but never send.
   // For solo users this is always true — single-owner accounts pass
@@ -1162,6 +1200,7 @@ export function MessageComposer({
           attachment: staged,
         });
         removeStaged(displaced?.path);
+        for (const tell of [...parkedListeners]) tell(startedIn);
         return;
       }
       // Replacing an existing draft? GC the previous object first.
@@ -1237,18 +1276,16 @@ export function MessageComposer({
           file,
           { subfolder: STAGED_MEDIA_SUBFOLDER }
         );
-        if (meta.send) {
-          // Another login has the tab: nobody may send it any more.
-          if (parkedFor !== meta.owner) removeStaged(path);
-          else {
-            lastSentAtRef.current = Date.now();
-            meta.send.deliver({
-              kind: 'audio',
-              mediaUrl: publicUrl,
-              path,
-              replyToId: meta.send.replyToId,
-            });
-          }
+        if (await anotherLogin(meta.owner)) {
+          removeStaged(path);
+        } else if (meta.send) {
+          lastSentAtRef.current = Date.now();
+          meta.send.deliver({
+            kind: 'audio',
+            mediaUrl: publicUrl,
+            path,
+            replyToId: meta.send.replyToId,
+          });
         } else {
           landUpload(meta.chatId, meta.owner, {
             kind: 'audio',
@@ -1261,14 +1298,11 @@ export function MessageComposer({
             toast.info(tVoice('waiting', { name }));
         }
       } catch {
-        setUnsentTakes((all) => ({ ...all, [meta.chatId]: { file, meta } }));
-        if (openChatRef.current !== meta.chatId)
-          toast.error(
-            tVoice(
-              openChatRef.current === null ? 'notSentLeft' : 'notSentElsewhere',
-              { name }
-            )
-          );
+        // Kept for its chat, which says so; elsewhere a notice does. Not
+        // for another login, which must not see the customer's name.
+        const kept = unsentTakes.put(meta.owner, meta.chatId, { file, meta });
+        if (kept && openChatRef.current !== meta.chatId)
+          toast.error(tVoice('notSentElsewhere', { name }));
       } finally {
         setBusy(false);
         setVoiceWork((w) => (w?.chatId === meta.chatId ? null : w));
@@ -1314,6 +1348,9 @@ export function MessageComposer({
     getLevelSource,
   } = useVoiceRecorder<VoiceMeta>({
     maxSeconds: MAX_RECORDING_SECONDS,
+    // Back on a phone takes the composer with it: what was being recorded
+    // is parked for its chat like any upload.
+    keepReview: true,
     onTake: handleTake,
     onProblem: handleMicProblem,
   });
@@ -1331,15 +1368,31 @@ export function MessageComposer({
   }, [composerBusy, onBusyChange]);
 
   const startRecording = useCallback(() => {
-    if (readOnly || busy || refuseBlocked()) return;
+    if (readOnly || busy || checking || refuseBlocked()) return;
     if (micTooSoon(lastSentAtRef.current, Date.now())) return;
+    // One recording waits per chat, and nothing staged is replaced: what
+    // is there goes first.
+    if (unsentHere || draftRef.current) {
+      toast.info(tVoice(unsentHere ? 'keptFirst' : 'draftFirst'));
+      return;
+    }
     void startTake({
       chatId: conversationId,
       owner: parkedFor,
       contactName: contactName ?? null,
       send: null,
     });
-  }, [readOnly, busy, refuseBlocked, startTake, conversationId, contactName]);
+  }, [
+    readOnly,
+    busy,
+    checking,
+    refuseBlocked,
+    unsentHere,
+    tVoice,
+    startTake,
+    conversationId,
+    contactName,
+  ]);
 
   const listenFirst = useCallback(() => {
     if (finishTake('review'))
@@ -1371,21 +1424,14 @@ export function MessageComposer({
     if (!unsentHere || busy) return;
     const { file, meta } = unsentHere;
     if (meta.send && refuseBlocked()) return;
-    dropUnsentTake(meta.chatId);
+    unsentTakes.remove(meta.chatId);
     void uploadTake({
       file,
       meta: meta.send
         ? { ...meta, send: { ...meta.send, deliver: onSendMedia } }
         : meta,
     });
-  }, [
-    unsentHere,
-    busy,
-    refuseBlocked,
-    dropUnsentTake,
-    uploadTake,
-    onSendMedia,
-  ]);
+  }, [unsentHere, busy, refuseBlocked, uploadTake, onSendMedia]);
 
   // A recording is its chat's. Left running, its Send would stand under
   // the next chat: leaving the chat ends the take, which waits there.
@@ -1628,26 +1674,16 @@ export function MessageComposer({
       {unsentHere && (
         <VoiceFailedStrip
           // Listened to first, it would replace what is staged now.
-          disabled={busy || (!!draft && !unsentHere.meta.send)}
+          disabled={
+            busy || voicePhase !== 'idle' || (!!draft && !unsentHere.meta.send)
+          }
           onRetry={retryUnsent}
-          onDiscard={() => dropUnsentTake(conversationId)}
+          onDiscard={() => unsentTakes.remove(conversationId)}
         />
       )}
       {voiceWorkHere && <VoiceWorkStrip kind={voiceWorkHere.kind} />}
 
-      {draft ? (
-        <MediaDraftPreview
-          draft={draft}
-          busy={busy}
-          readOnly={inputsDisabled}
-          checking={checking}
-          captionRef={captionRef}
-          onCaptionChange={setCaption}
-          onDiscard={discardDraft}
-          onSend={sendDraft}
-          t={t}
-        />
-      ) : recording ? (
+      {recording ? (
         // Recording bar — replaces the composer while the mic is live.
         <VoiceRecordingBar
           seconds={recordSeconds}
@@ -1658,6 +1694,18 @@ export function MessageComposer({
           onStop={listenFirst}
           onSend={sendRecording}
           buttonClassName={SEND_BUTTON}
+        />
+      ) : draft ? (
+        <MediaDraftPreview
+          draft={draft}
+          busy={busy}
+          readOnly={inputsDisabled}
+          checking={checking}
+          captionRef={captionRef}
+          onCaptionChange={setCaption}
+          onDiscard={discardDraft}
+          onSend={sendDraft}
+          t={t}
         />
       ) : (
         // WhatsApp-like row: More (+) | the text box with attach and AI
@@ -1722,7 +1770,7 @@ export function MessageComposer({
                 the mic button. */}
             <DropdownMenu>
               <DropdownMenuTrigger
-                disabled={inputsDisabled || busy}
+                disabled={inputsDisabled || busy || voicePhase !== 'idle'}
                 title={
                   readOnly
                     ? t('readOnlyTitle')

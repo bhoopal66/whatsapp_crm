@@ -18,15 +18,18 @@ No migration.
 - Tap the microphone, speak, tap **Send**. **Listen first** stops the
   recording to hear it before it goes. Before, it took "Stop and attach"
   and then a second Send, beside a microphone that was only a picture.
-- The same in WhatsApp groups and submission groups, which now have the
-  microphone beside the box, and in team chat.
+- The same in every chat: WhatsApp groups and submission groups have the
+  microphone beside the box, team chat has the same two taps, and the
+  WhatsApp conversation on a case's page, which took only text, now takes
+  voice notes and files too.
 - The **More** menu has **Record a voice note** and, apart from it,
   **Saved voice notes** (it was called "Voice notes"): the ready-made ones
   everyone can send. Its window says so, and leads back to recording one
   for this customer only.
-- A voice note goes only to the chat it was recorded in. Leaving the chat
-  while recording stops it and keeps it there; leaving after Send does not
-  stop it. Before, the recording ran on under the next chat.
+- A voice note goes only to the chat it was recorded in. Leaving a
+  customer's chat while recording stops it and keeps it there (in a group
+  or in team chat it is discarded); leaving after Send does not stop it.
+  Before, the recording ran on under the next chat.
 - A recording that could not be uploaded is kept, with **Try again**. It
   was lost.
 - When the microphone does not open, the message says why (blocked, none

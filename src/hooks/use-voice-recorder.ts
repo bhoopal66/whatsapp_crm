@@ -41,14 +41,17 @@ export interface VoiceRecorder<M> {
  * A composer's microphone: `lib/media/take-recorder.ts` with the browser
  * recorder, a clock, and the cap (a forgotten recording ends itself, to
  * be listened to: nobody pressed Send). Unmounting frees the mic; a take
- * already sent still reaches `onTake`.
+ * already sent still reaches `onTake`, and with `keepReview` one that was
+ * stopped does too (a caller that can park it).
  */
 export function useVoiceRecorder<M>({
   maxSeconds,
+  keepReview = false,
   onTake,
   onProblem,
 }: {
   maxSeconds: number;
+  keepReview?: boolean;
   onTake: (take: RecordedTake<M>) => void;
   onProblem: (problem: MicProblem) => void;
 }): VoiceRecorder<M> {
@@ -101,7 +104,7 @@ export function useVoiceRecorder<M>({
     return () => clearInterval(id);
   }, [phase, maxSeconds]);
 
-  useEffect(() => () => recorderRef.current?.dispose(), []);
+  useEffect(() => () => recorderRef.current?.dispose(keepReview), [keepReview]);
 
   return { phase, seconds, start, finish, cancel, leave, getLevelSource };
 }

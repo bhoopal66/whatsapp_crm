@@ -430,9 +430,6 @@ export function addableStaff(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Upper bound of a staff message, as the API enforces it. */
-export const SEND_TEXT_MAX = 4096;
-
 /**
  * Where a group's read marker stands. `sg_mark_read` also clears the
  * customer's bell, so a read only happens with the page on screen: one

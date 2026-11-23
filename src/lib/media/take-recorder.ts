@@ -91,18 +91,23 @@ function settled(p: Promise<void>, ms: number): Promise<void> {
   });
 }
 
-/** Frees the mic, then the audio graph. Never throws. */
-async function release(recorder: RecorderLike): Promise<void> {
-  try {
-    await settled(recorder.stop(), STOP_TIMEOUT_MS);
-  } catch {
-    // stop() threw: close() below still frees the mic.
-  }
+/** Frees whatever the recorder holds. Never throws. */
+async function close(recorder: RecorderLike): Promise<void> {
   try {
     await recorder.close();
   } catch {
     // Already closed.
   }
+}
+
+/** Ends the recording (its file comes first), then closes it. */
+async function release(recorder: RecorderLike): Promise<void> {
+  try {
+    await settled(recorder.stop(), STOP_TIMEOUT_MS);
+  } catch {
+    // stop() threw: close() still frees the mic.
+  }
+  await close(recorder);
 }
 
 interface Session<M, R> {
@@ -206,6 +211,9 @@ export class TakeRecorder<M, R extends RecorderLike = RecorderLike> {
     this.setPhase('finishing');
     void release(s.recorder).then(() => {
       const lost = !s.delivered && !s.cancelled;
+      // Said to be lost, and recorded again: a file that comes after all
+      // (the laptop slept) must not go out as well.
+      s.cancelled = true;
       this.end(s);
       if (lost) this.deps.onProblem('lost');
     });
@@ -217,8 +225,12 @@ export class TakeRecorder<M, R extends RecorderLike = RecorderLike> {
     const s = this.session;
     if (!s) return;
     s.cancelled = true;
-    // While starting there is nothing to stop yet: start() frees it.
-    if (this.current === 'recording' && s.recorder) void release(s.recorder);
+    if (s.recorder) {
+      if (this.current === 'recording') void release(s.recorder);
+      // Still opening: closed as far as it got, in case start() never
+      // settles; when it does, it is released again.
+      else if (this.current === 'starting') void close(s.recorder);
+    }
     this.end(s);
   }
 
@@ -228,9 +240,16 @@ export class TakeRecorder<M, R extends RecorderLike = RecorderLike> {
     if (!this.finish('review')) this.cancel();
   }
 
-  /** The composer is going away. What was already sent still goes out. */
-  dispose(): void {
-    if (this.current === 'finishing' && this.session?.intent === 'send') return;
+  /**
+   * The composer is going away. What was already sent still goes out, and
+   * with `keepReview` a take that was stopped still reaches `onTake`.
+   */
+  dispose(keepReview = false): void {
+    if (
+      this.current === 'finishing' &&
+      (keepReview || this.session?.intent === 'send')
+    )
+      return;
     this.cancel();
   }
 
