@@ -218,7 +218,10 @@ async function whapiFetch(args: WhapiRequestArgs): Promise<Response> {
     // Network-level failure (DNS, TLS, timeout). Surface as a 503-ish
     // WhapiError so callers have one error type to catch.
     const reason = err instanceof Error ? err.message : String(err)
-    throw new WhapiError(`Whapi request failed: ${reason}`, 503)
+    const failed = new WhapiError(`Whapi request failed: ${reason}`, 503)
+    // Tells a refused connection from a timeout (lib/hr/automsg/failure.ts).
+    failed.cause = err
+    throw failed
   }
 
   if (!response.ok) {

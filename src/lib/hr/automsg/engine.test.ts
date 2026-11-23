@@ -57,7 +57,12 @@ function rig() {
   const sender: SendPort & { fail: boolean } = {
     fail: false,
     async send(req) {
-      if (this.fail) throw new Error('provider unavailable '.repeat(50));
+      if (this.fail)
+        throw new HrSendRefusal(
+          'not_connected',
+          'provider unavailable '.repeat(50),
+          true
+        );
       sent.push(req);
       return {
         providerMessageId: `wamid-${sent.length}`,
@@ -127,7 +132,7 @@ describe('processRow', () => {
     expect(sent).toHaveLength(0);
   });
 
-  it('send throws -> failed with the error cut to 500', async () => {
+  it('a send that reached nobody -> failed with the error cut to 500', async () => {
     const { store, sender, deps } = rig();
     sender.fail = true;
     store.add(row('r1'));
@@ -176,13 +181,53 @@ describe('processRow', () => {
     store.add(row('r1'));
     const terminal = vi.spyOn(store, 'failTerminal');
     sender.send = async () => {
-      throw new MetaError('server', 503);
+      throw new MetaError('too many', 429);
     };
     expect(await processRow(row('r1'), deps)).toBe('failed');
     expect(terminal).not.toHaveBeenCalled();
     expect(store.rows.get('r1')).toMatchObject({
       status: 'failed',
       attempts: 1,
+    });
+  });
+
+  it.each([
+    ['a 5xx', new MetaError('server', 503)],
+    ['a timeout', Object.assign(new Error('t'), { name: 'TimeoutError' })],
+    ['a dropped connection', new TypeError('fetch failed')],
+    ['anything unknown', new Error('boom')],
+  ])(
+    '%s from the sender -> unconfirmed, sent at most once',
+    async (_n, err) => {
+      const { store, sender, deps } = rig();
+      store.add(row('r1'));
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const settle = vi.spyOn(store, 'settleUnconfirmed');
+      const failed = vi.spyOn(store, 'markFailed');
+      const send = vi.fn().mockRejectedValue(err);
+      sender.send = send;
+      expect(await processRow(row('r1'), deps)).toBe('unconfirmed');
+      expect(settle).toHaveBeenCalledWith('r1', null);
+      expect(failed).not.toHaveBeenCalled();
+      expect(store.rows.get('r1')).toMatchObject({
+        status: 'sent',
+        claimState: 'unconfirmed',
+      });
+      expect(await processDue([row('r1')], deps)).toEqual({ lost: 1 });
+      expect(send).toHaveBeenCalledTimes(1);
+      log.mockRestore();
+    }
+  );
+
+  it('a throw before the sender is called is retried: nothing was sent', async () => {
+    const { ctx, store, sent, deps } = rig();
+    ctx.template = { ...ctx.template!, metaTemplateName: '' };
+    store.add(row('r1'));
+    expect(await processRow(row('r1'), deps)).toBe('failed');
+    expect(sent).toHaveLength(0);
+    expect(store.rows.get('r1')).toMatchObject({
+      status: 'failed',
+      claimState: null,
     });
   });
 
@@ -262,12 +307,20 @@ describe('processDue', () => {
     hold.mockRejectedValueOnce(
       Object.assign(new Error('refused'), { hint: 'ALREADY_DECIDED' })
     );
-    hold.mockRejectedValueOnce(new Error('boom'));
+    hold.mockRejectedValueOnce(
+      new Error('boom for +971 50 000 0001 and 971500000002')
+    );
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await processDue([row('r1'), row('r2'), row('r3')], deps)).toEqual({
       lost: 1,
       error: 1,
       'held:kill_switch': 1,
     });
+    // Only the error is logged: the row's id and why, no phone number.
+    expect(log.mock.calls).toEqual([
+      ['[hr-automsg] row r2 failed:', 'boom for [number] and [number]'],
+    ]);
+    log.mockRestore();
   });
 });
 

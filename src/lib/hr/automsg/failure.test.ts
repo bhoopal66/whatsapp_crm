@@ -1,11 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MetaError } from '@/lib/whatsapp/meta-api';
-import { OpenWAError } from '@/lib/whatsapp/openwa-api';
-import { WhapiError } from '@/lib/whatsapp/whapi-api';
+import { OpenWAError, openwaRequest } from '@/lib/whatsapp/openwa-api';
+import { WhapiError, sendTextMessage } from '@/lib/whatsapp/whapi-api';
 import { HrSendRefusal, classifySendFailure } from './failure';
 
 const meta = (status: number, code: number | null = null) =>
   new MetaError('m', status, code);
+
+const unconfirmed = (reason: string) => ({
+  retryable: false,
+  reason,
+  unconfirmed: true,
+});
+
+const socket = (code: string) => Object.assign(new Error(code), { code });
+const fetchFailed = (code: string) =>
+  new TypeError('fetch failed', { cause: socket(code) });
+const named = (name: string) => Object.assign(new Error('t'), { name });
 
 describe('classifySendFailure: Meta', () => {
   it.each([
@@ -48,10 +59,15 @@ describe('classifySendFailure: Meta', () => {
     [400, false, 'rejected'],
     [404, false, 'rejected'],
     [429, true, 'rate_limited'],
-    [500, true, 'provider_unavailable'],
-    [503, true, 'provider_unavailable'],
   ])('HTTP %i -> retryable %s %s', (status, retryable, reason) => {
     expect(classifySendFailure(meta(status))).toEqual({ retryable, reason });
+  });
+
+  // 504 is metaFetch's own timeout.
+  it.each([500, 503, 504])('HTTP %i may have been accepted', (status) => {
+    expect(classifySendFailure(meta(status))).toEqual(
+      unconfirmed('provider_unavailable')
+    );
   });
 });
 
@@ -72,12 +88,17 @@ describe('classifySendFailure: Whapi', () => {
   it.each([
     [400, false, 'rejected'],
     [429, true, 'rate_limited'],
-    [502, true, 'provider_unavailable'],
   ])('HTTP %i -> retryable %s %s', (status, retryable, reason) => {
     expect(classifySendFailure(new WhapiError('w', status))).toEqual({
       retryable,
       reason,
     });
+  });
+
+  it.each([502, 503])('a %i may have been accepted', (status) => {
+    expect(classifySendFailure(new WhapiError('w', status))).toEqual(
+      unconfirmed('provider_unavailable')
+    );
   });
 });
 
@@ -102,7 +123,6 @@ describe('classifySendFailure: OpenWA', () => {
       'provider_unavailable',
     ],
     ['other 429', new OpenWAError('o', 429), true, 'rate_limited'],
-    ['5xx', new OpenWAError('o', 500), true, 'provider_unavailable'],
     ['auth', new OpenWAError('o', 401), false, 'unauthorized'],
     ['session gone', new OpenWAError('o', 404), false, 'unauthorized'],
     [
@@ -115,35 +135,95 @@ describe('classifySendFailure: OpenWA', () => {
   ])('%s -> retryable %s %s', (_n, e, retryable, reason) => {
     expect(classifySendFailure(e)).toEqual({ retryable, reason });
   });
+
+  it.each([500, 502, 504])('a %i may have been accepted', (status) => {
+    expect(classifySendFailure(new OpenWAError('o', status))).toEqual(
+      unconfirmed('provider_unavailable')
+    );
+  });
 });
 
 describe('classifySendFailure: transport and the rest', () => {
-  it('a fetch failure is a retryable network error', () => {
-    expect(classifySendFailure(new TypeError('fetch failed'))).toEqual({
-      retryable: true,
-      reason: 'network',
-    });
-  });
-
-  it.each(['TimeoutError', 'AbortError'])(
-    '%s is a retryable timeout',
-    (name) => {
-      const e = new Error('t');
-      e.name = name;
-      expect(classifySendFailure(e)).toEqual({
+  it.each(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'])(
+    '%s reached nobody, so it is retried',
+    (code) => {
+      expect(classifySendFailure(fetchFailed(code))).toEqual({
         retryable: true,
-        reason: 'timeout',
+        reason: 'network',
       });
     }
   );
 
-  it.each([new Error('boom'), 'a string', null])(
-    'anything unknown stays retryable (%s)',
-    (e) => {
-      expect(classifySendFailure(e)).toEqual({
-        retryable: true,
-        reason: 'error',
+  it('every address refused is retried; one that may have connected is not', () => {
+    const many = (...codes: string[]) =>
+      new TypeError('fetch failed', {
+        cause: new AggregateError(codes.map(socket)),
       });
+    expect(
+      classifySendFailure(many('ECONNREFUSED', 'ECONNREFUSED')).retryable
+    ).toBe(true);
+    expect(classifySendFailure(many('ECONNREFUSED', 'ETIMEDOUT'))).toEqual(
+      unconfirmed('network')
+    );
+  });
+
+  it.each([
+    new TypeError('fetch failed'),
+    fetchFailed('ECONNRESET'),
+    fetchFailed('UND_ERR_SOCKET'),
+  ])('any other fetch failure may have been accepted', (e) => {
+    expect(classifySendFailure(e)).toEqual(unconfirmed('network'));
+  });
+
+  it.each(['TimeoutError', 'AbortError'])(
+    '%s may have been accepted',
+    (name) => {
+      expect(classifySendFailure(named(name))).toEqual(unconfirmed('timeout'));
+    }
+  );
+
+  it.each([
+    ['Whapi', () => new WhapiError('Whapi request failed', 503)],
+    ['OpenWA', () => new OpenWAError('OpenWA request failed', 503)],
+  ])(
+    '%s: no answer is judged by its cause, not as a 503 from the gateway',
+    (_n, make) => {
+      const because = (cause: unknown) => Object.assign(make(), { cause });
+      expect(classifySendFailure(because(named('TimeoutError')))).toEqual(
+        unconfirmed('timeout')
+      );
+      expect(classifySendFailure(because(fetchFailed('ECONNRESET')))).toEqual(
+        unconfirmed('network')
+      );
+      expect(classifySendFailure(because(fetchFailed('ECONNREFUSED')))).toEqual(
+        { retryable: true, reason: 'network' }
+      );
+    }
+  );
+
+  it.each([
+    [
+      'Whapi',
+      () => sendTextMessage({ token: 't', to: '971500000001', text: 'x' }),
+    ],
+    [
+      'OpenWA',
+      () =>
+        openwaRequest({ apiKey: 'k', sessionId: 's', path: '/x', body: {} }),
+    ],
+  ])('%s keeps what fetch threw as the cause', async (_n, call) => {
+    const thrown = named('TimeoutError');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(thrown));
+    const e = await call().catch((err: unknown) => err);
+    vi.unstubAllGlobals();
+    expect((e as Error).cause).toBe(thrown);
+    expect(classifySendFailure(e)).toEqual(unconfirmed('timeout'));
+  });
+
+  it.each([new Error('boom'), 'a string', null])(
+    'anything unknown may have been accepted (%s)',
+    (e) => {
+      expect(classifySendFailure(e)).toEqual(unconfirmed('error'));
     }
   );
 

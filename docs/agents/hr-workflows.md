@@ -65,10 +65,14 @@ contract.
   shows the caller; `assigned_agent_id` is an auth user id.
 - **Sends that cannot work, receipts (212, release 029a/b).**
   `classifySendFailure` (`lib/hr/automsg/failure.ts`; `send.ts` throws
-  `HrSendRefusal` for its own refusals) splits failures: non-retryable →
+  `HrSendRefusal` for its own refusals and for anything that throws before
+  the gateway call) splits failures: may have been accepted (5xx, timeout,
+  dropped connection, unrecognised) → `settleUnconfirmed`, never resent;
+  non-retryable →
   `hr_automsg_fail_terminal` (failed, attempts 3, reason in `last_error`,
-  audit `outbox_failed_terminal`); the rest retry as before (a Whapi
-  401/403 is ambiguous, so retryable). `handleStatusUpdate` mirrors a
+  audit `outbox_failed_terminal`); the rest, certainly not
+  sent, retry (429, not ready, refused, DNS; a Whapi 401/403 too). Whapi
+  and OpenWA errors for a fetch that threw carry it as `cause`. `handleStatusUpdate` mirrors a
   receipt for a bot message onto the outbox (`hr_automsg_delivery_record`,
   forward-only `delivery_state`, `failed` → terminal
   `delivery_failed:<code>`); a receipt that beats the provider-id stamp

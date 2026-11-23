@@ -1,8 +1,11 @@
 /**
  * HR automated messages: which send failures are worth retrying
  * (package 029a). A retryable failure is marked failed and picked up
- * again (up to MAX_ATTEMPTS); anything else is terminal at once, because
- * the next attempt would be refused the same way.
+ * again (up to MAX_ATTEMPTS), so only a cause that certainly sent nothing
+ * is one; a refusal the next attempt would meet too is terminal at once.
+ * Whatever leaves it unknown whether the gateway took the message (a 5xx,
+ * a timeout, a dropped connection, anything unrecognised) is unconfirmed:
+ * never resent, because the candidate may have it.
  *
  * Pure: it reads the error classes' fields, never the network.
  */
@@ -15,6 +18,8 @@ import { RcsSendError } from './rcs';
 export interface SendFailure {
   retryable: boolean;
   reason: string;
+  /** The gateway may have accepted the message; `retryable` is false. */
+  unconfirmed?: true;
 }
 
 /** A refusal this module makes itself, before or instead of a gateway call. */
@@ -33,6 +38,40 @@ export class HrSendRefusal extends Error {
 
 const retry = (reason: string): SendFailure => ({ retryable: true, reason });
 const stop = (reason: string): SendFailure => ({ retryable: false, reason });
+const unknown = (reason: string): SendFailure => ({
+  retryable: false,
+  reason,
+  unconfirmed: true,
+});
+
+/** Connection errors after which no request can have left: refused, DNS. */
+const NEVER_CONNECTED: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+]);
+
+/** undici puts the socket error in `cause`; several addresses tried make
+ *  it an AggregateError, whose every error must be one of these. */
+function neverConnected(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  if (e instanceof AggregateError && e.errors.length > 0)
+    return e.errors.every(neverConnected);
+  const code = (e as { code?: unknown }).code;
+  if (typeof code === 'string') return NEVER_CONNECTED.has(code);
+  return e.cause !== undefined && neverConnected(e.cause);
+}
+
+/** What a rejected fetch (or a lost response body) says about the send. */
+function byTransport(e: unknown): SendFailure {
+  if (neverConnected(e)) return retry('network');
+  if (
+    e instanceof Error &&
+    (e.name === 'TimeoutError' || e.name === 'AbortError')
+  )
+    return unknown('timeout');
+  return unknown('network');
+}
 
 /** Meta error code -> stable non-retryable reason (029a's table). */
 function metaCodeReason(code: number | null): string | null {
@@ -46,13 +85,13 @@ function metaCodeReason(code: number | null): string | null {
   return null;
 }
 
-/** HTTP status alone: 429 / 5xx retry, 401/403 unauthorized, other 4xx rejected. */
+/** HTTP status alone: 429 retry, 5xx unconfirmed, 401/403 unauthorized, other 4xx rejected. */
 function byStatus(status: number): SendFailure {
   if (status === 429) return retry('rate_limited');
-  if (status >= 500) return retry('provider_unavailable');
+  if (status >= 500) return unknown('provider_unavailable');
   if (status === 401 || status === 403) return stop('unauthorized');
   if (status >= 400) return stop('rejected');
-  return retry('error');
+  return unknown('error');
 }
 
 export function classifySendFailure(e: unknown): SendFailure {
@@ -71,6 +110,7 @@ export function classifySendFailure(e: unknown): SendFailure {
     if (reason) return stop(reason);
     // Meta answers throttling and its own temporary errors as HTTP 400,
     // which byStatus would call terminal. 4 / 80007 are isRateLimited.
+    // Both are refusals given before the message is accepted.
     if (
       e.isRateLimited ||
       e.code === 130429 ||
@@ -84,6 +124,8 @@ export function classifySendFailure(e: unknown): SendFailure {
   }
 
   if (e instanceof WhapiError) {
+    // No answer at all (our own 503).
+    if (e.cause !== undefined) return byTransport(e.cause);
     // A wrong token addresses a channel that does not exist.
     if (e.isUnknownChannel) return stop('unauthorized');
     // Ambiguous on Whapi: a logged-out phone, a channel starting up or a
@@ -93,6 +135,8 @@ export function classifySendFailure(e: unknown): SendFailure {
   }
 
   if (e instanceof OpenWAError) {
+    // No answer at all (our own 503, which isNotReady would claim).
+    if (e.cause !== undefined) return byTransport(e.cause);
     if (e.isNotReady || e.isPacingLimited) return retry('provider_unavailable');
     if (e.isAuthError || e.isSessionNotFound) return stop('unauthorized');
     return byStatus(e.status);
@@ -100,10 +144,10 @@ export function classifySendFailure(e: unknown): SendFailure {
 
   if (e instanceof Error) {
     if (e.name === 'TimeoutError' || e.name === 'AbortError')
-      return retry('timeout');
+      return unknown('timeout');
     // undici's fetch rejects with a TypeError ("fetch failed").
     if (e.name === 'TypeError' && /fetch failed|network/i.test(e.message))
-      return retry('network');
+      return byTransport(e);
   }
-  return retry('error');
+  return unknown('error');
 }

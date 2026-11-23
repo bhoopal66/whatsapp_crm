@@ -415,6 +415,22 @@ describe('createHrSendPort: typed refusals (029a)', () => {
     });
   });
 
+  it.each([
+    ['the channels', () => vi.mocked(loadChannels)],
+    ['the template', () => vi.mocked(resolveTemplateRow)],
+  ])(
+    'a failure to load %s reached no gateway, so it is retried',
+    async (_n, mock) => {
+      mock().mockRejectedValue(new Error('db down'));
+      const { db } = fakeDb({});
+      expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+        retryable: true,
+        reason: 'error',
+      });
+      expect(gateway()).toBe(0);
+    }
+  );
+
   it('every phone variant refused as not allowed -> invalid_number', async () => {
     vi.mocked(sendTemplate).mockRejectedValue(
       new Error('(#131030) Recipient not in allowed list')

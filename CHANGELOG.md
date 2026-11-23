@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### HR automated messages are not sent again after a timeout
+
+No migration. A WhatsApp send that timed out, lost its connection or got a
+gateway error (5xx) may have been delivered, yet was sent up to 3 times. It
+is now marked "not confirmed" and never resent; only a failure after which
+nothing can have been sent (a rate limit, a number not ready, a refused
+connection) is retried. Check "not confirmed" messages in HR → Automated
+messages after a gateway outage.
+
 ### AI answers that were cut off are never sent
 
 No migration. When the AI provider stops before finishing an answer (the
