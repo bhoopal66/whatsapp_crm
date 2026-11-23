@@ -545,6 +545,11 @@ export interface Message {
   created_at: string;
   reply_to_message_id?: string;
   /**
+   * Browser only, on an optimistic `temp-` bubble: the id of the row the
+   * send route saved for it (lib/inbox/optimistic.ts).
+   */
+  sent_row_id?: string;
+  /**
    * Only set when `content_type === 'interactive'` — the stable id of
    * the button or list row the customer tapped. The Flows engine uses
    * this to route the next node; the inbox bubble uses it as a styling

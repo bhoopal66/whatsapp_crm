@@ -154,6 +154,8 @@ export function mergeFreshPage(
     messages: Message[];
     reactions: MessageReaction[];
     shownBefore?: ReadonlySet<string>;
+    /** The signed-in user, whose own rows replace their bubbles. */
+    viewerId?: string | null;
   },
   fresh: CachedMessagePage,
   pageSize: number = MESSAGE_PAGE_SIZE
@@ -164,7 +166,8 @@ export function mergeFreshPage(
   const { messages, gap } = mergeLatestMessages(
     confirmed,
     fresh.messages,
-    pageSize
+    pageSize,
+    held.viewerId
   );
   return {
     messages,

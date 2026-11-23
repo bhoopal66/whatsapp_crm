@@ -575,6 +575,7 @@
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
       "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}",
+      "newMessagesBelow": "{count, plural, one {# new message} other {# new messages}}",
       "today": "Today",
       "yesterday": "Yesterday",
       "numberDisconnected": "This WhatsApp number ({name}) is disconnected — replies from it will fail. An admin must re-pair it (Settings → WhatsApp).",

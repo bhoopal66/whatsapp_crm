@@ -24,6 +24,7 @@ import {
   useAllNumberAllocations,
 } from '@/hooks/use-whatsapp-numbers';
 import { useMyOutreach } from '@/hooks/use-my-outreach';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import { useNewChatNotice } from '@/hooks/use-new-chat-notice';
 import {
   outreachNotices,
@@ -68,10 +69,20 @@ import {
   type SendMediaPayload,
 } from './message-composer';
 import { FailedSendRow } from './failed-send-row';
+import { NewMessagesButton } from './new-messages-button';
 import { deleteAccountMedia } from '@/lib/storage/upload-media';
 import { TemplatePicker } from './template-picker';
 import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
+import { pageWithUnsettled, sentRowId } from '@/lib/inbox/optimistic';
+import { shouldMarkRead, startUnreadReset } from '@/lib/inbox/read-state';
+import {
+  bottomGap,
+  isNearBottom,
+  threadScroll,
+  threadSnapshot,
+  type ThreadSnapshot,
+} from '@/lib/inbox/thread-scroll';
 import {
   lastAiReplyAt as newestAiReplyAt,
   lastMessageFromCustomer as newestIsCustomer,
@@ -952,7 +963,7 @@ export function MessageThread({
         onMessagesLoadedRef.current(
           (prev) =>
             mergeFreshPage(
-              { messages: prev, reactions: [], shownBefore },
+              { messages: prev, reactions: [], shownBefore, viewerId },
               fresh
             ).messages
         );
@@ -960,7 +971,9 @@ export function MessageThread({
         setOlderState({ conversationId, hasOlder: fresh.hasOlder });
         setReactions(fresh.reactions);
         markUnread(fresh.messages);
-        onMessagesLoadedRef.current(fresh.messages);
+        onMessagesLoadedRef.current((prev) =>
+          pageWithUnsettled(prev, fresh.messages, viewerId)
+        );
         setLoading(false);
       }
     })();
@@ -999,7 +1012,8 @@ export function MessageThread({
         setOlderState({ conversationId: convId, hasOlder: true });
       }
       onMessagesLoadedRef.current(
-        (prev) => mergeLatestMessages(prev, page).messages
+        (prev) =>
+          mergeLatestMessages(prev, page, MESSAGE_PAGE_SIZE, viewerId).messages
       );
       setReactions((prev) =>
         replaceReactionsFor(
@@ -1009,7 +1023,7 @@ export function MessageThread({
         )
       );
     })();
-  }, [deltaSyncToken]);
+  }, [deltaSyncToken, viewerId]);
 
   // Pull the page before the oldest message held.
   const loadOlder = useCallback(async () => {
@@ -1374,21 +1388,61 @@ export function MessageThread({
   //
   // Guarding on hasUnread prevents the eq-update loop: once unread_count
   // is 0 the condition is false, so no further UPDATE is issued.
+  //
+  // Only while the tab is on screen, and again when it comes back. A
+  // reset that failed is retried once, then with the next resync (hence
+  // the tokens) or the next time the tab is shown.
+  const pageVisible = usePageVisible();
   useEffect(() => {
-    if (!conversationId || !hasUnread) return;
-    const supabase = createClient();
-    supabase
-      .from('conversations')
-      .update({ unread_count: 0 })
-      .eq('id', conversationId)
-      .then(({ error }) => {
-        if (error) console.error('Failed to reset unread_count:', error);
-      });
-  }, [conversationId, hasUnread]);
+    if (!shouldMarkRead({ conversationId, hasUnread, visible: pageVisible })) {
+      return;
+    }
+    return startUnreadReset(async () => {
+      const { error } = await createClient()
+        .from('conversations')
+        .update({ unread_count: 0 })
+        .eq('id', conversationId);
+      if (error) console.error('Failed to reset unread_count:', error);
+      return !error;
+    });
+  }, [conversationId, hasUnread, pageVisible, resyncToken, deltaSyncToken]);
 
-  // Auto-scroll to bottom on new messages — except when the change was
-  // an older page prepended above, where the reader's position is kept
-  // instead. A layout effect so the jump lands before paint (no flash of
+  // Where the reader last left the thread, in pixels above its end. Read
+  // from scroll events, so content growing under someone at the bottom
+  // (an image loading) does not count as them having scrolled away.
+  const bottomGapRef = useRef(0);
+  const settledTopRef = useRef<number | null>(null);
+  const scrollSnapshotRef = useRef<ThreadSnapshot | null>(null);
+  // Messages that arrived out of sight, for the button over the thread.
+  const [below, setBelow] = useState<{
+    conversationId: string;
+    count: number;
+  } | null>(null);
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    settledTopRef.current = el.scrollTop;
+    bottomGapRef.current = 0;
+    setBelow(null);
+  }, []);
+  const handleThreadScroll = useCallback(() => {
+    const el = scrollRef.current;
+    // The event of our own jump may come after an image grew the thread.
+    if (!el || el.scrollTop === settledTopRef.current) return;
+    settledTopRef.current = null;
+    bottomGapRef.current = bottomGap(el);
+    if (isNearBottom(bottomGapRef.current)) setBelow(null);
+  }, []);
+  // An attachment that loads grows the thread: stay at the very end.
+  const handleMediaLoaded = useCallback(() => {
+    if (bottomGapRef.current <= 1) scrollToBottom();
+  }, [scrollToBottom]);
+
+  // Scroll to the bottom when the chat opens, on the person's own send,
+  // or on an arrival while they read the newest messages
+  // (lib/inbox/thread-scroll.ts); an older page prepended above keeps
+  // the reader's position. A layout effect so the jump lands before paint (no flash of
   // the wrong scroll offset) and before the top sentinel's observer is
   // (re)created in the effect below.
   useLayoutEffect(() => {
@@ -1398,10 +1452,30 @@ export function MessageThread({
     if (anchor) {
       prependAnchorRef.current = null;
       el.scrollTop = el.scrollHeight - anchor.height + anchor.top;
+    }
+    // A (re)load replaces what is on screen, so it counts as an opening.
+    if (!conversationId || loading || messages.length === 0) {
+      scrollSnapshotRef.current = null;
       return;
     }
-    el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    const { toBottom, arrived } = threadScroll(
+      scrollSnapshotRef.current,
+      conversationId,
+      messages,
+      bottomGapRef.current,
+      viewerId
+    );
+    scrollSnapshotRef.current = threadSnapshot(conversationId, messages);
+    if (toBottom) {
+      scrollToBottom();
+    } else if (arrived > 0) {
+      setBelow((prev) => ({
+        conversationId,
+        count:
+          arrived + (prev?.conversationId === conversationId ? prev.count : 0),
+      }));
+    }
+  }, [messages, loading, conversationId, viewerId, scrollToBottom]);
 
   // Load older messages as the top sentinel nears the viewport. Rooted
   // on the scroll container so the margin prefetches before the reader
@@ -1513,7 +1587,11 @@ export function MessageThread({
         // Success — the realtime INSERT event will replace the temp bubble
         // with the real DB row. If realtime hasn't arrived yet, at least
         // flip status to 'sent' so the UI stops showing "sending".
-        onUpdateMessage(message.id, { status: 'sent' });
+        // `sent_row_id` names that row, so the bubble goes when it is here.
+        onUpdateMessage(message.id, {
+          status: 'sent',
+          sent_row_id: sentRowId(payload),
+        });
         // It started a chat: today's counts moved.
         if (startsChat) setOutreachRefresh((k) => k + 1);
         return;
@@ -2007,6 +2085,16 @@ export function MessageThread({
     () => failedSends.filter((f) => f.conversationId === conversationId),
     [failedSends, conversationId]
   );
+  // A failed send's row (with its Retry) and the notes drawn between the
+  // messages are no `messages`: someone at the end stays there.
+  useLayoutEffect(() => {
+    if (isNearBottom(bottomGapRef.current)) scrollToBottom();
+  }, [
+    failedHere.length,
+    threadEvents.length,
+    teamNotes.notes.length,
+    scrollToBottom,
+  ]);
   // The AI banner's evidence from the loaded page: whether the bot has
   // answered since its last warned outcome, and whether Resume should
   // also answer a waiting customer message.
@@ -2192,6 +2280,9 @@ export function MessageThread({
         <div
           ref={scrollRef}
           data-inbox-scroll-root=""
+          onScroll={handleThreadScroll}
+          onLoadCapture={handleMediaLoaded}
+          onLoadedMetadataCapture={handleMediaLoaded}
           className={cn('flex-1 overflow-y-auto pt-1 pb-3', THREAD_GUTTER)}
         >
           {loading ? (
@@ -2371,6 +2462,15 @@ export function MessageThread({
             </div>
           )}
         </div>
+
+        <NewMessagesButton
+          count={
+            !loading && below && below.conversationId === conversationId
+              ? below.count
+              : 0
+          }
+          onClick={scrollToBottom}
+        />
 
         {/* AI auto-reply banner (AI agent v2) — a held draft to send,
           edit or discard; why the bot is paused, with Resume; take over
