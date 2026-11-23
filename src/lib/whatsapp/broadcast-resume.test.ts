@@ -109,6 +109,9 @@ describe('releaseBroadcastDelivery', () => {
 // ============================================================
 
 interface PlanFixture {
+  /** Contacts saved under another form of a recipient's number. */
+  contacts?: Record<string, unknown>[];
+  contactsError?: boolean;
   broadcast?: Record<string, unknown> | null;
   recipients?: Record<string, unknown>[];
   config?: Record<string, unknown> | null;
@@ -186,6 +189,13 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
               count: all.length,
               error: null,
             });
+          }
+          if (table === 'contacts') {
+            return resolve(
+              fx.contactsError
+                ? ({ data: null, error: { message: 'down' } } as never)
+                : { data: fx.contacts ?? [], error: null }
+            );
           }
           if (table === 'message_templates') {
             // Whapi renders templates locally, so a plan is impossible
@@ -444,6 +454,54 @@ describe('planBroadcastResume', () => {
         ids: ['r2', 'r3'],
       },
     ]);
+  });
+
+  it('never reaches an opted-out customer through another spelling of their number', async () => {
+    const writes: PlanWrites = {};
+    const fx: PlanFixture = {
+      broadcast: BROADCAST,
+      config: CONFIG,
+      recipients: [
+        recipient('r1', '+971 50 123 4567'),
+        recipient('r2', '0501234568'),
+        recipient('r3', '0501234569'),
+      ],
+      contacts: [
+        {
+          phone_normalized: '971501234568',
+          opted_out_at: '2026-10-08T09:00:00Z',
+          do_not_contact_at: null,
+        },
+        {
+          phone_normalized: '971501234569',
+          opted_out_at: null,
+          do_not_contact_at: null,
+        },
+      ],
+    };
+    const { plan, optedOut } = await planBroadcastResume(
+      planDb(fx, writes),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1', 'r3']);
+    expect(optedOut).toBe(1);
+    expect(writes.updates).toEqual([
+      {
+        row: { status: 'failed', error_message: OPTED_OUT_REASON },
+        ids: ['r2'],
+      },
+    ]);
+
+    await expect(
+      planBroadcastResume(
+        planDb({ ...fx, contactsError: true }),
+        'acct-1',
+        'bc-1',
+        'pending'
+      )
+    ).rejects.toMatchObject({ status: 500 });
   });
 
   it('drops a recipient who opted out after planning and fails the row with the reason', async () => {

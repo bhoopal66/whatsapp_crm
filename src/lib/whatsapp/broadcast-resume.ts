@@ -37,7 +37,7 @@ import {
 } from '@/lib/broadcasts/unconfirmed-send';
 import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
-import { isLocalPhone } from '@/lib/contacts/phone-match';
+import { isLocalPhone, storedForms } from '@/lib/contacts/phone-match';
 import {
   validateContactPhone,
   withUaeCountryCode,
@@ -240,6 +240,42 @@ async function stampFailed(
 }
 
 /**
+ * Of these numbers, the ones a contact saved under any form of them asked
+ * not to be messaged on. A failed read stops the pass.
+ */
+async function refusedNumbers(
+  db: SupabaseClient,
+  accountId: string,
+  phones: string[]
+): Promise<Map<string, ConsentRefusal>> {
+  const numberOf = new Map<string, string>();
+  for (const phone of phones.map(sanitizePhoneForMeta))
+    for (const form of storedForms(phone)) numberOf.set(form, phone);
+  const forms = [...numberOf.keys()];
+  const out = new Map<string, ConsentRefusal>();
+  for (let i = 0; i < forms.length; i += TWIN_LOOKUP_CHUNK) {
+    const { data, error } = await db
+      .from('contacts')
+      .select('phone_normalized, opted_out_at, do_not_contact_at')
+      .eq('account_id', accountId)
+      .in('phone_normalized', forms.slice(i, i + TWIN_LOOKUP_CHUNK));
+    if (error) {
+      console.error('[broadcast-resume] consent read failed:', error.message);
+      throw new BroadcastError('internal', 'Failed to load recipients', 500);
+    }
+    for (const row of data ?? []) {
+      const refusal = consentRefusal(row);
+      const number = numberOf.get(row.phone_normalized as string);
+      if (refusal && number) out.set(number, refusal);
+    }
+  }
+  return out;
+}
+
+/** Numbers per `.in()` filter. */
+const TWIN_LOOKUP_CHUNK = 200;
+
+/**
  * Build a {@link BroadcastPlan} for the recipients of an existing
  * broadcast that still need sending.
  *
@@ -322,7 +358,7 @@ export async function planBroadcastResume(
   // A customer who asked not to be messaged after the campaign was
   // planned (migration 076) is never sent to: their row is stamped
   // failed with the reason, which also settles the broadcast's status.
-  const sendable: { row: RecipientRow; phone: string }[] = [];
+  let sendable: { row: RecipientRow; phone: string }[] = [];
   const unsendable: string[] = [];
   const refused: Record<ConsentRefusal, string[]> = {
     opted_out: [],
@@ -371,6 +407,25 @@ export async function planBroadcastResume(
       else unsendable.push(row.id);
     }
     if (rows.length < LOAD_PAGE) break;
+  }
+
+  // A saved local form that now becomes a number that rings: the opt-out
+  // may sit on the contact that holds it in full, which is not this row's.
+  const completed = sendable.filter(
+    ({ row, phone }) =>
+      phone !== sanitizePhoneForMeta(rowContact(row)?.phone ?? '')
+  );
+  if (completed.length > 0) {
+    const refusals = await refusedNumbers(
+      db,
+      accountId,
+      completed.map((c) => c.phone)
+    );
+    sendable = sendable.filter(({ row, phone }) => {
+      const refusal = refusals.get(sanitizePhoneForMeta(phone));
+      if (refusal) refused[refusal].push(row.id);
+      return !refusal;
+    });
   }
 
   // Left out of the plan whatever becomes of the stamps; the next pass
