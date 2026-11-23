@@ -72,8 +72,19 @@ const URGENT: readonly string[] = [
   'task_due',
 ];
 
+/**
+ * Alarms are worth nothing late: a device that was off for longer must
+ * not ring for a meeting that is over.
+ */
+const ALARM_TTL: readonly string[] = [
+  'meeting_reminder',
+  'event_reminder',
+  'task_due',
+];
+
 /** Seconds the push service keeps an undelivered push. */
 export function ttlFor(kind: string): number {
+  if (ALARM_TTL.includes(kind)) return 1_800;
   return kind === 'whatsapp_message' ||
     kind === 'submission_group_message' ||
     kind === 'chat_message'

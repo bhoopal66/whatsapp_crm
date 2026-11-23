@@ -108,6 +108,8 @@ describe('kinds', () => {
     expect(urgencyFor('task_due')).toBe('high');
     expect(ttlFor('chat_message')).toBe(86_400);
     expect(ttlFor('meeting_invite')).toBe(259_200);
+    for (const alarm of ['meeting_reminder', 'event_reminder', 'task_due'])
+      expect(ttlFor(alarm)).toBe(1_800);
   });
 
   it('no chat_* bell type is a preference (its message pushes instead)', () => {
