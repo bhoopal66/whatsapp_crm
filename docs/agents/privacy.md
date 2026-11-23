@@ -49,4 +49,6 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   refuses a signed-in person's delete (ZC280, HINT `HAS_OPEN_WORK`, DETAIL
   the counts); the service role, no-user statements and an account deletion
   pass. 280 restates 086's `contacts_consent_log`: re-run 280 after 086.
-  `verify-contact-delete.sql`.
+  `verify-contact-delete.sql`. App side: `lib/contacts/delete-preview.ts`
+  (dialog, reasons) and `delete-contacts.ts` (a refused bulk delete retries
+  each id); the only way a screen deletes a contact.

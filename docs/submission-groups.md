@@ -371,9 +371,10 @@ are checked.
 
 ## Removing a number or a contact
 
-Removing the hosting number, or deleting the customer's contact, does not
-block the delete. The group is detached (its number or contact becomes
-empty): the archive and its audit survive, but sends are refused
+A person cannot delete a customer whose group is still active (migration
+280): close it first. Removing the hosting number, or deleting the customer
+of a closed group, goes through. The group is detached (its number or
+contact becomes empty): the archive and its audit survive, but sends are refused
 (`NUMBER_REMOVED` / `CONTACT_REMOVED`), a pending create is not retried
 and the WhatsApp close is not attempted.
 

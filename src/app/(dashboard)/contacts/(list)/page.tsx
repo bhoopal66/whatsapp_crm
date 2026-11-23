@@ -6,6 +6,8 @@ import { LoadingState } from '@/components/dashboard/loading-state';
 import { isUuid } from '@/lib/chat/mentions';
 import { customerAccess } from '@/lib/contacts/customer-access';
 import { customerPath } from '@/lib/contacts/customer-links';
+import { deleteContacts } from '@/lib/contacts/delete-contacts';
+import { reasonsText, stayedText } from '@/lib/contacts/delete-preview';
 import {
   Fragment,
   useState,
@@ -15,7 +17,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { bulkAnswer, deleteRows } from '@/lib/supabase/changed-rows';
+import { bulkAnswer } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact } from '@/types';
@@ -38,14 +40,6 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -57,7 +51,6 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
-  Loader2,
   Users,
   ChevronLeft,
   ChevronRight,
@@ -71,6 +64,10 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContactForm } from '@/components/contacts/contact-form';
+import {
+  DeleteContactsDialog,
+  type DeleteTarget,
+} from '@/components/contacts/delete-contacts-dialog';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import {
@@ -236,6 +233,7 @@ export function ContactsPageInner({
   const tSearch = useTranslations('ContactSearch');
   const tSaved = useTranslations('SavedViews');
   const tTable = useTranslations('ContactsTable');
+  const tDelete = useTranslations('Contacts.deleteDialog');
   const tTeams = useTranslations('Settings.teams');
   const tPaging = useTranslations('MeetingRoom.stage');
   const locale = useLocale();
@@ -292,6 +290,9 @@ export function ContactsPageInner({
   // Bulk selection (page-scoped — only the loaded rows are selectable)
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // Fixed when the dialog opens: a list refresh under it may untick rows,
+  // and Delete removes the ones it named.
+  const [bulkTargets, setBulkTargets] = useState<DeleteTarget[]>([]);
 
   // Only ids still in the tree count: a tag another admin deleted
   // meanwhile would otherwise keep filtering on an id no chat carries,
@@ -837,29 +838,32 @@ export function ContactsPageInner({
     setDeleteConfirmOpen(true);
   }
 
-  async function handleDelete() {
+  async function handleDelete(ids: string[]) {
     if (!deleteTarget) return;
     setDeleting(true);
 
-    const res = await deleteRows(supabase, 'contacts', [deleteTarget.id]);
+    const res = await deleteContacts(supabase, ids);
+    const refused = res.refused[0];
 
-    if (res.kind === 'failed') {
+    if (refused) {
       toast.error(
-        t(
-          res.error.hint === 'LEGAL_HOLD'
-            ? 'toastLegalHold'
-            : 'toastFailedDelete'
-        )
+        refused.legalHold
+          ? t('toastLegalHold')
+          : tDelete('toastRefused', {
+              name: deleteTarget.name || deleteTarget.phone,
+              reason: reasonsText(refused, tDelete, locale),
+            })
       );
+    } else if (res.failed.length > 0) {
+      toast.error(t('toastFailedDelete'));
     } else {
-      if (res.kind === 'none') toast.error(t('toastNotDeleted'));
+      if (res.deleted.length === 0) toast.error(t('toastNotDeleted'));
       else toast.success(t('toastDeleted'));
       refreshContacts();
     }
 
     setDeleting(false);
     setDeleteConfirmOpen(false);
-    setDeleteTarget(null);
   }
 
   const allOnPageSelected =
@@ -942,26 +946,39 @@ export function ContactsPageInner({
     router.push(AUDIENCE_HANDOFF_URL);
   }
 
-  async function handleBulkDelete() {
-    const ids = [...selected];
-    if (ids.length === 0) return;
+  function confirmBulkDelete() {
+    setBulkTargets(
+      contacts
+        .filter((c) => selected.has(c.id))
+        .map((c) => ({ id: c.id, name: c.name || c.phone }))
+    );
+    setBulkDeleteOpen(true);
+  }
+
+  async function handleBulkDelete(ids: string[]) {
     setDeleting(true);
 
-    const res = await deleteRows(supabase, 'contacts', ids);
+    const res = await deleteContacts(supabase, ids);
+    const nameOfTarget = (id: string) =>
+      bulkTargets.find((c) => c.id === id)?.name ?? id;
 
-    if (res.kind === 'failed') {
-      toast.error(
-        t(
-          res.error.hint === 'LEGAL_HOLD'
-            ? 'toastLegalHold'
-            : 'toastBulkFailedDelete'
-        )
+    const allFailed = res.failed.length === ids.length;
+
+    if (allFailed) {
+      toast.error(t('toastBulkFailedDelete'));
+    } else if (res.refused.length + res.failed.length > 0) {
+      // Someone stayed though the dialog offered them (no preview, or the
+      // work was opened since): who, and why.
+      toast.warning(
+        tDelete('toastBulkStayed', {
+          count: res.deleted.length,
+          total: ids.length,
+          names: stayedText(res, nameOfTarget, tDelete, locale),
+        }),
+        { duration: 15000 }
       );
     } else {
-      const answer = bulkAnswer(
-        ids.length,
-        res.kind === 'changed' ? res.ids.length : 0
-      );
+      const answer = bulkAnswer(ids.length, res.deleted.length);
       if (answer.kind === 'all')
         toast.success(t('toastBulkDeleted', { count: answer.count }));
       else if (answer.kind === 'some')
@@ -972,6 +989,8 @@ export function ContactsPageInner({
           })
         );
       else toast.error(t('toastBulkNotDeleted'));
+    }
+    if (!allFailed) {
       setSelected(new Set());
       refreshContacts();
     }
@@ -1295,7 +1314,7 @@ export function ContactsPageInner({
           canDelete={canDelete}
           tree={chatTagTree}
           onClear={() => setSelected(new Set())}
-          onDelete={() => setBulkDeleteOpen(true)}
+          onDelete={confirmBulkDelete}
           onApplyTag={applyBulkTag}
           onAddToCampaign={addSelectedToCampaign}
         />
@@ -1716,69 +1735,30 @@ export function ContactsPageInner({
         />
       )}
 
-      {/* Delete Confirmation */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-popover-foreground">
-              {t('deleteContactTitle')}
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t('deleteContactDesc', {
-                name: deleteTarget?.name || deleteTarget?.phone || '',
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="bg-popover border-border">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirmOpen(false)}
-              className="border-border text-muted-foreground hover:bg-muted"
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="size-4 animate-spin" />}
-              {t('deleteBtn')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bulk Delete Confirmation */}
-      <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-popover-foreground">
-              {t('deleteBulkTitle')}
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t('deleteBulkDesc', { count: selected.size })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="bg-popover border-border">
-            <Button
-              variant="outline"
-              onClick={() => setBulkDeleteOpen(false)}
-              className="border-border text-muted-foreground hover:bg-muted"
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleBulkDelete}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="size-4 animate-spin" />}
-              {t('deleteBtn')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteContactsDialog
+        open={deleteConfirmOpen}
+        targets={
+          deleteTarget
+            ? [
+                {
+                  id: deleteTarget.id,
+                  name: deleteTarget.name || deleteTarget.phone,
+                },
+              ]
+            : []
+        }
+        deleting={deleting}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onDelete={(ids) => void handleDelete(ids)}
+      />
+      <DeleteContactsDialog
+        open={bulkDeleteOpen}
+        targets={bulkTargets}
+        bulk
+        deleting={deleting}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onDelete={(ids) => void handleBulkDelete(ids)}
+      />
     </div>
   );
 }
