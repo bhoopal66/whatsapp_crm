@@ -1399,3 +1399,9 @@ jobs:
       # since the caller read it is not classified.
       - name: Verify case file fixes
         run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
+
+      # Migration 271: an event ends a case's snooze, the last required
+      # document stops the chase, and a rule that did not match fires later,
+      # once.
+      - name: Verify case timers
+        run: supabase db query --local --file supabase/ci/verify-case-timers.sql

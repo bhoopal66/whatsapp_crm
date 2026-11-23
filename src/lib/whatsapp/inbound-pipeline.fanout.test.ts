@@ -59,6 +59,10 @@ const h = vi.hoisted(() => ({
   rotate: vi.fn(),
   // case_csat_capture (migration 246): true when the reply was stored.
   csatRpc: vi.fn(),
+  // The contact's open cases without a group.
+  caseRows: null as { id: string }[] | null,
+  // case_sla_event_system (migration 124).
+  slaRpc: vi.fn(),
 }));
 
 function respond(call: Call): Result {
@@ -89,6 +93,9 @@ function respond(call: Call): Result {
   if (call.table === 'messages' && call.op === 'upsert') {
     return { data: h.upsertRows, error: null };
   }
+  if (call.table === 'cases' && call.op === 'select') {
+    return { data: h.caseRows, error: null };
+  }
   if (call.table === 'broadcast_recipients' && call.op === 'select') {
     return { data: h.recipientRows, error: null };
   }
@@ -111,6 +118,7 @@ function fakeDb() {
       h.rpcArgs.push(args);
       if (fn === 'customer_documents_record') return h.docRpc(args);
       if (fn === 'case_csat_capture') return h.csatRpc(args);
+      if (fn === 'case_sla_event_system') return h.slaRpc(args);
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -311,6 +319,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ assignedTo: 'agent-2', reason: 'assigned' });
   h.csatRpc.mockReset().mockResolvedValue({ data: false, error: null });
+  h.caseRows = null;
+  h.slaRpc.mockReset().mockResolvedValue({ data: null, error: null });
 });
 
 // Broadcast first-reply rotation (migration 236): only the FIRST reply
@@ -1517,5 +1527,83 @@ describe('processMessage: onPersistFailure', () => {
     h.refuse = 'conversations:update';
     await expect(run({ onPersistFailure: 'throw' })).resolves.toBeUndefined();
     expect(h.rpcs).toContain('bump_conversation_on_inbound');
+  });
+});
+
+// A lead (a case with no group) is answered in this chat: its customer
+// reply timer stops and a snooze ends (case_sla_event_system).
+describe('processMessage — an open lead hears the customer', () => {
+  const caseReads = () => h.calls.filter((c) => c.table === 'cases');
+
+  it('sends the event to each open case without a group, once', async () => {
+    h.caseRows = [{ id: 'lead-1' }, { id: 'lead-2' }];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(caseReads().map((c) => c.filters)).toEqual([
+      [
+        ['eq', 'account_id', 'acct-1'],
+        ['eq', 'contact_id', 'contact-1'],
+        ['is', 'group_id', null],
+        ['is', 'closed_at', null],
+      ],
+    ]);
+    expect(h.slaRpc.mock.calls.map(([a]) => a)).toEqual(
+      ['lead-1', 'lead-2'].map((id) => ({
+        p_case: id,
+        p_event: 'customer_message',
+        p_now: expect.any(String),
+      }))
+    );
+  });
+
+  it('one read and nothing else for a contact with no lead', async () => {
+    h.caseRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(caseReads()).toHaveLength(1);
+    expect(h.slaRpc).not.toHaveBeenCalled();
+  });
+
+  it('a sender over the rate limit answered too', async () => {
+    h.caseRows = [{ id: 'lead-1' }];
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    expect(h.slaRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('never on a replay or a personal number', async () => {
+    h.caseRows = [{ id: 'lead-1' }];
+    await processMessage(message, 'acct-1', 'owner-1', {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'owner-1',
+    });
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    info.mockRestore();
+    expect(caseReads()).toHaveLength(0);
+    expect(h.slaRpc).not.toHaveBeenCalled();
+  });
+
+  it('a failed read or event is logged; the message still fans out', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.caseRows = [{ id: 'lead-1' }, { id: 'lead-2' }];
+    h.slaRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.slaRpc).toHaveBeenCalledTimes(2);
+    expect(h.flows).toHaveBeenCalledTimes(1);
+
+    h.refuse = 'cases:select';
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    h.refuse = null;
+    expect(h.slaRpc).toHaveBeenCalledTimes(2);
+    expect(h.flows).toHaveBeenCalledTimes(2);
+    expect(
+      error.mock.calls.filter(([m]) => String(m).startsWith('[cases]'))
+    ).toHaveLength(2);
+    error.mockRestore();
   });
 });

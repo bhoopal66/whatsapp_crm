@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Cases: timers, snoozes and rules
+
+**Migration required:** `271_case_timers.sql`
+- A snoozed case comes back as soon as the customer writes or its stage
+  changes, marked "snooze expired". Before, it stayed hidden from
+  everybody until its date.
+- The document chase stops when the last required document arrives, so the
+  case no longer goes overdue with nothing left to ask for.
+- A rule on an overdue timer, an idle case or a stage entered now fires when
+  its conditions become true later (the bank is filled in afterwards). It
+  still fires once. After the migration, rules that missed this way fire on
+  the next sweep for cases still overdue or idle.
+- A lead's "customer reply" timer stops when the customer answers in the
+  one-to-one chat; only submission groups did this before.
+- "Customer waiting" is now **Waiting for the customer**, on the cases list,
+  its filter and the home page: the flag means we wait for the customer.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.
