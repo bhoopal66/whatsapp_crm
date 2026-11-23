@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
+import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { NextIntlClientProvider, type AbstractIntlMessages } from 'next-intl';
 
@@ -60,7 +61,9 @@ vi.mock('@/lib/supabase/client', () => ({
 
 import { AttentionStrip } from './attention-strip';
 
-function render(): string {
+function render(
+  missedCalls: ComponentProps<typeof AttentionStrip>['missedCalls'] = null
+): string {
   return renderToStaticMarkup(
     <NextIntlClientProvider
       locale="en"
@@ -71,7 +74,7 @@ function render(): string {
         refreshKey={0}
         tasks={null}
         cases={null}
-        missedCalls={null}
+        missedCalls={missedCalls}
       />
     </NextIntlClientProvider>
   );
@@ -115,5 +118,30 @@ describe('AttentionStrip Smart insights tiles', () => {
       'or',
       'insight_lead_temp.gte.1.4,insight_upset.gte.0.7',
     ]);
+  });
+});
+
+describe('the missed calls tile', () => {
+  const tile = (missedCalls: Parameters<typeof render>[0]) =>
+    render(missedCalls)
+      .split('<a ')
+      .find((a) => a.includes('href="/calls"')) ?? '';
+
+  it('could not be counted: a dash, never "All clear"', () => {
+    const html = tile({ count: null, error: true });
+    expect(html).toContain('–');
+    expect(html).not.toContain(en.Dashboard.home.attention.allClear);
+  });
+
+  it('not counted yet: neither a figure nor "All clear"', () => {
+    const html = tile({ count: null, error: false });
+    expect(html).not.toContain('–');
+    expect(html).not.toContain(en.Dashboard.home.attention.allClear);
+  });
+
+  it('none is "All clear"', () => {
+    expect(tile({ count: 0, error: false })).toContain(
+      en.Dashboard.home.attention.allClear
+    );
   });
 });

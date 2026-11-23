@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -209,7 +210,10 @@ export function AiAgentsArea({
     : null;
 
   const dots: Partial<Record<AgentTab, { dot: StatusDot; label: string }>> = {
-    'auto-reply': { dot: autoReplyDot(overview), label: t('dot.green') },
+    'auto-reply': {
+      dot: form.loadError ? null : autoReplyDot(overview),
+      label: t('dot.green'),
+    },
     safety: {
       dot: safetyDot(safetyState),
       label: safetyState ? tSafety(`state.${safetyState}`) : '',
@@ -227,7 +231,8 @@ export function AiAgentsArea({
     ...(canViewUsage ? (['usage'] as const) : []),
   ];
 
-  const showSaveBar = FORM_TABS.includes(tab) && form.dirty && form.canEdit;
+  const showSaveBar =
+    FORM_TABS.includes(tab) && form.dirty && form.canEdit && !form.loadError;
 
   return (
     <Tabs value={tab} onValueChange={(v) => onTabChange(v as AgentTab)}>
@@ -254,6 +259,8 @@ export function AiAgentsArea({
       <TabsContent value="overview" className="mt-4">
         {form.loading ? (
           <AreaLoading />
+        ) : form.loadError ? (
+          <ConfigLoadFailed form={form} />
         ) : (
           <OverviewTab
             form={form}
@@ -348,6 +355,12 @@ function AreaLoading() {
   );
 }
 
+/** The config could not be read, which is not "not set up". */
+function ConfigLoadFailed({ form }: { form: AiConfigForm }) {
+  const t = useTranslations('Settings.aiConfig');
+  return <ErrorState message={t('loadFailed')} onRetry={form.retry} />;
+}
+
 /** A form tab: a loader until the config arrives, and the read-only
  *  notice for roles that cannot change it. */
 function FormTab({
@@ -359,6 +372,7 @@ function FormTab({
 }) {
   const t = useTranslations('Settings.aiConfig');
   if (form.loading) return <AreaLoading />;
+  if (form.loadError) return <ConfigLoadFailed form={form} />;
   return (
     <>
       {!form.canEdit ? (

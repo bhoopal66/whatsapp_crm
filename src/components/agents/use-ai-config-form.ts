@@ -14,12 +14,12 @@ import {
   AI_TIER_DEFAULT_MODELS,
 } from '@/lib/ai/defaults';
 import {
-  aiConfigFormFromResponse,
   apiKeyPayload,
   applyAiSaveResult,
   applyKeyFieldEvent,
   buildAiSavePlan,
   emptyAiConfigForm,
+  readAiConfigResponse,
   type AiConfigFormValues,
   type AiSavedState,
   type KeyField,
@@ -59,6 +59,11 @@ export function useAiConfigForm() {
   const t = useTranslations('Settings.aiConfig');
 
   const [loading, setLoading] = useState(true);
+  // The last load failed: the form does not hold what is stored, so
+  // nothing may be shown as the config or saved from it.
+  const [loadError, setLoadError] = useState(false);
+  // The version the form was loaded from, for the save to compare.
+  const [updatedAt, setUpdatedAt] = useState<string | null | undefined>();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -134,37 +139,50 @@ export function useAiConfigForm() {
     }
   }, []);
 
-  const fetchConfig = useCallback(async () => {
+  const fetchConfig = useCallback(async (forAccount: string) => {
     setLoading(true);
     try {
       const res = await fetch('/api/ai/config');
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? t('loadFailed'));
-        return;
-      }
-      if (data.configured) {
-        const next = aiConfigFormFromResponse(data);
-        setConfigured(true);
-        setHasStoredKey(Boolean(data.has_key));
-        setHasStoredEmbeddingsKey(Boolean(data.has_embeddings_key));
-        setLoaded(next);
-        setValues(next);
-      }
+      const read = readAiConfigResponse(
+        res.ok,
+        await res.json().catch(() => null)
+      );
+      // Another account's load has started meanwhile.
+      if (loadedAccountIdRef.current !== forAccount) return;
+      if (!read) throw new Error(`ai config load failed (${res.status})`);
+      setConfigured(read.configured);
+      setHasStoredKey(read.hasKey);
+      setHasStoredEmbeddingsKey(read.hasEmbeddingsKey);
+      setLoaded(read.values);
+      setValues(read.values);
+      setUpdatedAt(read.updatedAt);
+      setLoadError(false);
     } catch {
-      toast.error(t('loadFailed'));
-    } finally {
-      setLoading(false);
+      if (loadedAccountIdRef.current !== forAccount) return;
+      loadedAccountIdRef.current = null;
+      setLoadError(true);
     }
-  }, [t]);
+    setLoading(false);
+  }, []);
+
+  const load = useCallback(
+    (forAccount: string) => {
+      loadedAccountIdRef.current = forAccount;
+      void fetchConfig(forAccount);
+      void fetchRoutes();
+      void fetchAccountMembers().then((all) => setMembers(staffOnly(all)));
+    },
+    [fetchConfig, fetchRoutes]
+  );
 
   useEffect(() => {
     if (!accountId || loadedAccountIdRef.current === accountId) return;
-    loadedAccountIdRef.current = accountId;
-    void fetchConfig();
-    void fetchRoutes();
-    void fetchAccountMembers().then((all) => setMembers(staffOnly(all)));
-  }, [accountId, fetchConfig, fetchRoutes]);
+    load(accountId);
+  }, [accountId, load]);
+
+  const retry = () => {
+    if (accountId) load(accountId);
+  };
 
   // Swap the model defaults when the provider changes, unless the user
   // typed a custom model.
@@ -224,6 +242,7 @@ export function useAiConfigForm() {
   };
 
   const save = async () => {
+    if (!accountId || loading || loadError) return;
     if (!values.model.trim()) {
       toast.error(t('missingModel'));
       return;
@@ -247,13 +266,22 @@ export function useAiConfigForm() {
         const res = await fetch('/api/ai/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(plan.config),
+          body: JSON.stringify({
+            ...plan.config,
+            expectedUpdatedAt: updatedAt,
+          }),
         });
         const data = await res.json();
+        if (data?.code === 'STALE') {
+          toast.error(t('stale'));
+          load(accountId);
+          return;
+        }
         if (!res.ok) {
           toast.error(data.error ?? t('saveFailed'));
           return;
         }
+        setUpdatedAt(data?.updated_at ?? undefined);
         // Saved even if the route PUT below fails, so a retry only PUTs.
         next = applyAiSaveResult(next, current, plan, {
           configSaved: true,
@@ -283,7 +311,7 @@ export function useAiConfigForm() {
       toast.success(t('saveSuccess'));
       // The bot's switch decides which list campaign chats are in.
       invalidateCached(AI_AUTO_REPLY_LIVE_CACHE_PREFIX);
-      await fetchConfig();
+      await fetchConfig(accountId);
     } catch {
       toast.error(t('saveFailed'));
     } finally {
@@ -309,6 +337,7 @@ export function useAiConfigForm() {
         setHasStoredEmbeddingsKey(false);
         setLoaded(blank);
         setValues(blank);
+        setUpdatedAt(null);
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));
@@ -324,6 +353,9 @@ export function useAiConfigForm() {
     accountId,
     canEdit,
     loading: loading || profileLoading,
+    /** The config could not be read: show an error with `retry`. */
+    loadError,
+    retry,
     saving,
     testing,
     removing,

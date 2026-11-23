@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { useAuth } from '@/hooks/use-auth';
 import { AssignmentPeoplePicker } from '@/components/assignment/people-picker';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +32,7 @@ import {
   rotationPeople,
 } from '@/lib/assignment/ui';
 import { MEMBER_LOADS_CACHE_PREFIX } from '@/hooks/use-member-loads';
+import { readSettings } from '@/lib/settings/read-settings';
 import { SettingsPanelHead } from './settings-panel-head';
 
 interface MemberRow {
@@ -80,36 +82,35 @@ export function ChatAssignmentPanel() {
   const [busyRow, setBusyRow] = useState<string | null>(null);
   const [addPerson, setAddPerson] = useState('');
   const [addText, setAddText] = useState('');
+  // A failed load keeps the form empty: the defaults must never be
+  // savable over settings that were not read.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!accountId) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/assignment/settings', {
-          cache: 'no-store',
-        });
-        const body = await res.json().catch(() => ({}));
+        const body = await readSettings('/api/assignment/settings');
         if (cancelled) return;
-        if (!res.ok) throw new Error(String(body?.error ?? res.status));
-        const s = parseSettings(body?.settings);
+        const s = parseSettings(body.settings);
         setForm(s);
         setLimitText(String(s.defaultChatLimit));
-        setMembers(Array.isArray(body?.members) ? body.members : []);
-        setAvailable(body?.available !== false);
+        setMembers(Array.isArray(body.members) ? body.members : []);
+        setAvailable(body.available !== false);
         setDirty(false);
+        setFailed(false);
       } catch {
         if (cancelled) return;
-        toast.error(t('loadFailed'));
-        const s = parseSettings(null);
-        setForm(s);
-        setLimitText(String(s.defaultChatLimit));
+        setForm(null);
+        setFailed(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [accountId, t]);
+  }, [accountId, attempt]);
 
   const people = useMemo(
     () =>
@@ -135,6 +136,20 @@ export function ChatAssignmentPanel() {
     return known ? t(`errors.${known}`) : fallback;
   };
 
+  if (failed) {
+    return (
+      <div>
+        <SettingsPanelHead title={t('title')} description={t('description')} />
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      </div>
+    );
+  }
   if (!form) {
     return (
       <div>

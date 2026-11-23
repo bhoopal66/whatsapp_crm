@@ -73,12 +73,20 @@ export async function PATCH(
     return NextResponse.json({ ok: true })
   }
 
-  const { error } = await supabaseAdmin()
+  const { data, error } = await supabaseAdmin()
     .from('quick_replies')
     .update(update)
     .eq('id', id)
     .eq('account_id', ctx.accountId)
+    .select('id')
   if (error) return serverErrorResponse('PATCH /api/quick-replies/[id]', error)
+  // Removed meanwhile: the screen keeps the text being edited.
+  if (!data?.length) {
+    return NextResponse.json(
+      { error: 'Quick reply not found.' },
+      { status: 404 },
+    )
+  }
   return NextResponse.json({ ok: true })
 }
 

@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Settings: a failed load is never saved over the real settings
+
+No migration.
+- Response times, Chat assignment, Departments, the AI configuration and
+  Quick replies show an error with Try again when they cannot be loaded.
+  They used to show the defaults (or "not set up", or an empty list), and
+  the next Save replaced the real settings.
+- Two admins can no longer overwrite each other's Team activity limits or
+  AI configuration: the second save says the settings changed and reloads
+  them. The limits are read again each time their dialog opens.
+- A template synced from Meta cannot be edited here: edit it in Meta
+  Business Manager, then Sync. An edit here used to show words Meta never
+  approved.
+- Saving a quick reply that somebody removed says so, keeps the text, and
+  Save then adds it as a new one.
+- Home: missed calls that could not be counted show "–", not "All clear".
+
 ### Phone system: calls whose events were lost
 
 No migration.

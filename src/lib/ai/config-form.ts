@@ -301,6 +301,43 @@ export function aiConfigRequestBody(values: AiConfigFormValues) {
   };
 }
 
+/** What a GET /api/ai/config answer holds. */
+export interface AiConfigLoad {
+  configured: boolean;
+  hasKey: boolean;
+  hasEmbeddingsKey: boolean;
+  values: AiConfigFormValues;
+  /** The stored row's version: null when there is none yet, undefined
+   *  when the server did not say (then a save is not compared). */
+  updatedAt: string | null | undefined;
+}
+
+/**
+ * Reads the GET /api/ai/config answer. Null when the load failed: an
+ * error, or an answer that does not say whether the AI is configured.
+ * That is never "not set up" — saving the empty form would replace the
+ * stored prompt and switches.
+ */
+export function readAiConfigResponse(
+  ok: boolean,
+  data: unknown
+): AiConfigLoad | null {
+  if (!ok || !data || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.configured !== 'boolean') return null;
+  return {
+    configured: d.configured,
+    hasKey: d.configured && Boolean(d.has_key),
+    hasEmbeddingsKey: d.configured && Boolean(d.has_embeddings_key),
+    values: d.configured ? aiConfigFormFromResponse(d) : emptyAiConfigForm(),
+    updatedAt: !d.configured
+      ? null
+      : typeof d.updated_at === 'string'
+        ? d.updated_at
+        : undefined,
+  };
+}
+
 /** What the server holds: the config and the explicit `ai_reply` route
  *  (null = no route row). */
 export interface AiSavedState {

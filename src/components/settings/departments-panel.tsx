@@ -14,6 +14,7 @@ import {
   type Department,
   type DepartmentSettings,
 } from '@/lib/auth/departments';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Switch } from '@/components/ui/switch';
 
 /**
@@ -32,6 +33,10 @@ export function DepartmentsPanel() {
     DepartmentSettings
   > | null>(null);
   const [saving, setSaving] = useState<Department | null>(null);
+  // A failed load shows no switches: a save sends both columns of a
+  // department, so neither may come from the built-in defaults.
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!accountId) return;
@@ -44,14 +49,17 @@ export function DepartmentsPanel() {
         if (cancelled) return;
         if (error) {
           console.error('[DepartmentsPanel] load error:', error);
-          toast.error(t('loadFailed'));
+          setSettings(null);
+          setFailed(true);
+          return;
         }
-        setSettings(mergeDepartmentSettings(error ? null : data));
+        setSettings(mergeDepartmentSettings(data));
+        setFailed(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [accountId, t]);
+  }, [accountId, attempt]);
 
   async function change(
     department: Department,
@@ -82,7 +90,15 @@ export function DepartmentsPanel() {
         <p className="text-muted-foreground text-sm">{t('description')}</p>
       </div>
 
-      {!settings ? (
+      {failed ? (
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      ) : !settings ? (
         <Loader2 className="text-muted-foreground size-4 animate-spin" />
       ) : (
         <div className="space-y-3">

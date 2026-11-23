@@ -59,7 +59,7 @@ export function CallsSection({
       setState({
         me: me as MyPhone | null,
         hasPbx: badge.hasPbx,
-        missed: badge.missed,
+        missed: badge.missed ?? 0,
         today: Array.isArray(calls?.calls) ? calls.calls.length : 0,
       });
     })();

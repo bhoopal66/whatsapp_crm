@@ -2630,7 +2630,8 @@
         "document": "PDF, 16 MB 이하"
       },
       "toastInvalidMedia": "헤더 {format} 형식은 다음 중 하나여야 합니다: {types}.",
-      "toastMediaTooLarge": "파일이 {size} MB입니다 — 이 헤더의 한도는 {max} MB입니다."
+      "toastMediaTooLarge": "파일이 {size} MB입니다 — 이 헤더의 한도는 {max} MB입니다.",
+      "editInMeta": "이 템플릿은 Meta에서 관리됩니다. Meta Business Manager에서 수정한 다음 동기화하세요."
     },
     "roles": {
       "admin": "관리자",
@@ -3348,7 +3349,8 @@
       "autoResumeMinutes": "{count}분",
       "autoResumeHours": "{count}시간",
       "guardrailRetry": "보류된 초안을 사람이 검토하기 전에 한 번 다시 쓰기",
-      "guardrailRetryDesc": "AI 안전 검사가 초안을 보류하면 대형 모델이 검사 사유를 반영해 한 번 다시 씁니다. 그것도 보류되면 채팅은 보내기, 수정 또는 삭제할 수 있는 초안과 함께 사람에게 넘어갑니다."
+      "guardrailRetryDesc": "AI 안전 검사가 초안을 보류하면 대형 모델이 검사 사유를 반영해 한 번 다시 씁니다. 그것도 보류되면 채팅은 보내기, 수정 또는 삭제할 수 있는 초안과 함께 사람에게 넘어갑니다.",
+      "stale": "다른 사람이 이 설정을 변경했습니다. 설정을 다시 불러왔습니다."
     },
     "aiKnowledge": {
       "loadFailed": "지식베이스를 불러오지 못했습니다",
@@ -3872,7 +3874,9 @@
       "updated": "빠른 답장을 수정했습니다.",
       "created": "빠른 답장을 만들었습니다.",
       "deleteConfirm": "이 빠른 답장을 삭제할까요?",
-      "deleteFailed": "빠른 답장을 삭제하지 못했습니다."
+      "deleteFailed": "빠른 답장을 삭제하지 못했습니다.",
+      "loadFailed": "빠른 답장을 불러오지 못했습니다.",
+      "removed": "다른 사람이 이 빠른 답장을 삭제했습니다. 작성한 내용은 유지되며, 저장하면 새 항목으로 추가됩니다."
     },
     "teamChat": {
       "title": "팀 채팅",
@@ -5122,7 +5126,9 @@
         "leaderViewEnabled": {
           "label": "팀 리더는 팀의 활동을 봅니다"
         }
-      }
+      },
+      "stale": "다른 사람이 이 설정을 변경했습니다. 설정을 다시 불러왔습니다.",
+      "loadFailed": "한도를 불러오지 못했습니다."
     },
     "findings": {
       "reply_rate_low": {

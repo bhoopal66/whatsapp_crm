@@ -10,6 +10,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
+import { isStaleSave, staleSaveResponse } from '@/lib/settings/stale';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
 import {
   parseAiAgentV2Settings,
@@ -45,7 +46,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry, reply_on_all_numbers, answer_mode, approved_min_score, sensitive_data_reply'
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry, reply_on_all_numbers, answer_mode, approved_min_score, sensitive_data_reply, updated_at'
       )
       .eq('account_id', accountId)
       .maybeSingle();
@@ -81,6 +82,10 @@ export async function GET() {
  * first), then stores the key AES-256-GCM-encrypted. When `api_key` is
  * omitted the existing stored key is reused (the form sends it only
  * when the user re-enters it).
+ *
+ * `expectedUpdatedAt` is the `updated_at` the form was loaded with (null:
+ * no config yet). When the stored row is another one the save answers
+ * 409 STALE. A body without it is not compared.
  */
 export async function POST(request: Request) {
   try {
@@ -204,11 +209,21 @@ export async function POST(request: Request) {
     const clearEmbeddingsKey = body.embeddings_api_key === null;
 
     // Reuse the stored key when the form didn't send a fresh one.
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('ai_configs')
-      .select('id, provider, model, api_key')
+      .select('id, provider, model, api_key, updated_at')
       .eq('account_id', accountId)
       .maybeSingle();
+    if (existingError) {
+      console.error('[ai/config POST] read error:', existingError);
+      return NextResponse.json(
+        { error: 'Failed to save AI configuration' },
+        { status: 500 }
+      );
+    }
+    if (isStaleSave(body.expectedUpdatedAt, existing?.updated_at ?? null)) {
+      return staleSaveResponse();
+    }
 
     let apiKeyPlain: string;
     if (rawKey) {
@@ -313,11 +328,17 @@ export async function POST(request: Request) {
       shared.embeddings_api_key = null;
     }
 
+    let savedAt: string | undefined;
     if (existing) {
-      const { error: upErr } = await supabase
+      let update = supabase
         .from('ai_configs')
         .update(encryptedKey ? { ...shared, api_key: encryptedKey } : shared)
         .eq('account_id', accountId);
+      // The key checks above take seconds: hold the version to the write.
+      if (body.expectedUpdatedAt !== undefined) {
+        update = update.eq('updated_at', existing.updated_at);
+      }
+      const { data: written, error: upErr } = await update.select('updated_at');
       if (upErr) {
         console.error('[ai/config POST] update error:', upErr);
         return NextResponse.json(
@@ -325,13 +346,18 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+      if (!written?.length) return staleSaveResponse();
+      savedAt = written[0].updated_at;
     } else {
-      const { error: insErr } = await supabase.from('ai_configs').insert({
-        account_id: accountId,
-        created_by: userId,
-        api_key: encryptedKey, // guaranteed non-null: rawKey required when no existing row
-        ...shared,
-      });
+      const { data: inserted, error: insErr } = await supabase
+        .from('ai_configs')
+        .insert({
+          account_id: accountId,
+          created_by: userId,
+          api_key: encryptedKey, // guaranteed non-null: rawKey required when no existing row
+          ...shared,
+        })
+        .select('updated_at');
       if (insErr) {
         console.error('[ai/config POST] insert error:', insErr);
         return NextResponse.json(
@@ -339,9 +365,10 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+      savedAt = inserted?.[0]?.updated_at;
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, updated_at: savedAt });
   } catch (err) {
     return toErrorResponse(err);
   }

@@ -582,7 +582,24 @@ export function TemplateManager() {
                     )}
                   </div>
                   <div className="ms-2 flex shrink-0 items-center gap-1">
-                    {statusKey === 'APPROVED' && (
+                    {/* A template synced from Meta is edited there; the
+                        route refuses it (409). The reason sits on the
+                        wrapper: a disabled button shows no title. */}
+                    {template.meta_template_id && (
+                      <span title={t('editInMeta')}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled
+                          aria-label={t('editInMeta')}
+                          className="text-muted-foreground h-8 px-2"
+                        >
+                          <Pencil className="size-3.5" />
+                          {t('edit')}
+                        </Button>
+                      </span>
+                    )}
+                    {statusKey === 'APPROVED' && !template.meta_template_id && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -595,19 +612,20 @@ export function TemplateManager() {
                         {t('edit')}
                       </Button>
                     )}
-                    {(statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(template)}
-                        title={t('resubmitTitle')}
-                        aria-label={t('resubmitLabel')}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
-                      >
-                        <RotateCcw className="size-3.5" />
-                        {t('resubmit')}
-                      </Button>
-                    )}
+                    {!template.meta_template_id &&
+                      (statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEdit(template)}
+                          title={t('resubmitTitle')}
+                          aria-label={t('resubmitLabel')}
+                          className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
+                        >
+                          <RotateCcw className="size-3.5" />
+                          {t('resubmit')}
+                        </Button>
+                      )}
                     <Button
                       variant="ghost"
                       size="icon"

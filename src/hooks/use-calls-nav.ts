@@ -33,7 +33,11 @@ export function useCallsNav(): { visible: boolean; missed: number } {
     (async () => {
       const { hasPbx, missed } = await loadCallsBadge(createClient(), userId);
       if (!cancelled)
-        setLoaded({ workspace: activeWorkspaceId, hasPbx, missed });
+        setLoaded({
+          workspace: activeWorkspaceId,
+          hasPbx,
+          missed: missed ?? 0,
+        });
     })().catch(() => {});
     return () => {
       cancelled = true;

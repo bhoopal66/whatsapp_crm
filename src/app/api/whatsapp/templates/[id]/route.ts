@@ -68,12 +68,26 @@ export async function PATCH(
     // account turns a silent no-op update into an honest 404.
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id')
+      .select('id, meta_template_id')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
     if (lookupErr || !existing) {
       return NextResponse.json({ error: 'Template not found.' }, { status: 404 })
+    }
+
+    // A template synced from Meta is Meta's text: writing ours here would
+    // show (and preview) words Meta never approved, as APPROVED, while
+    // customers still receive Meta's. The next Sync brings an edit back.
+    if (existing.meta_template_id) {
+      return NextResponse.json(
+        {
+          error:
+            'This template belongs to Meta. Edit it in Meta Business Manager, then Sync.',
+          code: 'META_TEMPLATE',
+        },
+        { status: 409 },
+      )
     }
 
     try {

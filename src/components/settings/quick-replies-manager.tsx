@@ -5,6 +5,7 @@ import { Loader2, MessageSquare, Pencil, Plus, Trash2, Zap } from "lucide-react"
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
+import { ErrorState } from "@/components/dashboard/error-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,8 @@ export function QuickRepliesManager() {
   const t = useTranslations("Settings.quickReplies");
   const [items, setItems] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load is an error, never "no quick replies yet".
+  const [failed, setFailed] = useState(false);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -54,8 +57,14 @@ export function QuickRepliesManager() {
     setLoading(true);
     try {
       const res = await fetch("/api/quick-replies", { cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) setItems((data.quick_replies as QuickReply[]) ?? []);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data?.quick_replies)) {
+        throw new Error(`quick replies load failed (${res.status})`);
+      }
+      setItems(data.quick_replies as QuickReply[]);
+      setFailed(false);
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -98,6 +107,13 @@ export function QuickRepliesManager() {
         },
       );
       const data = await res.json().catch(() => ({}));
+      if (draft.id && res.status === 404) {
+        // Somebody removed it: keep the text, so Save adds it as new.
+        toast.error(t("removed"));
+        setDraft({ ...draft, id: undefined });
+        await load();
+        return;
+      }
       if (!res.ok) {
         toast.error(data.error ?? t("saveFailed"));
         return;
@@ -142,6 +158,8 @@ export function QuickRepliesManager() {
         <div className="flex justify-center py-10">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : failed ? (
+        <ErrorState message={t("loadFailed")} onRetry={() => void load()} />
       ) : items.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
           {t("empty")}

@@ -34,6 +34,7 @@ import {
   HOME_LIST_LIMIT,
 } from '@/lib/dashboard/home/sources';
 import { homeWidgets } from '@/lib/dashboard/home/widgets';
+import { missedCallCount } from '@/lib/dashboard/missed-calls';
 import { loadCallsBadge } from '@/lib/pbx/calls-badge';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -130,13 +131,11 @@ export default function DashboardPage() {
   const listedMissed = tasks.data?.filter(
     (t) => t.kind === 'missed_call'
   ).length;
-  const badgeMissed = callsBadge.data?.missed ?? 0;
-  const missedCalls =
-    listedMissed === undefined
-      ? badgeMissed
-      : (tasks.data?.length ?? 0) >= HOME_LIST_LIMIT
-        ? Math.max(listedMissed, badgeMissed)
-        : listedMissed;
+  const missedCalls = missedCallCount(
+    listedMissed,
+    (tasks.data?.length ?? 0) >= HOME_LIST_LIMIT,
+    callsBadge.data?.missed ?? null
+  );
   const cases = useWidgetData(
     show('cases') && accountId ? `cases:${accountId}:${refreshKey}` : null,
     fetchOpenCases
@@ -192,7 +191,17 @@ export default function DashboardPage() {
           refreshKey={refreshKey}
           tasks={show('tasks') ? tasks : null}
           cases={show('cases') ? cases : null}
-          missedCalls={show('tasks') && show('calls') ? missedCalls : null}
+          missedCalls={
+            show('tasks') && show('calls')
+              ? {
+                  count: missedCalls,
+                  error:
+                    missedCalls === null &&
+                    !tasks.loading &&
+                    !callsBadge.loading,
+                }
+              : null
+          }
         />
       )}
 
