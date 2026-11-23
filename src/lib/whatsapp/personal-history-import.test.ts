@@ -323,6 +323,12 @@ function chatRow(db: ReturnType<typeof fakeDb>, chatId: string) {
   );
 }
 
+/** The lease is kept for PAUSED_RETRY_MS, so the next job gets a turn. */
+function expectSteppedAside(db: ReturnType<typeof fakeDb>) {
+  const held = Date.parse(String(job(db).lease_until)) - Date.now();
+  expect(held).toBeGreaterThan(PAUSED_RETRY_MS - 10_000);
+}
+
 // ============================================================
 // The tick
 // ============================================================
@@ -656,7 +662,7 @@ describe('runPersonalHistoryImportTick', () => {
     expect(job(db)).toMatchObject({ status: 'done', messages_imported: 2 });
   });
 
-  it('records a failure, releases the lease and never throws', async () => {
+  it('records a failure, steps aside and never throws', async () => {
     const db = fakeDb({ whatsapp_config: [configRow()] });
     listChatsMock.mockResolvedValueOnce([chatSummary('971500000001@c.us', 1)]);
     db.failRpc.import_history_rows = 'boom';
@@ -667,11 +673,76 @@ describe('runPersonalHistoryImportTick', () => {
     });
 
     expect(res.status).toBe('running');
-    expect(job(db)).toMatchObject({ status: 'running', lease_until: null });
+    expect(job(db).status).toBe('running');
+    expectSteppedAside(db);
     expect(String(job(db).last_error)).toContain('boom');
     expect(chatRow(db, '971500000001@c.us')).toMatchObject({
       status: 'pending',
     });
+  });
+
+  it('steps aside when the chats cannot be listed, so a newer job runs', async () => {
+    const other = { user_id: OWNER, account_id: ACCOUNT, status: 'queued' };
+    const db = fakeDb({
+      whatsapp_config: [
+        configRow(),
+        configRow({ id: 'cfg-2', phone_number_id: 'sess-2' }),
+      ],
+      personal_history_imports: [
+        { ...other, config_id: CONFIG, lease_until: null },
+        { ...other, config_id: 'cfg-2', lease_until: null },
+      ],
+    });
+    listChatsMock.mockRejectedValueOnce(new OpenWAError('boom', 500));
+    listChatsMock.mockResolvedValueOnce([chatSummary('971500000001@c.us', 1)]);
+    const opts = { budgetMs: 60_000, ...noPause };
+
+    await runPersonalHistoryImportTick(db.client, opts);
+    expect(job(db).status).toBe('listing');
+    expectSteppedAside(db);
+
+    const second = await runPersonalHistoryImportTick(db.client, opts);
+    expect(second).toMatchObject({ configId: 'cfg-2', status: 'done' });
+  });
+
+  it('gives a chat the database keeps refusing up after 3 tries and finishes', async () => {
+    const db = fakeDb({ whatsapp_config: [configRow()] });
+    listChatsMock.mockResolvedValueOnce([
+      chatSummary('971500000002@c.us', 2),
+      chatSummary('971500000001@c.us', 1),
+    ]);
+    contactMock.mockImplementation(async (_a, _o, phone) => {
+      if (phone === '971500000002') throw new Error('invalid text');
+      return { contact: { id: `contact-${phone}` }, wasCreated: true };
+    });
+    for (const attempts of [1, 2, 3]) {
+      await runPersonalHistoryImportTick(db.client, {
+        budgetMs: 60_000,
+        ...noPause,
+      });
+      expect(chatRow(db, '971500000002@c.us')).toMatchObject({ attempts });
+      if (attempts < 3) job(db).lease_until = null;
+    }
+    expect(chatRow(db, '971500000002@c.us')).toMatchObject({
+      status: 'failed',
+    });
+    expect(chatRow(db, '971500000001@c.us')).toMatchObject({ status: 'done' });
+    expect(job(db)).toMatchObject({ status: 'done', chats_done: 2 });
+  });
+
+  it('stores no character Postgres refuses', async () => {
+    const db = fakeDb({ whatsapp_config: [configRow()] });
+    listChatsMock.mockResolvedValueOnce([
+      chatSummary('971500000001@c.us', 1, { name: 'A\u0000b' }),
+    ]);
+    historyMock.mockResolvedValueOnce([msg({ body: 'h\u0000i' })]);
+    await runPersonalHistoryImportTick(db.client, {
+      budgetMs: 60_000,
+      ...noPause,
+    });
+    expect(chatRow(db, '971500000001@c.us')?.name).toBe('Ab');
+    const sent = db.rpcCalls.find((c) => c.name === 'import_history_rows');
+    expect((sent?.args.p_rows as Row[])[0].content_text).toBe('hi');
   });
 
   it('stops on a session-level refusal without spending attempts', async () => {
@@ -689,7 +760,8 @@ describe('runPersonalHistoryImportTick', () => {
       status: 'pending',
     });
     expect(chatRow(db, '971500000001@c.us')?.attempts).toBeUndefined();
-    expect(job(db)).toMatchObject({ status: 'running', lease_until: null });
+    expect(job(db).status).toBe('running');
+    expectSteppedAside(db);
   });
 
   it('fails one bad chat on a per-chat 4xx and imports the next in the same tick', async () => {

@@ -23,6 +23,14 @@ No migration.
   on the phone and the history import. Company numbers are not affected,
   and reactivating someone reconnects nothing.
 
+### A failing chat-history import no longer holds up the others
+
+No migration.
+- A personal number's import stopped by an error waits five minutes
+  before its next try, so other people's imports run meanwhile.
+- A chat the database refuses three times is left out and the import
+  finishes; characters the database cannot store are removed.
+
 ### Limits on what reaches a customer's group, and on uploads
 
 No migration.

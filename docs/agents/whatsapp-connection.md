@@ -354,6 +354,8 @@ A personal number records nothing once its owner is deactivated or
 removed: `mayRecordFor` (`personal-owner.ts`) runs before the webhook
 screens or queues and again per event, and `personal-offboarding.ts`
 disconnects the number when they go.
+An import stopped by an error keeps its lease for `PAUSED_RETRY_MS` like a
+paused one, and a chat the database refuses 3 times (`ChatDbError`) fails.
 **Personal numbers (190, 191).** An admin allows a person
 (`profiles.may_connect_personal_whatsapp`) to link their own OpenWA
 number: a `whatsapp_config` row with `is_personal`, owner = `user_id`, one
