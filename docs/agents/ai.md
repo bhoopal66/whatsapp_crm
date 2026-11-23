@@ -25,12 +25,15 @@ The knowledge base is hybrid retrieval: `chunk.ts` splits documents,
 matching the `vector(1536)` column in migration 030 — changing the model
 means a migration), and `knowledge.ts` retrieves semantically when an
 embeddings key exists, topped up with Postgres full-text. With no
-embeddings key it degrades to lexical-only rather than failing.
+embeddings key it degrades to lexical-only rather than failing. A search that
+errors (the count, or the semantic half with a key set) comes back `failed`:
+with a floor or strict grounding the bot hands off (`error`), except on a
+short turn. Gap questions are masked before they are stored or embedded.
 
 **AI agent v2 (migration 077, `docs/ai-agent.md`).**
 - *Tiers.* `ai_configs.model` is the standard tier; `model_small` / `model_large` are the others. `router.ts` picks one per message: a TypeSafe route judgment (`lib/typesafe/checks/route.ts`, `qs-route-v1`), run in parallel with triage, else a heuristic. The route judgment is not a safety check: it is not in `ts_account_settings`, never written to `ts_decision_log`, and has its own breaker key.
 - *Escalation.* At most one extra generation per dispatch, plus one guardrail rewrite on the large model.
-- *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). A **block** is never queued.
+- *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). It is written by the hand-off's own conditional update, so a chat a person took meanwhile gets neither. A **block** is never queued.
 - *Pauses.* `ai_paused_reason` records why the bot is paused. The `agent_reply` pause is set by a `messages` trigger, never by app code, and only that pause auto-resumes.
 - *Cut-off answers.* The adapters set `truncated` (the output cap, the context window, a refusal, a content filter) and every caller of an adapter runs `assertComplete`, which throws `AiError` `truncated`: half an answer, or a lost `[[HANDOFF]]`, never goes out. OpenAI reasoning models (by id) get `OPENAI_REASONING_TOKENS` on top of the cap.
 - *Outcomes.* Every dispatch records one outcome (`outcomes.ts`) on the conversation and in `ai_reply_events`. That record is how "why didn't the AI reply" gets answered, so an exit path without one is a bug.

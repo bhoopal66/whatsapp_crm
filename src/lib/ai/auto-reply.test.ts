@@ -66,8 +66,6 @@ const h = vi.hoisted(() => ({
     resumes: [] as Record<string, unknown>[],
     /** Held drafts written for review (`ai_pending_draft`). */
     drafts: [] as Record<string, unknown>[],
-    /** Fail the held-draft write with this message. */
-    draftError: null as string | null,
     /** The chat's `hr_conversations` row, and what each HR read answers. */
     hrRow: null as Record<string, unknown> | null,
     hrRowError: null as string | null,
@@ -300,10 +298,7 @@ vi.mock('./admin-client', () => ({
             return hit;
           };
           const result = () => ({
-            error:
-              draft && h.state.draftError
-                ? { message: h.state.draftError }
-                : null,
+            error: null,
           });
           const chain = {
             eq: (col: string, v: unknown) => {
@@ -463,7 +458,6 @@ beforeEach(() => {
   h.state.resumeRows = [];
   h.state.resumes = [];
   h.state.drafts = [];
-  h.state.draftError = null;
   h.state.hrRow = null;
   h.state.hrRowError = null;
   h.state.hrLine = 'off';
@@ -2697,7 +2691,7 @@ describe('dispatchInboundToAiReply — dispatch review fixes', () => {
       expect(lastOutcome()).toBe('skipped_assigned');
     });
 
-    it('paused meanwhile: skipped_paused, the held draft still stored', async () => {
+    it('paused meanwhile: skipped_paused, and no held draft', async () => {
       h.state.conv = { ...h.state.conv, ai_reply_count: 0 };
       h.state.convLive = {
         ...h.state.conv,
@@ -2709,7 +2703,7 @@ describe('dispatchInboundToAiReply — dispatch review fixes', () => {
         guard('hold', 'held (approval)', false)
       );
       expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
-      expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+      expect(h.state.drafts).toEqual([]);
       expect(h.state.updatePayload).toBeNull();
       expect(notificationRows()).toEqual([]);
       expect(lastOutcome()).toBe('skipped_paused');
