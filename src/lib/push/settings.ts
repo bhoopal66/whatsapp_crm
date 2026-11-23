@@ -37,7 +37,8 @@ export function kindGroup(kind: string): PushKindGroup {
     kind === 'insight_attention' ||
     kind.startsWith('response_') ||
     kind === 'chat_note_mention' ||
-    kind === 'submission_group_message'
+    kind === 'submission_group_message' ||
+    kind === 'deal_room_message'
   ) {
     return 'messages';
   }

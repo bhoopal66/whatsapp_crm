@@ -21,6 +21,7 @@ describe('push kind groups', () => {
     expect(kindGroup('chat_message')).toBe('messages');
     expect(kindGroup('insight_attention')).toBe('messages');
     expect(kindGroup('submission_group_message')).toBe('messages');
+    expect(kindGroup('deal_room_message')).toBe('messages');
     expect(kindGroup('response_target_missed')).toBe('messages');
     expect(kindGroup('response_escalated')).toBe('messages');
     expect(kindGroup('response_unassigned')).toBe('messages');

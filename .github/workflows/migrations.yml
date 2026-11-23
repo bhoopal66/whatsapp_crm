@@ -1399,3 +1399,8 @@ jobs:
       # since the caller read it is not classified.
       - name: Verify case file fixes
         run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
+
+      # Migration 274: a customer's or bank's message in a deal room rings
+      # its live staff and whoever opened it, once while unread.
+      - name: Verify deal room bells
+        run: supabase db query --local --file supabase/ci/verify-deal-room-bells.sql

@@ -140,7 +140,7 @@ describe('notificationTarget', () => {
     }
   );
 
-  it.each(['deal_room_join_request', 'deal_room_update'])(
+  it.each(['deal_room_join_request', 'deal_room_update', 'deal_room_message'])(
     '%s opens the deal room',
     (type) => {
       expect(
@@ -165,20 +165,17 @@ describe('notificationTarget', () => {
     'channel_reconnected',
     'inbound_message_failed',
     'meta_number_alert',
-  ])(
-    '%s opens WhatsApp settings for those who can edit settings',
-    (type) => {
-      expect(notificationTarget({ type }, 'owner')).toBe(
-        '/settings?tab=whatsapp'
-      );
-      expect(notificationTarget({ type }, 'admin')).toBe(
-        '/settings?tab=whatsapp'
-      );
-      expect(notificationTarget({ type }, 'team_leader')).toBeNull();
-      expect(notificationTarget({ type }, 'agent')).toBeNull();
-      expect(notificationTarget({ type }, null)).toBeNull();
-    }
-  );
+  ])('%s opens WhatsApp settings for those who can edit settings', (type) => {
+    expect(notificationTarget({ type }, 'owner')).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(notificationTarget({ type }, 'admin')).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(notificationTarget({ type }, 'team_leader')).toBeNull();
+    expect(notificationTarget({ type }, 'agent')).toBeNull();
+    expect(notificationTarget({ type }, null)).toBeNull();
+  });
 
   it('work_handed_over opens the inbox', () => {
     expect(

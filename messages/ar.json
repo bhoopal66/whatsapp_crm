@@ -8157,6 +8157,7 @@
       "call_outcome_due": "مكالمة تحتاج إلى تسجيل نتيجتها",
       "deal_room_join_request": "طلبات الانضمام إلى غرفة الصفقة",
       "deal_room_update": "تحديثات غرفة الصفقة",
+      "deal_room_message": "رسائل العملاء والبنوك في غرف الصفقات",
       "channel_disconnected": "انقطاع اتصال رقم WhatsApp",
       "channel_reconnected": "عودة اتصال رقم WhatsApp",
       "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",

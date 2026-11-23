@@ -41,7 +41,13 @@ it.
   It never reaches `inbound-pipeline.ts` but is edge-screened. The
   service-role functions it calls take the authenticated account id, or a room
   id resolved inside that account. A group STOP removes the person at Meta and
-  opts the contact out.
+  opts the contact out. It runs **before the answer** (nothing queues group
+  traffic) and throws after isolating every item, so a failure is a 503 Meta
+  redelivers; a refusal of the event itself (SQLSTATE 22/23, Meta
+  400/403/404) is final and only logged.
+- **Bells** (274): `group_messages_ring` gives the room's live staff and its
+  creator one unread `deal_room_message` per room; `markRoomBellsRead` in the
+  room's screen must clear it or the room never rings again.
 - **Reconcile** (`reconcileCreatingRooms`, from `GET /api/deal-rooms/cron` and
   the automations cron) takes rooms still `creating` after 2 minutes: matched
   to their group by subject, asked for once more, or failed at 10. Invites

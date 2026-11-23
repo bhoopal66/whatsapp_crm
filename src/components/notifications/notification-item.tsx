@@ -83,6 +83,7 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   pbx_connection_restored: PhoneCall,
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
+  deal_room_message: Handshake,
   group_join_request: UsersRound,
   submission_group_message: MessagesSquare,
   meeting_invite: Video,

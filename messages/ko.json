@@ -8157,6 +8157,7 @@
       "call_outcome_due": "통화 결과 입력 필요",
       "deal_room_join_request": "딜룸 참여 요청",
       "deal_room_update": "딜룸 업데이트",
+      "deal_room_message": "딜룸의 고객 및 은행 메시지",
       "channel_disconnected": "WhatsApp 번호 연결 끊김",
       "channel_reconnected": "WhatsApp 번호 다시 연결됨",
       "inbound_message_failed": "WhatsApp 메시지를 저장하지 못함",

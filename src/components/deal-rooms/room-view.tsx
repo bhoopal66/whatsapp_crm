@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
+import { markRoomBellsRead } from '@/lib/deal-rooms/bells';
 import type {
   MessagePage,
   RoomDetail,
@@ -367,13 +368,26 @@ function GroupTimeline({ roomId }: { roomId: string }) {
         setOlder(p.nextBefore);
       }
       setMessages((prev) => mergeRoomMessages(prev ?? [], p.messages));
+      if (document.visibilityState === 'visible') {
+        void markRoomBellsRead(sb, roomId);
+      }
     } catch {
       setMessages((prev) => prev ?? []);
     }
-  }, [page]);
+  }, [page, sb, roomId]);
   useEffect(() => {
     void Promise.resolve().then(refresh);
   }, [refresh]);
+  // Back on a tab that a message reached while it was hidden.
+  useEffect(() => {
+    const seen = () => {
+      if (document.visibilityState === 'visible') {
+        void markRoomBellsRead(sb, roomId);
+      }
+    };
+    document.addEventListener('visibilitychange', seen);
+    return () => document.removeEventListener('visibilitychange', seen);
+  }, [sb, roomId]);
   useTableSignal(sb, ['group_messages'], () => `room_id=eq.${roomId}`, refresh);
 
   const loadOlder = async () => {

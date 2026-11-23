@@ -14,6 +14,11 @@ and polish.
 
 ### Deal rooms: nothing lost, nobody left unaware
 
+**Migration required:** `274_deal_room_bells.sql`
+- A customer's or bank's message in a deal room now rings the bell (and the
+  phone, if push is on) of the staff in the room and whoever opened it.
+  Nobody was told, so the 24-hour window could close unseen. One bell per
+  room until it is read; opening the room reads it.
 - A message, STOP, join or receipt that could not be saved because the
   database was briefly unavailable is asked for again from Meta. It was
   lost for good. What had been saved the first time is not saved twice, and
