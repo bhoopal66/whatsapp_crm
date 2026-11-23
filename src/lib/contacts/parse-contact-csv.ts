@@ -1,3 +1,5 @@
+import { parseCsvRecords } from './csv-records';
+
 /**
  * CSV parsing for the contacts import modal and the broadcast wizard,
  * and the header/row logic the wizard also runs over Excel sheets.
@@ -18,6 +20,8 @@ export interface ParsedContactRow {
    * along.
    */
   values: Record<string, string>;
+  /** The file line the row starts on, when it was read from a CSV. */
+  line?: number;
 }
 
 export interface ParseContactCsvResult {
@@ -39,6 +43,14 @@ export interface ParseContactTableResult extends ParseContactCsvResult {
    * not counted: they are spacing, not contacts without a number.
    */
   skippedNoPhone: number;
+  /** Their file lines, when the table came with its lines. */
+  noPhoneLines?: number[];
+}
+
+export interface ReadContactCsvResult extends ParseContactTableResult {
+  noPhoneLines: number[];
+  /** Lines that could not be read (a quote that never closes). */
+  badLines: number[];
 }
 
 /**
@@ -78,10 +90,14 @@ function headerIndex(
 /**
  * Contact rows from a table of cells, row 0 being the header — a CSV
  * split into cells, or an Excel sheet (`read-xlsx.ts`). Cells are
- * taken as they are apart from trimming: quote stripping belongs to
- * the CSV reading, and in a spreadsheet `O'Brien` is a real name.
+ * taken as they are apart from trimming; a line break inside a name,
+ * email or company becomes a space. `lines` gives each table row's
+ * file line, for reporting.
  */
-export function parseContactTable(table: string[][]): ParseContactTableResult {
+export function parseContactTable(
+  table: string[][],
+  lines?: readonly number[]
+): ParseContactTableResult {
   const headers = (table[0] ?? []).map(normalizeHeader);
   const phoneIdx = headerIndex(headers, 'phone');
   if (phoneIdx === -1) {
@@ -98,17 +114,22 @@ export function parseContactTable(table: string[][]): ParseContactTableResult {
   const emailIdx = headerIndex(headers, 'email');
   const companyIdx = headerIndex(headers, 'company');
   const cellAt = (cells: string[], idx: number) =>
-    idx >= 0 ? cells[idx]?.trim() || undefined : undefined;
+    idx >= 0
+      ? cells[idx]?.trim().replace(/\s*[\r\n]+\s*/g, ' ') || undefined
+      : undefined;
 
   const rows: ParsedContactRow[] = [];
+  const noPhoneLines: number[] = [];
   let skippedNoPhone = 0;
 
-  for (const cells of table.slice(1)) {
+  for (const [index, cells] of table.slice(1).entries()) {
+    const line = lines?.[index + 1];
     if (cells.every((cell) => !cell?.trim())) continue;
 
     const phone = cells[phoneIdx]?.trim();
     if (!phone) {
       skippedNoPhone++;
+      if (line !== undefined) noPhoneLines.push(line);
       continue;
     }
 
@@ -124,6 +145,7 @@ export function parseContactTable(table: string[][]): ParseContactTableResult {
       email: cellAt(cells, emailIdx),
       company: cellAt(cells, companyIdx),
       values: byHeader,
+      ...(line === undefined ? {} : { line }),
     });
   }
 
@@ -133,24 +155,43 @@ export function parseContactTable(table: string[][]): ParseContactTableResult {
     columns: headers.filter(Boolean),
     phoneColumn: headers[phoneIdx],
     skippedNoPhone,
+    ...(lines ? { noPhoneLines } : {}),
   };
 }
 
+const stripQuotes = (cell: string) => cell.replace(/["']/g, '');
+
 /**
- * A contacts CSV as a table for `parseContactTable`. Quotes are
- * stripped from every cell (and the header is split on bare commas),
- * exactly as this parser always has, so a file that parsed before
- * parses the same.
+ * A contacts CSV as a table with each row's file line. Quotes are still
+ * stripped from the header and from the phone column (Excel writes a
+ * text number as `'+971...`); everywhere else they are part of the value.
  */
-export function contactCsvTable(text: string): string[][] {
-  const lines = text.trim().split(/\r?\n/);
-  const header = lines[0].split(',').map((h) => h.replace(/["']/g, ''));
-  const body = lines
+function contactCsv(text: string) {
+  const { records, badLines } = parseCsvRecords(text);
+  const header = (records[0]?.cells ?? ['']).map(stripQuotes);
+  const phoneIdx = headerIndex(header.map(normalizeHeader), 'phone');
+  const body = records
     .slice(1)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => parseCsvLine(line).map((v) => v.replace(/["']/g, '')));
-  return [header, ...body];
+    .map(({ cells }) =>
+      cells.map((cell, idx) => (idx === phoneIdx ? stripQuotes(cell) : cell))
+    );
+  return {
+    table: [header, ...body],
+    lines: records.map((r) => r.line),
+    badLines,
+  };
+}
+
+/** A contacts CSV as a table for `parseContactTable`. */
+export function contactCsvTable(text: string): string[][] {
+  return contactCsv(text).table;
+}
+
+/** The contacts of a CSV, with the lines that gave no contact. */
+export function readContactCsv(text: string): ReadContactCsvResult {
+  const { table, lines, badLines } = contactCsv(text);
+  const parsed = parseContactTable(table, lines);
+  return { ...parsed, noPhoneLines: parsed.noPhoneLines ?? [], badLines };
 }
 
 export function parseContactCsv(text: string): ParseContactCsvResult {
@@ -164,24 +205,4 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
   }
   const { rows, hasCompanyColumn, columns } = parseContactTable(table);
   return { rows, hasCompanyColumn, columns };
-}
-
-/** Simple CSV line parse (handles quoted fields). */
-function parseCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (const char of line) {
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      values.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  values.push(current.trim());
-  return values;
 }

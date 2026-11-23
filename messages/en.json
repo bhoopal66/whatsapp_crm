@@ -1475,6 +1475,7 @@
         "downloadTemplate": "Download the template",
         "csvContactsFound": "{count} valid contact(s) found in the file.",
         "errorLoadFields": "Failed to load custom fields",
+        "csvBadLines": "Lines that could not be read (a quote that is never closed): {lines}.",
         "errorCsvParse": "Could not read the file.",
         "errorXlsxLimit": "This workbook is too large to import: {reason}",
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",

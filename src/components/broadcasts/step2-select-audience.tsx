@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import {
-  contactCsvTable,
   parseContactTable,
+  readContactCsv,
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
 import { readXlsxTable, XlsxLimitError } from '@/lib/contacts/read-xlsx';
@@ -407,11 +407,16 @@ export function Step2SelectAudience({
     rows: ParsedContactRow[];
     columns: string[];
     skippedNoPhone: number;
+    badLines: number[];
   } | null>(null);
   const [csvAssumeUae, setCsvAssumeUae] = useState(false);
 
   function applyCsvRows(
-    parsed: { rows: ParsedContactRow[]; columns: string[] },
+    parsed: {
+      rows: ParsedContactRow[];
+      columns: string[];
+      badLines: number[];
+    },
     assumeUae: boolean
   ) {
     // Rows become contacts at send time. A number without its country
@@ -424,9 +429,13 @@ export function Step2SelectAudience({
         ? parsed.rows.map((r) => ({ ...r, phone: withUaeCountryCode(r.phone) }))
         : parsed.rows
     );
-    setCsvPhoneWarning(
-      rejected.length > 0 ? summarizeRejectedPhones(rejected) : null
-    );
+    const warnings = [
+      rejected.length > 0 ? summarizeRejectedPhones(rejected) : null,
+      parsed.badLines.length > 0
+        ? t('selectAudience.csvBadLines', { lines: parsed.badLines.join(', ') })
+        : null,
+    ].filter(Boolean);
+    setCsvPhoneWarning(warnings.join(' ') || null);
     onUpdate({
       ...audience,
       csvContacts: valid.map((r) => ({
@@ -459,16 +468,20 @@ export function Step2SelectAudience({
       return;
     }
     try {
-      const table = lowerName.endsWith('.xlsx')
-        ? await readXlsxTable(new Uint8Array(await file.arrayBuffer()))
-        : contactCsvTable(await file.text());
-      const { rows, columns, phoneColumn, skippedNoPhone } =
-        parseContactTable(table);
+      const { rows, columns, phoneColumn, skippedNoPhone, badLines } =
+        lowerName.endsWith('.xlsx')
+          ? {
+              ...parseContactTable(
+                await readXlsxTable(new Uint8Array(await file.arrayBuffer()))
+              ),
+              badLines: [],
+            }
+          : readContactCsv(await file.text());
       if (phoneColumn === null) {
         fail(t('selectAudience.errorCsvMissingPhone'));
         return;
       }
-      const parsed = { rows, columns, skippedNoPhone };
+      const parsed = { rows, columns, skippedNoPhone, badLines };
       setCsvParsed(parsed);
       setCsvFileName(file.name);
       applyCsvRows(parsed, false);

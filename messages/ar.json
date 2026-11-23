@@ -1475,6 +1475,7 @@
         "downloadTemplate": "تنزيل القالب",
         "csvContactsFound": "تم العثور على {count} من جهات الاتصال الصالحة في الملف.",
         "errorLoadFields": "تعذر تحميل الحقول المخصصة",
+        "csvBadLines": "أسطر تعذّرت قراءتها (علامة اقتباس لم تُغلق): {lines}.",
         "errorCsvParse": "تعذرت قراءة الملف.",
         "errorXlsxLimit": "هذا المصنف كبير جدًا بحيث لا يمكن استيراده: {reason}",
         "errorCsvMissingPhone": "يجب أن يحتوي الملف على عمود «phone» أو «Phone Number».",
