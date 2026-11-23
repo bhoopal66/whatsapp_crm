@@ -516,7 +516,7 @@ describe('OpenWA group traffic (migration 114)', () => {
     expect(phone.groupMessages[0].senderWaId).toBe('971500000002');
   });
 
-  it('keeps type and caption of an attachment, with no media link', () => {
+  it('keeps type, caption and handle of an attachment, with no link yet', () => {
     const out = normalizeOpenWAWebhook(
       groupMessage({
         type: 'image',
@@ -527,7 +527,13 @@ describe('OpenWA group traffic (migration 114)', () => {
     expect(out.groupMessages[0]).toMatchObject({
       type: 'image',
       body: 'caption',
-      media: null,
+      media: {
+        id: `120363000000000001@g.us/${out.groupMessages[0].id}`,
+        link: null,
+        mime_type: 'image/jpeg',
+        filename: null,
+        file_size: null,
+      },
     });
   });
 
@@ -543,7 +549,12 @@ describe('OpenWA group traffic (migration 114)', () => {
       body: 'Contact: Omar Khalid',
       media: {
         contacts: [
-          { name: 'Omar Khalid', phones: ['+971509876543'], emails: [], org: null },
+          {
+            name: 'Omar Khalid',
+            phones: ['+971509876543'],
+            emails: [],
+            org: null,
+          },
         ],
       },
     });

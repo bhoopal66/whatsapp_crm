@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   fileSizeLabel,
   groupContactCards,
+  groupDownloadUrl,
   groupMediaView,
   safeMediaUrl,
 } from './group-media';
@@ -131,5 +132,23 @@ describe('groupContactCards', () => {
         null
       )
     ).toEqual([{ name: '+97150', phones: ['+97150'], emails: [], org: null }]);
+  });
+});
+
+describe('groupDownloadUrl', () => {
+  const OURS =
+    'https://crm.example/storage/v1/object/public/chat-media/account-1/inbound/123-a.pdf';
+
+  it('offers the file name on a file of our own storage', () => {
+    expect(
+      new URL(groupDownloadUrl(OURS, 'Trade & licence.pdf')).searchParams.get(
+        'download'
+      )
+    ).toBe('Trade & licence.pdf');
+  });
+
+  it('leaves a gateway link, and a file with no name, alone', () => {
+    expect(groupDownloadUrl(LINK, 'a.pdf')).toBe(LINK);
+    expect(groupDownloadUrl(OURS, null)).toBe(OURS);
   });
 });

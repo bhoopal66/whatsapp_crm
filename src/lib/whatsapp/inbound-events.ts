@@ -20,6 +20,10 @@ import {
   type GroupChannel,
   type GroupInboundMessage,
 } from '@/lib/groups/inbound';
+import {
+  copyGroupMessageMedia,
+  hasGroupFile,
+} from '@/lib/groups/inbound-media';
 import { recordSubmissionGroupInbound } from '@/lib/submission-groups/inbound';
 import { SubmissionGroupStore } from '@/lib/submission-groups/store';
 import type { WhatsAppChannel } from './channels';
@@ -186,7 +190,7 @@ async function run(
     case 'own_send':
       return runOwnSend(event, admin, config, payload);
     case 'group_message':
-      return runGroupMessage(event, admin, config, payload);
+      return runGroupMessage(event, admin, config, payload, deps);
     default: {
       const unknown: never = event.kind;
       return failed(`unknown kind ${String(unknown).slice(0, 40)}`);
@@ -315,7 +319,8 @@ async function runGroupMessage(
   event: InboundEvent,
   admin: SupabaseClient,
   config: InboundConfigRow,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  deps: InboundEventDeps
 ): Promise<InboundOutcome> {
   const message = payload.message as GroupInboundMessage | undefined;
   if (!message?.id) return UNREADABLE;
@@ -328,6 +333,18 @@ async function runGroupMessage(
     await persistGroupMessages(admin, channel, [message]);
   } catch (e) {
     error = `group message failed: ${errorTag(e)}`;
+  }
+  // The file's bytes, once the row is stored. Never throws, so the event
+  // settles the same whether or not the copy works; a retry finds our link
+  // on the row and copies nothing.
+  if (!error && hasGroupFile(message)) {
+    const copy = copyGroupMessageMedia(
+      admin,
+      () => inboundChannel(event.provider, config),
+      message
+    );
+    if (deps.later) deps.later.push(copy);
+    else await copy;
   }
   if (event.provider !== 'whapi') return error ? failed(error) : DONE;
 

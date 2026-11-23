@@ -27,7 +27,10 @@
 
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/provider';
-import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';
+import {
+  mirrorInboundMedia,
+  mirrorKey,
+} from '@/lib/whatsapp/mirror-inbound-media';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { shouldRenameContact } from '@/lib/contacts/inbound-name';
@@ -1670,7 +1673,8 @@ async function parseMessageContent(
  * Exported for its tests (`inbound-pipeline.media.test.ts`).
  */
 export async function resolveInboundMediaUrl(
-  message: NormalizedInboundMessage,
+  // A group message (lib/groups/inbound-media.ts) brings these three only.
+  message: Pick<NormalizedInboundMessage, 'id' | 'media' | 'timestamp'>,
   channel: WhatsAppChannel,
   mirror: { accountId: string } | null
 ): Promise<string | null> {
@@ -1694,7 +1698,7 @@ export async function resolveInboundMediaUrl(
       fileSize = fileSize ?? info.fileSize;
     } catch (error) {
       console.error(
-        `[inbound] could not resolve media ${media.id}:`,
+        `[inbound] could not resolve media ${mirrorKey(media.id)}:`,
         error instanceof Error ? error.message : error
       );
       return null;

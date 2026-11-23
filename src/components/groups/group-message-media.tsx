@@ -5,17 +5,20 @@ import { useTranslations } from 'next-intl';
 import { Download, FileText, MapPin } from 'lucide-react';
 
 import { MediaUnavailable } from '@/components/inbox/message-media';
-import type { GroupMediaView } from '@/lib/groups/group-media';
+import {
+  groupDownloadUrl,
+  type GroupMediaView,
+} from '@/lib/groups/group-media';
 import { cn } from '@/lib/utils';
 
 /**
  * A group message's attachment, drawn like the inbox draws one (photo,
  * video, voice / audio, a document card with its name and size, a
  * location): WhatsApp groups and submission groups both use it. The
- * bytes come straight from the gateway's https link (`group-media.ts`),
- * which stops working after about 30 days: a photo, video or audio
- * whose link fails to load turns into the same "unavailable" line the
- * inbox shows, never a broken image.
+ * bytes come from our own copy or, where there is none, from the
+ * gateway's https link (`group-media.ts`), which stops working after
+ * about 30 days: a photo, video or audio whose link fails to load turns
+ * into the same "unavailable" line the inbox shows, never a broken image.
  */
 export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
   const t = useTranslations('Inbox.bubble');
@@ -98,7 +101,7 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
             </span>
           </a>
           <a
-            href={url}
+            href={groupDownloadUrl(url, view.filename)}
             target="_blank"
             rel="noopener noreferrer"
             download={view.filename ?? true}

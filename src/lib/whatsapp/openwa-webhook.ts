@@ -449,9 +449,10 @@ const GROUP_TYPES: Record<string, string> = {
 
 /**
  * Map one `message.received` / `message.sent` data object of a group
- * chat, or null. Attachments keep their type and caption only: the
- * gateway's copy of the bytes has no browser-loadable link, so `media`
- * carries just a location or the parsed contact card.
+ * chat, or null. The gateway's copy of an attachment has no
+ * browser-loadable link, so a file's `media` carries its handle with
+ * `link` null; `lib/groups/inbound-media.ts` copies the bytes after the
+ * row is stored and fills the link.
  */
 export function normalizeOpenWAGroupMessage(
   raw: RawOpenWAMessage
@@ -488,10 +489,18 @@ export function normalizeOpenWAGroupMessage(
     if (!card) return null;
     body = contactCardsText([card]);
     media = { contacts: [card] };
-  } else if (type === 'audio') {
-    body = null;
-  } else if (type === 'text' && !body) {
-    return null;
+  } else if (type === 'text') {
+    if (!body) return null;
+  } else {
+    if (type === 'audio') body = null;
+    const file = mediaOf(raw, chatId, raw.id);
+    media = {
+      id: file.id,
+      link: file.link,
+      mime_type: file.mimeType,
+      filename: file.filename,
+      file_size: file.fileSize,
+    };
   }
 
   return {
