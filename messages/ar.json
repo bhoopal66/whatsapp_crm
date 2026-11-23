@@ -1801,7 +1801,7 @@
         "conditionTextPlaceholder": "هذا النص",
         "timeFrom": "من",
         "timeUntil": "إلى",
-        "timeRangeHint": "يستخدم ساعة الخادم. النافذة مثل 18:00 حتى 09:00 تمتد بعد منتصف الليل.",
+        "timeRangeHint": "يستخدم توقيت دبي (Asia/Dubai). النافذة مثل 18:00 حتى 09:00 تمتد بعد منتصف الليل.",
         "timeRangeInvalid": "القيمة المحفوظة «{value}» ليست نافذة زمنية. اختر أوقاتًا لاستبدالها.",
         "placeholderContact": "الاسم / البريد الإلكتروني / الشركة",
         "urlLabel": "URL",
