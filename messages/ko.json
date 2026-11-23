@@ -5990,7 +5990,8 @@
         "closing": "이 룸은 종료 중입니다.",
         "closed": "이 룸은 종료되었습니다. 읽을 수는 있지만 게시할 수 없습니다.",
         "failed": "WhatsApp이 이 그룹을 만들지 못했습니다.",
-        "cancelled": "WhatsApp 그룹이 만들어지기 전에 취소된 방입니다."
+        "cancelled": "WhatsApp 그룹이 만들어지기 전에 취소된 방입니다.",
+        "windowClosed": "최근 24시간 동안 아무도 글을 쓰지 않아 지금은 WhatsApp으로 메시지를 보낼 수 없습니다. 담당 팀이 대화를 다시 열 수 있습니다."
       },
       "window": {
         "open": "응답 가능 시간 · {hours}시간 {minutes}분 남음",
@@ -8820,6 +8821,7 @@
         "gateway": "WhatsApp이 메시지를 받지 않았습니다.",
         "tooLong": "메시지가 비어 있거나 너무 깁니다.",
         "unknown": "메시지를 보내지 못했습니다.",
+        "maybeSent": "응답이 없습니다. 이미 전송되었을 수 있으니 다시 보내기 전에 대화를 확인하세요.",
         "sentNotRecorded": "WhatsApp으로 전송되었지만 CRM에 아직 기록되지 않았습니다. 다시 보내지 마세요."
       },
       "endTitle": "이 그룹을 종료할까요?",

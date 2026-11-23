@@ -4,7 +4,7 @@
 //   GET   any staff member -> 200 `{ items }`: their own uploads, newest
 //         first, with each one's fate (filed to which case, waiting and
 //         why, rejected and why, duplicate of whose).
-//   POST  multipart/form-data: `idemKey` (8-80, reused on retry), an
+//   POST  an agent or above, at most 60 a minute; multipart/form-data: `idemKey` (8-80, reused on retry), an
 //         optional `caption` (fills only the tags left empty), the tags
 //         (`kind`, `bankCode`, `caseRef`, `companyName`, `tradeLicence`,
 //         `product`, `contactId`, `docKey`, `note`) and an optional
@@ -17,7 +17,12 @@
 
 import { NextResponse } from 'next/server';
 
-import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import {
+  assertSalesAccess,
+  getCurrentAccount,
+  requireRole,
+} from '@/lib/auth/account';
+import { CASE_FILES_BUCKET } from '@/lib/case-files/intake-file';
 import { declaredTooLarge } from '@/lib/case-files/http';
 import {
   DeskBadRequest,
@@ -33,6 +38,11 @@ import {
   prepareIntakeFile,
   storeIntakeFile,
 } from '@/lib/desk/upload';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 export const maxDuration = 60;
@@ -52,7 +62,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = assertSalesAccess(await getCurrentAccount());
+    // The SQL takes uploads from agents and up; asked here too, since the
+    // file is stored before it is submitted.
+    const ctx = assertSalesAccess(await requireRole('agent'));
+    const limit = checkRateLimit(
+      `desk-upload:${ctx.userId}`,
+      RATE_LIMITS.deskUpload
+    );
+    if (!limit.success) return rateLimitResponse(limit);
     if (declaredTooLarge(request)) throw new DeskRefusedError('FILE_INVALID');
     const form = await request.formData().catch(() => null);
     if (!form) throw new DeskBadRequest('Expected multipart/form-data');
@@ -90,12 +107,28 @@ export async function POST(request: Request) {
       await storeIntakeFile(admin.storage, file, bytes);
     }
 
-    const item = await store.submit(ctx.userId, ctx.accountId, {
-      itemId,
-      idemKey,
-      tags,
-      file,
-    });
+    // A file nothing points at goes again. Only on a certain answer: after
+    // an error the submit may have been stored all the same.
+    const dropFile = async () => {
+      if (!file) return;
+      await admin.storage
+        .from(CASE_FILES_BUCKET)
+        .remove([file.storagePath])
+        .catch(() => undefined);
+    };
+    let item;
+    try {
+      item = await store.submit(ctx.userId, ctx.accountId, {
+        itemId,
+        idemKey,
+        tags,
+        file,
+      });
+    } catch (err) {
+      if (err instanceof DeskRefusedError) await dropFile();
+      throw err;
+    }
+    if (item.replayed && item.itemId !== itemId) await dropFile();
     return NextResponse.json({ item }, { status: item.replayed ? 200 : 201 });
   } catch (err) {
     return deskErrorResponse(err, 'intake submit');

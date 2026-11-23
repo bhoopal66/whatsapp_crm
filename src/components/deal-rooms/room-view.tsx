@@ -194,7 +194,7 @@ export function DealRoomView({
   ].filter(Boolean);
   const countdown = windowCountdown(room.windowUntil, now);
   const ctx: RoomContext = { detail, reload };
-  const mode = groupComposerMode({ ...room, now });
+  const mode = groupComposerMode({ ...room, now, guest });
 
   const layout = (
     <div className="flex h-full min-h-0">

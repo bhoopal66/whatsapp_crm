@@ -10,6 +10,7 @@ import {
   groupTitle,
   initialsOf,
   onlyMine,
+  ownSendStored,
   shortRef,
   trackerStatusChip,
   waIdPhone,
@@ -35,6 +36,7 @@ import {
   unreadBadgeText,
   type SgGroup,
   type SgListItem,
+  type SgMessage,
 } from './ui';
 
 const item = (over: Partial<SgListItem> = {}): SgListItem => ({
@@ -190,6 +192,39 @@ describe('endReasonView', () => {
       raw: 'NUMBER_REMOVED',
     });
     expect(endReasonView(null)).toEqual({ key: 'none' });
+  });
+});
+
+describe('ownSendStored', () => {
+  const row = (id: string, over: Partial<SgMessage> = {}): SgMessage => ({
+    id,
+    direction: 'out',
+    sender_user_id: 'me',
+    sender_name: null,
+    sender_wa_id: null,
+    sender_kind: null,
+    body: 'hi',
+    prefixed_body: null,
+    send_status: 'failed',
+    post_end: false,
+    type: 'text',
+    media: null,
+    created_at: '2026-11-23T08:00:00Z',
+    ...over,
+  });
+
+  it('is a new row of the person who sent', () => {
+    expect(ownSendStored([row('a')], [row('a'), row('b')], 'me')).toBe(true);
+    expect(ownSendStored([row('a')], [row('a')], 'me')).toBe(false);
+  });
+
+  it("is not someone else's, a customer's, or an automatic one", () => {
+    const others = [
+      row('b', { sender_user_id: 'you' }),
+      row('c', { direction: 'in', sender_user_id: null }),
+      row('d', { system_kind: 'welcome' }),
+    ];
+    expect(ownSendStored([], others, 'me')).toBe(false);
   });
 });
 
@@ -394,9 +429,9 @@ describe('group display (141)', () => {
     expect(
       groupTitle({ customer_name: 'Acme LLC', contact: contact('Omar') })
     ).toBe('Acme LLC');
-    expect(
-      groupTitle({ customer_name: '  ', contact: contact('Omar') })
-    ).toBe('Omar');
+    expect(groupTitle({ customer_name: '  ', contact: contact('Omar') })).toBe(
+      'Omar'
+    );
     expect(groupTitle({ contact: contact(null, '97150') })).toBe('97150');
     expect(groupTitle({ customer_name: null, contact: null })).toBeNull();
   });

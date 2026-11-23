@@ -5990,7 +5990,8 @@
         "closing": "This room is closing.",
         "closed": "This room is closed. You can read it, but not post.",
         "failed": "WhatsApp couldn't create this group.",
-        "cancelled": "This room was cancelled before its WhatsApp group was created."
+        "cancelled": "This room was cancelled before its WhatsApp group was created.",
+        "windowClosed": "Nobody has written in the last 24 hours, so WhatsApp takes no messages here now. The team can reopen the chat."
       },
       "window": {
         "open": "Reply window open · {hours} h {minutes} min left",
@@ -8820,6 +8821,7 @@
         "gateway": "WhatsApp did not take the message.",
         "tooLong": "The message is empty or too long.",
         "unknown": "The message could not be sent.",
+        "maybeSent": "No answer: it may have been sent. Check the chat before sending it again.",
         "sentNotRecorded": "Sent to WhatsApp, but the CRM could not record it yet. Do not send it again."
       },
       "endTitle": "End this group?",

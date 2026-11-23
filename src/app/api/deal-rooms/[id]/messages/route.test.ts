@@ -40,6 +40,8 @@ vi.mock('@/lib/deal-rooms/shared', async (orig) => ({
   metaChannel: async () => ({ phoneNumberId: 'pn-1', accessToken: 'tok' }),
 }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+
 import { POST } from './route';
 
 const HOUR = 3_600_000;
@@ -98,6 +100,7 @@ const pdf = (name = 'Offer letter.pdf') =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   m.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
   m.rpc.mockResolvedValue({ data: true, error: null });
   m.sendGroupText.mockResolvedValue({ messageId: 'wamid.T' });
@@ -174,6 +177,50 @@ describe('POST /api/deal-rooms/[id]/messages', () => {
       'deal_room_record_message',
       expect.objectContaining({ p_staff_user_id: 'guest-1' }),
     ]);
+  });
+
+  it('keeps templates to staff: a bank guest, or an unknown access, is refused', async () => {
+    const template = { templateName: 'deal_update', language: 'en' };
+    for (const access of [
+      { data: 'guest', error: null },
+      { data: null, error: { message: 'timeout' } },
+    ]) {
+      m.rpc.mockImplementation(async (fn: string) =>
+        fn === 'deal_room_access' ? access : { data: true, error: null }
+      );
+      const res = await post(template);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 'forbidden' });
+    }
+    expect(m.sendGroupTemplate).not.toHaveBeenCalled();
+    // The same guest still writes in the room.
+    expect((await post({ text: 'hello' })).status).toBe(201);
+    for (const access of ['staff', 'supervisor', null]) {
+      m.rpc.mockImplementation(async (fn: string) =>
+        fn === 'deal_room_access'
+          ? { data: access, error: null }
+          : { data: true, error: null }
+      );
+      expect((await post(template)).status).toBe(201);
+    }
+  });
+
+  it('stops one person at 30 sends a minute and the room at 60', async () => {
+    const as = (id: string) =>
+      m.getUser.mockResolvedValue({ data: { user: { id } } });
+    for (let i = 0; i < 30; i++)
+      expect((await post({ text: 'x' })).status).toBe(201);
+    expect((await post({ text: 'x' })).status).toBe(429);
+    expect(
+      (await postFile(pdf())).status,
+      'a file counts too, before it is read'
+    ).toBe(429);
+    as('user-2');
+    for (let i = 0; i < 30; i++)
+      expect((await post({ text: 'x' })).status).toBe(201);
+    as('user-3');
+    expect((await post({ text: 'x' })).status).toBe(429);
+    expect(m.sendGroupText).toHaveBeenCalledTimes(60);
   });
 
   it('answers 403 where the caller cannot post (a guest elsewhere), and 401 signed out', async () => {

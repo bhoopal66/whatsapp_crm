@@ -281,6 +281,26 @@ export function sendErrorKey(
   return 'unknown';
 }
 
+/**
+ * After a send nobody answered for (a dropped connection, a proxy's 5xx):
+ * whether its row is in the log. The row is stored before WhatsApp is
+ * asked, so without a new one of this person's nothing can have gone out.
+ */
+export function ownSendStored(
+  before: readonly SgMessage[],
+  after: readonly SgMessage[],
+  userId: string | null
+): boolean {
+  const known = new Set(before.map((m) => m.id));
+  return after.some(
+    (m) =>
+      m.direction === 'out' &&
+      !m.system_kind &&
+      m.sender_user_id === userId &&
+      !known.has(m.id)
+  );
+}
+
 export type BannerKey =
   | 'noWhatsapp'
   | 'pending'

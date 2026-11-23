@@ -49,6 +49,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { startChatCatchUp } from '@/lib/groups/live-chat';
+import { thrownSendKind } from '@/lib/inbox/failed-send';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
 import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
@@ -62,6 +63,7 @@ import {
   groupContactName,
   groupTitle,
   initialsOf,
+  ownSendStored,
   sendErrorKey,
   sentAsPreview,
   settleRead,
@@ -84,6 +86,10 @@ import { PeoplePanel } from './people-panel';
 
 /** Realtime bursts (a send and its status update) collapse into one re-read. */
 const REFETCH_DEBOUNCE_MS = 400;
+
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
 
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
 type Confirm = 'end' | 'retry' | 'archive' | null;
@@ -284,6 +290,21 @@ export function SubmissionGroupPage({
   ): Promise<boolean> => {
     if (!detail?.can_send) return false;
     stickRef.current = true;
+    const before = detail.messages;
+    // Nobody answered for it: the log says. Null when it cannot be read.
+    const stored = async (): Promise<boolean | null> => {
+      try {
+        const res = await fetch(`/api/submission-groups/${groupId}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return null;
+        const { messages } = (await res.json()) as SgDetail;
+        return ownSendStored(before, messages, user?.id ?? null);
+      } catch {
+        return null;
+      }
+    };
+    const offlineBefore = isOffline();
     try {
       const res = await fetch(`/api/submission-groups/${groupId}/messages`, {
         method: 'POST',
@@ -298,10 +319,11 @@ export function SubmissionGroupPage({
         // A 502 (failed) or 409 consent block is kept as a stored row,
         // which points at an attachment's file: treat it as sent so the
         // composer neither gives it back nor deletes the file. Other
-        // refusals store nothing.
+        // refusals store nothing, unless a proxy answered for the app.
         return (
           res.status === 502 ||
-          (res.status === 409 && json?.reason !== undefined)
+          (res.status === 409 && json?.reason !== undefined) ||
+          (res.status > 502 && (await stored()) === true)
         );
       }
       if (res.status === 202) {
@@ -311,8 +333,17 @@ export function SubmissionGroupPage({
       }
       return true;
     } catch {
-      toast.error(t('sendErrors.unknown'));
-      return false;
+      // Only a device that was offline throughout is certain.
+      const kept =
+        thrownSendKind(offlineBefore, isOffline()) === 'offline'
+          ? false
+          : await stored();
+      toast.error(
+        t(kept === false ? 'sendErrors.unknown' : 'sendErrors.maybeSent')
+      );
+      // Unknown: words come back (with the warning), but a file stays
+      // where a stored message may point at it.
+      return kept ?? 'media' in payload;
     } finally {
       void reload();
     }

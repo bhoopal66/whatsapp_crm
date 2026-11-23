@@ -211,6 +211,15 @@ describe('groupComposerMode', () => {
     });
   });
 
+  it('offers a bank guest nothing once the window has closed', () => {
+    expect(groupComposerMode({ ...room, guest: true })).toEqual({
+      mode: 'text',
+    });
+    expect(
+      groupComposerMode({ ...room, windowUntil: null, guest: true })
+    ).toEqual({ mode: 'disabled', reason: 'windowClosed' });
+  });
+
   it('takes nothing in a room that is not open or that nobody joined', () => {
     expect(groupComposerMode({ ...room, participantCount: 1 })).toEqual({
       mode: 'disabled',

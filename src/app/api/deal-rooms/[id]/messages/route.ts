@@ -8,6 +8,11 @@ import {
   sendRoomMessage,
 } from '@/lib/deal-rooms/operations';
 import { listRoomMessages, parsePageQuery } from '@/lib/deal-rooms/reads';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 import {
   AuthUnavailableError,
@@ -27,7 +32,9 @@ export const maxDuration = 60;
  * only route that reaches a group, so everyone in the room sees what it
  * sends; nothing sent can be edited or deleted. Free text and files need
  * the group's 24-hour window open (409 `window_closed` otherwise, before
- * the file is stored); templates are allowed at any time. A sent file is
+ * the file is stored); templates are allowed at any time, to staff (a
+ * bank guest is refused one). 30 sends a minute per person and room, 60
+ * per room (429). A sent file is
  * kept in the deal file (`deal_files`, source `deal_room_media`).
  *
  * Bank guests may post in their own rooms, and `requireRole` refuses
@@ -55,6 +62,15 @@ export async function POST(
         { status: 403 }
       );
     }
+    // Every send reaches the customer's group from the company number:
+    // one person, and then the room as a whole, before the body is read.
+    for (const [key, rule] of [
+      [`deal-room:${id}:${auth.user.id}`, RATE_LIMITS.dealRoomSend],
+      [`deal-room:${id}`, RATE_LIMITS.dealRoomTotal],
+    ] as const) {
+      const limit = checkRateLimit(key, rule);
+      if (!limit.success) return rateLimitResponse(limit);
+    }
     const multipart = (request.headers.get('content-type') ?? '')
       .toLowerCase()
       .startsWith('multipart/form-data');
@@ -78,6 +94,21 @@ export async function POST(
         { error: parsed.error, code: parsed.code },
         { status: 400 }
       );
+    }
+    // A template goes out with the window closed and is charged: staff only.
+    if (parsed.value.kind === 'template') {
+      const { data: access, error: accessError } = await supabase.rpc(
+        'deal_room_access',
+        { p_room: id }
+      );
+      if (accessError)
+        console.error('[deal-rooms] access failed:', accessError.message);
+      if (accessError || access === 'guest') {
+        return NextResponse.json(
+          { error: 'Only staff can send a template', code: 'forbidden' },
+          { status: 403 }
+        );
+      }
     }
     const result = await sendRoomMessage(supabaseAdmin(), {
       roomId: id,

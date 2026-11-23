@@ -191,7 +191,7 @@ export function mergeRoomMessages(
 // The group composer
 // ============================================================
 
-export type ComposerDisabledReason = RoomBanner;
+export type ComposerDisabledReason = RoomBanner | 'windowClosed';
 
 export type GroupComposerMode =
   | { mode: 'text' }
@@ -218,13 +218,16 @@ export function groupComposerMode(room: {
   windowUntil: string | null;
   cancelledAt?: string | null;
   now: number;
+  /** A bank guest, whom the route refuses templates. */
+  guest?: boolean;
 }): GroupComposerMode {
   const phase = roomPhase(room.status, room.participantCount);
   if (phase !== 'active') {
     return { mode: 'disabled', reason: roomBanner(phase, room.cancelledAt) };
   }
-  return windowIsOpen(room.windowUntil, room.now)
-    ? { mode: 'text' }
+  if (windowIsOpen(room.windowUntil, room.now)) return { mode: 'text' };
+  return room.guest
+    ? { mode: 'disabled', reason: 'windowClosed' }
     : { mode: 'template' };
 }
 

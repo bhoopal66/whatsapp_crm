@@ -152,7 +152,7 @@ hour per client IP per form, and 200 an hour per form, so a handful of
 addresses cannot use up a form's hourly allowance (skipped when no client
 IP is known). All three
 **fail closed**: if the rate store is down, the form refuses. The client
-IP comes from `EDGE_CLIENT_IP_HEADER` (see `docs/security.md`); unset, all
-visitors share one bucket of 10 a minute, so set it in production.
+IP comes from `EDGE_CLIENT_IP_HEADER` (see `docs/security.md`); unset, the
+visitors of one form share a bucket of 10 a minute, so set it in production.
 
 Nothing here is logged with the visitor's data.

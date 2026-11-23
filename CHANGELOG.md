@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Limits on what reaches a customer's group, and on uploads
+
+No migration.
+- Deal rooms: only staff can send a template to the customer's group (a
+  bank guest's composer closes with the reply window), and sends are
+  limited to 30 a minute per person and 60 per room.
+- Submission groups: a message nobody answered for is looked up before
+  the words are given back, so it is not sent twice.
+- Case desk: an upload is refused to anyone below agent before the file
+  is stored, is limited to 60 a minute, and leaves no file behind when it
+  is refused.
+- Web form: with no known client address the limit is per form, so one
+  caller cannot close every form.
+
 ### Group chats that stay current and never send twice
 
 No migration.

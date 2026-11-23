@@ -186,7 +186,7 @@ describe('POST /api/public/web-form/[token]', () => {
       params()
     );
     expect(rateCalls()).toEqual([
-      ['webform.ip', 'unknown'],
+      ['webform.ip', `form:${TOKEN}`],
       ['webform.token', TOKEN],
     ]);
   });
@@ -225,7 +225,7 @@ describe('OPTIONS /api/public/web-form/[token]', () => {
     );
     expect(res.status).toBe(429);
     expect(res.headers.get('retry-after')).toBe('5');
-    expect(rateCalls()).toEqual([['webform.ip', 'unknown']]);
+    expect(rateCalls()).toEqual([['webform.ip', `form:${TOKEN}`]]);
     expect(configCalls()).toHaveLength(0);
   });
 

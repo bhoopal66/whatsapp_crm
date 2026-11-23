@@ -120,8 +120,12 @@ function limiter(): RateLimiter {
   return new RateLimiter(new RpcRateStore(supabaseAdmin()));
 }
 
-function ipOf(request: Request): string {
-  return clientIp(request.headers) ?? 'unknown';
+/**
+ * The client, or with no known address the form itself: one bucket for
+ * every visitor of every form would let one caller shut them all.
+ */
+function ipOf(request: Request, token: string): string {
+  return clientIp(request.headers) ?? `form:${token}`;
 }
 
 function tooMany(retryAfterMs: number): NextResponse {
@@ -134,8 +138,11 @@ function tooMany(retryAfterMs: number): NextResponse {
 }
 
 /** The preflight's limit: per client IP only, before any lookup. */
-async function preflightRateLimited(request: Request): Promise<number | null> {
-  const byIp = await limiter().check('webform.ip', ipOf(request));
+async function preflightRateLimited(
+  request: Request,
+  token: string
+): Promise<number | null> {
+  const byIp = await limiter().check('webform.ip', ipOf(request, token));
   return byIp.allowed ? null : byIp.retryAfterMs;
 }
 
@@ -144,7 +151,7 @@ async function rateLimited(
   token: string
 ): Promise<number | null> {
   const rl = limiter();
-  const ip = ipOf(request);
+  const ip = ipOf(request, token);
   const byIp = await rl.check('webform.ip', ip);
   if (!byIp.allowed) return byIp.retryAfterMs;
   // Keyed like 'webform.token' (the token itself), plus the address.
@@ -171,7 +178,7 @@ export async function OPTIONS(request: Request, { params }: Params) {
   const { token } = await params;
   if (!isWellFormedToken(token)) return json(404, { error: 'not_found' });
   try {
-    const retryAfterMs = await preflightRateLimited(request);
+    const retryAfterMs = await preflightRateLimited(request, token);
     if (retryAfterMs !== null) return tooMany(retryAfterMs);
     const form = await loadPublicForm(supabaseAdmin(), token);
     if (!form) return json(404, { error: 'not_found' });

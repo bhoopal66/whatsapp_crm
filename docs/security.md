@@ -61,7 +61,7 @@ for everyone; the app's own limits above replace that one.
 
 On the public API (`/api/v1`), an unknown, revoked or expired key
 counts as a failure for the caller's IP; a good key clears the run.
-5 bad keys in a row, or 20 in 10 minutes, lock the IP for 15 minutes.
+5 bad keys in a row, or 60 in 10 minutes, lock the IP for 15 minutes.
 A locked IP is refused before its key is looked up, with the ordinary
 `429 rate_limited` answer and headers, so a lockout looks exactly like
 rate limiting.

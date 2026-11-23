@@ -139,6 +139,13 @@ export const RATE_LIMITS = {
    *  fidget with reactions and a single "swap" is actually two calls
    *  (remove + add) under the hood. */
   react: { limit: 120, windowMs: 60_000 },
+  /** Deal-room sends into a customer's WhatsApp group, per person and
+   *  room (a bank guest can post too), then per room: all of it leaves
+   *  from the company number. */
+  dealRoomSend: { limit: 30, windowMs: 60_000 },
+  dealRoomTotal: { limit: 60, windowMs: 60_000 },
+  /** Case desk uploads, per person: each one stores a file. */
+  deskUpload: { limit: 60, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link
    *  retry a handful of times under flaky connectivity without
    *  enabling brute-force token enumeration. With 256-bit tokens the
