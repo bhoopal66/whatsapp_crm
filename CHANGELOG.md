@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### AI answers that were cut off are never sent
+
+No migration. When the AI provider stops before finishing an answer (the
+length cap, a refusal, a content filter), the half answer is no longer sent
+as if it were complete: the bot hands the chat to a person (after one retry
+on the workspace's model when a smaller or larger one failed), and a draft,
+a translation or an HR draft shows an error instead. OpenAI reasoning models
+now have room for their hidden reasoning besides the reply, so a reply may
+use more tokens on the workspace's key.
+
 ### Limits on what reaches a customer's group, and on uploads
 
 No migration.

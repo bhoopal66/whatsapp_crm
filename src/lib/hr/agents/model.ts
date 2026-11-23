@@ -3,16 +3,21 @@
  * providers, the way `lib/ai/translate.ts` calls them. The account's key
  * goes only into the provider call, never into a message. Candidate text
  * and history go only inside the delimited DATA block (`prompts.ts`).
- * Provider errors propagate unchanged: the orchestrator fails closed on
- * any throw (handoff 'error', no draft). The model only suggests a label
+ * Provider errors propagate unchanged, and a cut-off answer is an error
+ * too (`assertComplete`): the orchestrator fails closed on any throw (handoff 'error', no draft). The model only suggests a label
  * or a draft; the guardrails stay in code.
  */
 import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 import { aiRequestTimeoutMs } from '@/lib/ai/defaults';
 import { generateAnthropic } from '@/lib/ai/providers/anthropic';
 import { generateOpenAi } from '@/lib/ai/providers/openai';
-import type { ProviderArgs } from '@/lib/ai/providers/shared';
-import { AiError, type AiConfig, type AiUsage } from '@/lib/ai/types';
+import { assertComplete, type ProviderArgs } from '@/lib/ai/providers/shared';
+import {
+  AiError,
+  type AiConfig,
+  type AiUsage,
+  type ProviderResult,
+} from '@/lib/ai/types';
 import type { ModelInput, ModelOutput, ModelPort } from './ports';
 import { SYSTEM_PROMPTS, buildUserContent } from './prompts';
 import { INTENTS, type Intent } from './types';
@@ -58,7 +63,7 @@ export function createAiModelPort(opts: AiModelPortOptions): ModelPort {
       model,
       promptSize(providerArgs.systemPrompt, providerArgs.messages)
     );
-    let result: { text: string; usage: AiUsage | null };
+    let result: ProviderResult;
     const provider = config.provider;
     switch (provider) {
       case 'openai':
@@ -76,6 +81,7 @@ export function createAiModelPort(opts: AiModelPortOptions): ModelPort {
       }
     }
     onUsage?.({ model, usage: result.usage });
+    assertComplete(result);
 
     if (classify) {
       const intent = parseIntent(result.text);

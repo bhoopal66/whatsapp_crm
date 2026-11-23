@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_OUTPUT_TOKENS } from '../defaults';
+import { MAX_OUTPUT_TOKENS, OPENAI_REASONING_TOKENS } from '../defaults';
 import { generateAnthropic } from './anthropic';
-import { generateOpenAi } from './openai';
+import { generateOpenAi, isOpenAiReasoningModel } from './openai';
 import type { ProviderArgs } from './shared';
 
 // The adapters' output cap: MAX_OUTPUT_TOKENS unless the caller asks for
@@ -62,5 +62,61 @@ describe('Anthropic output cap', () => {
   it('honours maxTokens', async () => {
     await generateAnthropic({ ...base, maxTokens: 4096 });
     expect(sentBody().max_tokens).toBe(4096);
+  });
+});
+
+describe('OpenAI reasoning models', () => {
+  it.each([
+    'gpt-5.4-mini',
+    'gpt-5.5',
+    'gpt-5',
+    'o3',
+    'o4-mini',
+    ' GPT-5-nano ',
+  ])('%s counts its reasoning against the cap', (m) =>
+    expect(isOpenAiReasoningModel(m)).toBe(true)
+  );
+
+  it.each(['gpt-4o', 'gpt-4.1-mini', 'gpt-5-chat-latest', 'omni', 'm', ''])(
+    '%s does not',
+    (m) => expect(isOpenAiReasoningModel(m)).toBe(false)
+  );
+
+  it('get room for the reasoning on top of the reply cap', async () => {
+    fetchMock.mockResolvedValue(
+      ok({ choices: [{ message: { content: 'x' } }] })
+    );
+    await generateOpenAi({ ...base, model: 'gpt-5.4-mini' });
+    expect(sentBody().max_completion_tokens).toBe(
+      MAX_OUTPUT_TOKENS + OPENAI_REASONING_TOKENS
+    );
+  });
+});
+
+describe('truncated', () => {
+  it.each([
+    ['max_tokens', true],
+    ['model_context_window_exceeded', true],
+    ['refusal', true],
+    ['end_turn', false],
+    ['stop_sequence', false],
+    [undefined, false],
+  ])('Anthropic stop_reason %s -> %s', async (stop_reason, truncated) => {
+    fetchMock.mockResolvedValue(
+      ok({ content: [{ type: 'text', text: 'x' }], stop_reason })
+    );
+    expect((await generateAnthropic(base)).truncated).toBe(truncated);
+  });
+
+  it.each([
+    ['length', true],
+    ['content_filter', true],
+    ['stop', false],
+    [undefined, false],
+  ])('OpenAI finish_reason %s -> %s', async (finish_reason, truncated) => {
+    fetchMock.mockResolvedValue(
+      ok({ choices: [{ message: { content: 'x' }, finish_reason }] })
+    );
+    expect((await generateOpenAi(base)).truncated).toBe(truncated);
   });
 });

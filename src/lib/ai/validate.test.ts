@@ -1,5 +1,34 @@
-import { describe, it, expect } from 'vitest';
-import { MAX_MODEL_ID_LENGTH, parseAiAgentV2Settings } from './validate';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import type { AiConfig } from './types';
+import {
+  MAX_MODEL_ID_LENGTH,
+  parseAiAgentV2Settings,
+  validateAiCredentials,
+} from './validate';
+
+describe('validateAiCredentials', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const config = { provider: 'openai', model: 'm', apiKey: 'k' } as AiConfig;
+  const answer = (ok: boolean, status: number, body: unknown) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok, status, json: async () => body })
+    );
+
+  it('a cut-off answer proves the key and the model', async () => {
+    answer(true, 200, {
+      choices: [{ message: { content: 'OK' }, finish_reason: 'length' }],
+    });
+    await expect(validateAiCredentials(config)).resolves.toBeUndefined();
+  });
+
+  it('a refused key still fails', async () => {
+    answer(false, 401, {});
+    await expect(validateAiCredentials(config)).rejects.toMatchObject({
+      code: 'invalid_key',
+    });
+  });
+});
 
 describe('parseAiAgentV2Settings', () => {
   it('leaves absent fields out, so a partial save changes nothing', () => {

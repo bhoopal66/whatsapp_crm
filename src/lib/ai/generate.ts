@@ -4,10 +4,12 @@ import {
   type AiUsage,
   type ChatMessage,
   type GenerateResult,
+  type ProviderResult,
 } from './types';
 import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults';
 import { generateOpenAi } from './providers/openai';
 import { generateAnthropic } from './providers/anthropic';
+import { assertComplete } from './providers/shared';
 import { redactMessages } from './redact-input';
 import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 
@@ -31,7 +33,8 @@ export interface GenerateArgs {
 /**
  * Generate the next reply from the account's configured provider.
  * Dispatches to the right adapter, then parses the handoff sentinel out
- * of the raw text. Throws `AiError` on any provider/network failure.
+ * of the raw text. Throws `AiError` on any provider/network failure, and
+ * `truncated` when the provider cut the answer off.
  */
 export async function generateReply(
   args: GenerateArgs
@@ -55,7 +58,7 @@ export async function generateReply(
     promptSize(systemPrompt, messages)
   );
 
-  let result: { text: string; usage: AiUsage | null };
+  let result: ProviderResult;
   switch (config.provider) {
     case 'openai':
       result = await generateOpenAi(providerArgs);
@@ -70,6 +73,7 @@ export async function generateReply(
       });
   }
 
+  assertComplete(result);
   return parseGeneration(result.text, result.usage);
 }
 

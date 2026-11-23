@@ -1,9 +1,14 @@
 import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
-import { AiError, type AiConfig, type AiUsage } from './types';
+import {
+  AiError,
+  type AiConfig,
+  type AiUsage,
+  type ProviderResult,
+} from './types';
 import { aiRequestTimeoutMs } from './defaults';
 import { generateOpenAi } from './providers/openai';
 import { generateAnthropic } from './providers/anthropic';
-import type { ProviderArgs } from './providers/shared';
+import { assertComplete, type ProviderArgs } from './providers/shared';
 
 // Inbox Translate: a customer's message into English (a reading aid) and
 // an agent's draft into Arabic (text the customer will receive). One LLM
@@ -111,8 +116,8 @@ export interface TranslateTextResult {
 
 /**
  * Translate `text` with the account's provider. Throws `AiError` on a
- * provider failure, and `translate_empty` when nothing is left after
- * cleaning.
+ * provider failure, `truncated` when the translation was cut off, and
+ * `translate_empty` when nothing is left after cleaning.
  */
 export async function translateText(
   args: TranslateTextArgs
@@ -134,7 +139,7 @@ export async function translateText(
     model,
     promptSize(providerArgs.systemPrompt, providerArgs.messages)
   );
-  let result: { text: string; usage: AiUsage | null };
+  let result: ProviderResult;
   const provider = config.provider;
   switch (provider) {
     case 'openai':
@@ -152,6 +157,7 @@ export async function translateText(
     }
   }
 
+  assertComplete(result);
   const translated = cleanTranslation(result.text);
   if (!translated) {
     throw new AiError('The AI returned no translation.', {

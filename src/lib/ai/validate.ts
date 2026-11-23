@@ -1,21 +1,26 @@
 import { generateReply } from './generate';
-import type { AiConfig } from './types';
+import { AiError, type AiConfig } from './types';
 
 /**
  * Cheap liveness + auth check: one tiny generation against the
  * configured provider/model with the caller's key. Throws `AiError`
  * (invalid_key / rate_limited / network / timeout) on failure, resolves
- * on success. Used by the settings "Test key" button and before
+ * on success; a cut-off answer is one, the key and model work. Used by the settings "Test key" button and before
  * persisting a config — the same "verify before save" discipline the
  * WhatsApp config uses with Meta.
  */
 export async function validateAiCredentials(config: AiConfig): Promise<void> {
-  await generateReply({
-    config,
-    systemPrompt:
-      'You are a connectivity check. Reply with the single word: OK.',
-    messages: [{ role: 'user', content: 'ping' }],
-  });
+  try {
+    await generateReply({
+      config,
+      systemPrompt:
+        'You are a connectivity check. Reply with the single word: OK.',
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+  } catch (err) {
+    if (err instanceof AiError && err.code === 'truncated') return;
+    throw err;
+  }
 }
 
 /** Longest model id accepted for a tier (migration 077). */
