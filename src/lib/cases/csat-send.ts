@@ -12,6 +12,7 @@
  *
  * Recorded as a bot message. Mirrors the desk digest sender
  * (`lib/desk/digest-send.ts`), which mirrors the HR automated messages.
+ * A chat or contact that cannot be read is HELD ('lookup_failed') too.
  * A contact opted out since the claim is refused ('opted_out'). On a
  * linked device the number's daily limit of new chats applies (migration
  * 204, as for broadcasts): over it the request is HELD
@@ -97,26 +98,34 @@ async function metaWindowOpen(
   return serviceWindowOpen((data as { created_at?: string }).created_at);
 }
 
+/** Nothing was sent; SQL retries a held request hourly. */
+function lookupFailed(table: string, code: string | undefined): CsatSendResult {
+  console.error(`[cases] csat ${table} read failed`, code ?? '');
+  return { outcome: 'held', reason: 'lookup_failed' };
+}
+
 export async function sendCaseCsat(
   db: SupabaseClient,
   claim: CsatClaim
 ): Promise<CsatSendResult> {
-  const { data: conv } = await db
+  const { data: conv, error: convError } = await db
     .from('conversations')
     .select('id, contact_id, channel_id, send_channel_id, personal_owner_id')
     .eq('id', claim.conversationId)
     .eq('account_id', claim.accountId)
     .maybeSingle();
+  if (convError) return lookupFailed('conversations', convError.code);
   if (!conv || conv.contact_id !== claim.contactId)
     throw new CsatRefusal('conversation_missing');
   if (conv.personal_owner_id) throw new CsatRefusal('personal_number');
 
-  const { data: contact } = await db
+  const { data: contact, error: contactError } = await db
     .from('contacts')
     .select('id, phone, opted_out_at, do_not_contact_at')
     .eq('id', claim.contactId)
     .eq('account_id', claim.accountId)
     .maybeSingle();
+  if (contactError) return lookupFailed('contacts', contactError.code);
   // The claim checked this once for its whole batch; a STOP may have
   // arrived since.
   if (contact?.opted_out_at || contact?.do_not_contact_at)
@@ -232,7 +241,7 @@ export async function sendCaseCsat(
   const via = decision === 'template' ? 'template' : 'text';
   // The gateway has the message: nothing below may turn it into a failure.
   try {
-    const { data: msg } = await db
+    const { data: msg, error: msgError } = await db
       .from('messages')
       .insert({
         conversation_id: claim.conversationId,
@@ -247,6 +256,8 @@ export async function sendCaseCsat(
       })
       .select('id')
       .single();
+    if (msgError)
+      console.error('[cases] csat message not saved', msgError.code ?? '');
     const now = new Date().toISOString();
     await db
       .from('conversations')

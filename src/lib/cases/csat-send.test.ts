@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   sendText: vi.fn(),
   sendTemplate: vi.fn(),
   contact: {} as Record<string, unknown>,
+  failing: '',
 }));
 
 vi.mock('@/lib/team-activity/auto-guard', () => ({
@@ -50,6 +51,8 @@ const CONV = {
   personal_owner_id: null,
 };
 
+const FAILED = { data: null, error: { code: '57014', message: 'x' } };
+
 // Rows carry only the columns asked for, as PostgREST's would.
 function db() {
   const from = (table: string) => {
@@ -60,12 +63,15 @@ function db() {
           ? { id: 'm1' }
           : CONV;
     let cols: string[] = [];
-    const read = async () => ({
-      data: Object.fromEntries(
-        Object.entries(row).filter(([k]) => cols.includes(k))
-      ),
-      error: null,
-    });
+    const read = async () =>
+      table === h.failing
+        ? FAILED
+        : {
+            data: Object.fromEntries(
+              Object.entries(row).filter(([k]) => cols.includes(k))
+            ),
+            error: null,
+          };
     const q = {
       select: (c: string) => {
         cols = c.split(',').map((x) => x.trim());
@@ -84,6 +90,7 @@ function db() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.failing = '';
   h.contact = {
     id: 'c1',
     phone: '+971501234567',
@@ -130,4 +137,26 @@ describe('sendCaseCsat', () => {
       expect(h.sendText).not.toHaveBeenCalled();
     }
   );
+
+  it.each(['conversations', 'contacts'])(
+    'holds the request, sending nothing, when %s cannot be read',
+    async (table) => {
+      h.failing = table;
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await sendCaseCsat(db(), CLAIM);
+      log.mockRestore();
+      expect(res).toEqual({ outcome: 'held', reason: 'lookup_failed' });
+      expect(h.sendText).not.toHaveBeenCalled();
+    }
+  );
+
+  it('logs a message that could not be saved, and stays sent', async () => {
+    h.failing = 'messages';
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await sendCaseCsat(db(), CLAIM);
+    const logged = log.mock.calls;
+    log.mockRestore();
+    expect(res).toMatchObject({ outcome: 'sent', messageId: null });
+    expect(logged).toEqual([['[cases] csat message not saved', '57014']]);
+  });
 });
