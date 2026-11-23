@@ -18,6 +18,7 @@ vi.mock('@/lib/flows/admin-client', () => ({
 
 import {
   deliverBroadcast,
+  finalizeBroadcastStatus,
   OPTED_OUT_REASON,
   type BroadcastPlan,
 } from './broadcast-core';
@@ -318,5 +319,47 @@ describe('sends whose outcome nobody knows', () => {
     await expect(resume(db, 'failed')).rejects.toMatchObject({
       code: 'nothing_to_resume',
     });
+  });
+});
+
+describe('finalizing on unreadable counts', () => {
+  it.each([1, 2, 3])(
+    'leaves the status alone when count %i fails',
+    async (n) => {
+      const w = world(2);
+      for (const r of w.broadcast_recipients) r.status = 'sent';
+      let reads = 0;
+      const db = fakeDb(w, {
+        fail: ({ table }) =>
+          table === 'broadcast_recipients' && ++reads === n ? 'timeout' : null,
+      });
+      await finalizeBroadcastStatus(db, 'bc-1');
+      expect(w.broadcasts[0].status).toBe('sending');
+
+      await finalizeBroadcastStatus(db, 'bc-1');
+      expect(w.broadcasts[0].status).toBe('sent');
+    }
+  );
+
+  it('leaves the status alone when a count is missing', async () => {
+    const w = world(2);
+    const real = fakeDb(w);
+    const db = {
+      from: (table: string) =>
+        table === 'broadcasts'
+          ? real.from(table)
+          : {
+              select() {
+                return this;
+              },
+              eq() {
+                return this;
+              },
+              then: (ok: (r: unknown) => unknown) =>
+                ok({ count: null, error: null }),
+            },
+    } as unknown as ReturnType<typeof fakeDb>;
+    await finalizeBroadcastStatus(db, 'bc-1');
+    expect(w.broadcasts[0].status).toBe('sending');
   });
 });

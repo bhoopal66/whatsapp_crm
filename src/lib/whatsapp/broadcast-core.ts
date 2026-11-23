@@ -833,28 +833,33 @@ export async function settleBroadcastAfterLateFailure(
 
 /**
  * 'failed' when every recipient failed, 'sent' otherwise, and null while
- * any recipient is still pending.
+ * any recipient is still pending or when a count could not be read: a
+ * failed read counted as zero pending closed campaigns with hundreds of
+ * customers still to message.
  */
 async function terminalStatusFromRecipients(
   db: SupabaseClient,
   broadcastId: string
 ): Promise<'sent' | 'failed' | null> {
-  const countWhere = async (status: string): Promise<number> => {
-    const { count } = await db
+  const countWhere = async (status?: string): Promise<number | null> => {
+    let query = db
       .from('broadcast_recipients')
       .select('id', { count: 'exact', head: true })
-      .eq('broadcast_id', broadcastId)
-      .eq('status', status);
-    return count ?? 0;
+      .eq('broadcast_id', broadcastId);
+    if (status) query = query.eq('status', status);
+    const { count, error } = await query;
+    if (error) {
+      console.error('[broadcast-core] recipient count failed:', error.message);
+      return null;
+    }
+    return count;
   };
 
-  if ((await countWhere('pending')) > 0) return null;
+  if ((await countWhere('pending')) !== 0) return null;
 
   const failed = await countWhere('failed');
-  const { count: total } = await db
-    .from('broadcast_recipients')
-    .select('id', { count: 'exact', head: true })
-    .eq('broadcast_id', broadcastId);
+  const total = await countWhere();
+  if (failed === null || total === null) return null;
 
-  return failed > 0 && failed === (total ?? 0) ? 'failed' : 'sent';
+  return failed > 0 && failed === total ? 'failed' : 'sent';
 }
